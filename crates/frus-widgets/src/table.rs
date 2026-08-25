@@ -9,7 +9,7 @@
 
 use std::rc::Rc;
 
-use frus_core::{Color, Insets, Path, Point, Rect, Scene};
+use frus_core::{Color, Insets, Path, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Align, Dimension, Justify, Style};
 
 use crate::flex::Flex;
@@ -31,6 +31,15 @@ type RowWidgets<Msg> = Rc<dyn Fn(usize) -> Vec<Box<dyn Widget<Msg>>>>;
 const ROW_H: f32 = 34.0;
 const PAD_X: f32 = 10.0;
 const SIZE: f32 = 15.0;
+
+/// The style this widget's text is drawn in, **resolved once** so that the number the box
+/// is measured with is the number the glyphs are drawn at. Resolving is the single place
+/// the reader's font setting is applied (milestone 403); a size that never passes through
+/// it is a size the reader cannot change.
+fn label_style() -> ResolvedTextStyle {
+    TextStyle::new(SIZE).resolved()
+}
+
 /// Gap between rows and between cells (must match the geometry of the handles).
 const ROW_GAP: f32 = 2.0;
 /// Width of the checkbox column (multi-selection).
@@ -63,8 +72,13 @@ fn cell_background(
 }
 
 /// Style of a cell: the column width (fixed or flexible), and an **adaptive** height — a
-/// `ROW_H` floor (a minimum comfort) that grows with the content. Since the row aligns its
-/// cells with `Stretch`, they all follow the tallest one (nothing is clipped).
+/// floor that grows with the content. Since the row aligns its cells with `Stretch`, they
+/// all follow the tallest one.
+///
+/// The floor is `ROW_H` *or what the label needs*, whichever is larger. A cell **paints**
+/// its label rather than laying it out, so as far as the layout is concerned its content
+/// is empty: a bare `ROW_H` would have been a ceiling in everything but name, and at a text
+/// scale of 2 a 15 px label wants 36 px of line inside 34.
 fn cell_style(width: Dimension) -> Style {
     let flex_grow = if matches!(width, Dimension::Length(_)) {
         0.0
@@ -74,7 +88,10 @@ fn cell_style(width: Dimension) -> Style {
     Style {
         width,
         height: Dimension::Auto,
-        min_height: Dimension::Length(ROW_H),
+        // A **floor**, and one that answers to the reader: the cell paints its label
+        // rather than laying it out, so its content height is zero and `min_height` is the
+        // only thing standing between a row and text taller than it.
+        min_height: Dimension::Length(frus_text::line_box(ROW_H, &label_style(), 0.0)),
         flex_grow,
         ..Default::default()
     }
@@ -156,7 +173,7 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
         scene.text(
             Point::new(text_x, ty),
             self.label.clone(),
-            SIZE,
+            &label_style(),
             color.fade(o),
         );
 

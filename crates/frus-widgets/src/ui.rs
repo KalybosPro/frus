@@ -1166,7 +1166,7 @@ fn paint_overflow_label(scene: &mut Scene, band: Rect, over: &Overflowing) {
     if angle == 0.0 {
         let at = Point::new(anchor.x - size.width / 2.0, anchor.y);
         scene.fill_rect(Rect::from_point_size(at, size), Color::WHITE);
-        scene.text_styled(at, text, &style.resolved(), INK);
+        scene.text(at, text, &style.resolved(), INK);
         return;
     }
     // A rotation of a group, not of a glyph: the plate and the sentence turn together and
@@ -1184,7 +1184,7 @@ fn paint_overflow_label(scene: &mut Scene, band: Rect, over: &Overflowing) {
         .then(Affine::translation(anchor.x, anchor.y));
     scene.transformed(LayerTransform::new(matrix), move |scene: &mut Scene| {
         scene.fill_rect(flat, Color::WHITE);
-        scene.text_styled(flat.origin(), text, &style.resolved(), INK);
+        scene.text(flat.origin(), text, &style.resolved(), INK);
     });
 }
 

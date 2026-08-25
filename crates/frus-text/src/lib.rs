@@ -418,6 +418,30 @@ pub fn measure_resolved(text: &str, style: &ResolvedTextStyle) -> Size {
     measure_styled(text, style.size, style.weight, style.italic)
 }
 
+/// The height a box needs to hold **one line** of `style` with `padding` of room around
+/// it: `min`, unless the reader asked for type that does not fit in `min`.
+///
+/// It is the reference's rule for its own components — a default height is a *floor*, and
+/// content taller than it wins — written once rather than as a `max` remembered at each of
+/// the places that need it. A component whose height is a bare constant clips its own text
+/// the moment somebody turns the system font size up, and says nothing about it.
+pub fn line_box(min: f32, style: &ResolvedTextStyle, padding: f32) -> f32 {
+    // Rounded **up**. The layout works in whole pixels, and a box that came out at 43 for
+    // a line needing 43.2 clips it — by a fifth of a pixel, which is still a clip.
+    min.max((line_height(style.size) + padding).ceil())
+}
+
+/// Measures `text` under an already-resolved style, **wrapping** at `max_width`. The
+/// resolved counterpart of [`measure_wrapped`], for a paragraph whose style has been
+/// settled once and must be measured and painted at the same size.
+pub fn measure_wrapped_resolved(
+    text: &str,
+    style: &ResolvedTextStyle,
+    max_width: Option<f32>,
+) -> Size {
+    measure_wrapped(text, style.size, style.weight, style.italic, max_width)
+}
+
 /// Measures a **styled** text's natural size; weight and italics count, since bold
 /// is wider than regular and the layout has to know.
 pub fn measure_styled(text: &str, size_px: f32, weight: FontWeight, italic: bool) -> Size {

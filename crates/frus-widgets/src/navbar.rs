@@ -96,7 +96,7 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
         let measured = frus_text::measure_style(&self.title, style);
         let tx = bounds.x + (bounds.width - measured.width) * 0.5;
         let ty = bounds.y + (bounds.height - measured.height) * 0.5;
-        scene.text_styled(
+        scene.text(
             Point::new(tx, ty),
             self.title.clone(),
             &style.resolved(),

@@ -440,7 +440,7 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
             scene.fill_path(&path, color.fade(o));
         }
         if shows_label {
-            scene.text_styled(
+            scene.text(
                 Point::new(
                     bounds.x + (bounds.width - measured.width) / 2.0,
                     top + icon_block,

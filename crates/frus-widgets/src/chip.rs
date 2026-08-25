@@ -399,8 +399,27 @@ impl<Msg: Clone + 'static> Chip<Msg> {
     }
 
     fn label_size(&self, theme: &Theme) -> frus_core::Size {
-        let style = self.style.label_style(theme);
-        frus_text::measure_style(&self.label, style)
+        frus_text::measure_resolved(&self.label, &self.style.label_style(theme).resolved())
+    }
+
+    /// The chip's height: the one it was given, **or what its label needs** when the reader
+    /// asked for type that does not fit inside it.
+    ///
+    /// The reference's chip does the same arithmetic —
+    /// `max(chipHeight - padding.vertical, labelHeight) + padding.vertical` — because a
+    /// component's default height is a **floor** and not a ceiling. Ours was a ceiling, so
+    /// at a text scale of 2 a chip's glyphs needed 34 px inside a 32 px box and were cut.
+    ///
+    /// The room asked for around the line is `0`, not the chip's padding: that padding is
+    /// applied on the horizontal axis only (the label is painted, not laid out, and is
+    /// centred in the box), so counting it here would move every chip that fits perfectly
+    /// well today.
+    fn box_height(&self, theme: &Theme) -> f32 {
+        frus_text::line_box(
+            self.style.height(theme),
+            &self.style.label_style(theme).resolved(),
+            0.0,
+        )
     }
 }
 
@@ -421,7 +440,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Chip<Msg> {
         let removable = !self.children.is_empty();
         Style {
             width: Dimension::Length(after_label + if removable { icon } else { 0.0 } + pad),
-            height: Dimension::Length(self.style.height(theme)),
+            height: Dimension::Length(self.box_height(theme)),
             flex_direction: FlexDirection::Row,
             align: Align::Center,
             padding: Insets::new(0.0, pad, 0.0, after_label),
@@ -492,7 +511,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Chip<Msg> {
 
         let label_style = self.style.label_style(theme);
         let measured = self.label_size(theme);
-        scene.text_styled(
+        scene.text(
             Point::new(
                 bounds.x + self.label_offset(theme),
                 bounds.y + (bounds.height - measured.height) * 0.5,

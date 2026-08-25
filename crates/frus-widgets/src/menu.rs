@@ -1,7 +1,7 @@
 //! [`PopupMenuButton`]: a **floating** action menu — an anchor plus a list of items that opens
 //! over it, through the overlay, and closes on an outside click.
 
-use frus_core::{Point, Rect, Scene};
+use frus_core::{Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
@@ -16,6 +16,14 @@ const ROW_H: f32 = 38.0;
 const PAD_X: f32 = 12.0;
 const SIZE: f32 = 16.0;
 
+/// The style this widget's text is drawn in, **resolved once** so that the number the box
+/// is measured with is the number the glyphs are drawn at. Resolving is the single place
+/// the reader's font setting is applied (milestone 403); a size that never passes through
+/// it is a size the reader cannot change.
+fn label_style() -> ResolvedTextStyle {
+    TextStyle::new(SIZE).resolved()
+}
+
 /// One menu action, a clickable row.
 struct Item<Msg> {
     label: String,
@@ -28,7 +36,7 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Length(WIDTH),
-            height: Dimension::Length(ROW_H),
+            height: Dimension::Length(frus_text::line_box(ROW_H, &label_style(), 0.0)),
             ..Default::default()
         }
     }
@@ -62,11 +70,12 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
         } else {
             disabled_content(theme)
         };
-        let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
+        let style = label_style();
+        let ty = bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5;
         scene.text(
             Point::new(bounds.x + PAD_X, ty),
             self.label.clone(),
-            SIZE,
+            &style,
             ink.fade(o),
         );
     }

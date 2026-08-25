@@ -9,7 +9,7 @@
 
 use std::rc::Rc;
 
-use frus_core::{Color, Point, Rect, Scene};
+use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::interaction::Status;
@@ -19,6 +19,14 @@ use crate::widget::Widget;
 const ROW_H: f32 = 32.0;
 const INDENT: f32 = 20.0;
 const SIZE: f32 = 16.0;
+
+/// The style this widget's text is drawn in, **resolved once** so that the number the box
+/// is measured with is the number the glyphs are drawn at. Resolving is the single place
+/// the reader's font setting is applied (milestone 403); a size that never passes through
+/// it is a size the reader cannot change.
+fn label_style() -> ResolvedTextStyle {
+    TextStyle::new(SIZE).resolved()
+}
 
 /// One tree row: indented, a chevron if the node has children, **guide lines** back to its
 /// ancestors, and a **selection** background. Clicking the chevron expands or collapses
@@ -52,11 +60,11 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         // would have no width at all (no child to measure) and the selection background
         // would be invisible. The `Tree` (a column, align Stretch) then stretches every
         // row out to the widest one.
-        let text_w = frus_text::measure(&self.label, SIZE).width;
+        let text_w = frus_text::measure_resolved(&self.label, &label_style()).width;
         let width = self.chevron_start() + INDENT + text_w + ROW_PAD_R;
         Style {
             width: Dimension::Length(width),
-            height: Dimension::Length(ROW_H),
+            height: Dimension::Length(frus_text::line_box(ROW_H, &label_style(), 0.0)),
             ..Default::default()
         }
     }
@@ -90,19 +98,22 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         }
 
         let x = bounds.x + self.chevron_start();
-        let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
+        let style = label_style();
+        let ty = bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5;
         if self.expandable {
             scene.text(
                 Point::new(x, ty),
                 if self.expanded { "▾" } else { "▸" }.to_string(),
-                SIZE,
+                // The chevron is an icon drawn as a glyph, so it keeps its size: it lives
+                // in a fixed indent, and type that grew would push the label out of it.
+                &ResolvedTextStyle::exact(SIZE),
                 theme.muted.fade(o),
             );
         }
         scene.text(
             Point::new(x + INDENT, ty),
             self.label.clone(),
-            SIZE,
+            &style,
             theme.on_surface.fade(o),
         );
     }

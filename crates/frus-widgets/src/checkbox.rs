@@ -1,6 +1,6 @@
 //! [`Checkbox`]: a **controlled** checkbox, its state coming from the application.
 
-use frus_core::{Color, Point, Rect, Scene};
+use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Dimension, Style};
 
 use crate::disabled::{disabled_content, disabled_mark};
@@ -186,9 +186,18 @@ impl<Msg> Checkbox<Msg> {
     }
 }
 
+impl<Msg> Checkbox<Msg> {
+    /// The label's style, **resolved once** so that the number the box is measured with is
+    /// the number the glyphs are drawn at. Resolving is the single place the reader's font
+    /// setting is applied (milestone 403).
+    fn label_style(&self) -> ResolvedTextStyle {
+        TextStyle::new(self.size).resolved()
+    }
+}
+
 impl<Msg> Widget<Msg> for Checkbox<Msg> {
     fn style(&self) -> Style {
-        let line = frus_text::line_height(self.size).max(BOX);
+        let line = frus_text::line_height(self.label_style().size).max(BOX);
         Style {
             width: Dimension::Length((BOX + self.label_width()).ceil()),
             height: Dimension::Length(line.ceil()),
@@ -230,10 +239,12 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
             );
             match self.value {
                 // Ticked.
+                // `exact`: the tick is an icon drawn as a glyph and it lives inside a
+                // `BOX` that does not move, so it must not follow the reader's type.
                 Some(_) => scene.text(
                     Point::new(box_rect.x + 3.0, box_rect.y + 1.0),
                     "✓".to_string(),
-                    self.size,
+                    &ResolvedTextStyle::exact(self.size),
                     tick.fade(o),
                 ),
                 // Partly ticked: a bar, and a **drawn** one rather than a dash of text.
@@ -297,7 +308,7 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
             scene.text(
                 Point::new(bounds.x + BOX + GAP, bounds.y),
                 label.clone(),
-                self.size,
+                &self.label_style(),
                 color.fade(o),
             );
         }

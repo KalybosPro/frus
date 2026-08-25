@@ -1,7 +1,7 @@
 //! [`Timeline`]: a vertical chronology — events joined by a line, each marked with a
 //! dot.
 
-use frus_core::{Color, Point, Rect, Scene};
+use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::interaction::Status;
@@ -9,6 +9,20 @@ use crate::theme::Theme;
 use crate::widget::Widget;
 
 const ROW_H: f32 = 56.0;
+/// The entry's title, and the line under it.
+const TITLE_SIZE: f32 = 16.0;
+const DETAIL_SIZE: f32 = 13.0;
+
+/// The title's style, **resolved once** so that the number the row is measured with is the
+/// number the glyphs are drawn at.
+fn title_style() -> ResolvedTextStyle {
+    TextStyle::new(TITLE_SIZE).resolved()
+}
+
+/// The detail line's style. See [`title_style`].
+fn detail_style() -> ResolvedTextStyle {
+    TextStyle::new(DETAIL_SIZE).resolved()
+}
 const LINE_X: f32 = 8.0;
 const DOT: f32 = 10.0;
 const TEXT_X: f32 = 28.0;
@@ -52,13 +66,13 @@ impl<Msg> Widget<Msg> for Event {
         scene.text(
             Point::new(bounds.x + TEXT_X, bounds.y + 8.0),
             self.title.clone(),
-            16.0,
+            &title_style(),
             theme.on_surface.fade(o),
         );
         scene.text(
             Point::new(bounds.x + TEXT_X, bounds.y + 30.0),
             self.detail.clone(),
-            13.0,
+            &detail_style(),
             theme.muted.fade(o),
         );
     }

@@ -29,7 +29,9 @@
 //! assert_eq!(report.first_invalid(), Some("email"));
 //! ```
 
-use frus_core::{Color, Insets, Point, Rect, Role, Scene, SemanticsProperties};
+use frus_core::{
+    Color, Insets, Point, Rect, ResolvedTextStyle, Role, Scene, SemanticsProperties, TextStyle,
+};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::interaction::Status;
@@ -253,6 +255,12 @@ impl<Msg: Clone + 'static> ErrorSummary<Msg> {
 /// The font size of a summary bullet.
 const BULLET_SIZE: f32 = 13.0;
 
+/// A bullet's style, **resolved once** so that the number the box is measured with is the
+/// number the glyphs are drawn at.
+fn bullet_style() -> ResolvedTextStyle {
+    TextStyle::new(BULLET_SIZE).resolved()
+}
+
 /// One summary line ("• message"). **Clickable** when it carries a message (it then
 /// focuses the offending field); plain text otherwise.
 struct Bullet<Msg> {
@@ -265,7 +273,7 @@ impl<Msg: Clone> Widget<Msg> for Bullet<Msg> {
     /// [`Widget::fill_axes`]. A `width: 100%` resolves against the parent's *resolved*
     /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
-        let measured = frus_text::measure(&self.label, BULLET_SIZE);
+        let measured = frus_text::measure_resolved(&self.label, &bullet_style());
         Style {
             height: Dimension::Length((measured.height + 4.0).ceil()),
             padding: Insets::new(2.0, 6.0, 2.0, 6.0),
@@ -293,7 +301,7 @@ impl<Msg: Clone> Widget<Msg> for Bullet<Msg> {
         scene.text(
             Point::new(bounds.x + 6.0, bounds.y + 2.0),
             self.label.clone(),
-            BULLET_SIZE,
+            &bullet_style(),
             theme.on_surface.fade(o),
         );
     }

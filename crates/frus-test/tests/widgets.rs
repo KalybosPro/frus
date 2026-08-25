@@ -642,7 +642,7 @@ fn a_canvas_painted_by_hand() {
             scene.text(
                 Point::new(left + 12.0, top + 8.0),
                 "painted by hand",
-                13.0,
+                &frus_core::ResolvedTextStyle::exact(13.0),
                 theme.on_surface,
             );
         },

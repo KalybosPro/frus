@@ -1328,27 +1328,6 @@ impl Scene {
         });
     }
 
-    /// Adds a line of text, anchored by its top-left corner, regular and upright.
-    /// See [`Scene::text_styled`] for weight and italics.
-    pub fn text(&mut self, position: Point, text: impl Into<String>, size: f32, color: Color) {
-        self.primitives.push(Primitive::Text {
-            position,
-            text: text.into(),
-            size,
-            color,
-            weight: FontWeight::Regular,
-            italic: false,
-            max_width: None,
-            soft_wrap: true,
-            align: TextAlign::Start,
-            decoration: TextDecoration::NONE,
-            decoration_color: None,
-            clip: self.current_clip,
-            bounds: self.current_bounds,
-            owner: self.current_owner,
-        });
-    }
-
     /// Adds **rich** text: resolved runs, mixing styles and colours, laid out as one
     /// piece, anchored by its top-left corner.
     pub fn rich_text(&mut self, position: Point, runs: Vec<TextRun>) {
@@ -1379,14 +1358,20 @@ impl Scene {
         });
     }
 
-    /// Adds a styled line of text — size, weight and italics from the
-    /// [`ResolvedTextStyle`].
+    /// Adds a line of text, anchored by its top-left corner — size, weight and italics
+    /// from the [`ResolvedTextStyle`].
     ///
     /// It takes a **resolved** style and not a [`TextStyle`](crate::TextStyle) because
     /// this is the bottom of the chain: a shaper needs a number and there is nobody left
     /// below to ask one of. `color` is settled the same way, by the caller, usually
     /// against the theme — which is the one answer this crate cannot work out for itself.
-    pub fn text_styled(
+    ///
+    /// There is deliberately **no form of this that takes a bare `f32` size**. A number
+    /// arriving here has been through [`TextStyle::resolved`](crate::TextStyle::resolved),
+    /// which is the single place the reader's font size is applied; a second door taking a
+    /// raw constant is a door onto text that ignores the reader, and forty-seven call sites
+    /// walked through it (milestone 406).
+    pub fn text(
         &mut self,
         position: Point,
         text: impl Into<String>,
@@ -1605,7 +1590,12 @@ mod tests {
             1.0,
             Color::WHITE,
         );
-        scene.text(Point::new(5.0, 6.0), "hi", 18.0, Color::BLACK);
+        scene.text(
+            Point::new(5.0, 6.0),
+            "hi",
+            &ResolvedTextStyle::exact(18.0),
+            Color::BLACK,
+        );
 
         let big = scene.scaled(2.0);
         match &big.primitives()[0] {

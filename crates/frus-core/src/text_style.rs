@@ -182,6 +182,31 @@ pub struct ResolvedTextStyle {
     pub decoration_color: Option<Color>,
 }
 
+impl ResolvedTextStyle {
+    /// A style of **exactly** this size — regular, upright, undecorated, and *not* put
+    /// through the reader's font setting.
+    ///
+    /// For glyphs whose size is geometry rather than type: an icon on its 24 px grid, a
+    /// marker that has to stay inside a circle drawn beside it. The reference's `Icon` is
+    /// sized by `IconTheme` and ignores the text scaler for the same reason — an icon that
+    /// grew with the type would leave its own box.
+    ///
+    /// Everything a reader *reads* wants
+    /// [`TextStyle::new(size).resolved()`](TextStyle::resolved) instead. The two are one
+    /// keyword apart on purpose: the choice is worth stating at every call, which is why
+    /// there is no third form that guesses.
+    pub const fn exact(size: f32) -> Self {
+        Self {
+            size,
+            weight: FontWeight::Regular,
+            italic: false,
+            color: None,
+            decoration: TextDecoration::NONE,
+            decoration_color: None,
+        }
+    }
+}
+
 impl TextStyle {
     /// A style that says **nothing at all** — every field inherited.
     pub const NONE: Self = Self {
@@ -294,6 +319,30 @@ impl TextStyle {
     /// say which of the two numbers was the mistake.
     ///
     /// See [`with_text_scale`]. Outside any scope the scale is 1 and this is the identity.
+    /// Caps how far the **reader's font setting** may enlarge this style.
+    ///
+    /// The size is declared smaller in exact proportion, so that resolving it lands at
+    /// `max_scale` times the size asked for and no more. Below `max_scale` nothing changes.
+    ///
+    /// This is the reference's second answer to a reader who turns the system type up, and
+    /// it belongs to **chrome**. A component grows: its default height is a floor and the
+    /// content wins. A toolbar cannot — it would push the whole screen down — so the
+    /// reference keeps its bar at `kToolbarHeight` and clamps the title's scaler to 1.34
+    /// instead, "to keep the visual hierarchy the same even with larger font sizes".
+    ///
+    /// It reads the ambient scale, so it must be called where that scale is in force —
+    /// which for a widget means while it is being built, the same place it reads a theme.
+    #[must_use]
+    pub fn clamp_scale(mut self, max_scale: f32) -> Self {
+        let scale = text_scale();
+        if scale > max_scale && scale > 0.0 {
+            if let Some(size) = self.size {
+                self.size = Some(size * max_scale / scale);
+            }
+        }
+        self
+    }
+
     pub fn resolved(self) -> ResolvedTextStyle {
         ResolvedTextStyle {
             size: self.size.unwrap_or(DEFAULT_TEXT_SIZE) * text_scale(),

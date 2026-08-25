@@ -6,7 +6,7 @@
 
 use std::rc::Rc;
 
-use frus_core::{Color, Point, Rect, Scene};
+use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::flex::Flex;
@@ -19,6 +19,14 @@ use crate::widget::Widget;
 const CELL: f32 = 34.0;
 const SIZE: f32 = 15.0;
 
+/// The style this widget's text is drawn in, **resolved once** so that the number the box
+/// is measured with is the number the glyphs are drawn at. Resolving is the single place
+/// the reader's font setting is applied (milestone 403); a size that never passes through
+/// it is a size the reader cannot change.
+fn label_style() -> ResolvedTextStyle {
+    TextStyle::new(SIZE).resolved()
+}
+
 /// A clickable number cell (hour, minute or AM/PM), highlighted when selected.
 struct TimeCell<Msg> {
     label: String,
@@ -29,8 +37,8 @@ struct TimeCell<Msg> {
 impl<Msg: Clone> Widget<Msg> for TimeCell<Msg> {
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Length(CELL),
-            height: Dimension::Length(CELL),
+            width: Dimension::Length(frus_text::line_box(CELL, &label_style(), 0.0)),
+            height: Dimension::Length(frus_text::line_box(CELL, &label_style(), 0.0)),
             ..Default::default()
         }
     }
@@ -50,14 +58,15 @@ impl<Msg: Clone> Widget<Msg> for TimeCell<Msg> {
             )
         };
         scene.draw_rect(bounds, bg.fade(o), CELL * 0.5, 0.0, Color::TRANSPARENT);
-        let w = frus_text::measure(&self.label, SIZE).width;
+        let style = label_style();
+        let w = frus_text::measure_resolved(&self.label, &style).width;
         scene.text(
             Point::new(
-                bounds.x + (CELL - w) * 0.5,
-                bounds.y + (CELL - frus_text::line_height(SIZE)) * 0.5,
+                bounds.x + (bounds.width - w) * 0.5,
+                bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5,
             ),
             self.label.clone(),
-            SIZE,
+            &style,
             fg.fade(o),
         );
     }

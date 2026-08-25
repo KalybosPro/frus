@@ -9,7 +9,7 @@
 
 use std::rc::Rc;
 
-use frus_core::{Point, Rect, Scene};
+use frus_core::{Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::flex::Flex;
@@ -26,6 +26,14 @@ const PAD_X: f32 = 10.0;
 const SIZE: f32 = 16.0;
 /// The vertical gap between suggestions.
 const ROW_GAP: f32 = 2.0;
+
+/// The style this widget's text is drawn in, **resolved once** so that the number the box
+/// is measured with is the number the glyphs are drawn at. Resolving is the single place
+/// the reader's font setting is applied (milestone 403); a size that never passes through
+/// it is a size the reader cannot change.
+fn label_style() -> ResolvedTextStyle {
+    TextStyle::new(SIZE).resolved()
+}
 
 /// The portion of the label (in **character** indices) matching the query
 /// (a case-insensitive search). `None` if the query is empty or absent.
@@ -59,7 +67,7 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Length(self.width),
-            height: Dimension::Length(ROW_H),
+            height: Dimension::Length(frus_text::line_box(ROW_H, &label_style(), 0.0)),
             ..Default::default()
         }
     }
@@ -79,7 +87,8 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
         let bg = theme.state_layer(base, theme.on_surface, &status);
         scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.border.fade(o));
 
-        let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
+        let style = label_style();
+        let ty = bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5;
         let chars: Vec<char> = self.label.chars().collect();
         let normal = theme.on_surface.fade(o);
         let hilite = theme.primary.fade(o);
@@ -95,8 +104,8 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
                 continue;
             }
             let text: String = chars[range].iter().collect();
-            let width = frus_text::measure(&text, SIZE).width;
-            scene.text(Point::new(x, ty), text, SIZE, color);
+            let width = frus_text::measure_resolved(&text, &style).width;
+            scene.text(Point::new(x, ty), text, &style, color);
             x += width;
         }
     }

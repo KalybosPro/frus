@@ -1450,3 +1450,179 @@ mod tests {
         assert!(wide.width > 120.0, "the row did not: {}", wide.width);
     }
 }
+
+#[cfg(test)]
+mod reader_font_size {
+    use frus_core::{Primitive, Size};
+
+    use crate::theme::Theme;
+    use crate::{build_ui_inspected, MediaQuery, Runtime, Widget};
+
+    type W = Box<dyn Widget<()>>;
+    type Case = (&'static str, fn() -> W);
+
+    /// Every glyph a widget paints, and the size it was drawn at.
+    fn glyphs(make: fn() -> W, scale: f32) -> Vec<(String, f32)> {
+        let root = make();
+        MediaQuery::of().with_text_scaler(scale).scope(|| {
+            let (ui, _) = build_ui_inspected(
+                root.as_ref(),
+                Size::new(400.0, 300.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            ui.scene()
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    Primitive::Text { text, size, .. } => Some((text.clone(), *size)),
+                    _ => None,
+                })
+                .collect()
+        })
+    }
+
+    fn cases() -> Vec<Case> {
+        vec![
+            ("Chip", || Box::new(crate::Chip::<()>::new("Filter"))),
+            ("Button", || Box::new(crate::Button::<()>::new("Save"))),
+            ("ListTile", || {
+                Box::new(crate::ListTile::<()>::new().title("A row"))
+            }),
+            ("SnackBar", || Box::new(crate::SnackBar::<()>::new("Saved"))),
+            ("Kbd", || Box::new(crate::Kbd::new("Ctrl"))),
+            ("DropdownButton", || {
+                Box::new(crate::DropdownButton::new("Pick", ()))
+            }),
+            ("Text", || Box::new(crate::Text::new("A line"))),
+            ("TextField", || {
+                Box::new(crate::TextField::<()>::new("typed"))
+            }),
+            ("Table", || {
+                Box::new(crate::Table::<()>::new(2).row(&["one", "two"]))
+            }),
+            ("Tree", || {
+                Box::new(crate::Tree::new(|_| ()).node(1, 0, "a branch", false, false))
+            }),
+        ]
+    }
+
+    /// **The reader's font size reaches the text a widget paints itself.**
+    ///
+    /// `TextStyle::resolved` is the single place the setting is applied (milestone 403),
+    /// and forty-seven paint sites went around it: they named an `f32` and handed it
+    /// straight to the scene, so their text was the one size a reader could not change.
+    /// Nothing failed and nothing was reported — the widget simply ignored the request.
+    ///
+    /// The door is shut now: [`frus_core::Scene::text`] takes a
+    /// [`frus_core::ResolvedTextStyle`], so a bare number does not compile. This test is
+    /// what keeps it shut, because a new widget can still reach for
+    /// [`frus_core::ResolvedTextStyle::exact`] — which is right for an icon and wrong for
+    /// a word.
+    #[test]
+    fn the_text_a_widget_paints_follows_the_readers_font_size() {
+        for (name, make) in cases() {
+            let plain = glyphs(make, 1.0);
+            let doubled = glyphs(make, 2.0);
+            assert!(!plain.is_empty(), "{name} paints no text at all");
+            assert_eq!(
+                plain.len(),
+                doubled.len(),
+                "{name}: a different number of runs at twice the size"
+            );
+            let grew = plain
+                .iter()
+                .zip(&doubled)
+                .any(|((_, a), (_, b))| *b > *a + 0.01);
+            assert!(
+                grew,
+                "{name}: not one glyph followed the reader — sizes {plain:?}"
+            );
+        }
+    }
+
+    /// **And the box grows to hold it.** A default height is a *floor*, as it is in the
+    /// reference — `max(_targetTileHeight, contentHeight)` — not a ceiling. A chip whose
+    /// height was a constant needed 34 px of glyphs inside 32 px and cut them.
+    #[test]
+    fn a_box_that_holds_text_grows_with_it() {
+        for (name, make) in cases() {
+            let root = make();
+            MediaQuery::of().with_text_scaler(2.0).scope(|| {
+                let (ui, _) = build_ui_inspected(
+                    root.as_ref(),
+                    Size::new(400.0, 300.0),
+                    &Runtime::default(),
+                    &Theme::default(),
+                );
+                let mut checked = 0;
+                for p in ui.scene().primitives() {
+                    if let Primitive::Text {
+                        text, size, bounds, ..
+                    } = p
+                    {
+                        // The box the text was **laid out in**, not the widget's outermost
+                        // rect: a table's outer box is enormous and would pass whatever its
+                        // rows did. Checking the emitting box is what caught the table.
+                        if bounds.height <= 0.0 {
+                            continue;
+                        }
+                        // What the **shaper** gives back, not the nominal `line_height`:
+                        // a face's real line box can be a fraction under the metric, and a
+                        // box sized to the smaller number clips nothing.
+                        let style = frus_core::ResolvedTextStyle::exact(*size);
+                        let needed = frus_text::measure_resolved(text, &style).height;
+                        checked += 1;
+                        assert!(
+                            needed <= bounds.height + 0.51,
+                            "{name}: {text:?} needs {needed:.1} px in a box of {:.1}",
+                            bounds.height
+                        );
+                    }
+                }
+                assert!(checked > 0, "{name}: no text was checked at all");
+            });
+        }
+    }
+
+    /// **Chrome caps the type instead of growing**, which is the reference's other answer
+    /// and the reason both exist. An app bar keeps its height — a toolbar that grew would
+    /// push every screen down — so it clamps the title's scaler to 1.34 rather than let
+    /// the reader out. Below that cap it follows like anything else.
+    #[test]
+    fn an_app_bar_caps_its_title_rather_than_growing() {
+        let title_size = |scale: f32| {
+            let bar = crate::AppBar::<()>::new("A title");
+            MediaQuery::of().with_text_scaler(scale).scope(|| {
+                let root = bar.build();
+                let (ui, _) = build_ui_inspected(
+                    root.as_ref(),
+                    Size::new(400.0, 300.0),
+                    &Runtime::default(),
+                    &Theme::default(),
+                );
+                ui.scene()
+                    .primitives()
+                    .iter()
+                    .find_map(|p| match p {
+                        Primitive::Text { text, size, .. } if text == "A title" => Some(*size),
+                        _ => None,
+                    })
+                    .expect("the bar paints its title")
+            })
+        };
+        let plain = title_size(1.0);
+        assert!(
+            (title_size(1.2) - plain * 1.2).abs() < 0.1,
+            "under the cap the title follows the reader"
+        );
+        let capped = plain * crate::APP_BAR_MAX_TITLE_SCALE;
+        for scale in [1.5, 2.0, 4.0] {
+            assert!(
+                (title_size(scale) - capped).abs() < 0.1,
+                "at x{scale} the title is {} rather than the capped {capped}",
+                title_size(scale)
+            );
+        }
+    }
+}

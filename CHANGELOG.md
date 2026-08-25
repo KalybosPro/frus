@@ -8,10 +8,51 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 405 so far, each documenting the objective, the alternatives
+> record — one per step, 406 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Changed
+
+- **`Scene::text` takes a resolved style; `Scene::text_styled` is gone** (J406). BREAKING.
+  The two were the same primitive with two spellings, and the shorter one took a bare
+  `f32` size — a size that never passed through `TextStyle::resolved()`, which is the one
+  place a reader's font setting is applied. Forty-seven call sites across twenty-three
+  widgets used it, so their text was the one thing on the screen a reader could not
+  enlarge. No test could tell: the measurement went through the matching raw door, so
+  paint and layout agreed with each other perfectly — on the wrong number.
+
+  Deleting the door made every one of the forty-seven a compile error, and each had to say
+  which it meant: `TextStyle::new(SIZE).resolved()` for anything a reader reads,
+  `ResolvedTextStyle::exact(SIZE)` for a glyph that is an icon — a tick, a chevron, a star,
+  the figure in a step marker — which lives in a box that does not move.
+
+- **A component's default height is a floor, not a ceiling** (J406). `frus_text::line_box`
+  is the reference's own rule written once: `max(theDefault, whatTheLineNeeds)`. `Chip` was
+  a flat 32 px and cut its glyphs at a text scale of 2, where they need 34.
+
+### Added
+
+- **`TextStyle::clamp_scale`** (J406) and `APP_BAR_MAX_TITLE_SCALE`. The reference's second
+  answer, for **chrome**: a toolbar cannot grow — it would push every screen down — so it
+  keeps its height and caps the title's scaler at 1.34 instead. Below the cap the title
+  follows the reader like anything else.
+- **`ResolvedTextStyle::exact`**, `frus_text::measure_wrapped_resolved`,
+  `frus_text::line_box` (J406).
+
+### Fixed
+
+- **`AlertDialog` measured and painted its body at different sizes** (J406), painting
+  through `resolved()` and measuring raw — so above a text scale of 1 the box and the words
+  disagreed. Introduced by J403, found by J406's sweep.
+- **`TextField` placed its caret from an unresolved size** (J406). Multi-line went through
+  `resolved()`, single-line did not, and `layout()` — which the caret, the hit-test and the
+  selection all read — used the raw number. Above a scale of 1 the cursor landed where the
+  glyphs were not. Everything in the field now goes through one `text_style()`.
+- **The layout cache ignored the reader's font size** (J406). `signature_of` hashed styles,
+  structure and measure keys but not the scale, so a reader who moved the system slider
+  would have been served the previous frame's geometry under the new frame's glyphs.
 
 ### Changed
 

@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use frus_core::{Color, Point, Rect, Scene};
+use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Dimension, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
@@ -15,6 +15,12 @@ use crate::widget::Widget;
 const TIP_H: f32 = 20.0;
 const TIP_GAP: f32 = 6.0;
 const TIP_SIZE: f32 = 12.0;
+
+/// The value bubble's style, **resolved once** so that the number the bubble is measured
+/// with is the number the digits are drawn at.
+fn tip_style() -> ResolvedTextStyle {
+    TextStyle::new(TIP_SIZE).resolved()
+}
 /// The default keyboard step (without `divisions`): an arrow moves by 5%.
 const KEY_STEP: f32 = 0.05;
 
@@ -751,7 +757,8 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
 
 /// Paints a value tooltip centred on `cx` (top edge `top`) showing `text`.
 fn paint_tip(cx: f32, top: f32, text: String, theme: &Theme, o: f32, scene: &mut Scene) {
-    let tw = frus_text::measure(&text, TIP_SIZE).width;
+    let style = tip_style();
+    let tw = frus_text::measure_resolved(&text, &style).width;
     let bw = tw + 12.0;
     let bx = cx - bw * 0.5;
     scene.draw_rect(
@@ -761,11 +768,11 @@ fn paint_tip(cx: f32, top: f32, text: String, theme: &Theme, o: f32, scene: &mut
         0.0,
         Color::TRANSPARENT,
     );
-    let ty = top + (TIP_H - frus_text::line_height(TIP_SIZE)) * 0.5;
+    let ty = top + (TIP_H - frus_text::line_height(style.size)) * 0.5;
     scene.text(
         Point::new(bx + 6.0, ty),
         text,
-        TIP_SIZE,
+        &style,
         theme.on_primary.fade(o),
     );
 }

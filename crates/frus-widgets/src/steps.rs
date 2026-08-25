@@ -10,7 +10,9 @@
 //! that change the current step). Since the name `Stepper` is already taken by the
 //! −/value/+ numeric picker, this indicator is called `Steps`.
 
-use frus_core::{Color, Point, Rect, Role, Scene, SemanticsProperties};
+use frus_core::{
+    Color, Point, Rect, ResolvedTextStyle, Role, Scene, SemanticsProperties, TextStyle,
+};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::flex::Flex;
@@ -31,6 +33,19 @@ const LABEL_SIZE: f32 = 12.0;
 const NUM_SIZE: f32 = 14.0;
 /// Total height of the indicator (marker + label).
 const HEIGHT: f32 = 56.0;
+
+/// A step's label, **resolved once** so that the number the bar is measured with is the
+/// number the glyphs are drawn at. Resolving is the single place the reader's font setting
+/// is applied (milestone 403).
+fn label_style() -> ResolvedTextStyle {
+    TextStyle::new(LABEL_SIZE).resolved()
+}
+
+/// The bar's height: the constant, unless the labels the reader asked to enlarge no longer
+/// fit under the markers.
+fn bar_height() -> f32 {
+    HEIGHT.max(MARKER_D + LABEL_GAP + frus_text::line_height(label_style().size) + 4.0)
+}
 
 /// The step indicator of a multi-step form.
 ///
@@ -129,7 +144,7 @@ impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
     /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         Style {
-            height: Dimension::Length(HEIGHT),
+            height: Dimension::Length(bar_height()),
             // Any row of hotspots occupies the top, the markers' band.
             flex_direction: FlexDirection::Column,
             align: Align::Stretch,
@@ -193,22 +208,26 @@ impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
                 scene.fill_path(&path, theme.on_primary.fade(o));
             } else {
                 let num = (i + 1).to_string();
-                let m = frus_text::measure(&num, NUM_SIZE);
+                // `exact`: the figure sits inside a marker of a fixed `MARKER_D`, so it
+                // is geometry rather than type and must not follow the reader.
+                let num_style = ResolvedTextStyle::exact(NUM_SIZE);
+                let m = frus_text::measure_resolved(&num, &num_style);
                 let color = if current {
                     theme.on_primary
                 } else {
                     theme.on_surface
                 };
                 let p = Point::new(cx - m.width * 0.5, cy - m.height * 0.5);
-                scene.text(p, num, NUM_SIZE, color.fade(o));
+                scene.text(p, num, &num_style, color.fade(o));
             }
 
             // The label under the marker, centred; dimmed away from the current step.
             let label = &self.labels[i];
-            let lm = frus_text::measure(label, LABEL_SIZE);
+            let label_s = label_style();
+            let lm = frus_text::measure_resolved(label, &label_s);
             let alpha = if current { o } else { 0.6 * o };
             let p = Point::new(cx - lm.width * 0.5, bounds.y + MARKER_D + LABEL_GAP);
-            scene.text(p, label.clone(), LABEL_SIZE, theme.on_surface.fade(alpha));
+            scene.text(p, label.clone(), &label_s, theme.on_surface.fade(alpha));
         }
     }
 

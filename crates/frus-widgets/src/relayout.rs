@@ -223,6 +223,11 @@ fn signature_of<Msg>(
     theme: &crate::theme::Theme,
 ) -> (u64, bool) {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    // The **reader's font size**, once, at the root. Every measured box in the tree is
+    // resolved against it, so a reader who changes the system setting changes every
+    // geometry below — and a fingerprint blind to it would answer the new frame with the
+    // old layout and nothing would move.
+    frus_core::text_scale().to_bits().hash(&mut hasher);
     let mut volatile = false;
     hash_node(root, id, runtime, theme, &mut hasher, &mut volatile);
     (hasher.finish(), volatile)

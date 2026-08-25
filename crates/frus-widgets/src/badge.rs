@@ -214,7 +214,7 @@ impl<Msg> Widget<Msg> for Badge {
         // Centred both ways rather than placed from the corner: the pill is as wide as
         // its label needs *or* as wide as it is tall, whichever is more, so a one-digit
         // badge has room to spare and a corner offset would sit it off to one side.
-        scene.text_styled(
+        scene.text(
             Point::new(
                 bounds.x + (bounds.width - measured.width) / 2.0,
                 bounds.y + (bounds.height - measured.height) / 2.0,

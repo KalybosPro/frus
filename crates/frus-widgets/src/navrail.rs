@@ -3,7 +3,7 @@
 //! [`crate::NavScaffold`] picks one or the other by size. The "icon" is a text
 //! glyph (the framework has no icon font): an emoji, or a Unicode character.
 
-use frus_core::{Color, Insets, Point, Rect, Scene};
+use frus_core::{Color, Insets, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::interaction::Status;
@@ -22,6 +22,26 @@ const BADGE_SIZE: f32 = 10.0;
 /// theme).
 const BADGE_COLOR: Color = Color::rgb(0.90, 0.24, 0.24);
 
+/// The item's label, **resolved once** so that the number the bar is measured with is the
+/// number the glyphs are drawn at. Resolving is the single place the reader's font setting
+/// is applied (milestone 403).
+fn label_style() -> ResolvedTextStyle {
+    TextStyle::new(LABEL_SIZE).resolved()
+}
+
+/// The notification count. See [`label_style`].
+fn badge_style() -> ResolvedTextStyle {
+    TextStyle::new(BADGE_SIZE).resolved()
+}
+
+/// The height an item needs: the constant, unless the icon and a label the reader asked to
+/// enlarge no longer fit inside it.
+fn item_height(floor: f32) -> f32 {
+    floor.max(
+        frus_text::line_height(ICON_SIZE) + 2.0 + frus_text::line_height(label_style().size) + 8.0,
+    )
+}
+
 /// One navigation destination (glyph + label), painted according to its state.
 struct NavItem<Msg> {
     icon: String,
@@ -39,14 +59,14 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
         if self.rail {
             Style {
                 width: Dimension::Length(RAIL_WIDTH),
-                height: Dimension::Length(ITEM_HEIGHT),
+                height: Dimension::Length(item_height(ITEM_HEIGHT)),
                 ..Default::default()
             }
         } else {
             // In a bar, the items share the width equally.
             Style {
                 flex_grow: 1.0,
-                height: Dimension::Length(BAR_HEIGHT),
+                height: Dimension::Length(item_height(BAR_HEIGHT)),
                 ..Default::default()
             }
         }
@@ -58,8 +78,12 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let icon_m = frus_text::measure(&self.icon, ICON_SIZE);
-        let label_m = frus_text::measure(&self.label, LABEL_SIZE);
+        // The icon is a glyph standing in for an icon: `exact`, so that it stays on its
+        // own grid while the label beside it follows the reader.
+        let icon_style = ResolvedTextStyle::exact(ICON_SIZE);
+        let label_s = label_style();
+        let icon_m = frus_text::measure_resolved(&self.icon, &icon_style);
+        let label_m = frus_text::measure_resolved(&self.label, &label_s);
         let gap = 2.0;
         let total_h = icon_m.height + gap + label_m.height;
         let top = bounds.y + ((bounds.height - total_h) * 0.5).max(0.0);
@@ -100,7 +124,7 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
         scene.text(
             Point::new(bounds.x + (bounds.width - icon_m.width) * 0.5, top),
             self.icon.clone(),
-            ICON_SIZE,
+            &icon_style,
             color.fade(o),
         );
         scene.text(
@@ -109,7 +133,7 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
                 top + icon_m.height + gap,
             ),
             self.label.clone(),
-            LABEL_SIZE,
+            &label_s,
             color.fade(o),
         );
 
@@ -120,7 +144,8 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             } else {
                 count.to_string()
             };
-            let m = frus_text::measure(&text, BADGE_SIZE);
+            let badge_s = badge_style();
+            let m = frus_text::measure_resolved(&text, &badge_s);
             let bw = (m.width + 8.0).max(m.height + 4.0);
             let bh = m.height + 4.0;
             let icon_right = bounds.x + (bounds.width + icon_m.width) * 0.5;
@@ -131,7 +156,7 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             scene.text(
                 Point::new(bx + (bw - m.width) * 0.5, by + 2.0),
                 text,
-                BADGE_SIZE,
+                &badge_s,
                 Color::WHITE.fade(o),
             );
         }
@@ -277,7 +302,7 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
 impl<Msg: Clone> Widget<Msg> for BottomBar<Msg> {
     fn style(&self) -> Style {
         Style {
-            height: Dimension::Length(BAR_HEIGHT),
+            height: Dimension::Length(item_height(BAR_HEIGHT)),
             flex_direction: FlexDirection::Row,
             justify: Justify::SpaceAround,
             align: Align::Stretch,

@@ -1,6 +1,6 @@
 //! [`RadioGroup`]: a group of radio buttons, with one option selected.
 
-use frus_core::{Color, Point, Rect, Scene};
+use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::disabled::disabled_content;
@@ -24,10 +24,20 @@ struct RadioOption<Msg> {
     on_click: Option<Msg>,
 }
 
+impl<Msg> RadioOption<Msg> {
+    /// The label's style, **resolved once** so that the number the box is measured with is
+    /// the number the glyphs are drawn at. Resolving is the single place the reader's font
+    /// setting is applied (milestone 403).
+    fn label_style(&self) -> ResolvedTextStyle {
+        TextStyle::new(self.size).resolved()
+    }
+}
+
 impl<Msg: Clone> Widget<Msg> for RadioOption<Msg> {
     fn style(&self) -> Style {
-        let line = frus_text::line_height(self.size).max(DOT);
-        let label_w = frus_text::measure(&self.label, self.size).width;
+        let style = self.label_style();
+        let line = frus_text::line_height(style.size).max(DOT);
+        let label_w = frus_text::measure_resolved(&self.label, &style).width;
         Style {
             width: Dimension::Length((DOT + GAP + label_w).ceil()),
             height: Dimension::Length(line.ceil()),
@@ -96,7 +106,7 @@ impl<Msg: Clone> Widget<Msg> for RadioOption<Msg> {
         scene.text(
             Point::new(bounds.x + DOT + GAP, bounds.y),
             self.label.clone(),
-            self.size,
+            &self.label_style(),
             label.fade(o),
         );
     }

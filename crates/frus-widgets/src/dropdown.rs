@@ -5,7 +5,7 @@
 //! and ticked ([`selected`](DropdownButton::selected)), and **keyboard** navigation: the
 //! header and the options take focus (Enter opens or picks, the arrows move through).
 
-use frus_core::{Path, Point, Rect, Scene};
+use frus_core::{Path, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
@@ -20,6 +20,14 @@ const DEFAULT_WIDTH: f32 = 240.0;
 const ROW_H: f32 = 40.0;
 const PAD_X: f32 = 12.0;
 const SIZE: f32 = 18.0;
+
+/// The style this widget's text is drawn in, **resolved once** so that the number the box
+/// is measured with is the number the glyphs are drawn at. Resolving is the single place
+/// the reader's font setting is applied (milestone 403); a size that never passes through
+/// it is a size the reader cannot change.
+fn label_style() -> ResolvedTextStyle {
+    TextStyle::new(SIZE).resolved()
+}
 
 /// One row: the header, or an option.
 struct Row<Msg> {
@@ -37,7 +45,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Length(self.width),
-            height: Dimension::Length(ROW_H),
+            height: Dimension::Length(frus_text::line_box(ROW_H, &label_style(), 0.0)),
             ..Default::default()
         }
     }
@@ -74,18 +82,19 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         } else {
             disabled_content(theme)
         };
-        let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
+        let style = label_style();
+        let ty = bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5;
         scene.text(
             Point::new(bounds.x + PAD_X, ty),
             self.label.clone(),
-            SIZE,
+            &style,
             ink.fade(o),
         );
 
         if self.is_header {
             // A vector "▾" chevron (a downward-pointing triangle), on the right.
             let cx = bounds.x + self.width - PAD_X - 4.0;
-            let cy = bounds.y + ROW_H * 0.5;
+            let cy = bounds.y + bounds.height * 0.5;
             let (w, h) = (5.0, 3.0);
             let tri = Path::new()
                 .move_to(Point::new(cx - w, cy - h))
@@ -103,7 +112,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
             let size = 18.0;
             let scale = size / 24.0;
             let x = bounds.x + self.width - PAD_X - size;
-            let y = bounds.y + (ROW_H - size) * 0.5;
+            let y = bounds.y + (bounds.height - size) * 0.5;
             let path = Icons::Check.path().scaled(scale).translated(x, y);
             // The tick stays: which option is chosen is still owed to a reader who cannot
             // choose another.

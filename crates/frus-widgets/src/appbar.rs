@@ -71,6 +71,14 @@ pub const APP_BAR_HEIGHT: f32 = 64.0;
 /// The title's font size — the reference's `title_large` (the default, overridden by
 /// [`AppBar::title_style`]).
 const TITLE_SIZE: f32 = 22.0;
+/// How far the reader's font setting may enlarge the **title**, and no further.
+///
+/// A bar is chrome: it keeps [`APP_BAR_HEIGHT`] whatever the reader asked for, because a
+/// toolbar that grew with the type would push every screen down. So the reference caps the
+/// title's scaler rather than the bar's height — the same 1.34 — "to keep the visual
+/// hierarchy the same even with larger font sizes". A caller who wants the whole scale
+/// gives the title its own [`AppBar::title_style`] and their own height.
+pub const APP_BAR_MAX_TITLE_SCALE: f32 = 1.34;
 /// The actions' font size — the reference's `label_large`, which is what its app bar's
 /// actions are: text buttons (the default, overridden by [`AppBar::action_size`]).
 const ACTION_SIZE: f32 = 14.0;
@@ -570,6 +578,11 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             .or(t.foreground)
             .unwrap_or(theme.scheme.on_surface);
         title_style.color = Some(foreground);
+        // The bar keeps its height, so the title is capped rather than let out. See
+        // [`APP_BAR_MAX_TITLE_SCALE`]: this is the reference's answer for chrome, and the
+        // opposite of the one its components give (there the height is a floor and the
+        // content wins).
+        let title_style = title_style.clamp_scale(APP_BAR_MAX_TITLE_SCALE);
         // The title's type as something a subtree can **hand down**, plus the two settings
         // the reference pairs with it: one line, cut with an ellipsis. A `Text` that never
         // chose a size, a wrap or an overflow takes all three; one that did keeps its own.

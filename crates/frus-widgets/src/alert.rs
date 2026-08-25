@@ -1,7 +1,7 @@
 //! [`AlertDialog`]: a **persistent** (contextual) message box, as opposed to the
 //! transient [`crate::SnackBar`].
 
-use frus_core::{Color, Point, Rect, Scene};
+use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::Style;
 
 use crate::interaction::Status;
@@ -13,6 +13,18 @@ const ACCENT: f32 = 4.0;
 const ICON_W: f32 = 26.0;
 const TITLE_SIZE: f32 = 16.0;
 const TEXT_SIZE: f32 = 15.0;
+
+/// The title's style, **resolved once**: the same number measures the box and draws the
+/// glyphs. Resolving is where the reader's font setting is applied, so measuring at the
+/// bare constant and painting through a style is a layout that disagrees with itself.
+fn title_style() -> ResolvedTextStyle {
+    TextStyle::new(TITLE_SIZE).resolved()
+}
+
+/// The message's style. See [`title_style`].
+fn body_style() -> ResolvedTextStyle {
+    TextStyle::new(TEXT_SIZE).resolved()
+}
 
 /// The nature of an alert box.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -94,23 +106,17 @@ impl<Msg> Widget<Msg> for AlertDialog {
         let text = self.text.clone();
         let title = self.title.clone();
         Some(Box::new(move |max_width, _| {
-            use frus_core::FontWeight;
+            let (title_s, body_s) = (title_style(), body_style());
             let chrome = ACCENT + ICON_W + PAD; // bar + icon + right margin
             let text_avail = max_width.map(|w| (w - chrome).max(40.0));
-            let body = frus_text::measure_wrapped(
-                &text,
-                TEXT_SIZE,
-                FontWeight::Regular,
-                false,
-                text_avail,
-            );
+            let body = frus_text::measure_wrapped_resolved(&text, &body_s, text_avail);
             let title_h = title
                 .as_ref()
-                .map(|_| frus_text::line_height(TITLE_SIZE) + 4.0)
+                .map(|_| frus_text::line_height(title_s.size) + 4.0)
                 .unwrap_or(0.0);
             let title_w = title
                 .as_ref()
-                .map(|t| frus_text::measure(t, TITLE_SIZE).width)
+                .map(|t| frus_text::measure_resolved(t, &title_s).width)
                 .unwrap_or(0.0);
             let natural_w = chrome + body.width.max(title_w);
             frus_core::Size::new(
@@ -151,33 +157,34 @@ impl<Msg> Widget<Msg> for AlertDialog {
             0.0,
             Color::TRANSPARENT,
         );
-        // Glyphe.
+        // The glyph standing in for an icon. `exact`, not resolved: it sits in a column
+        // of a fixed `ICON_W`, and a reader who doubles the type would push it out.
         scene.text(
             Point::new(bounds.x + ACCENT + 7.0, bounds.y + PAD),
             self.icon().to_string(),
-            TITLE_SIZE,
+            &ResolvedTextStyle::exact(TITLE_SIZE),
             accent.fade(o),
         );
         let text_x = bounds.x + ACCENT + ICON_W;
         // The message wraps to the width actually available (the laid-out one),
         // to stay consistent with `measure()`.
         let wrap_w = (bounds.width - (ACCENT + ICON_W + PAD)).max(40.0);
-        let body_style = frus_core::TextStyle::new(TEXT_SIZE);
+        let (title_s, body_s) = (title_style(), body_style());
         match &self.title {
             Some(title) => {
                 scene.text(
                     Point::new(text_x, bounds.y + PAD),
                     title.clone(),
-                    TITLE_SIZE,
+                    &title_s,
                     theme.on_surface.fade(o),
                 );
                 scene.text_wrapped(
                     Point::new(
                         text_x,
-                        bounds.y + PAD + frus_text::line_height(TITLE_SIZE) + 4.0,
+                        bounds.y + PAD + frus_text::line_height(title_s.size) + 4.0,
                     ),
                     self.text.clone(),
-                    &body_style.resolved(),
+                    &body_s,
                     theme.muted.fade(o),
                     wrap_w,
                 );
@@ -186,7 +193,7 @@ impl<Msg> Widget<Msg> for AlertDialog {
                 scene.text_wrapped(
                     Point::new(text_x, bounds.y + PAD),
                     self.text.clone(),
-                    &body_style.resolved(),
+                    &body_s,
                     theme.on_surface.fade(o),
                     wrap_w,
                 );
@@ -240,7 +247,7 @@ mod tests {
             AlertDialog::new("Press Enter to add a task; swipe from the left edge to go back.")
                 .title("Tip");
         let theme = Theme::default();
-        let measure = Widget::<()>::measure(&alert, &theme).expect("closure de mesure");
+        let measure = Widget::<()>::measure(&alert, &theme).expect("a measure closure");
         let free = measure(None, None);
         let narrow = measure(Some(280.0), None);
         assert!(

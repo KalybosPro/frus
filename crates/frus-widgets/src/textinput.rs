@@ -4,7 +4,7 @@
 //! The value is controlled; the **caret / selection** are edit state retained at
 //! runtime ([`Edit`]), keyed by widget identity.
 
-use frus_core::{FontWeight, Point, Rect, Scene, TextAlign, TextStyle};
+use frus_core::{Point, Rect, ResolvedTextStyle, Scene, TextAlign, TextStyle};
 use frus_layout::{Dimension, Style};
 use frus_text::TextLayout;
 
@@ -357,10 +357,25 @@ impl<Msg> TextField<Msg> {
         }
     }
 
+    /// The field's type, **resolved once**: the reader's font setting applied.
+    ///
+    /// Everything that measures, shapes, hit-tests, places a caret or paints the field's
+    /// text goes through this one number. A caret placed from an unresolved size and
+    /// glyphs drawn from a resolved one land in different places, and the field is then
+    /// wrong for exactly the readers who most needed it to be right.
+    fn text_style(&self) -> ResolvedTextStyle {
+        TextStyle::new(self.size).resolved()
+    }
+
+    /// The helper line under the field — helper text, error, counter. See [`Self::text_style`].
+    fn sub_style(&self) -> ResolvedTextStyle {
+        TextStyle::new(FIELD_SUB_SIZE).resolved()
+    }
+
     /// Size the label shrinks to once it floats — a proportion of the field's own type,
     /// not a second number, so a field given larger text keeps the relationship.
     fn label_size(&self) -> f32 {
-        self.size * FIELD_LABEL_SCALE
+        self.text_style().size * FIELD_LABEL_SCALE
     }
 
     /// Side of the prefix/suffix icons.
@@ -761,11 +776,12 @@ impl<Msg> TextField<Msg> {
     /// consistent geometry (kerning). `wrap_width` = the soft-wrap width (multi-line) or
     /// `None` (single-line: only explicit `\n` break).
     fn layout(&self, wrap_width: Option<f32>) -> TextLayout {
+        let style = self.text_style();
         TextLayout::wrapped(
             &self.display(),
-            self.size,
-            FontWeight::Regular,
-            false,
+            style.size,
+            style.weight,
+            style.italic,
             wrap_width,
         )
     }
@@ -831,7 +847,10 @@ impl<Msg> TextField<Msg> {
         } else {
             1.0
         };
-        (frus_text::line_height(self.size) * lines + self.text_top() + self.pad_bottom()).ceil()
+        (frus_text::line_height(self.text_style().size) * lines
+            + self.text_top()
+            + self.pad_bottom())
+        .ceil()
     }
 }
 
@@ -901,7 +920,8 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
             };
             let x = rest.x + (fx - rest.x) * float_t;
             let y = rest.y + (fy - rest.y) * float_t;
-            let size = self.size + (self.label_size() - self.size) * float_t;
+            let resolved = self.text_style().size;
+            let size = resolved + (self.label_size() - resolved) * float_t;
             let color = if has_error {
                 s.error_color.unwrap()
             } else {
@@ -922,7 +942,7 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
             scene.text(
                 Point::new(bounds.x, field.y + field.height + FIELD_GAP),
                 sub.clone(),
-                FIELD_SUB_SIZE,
+                &self.sub_style(),
                 color.fade(o),
             );
         }
@@ -931,14 +951,14 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         // colour rather than the error's even while an error is showing: it is a fact
         // about length, not a second complaint.
         if let Some(counter) = self.counter() {
-            let width = frus_text::measure(&counter, FIELD_SUB_SIZE).width;
+            let width = frus_text::measure_resolved(&counter, &self.sub_style()).width;
             scene.text(
                 Point::new(
                     bounds.x + bounds.width - width,
                     field.y + field.height + FIELD_GAP,
                 ),
                 counter,
-                FIELD_SUB_SIZE,
+                &self.sub_style(),
                 s.helper_color.unwrap().fade(o),
             );
         }
@@ -994,7 +1014,10 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         // stopped doing in milestone 295, and the golden went blank.
         if !self.is_outlined() {
             if let Some((label, x, y, size, color)) = &label_geom {
-                scene.text(Point::new(*x, *y), label.clone(), *size, color.fade(o));
+                // `exact`: `size` is already an interpolation between two **resolved**
+                // numbers, so resolving it again would apply the reader's setting twice.
+                let style = ResolvedTextStyle::exact(*size);
+                scene.text(Point::new(*x, *y), label.clone(), &style, color.fade(o));
             }
         }
 
@@ -1013,7 +1036,12 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
                     );
                     scene.fill_rect(notch, theme.surface.fade(o * float_t));
                 }
-                scene.text(Point::new(*x, *y), label.clone(), *size, color.fade(o));
+                scene.text(
+                    Point::new(*x, *y),
+                    label.clone(),
+                    &ResolvedTextStyle::exact(*size),
+                    color.fade(o),
+                );
             }
         }
 
@@ -1084,12 +1112,13 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
                 if ph_alpha > 0.01 {
                     // The placeholder sits where the text will: a centred field whose
                     // hint hugs the left edge jumps the moment the first key lands.
-                    let hint_w = frus_text::measure(placeholder, self.size).width;
+                    let style = self.text_style();
+                    let hint_w = frus_text::measure_resolved(placeholder, &style).width;
                     let hint_align = self.align_offset(content_w, hint_w);
                     scene.text(
                         Point::new(content_x + hint_align, text_y),
                         placeholder.clone(),
-                        self.size,
+                        &style,
                         theme.muted.fade(ph_alpha),
                     );
                 }
@@ -1150,14 +1179,10 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
             let color = theme.on_surface.fade(o);
             match wrap {
                 // Multi-line: the render wraps just as the measure did.
-                Some(max_w) => scene.text_wrapped(
-                    pos,
-                    self.display(),
-                    &TextStyle::new(self.size).resolved(),
-                    color,
-                    max_w,
-                ),
-                None => scene.text(pos, self.display(), self.size, color),
+                Some(max_w) => {
+                    scene.text_wrapped(pos, self.display(), &self.text_style(), color, max_w)
+                }
+                None => scene.text(pos, self.display(), &self.text_style(), color),
             }
         }
 

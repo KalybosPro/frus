@@ -405,7 +405,12 @@ mod tests {
     fn a_panel_dropped_over_a_label_covers_it() {
         let mut scene = Scene::new();
         scene.set_bounds(Rect::new(20.0, 20.0, 120.0, 20.0));
-        scene.text(Point::new(20.0, 20.0), "Score", 14.0, RED);
+        scene.text(
+            Point::new(20.0, 20.0),
+            "Score",
+            &frus_core::ResolvedTextStyle::exact(14.0),
+            RED,
+        );
         scene.set_bounds(Rect::new(10.0, 10.0, 200.0, 100.0));
         scene.fill_rect(Rect::new(10.0, 10.0, 200.0, 100.0), RED);
         let batches = plan(&scene);
@@ -423,7 +428,12 @@ mod tests {
             let y = i as f32 * 40.0;
             scene.set_bounds(Rect::new(0.0, y, 200.0, 30.0));
             scene.fill_rect(Rect::new(0.0, y, 200.0, 30.0), RED);
-            scene.text(Point::new(8.0, y + 6.0), "row", 14.0, RED);
+            scene.text(
+                Point::new(8.0, y + 6.0),
+                "row",
+                &frus_core::ResolvedTextStyle::exact(14.0),
+                RED,
+            );
         }
         let batches = plan(&scene);
         assert_eq!(batches.len(), 2, "{batches:#?}");
@@ -441,7 +451,12 @@ mod tests {
     fn text_with_no_box_is_ordered_by_its_place_in_the_scene() {
         let mut scene = Scene::new();
         scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), RED);
-        scene.text(Point::new(10.0, 10.0), "hello", 16.0, RED);
+        scene.text(
+            Point::new(10.0, 10.0),
+            "hello",
+            &frus_core::ResolvedTextStyle::exact(16.0),
+            RED,
+        );
         scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), RED);
         let batches = plan(&scene);
         assert_eq!(batches.len(), 3, "{batches:#?}");

@@ -277,7 +277,7 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
             scene.fill_path(&path, color.fade(o));
             x += icon + SEGMENTED_ICON_GAP;
         }
-        scene.text_styled(
+        scene.text(
             Point::new(x, bounds.y + (bounds.height - measured.height) / 2.0),
             label,
             &label_style.resolved(),

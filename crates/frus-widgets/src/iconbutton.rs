@@ -319,7 +319,7 @@ impl<Msg: Clone> Widget<Msg> for IconButton<Msg> {
                     style.resolved().weight,
                     style.resolved().italic,
                 );
-                scene.text_styled(
+                scene.text(
                     Point::new(
                         bounds.x + (bounds.width - measured.width) / 2.0,
                         bounds.y + (bounds.height - measured.height) / 2.0,

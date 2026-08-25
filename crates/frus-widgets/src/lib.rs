@@ -135,7 +135,7 @@ mod widgettheme;
 
 pub use alert::{AlertDialog, AlertKind};
 pub use animated::{AnimatedContainer, AnimatedOpacity, Opacity};
-pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT};
+pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT, APP_BAR_MAX_TITLE_SCALE};
 pub use aspectratio::AspectRatio;
 pub use autocomplete::Autocomplete;
 pub use avatar::CircleAvatar;

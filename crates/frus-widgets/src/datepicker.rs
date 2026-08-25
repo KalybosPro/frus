@@ -1,7 +1,7 @@
 //! [`DatePicker`]: a **controlled** month calendar, built on [`crate::GridView`].
 //! Date arithmetic is **home-grown**, with no time dependency.
 
-use frus_core::{Color, Point, Rect, Scene};
+use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
 use crate::flex::Flex;
@@ -13,6 +13,25 @@ use crate::widget::Widget;
 
 const CELL: f32 = 34.0;
 const SIZE: f32 = 15.0;
+/// The weekday initials above the grid.
+const WEEKDAY_SIZE: f32 = 13.0;
+
+/// A day's style, **resolved once** so that the number the cell is measured with is the
+/// number the figures are drawn at. Resolving is the single place the reader's font
+/// setting is applied (milestone 403).
+fn day_style() -> ResolvedTextStyle {
+    TextStyle::new(SIZE).resolved()
+}
+
+/// The weekday initial's style. See [`day_style`].
+fn weekday_style() -> ResolvedTextStyle {
+    TextStyle::new(WEEKDAY_SIZE).resolved()
+}
+
+/// A cell's side: the constant, unless the reader asked for figures that do not fit in it.
+fn cell() -> f32 {
+    frus_text::line_box(CELL, &day_style(), 0.0)
+}
 /// The gap between the two months of a dual calendar.
 const DUAL_GAP: f32 = 24.0;
 
@@ -88,8 +107,8 @@ struct Day<Msg> {
 impl<Msg: Clone> Widget<Msg> for Day<Msg> {
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Length(CELL),
-            height: Dimension::Length(CELL),
+            width: Dimension::Length(cell()),
+            height: Dimension::Length(cell()),
             ..Default::default()
         }
     }
@@ -100,20 +119,21 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         if self.day == 0 {
-            return; // case de remplissage
+            return; // a filler cell
         }
         let o = status.opacity;
         // A disabled day (outside the bounds): a dimmed figure, no background, no band.
         if self.disabled {
             let label = self.day.to_string();
-            let w = frus_text::measure(&label, SIZE).width;
+            let style = day_style();
+            let w = frus_text::measure_resolved(&label, &style).width;
             scene.text(
                 Point::new(
-                    bounds.x + (CELL - w) * 0.5,
-                    bounds.y + (CELL - frus_text::line_height(SIZE)) * 0.5,
+                    bounds.x + (bounds.width - w) * 0.5,
+                    bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5,
                 ),
                 label,
-                SIZE,
+                &style,
                 theme.muted.fade(o * 0.4),
             );
             return;
@@ -146,14 +166,15 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
             scene.draw_rect(bounds, bg.fade(o), CELL * 0.5, 0.0, Color::TRANSPARENT);
         }
         let label = self.day.to_string();
-        let w = frus_text::measure(&label, SIZE).width;
+        let style = day_style();
+        let w = frus_text::measure_resolved(&label, &style).width;
         scene.text(
             Point::new(
-                bounds.x + (CELL - w) * 0.5,
-                bounds.y + (CELL - frus_text::line_height(SIZE)) * 0.5,
+                bounds.x + (bounds.width - w) * 0.5,
+                bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5,
             ),
             label,
-            SIZE,
+            &style,
             fg.fade(o),
         );
     }
@@ -466,11 +487,12 @@ impl<Msg> Widget<Msg> for WeekdayCell {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        let w = frus_text::measure(&self.label, 13.0).width;
+        let style = weekday_style();
+        let w = frus_text::measure_resolved(&self.label, &style).width;
         scene.text(
-            Point::new(bounds.x + (CELL - w) * 0.5, bounds.y),
+            Point::new(bounds.x + (bounds.width - w) * 0.5, bounds.y),
             self.label.clone(),
-            13.0,
+            &style,
             theme.muted.fade(status.opacity),
         );
     }

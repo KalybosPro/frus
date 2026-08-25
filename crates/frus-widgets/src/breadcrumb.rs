@@ -1,7 +1,7 @@
 //! [`Breadcrumb`]: a trail of clickable segments, the last of which is the current
 //! page.
 
-use frus_core::{Point, Rect, Scene};
+use frus_core::{Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
 use crate::interaction::Status;
@@ -9,6 +9,14 @@ use crate::theme::Theme;
 use crate::widget::Widget;
 
 const SIZE: f32 = 15.0;
+
+/// The style this widget's text is drawn in, **resolved once** so that the number the box
+/// is measured with is the number the glyphs are drawn at. Resolving is the single place
+/// the reader's font setting is applied (milestone 403); a size that never passes through
+/// it is a size the reader cannot change.
+fn label_style() -> ResolvedTextStyle {
+    TextStyle::new(SIZE).resolved()
+}
 
 /// One segment: a clickable link, the current page, or a separator.
 struct Crumb<Msg> {
@@ -20,7 +28,7 @@ struct Crumb<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for Crumb<Msg> {
     fn style(&self) -> Style {
-        let measured = frus_text::measure(&self.label, SIZE);
+        let measured = frus_text::measure_resolved(&self.label, &label_style());
         Style {
             width: Dimension::Length(measured.width.ceil()),
             height: Dimension::Length(measured.height.ceil()),
@@ -40,13 +48,13 @@ impl<Msg: Clone> Widget<Msg> for Crumb<Msg> {
             // A link: discreet, lightening on hover.
             theme.muted.lerp(theme.on_surface, status.hover_progress)
         } else {
-            // Page courante.
+            // The current page.
             theme.on_surface
         };
         scene.text(
             Point::new(bounds.x, bounds.y),
             self.label.clone(),
-            SIZE,
+            &label_style(),
             color.fade(o),
         );
     }

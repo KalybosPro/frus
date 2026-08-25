@@ -1,6 +1,6 @@
 //! [`Rating`]: a **controlled** rating in **clickable stars**.
 
-use frus_core::{Point, Rect, Scene};
+use frus_core::{Point, Rect, ResolvedTextStyle, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
@@ -60,7 +60,8 @@ impl<Msg: Clone> Widget<Msg> for Star<Msg> {
         scene.text(
             Point::new(bounds.x, bounds.y - 2.0),
             "★".to_string(),
-            STAR,
+            // A star is an icon drawn as a glyph: its size is the box beside it, not type.
+            &ResolvedTextStyle::exact(STAR),
             color.fade(o),
         );
     }

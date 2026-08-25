@@ -28,7 +28,7 @@ fn scene_matches_golden() {
         0.0,
         Color::TRANSPARENT,
     );
-    scene.text_styled(
+    scene.text(
         Point::new(16.0, 20.0),
         "Golden",
         &TextStyle::new(20.0).underline().resolved(),

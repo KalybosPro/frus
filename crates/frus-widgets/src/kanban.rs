@@ -9,7 +9,7 @@
 
 use std::rc::Rc;
 
-use frus_core::{Color, Insets, Point, Rect, Scene};
+use frus_core::{Color, Insets, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
 use crate::button::{Button, Variant};
@@ -33,6 +33,14 @@ const COL_W: f32 = 220.0;
 const COL_PAD: f32 = 12.0;
 /// A card's height.
 const CARD_H: f32 = 44.0;
+/// A text card's label.
+const LABEL_SIZE: f32 = 15.0;
+
+/// A card label's style, **resolved once** so that the number the box is measured with is
+/// the number the glyphs are drawn at.
+fn label_style() -> ResolvedTextStyle {
+    TextStyle::new(LABEL_SIZE).resolved()
+}
 
 /// The **flat** index of a `(col, pos)` slot: `col * STRIDE + pos`. This is a card's
 /// [`reorder_index`](Widget::reorder_index) value (both source **and** target). Reusable to
@@ -72,7 +80,7 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
             // A text card: a fixed height, with the label painted by the card.
             Style {
                 width: Dimension::Auto,
-                height: Dimension::Length(CARD_H),
+                height: Dimension::Length(frus_text::line_box(CARD_H, &label_style(), 0.0)),
                 ..Default::default()
             }
         } else {
@@ -106,11 +114,12 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
         );
         // A label only for a **text** card (a rich card paints its own content).
         if self.content.is_empty() {
-            let ty = bounds.y + (bounds.height - frus_text::line_height(15.0)) * 0.5;
+            let style = label_style();
+            let ty = bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5;
             scene.text(
                 Point::new(bounds.x + 12.0, ty),
                 self.label.clone(),
-                15.0,
+                &style,
                 theme.on_surface.fade(o),
             );
         }

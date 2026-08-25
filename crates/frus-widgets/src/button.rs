@@ -377,7 +377,7 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
         // the button is given a width of its own.
         let style = self.label_style_of(theme);
         let measured = frus_text::measure_style(&self.label, style);
-        scene.text_styled(
+        scene.text(
             Point::new(
                 bounds.x + (bounds.width - measured.width) / 2.0,
                 bounds.y + (bounds.height - measured.height) / 2.0,

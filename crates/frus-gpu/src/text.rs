@@ -458,7 +458,12 @@ mod tests {
     #[test]
     fn renders_text_to_non_background_pixels() {
         let mut scene = Scene::new();
-        scene.text(Point::new(4.0, 4.0), "Hello", 48.0, Color::WHITE);
+        scene.text(
+            Point::new(4.0, 4.0),
+            "Hello",
+            &frus_core::ResolvedTextStyle::exact(48.0),
+            Color::WHITE,
+        );
         match lit_pixels_for(&scene) {
             None => eprintln!("no GPU adapter available: test skipped"),
             Some(lit) => {
@@ -473,7 +478,12 @@ mod tests {
     #[test]
     fn renders_arabic_to_non_background_pixels() {
         let mut scene = Scene::new();
-        scene.text(Point::new(4.0, 40.0), "مهامي", 40.0, Color::WHITE);
+        scene.text(
+            Point::new(4.0, 40.0),
+            "مهامي",
+            &frus_core::ResolvedTextStyle::exact(40.0),
+            Color::WHITE,
+        );
         match lit_pixels_for(&scene) {
             None => eprintln!("no GPU adapter available: test skipped"),
             Some(lit) => {
@@ -520,7 +530,7 @@ mod tests {
         use frus_core::TextStyle;
         let plain = {
             let mut scene = Scene::new();
-            scene.text_styled(
+            scene.text(
                 Point::new(4.0, 4.0),
                 "Hello",
                 &TextStyle::new(40.0).resolved(),
@@ -530,7 +540,7 @@ mod tests {
         };
         let underlined = {
             let mut scene = Scene::new();
-            scene.text_styled(
+            scene.text(
                 Point::new(4.0, 4.0),
                 "Hello",
                 &TextStyle::new(40.0).underline().resolved(),
