@@ -130,7 +130,7 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
             scene.text(
                 Point::new(
                     bounds.x + (bounds.width - w) * 0.5,
-                    bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5,
+                    bounds.y + (bounds.height - style.line_height()) * 0.5,
                 ),
                 label,
                 &style,
@@ -171,7 +171,7 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
         scene.text(
             Point::new(
                 bounds.x + (bounds.width - w) * 0.5,
-                bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5,
+                bounds.y + (bounds.height - style.line_height()) * 0.5,
             ),
             label,
             &style,

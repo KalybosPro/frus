@@ -115,7 +115,7 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
         // A label only for a **text** card (a rich card paints its own content).
         if self.content.is_empty() {
             let style = label_style();
-            let ty = bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5;
+            let ty = bounds.y + (bounds.height - style.line_height()) * 0.5;
             scene.text(
                 Point::new(bounds.x + 12.0, ty),
                 self.label.clone(),

@@ -847,10 +847,7 @@ impl<Msg> TextField<Msg> {
         } else {
             1.0
         };
-        (frus_text::line_height(self.text_style().size) * lines
-            + self.text_top()
-            + self.pad_bottom())
-        .ceil()
+        (self.text_style().line_height() * lines + self.text_top() + self.pad_bottom()).ceil()
     }
 }
 
@@ -2525,7 +2522,7 @@ mod tests {
             .on_input(Msg::Changed)
             .rows(4)
             .width(160.0);
-        let line_h = frus_text::line_height(inp.size);
+        let line_h = inp.text_style().line_height();
         let top = Widget::<Msg>::cursor_at(
             &inp,
             FIELD_PADDING_X + 2.0,
@@ -2698,7 +2695,7 @@ mod tests {
         let inp = TextField::<Msg>::new("ab\ncd")
             .on_input(Msg::Changed)
             .rows(3);
-        let line_h = frus_text::line_height(inp.size);
+        let line_h = inp.text_style().line_height();
         // A top-left click → the 1st line (index ≤ 2).
         let top = Widget::<Msg>::cursor_at(
             &inp,

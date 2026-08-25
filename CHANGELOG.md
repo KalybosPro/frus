@@ -8,12 +8,25 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 411 so far, each documenting the objective, the alternatives
+> record — one per step, 412 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
+
+- **A named line height was ignored wherever text is centred** (J412). Milestone 409
+  threaded `TextStyle::height` through the measurement and the paint but left twenty-four
+  places computing `frus_text::line_height(style.size)` — the 1.2 default — while holding a
+  style that said otherwise. A text with `height: 2.0` was measured tall, painted tall, and
+  centred as though it were short.
+
+  They ask `style.line_height()` now, which milestone 409 had already provided.
+
+  One of the twenty-four is reachable by a test — a `max_lines` cap counts lines of the
+  height that was asked for. The other twenty-three live in widgets whose text style is a
+  private constant no caller can change, so a `height` cannot be set on them to prove it is
+  honoured. That is recorded as the next step.
 
 - **`Ui::wants_animation` answered for the whole process** (J411). It folded in
   `images_in_flight()`, a process-global count, so any tree built while an unrelated part

@@ -112,7 +112,7 @@ impl<Msg> Widget<Msg> for AlertDialog {
             let body = frus_text::measure_wrapped_resolved(&text, &body_s, text_avail);
             let title_h = title
                 .as_ref()
-                .map(|_| frus_text::line_height(title_s.size) + 4.0)
+                .map(|_| title_s.line_height() + 4.0)
                 .unwrap_or(0.0);
             let title_w = title
                 .as_ref()
@@ -179,10 +179,7 @@ impl<Msg> Widget<Msg> for AlertDialog {
                     theme.on_surface.fade(o),
                 );
                 scene.text_wrapped(
-                    Point::new(
-                        text_x,
-                        bounds.y + PAD + frus_text::line_height(title_s.size) + 4.0,
-                    ),
+                    Point::new(text_x, bounds.y + PAD + title_s.line_height() + 4.0),
                     self.text.clone(),
                     &body_s,
                     theme.muted.fade(o),

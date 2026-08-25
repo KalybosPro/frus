@@ -37,9 +37,7 @@ fn badge_style() -> ResolvedTextStyle {
 /// The height an item needs: the constant, unless the icon and a label the reader asked to
 /// enlarge no longer fit inside it.
 fn item_height(floor: f32) -> f32 {
-    floor.max(
-        frus_text::line_height(ICON_SIZE) + 2.0 + frus_text::line_height(label_style().size) + 8.0,
-    )
+    floor.max(frus_text::line_height(ICON_SIZE) + 2.0 + label_style().line_height() + 8.0)
 }
 
 /// One navigation destination (glyph + label), painted according to its state.

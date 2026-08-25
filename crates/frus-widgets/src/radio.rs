@@ -36,7 +36,7 @@ impl<Msg> RadioOption<Msg> {
 impl<Msg: Clone> Widget<Msg> for RadioOption<Msg> {
     fn style(&self) -> Style {
         let style = self.label_style();
-        let line = frus_text::line_height(style.size).max(DOT);
+        let line = style.line_height().max(DOT);
         let label_w = frus_text::measure_resolved(&self.label, &style).width;
         Style {
             width: Dimension::Length((DOT + GAP + label_w).ceil()),

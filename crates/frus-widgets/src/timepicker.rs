@@ -63,7 +63,7 @@ impl<Msg: Clone> Widget<Msg> for TimeCell<Msg> {
         scene.text(
             Point::new(
                 bounds.x + (bounds.width - w) * 0.5,
-                bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5,
+                bounds.y + (bounds.height - style.line_height()) * 0.5,
             ),
             self.label.clone(),
             &style,

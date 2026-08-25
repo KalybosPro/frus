@@ -99,7 +99,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
 
         let x = bounds.x + self.chevron_start();
         let style = label_style();
-        let ty = bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5;
+        let ty = bounds.y + (bounds.height - style.line_height()) * 0.5;
         if self.expandable {
             scene.text(
                 Point::new(x, ty),

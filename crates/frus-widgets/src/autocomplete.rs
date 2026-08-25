@@ -88,7 +88,7 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
         scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.border.fade(o));
 
         let style = label_style();
-        let ty = bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5;
+        let ty = bounds.y + (bounds.height - style.line_height()) * 0.5;
         let chars: Vec<char> = self.label.chars().collect();
         let normal = theme.on_surface.fade(o);
         let hilite = theme.primary.fade(o);

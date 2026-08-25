@@ -768,7 +768,7 @@ fn paint_tip(cx: f32, top: f32, text: String, theme: &Theme, o: f32, scene: &mut
         0.0,
         Color::TRANSPARENT,
     );
-    let ty = top + (TIP_H - frus_text::line_height(style.size)) * 0.5;
+    let ty = top + (TIP_H - style.line_height()) * 0.5;
     scene.text(
         Point::new(bx + 6.0, ty),
         text,

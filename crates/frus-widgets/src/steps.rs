@@ -44,7 +44,7 @@ fn label_style() -> ResolvedTextStyle {
 /// The bar's height: the constant, unless the labels the reader asked to enlarge no longer
 /// fit under the markers.
 fn bar_height() -> f32 {
-    HEIGHT.max(MARKER_D + LABEL_GAP + frus_text::line_height(label_style().size) + 4.0)
+    HEIGHT.max(MARKER_D + LABEL_GAP + label_style().line_height() + 4.0)
 }
 
 /// The step indicator of a multi-step form.

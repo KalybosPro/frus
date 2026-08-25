@@ -197,7 +197,7 @@ impl<Msg> Checkbox<Msg> {
 
 impl<Msg> Widget<Msg> for Checkbox<Msg> {
     fn style(&self) -> Style {
-        let line = frus_text::line_height(self.label_style().size).max(BOX);
+        let line = self.label_style().line_height().max(BOX);
         Style {
             width: Dimension::Length((BOX + self.label_width()).ceil()),
             height: Dimension::Length(line.ceil()),

@@ -437,7 +437,7 @@ impl Text {
     /// broke, and the ones past the limit are not drawn.
     fn capped(height: f32, r: &Resolved) -> f32 {
         match r.max_lines {
-            Some(max) => height.min(frus_text::line_height(r.style.size) * max as f32),
+            Some(max) => height.min(r.style.line_height() * max as f32),
             None => height,
         }
     }
@@ -453,7 +453,7 @@ impl Text {
         } else {
             bounds.height
         };
-        let run = (extent * 0.2).min(frus_text::line_height(r.style.size) * 3.0);
+        let run = (extent * 0.2).min(r.style.line_height() * 3.0);
         let (from, to) = if horizontal {
             (
                 Point::new(bounds.x + bounds.width - run, bounds.y),
@@ -587,9 +587,7 @@ impl<Msg> Widget<Msg> for Text {
                 if wrap { max_width } else { None },
             );
             if let Some(max) = max_lines {
-                size.height = size
-                    .height
-                    .min(frus_text::line_height(style.size) * max as f32);
+                size.height = size.height.min(style.line_height() * max as f32);
             }
             size
         }))
@@ -883,6 +881,30 @@ mod tests {
             (at(&capped) - frus_text::line_height(14.0) * 2.0).abs() < 0.5,
             "two lines exactly: {}",
             at(&capped)
+        );
+    }
+
+    /// **A line limit counts the lines the style asked for**, not lines of a default
+    /// height.
+    ///
+    /// Milestone 409 gave a style a `height` and threaded it through the measurement and
+    /// the paint; it left twenty-four places computing `line_height(style.size)` — the
+    /// 1.2 default — while holding a style that said otherwise. A cap is one of them, and
+    /// it is the one a test can see: two lines of a doubled leading is twice the box, and
+    /// before this it was capped as though the leading had never been named (milestone
+    /// 412).
+    #[test]
+    fn a_limit_counts_lines_of_the_height_that_was_asked_for() {
+        let long = "one two three four five six seven eight nine ten eleven twelve";
+        let plain = Text::new(long).size(14.0).wrap().max_lines(2);
+        let open = Text::new(long).size(14.0).height(2.4).wrap().max_lines(2);
+        let at = |t: &Text| {
+            Widget::<()>::measure(t, &Theme::default()).expect("measure")(Some(90.0), None).height
+        };
+        let ratio = at(&open) / at(&plain);
+        assert!(
+            (ratio - 2.0).abs() < 0.02,
+            "a doubled leading doubles the two-line cap: {ratio}"
         );
     }
 

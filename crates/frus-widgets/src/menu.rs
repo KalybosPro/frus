@@ -71,7 +71,7 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
             disabled_content(theme)
         };
         let style = label_style();
-        let ty = bounds.y + (bounds.height - frus_text::line_height(style.size)) * 0.5;
+        let ty = bounds.y + (bounds.height - style.line_height()) * 0.5;
         scene.text(
             Point::new(bounds.x + PAD_X, ty),
             self.label.clone(),
