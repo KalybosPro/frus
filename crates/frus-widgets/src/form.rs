@@ -261,14 +261,21 @@ struct Bullet<Msg> {
 }
 
 impl<Msg: Clone> Widget<Msg> for Bullet<Msg> {
+    /// It asks to **fill the width it is offered** rather than declaring one — see
+    /// [`Widget::main_axis_fill`]. A `width: 100%` resolves against the parent's *resolved*
+    /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         let measured = frus_text::measure(&self.label, BULLET_SIZE);
         Style {
-            width: Dimension::Percent(1.0),
             height: Dimension::Length((measured.height + 4.0).ceil()),
             padding: Insets::new(2.0, 6.0, 2.0, 6.0),
             ..Default::default()
         }
+    }
+
+    /// The width it was **offered**, not the width its parent came out at.
+    fn main_axis_fill(&self, _theme: &Theme) -> Option<FlexDirection> {
+        Some(FlexDirection::Row)
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -309,14 +316,21 @@ impl<Msg: Clone> Widget<Msg> for Bullet<Msg> {
 }
 
 impl<Msg: Clone> Widget<Msg> for ErrorSummary<Msg> {
+    /// It asks to **fill the width it is offered** rather than declaring one — see
+    /// [`Widget::main_axis_fill`]. A `width: 100%` resolves against the parent's *resolved*
+    /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         Style {
             flex_direction: FlexDirection::Column,
-            width: Dimension::Percent(1.0),
             padding: Insets::new(SUMMARY_PAD, SUMMARY_PAD, SUMMARY_PAD, SUMMARY_PAD),
             gap: 4.0,
             ..Default::default()
         }
+    }
+
+    /// The width it was **offered**, not the width its parent came out at.
+    fn main_axis_fill(&self, _theme: &Theme) -> Option<FlexDirection> {
+        Some(FlexDirection::Row)
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {

@@ -180,13 +180,20 @@ pub fn notched_outline(host: Rect, centre_x: f32, radius: f32, guest_dy: f32) ->
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for BottomAppBar<Msg> {
+    /// It asks to **fill the width it is offered** rather than declaring one — see
+    /// [`Widget::main_axis_fill`]. A `width: 100%` resolves against the parent's *resolved*
+    /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
             height: Dimension::Length(self.height),
             padding: frus_core::Insets::new(self.padding, self.padding, self.padding, self.padding),
             ..Default::default()
         }
+    }
+
+    /// The width it was **offered**, not the width its parent came out at.
+    fn main_axis_fill(&self, _theme: &Theme) -> Option<frus_layout::FlexDirection> {
+        Some(frus_layout::FlexDirection::Row)
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {

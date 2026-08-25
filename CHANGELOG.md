@@ -8,10 +8,36 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 403 so far, each documenting the objective, the alternatives
+> record — one per step, 404 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **A widget that fills the width now does it in a column too** (J404). Found by milestone
+  403's scaling probe and nothing to do with scaling: a `ListTile` **alone** laid out
+  correctly and **in a column** — the most ordinary thing anybody does with one — came out
+  as wide as its own padding, with its title ellipsised away.
+
+  The cause is `width: Dimension::Percent(1.0)`. A percentage resolves against the parent's
+  **resolved** width, and a parent that shrink-wraps has not got one yet — it is waiting on
+  this very child. Both readings are "full width" in English and only one can be computed
+  in time: the parent's own width is known on the way back *up*, the room being offered on
+  the way *down*. `Widget::main_axis_fill` is the second, answered by the walk.
+
+  **It was not a `ListTile` bug**: fifteen widgets declared it and a probe found every one
+  of the seven it could build collapsing. Nine impls converted — `ListTile`, `BottomAppBar`,
+  `SheetPanel`, `BottomSheet`, `Drawer`, `Steps`, `BarChart`, `LineChart`, `Bullet`,
+  `ErrorSummary`. `AspectRatio` and `ConstrainedBox`'s overflow case keep theirs, needing a
+  width taffy *knows*; that limit is now documented rather than latent.
+
+  No test caught it because a percentage against a *definite* parent is correct, and every
+  fixture gives its widgets a width. Alone is where the bug hid.
+
+  **Five goldens moved**, each read before being accepted: a steps bar and an error banner
+  now span the content box instead of stopping at the widest sibling — which is what the
+  reference gives, its `Column` handing children `maxWidth` as a loose constraint.
 
 ### Added
 

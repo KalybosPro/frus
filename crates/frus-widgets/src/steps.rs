@@ -124,15 +124,22 @@ impl<Msg> Steps<Msg> {
 }
 
 impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
+    /// It asks to **fill the width it is offered** rather than declaring one — see
+    /// [`Widget::main_axis_fill`]. A `width: 100%` resolves against the parent's *resolved*
+    /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
             height: Dimension::Length(HEIGHT),
             // Any row of hotspots occupies the top, the markers' band.
             flex_direction: FlexDirection::Column,
             align: Align::Stretch,
             ..Default::default()
         }
+    }
+
+    /// The width it was **offered**, not the width its parent came out at.
+    fn main_axis_fill(&self, _theme: &Theme) -> Option<FlexDirection> {
+        Some(FlexDirection::Row)
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {

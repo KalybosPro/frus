@@ -33,9 +33,11 @@ struct SheetPanel<Msg> {
 }
 
 impl<Msg: Clone> Widget<Msg> for SheetPanel<Msg> {
+    /// It asks to **fill the width it is offered** rather than declaring one — see
+    /// [`Widget::main_axis_fill`]. A `width: 100%` resolves against the parent's *resolved*
+    /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
             // Natural height: the content sets the height and the sheet adjusts to it.
             height: Dimension::Auto,
             flex_direction: FlexDirection::Column,
@@ -43,6 +45,11 @@ impl<Msg: Clone> Widget<Msg> for SheetPanel<Msg> {
             padding: Insets::new(20.0, 0.0, 0.0, 0.0),
             ..Default::default()
         }
+    }
+
+    /// The width it was **offered**, not the width its parent came out at.
+    fn main_axis_fill(&self, _theme: &Theme) -> Option<FlexDirection> {
+        Some(FlexDirection::Row)
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -136,13 +143,20 @@ impl<Msg: Clone + 'static> BottomSheet<Msg> {
 }
 
 impl<Msg: Clone> Widget<Msg> for BottomSheet<Msg> {
+    /// It asks to **fill the width it is offered** rather than declaring one — see
+    /// [`Widget::main_axis_fill`]. A `width: 100%` resolves against the parent's *resolved*
+    /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
             height: Dimension::Percent(1.0),
             flex_direction: FlexDirection::Column,
             ..Default::default()
         }
+    }
+
+    /// The width it was **offered**, not the width its parent came out at.
+    fn main_axis_fill(&self, _theme: &Theme) -> Option<FlexDirection> {
+        Some(FlexDirection::Row)
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {

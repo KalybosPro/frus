@@ -405,9 +405,11 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for Drawer<Msg> {
+    /// It asks to **fill the width it is offered** rather than declaring one — see
+    /// [`Widget::main_axis_fill`]. A `width: 100%` resolves against the parent's *resolved*
+    /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
             height: Dimension::Percent(1.0),
             // Permanent: a row (panel + body side by side). Modal: the body fills
             // on its own (the panel floats as an overlay).
@@ -418,6 +420,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for Drawer<Msg> {
             },
             ..Default::default()
         }
+    }
+
+    /// The width it was **offered**, not the width its parent came out at.
+    fn main_axis_fill(&self, _theme: &Theme) -> Option<FlexDirection> {
+        Some(FlexDirection::Row)
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {

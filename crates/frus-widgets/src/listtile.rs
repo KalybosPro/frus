@@ -347,9 +347,14 @@ impl<Msg: Clone + 'static> Widget<Msg> for ListTile<Msg> {
         Widget::<Msg>::style_themed(self, &Theme::default())
     }
 
+    /// It asks to **fill the width it is offered** rather than declaring one.
+    ///
+    /// See [`Widget::main_axis_fill`]. A `width: 100%` resolves against the parent's
+    /// *resolved* width, which a parent that shrink-wraps does not have yet — so a tile in
+    /// a plain column, the most ordinary thing anybody does with one, came out as wide as
+    /// its own padding and ellipsised its title to nothing.
     fn style_themed(&self, _theme: &Theme) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
             min_height: Dimension::Length(self.height()),
             flex_direction: FlexDirection::Row,
             align: Align::Center,
@@ -361,6 +366,12 @@ impl<Msg: Clone + 'static> Widget<Msg> for ListTile<Msg> {
             )),
             ..Default::default()
         }
+    }
+
+    /// The width it was offered, not the width its parent came out at — the difference
+    /// between a number known on the way **down** and one only known on the way back up.
+    fn main_axis_fill(&self, _theme: &Theme) -> Option<FlexDirection> {
+        Some(FlexDirection::Row)
     }
 
     fn build_themed(&self, theme: &Theme) {
@@ -558,6 +569,62 @@ mod fill_tests {
                 rect.x + rect.width,
                 width - LIST_TILE_PADDING_END
             );
+        }
+    }
+    /// **A widget that fills the width does it in a column too**, which is where the
+    /// framework's own idiom for it was wrong in fifteen places at once.
+    ///
+    /// `width: 100%` resolves against the parent's **resolved** width. A parent that
+    /// shrink-wraps has not got one yet — it is waiting on this very child — so the
+    /// percentage resolves against nothing and the box comes out empty. A list tile in a
+    /// plain column, the most ordinary thing anybody does with one, was as wide as its own
+    /// padding and ellipsised its title away.
+    ///
+    /// The fix is to *ask* rather than declare: `main_axis_fill` is answered by the walk,
+    /// which knows the room being offered on the way **down**, where a parent's own width
+    /// is only known on the way back up. Both readings are "full width" in English and only
+    /// one of them can be computed in time.
+    ///
+    /// Each widget is checked **alone and in a column** because alone is where the bug
+    /// hides: a percentage against a definite parent is right, so every fixture that gave
+    /// a width passed and no golden ever caught this.
+    #[test]
+    fn widgets_that_fill_the_width_do_it_in_a_column_too() {
+        use crate::{build_ui_inspected, Runtime};
+        use frus_core::Size;
+        type W = Box<dyn Widget<()>>;
+        type Case = (&'static str, fn() -> W);
+        let cases: Vec<Case> = vec![
+            ("ListTile", || Box::new(ListTile::new().title("A row"))),
+            ("BottomAppBar", || Box::new(crate::BottomAppBar::new())),
+            ("BottomSheet", || Box::new(crate::BottomSheet::new(true))),
+            ("Drawer", || Box::new(crate::Drawer::new(true))),
+            ("Steps", || Box::new(crate::steps::Steps::new(["a", "b"]))),
+        ];
+        for (name, make) in cases {
+            for (what, root) in [
+                ("alone", make()),
+                (
+                    "in a column",
+                    Box::new(crate::Flex::column().child_boxed(make())) as W,
+                ),
+            ] {
+                let (_, nodes) = build_ui_inspected(
+                    root.as_ref(),
+                    Size::new(400.0, 300.0),
+                    &Runtime::default(),
+                    &Theme::default(),
+                );
+                let width = nodes
+                    .iter()
+                    .find(|n| n.name == name)
+                    .map(|n| n.rect.width)
+                    .unwrap_or_else(|| panic!("{name} is not in the tree"));
+                assert_eq!(
+                    width, 400.0,
+                    "{name} {what}: {width} of the 400 it was offered"
+                );
+            }
         }
     }
 }

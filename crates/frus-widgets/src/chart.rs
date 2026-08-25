@@ -444,12 +444,19 @@ fn chart_plot_hit(
 }
 
 impl<Msg> Widget<Msg> for BarChart<Msg> {
+    /// It asks to **fill the width it is offered** rather than declaring one — see
+    /// [`Widget::main_axis_fill`]. A `width: 100%` resolves against the parent's *resolved*
+    /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
             height: Dimension::Length(self.height),
             ..Default::default()
         }
+    }
+
+    /// The width it was **offered**, not the width its parent came out at.
+    fn main_axis_fill(&self, _theme: &Theme) -> Option<frus_layout::FlexDirection> {
+        Some(frus_layout::FlexDirection::Row)
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -1036,12 +1043,19 @@ impl<Msg> LineChart<Msg> {
 }
 
 impl<Msg> Widget<Msg> for LineChart<Msg> {
+    /// It asks to **fill the width it is offered** rather than declaring one — see
+    /// [`Widget::main_axis_fill`]. A `width: 100%` resolves against the parent's *resolved*
+    /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
             height: Dimension::Length(self.height),
             ..Default::default()
         }
+    }
+
+    /// The width it was **offered**, not the width its parent came out at.
+    fn main_axis_fill(&self, _theme: &Theme) -> Option<frus_layout::FlexDirection> {
+        Some(frus_layout::FlexDirection::Row)
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
