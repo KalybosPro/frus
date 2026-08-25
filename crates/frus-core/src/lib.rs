@@ -46,6 +46,6 @@ pub use responsive::{Orientation, SizeClass};
 pub use scene::{ClipShape, LayerTransform, PathGradient, Primitive, Scene, TextBlock};
 pub use semantics::{Role, SemanticsProperties, Toggled};
 pub use text_style::{
-    FontWeight, ResolvedTextStyle, TextAlign, TextDecoration, TextOverflow, TextRun, TextSpan,
-    TextStyle, DEFAULT_TEXT_SIZE,
+    text_scale, with_text_scale, FontWeight, ResolvedTextStyle, TextAlign, TextDecoration,
+    TextOverflow, TextRun, TextSpan, TextStyle, DEFAULT_TEXT_SIZE,
 };

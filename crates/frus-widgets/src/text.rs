@@ -1139,6 +1139,67 @@ mod tests {
         }
     }
 
+    /// **The box grows with the reader's font size, and the glyphs agree with the box.**
+    ///
+    /// The second half is the whole risk of this feature and the reason it is resolved at
+    /// one place rather than applied by each widget. Text measured at 16 and drawn at 24
+    /// leaves every row on the screen the wrong height at once, and nothing in the picture
+    /// says which of the two numbers was the mistake. So this asserts the pair, not the
+    /// paint: what the layout reserved is what the renderer was asked to draw.
+    #[test]
+    fn a_reader_who_asked_for_larger_text_gets_a_larger_box_too() {
+        use crate::{build_ui, MediaQuery, Runtime, Size};
+        let drawn = |scaler: f32| {
+            MediaQuery::new(Size::new(400.0, 200.0))
+                .with_text_scaler(scaler)
+                .scope(|| {
+                    let text: Box<dyn Widget<()>> = Box::new(Text::new("Readable").no_wrap());
+                    let ui = build_ui(
+                        text.as_ref(),
+                        Size::new(400.0, 200.0),
+                        &Runtime::default(),
+                        &Theme::default(),
+                    );
+                    let rect = ui.scene().primitives().iter().find_map(|p| match p {
+                        Primitive::Text { size, bounds, .. } => Some((*size, *bounds)),
+                        _ => None,
+                    });
+                    rect.expect("the text is drawn")
+                })
+        };
+        let (plain_size, plain_box) = drawn(1.0);
+        let (big_size, big_box) = drawn(1.5);
+
+        assert_eq!(plain_size, 16.0, "the framework's own, unscaled");
+        assert_eq!(big_size, 24.0, "and the reader's 1.5 of it");
+        assert!(
+            big_box.width > plain_box.width * 1.4,
+            "the box grew with the glyphs: {} → {}",
+            plain_box.width,
+            big_box.width
+        );
+        // The pair, which is the thing that must never come apart: the box the layout gave
+        // this text is the box its own drawn size measures to.
+        let measured = frus_text::measure_styled("Readable", big_size, FontWeight::Regular, false);
+        assert!(
+            (big_box.width - measured.width.ceil()).abs() < 0.51,
+            "reserved {} for glyphs measuring {}",
+            big_box.width,
+            measured.width
+        );
+    }
+
+    /// Outside a described surface **nothing scales**, which is what every test in this
+    /// file and every golden depends on: they build widgets with no `MediaQuery` around
+    /// them, and a framework that scaled by default would move all of them at once.
+    #[test]
+    fn with_no_surface_described_nothing_is_scaled() {
+        assert_eq!(
+            Text::new("x").resolved(None).style.size,
+            frus_core::DEFAULT_TEXT_SIZE
+        );
+    }
+
     /// A text that fits is never clipped, whatever it asked for: a clip on every text
     /// would put a hard edge through the antialiasing of every one of them.
     #[test]

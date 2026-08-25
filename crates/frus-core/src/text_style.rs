@@ -279,14 +279,24 @@ impl TextStyle {
     }
 
     /// Every question answered: the framework's own default wherever nothing in the chain
-    /// said anything.
+    /// said anything, and **the reader's font size applied**.
     ///
     /// This is where the chain **stops**. Above it a style may leave a field open for a
     /// subtree or a theme to answer; below it a shaper needs a number, and there is nobody
     /// left to ask.
+    ///
+    /// Which is exactly why the user's *Font size* setting is applied here and nowhere
+    /// else. A phone's slider goes to 1.3 on Android and past 3 with iOS's larger
+    /// accessibility sizes, and an interface that ignores it is one a lot of people cannot
+    /// read. Scaling it at the one place a size becomes a number is what keeps the
+    /// **measurement and the paint agreeing**: text measured at one size and drawn at
+    /// another is a layout that is wrong everywhere at once, with nothing in the picture to
+    /// say which of the two numbers was the mistake.
+    ///
+    /// See [`with_text_scale`]. Outside any scope the scale is 1 and this is the identity.
     pub fn resolved(self) -> ResolvedTextStyle {
         ResolvedTextStyle {
-            size: self.size.unwrap_or(DEFAULT_TEXT_SIZE),
+            size: self.size.unwrap_or(DEFAULT_TEXT_SIZE) * text_scale(),
             weight: self.weight.unwrap_or(FontWeight::Regular),
             italic: self.italic.unwrap_or(false),
             color: self.color,
@@ -296,18 +306,49 @@ impl TextStyle {
     }
 }
 
-impl ResolvedTextStyle {
-    /// Back to a style that answers everything it was asked — for handing a resolved style
-    /// on to something that takes a [`TextStyle`].
-    pub const fn to_style(self) -> TextStyle {
-        TextStyle {
-            size: Some(self.size),
-            weight: Some(self.weight),
-            italic: Some(self.italic),
-            color: self.color,
-            decoration: Some(self.decoration),
-            decoration_color: self.decoration_color,
-        }
+/// The reader's font-size setting in force on this thread, or `1.0` outside any
+/// [`with_text_scale`].
+///
+/// Read once, by [`TextStyle::resolved`]. Nothing else should consult it: a second reader
+/// is a second chance to scale a size twice, or to scale one a sibling did not.
+pub fn text_scale() -> f32 {
+    TEXT_SCALE.with(|s| s.get())
+}
+
+/// Runs `f` with the reader's font-size setting in force, restoring whatever was there
+/// before — including while a panic unwinds, so one bad frame cannot leave a stale scale
+/// installed for every frame after it.
+///
+/// **Ambient rather than threaded**, and that is the decision worth stating. Passing a
+/// scaler down would mean every widget that measures a label remembering to apply it, and
+/// the one that forgot would draw text the layout never measured. There is no diagnostic
+/// for that — only a screen that is subtly wrong. Ambient makes forgetting impossible: the
+/// only place a size becomes a number already reads it.
+///
+/// The framework installs this around `view` from `MediaQuery::text_scaler`; an
+/// application does not normally call it. Scales at or below zero are ignored, a font of
+/// no size being a screen with no words on it.
+pub fn with_text_scale<R>(scale: f32, f: impl FnOnce() -> R) -> R {
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+    let previous = TEXT_SCALE.with(|s| s.replace(scale));
+    let guard = RestoreScale(previous);
+    let out = f();
+    drop(guard);
+    out
+}
+
+thread_local! {
+    /// The reader's font-size setting on this thread. `Cell`, not `RefCell`: an `f32` is
+    /// `Copy` and every access is a whole get or a whole set.
+    static TEXT_SCALE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+}
+
+/// Puts back the previous scale when dropped, panic or not.
+struct RestoreScale(f32);
+
+impl Drop for RestoreScale {
+    fn drop(&mut self) {
+        TEXT_SCALE.with(|s| s.set(self.0));
     }
 }
 
@@ -520,6 +561,58 @@ mod tests {
         // The colour is the one thing left open, its last word belonging to a theme this
         // type cannot see.
         assert_eq!(r.color, None);
+    }
+
+    /// The reader's font size lands on **the one place a size becomes a number**.
+    #[test]
+    fn the_readers_font_size_reaches_a_resolved_style() {
+        assert_eq!(
+            TextStyle::new(10.0).resolved().size,
+            10.0,
+            "unscaled by default"
+        );
+        with_text_scale(1.5, || {
+            assert_eq!(TextStyle::new(10.0).resolved().size, 15.0);
+            // A style that named no size scales the framework's own, not nothing.
+            assert_eq!(
+                TextStyle::NONE.resolved().size,
+                DEFAULT_TEXT_SIZE * 1.5,
+                "the default is a size like any other"
+            );
+        });
+        assert_eq!(
+            TextStyle::new(10.0).resolved().size,
+            10.0,
+            "and the scope put it back"
+        );
+    }
+
+    /// Nothing but the size moves. A reader asking for larger text has not asked for a
+    /// different typeface, and scaling a weight or a slant is not a thing to do.
+    #[test]
+    fn only_the_size_is_scaled() {
+        with_text_scale(2.0, || {
+            let r = TextStyle::new(10.0)
+                .weight(FontWeight::Bold)
+                .italic()
+                .resolved();
+            assert_eq!(r.size, 20.0);
+            assert_eq!(r.weight, FontWeight::Bold);
+            assert!(r.italic);
+        });
+    }
+
+    /// A scale of zero is **ignored**, not obeyed. A font of no size is a screen with no
+    /// words on it, and a platform reporting one is a platform to disbelieve rather than a
+    /// user to accommodate.
+    #[test]
+    fn a_scale_of_nothing_is_disbelieved() {
+        with_text_scale(0.0, || {
+            assert_eq!(TextStyle::new(10.0).resolved().size, 10.0);
+        });
+        with_text_scale(-2.0, || {
+            assert_eq!(TextStyle::new(10.0).resolved().size, 10.0);
+        });
     }
 
     #[test]

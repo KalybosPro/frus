@@ -8,10 +8,42 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 402 so far, each documenting the objective, the alternatives
+> record — one per step, 403 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **The reader's font size is obeyed** (J403) — the largest accessibility gap the framework
+  had. A phone's *Font size* slider goes to 1.3 on Android and past 3 with iOS's larger
+  accessibility sizes. Milestone 399 carried the number and said plainly it was not being
+  spent; milestone 402 built the one place it could be spent safely.
+
+  The hazard was never the multiplication — it was that 69 call sites read a size and the
+  renderer read another, so a scale applied in 68 of them draws text the layout never
+  measured. `TextStyle::resolved()` is now the only point where a size becomes a number, so
+  that is where the scale goes and the measurement and the paint agree **by construction
+  rather than by vigilance**.
+
+  `frus_core::with_text_scale` is **ambient, not threaded**, deliberately: passing a scaler
+  down would mean every widget remembering to apply it, and there is no diagnostic for the
+  one that forgets. `MediaQuery::scope` installs it — the reader's font size travels with
+  the description because it is part of the description.
+
+  Not scaled: a scale of zero or less (disbelieved, not obeyed), weight and slant, the
+  debug overlays, and anything outside a described surface — which is why all 91 goldens
+  are unchanged.
+
+  **Known limit, measured rather than assumed**: component *widths* follow the type, and
+  fixed *heights* do not. `BUTTON_HEIGHT` is 40 and `CHIP_HEIGHT` is 32 whatever the reader
+  asked for, so at 2.0 a chip's glyphs need 34 px in a 32 px box.
+
+### Removed
+
+- **`ResolvedTextStyle::to_style`** (J403). Unused, and with a scale inside `resolved()` it
+  became a trap: a resolved size turned back into a style and resolved again is a size
+  scaled twice.
 
 ### Changed
 

@@ -430,7 +430,11 @@ impl MediaQuery {
     pub fn scope<R>(self, f: impl FnOnce() -> R) -> R {
         let previous = AMBIENT.with(|a| a.replace(self));
         let guard = Restore(previous);
-        let out = f();
+        // The reader's font size travels with the description, because it **is** part of
+        // the description and because installing it anywhere else would be one more thing
+        // to remember. It lives in `frus-core` rather than here: the only place a size
+        // becomes a number is `TextStyle::resolved`, and that is below this crate.
+        let out = frus_core::with_text_scale(self.text_scaler, f);
         drop(guard);
         out
     }
