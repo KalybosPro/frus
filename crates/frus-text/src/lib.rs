@@ -178,6 +178,37 @@ pub fn family_for(text: &str) -> cosmic_text::Family<'static> {
     }
 }
 
+/// The family to draw `text` in when a style **named one**.
+///
+/// # Why a named family does not simply win
+///
+/// A run containing Arabic keeps the registered Arabic face, whatever was named. It is not
+/// a hedge: cosmic-text does not fall back across families on Android, where the platform
+/// fallback lists are empty, so a family without Arabic coverage renders **nothing at
+/// all** — not a substituted glyph, not a box, nothing. Text in an unexpected face is a
+/// smaller failure than a blank screen, and a caller who wants an Arabic family names it
+/// and gets it.
+///
+/// Coverage is what would settle this properly — asking the face whether it has the
+/// characters — and fontdb does not offer it cheaply. That is a limit, and it is written
+/// down here rather than left for someone to discover on a device.
+pub fn family_for_style(
+    text: &str,
+    family: Option<frus_core::FontFamily>,
+) -> cosmic_text::Family<'static> {
+    use frus_core::FontFamily;
+    match family {
+        // Nothing named: the existing rule, which already chooses by script.
+        None => family_for(text),
+        // Named, but the run needs the Arabic face to be drawn at all.
+        Some(_) if contains_arabic(text) => family_for(text),
+        Some(FontFamily::SansSerif) => family_or_generic(&SANS, cosmic_text::Family::SansSerif),
+        Some(FontFamily::Serif) => cosmic_text::Family::Serif,
+        Some(FontFamily::Monospace) => monospace_family(),
+        Some(FontFamily::Named(name)) => cosmic_text::Family::Name(name),
+    }
+}
+
 /// The monospaced family, for the widgets that ask for one.
 pub fn monospace_family() -> cosmic_text::Family<'static> {
     family_or_generic(&MONO, cosmic_text::Family::Monospace)
@@ -277,6 +308,9 @@ struct MeasureKey {
     /// The line height these words were measured at, in bits. A style may name one, so it
     /// is part of the question and not a constant.
     line_h: u32,
+    /// The family they were measured in. Different faces have different widths, which is
+    /// the reason for naming one at all.
+    family: Option<frus_core::FontFamily>,
 }
 
 /// How many entries a generation holds before it is retired. Two generations live at
@@ -462,6 +496,7 @@ pub fn measure_wrapped_resolved(
         style.italic,
         max_width,
         style.line_height(),
+        style.family,
     )
 }
 
@@ -488,6 +523,7 @@ pub fn measure_wrapped(
         italic,
         max_width,
         line_height(size_px),
+        None,
     )
 }
 
@@ -503,6 +539,7 @@ fn measure_at(
     italic: bool,
     max_width: Option<f32>,
     line_h: f32,
+    family: Option<frus_core::FontFamily>,
 ) -> Size {
     if text.is_empty() {
         return Size::new(0.0, line_h);
@@ -524,8 +561,9 @@ fn measure_at(
         italic: available_style(italic) == Style::Italic,
         max_width: max_width.map(f32::to_bits),
         // Two line heights give two different answers for the same words, so they cannot
-        // share a cache entry.
+        // share a cache entry. Nor can two families: that is the point of naming one.
         line_h: line_h.to_bits(),
+        family,
     };
     if let Some(size) = cached_measurement(&key) {
         return size;
@@ -537,7 +575,9 @@ fn measure_at(
     // A constrained width (wrapping) or a free one; the height is always free.
     buffer.set_size(&mut font_system, max_width, None);
     let attrs = Attrs::new()
-        .family(family_for(text))
+        // The face the **renderer** will use, not the default: measuring in one family and
+        // drawing in another reserves a width for letters of a different shape.
+        .family(family_for_style(text, family))
         .weight(Weight(available_weight(weight)))
         .style(available_style(italic));
     buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
@@ -1609,5 +1649,64 @@ mod tests {
             48.0,
             "the content wins over the floor"
         );
+    }
+
+    /// A named family reaches the shaping, and a **different face measures differently** —
+    /// which is the whole reason a style may name one.
+    #[test]
+    fn a_named_family_reaches_the_measurement() {
+        let words = "The quick brown fox";
+        let plain = ResolvedTextStyle::exact(16.0);
+        let mono = ResolvedTextStyle {
+            family: Some(frus_core::FontFamily::Monospace),
+            ..plain
+        };
+        let a = measure_wrapped_resolved(words, &plain, None);
+        let b = measure_wrapped_resolved(words, &mono, None);
+        assert!(a.width > 0.0 && b.width > 0.0);
+        assert_ne!(
+            a.width, b.width,
+            "a monospaced face sets these words to a different width"
+        );
+    }
+
+    /// **Arabic keeps its face even when a family is named.**
+    ///
+    /// Not a hedge: cosmic-text does not fall back across families on Android, where the
+    /// platform fallback lists are empty, so a family without Arabic coverage draws
+    /// nothing at all. Text in an unexpected face is a smaller failure than a blank
+    /// screen. The measurement has to make the same choice the renderer will, so the rule
+    /// lives in one function that both call.
+    #[test]
+    fn arabic_keeps_its_face_whatever_was_named() {
+        let arabic = "\u{0645}\u{0631}\u{062d}\u{0628}\u{0627}";
+        let named = family_for_style(arabic, Some(frus_core::FontFamily::Monospace));
+        assert_eq!(
+            format!("{named:?}"),
+            format!("{:?}", family_for(arabic)),
+            "the script wins over the name"
+        );
+        // And a Latin run in the same style is free to take the name.
+        let latin = family_for_style("hello", Some(frus_core::FontFamily::Monospace));
+        assert_eq!(format!("{latin:?}"), format!("{:?}", monospace_family()));
+    }
+
+    /// Two families do not share a cached measurement, for the same reason two line
+    /// heights do not: the answer is different and the words are the same.
+    #[test]
+    fn two_families_do_not_share_a_cached_answer() {
+        let words = "shared words in two faces";
+        let plain = ResolvedTextStyle::exact(15.0);
+        let mono = ResolvedTextStyle {
+            family: Some(frus_core::FontFamily::Monospace),
+            ..plain
+        };
+        let first = measure_wrapped_resolved(words, &plain, None);
+        let second = measure_wrapped_resolved(words, &mono, None);
+        // Asked again in the other order, to catch a cache answering from the wrong entry
+        // rather than one that simply never filled.
+        assert_eq!(measure_wrapped_resolved(words, &mono, None), second);
+        assert_eq!(measure_wrapped_resolved(words, &plain, None), first);
+        assert_ne!(first.width, second.width);
     }
 }

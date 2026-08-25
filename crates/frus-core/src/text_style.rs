@@ -131,6 +131,24 @@ impl TextDecoration {
 /// The font size a text ends up at when nothing anywhere in the chain named one.
 pub const DEFAULT_TEXT_SIZE: f32 = 16.0;
 
+/// A **font family**, as a style names it.
+///
+/// `Copy`, and `Named` holds a `&'static str`, so that a [`TextStyle`] stays `Copy` and can
+/// be handed down a subtree by value like every other field. Family names come from
+/// `frus_text::add_font`, which registers them for the life of the program, so a borrowed
+/// name outliving the style is the normal case rather than a restriction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FontFamily {
+    /// The application's default sans-serif — what text gets when it says nothing.
+    SansSerif,
+    /// A serif face, if the platform or the application has one.
+    Serif,
+    /// The registered monospaced family: code, keys, anything whose columns must line up.
+    Monospace,
+    /// A family **by name**, as registered with `frus_text::add_font`.
+    Named(&'static str),
+}
+
 /// The line height a style that says nothing gets, as a **multiple of the font size**.
 ///
 /// 1.2 is what the bundled faces want, and what every part of the framework used before it
@@ -175,6 +193,15 @@ pub struct TextStyle {
     /// keeps its rhythm when the reader turns the type up, because the leading grows with
     /// the letters instead of staying where a designer left it.
     pub height: Option<f32>,
+    /// The font family — the reference's `fontFamily`. Unset, the application's default.
+    ///
+    /// **It does not always get the last word, and that is deliberate.** A run containing
+    /// Arabic is drawn with the registered Arabic face even when a family was named,
+    /// because cosmic-text does not fall back across families on Android, where the
+    /// platform fallback lists are empty: a named family without Arabic coverage renders
+    /// *nothing at all*. Text in an unexpected face is a smaller failure than no text, and
+    /// naming the Arabic family itself still works.
+    pub family: Option<FontFamily>,
 }
 
 /// A [`TextStyle`] with every question answered: what to measure with, and what to draw.
@@ -199,6 +226,9 @@ pub struct ResolvedTextStyle {
     /// The line's height as a **multiple of the font size**; `None` means
     /// [`DEFAULT_LINE_HEIGHT`]. Read it through [`line_height`](Self::line_height).
     pub height: Option<f32>,
+    /// The font family; `None` means the application's default. See
+    /// [`TextStyle::family`] for why it does not always win.
+    pub family: Option<FontFamily>,
 }
 
 impl ResolvedTextStyle {
@@ -232,6 +262,7 @@ impl ResolvedTextStyle {
             decoration: TextDecoration::NONE,
             decoration_color: None,
             height: None,
+            family: None,
         }
     }
 }
@@ -246,6 +277,7 @@ impl TextStyle {
         decoration: None,
         decoration_color: None,
         height: None,
+        family: None,
     };
 
     /// A style that names a `size` and nothing else.
@@ -331,6 +363,7 @@ impl TextStyle {
             decoration: over.decoration.or(self.decoration),
             decoration_color: over.decoration_color.or(self.decoration_color),
             height: over.height.or(self.height),
+            family: over.family.or(self.family),
         }
     }
 
@@ -383,6 +416,7 @@ impl TextStyle {
             decoration: self.decoration.unwrap_or(TextDecoration::NONE),
             decoration_color: self.decoration_color,
             height: self.height,
+            family: self.family,
         }
     }
 }

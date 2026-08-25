@@ -262,6 +262,10 @@ pub enum Primitive {
         /// has to lay the lines out at the height the measurement used, and it cannot
         /// derive that from the size alone.
         height: Option<f32>,
+        /// The font family; `None` means the application's default. Carried for the same
+        /// reason as `height`: the renderer must shape with the face the measurement used,
+        /// and it cannot know which that was from the words alone.
+        family: Option<crate::FontFamily>,
         /// Clip rectangle.
         clip: Rect,
         /// The box the text was laid out in — the emitting widget's, so an
@@ -415,6 +419,7 @@ impl Primitive {
                 decoration,
                 decoration_color,
                 height,
+                family,
                 clip,
                 bounds,
                 owner,
@@ -431,6 +436,7 @@ impl Primitive {
                 decoration,
                 decoration_color,
                 height,
+                family,
                 clip: clip.scale_xy(sx, sy),
                 bounds: bounds.scale_xy(sx, sy),
                 owner,
@@ -552,6 +558,7 @@ impl Primitive {
                 decoration,
                 decoration_color,
                 height,
+                family,
                 clip,
                 bounds,
                 owner,
@@ -568,6 +575,7 @@ impl Primitive {
                 decoration,
                 decoration_color,
                 height,
+                family,
                 clip: clip.translate(dx, dy),
                 bounds: bounds.translate(dx, dy),
                 owner,
@@ -738,6 +746,7 @@ impl Primitive {
                 decoration,
                 decoration_color,
                 height,
+                family,
                 bounds,
                 owner,
                 ..
@@ -754,6 +763,7 @@ impl Primitive {
                 decoration,
                 decoration_color,
                 height,
+                family,
                 clip,
                 bounds,
                 owner,
@@ -973,6 +983,7 @@ impl Scene {
                 decoration,
                 decoration_color,
                 height,
+                family,
                 clip,
                 bounds,
                 owner,
@@ -989,6 +1000,7 @@ impl Scene {
                 decoration,
                 decoration_color: decoration_color.map(|c| c.fade(opacity)),
                 height,
+                family,
                 clip,
                 bounds,
                 owner,
@@ -1404,6 +1416,7 @@ impl Scene {
             decoration: style.decoration,
             decoration_color: style.decoration_color,
             height: style.height,
+            family: style.family,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,
@@ -1433,6 +1446,7 @@ impl Scene {
             decoration: style.decoration,
             decoration_color: style.decoration_color,
             height: style.height,
+            family: style.family,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,
@@ -1467,6 +1481,7 @@ impl Scene {
             decoration: style.decoration,
             decoration_color: style.decoration_color,
             height: style.height,
+            family: style.family,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,

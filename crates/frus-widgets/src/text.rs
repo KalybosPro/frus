@@ -284,6 +284,21 @@ impl Text {
         self
     }
 
+    /// Sets the **font family** — the reference's
+    /// [`fontFamily`](frus_core::TextStyle::family).
+    ///
+    /// `Text::new("fn main()").family(FontFamily::Monospace)` for code;
+    /// `FontFamily::Named("Inter")` for a face registered with `frus_text::add_font`.
+    /// Unset, the application's default.
+    ///
+    /// **A run containing Arabic keeps the registered Arabic face** whatever is named
+    /// here, because a family without Arabic coverage renders nothing at all on Android
+    /// rather than falling back — see [`frus_core::TextStyle::family`].
+    pub fn family(mut self, family: frus_core::FontFamily) -> Self {
+        self.style.family = Some(family);
+        self
+    }
+
     /// Sets the line height as a **multiple of the font size** — the reference's
     /// [`TextStyle::height`](frus_core::TextStyle::height).
     ///
@@ -1347,6 +1362,7 @@ mod tests {
                 decoration: frus_core::TextDecoration::NONE,
                 decoration_color: None,
                 height: None,
+                family: None,
                 clip: Rect::UNBOUNDED,
                 // Painted directly rather than through the widget walk, so no box was
                 // declared: unknown, which the renderer reads as "covers everything".

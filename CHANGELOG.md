@@ -8,10 +8,28 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 409 so far, each documenting the objective, the alternatives
+> record — one per step, 410 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`TextStyle::family`** and `FontFamily` (J410), the reference's `fontFamily`.
+  `Text::new("fn main()").family(FontFamily::Monospace)`, or `FontFamily::Named("Inter")`
+  for a face registered with `add_font`. Fonts could already be registered globally; no
+  widget could ask for one.
+
+  `FontFamily` is `Copy` and `Named` borrows a `&'static str`, so `TextStyle` stays `Copy`
+  and travels down a subtree by value like every other field.
+
+  **A named family does not always win.** A run containing Arabic keeps the registered
+  Arabic face, because cosmic-text does not fall back across families on Android — a family
+  without Arabic coverage renders nothing at all, and text in an unexpected face is a
+  smaller failure than a blank screen. Naming the Arabic family itself still works.
+
+  Measure and paint call the same `family_for_style`, and the measurement cache is keyed on
+  the family: different faces set the same words to different widths.
 
 ### Added
 

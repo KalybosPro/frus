@@ -205,6 +205,7 @@ impl TextPainter {
                         // Renamed on the way in: `height` is already the surface's, and
                         // this one is a ratio of the font size.
                         height: line_ratio,
+                        family,
                         clip,
                         ..
                     } => {
@@ -232,7 +233,7 @@ impl TextPainter {
                         let attrs = glyphon::Attrs::new()
                             // Family by script (Arabic → Noto): Android has no
                             // cross-family fallback, so we choose at the source.
-                            .family(frus_text::family_for(text))
+                            .family(frus_text::family_for_style(text, *family))
                             .weight(glyphon::Weight(frus_text::available_weight(*weight)))
                             // Upright when no oblique face is loaded: an application
                             // that dropped `bundled-italic` gets straight text, not none.
