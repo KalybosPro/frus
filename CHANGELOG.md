@@ -8,10 +8,36 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 408 so far, each documenting the objective, the alternatives
+> record — one per step, 409 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`TextStyle::height`** (J409), the reference's line height: a **multiple of the font
+  size**, not a length. `Text::height(1.6)` opens a paragraph up; unset, it inherits from a
+  surrounding `DefaultTextStyle` and falls back to `DEFAULT_LINE_HEIGHT`.
+
+  A ratio because of the reader: at 1.5 a 20 px line is 30 px, and when the reader turns
+  their font size up and that 20 becomes 40, the line becomes 60. A length would have stayed
+  at 30 and closed the paragraph up exactly when it needed opening.
+
+  It reaches the measurement, the one-line box floor and the paint through the one
+  `ResolvedTextStyle::line_height()`.
+
+### Changed
+
+- **One line-height constant instead of two** (J409). `LINE_HEIGHT_FACTOR` lived in
+  `frus-text`, which measures, and again in `frus-gpu`, which paints. Both were 1.2 so
+  nothing was broken — but a measure and a paint disagreeing about how tall a line is puts
+  the second line of every paragraph where the layout reserved nothing, and that is the
+  shape two milestones have just been spent on. Both now import `DEFAULT_LINE_HEIGHT` from
+  `frus-core`.
+
+- **The measurement cache is keyed on the line height** (J409). It recorded text, size,
+  weight, italic and width; two paragraphs of the same words at different leadings would
+  have shared one answer, and the second would have been quietly wrong.
 
 ### Added
 

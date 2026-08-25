@@ -257,6 +257,11 @@ pub enum Primitive {
         decoration: TextDecoration,
         /// Decoration colour; `None` means the text's own colour.
         decoration_color: Option<Color>,
+        /// The line's height as a **multiple of `size`**; `None` means
+        /// [`crate::DEFAULT_LINE_HEIGHT`]. Carried on the primitive because the renderer
+        /// has to lay the lines out at the height the measurement used, and it cannot
+        /// derive that from the size alone.
+        height: Option<f32>,
         /// Clip rectangle.
         clip: Rect,
         /// The box the text was laid out in — the emitting widget's, so an
@@ -409,6 +414,7 @@ impl Primitive {
                 align,
                 decoration,
                 decoration_color,
+                height,
                 clip,
                 bounds,
                 owner,
@@ -424,6 +430,7 @@ impl Primitive {
                 align,
                 decoration,
                 decoration_color,
+                height,
                 clip: clip.scale_xy(sx, sy),
                 bounds: bounds.scale_xy(sx, sy),
                 owner,
@@ -544,6 +551,7 @@ impl Primitive {
                 align,
                 decoration,
                 decoration_color,
+                height,
                 clip,
                 bounds,
                 owner,
@@ -559,6 +567,7 @@ impl Primitive {
                 align,
                 decoration,
                 decoration_color,
+                height,
                 clip: clip.translate(dx, dy),
                 bounds: bounds.translate(dx, dy),
                 owner,
@@ -728,6 +737,7 @@ impl Primitive {
                 align,
                 decoration,
                 decoration_color,
+                height,
                 bounds,
                 owner,
                 ..
@@ -743,6 +753,7 @@ impl Primitive {
                 align,
                 decoration,
                 decoration_color,
+                height,
                 clip,
                 bounds,
                 owner,
@@ -961,6 +972,7 @@ impl Scene {
                 align,
                 decoration,
                 decoration_color,
+                height,
                 clip,
                 bounds,
                 owner,
@@ -976,6 +988,7 @@ impl Scene {
                 align,
                 decoration,
                 decoration_color: decoration_color.map(|c| c.fade(opacity)),
+                height,
                 clip,
                 bounds,
                 owner,
@@ -1390,6 +1403,7 @@ impl Scene {
             align: TextAlign::Start,
             decoration: style.decoration,
             decoration_color: style.decoration_color,
+            height: style.height,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,
@@ -1418,6 +1432,7 @@ impl Scene {
             align: TextAlign::Start,
             decoration: style.decoration,
             decoration_color: style.decoration_color,
+            height: style.height,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,
@@ -1451,6 +1466,7 @@ impl Scene {
             align: block.align,
             decoration: style.decoration,
             decoration_color: style.decoration_color,
+            height: style.height,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,

@@ -284,6 +284,20 @@ impl Text {
         self
     }
 
+    /// Sets the line height as a **multiple of the font size** — the reference's
+    /// [`TextStyle::height`](frus_core::TextStyle::height).
+    ///
+    /// `1.0` packs the lines to exactly the type's size, `1.6` opens a paragraph up.
+    /// Unset, the line height is whatever a surrounding [`crate::DefaultTextStyle`] said,
+    /// or [`DEFAULT_LINE_HEIGHT`](frus_core::DEFAULT_LINE_HEIGHT) at the end of the chain.
+    ///
+    /// A ratio and not a length, so the leading grows with the letters when a reader turns
+    /// the type up instead of staying where it was set.
+    pub fn height(mut self, height: f32) -> Self {
+        self.style.height = Some(height);
+        self
+    }
+
     /// Sets the text color (otherwise the theme's).
     pub fn color(mut self, color: Color) -> Self {
         self.style.color = Some(color);
@@ -1332,6 +1346,7 @@ mod tests {
                 align: TextAlign::Start,
                 decoration: frus_core::TextDecoration::NONE,
                 decoration_color: None,
+                height: None,
                 clip: Rect::UNBOUNDED,
                 // Painted directly rather than through the widget walk, so no box was
                 // declared: unknown, which the renderer reads as "covers everything".

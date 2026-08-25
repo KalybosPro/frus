@@ -131,6 +131,12 @@ impl TextDecoration {
 /// The font size a text ends up at when nothing anywhere in the chain named one.
 pub const DEFAULT_TEXT_SIZE: f32 = 16.0;
 
+/// The line height a style that says nothing gets, as a **multiple of the font size**.
+///
+/// 1.2 is what the bundled faces want, and what every part of the framework used before it
+/// was expressible at all — see [`TextStyle::height`].
+pub const DEFAULT_LINE_HEIGHT: f32 = 1.2;
+
 /// The typographic attributes of a single line of text — **every field optional**.
 ///
 /// `None` is not a missing value but an answer: *this style does not say*. That is what
@@ -159,6 +165,16 @@ pub struct TextStyle {
     pub decoration: Option<TextDecoration>,
     /// Decoration colour; unset, the text's own.
     pub decoration_color: Option<Color>,
+    /// The line's height, as a **multiple of the font size** — the reference's `height`.
+    ///
+    /// `1.0` sets each line box to exactly the font size, `1.5` to half again; unset says
+    /// nothing, and a style that says nothing inherits whatever a subtree handed down, or
+    /// [`DEFAULT_LINE_HEIGHT`] at the end of that chain.
+    ///
+    /// It is a **ratio, not a length**, for the reason the reference gives: a paragraph
+    /// keeps its rhythm when the reader turns the type up, because the leading grows with
+    /// the letters instead of staying where a designer left it.
+    pub height: Option<f32>,
 }
 
 /// A [`TextStyle`] with every question answered: what to measure with, and what to draw.
@@ -180,9 +196,21 @@ pub struct ResolvedTextStyle {
     pub decoration: TextDecoration,
     /// Decoration colour; `None` means the text's own colour.
     pub decoration_color: Option<Color>,
+    /// The line's height as a **multiple of the font size**; `None` means
+    /// [`DEFAULT_LINE_HEIGHT`]. Read it through [`line_height`](Self::line_height).
+    pub height: Option<f32>,
 }
 
 impl ResolvedTextStyle {
+    /// The height of one line, in logical pixels.
+    ///
+    /// **The one place this number is decided.** It used to be a `LINE_HEIGHT_FACTOR`
+    /// constant in `frus-text` and *another* in `frus-gpu`, which is two constants that
+    /// had to agree: a measure and a paint disagreeing about how tall a line is puts the
+    /// second line of every paragraph somewhere the layout did not reserve.
+    pub fn line_height(&self) -> f32 {
+        self.size * self.height.unwrap_or(DEFAULT_LINE_HEIGHT)
+    }
     /// A style of **exactly** this size — regular, upright, undecorated, and *not* put
     /// through the reader's font setting.
     ///
@@ -203,6 +231,7 @@ impl ResolvedTextStyle {
             color: None,
             decoration: TextDecoration::NONE,
             decoration_color: None,
+            height: None,
         }
     }
 }
@@ -216,6 +245,7 @@ impl TextStyle {
         color: None,
         decoration: None,
         decoration_color: None,
+        height: None,
     };
 
     /// A style that names a `size` and nothing else.
@@ -300,6 +330,7 @@ impl TextStyle {
             color: over.color.or(self.color),
             decoration: over.decoration.or(self.decoration),
             decoration_color: over.decoration_color.or(self.decoration_color),
+            height: over.height.or(self.height),
         }
     }
 
@@ -351,6 +382,7 @@ impl TextStyle {
             color: self.color,
             decoration: self.decoration.unwrap_or(TextDecoration::NONE),
             decoration_color: self.decoration_color,
+            height: self.height,
         }
     }
 }
@@ -804,5 +836,64 @@ mod tests {
         let runs = span.flatten(TextStyle::new(16.0));
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].1.weight, FontWeight::Bold);
+    }
+
+    /// A style that says nothing about its line height gets the framework's default, and
+    /// one that names a ratio gets that ratio **of its own size**.
+    #[test]
+    fn a_line_height_is_a_ratio_of_the_size_that_asked_for_it() {
+        assert_eq!(TextStyle::new(20.0).resolved().line_height(), 24.0);
+        let open = TextStyle {
+            height: Some(1.5),
+            ..TextStyle::new(20.0)
+        };
+        assert_eq!(open.resolved().line_height(), 30.0);
+        let packed = TextStyle {
+            height: Some(1.0),
+            ..TextStyle::new(20.0)
+        };
+        assert_eq!(packed.resolved().line_height(), 20.0);
+    }
+
+    /// **The leading grows with the letters.** A ratio rather than a length is what makes
+    /// a paragraph keep its rhythm when the reader turns the type up: a `height` of 1.5 is
+    /// 30 px at a size of 20 and 60 px when that 20 has been doubled for a reader who
+    /// asked for larger text. A length would have stayed at 30 and closed the paragraph up
+    /// exactly when it needed opening.
+    #[test]
+    fn the_leading_grows_with_the_reader() {
+        let style = TextStyle {
+            height: Some(1.5),
+            ..TextStyle::new(20.0)
+        };
+        assert_eq!(style.resolved().line_height(), 30.0);
+        with_text_scale(2.0, || {
+            let resolved = style.resolved();
+            assert_eq!(resolved.size, 40.0);
+            assert_eq!(resolved.line_height(), 60.0);
+        });
+    }
+
+    /// It inherits like every other field, and a nearer style still wins.
+    #[test]
+    fn a_line_height_is_inherited_and_overridable() {
+        let handed_down = TextStyle {
+            height: Some(1.8),
+            ..TextStyle::NONE
+        };
+        let asks_only_a_size = TextStyle::new(10.0);
+        assert_eq!(
+            handed_down.merge(asks_only_a_size).resolved().line_height(),
+            18.0,
+            "the size is the near style's and the height the inherited one"
+        );
+        let asks_for_both = TextStyle {
+            height: Some(1.0),
+            ..TextStyle::new(10.0)
+        };
+        assert_eq!(
+            handed_down.merge(asks_for_both).resolved().line_height(),
+            10.0
+        );
     }
 }

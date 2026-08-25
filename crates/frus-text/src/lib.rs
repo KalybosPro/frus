@@ -15,7 +15,11 @@ use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping, Style, Weight};
 use frus_core::{FontWeight, Point, Rect, ResolvedTextStyle, Size, TextRun, TextStyle};
 
 /// The default line-height to font-size ratio.
-const LINE_HEIGHT_FACTOR: f32 = 1.2;
+///
+/// It lives in `frus-core` now, because the renderer needs the same number and a copy of
+/// it here is a copy that can drift: a measure and a paint disagreeing about how tall a
+/// line is puts the second line of every paragraph where the layout reserved nothing.
+use frus_core::DEFAULT_LINE_HEIGHT as LINE_HEIGHT_FACTOR;
 
 // --- The bundled fonts ---
 //
@@ -270,6 +274,9 @@ struct MeasureKey {
     weight: u16,
     italic: bool,
     max_width: Option<u32>,
+    /// The line height these words were measured at, in bits. A style may name one, so it
+    /// is part of the question and not a constant.
+    line_h: u32,
 }
 
 /// How many entries a generation holds before it is retired. Two generations live at
@@ -327,7 +334,13 @@ static BASELINES: std::sync::LazyLock<
     std::sync::Mutex<std::collections::HashMap<BaselineKey, f32>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
-/// The line height for a given font size, in pixels.
+/// The line height for a given font size, in pixels, **for a style that says nothing
+/// about it**.
+///
+/// A style that *does* say something answers for itself:
+/// [`ResolvedTextStyle::line_height`]. Prefer that wherever a style is in reach — this
+/// form cannot honour a `height` it was never shown, and a caller holding a style and
+/// calling this anyway is the same measure-and-paint disagreement in miniature.
 pub fn line_height(size_px: f32) -> f32 {
     size_px * LINE_HEIGHT_FACTOR
 }
@@ -415,7 +428,7 @@ pub fn measure_style(text: &str, style: TextStyle) -> Size {
 /// step further down, for the code that has done the resolving once and is measuring
 /// several times against it.
 pub fn measure_resolved(text: &str, style: &ResolvedTextStyle) -> Size {
-    measure_styled(text, style.size, style.weight, style.italic)
+    measure_wrapped_resolved(text, style, None)
 }
 
 /// The height a box needs to hold **one line** of `style` with `padding` of room around
@@ -428,7 +441,7 @@ pub fn measure_resolved(text: &str, style: &ResolvedTextStyle) -> Size {
 pub fn line_box(min: f32, style: &ResolvedTextStyle, padding: f32) -> f32 {
     // Rounded **up**. The layout works in whole pixels, and a box that came out at 43 for
     // a line needing 43.2 clips it — by a fifth of a pixel, which is still a clip.
-    min.max((line_height(style.size) + padding).ceil())
+    min.max((style.line_height() + padding).ceil())
 }
 
 /// Measures `text` under an already-resolved style, **wrapping** at `max_width`. The
@@ -439,7 +452,17 @@ pub fn measure_wrapped_resolved(
     style: &ResolvedTextStyle,
     max_width: Option<f32>,
 ) -> Size {
-    measure_wrapped(text, style.size, style.weight, style.italic, max_width)
+    // Through `measure_at`, not `measure_wrapped`: the style may name a line height, and
+    // going by the size alone would measure at one height what the renderer draws at
+    // another.
+    measure_at(
+        text,
+        style.size,
+        style.weight,
+        style.italic,
+        max_width,
+        style.line_height(),
+    )
 }
 
 /// Measures a **styled** text's natural size; weight and italics count, since bold
@@ -458,7 +481,29 @@ pub fn measure_wrapped(
     italic: bool,
     max_width: Option<f32>,
 ) -> Size {
-    let line_h = line_height(size_px);
+    measure_at(
+        text,
+        size_px,
+        weight,
+        italic,
+        max_width,
+        line_height(size_px),
+    )
+}
+
+/// The measurement itself, at an **explicit line height**.
+///
+/// Every public form funnels here, and the line height is a parameter rather than a
+/// constant because a style may name it: two callers computing it separately is how a
+/// measure and a paint come to disagree about where the second line starts.
+fn measure_at(
+    text: &str,
+    size_px: f32,
+    weight: FontWeight,
+    italic: bool,
+    max_width: Option<f32>,
+    line_h: f32,
+) -> Size {
     if text.is_empty() {
         return Size::new(0.0, line_h);
     }
@@ -478,6 +523,9 @@ pub fn measure_wrapped(
         weight: available_weight(weight),
         italic: available_style(italic) == Style::Italic,
         max_width: max_width.map(f32::to_bits),
+        // Two line heights give two different answers for the same words, so they cannot
+        // share a cache entry.
+        line_h: line_h.to_bits(),
     };
     if let Some(size) = cached_measurement(&key) {
         return size;
@@ -1496,5 +1544,70 @@ mod tests {
         let runs = vec![run("small", 12.0), run("large", 24.0)];
         let mixed = baseline_of_runs(&runs).expect("two runs");
         assert!((mixed - baseline(24.0, FontWeight::Regular, false)).abs() < 0.01);
+    }
+
+    /// **A taller line makes a taller measurement**, and by exactly the ratio asked for.
+    ///
+    /// This is the assertion that matters: the renderer lays a paragraph out with
+    /// `Metrics::new(size, size * height)`, and if the measurement did not use the same
+    /// number the layout would reserve room for lines that land somewhere else.
+    #[test]
+    fn a_named_line_height_reaches_the_measurement() {
+        let words = "one two three four five six seven eight nine ten";
+        let plain = ResolvedTextStyle::exact(16.0);
+        let open = ResolvedTextStyle {
+            height: Some(2.4),
+            ..plain
+        };
+        // Wrapped to a narrow column, so there are several lines to stack.
+        let a = measure_wrapped_resolved(words, &plain, Some(80.0));
+        let b = measure_wrapped_resolved(words, &open, Some(80.0));
+        assert!(a.height > 0.0 && b.height > 0.0);
+        assert_eq!(
+            a.width, b.width,
+            "the line height changes the stacking, never the letters"
+        );
+        let ratio = b.height / a.height;
+        assert!(
+            (ratio - 2.0).abs() < 0.01,
+            "doubling the line height doubles the block: {ratio}"
+        );
+    }
+
+    /// The measurement cache is keyed on the line height too. Without that, the same words
+    /// at two heights would share one answer and the second would be silently wrong.
+    #[test]
+    fn two_line_heights_do_not_share_a_cached_answer() {
+        let words = "cached words that wrap across a couple of lines here";
+        let packed = ResolvedTextStyle {
+            height: Some(1.0),
+            ..ResolvedTextStyle::exact(14.0)
+        };
+        let open = ResolvedTextStyle {
+            height: Some(2.0),
+            ..ResolvedTextStyle::exact(14.0)
+        };
+        let first = measure_wrapped_resolved(words, &packed, Some(90.0));
+        let second = measure_wrapped_resolved(words, &open, Some(90.0));
+        // Asked again, in the other order, to catch a cache that answered from the wrong
+        // entry rather than one that simply never filled.
+        assert_eq!(measure_wrapped_resolved(words, &open, Some(90.0)), second);
+        assert_eq!(measure_wrapped_resolved(words, &packed, Some(90.0)), first);
+        assert!(second.height > first.height);
+    }
+
+    /// A one-line box floor follows the style's line height, not the size alone.
+    #[test]
+    fn a_line_box_follows_the_height_it_was_given() {
+        let open = ResolvedTextStyle {
+            height: Some(3.0),
+            ..ResolvedTextStyle::exact(16.0)
+        };
+        assert_eq!(line_box(32.0, &ResolvedTextStyle::exact(16.0), 0.0), 32.0);
+        assert_eq!(
+            line_box(32.0, &open, 0.0),
+            48.0,
+            "the content wins over the floor"
+        );
     }
 }

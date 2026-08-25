@@ -8,7 +8,10 @@ use crate::batch::{Batch, Kind};
 use frus_core::{Color, Point, Primitive, Rect, Scene, TextDecoration};
 
 /// The line-height to font-size ratio, kept consistent with `frus-text`.
-const LINE_HEIGHT_FACTOR: f32 = 1.2;
+/// The default line-height ratio, from `frus-core` — **not** a copy. The renderer and
+/// the measurement have to agree on how tall a line is, and two constants named the same
+/// thing in two crates is how they stop agreeing.
+use frus_core::DEFAULT_LINE_HEIGHT as LINE_HEIGHT_FACTOR;
 
 /// A **text decoration** quad — underline, strikethrough and so on — computed from
 /// the laid-out lines. Rendered by the rectangle pipeline, *before* the glyphs: in
@@ -199,10 +202,18 @@ impl TextPainter {
                         align,
                         decoration,
                         decoration_color,
+                        // Renamed on the way in: `height` is already the surface's, and
+                        // this one is a ratio of the font size.
+                        height: line_ratio,
                         clip,
                         ..
                     } => {
-                        let metrics = glyphon::Metrics::new(*size, *size * LINE_HEIGHT_FACTOR);
+                        // The height the **measurement** used, not a constant of the
+                        // renderer's own: a line laid out at one height and measured at
+                        // another puts every line after the first where nothing was
+                        // reserved for it.
+                        let line = *size * line_ratio.unwrap_or(LINE_HEIGHT_FACTOR);
+                        let metrics = glyphon::Metrics::new(*size, line);
                         let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
                         // A line that knows where its box ends but was told not to wrap
                         // still needs the width, to align inside it — so the two travel

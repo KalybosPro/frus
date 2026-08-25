@@ -47,5 +47,6 @@ pub use scene::{ClipShape, LayerTransform, PathGradient, Primitive, Scene, TextB
 pub use semantics::{Role, SemanticsProperties, Toggled};
 pub use text_style::{
     install_text_scale, text_scale, with_text_scale, FontWeight, ResolvedTextStyle, TextAlign,
-    TextDecoration, TextOverflow, TextRun, TextScaleGuard, TextSpan, TextStyle, DEFAULT_TEXT_SIZE,
+    TextDecoration, TextOverflow, TextRun, TextScaleGuard, TextSpan, TextStyle,
+    DEFAULT_LINE_HEIGHT, DEFAULT_TEXT_SIZE,
 };
