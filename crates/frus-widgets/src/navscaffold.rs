@@ -4,7 +4,7 @@
 //! is where the size class drives the screen's *structure*.
 
 use frus_core::{Rect, Scene, SizeClass};
-use frus_layout::{Dimension, FlexDirection, Style};
+use frus_layout::{FlexDirection, Style};
 
 use crate::flex::Flex;
 use crate::interaction::Status;
@@ -94,10 +94,12 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
 }
 
 impl<Msg: Clone> Widget<Msg> for NavScaffold<Msg> {
+    /// It asks to fill **both** axes rather than declaring `100%` on either — see
+    /// [`FillAxes`](crate::widget::FillAxes). A percentage resolves against the parent's
+    /// *resolved* size, which a parent that shrink-wraps has not got yet, so a shell
+    /// nested in one vanished entirely (milestone 404).
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
-            height: Dimension::Percent(1.0),
             flex_direction: if self.compact {
                 FlexDirection::Column
             } else {
@@ -105,6 +107,11 @@ impl<Msg: Clone> Widget<Msg> for NavScaffold<Msg> {
             },
             ..Default::default()
         }
+    }
+
+    /// A shell takes everything it is offered, on both axes.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::BOTH
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -154,7 +161,7 @@ mod tests {
         let children = Widget::<Msg>::children(&s);
         assert_eq!(
             Widget::<Msg>::style(&*children[0]).width,
-            Dimension::Length(crate::navrail::RAIL_WIDTH)
+            frus_layout::Dimension::Length(crate::navrail::RAIL_WIDTH)
         );
     }
 }

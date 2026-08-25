@@ -3,7 +3,7 @@
 //! list, or the detail if `show_detail` — the app decides as it navigates).
 
 use frus_core::{Rect, Scene, SizeClass};
-use frus_layout::{Dimension, FlexDirection, Style};
+use frus_layout::{FlexDirection, Style};
 
 use crate::flex::Flex;
 use crate::interaction::Status;
@@ -84,10 +84,12 @@ impl<Msg: Clone + 'static> TwoPane<Msg> {
 }
 
 impl<Msg: Clone> Widget<Msg> for TwoPane<Msg> {
+    /// It asks to fill **both** axes rather than declaring `100%` on either — see
+    /// [`FillAxes`](crate::widget::FillAxes). A percentage resolves against the parent's
+    /// *resolved* size, which a parent that shrink-wraps has not got yet, so a shell
+    /// nested in one vanished entirely (milestone 404).
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
-            height: Dimension::Percent(1.0),
             flex_direction: if self.row {
                 FlexDirection::Row
             } else {
@@ -95,6 +97,11 @@ impl<Msg: Clone> Widget<Msg> for TwoPane<Msg> {
             },
             ..Default::default()
         }
+    }
+
+    /// A shell takes everything it is offered, on both axes.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::BOTH
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {

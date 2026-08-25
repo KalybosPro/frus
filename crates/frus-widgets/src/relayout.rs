@@ -315,10 +315,8 @@ fn hash_node<Msg, H: Hasher>(
     widget.measure_key(theme).hash(hasher);
     // Filling the parent is resolved during the walk rather than written into the style,
     // so the style hash alone would conflate a run that fills with one that shrink-wraps.
-    widget
-        .main_axis_fill(theme)
-        .map(|axis| axis.is_horizontal())
-        .hash(hasher);
+    let fills = widget.fill_axes(theme);
+    (fills.horizontal, fills.vertical).hash(hasher);
     widget.main_axis_floor(theme).map(f32::to_bits).hash(hasher);
     widget.tile_shape().map(f32::to_bits).hash(hasher);
     children.len().hash(hasher);

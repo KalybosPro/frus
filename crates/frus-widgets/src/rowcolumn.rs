@@ -246,10 +246,10 @@ impl<Msg> Common<Msg> {
 
     /// The axis to fill, or `None` when the run shrink-wraps. The direction returned is
     /// the **unreversed** one: filling is about which axis, not which way along it.
-    fn fill(&self, axis: FlexDirection) -> Option<FlexDirection> {
+    fn fill(&self, axis: FlexDirection) -> crate::widget::FillAxes {
         match self.size {
-            MainAxisSize::Max => Some(axis),
-            MainAxisSize::Min => None,
+            MainAxisSize::Max => crate::widget::FillAxes::along(axis),
+            MainAxisSize::Min => crate::widget::FillAxes::NONE,
         }
     }
 }
@@ -275,7 +275,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         &self.common.children
     }
 
-    fn main_axis_fill(&self, _theme: &Theme) -> Option<FlexDirection> {
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
         self.common.fill(FlexDirection::Row)
     }
 
@@ -313,7 +313,7 @@ impl<Msg: Clone> Widget<Msg> for Column<Msg> {
         &self.common.children
     }
 
-    fn main_axis_fill(&self, _theme: &Theme) -> Option<FlexDirection> {
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
         self.common.fill(FlexDirection::Column)
     }
 

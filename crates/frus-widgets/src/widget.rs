@@ -69,6 +69,82 @@ pub struct FilterContext {
     pub backdrop_group: Option<u64>,
 }
 
+/// The axes a widget asks to **fill**: on each, it takes the room its parent leaves it
+/// rather than shrink-wrapping its children.
+///
+/// # Why this is asked and not declared
+///
+/// `width: 100%` looks like the same thing and is not. A percentage resolves against the
+/// parent's **resolved** width, which a parent that shrink-wraps has not got yet — it is
+/// waiting on this very child to find out how wide it should be. Both are "full width" in
+/// English, and only one can be computed in time:
+///
+/// | | what it needs | known |
+/// |---|---|---|
+/// | `width: 100%` | the parent's own width | on the way back **up** |
+/// | a fill request | the room being offered | on the way **down** |
+///
+/// Fifteen widgets in this crate said it the first way and every one of them collapsed
+/// under a plain column (milestone 404). Asking is the only phrasing the layout can answer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FillAxes {
+    /// Take the width the parent offers.
+    pub horizontal: bool,
+    /// Take the height the parent offers.
+    pub vertical: bool,
+}
+
+impl FillAxes {
+    /// Shrink-wrap on both axes — what a widget with no opinion answers.
+    pub const NONE: Self = Self {
+        horizontal: false,
+        vertical: false,
+    };
+    /// Take the width offered; hug the content vertically.
+    pub const WIDTH: Self = Self {
+        horizontal: true,
+        vertical: false,
+    };
+    /// Take the height offered; hug the content horizontally.
+    pub const HEIGHT: Self = Self {
+        horizontal: false,
+        vertical: true,
+    };
+    /// Take everything offered — a full-screen shell.
+    pub const BOTH: Self = Self {
+        horizontal: true,
+        vertical: true,
+    };
+
+    /// The axes asked for, as one flex direction, or `None` where that cannot be said —
+    /// neither axis, or both. For the walk, which resolves each axis separately anyway.
+    pub fn single(self) -> Option<frus_layout::FlexDirection> {
+        match (self.horizontal, self.vertical) {
+            (true, false) => Some(frus_layout::FlexDirection::Row),
+            (false, true) => Some(frus_layout::FlexDirection::Column),
+            _ => None,
+        }
+    }
+
+    /// Whether one axis is asked for.
+    pub fn wants(self, horizontal: bool) -> bool {
+        if horizontal {
+            self.horizontal
+        } else {
+            self.vertical
+        }
+    }
+
+    /// The axis a [`frus_layout::FlexDirection`] names, and nothing else.
+    pub fn along(direction: frus_layout::FlexDirection) -> Self {
+        if direction.is_horizontal() {
+            Self::WIDTH
+        } else {
+            Self::HEIGHT
+        }
+    }
+}
+
 pub trait Widget<Msg> {
     /// Layout style (handed to `frus-layout`).
     fn style(&self) -> Style;
@@ -774,23 +850,27 @@ pub trait Widget<Msg> {
         false
     }
 
-    /// The **axis this widget asks to fill**: it takes the room the parent leaves it
-    /// along that axis rather than shrink-wrapping its children. `MainAxisSize::Max` on a
-    /// [`crate::Row`] or a [`crate::Column`] is the reason it exists, and there the axis
-    /// is the widget's own main one; a [`crate::TabBar`] asks for the horizontal one, which
-    /// is its cross axis. `None` means shrink-wrap.
+    /// The **axes this widget asks to fill**: on each, it takes the room the parent
+    /// leaves it rather than shrink-wrapping its children. [`FillAxes::NONE`] means
+    /// shrink-wrap on both.
+    ///
+    /// `MainAxisSize::Max` on a [`crate::Row`] or a [`crate::Column`] is the reason it
+    /// exists, and there the axis is the widget's own main one; a [`crate::TabBar`] asks
+    /// for the horizontal one, which is its cross axis; a full-screen shell asks for
+    /// [`FillAxes::BOTH`].
     ///
     /// It is a question about the *parent*, which is why it is asked rather than written
     /// into the style: filling means growing when the parent runs the same way and
     /// stretching when it runs across, and a widget cannot know what it was put inside.
-    /// The layout walk resolves it, where both are in view.
+    /// The layout walk resolves it, where both are in view. **Declaring `width: 100%`
+    /// instead does not work** and cannot be made to — see [`FillAxes`].
     ///
     /// The theme is here for the same reason it is on [`Widget::measure`]: a text asks to
     /// fill because it was told to align inside its box, and a subtree can hand that
     /// alignment down. A hook blind to the theme would leave the one setting that arrives
     /// by inheritance silently doing nothing.
-    fn main_axis_fill(&self, _theme: &Theme) -> Option<frus_layout::FlexDirection> {
-        None
+    fn fill_axes(&self, _theme: &Theme) -> FillAxes {
+        FillAxes::NONE
     }
 
     /// The width below which this widget must not be squeezed **when its parent runs
@@ -1306,8 +1386,8 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn baseline_target(&self) -> Option<f32> {
         (**self).baseline_target()
     }
-    fn main_axis_fill(&self, theme: &Theme) -> Option<frus_layout::FlexDirection> {
-        (**self).main_axis_fill(theme)
+    fn fill_axes(&self, theme: &Theme) -> FillAxes {
+        (**self).fill_axes(theme)
     }
     fn main_axis_floor(&self, theme: &Theme) -> Option<f32> {
         (**self).main_axis_floor(theme)

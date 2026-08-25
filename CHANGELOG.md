@@ -8,10 +8,28 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 404 so far, each documenting the objective, the alternatives
+> record — one per step, 405 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Changed
+
+- **`Widget::main_axis_fill` is now `Widget::fill_axes`, answering with `FillAxes`** (J405)
+  — BREAKING for anyone implementing `Widget` by hand, and mechanical: `Some(Row)` becomes
+  `FillAxes::WIDTH`, `None` becomes `FillAxes::NONE`.
+
+  The old hook returned one `FlexDirection`, so a widget wanting the room it is offered on
+  **both** axes had no word for it. Milestone 404 had to leave `NavScaffold`,
+  `ScaffoldMessenger` and `TwoPane` on the `width: 100%` that makes them vanish under a
+  shrink-wrapping parent — the very bug it was fixing. They answer `FillAxes::BOTH` now.
+
+  `FillAxes` is deliberately not the walk's internal `Fills`: that one is an accumulator
+  travelling up the tree, this one is a single widget's answer. Same shape, different
+  meaning.
+
+  One golden moved: the two-pane content sits 2 px higher, `height: 100%` having claimed
+  the whole column's height where a fill takes what is left.
 
 ### Fixed
 

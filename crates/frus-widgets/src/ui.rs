@@ -1300,17 +1300,15 @@ pub(crate) struct Fills {
 
 impl Fills {
     /// What a widget asks for on its own account.
+    ///
+    /// A straight copy since milestone 405: the widget's answer already has a flag per
+    /// axis, where it used to be one direction and a container that wanted both had no way
+    /// to say so.
     fn own<Msg>(widget: &dyn Widget<Msg>, theme: &Theme) -> Self {
-        match widget.main_axis_fill(theme) {
-            Some(axis) if axis.is_horizontal() => Fills {
-                horizontal: true,
-                vertical: false,
-            },
-            Some(_) => Fills {
-                horizontal: false,
-                vertical: true,
-            },
-            None => Fills::default(),
+        let asked = widget.fill_axes(theme);
+        Fills {
+            horizontal: asked.horizontal,
+            vertical: asked.vertical,
         }
     }
 

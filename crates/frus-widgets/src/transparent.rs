@@ -469,11 +469,8 @@ macro_rules! forward_transparent {
                 self.inner.baseline_target()
             }
 
-            fn main_axis_fill(
-                &self,
-                theme: &$crate::theme::Theme,
-            ) -> Option<frus_layout::FlexDirection> {
-                self.inner.main_axis_fill(theme)
+            fn fill_axes(&self, theme: &$crate::theme::Theme) -> $crate::widget::FillAxes {
+                self.inner.fill_axes(theme)
             }
 
             fn main_axis_floor(&self, theme: &$crate::theme::Theme) -> Option<f32> {

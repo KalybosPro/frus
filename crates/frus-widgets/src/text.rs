@@ -592,8 +592,12 @@ impl<Msg> Widget<Msg> for Text {
     /// An aligned text takes the width its parent offers: a box exactly as wide as its
     /// text has nowhere to align it to. It is the same request a [`crate::Row`] makes,
     /// and it is answered by the same walk.
-    fn main_axis_fill(&self, theme: &Theme) -> Option<frus_layout::FlexDirection> {
-        Self::fills(&self.resolved(Some(theme))).then_some(frus_layout::FlexDirection::Row)
+    fn fill_axes(&self, theme: &Theme) -> crate::widget::FillAxes {
+        if Self::fills(&self.resolved(Some(theme))) {
+            crate::widget::FillAxes::WIDTH
+        } else {
+            crate::widget::FillAxes::NONE
+        }
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
@@ -1031,7 +1035,7 @@ mod tests {
     ///
     /// Alignment is the one style setting that is also a *request*: a box exactly as wide
     /// as its own text has nowhere to centre it in, so a text told to centre asks to fill
-    /// the line first. That request is made by `main_axis_fill`, which is why that hook
+    /// the line first. That request is made by `fill_axes`, which is why that hook
     /// had to see the theme too — without it, the one setting that arrives by inheritance
     /// would resolve correctly everywhere except where it takes effect, and centring a
     /// subtree's texts would silently do nothing.
@@ -1041,13 +1045,13 @@ mod tests {
         theme.widgets.text.align = Some(TextAlign::Center);
         let text = Text::new("Centred").no_wrap();
         assert_eq!(
-            Widget::<()>::main_axis_fill(&text, &Theme::default()),
-            None,
+            Widget::<()>::fill_axes(&text, &Theme::default()),
+            crate::widget::FillAxes::NONE,
             "left alone it hugs its words"
         );
         assert_eq!(
-            Widget::<()>::main_axis_fill(&text, &theme),
-            Some(frus_layout::FlexDirection::Row),
+            Widget::<()>::fill_axes(&text, &theme),
+            crate::widget::FillAxes::WIDTH,
             "handed a centring, it asks for the line"
         );
         let mut scene = Scene::new();

@@ -930,8 +930,8 @@ impl<Msg: Clone> Widget<Msg> for TabBar<Msg> {
     /// content instead, the widest thing on the busiest tab decides how wide the whole
     /// control is — so the bar jumps from tab to tab, and a panel that does not fit hangs
     /// out of whatever is centring it rather than being told to fit.
-    fn main_axis_fill(&self, _theme: &Theme) -> Option<frus_layout::FlexDirection> {
-        Some(frus_layout::FlexDirection::Row)
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::WIDTH
     }
 
     /// The hairline at the foot of the bar.

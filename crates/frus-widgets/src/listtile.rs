@@ -349,7 +349,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for ListTile<Msg> {
 
     /// It asks to **fill the width it is offered** rather than declaring one.
     ///
-    /// See [`Widget::main_axis_fill`]. A `width: 100%` resolves against the parent's
+    /// See [`Widget::fill_axes`]. A `width: 100%` resolves against the parent's
     /// *resolved* width, which a parent that shrink-wraps does not have yet — so a tile in
     /// a plain column, the most ordinary thing anybody does with one, came out as wide as
     /// its own padding and ellipsised its title to nothing.
@@ -370,8 +370,8 @@ impl<Msg: Clone + 'static> Widget<Msg> for ListTile<Msg> {
 
     /// The width it was offered, not the width its parent came out at — the difference
     /// between a number known on the way **down** and one only known on the way back up.
-    fn main_axis_fill(&self, _theme: &Theme) -> Option<FlexDirection> {
-        Some(FlexDirection::Row)
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::WIDTH
     }
 
     fn build_themed(&self, theme: &Theme) {
@@ -580,7 +580,7 @@ mod fill_tests {
     /// plain column, the most ordinary thing anybody does with one, was as wide as its own
     /// padding and ellipsised its title away.
     ///
-    /// The fix is to *ask* rather than declare: `main_axis_fill` is answered by the walk,
+    /// The fix is to *ask* rather than declare: `fill_axes` is answered by the walk,
     /// which knows the room being offered on the way **down**, where a parent's own width
     /// is only known on the way back up. Both readings are "full width" in English and only
     /// one of them can be computed in time.
@@ -600,6 +600,19 @@ mod fill_tests {
             ("BottomSheet", || Box::new(crate::BottomSheet::new(true))),
             ("Drawer", || Box::new(crate::Drawer::new(true))),
             ("Steps", || Box::new(crate::steps::Steps::new(["a", "b"]))),
+            // Milestone 405: shells that want **both** axes. They could not say so while
+            // the hook answered with one direction, so they kept the percentage that made
+            // them vanish.
+            ("NavScaffold", || {
+                Box::new(crate::NavScaffold::new(
+                    frus_core::SizeClass::Expanded,
+                    0,
+                    |_| (),
+                ))
+            }),
+            ("TwoPane", || {
+                Box::new(crate::TwoPane::new(frus_core::SizeClass::Expanded))
+            }),
         ];
         for (name, make) in cases {
             for (what, root) in [

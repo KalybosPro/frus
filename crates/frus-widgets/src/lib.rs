@@ -299,7 +299,7 @@ pub use ui::{
     build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget, subtree_ids,
     FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
 };
-pub use widget::{CellFn, FilterContext, ReorderAxis, Widget};
+pub use widget::{CellFn, FillAxes, FilterContext, ReorderAxis, Widget};
 // **Every** one of them, and not only the ones a doc link happened to need. A theme
 // struct that is `pub` inside a private module is public and unreachable: callers can
 // still set `theme.widgets.button.background`, because the field's type is inferred, but

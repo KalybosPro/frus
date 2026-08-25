@@ -262,7 +262,7 @@ struct Bullet<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for Bullet<Msg> {
     /// It asks to **fill the width it is offered** rather than declaring one — see
-    /// [`Widget::main_axis_fill`]. A `width: 100%` resolves against the parent's *resolved*
+    /// [`Widget::fill_axes`]. A `width: 100%` resolves against the parent's *resolved*
     /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         let measured = frus_text::measure(&self.label, BULLET_SIZE);
@@ -274,8 +274,8 @@ impl<Msg: Clone> Widget<Msg> for Bullet<Msg> {
     }
 
     /// The width it was **offered**, not the width its parent came out at.
-    fn main_axis_fill(&self, _theme: &Theme) -> Option<FlexDirection> {
-        Some(FlexDirection::Row)
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::WIDTH
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -317,7 +317,7 @@ impl<Msg: Clone> Widget<Msg> for Bullet<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for ErrorSummary<Msg> {
     /// It asks to **fill the width it is offered** rather than declaring one — see
-    /// [`Widget::main_axis_fill`]. A `width: 100%` resolves against the parent's *resolved*
+    /// [`Widget::fill_axes`]. A `width: 100%` resolves against the parent's *resolved*
     /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         Style {
@@ -329,8 +329,8 @@ impl<Msg: Clone> Widget<Msg> for ErrorSummary<Msg> {
     }
 
     /// The width it was **offered**, not the width its parent came out at.
-    fn main_axis_fill(&self, _theme: &Theme) -> Option<FlexDirection> {
-        Some(FlexDirection::Row)
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::WIDTH
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {

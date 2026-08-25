@@ -10,7 +10,7 @@
 //! by the application through [`crate::SnackBarQueue`]: `ScaffoldMessenger` only places them.
 
 use frus_core::{Curve, Insets, Rect, Scene};
-use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
+use frus_layout::{Align, FlexDirection, Justify, Style};
 
 use crate::animated::AnimatedOpacity;
 use crate::interaction::Status;
@@ -116,10 +116,12 @@ impl<Msg: Clone + 'static> ScaffoldMessenger<Msg> {
 }
 
 impl<Msg: Clone> Widget<Msg> for ScaffoldMessenger<Msg> {
+    /// It asks to fill **both** axes rather than declaring `100%` on either — see
+    /// [`FillAxes`](crate::widget::FillAxes). A percentage resolves against the parent's
+    /// *resolved* size, which a parent that shrink-wraps has not got yet, so a shell
+    /// nested in one vanished entirely (milestone 404).
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
-            height: Dimension::Percent(1.0),
             flex_direction: FlexDirection::Column,
             justify: self.position.justify(),
             align: self.position.align(),
@@ -127,6 +129,11 @@ impl<Msg: Clone> Widget<Msg> for ScaffoldMessenger<Msg> {
             padding: Insets::new(self.padding, self.padding, self.padding, self.padding),
             ..Default::default()
         }
+    }
+
+    /// A shell takes everything it is offered, on both axes.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::BOTH
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
