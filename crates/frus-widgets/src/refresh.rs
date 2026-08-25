@@ -822,6 +822,13 @@ mod tests {
         );
     }
 
+    /// And it says so **whatever else the process is doing**.
+    ///
+    /// This used to flake about one run in ten. `Ui::wants_animation` folded in
+    /// `images_in_flight()`, a process-global count, so in a suite where every test shares
+    /// one process a refresh area with nothing pulled asked for frames whenever an
+    /// unrelated test happened to be loading an image. The sentence was true of the widget
+    /// and false of the value being asked (milestone 411).
     #[test]
     fn an_area_with_no_pull_asks_for_no_frames() {
         let runtime = crate::Runtime::default();

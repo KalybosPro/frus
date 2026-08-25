@@ -596,6 +596,16 @@ impl<Msg: Clone> Ui<Msg> {
     }
 
     /// `true` when a widget animates continuously (the framework must redraw).
+    /// Whether **this tree's widgets** want the next frame: a spinner turning, an ink
+    /// ripple spreading, a pull being held.
+    ///
+    /// It answers for the widgets and nothing else. A fetch still in flight also owes the
+    /// screen a frame — see [`frus_core::images_in_flight`] — and that is the *process's*
+    /// business, asked by whoever drives the loop. It used to be folded in here, which
+    /// made this method's answer depend on what an unrelated part of the program happened
+    /// to be doing: in the test suite, where everything shares one process, a refresh area
+    /// with nothing pulled asked for frames whenever another test was loading an image
+    /// (milestone 411).
     pub fn wants_animation(&self) -> bool {
         self.wants_animation
     }
@@ -4329,14 +4339,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         interactives: builder.interactives,
         refreshes: builder.refreshes,
         dismissables: builder.dismissables,
-        // An image is still on its way: keep drawing, or the frame that would show it
-        // never happens.
-        //
-        // A **count**, asked once here, and not a flag on the widget. Showing a
-        // placeholder means taking the image out of the tree, and the fetch is still
-        // going on when the widget that started it is gone -- so a hook the walk reads
-        // off `Image` would go quiet at exactly the moment it is needed.
-        wants_animation: builder.wants_animation || frus_core::images_in_flight() > 0,
+        wants_animation: builder.wants_animation,
         semantics: builder.semantics,
         overflows: builder.overflows.into_inner(),
         scopes: builder.scopes,

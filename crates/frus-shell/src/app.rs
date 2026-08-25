@@ -1946,8 +1946,16 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     }
                 }
 
-                // A continuously animating widget, a spinner say, forces a redraw.
-                let wants_animation = ui.wants_animation();
+                // A continuously animating widget, a spinner say, forces a redraw. So
+                // does an image still on its way: without a frame to draw it in, the
+                // frame that would show it never happens.
+                //
+                // The fetch is asked about **here** rather than inside the tree, and as a
+                // count rather than a flag on the widget: showing a placeholder means
+                // taking the image out of the tree, so a hook read off `Image` would go
+                // quiet at exactly the moment it is needed. Asking here also keeps `Ui`
+                // answering for its own widgets alone (milestone 411).
+                let wants_animation = ui.wants_animation() || frus_widgets::images_in_flight() > 0;
 
                 // Keep the interface, for hit testing. The tree is already retained.
                 self.ui = Some(ui);

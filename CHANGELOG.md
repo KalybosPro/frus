@@ -8,10 +8,24 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 410 so far, each documenting the objective, the alternatives
+> record — one per step, 411 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **`Ui::wants_animation` answered for the whole process** (J411). It folded in
+  `images_in_flight()`, a process-global count, so any tree built while an unrelated part
+  of the program was loading an image asked for the next frame. In the test suite, where
+  everything shares one process, that made a refresh area with nothing pulled flake about
+  one run in ten.
+
+  A `Ui` describes what **its own widgets** want. What the process is fetching is the
+  shell's business, and the `||` now lives there. The reasoning for asking a *count* rather
+  than reading a flag off `Image` — the fetch outlives the widget that started it, because
+  showing a placeholder takes the image out of the tree — moved with it; it justified the
+  count, never the place.
 
 ### Added
 
