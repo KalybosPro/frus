@@ -8,10 +8,44 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 406 so far, each documenting the objective, the alternatives
+> record — one per step, 407 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **The platform reports what its user asked for** (J407). Android answers
+  `Configuration.fontScale`, the night setting, `fontWeightAdjustment`, touch exploration,
+  the animator duration scale and the clock format; desktop answers winit's theme. Until
+  now nothing did, and milestones 403 and 406 were correct in tests and inert on a device.
+- **`AccessibilityOverrides`** (J407), every field an `Option`. BREAKING:
+  `Application::accessibility` returns it instead of `Accessibility`. The platform answers
+  and the application overrides only what it chose to speak for — these settings belong to
+  the person using the device. `None` per field is what makes "no opinion" expressible; a
+  plain `Accessibility` could not say it, a `false` in it being the same as silence.
+- **`install_text_scale`** and `TextScaleGuard` (J407): the reader's font size installed
+  for as long as a guard lives, rather than for a closure.
+
+### Fixed
+
+- **The reader's font size never reached a real application** (J407). `MediaQuery::scope`
+  wrapped `view` — the construction of the widgets — but a size becomes a number three
+  times, and the two that decide how big text actually is, measuring and painting, ran at
+  scale 1. The layout measured one size and the renderer drew another.
+
+  This had been true since J403 landed. Nothing in the suite could see it: those tests wrap
+  `build_ui_inspected` themselves, so the harness installed the condition the shell forgot.
+  A device at `font_scale` 1.30 rendered pixel-identically to 1.0.
+
+- **A crash on launch on every Android below API 31** (J407). A failed JNI call leaves the
+  Java exception *pending on the thread*; discarding the Rust `Err` does not discard it, and
+  the next JNI call aborts the runtime. `Configuration.fontWeightAdjustment` is API 31, so
+  reading it on an API 29 device threw `NoSuchFieldError` and killed the process two calls
+  later — in code that compiled perfectly, JNI resolving names at runtime.
+
+- **The framework's animations ignored a platform that asked for less motion** (J407).
+  `runtime.still` read the application's answer rather than the resolved one.
 
 ### Changed
 

@@ -377,28 +377,51 @@ pub fn text_scale() -> f32 {
 /// The framework installs this around `view` from `MediaQuery::text_scaler`; an
 /// application does not normally call it. Scales at or below zero are ignored, a font of
 /// no size being a screen with no words on it.
+///
+/// **A closure is not always a long enough life.** A size becomes a number during layout
+/// and again during paint, which happen after the widgets have been built — see
+/// [`install_text_scale`], which the shell uses to cover a whole frame.
 pub fn with_text_scale<R>(scale: f32, f: impl FnOnce() -> R) -> R {
-    let scale = if scale > 0.0 { scale } else { 1.0 };
-    let previous = TEXT_SCALE.with(|s| s.replace(scale));
-    let guard = RestoreScale(previous);
+    let guard = install_text_scale(scale);
     let out = f();
     drop(guard);
     out
+}
+
+/// Installs the reader's font-size setting **until the returned guard is dropped**.
+///
+/// [`with_text_scale`] covers a closure, which is right for a subtree and wrong for a
+/// frame: a widget is *built* first, then measured, laid out and painted, and every one of
+/// those later steps resolves sizes too. Scoping only the build leaves the scale at 1 for
+/// the two steps that decide how big the text actually is — so the layout measures one
+/// size and the renderer draws another, which is the exact failure
+/// [`TextStyle::resolved`](TextStyle::resolved) exists to make impossible.
+///
+/// That is not a hypothetical either: the shell wrapped `view` alone, and the setting
+/// reached a device without changing a single pixel (milestone 407).
+///
+/// Scales at or below zero are ignored, as in [`with_text_scale`].
+#[must_use = "the scale is restored the moment the guard is dropped"]
+pub fn install_text_scale(scale: f32) -> TextScaleGuard {
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+    TextScaleGuard(TEXT_SCALE.with(|s| s.replace(scale)))
+}
+
+/// Puts back the scale that was in force before [`install_text_scale`], when dropped —
+/// including while a panic unwinds, so one bad frame cannot leave a stale scale installed
+/// for every frame after it.
+pub struct TextScaleGuard(f32);
+
+impl Drop for TextScaleGuard {
+    fn drop(&mut self) {
+        TEXT_SCALE.with(|s| s.set(self.0));
+    }
 }
 
 thread_local! {
     /// The reader's font-size setting on this thread. `Cell`, not `RefCell`: an `f32` is
     /// `Copy` and every access is a whole get or a whole set.
     static TEXT_SCALE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
-}
-
-/// Puts back the previous scale when dropped, panic or not.
-struct RestoreScale(f32);
-
-impl Drop for RestoreScale {
-    fn drop(&mut self) {
-        TEXT_SCALE.with(|s| s.set(self.0));
-    }
 }
 
 /// A **rich-text tree**: each node carries a fragment of text, *partial* style

@@ -14,10 +14,10 @@ use web_time::Instant;
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_ui, collect_ids, find_by_key, find_path, find_widget, reflow_reorder_cards,
-    reflow_reorder_columns, subtree_ids, Color, Cursor as UiCursor, Edit, FocusDirection, Insets,
-    Key, KeyResponse, KeyStroke, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene,
-    ShortcutKey, Size, Theme, Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId,
-    WindowInsets,
+    reflow_reorder_columns, subtree_ids, Accessibility, Brightness, Color, Cursor as UiCursor,
+    Edit, FocusDirection, Insets, Key, KeyResponse, KeyStroke, MediaQuery, Point, Primitive, Rect,
+    ReorderAxis, Runtime, Scene, ShortcutKey, Size, Theme, Ui, VelocityEstimate, VelocityTracker,
+    Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -28,6 +28,29 @@ use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{CursorIcon, Window, WindowId};
 
 use crate::application::{Application, Lifecycle};
+
+/// Everything the platform reports about its user, in one walk.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PlatformSettings {
+    /// The system's *Font size* slider. `1.0` is normal; Android's own slider reaches
+    /// 1.3, and the accessibility sizes go further.
+    pub text_scaler: f32,
+    /// Whether the system is currently showing a dark interface.
+    pub brightness: Brightness,
+    /// The accessibility settings, as far as they could be read.
+    pub accessibility: Accessibility,
+}
+
+impl Default for PlatformSettings {
+    /// What a platform that reports nothing looks like: a user who has changed nothing.
+    fn default() -> Self {
+        Self {
+            text_scaler: 1.0,
+            brightness: Brightness::Light,
+            accessibility: Accessibility::NONE,
+        }
+    }
+}
 use crate::gesture::{PointerEvent, PointerKind, PressRecognizer};
 
 /// The clipboard: `arboard` on the desktop platforms, a no-op **everywhere else**
@@ -430,6 +453,15 @@ pub struct App<A: Application> {
     elapsed: f32,
     /// The last window insets handed to the app — padding plus keyboard — in logical px.
     last_insets: WindowInsets,
+    /// What the **platform** last said about the person using it: the font-size slider,
+    /// the night setting, the accessibility switches.
+    ///
+    /// Cached rather than read per frame, because reading it is a walk across the JNI
+    /// boundary and the answer changes about once a year. It is refreshed when the
+    /// surface appears — which on Android is also when it *reappears*, the activity being
+    /// recreated on a font-scale or night change since no `configChanges` is declared —
+    /// and on a theme change where the platform sends one.
+    platform: PlatformSettings,
     /// The **keyboard-free** inset baseline, along with the physical size it was
     /// taken at — a rotation resets it: whatever bottom inset exceeds it is credited
     /// to the software keyboard.
@@ -506,6 +538,7 @@ impl<A: Application> App<A> {
             occluded: false,
             elapsed: 0.0,
             last_insets: WindowInsets::ZERO,
+            platform: PlatformSettings::default(),
             inset_baseline: None,
             // The app starts out detached; `resumed` will move it to `Resumed`.
             lifecycle: Lifecycle::Detached,
@@ -782,6 +815,41 @@ impl<A: Application> App<A> {
         let _ = (phys_w, phys_h, scale);
         Insets::ZERO
     }
+
+    /// Asks the platform what it says about its user, and remembers the answer.
+    ///
+    /// Marks the build dirty when something moved: the font size reaches the layout
+    /// through [`MediaQuery::scope`], so a changed scaler is a changed geometry for every
+    /// widget on the screen, and a frame drawn from the cache would keep the old one.
+    fn refresh_platform_settings(&mut self) {
+        #[cfg(android)]
+        if let Some(app) = &self.android_app {
+            let read = crate::android_settings::read(app);
+            if read != self.platform {
+                self.platform = read;
+                self.build_dirty = true;
+            }
+            return;
+        }
+        // Desktop and web report the one thing their window system knows. A text scaler
+        // is **not** among it: winit exposes no equivalent of Windows'
+        // `UISettings.TextScaleFactor` or of GNOME's `text-scaling-factor`, so it stays
+        // at 1 there and an application that knows better says so itself. That is a
+        // missing wire and is written down rather than papered over.
+        let brightness = self
+            .window
+            .as_ref()
+            .and_then(|window| window.theme())
+            .map(|theme| match theme {
+                winit::window::Theme::Dark => frus_widgets::Brightness::Dark,
+                winit::window::Theme::Light => frus_widgets::Brightness::Light,
+            })
+            .unwrap_or_default();
+        if brightness != self.platform.brightness {
+            self.platform.brightness = brightness;
+            self.build_dirty = true;
+        }
+    }
 }
 
 impl<A: Application> ApplicationHandler<A::Message> for App<A> {
@@ -791,6 +859,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         }
         // Back in the foreground, or starting up: the surface is (re)born below.
         self.set_lifecycle(Lifecycle::Resumed);
+        // And so is what the platform says about its user — a trip to the system
+        // settings and back is exactly this event.
+        self.refresh_platform_settings();
 
         let mut attributes = Window::default_attributes()
             .with_title(self.app.title())
@@ -1616,6 +1687,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 let app_animating = self.app.tick(dt);
                 let theme = self.app.theme();
 
+                // **The reader's font size, in force for the whole frame** — not just for
+                // `view`. A size becomes a number in three places: while the widgets are
+                // built, while they are measured and laid out, and while they are painted.
+                // Scoping the build alone left the last two at 1, so the layout measured
+                // one size and the renderer drew another — and the setting reached a
+                // device without moving a single pixel (milestone 407). The guard lives to
+                // the end of this frame and puts back what was there, panic or not.
+                let _reader_font_size = frus_widgets::install_text_scale(self.platform.text_scaler);
+
                 // === BUILD phase, conditional ===
                 // The `view` is rebuilt only when the app's state or the size changed
                 // (`build_dirty`), or when the app is animating, theme, navigation and
@@ -1626,7 +1706,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // The user's motion setting reaches the runtime before anything is
                 // advanced with it, and it is read every frame: a settings screen with a
                 // *reduce motion* switch changes it while the application is running.
-                self.runtime.still = self.app.accessibility().disable_animations;
+                self.runtime.still = self
+                    .platform
+                    .accessibility
+                    .with_overrides(self.app.accessibility())
+                    .disable_animations;
                 let need_build = self.build_dirty || app_animating || self.tree.is_none();
                 if need_build {
                     let tree = self
@@ -1930,11 +2014,24 @@ impl<A: Application> App<A> {
     /// to lay out for, the DPI scale, the app's density, and the insets last reported
     /// by the platform. It is assembled here, in one place, rather than at each of the
     /// call sites.
+    /// The **platform** answers, and the application overrides what it chose to speak for.
+    ///
+    /// That order is the one the reference uses and the only one that stays honest: the
+    /// settings belong to the person using the device, so the framework asks them first,
+    /// and an application with a *reduce motion* switch of its own says only that. An
+    /// [`AccessibilityOverrides`] whose fields are all `None` — the default — leaves every
+    /// answer to the user, which is what an application that has no settings screen means.
     fn media_query(&self, width: f32, height: f32) -> MediaQuery {
         MediaQuery::new(Size::new(width, height))
             .with_device_pixel_ratio(self.scale)
             .with_density(self.app.density())
-            .with_accessibility(self.app.accessibility())
+            .with_text_scaler(self.platform.text_scaler)
+            .with_platform_brightness(self.platform.brightness)
+            .with_accessibility(
+                self.platform
+                    .accessibility
+                    .with_overrides(self.app.accessibility()),
+            )
             .with_insets(self.last_insets)
     }
 

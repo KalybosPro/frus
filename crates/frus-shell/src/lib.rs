@@ -13,6 +13,8 @@
 mod a11y;
 #[cfg(android)]
 mod android_ime;
+#[cfg(android)]
+mod android_settings;
 mod app;
 mod application;
 mod command;

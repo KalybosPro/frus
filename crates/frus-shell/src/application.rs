@@ -86,21 +86,27 @@ pub trait Application {
         None
     }
 
-    /// The **accessibility settings** to describe the surface with — the user's, as the
-    /// platform reports them.
+    /// What this application wants to say about the **accessibility settings** *instead
+    /// of the platform*.
     ///
-    /// The default is [`Accessibility::NONE`](frus_widgets::Accessibility::NONE): a user
-    /// who has changed nothing. Platforms that report these are wired up one at a time,
-    /// and until one is, an application that knows better — a settings screen with a
-    /// *reduce motion* switch of its own — answers here and the framework obeys it.
+    /// The platform is asked first, because the settings belong to the person using the
+    /// device and not to the program. This hook lays an application's own answers over
+    /// that, one setting at a time — a settings screen with a *reduce motion* switch of
+    /// its own speaks for that and stays quiet about the rest.
+    ///
+    /// The default is [`AccessibilityOverrides::NONE`]: nothing said, every answer the
+    /// user's. `None` per field is what makes that expressible; a plain
+    /// [`Accessibility`](frus_widgets::Accessibility) could not, a `false` in it being
+    /// indistinguishable from silence.
     ///
     /// The framework honours [`disable_animations`] itself, by completing implicit
     /// animations at once rather than over time. The rest reach the widgets through
     /// [`MediaQuery::of`](frus_widgets::MediaQuery::of).
     ///
+    /// [`AccessibilityOverrides::NONE`]: frus_widgets::AccessibilityOverrides::NONE
     /// [`disable_animations`]: frus_widgets::Accessibility::disable_animations
-    fn accessibility(&self) -> frus_widgets::Accessibility {
-        frus_widgets::Accessibility::NONE
+    fn accessibility(&self) -> frus_widgets::AccessibilityOverrides {
+        frus_widgets::AccessibilityOverrides::NONE
     }
 
     /// The interface's **density**: an **application-level** zoom factor, `1.0` by
