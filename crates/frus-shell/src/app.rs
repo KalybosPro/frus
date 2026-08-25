@@ -1687,14 +1687,19 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 let app_animating = self.app.tick(dt);
                 let theme = self.app.theme();
 
-                // **The reader's font size, in force for the whole frame** — not just for
-                // `view`. A size becomes a number in three places: while the widgets are
-                // built, while they are measured and laid out, and while they are painted.
-                // Scoping the build alone left the last two at 1, so the layout measured
-                // one size and the renderer drew another — and the setting reached a
-                // device without moving a single pixel (milestone 407). The guard lives to
-                // the end of this frame and puts back what was there, panic or not.
-                let _reader_font_size = frus_widgets::install_text_scale(self.platform.text_scaler);
+                // **The surface, in force for the whole frame** — not just for `view`.
+                // A size becomes a number in three places: while the widgets are built,
+                // while they are measured and laid out, and while they are painted.
+                // Scoping the build alone left the last two at scale 1, so the layout
+                // measured one size and the renderer drew another, and the reader's
+                // setting reached a device without moving a single pixel (milestone 407).
+                //
+                // One guard, not two: the description and the font size are installed by
+                // the same call and released by the same drop, so they cannot be held for
+                // different lengths of time. Holding them separately is the same bug with
+                // an extra step (milestone 408). It lives to the end of this frame and
+                // puts back what was there, panic or not.
+                let _surface = self.media_query(width, height).install();
 
                 // === BUILD phase, conditional ===
                 // The `view` is rebuilt only when the app's state or the size changed
@@ -1713,9 +1718,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .disable_animations;
                 let need_build = self.build_dirty || app_animating || self.tree.is_none();
                 if need_build {
-                    let tree = self
-                        .media_query(width, height)
-                        .scope(|| self.app.view(&theme));
+                    // No scope of its own: the surface above is already installed, and
+                    // covers the layout and the paint that follow as well.
+                    let tree = self.app.view(&theme);
                     let ids = collect_ids(tree.as_ref());
                     let present: std::collections::HashSet<_> = ids.iter().copied().collect();
 

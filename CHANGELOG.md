@@ -8,10 +8,26 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 407 so far, each documenting the objective, the alternatives
+> record — one per step, 408 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`MediaQuery::install`** and `SurfaceGuard` (J408): the surface installed until a guard
+  is dropped, rather than for a closure. It holds the description **and** the reader's font
+  size — one call, one drop, so the two can never be held for different lengths of time.
+  `scope` remains, reimplemented on top of it, for the subtree case where a closure is the
+  right shape.
+- **A tripwire against half an installed surface** (J408). `build_ui` panics in debug builds
+  when a text scale away from 1 is in force with no surface described, which means somebody
+  installed one half and not the other.
+
+  It caught its own subject's tests first: the three written in J406 to prove widgets follow
+  the reader's font size used `MediaQuery::of().with_text_scaler(…)`, and `of()` outside a
+  scope is `UNSET` — a surface of no size. They were right about their result and wrong
+  about their setup, which is the gap that let J403 ship broken.
 
 ### Added
 

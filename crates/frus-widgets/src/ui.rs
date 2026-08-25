@@ -4196,6 +4196,31 @@ pub fn build_ui_inspected<'a, Msg: Clone + 'static>(
     (ui, nodes.unwrap_or_default())
 }
 
+/// Panics, **in debug builds only**, when the reader's font size is installed and the
+/// surface it belongs to is not.
+///
+/// The two travel together — [`MediaQuery::install`] sets both — so a scale away from 1
+/// with no description means somebody installed half a surface, and the half they left out
+/// is about to be missing for the layout that follows. That is not a theory: for four
+/// milestones the shell scoped only the build, the scale was 1 while text was measured and
+/// painted, and the reader's setting reached a device without moving a pixel. Nothing said
+/// a word — not the 91 goldens, not clippy, not the strict rustdoc.
+///
+/// Debug only, because it is a wiring mistake rather than a state a running application can
+/// reach: it should stop a test, not a user's frame. A scale of exactly 1 is the neutral
+/// value and says nothing either way, so it is never a failure.
+#[cfg(debug_assertions)]
+fn assert_surface_is_whole() {
+    let scale = frus_core::text_scale();
+    if (scale - 1.0).abs() > f32::EPSILON && !crate::MediaQuery::of().is_described() {
+        panic!(
+            "a text scale of {scale} is installed with no surface described: something \
+             installed half a surface. Use `MediaQuery::install` (or `scope`), which sets \
+             the description and the reader's font size together \u{2014} see milestone 408."
+        );
+    }
+}
+
 fn build_ui_impl<'a, Msg: Clone + 'static>(
     root: &'a dyn Widget<Msg>,
     available: Size,
@@ -4203,6 +4228,9 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
     theme: &'a Theme,
     inspect: bool,
 ) -> (Ui<Msg>, Option<Vec<crate::inspector::InspectorNode>>) {
+    #[cfg(debug_assertions)]
+    assert_surface_is_whole();
+
     let (mut rects, overflows) = runtime.layout_cache.borrow_mut().rects(
         WidgetId::ROOT,
         root,

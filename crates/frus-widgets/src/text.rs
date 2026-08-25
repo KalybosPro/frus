@@ -1464,22 +1464,24 @@ mod reader_font_size {
     /// Every glyph a widget paints, and the size it was drawn at.
     fn glyphs(make: fn() -> W, scale: f32) -> Vec<(String, f32)> {
         let root = make();
-        MediaQuery::of().with_text_scaler(scale).scope(|| {
-            let (ui, _) = build_ui_inspected(
-                root.as_ref(),
-                Size::new(400.0, 300.0),
-                &Runtime::default(),
-                &Theme::default(),
-            );
-            ui.scene()
-                .primitives()
-                .iter()
-                .filter_map(|p| match p {
-                    Primitive::Text { text, size, .. } => Some((text.clone(), *size)),
-                    _ => None,
-                })
-                .collect()
-        })
+        MediaQuery::new(Size::new(400.0, 300.0))
+            .with_text_scaler(scale)
+            .scope(|| {
+                let (ui, _) = build_ui_inspected(
+                    root.as_ref(),
+                    Size::new(400.0, 300.0),
+                    &Runtime::default(),
+                    &Theme::default(),
+                );
+                ui.scene()
+                    .primitives()
+                    .iter()
+                    .filter_map(|p| match p {
+                        Primitive::Text { text, size, .. } => Some((text.clone(), *size)),
+                        _ => None,
+                    })
+                    .collect()
+            })
     }
 
     fn cases() -> Vec<Case> {
@@ -1548,40 +1550,42 @@ mod reader_font_size {
     fn a_box_that_holds_text_grows_with_it() {
         for (name, make) in cases() {
             let root = make();
-            MediaQuery::of().with_text_scaler(2.0).scope(|| {
-                let (ui, _) = build_ui_inspected(
-                    root.as_ref(),
-                    Size::new(400.0, 300.0),
-                    &Runtime::default(),
-                    &Theme::default(),
-                );
-                let mut checked = 0;
-                for p in ui.scene().primitives() {
-                    if let Primitive::Text {
-                        text, size, bounds, ..
-                    } = p
-                    {
-                        // The box the text was **laid out in**, not the widget's outermost
-                        // rect: a table's outer box is enormous and would pass whatever its
-                        // rows did. Checking the emitting box is what caught the table.
-                        if bounds.height <= 0.0 {
-                            continue;
+            MediaQuery::new(Size::new(400.0, 300.0))
+                .with_text_scaler(2.0)
+                .scope(|| {
+                    let (ui, _) = build_ui_inspected(
+                        root.as_ref(),
+                        Size::new(400.0, 300.0),
+                        &Runtime::default(),
+                        &Theme::default(),
+                    );
+                    let mut checked = 0;
+                    for p in ui.scene().primitives() {
+                        if let Primitive::Text {
+                            text, size, bounds, ..
+                        } = p
+                        {
+                            // The box the text was **laid out in**, not the widget's outermost
+                            // rect: a table's outer box is enormous and would pass whatever its
+                            // rows did. Checking the emitting box is what caught the table.
+                            if bounds.height <= 0.0 {
+                                continue;
+                            }
+                            // What the **shaper** gives back, not the nominal `line_height`:
+                            // a face's real line box can be a fraction under the metric, and a
+                            // box sized to the smaller number clips nothing.
+                            let style = frus_core::ResolvedTextStyle::exact(*size);
+                            let needed = frus_text::measure_resolved(text, &style).height;
+                            checked += 1;
+                            assert!(
+                                needed <= bounds.height + 0.51,
+                                "{name}: {text:?} needs {needed:.1} px in a box of {:.1}",
+                                bounds.height
+                            );
                         }
-                        // What the **shaper** gives back, not the nominal `line_height`:
-                        // a face's real line box can be a fraction under the metric, and a
-                        // box sized to the smaller number clips nothing.
-                        let style = frus_core::ResolvedTextStyle::exact(*size);
-                        let needed = frus_text::measure_resolved(text, &style).height;
-                        checked += 1;
-                        assert!(
-                            needed <= bounds.height + 0.51,
-                            "{name}: {text:?} needs {needed:.1} px in a box of {:.1}",
-                            bounds.height
-                        );
                     }
-                }
-                assert!(checked > 0, "{name}: no text was checked at all");
-            });
+                    assert!(checked > 0, "{name}: no text was checked at all");
+                });
         }
     }
 
@@ -1593,23 +1597,25 @@ mod reader_font_size {
     fn an_app_bar_caps_its_title_rather_than_growing() {
         let title_size = |scale: f32| {
             let bar = crate::AppBar::<()>::new("A title");
-            MediaQuery::of().with_text_scaler(scale).scope(|| {
-                let root = bar.build();
-                let (ui, _) = build_ui_inspected(
-                    root.as_ref(),
-                    Size::new(400.0, 300.0),
-                    &Runtime::default(),
-                    &Theme::default(),
-                );
-                ui.scene()
-                    .primitives()
-                    .iter()
-                    .find_map(|p| match p {
-                        Primitive::Text { text, size, .. } if text == "A title" => Some(*size),
-                        _ => None,
-                    })
-                    .expect("the bar paints its title")
-            })
+            MediaQuery::new(Size::new(400.0, 300.0))
+                .with_text_scaler(scale)
+                .scope(|| {
+                    let root = bar.build();
+                    let (ui, _) = build_ui_inspected(
+                        root.as_ref(),
+                        Size::new(400.0, 300.0),
+                        &Runtime::default(),
+                        &Theme::default(),
+                    );
+                    ui.scene()
+                        .primitives()
+                        .iter()
+                        .find_map(|p| match p {
+                            Primitive::Text { text, size, .. } if text == "A title" => Some(*size),
+                            _ => None,
+                        })
+                        .expect("the bar paints its title")
+                })
         };
         let plain = title_size(1.0);
         assert!(

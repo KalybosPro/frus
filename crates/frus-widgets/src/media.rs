@@ -537,19 +537,58 @@ impl MediaQuery {
     /// force before — including when `f` panics, so one bad frame cannot leave a
     /// stale surface installed for every frame after it.
     ///
-    /// This is what the framework wraps `view` in, and what a widget uses to change
-    /// the description its own subtree sees.
+    /// **For a subtree**, where a closure is the right shape: a widget changing the
+    /// description its children see. A *frame* wants [`install`](Self::install) instead,
+    /// because a frame does not fit in a closure — see there for why that matters.
     pub fn scope<R>(self, f: impl FnOnce() -> R) -> R {
+        let guard = self.install();
+        let out = f();
+        drop(guard);
+        out
+    }
+
+    /// Installs `self` as the ambient description **until the returned guard is dropped**,
+    /// and restores whatever was in force before — panic or not.
+    ///
+    /// # Why this exists as well as [`scope`](Self::scope)
+    ///
+    /// A closure bounds the description to one call, and a *frame* is not one call. The
+    /// widgets are built, then measured and laid out, then painted, and **all three**
+    /// resolve sizes. The shell wrapped only the build for four milestones: the reader's
+    /// font size reached a real device and moved not one pixel, because the two steps that
+    /// decide how big text actually is ran outside the closure (milestone 407).
+    ///
+    /// The description and the reader's font size are installed **together, by this one
+    /// call**, and that is the point. They were briefly two guards that had to agree with
+    /// each other, which is the same bug with an extra step: whoever holds one and forgets
+    /// the other gets a layout measured at one size and painted at another, with nothing to
+    /// say so.
+    #[must_use = "the surface is uninstalled the moment the guard is dropped"]
+    pub fn install(self) -> SurfaceGuard {
         let previous = AMBIENT.with(|a| a.replace(self));
-        let guard = Restore(previous);
         // The reader's font size travels with the description, because it **is** part of
         // the description and because installing it anywhere else would be one more thing
         // to remember. It lives in `frus-core` rather than here: the only place a size
         // becomes a number is `TextStyle::resolved`, and that is below this crate.
-        let out = frus_core::with_text_scale(self.text_scaler, f);
-        drop(guard);
-        out
+        SurfaceGuard {
+            _scale: frus_core::install_text_scale(self.text_scaler),
+            _surface: Restore(previous),
+        }
     }
+}
+
+/// Holds a surface installed — see [`MediaQuery::install`]. Dropping it puts back the
+/// description **and** the reader's font size that were in force before.
+///
+/// The two live in one guard so that they cannot be held for different lengths of time,
+/// which is exactly how they came apart in milestone 407.
+#[must_use = "the surface is uninstalled the moment the guard is dropped"]
+pub struct SurfaceGuard {
+    /// Held for its `Drop` and never read, hence the name. Declared **first**, so it is
+    /// dropped first: the reverse of the order the two were installed in.
+    _scale: frus_core::TextScaleGuard,
+    /// Held for its `Drop` and never read. See `_scale` for the ordering.
+    _surface: Restore,
 }
 
 thread_local! {
@@ -751,5 +790,60 @@ mod tests {
             assert_eq!(plain.resolved().size, 24.0);
         });
         assert_eq!(plain.resolved().size, 16.0, "and it is put back afterwards");
+    }
+
+    /// **The description and the reader's font size are installed by one call.**
+    ///
+    /// They were briefly two guards that had to agree with each other, which is the same
+    /// bug with an extra step: whoever holds one and forgets the other gets a layout
+    /// measured at one size and painted at another.
+    #[test]
+    fn one_guard_installs_the_whole_surface() {
+        let phone = MediaQuery::new(Size::new(360.0, 780.0)).with_text_scaler(1.5);
+        assert_eq!(frus_core::text_scale(), 1.0);
+        assert!(!MediaQuery::of().is_described());
+        {
+            let _held = phone.install();
+            assert_eq!(frus_core::text_scale(), 1.5, "the font size is in force");
+            assert!(MediaQuery::of().is_described(), "and so is the description");
+        }
+        assert_eq!(frus_core::text_scale(), 1.0, "both are put back");
+        assert!(!MediaQuery::of().is_described());
+    }
+
+    /// A guard **outlives a closure**, which is the whole reason it exists: a frame builds,
+    /// then lays out, then paints, and all three resolve sizes.
+    #[test]
+    fn a_guard_holds_past_the_call_that_made_it() {
+        let built = {
+            let held = MediaQuery::new(Size::new(400.0, 300.0))
+                .with_text_scaler(2.0)
+                .install();
+            let size = frus_core::TextStyle::new(16.0).resolved().size;
+            // The "layout" and the "paint" of this frame: after the widgets were built,
+            // and still inside the surface.
+            let laid_out = frus_core::TextStyle::new(16.0).resolved().size;
+            drop(held);
+            (size, laid_out)
+        };
+        assert_eq!(built, (32.0, 32.0));
+        assert_eq!(frus_core::TextStyle::new(16.0).resolved().size, 16.0);
+    }
+
+    /// Installing one **inside** another nests and unwinds in order, so a widget can still
+    /// change the description its own subtree sees.
+    #[test]
+    fn surfaces_nest_and_unwind_in_order() {
+        let outer = MediaQuery::new(Size::new(400.0, 800.0)).with_text_scaler(1.5);
+        let inner = MediaQuery::new(Size::new(200.0, 400.0)).with_text_scaler(3.0);
+        let _o = outer.install();
+        assert_eq!(frus_core::text_scale(), 1.5);
+        {
+            let _i = inner.install();
+            assert_eq!(frus_core::text_scale(), 3.0);
+            assert_eq!(MediaQuery::of().size.width, 200.0);
+        }
+        assert_eq!(frus_core::text_scale(), 1.5, "the outer surface is back");
+        assert_eq!(MediaQuery::of().size.width, 400.0);
     }
 }
