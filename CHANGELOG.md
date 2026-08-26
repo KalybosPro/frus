@@ -8,10 +8,19 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 418 so far, each documenting the objective, the alternatives
+> record — one per step, 419 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **Persistent footer buttons sat on the gesture bar when nothing was below them** (J419).
+  The shell leaves the bottom clearance to whatever is bottom-most and steps the body aside
+  when there is a footer; the footer then took nothing, because the bottom it passed its own
+  padding was a literal zero. It is a real safe area now, with the top edge freed, and the
+  shell tells the slot what there is to consume — nothing when a navigation bar below it
+  already holds the edge off, as the reference does.
 
 ### Fixed
 

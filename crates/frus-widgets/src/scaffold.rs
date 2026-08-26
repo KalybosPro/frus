@@ -616,6 +616,28 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         };
         let has_nav = has_nav || bottom_bar_height > 0.0;
 
+        // How far the bottom-most slot is held off the edge. The keyboard is the only
+        // inset a screen may decline: `view_insets.bottom` measures the occlusion from
+        // the window edge, bar included, so the two combine with `max` and never add up.
+        // Declining, the screen has said the keyboard is an **overlay** — so the
+        // geometry it wants is the keyboard-free one. `insets.bottom` is zero while the
+        // keyboard covers the navigation bar (the bar being covered, nothing has to
+        // avoid it), and reading it here would drop the bottom bar and the floating
+        // button onto the window's edge the moment a field was tapped, then lift them
+        // back when the keyboard closed. `view_padding` is the intrusion that does not
+        // move, which is exactly what "ignore the keyboard" means.
+        //
+        // It is worked out here, above the footer, because the footer is one of the
+        // slots it falls to (milestone 419).
+        let bottom_clear = if resize_to_avoid_bottom_inset {
+            insets.bottom.max(view_insets.bottom)
+        } else {
+            view_padding.bottom
+        };
+        // Whether something below the footer already holds the edge off. A rail is
+        // beside the body, not beneath it, so it holds nothing off.
+        let bar_below_body = has_nav && !rail_nav;
+
         // The persistent footer: its own row, aligned as asked, kept clear of the side
         // insets. It sits between the body and the bottom bar and never scrolls.
         let footer: Option<Box<dyn Widget<Msg>>> = persistent_footer.map(|widget| {
@@ -630,43 +652,45 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                 .child(widget);
             // **The decoration outside, the safe area inside.** The reference's footer
             // is a decorated container — background, and a one-pixel top border unless
-            // the caller replaces it — wrapping a `SafeArea(top: false)`. So the line
-            // and the background run the full width of the screen and the *content* is
-            // what keeps clear of the side intrusions; a border inset by the notch
-            // would be a rule that stops short of the edge it is ruling off.
+            // the caller replaces it — wrapping a `SafeArea(top: false)`
+            // (`scaffold.dart:3133`). So the line and the background run the full width
+            // of the screen and the *content* is what keeps clear of the intrusions; a
+            // border inset by the notch would be a rule that stops short of the edge it
+            // is ruling off.
+            //
+            // It is a **real safe area** since milestone 419, not a padding worked out
+            // here, and that is what fixed the bottom: this used to pass zero, so a
+            // footer with nothing under it left its buttons sitting on the gesture bar.
+            // The shell holds the clearance for whatever is bottom-most, and with a
+            // footer there, that is the footer.
             let mut stack = Flex::column();
             if persistent_footer_divider {
                 stack = stack.child(crate::Divider::new());
             }
-            stack = stack.child_boxed(inset_pad(
-                Box::new(Container::new().padding(FOOTER_PAD).child(row)),
-                0.0,
-                insets.right,
-                0.0,
-                insets.left,
-            ));
+            stack = stack.child(
+                crate::SafeArea::new(Container::new().padding(FOOTER_PAD).child(row))
+                    .edges(crate::Edges::ALL.without_top()),
+            );
             let mut decorated = Container::new().child(stack);
             if let Some(color) = persistent_footer_color {
                 decorated = decorated.color(color);
             }
-            Box::new(decorated) as Box<dyn Widget<Msg>>
+            // The description the slot is handed: the top removed, the sides as the
+            // shell resolved them, and the bottom only when nothing below it holds the
+            // edge off — which is what the reference's `removeBottomPadding:
+            // bottomNavigationBar != null` says (`scaffold.dart:3158`).
+            let (left, right) = (insets.left, insets.right);
+            let bottom = if bar_below_body { 0.0 } else { bottom_clear };
+            Box::new(crate::MediaScope::tweak(
+                move |mq: &mut crate::MediaQuery| {
+                    mq.padding.top = 0.0;
+                    mq.padding.left = left;
+                    mq.padding.right = right;
+                    mq.padding.bottom = bottom;
+                },
+                decorated,
+            )) as Box<dyn Widget<Msg>>
         });
-
-        // How far the bottom-most slot is held off the edge. The keyboard is the only
-        // inset a screen may decline: `view_insets.bottom` measures the occlusion from
-        // the window edge, bar included, so the two combine with `max` and never add up.
-        // Declining, the screen has said the keyboard is an **overlay** — so the
-        // geometry it wants is the keyboard-free one. `insets.bottom` is zero while the
-        // keyboard covers the navigation bar (the bar being covered, nothing has to
-        // avoid it), and reading it here would drop the bottom bar and the floating
-        // button onto the window's edge the moment a field was tapped, then lift them
-        // back when the keyboard closed. `view_padding` is the intrusion that does not
-        // move, which is exactly what "ignore the keyboard" means.
-        let bottom_clear = if resize_to_avoid_bottom_inset {
-            insets.bottom.max(view_insets.bottom)
-        } else {
-            view_padding.bottom
-        };
 
         // The body: given the room the bars leave, with the side insets applied to its
         // content, and **not** wrapped in a scroller. A pane rather than a viewport —
@@ -685,8 +709,6 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // it is on the body, and it is taken as a **sibling** rather than as padding
         // inside it: the room the body is given shrinks, so a scrolling body scrolls
         // within what is left instead of running under the keyboard.
-        // A rail is beside the body, not beneath it, so it holds nothing off the edge.
-        let bar_below_body = has_nav && !rail_nav;
         let body_owns_bottom = !extend_body && footer.is_none() && !bar_below_body;
         let body_spacer = body_owns_bottom && bottom_clear > 0.0;
 
@@ -1427,6 +1449,87 @@ mod tests {
             let d = ((p.x - fab_centre_x).powi(2) + (p.y - bar_top).powi(2)).sqrt();
             assert!(d >= 27.9, "the bar cuts into the button: {p:?} ({d})");
         }
+    }
+
+    /// **A footer alone held nothing off the bottom edge** (milestone 419).
+    ///
+    /// The shell leaves the bottom clearance to whatever is bottom-most, and with a
+    /// footer there it is the footer's. But the footer only ever consumed the *sides* —
+    /// the bottom it passed itself was a literal zero — so its buttons sat on the gesture
+    /// bar. The reference removes the bottom intrusion from that slot **only when a
+    /// navigation bar is below it** (`scaffold.dart:3158`); with nothing below, the
+    /// footer's own `SafeArea(top: false)` takes it.
+    ///
+    /// And the decoration stays outside that safe area, so the rule and the background
+    /// still run to the screen's edge. A footer that padded its own box would be a rule
+    /// stopping short of the edge it is ruling off.
+    #[test]
+    fn a_footer_holds_the_bottom_edge_off_unless_a_bar_below_it_does() {
+        const GESTURE: f32 = 24.0;
+        /// The footer's content, in a colour the decoration does not use.
+        const CONTENT: Color = Color {
+            r: 0.0,
+            g: 1.0,
+            b: 1.0,
+            a: 1.0,
+        };
+        let size = Size::new(W, H);
+        let footer = |with_bar: bool| {
+            let surface = MediaQuery::new(size)
+                .with_insets(WindowInsets::bars(Insets::new(0.0, 0.0, GESTURE, 0.0)));
+            let ui = surface.scope(|| {
+                let mut scaffold = Scaffold::new()
+                    .size(W, H)
+                    .body(Container::<Msg>::new().flex(1.0))
+                    .persistent_footer_color(MARK)
+                    .persistent_footer(
+                        Container::<Msg>::new()
+                            .width(100.0)
+                            .height(40.0)
+                            .color(CONTENT),
+                    );
+                if with_bar {
+                    scaffold = scaffold.nav(0, Msg::Go).destination("H", "Home");
+                }
+                let tree = scaffold.build();
+                build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default())
+            });
+            let find = |wanted: Color| {
+                ui.scene()
+                    .primitives()
+                    .iter()
+                    .find_map(|p| match p {
+                        frus_core::Primitive::Rect { rect, color, .. } if *color == wanted => {
+                            Some(*rect)
+                        }
+                        _ => None,
+                    })
+                    .expect("the footer is drawn")
+            };
+            (find(MARK), find(CONTENT))
+        };
+
+        // Alone: the background reaches the window's edge, the buttons stop above the
+        // gesture bar.
+        let (decoration, buttons) = footer(false);
+        assert!(
+            (decoration.y + decoration.height - H).abs() < 0.5,
+            "the footer's background stops short of the edge: {decoration:?}"
+        );
+        assert!(
+            buttons.y + buttons.height <= H - GESTURE + 0.5,
+            "the footer's buttons sit on the gesture bar: {buttons:?}"
+        );
+
+        // With a bar below it, the bar holds the edge off and the footer must not pad
+        // for it a second time: its buttons stop a plain footer padding from its own
+        // bottom edge, and no further.
+        let (decoration, buttons) = footer(true);
+        let gap = (decoration.y + decoration.height) - (buttons.y + buttons.height);
+        assert!(
+            gap <= FOOTER_PAD + 0.5,
+            "the footer padded for an intrusion the bar below it already holds off: {gap}"
+        );
     }
 
     /// **The bottom slot is told, not padded** (milestone 418), and the difference is
