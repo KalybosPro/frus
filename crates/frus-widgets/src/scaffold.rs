@@ -32,13 +32,25 @@
 //! no size either — and it is not a convenience: a number that travels by hand gets
 //! dropped, and the failure is a screen laid out to the wrong width.
 //!
-//! **What the body is given, and what it is given under.** By default the body gets
-//! what the bars leave it: it starts below the app bar, stops above the bottom bar,
-//! and is shortened by the soft keyboard so that a field at the end of a form is not
-//! covered by it. Each of those three is a decision a screen may reverse —
+//! **What the body is given.** The body gets what the bars leave it: it starts below
+//! the app bar, stops above the bottom bar and the persistent footer, and is shortened
+//! by the soft keyboard so that a field at the end of a form is not covered by it. Each
+//! of those is a decision a screen may reverse —
 //! [`Scaffold::extend_body_behind_app_bar`], [`Scaffold::extend_body`] and
-//! [`Scaffold::resize_to_avoid_bottom_inset`] — and none of them lets content sit
-//! under the system's own bars, which are not the application's to spend.
+//! [`Scaffold::resize_to_avoid_bottom_inset`].
+//!
+//! **And what it is told.** The system's own intrusions — the notch, the gesture bar —
+//! are *described* to the body, not spent on its behalf. With nothing below it the body
+//! reaches the screen's edge, and the description it is handed says the gesture bar is
+//! there; a body that must be held clear of it says [`SafeArea`](crate::SafeArea) and is
+//! answered. That is the reference's arrangement, and it is what a background, a hero
+//! image, or a list that should scroll *under* the gesture bar needs — a shell that spent
+//! the intrusion for them made all three impossible, and made every screen pay for the
+//! notch whether it wanted the room or not.
+//!
+//! It is only ever the **body**. A bar, a rail or a footer put in a slot consumes what it
+//! is told about, so the chrome keeps clear of the intrusions without a screen saying
+//! anything at all.
 //!
 //! **The body does not scroll.** It is placed in the room the bars leave and that is
 //! all; a screen that needs to scroll puts a scrolling widget in the body, and picks
@@ -324,6 +336,16 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     ///
     /// Left plain, the body is positioned at the top of that room, so a body that
     /// wants all of it says so — `.flex(1.0)`, or a `Flex` that centres its content.
+    ///
+    /// **The room includes the system's intrusions when nothing else holds them off.**
+    /// With a bottom bar or a footer below it, they keep the body clear of the gesture
+    /// bar; with neither, the body reaches the screen's edge and is *told* the intrusion
+    /// is there. A body whose content must not sit under it wraps in
+    /// [`SafeArea`](crate::SafeArea):
+    ///
+    /// ```ignore
+    /// .body(SafeArea::new(form))
+    /// ```
     pub fn body(mut self, widget: impl Widget<Msg> + 'static) -> Self {
         self.body = Some(Box::new(widget));
         self
@@ -637,6 +659,15 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // Whether something below the footer already holds the edge off. A rail is
         // beside the body, not beneath it, so it holds nothing off.
         let bar_below_body = has_nav && !rail_nav;
+        // How far the bottom bar reaches up, which the body needs when it is told to run
+        // under it and the floating button needs to sit on its edge.
+        let nav_h = if bottom_bar_height > 0.0 {
+            bottom_bar_height
+        } else if !rail_nav && has_nav {
+            BAR_HEIGHT
+        } else {
+            0.0
+        };
 
         // The persistent footer: its own row, aligned as asked, kept clear of the side
         // insets. It sits between the body and the bottom bar and never scrolls.
@@ -725,9 +756,26 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         } else {
             insets.top
         };
-        // And the bottom is whatever is below it: a bar, a footer, or the spacer the
-        // column adds. Only a body told to run **under** the bottom slots faces the edge.
-        let body_bottom = if extend_body { insets.bottom } else { 0.0 };
+        // And the bottom, which changed hands at milestone 423. The shell shortens the
+        // body for the **keyboard** and for the widgets below it, **never for the gesture
+        // bar**: the reference's `minInsets.bottom` is `resize ? viewInsets.bottom : 0`
+        // (`scaffold.dart:3220`), so a body with nothing under it reaches the screen's edge
+        // and is **told** what is there. With a bar or a footer under it they hold the edge
+        // off and the body is told nothing, which is the reference's `removeBottomPadding:
+        // bottomNavigationBar != null || persistentFooterButtons != null`.
+        //
+        // Told to run **under** them, it faces the further of two things: the intrusion, or
+        // how far the slots it runs under reach. That is `_BodyBuilder`'s
+        // `max(padding.bottom, bottomWidgetsHeight)` (`scaffold.dart:969`) — with the
+        // footer's own height still missing from the second term, since nothing measures it.
+        let below_body = bar_below_body || footer.is_some();
+        let body_bottom = if extend_body {
+            insets.bottom.max(nav_h)
+        } else if below_body {
+            0.0
+        } else {
+            insets.bottom
+        };
         let (body_left, body_right) = (insets.left, insets.right);
         let body_keyboard = resize_to_avoid_bottom_inset;
         let body_pane = Flex::column().flex(1.0).child(crate::MediaScope::tweak(
@@ -745,13 +793,24 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             body_widget,
         ));
 
-        // Whether the bottom clearance falls to the body. With a bar or a footer below
-        // it, they hold the edge off; alone — or with the body told to run under them —
-        // it is on the body, and it is taken as a **sibling** rather than as padding
-        // inside it: the room the body is given shrinks, so a scrolling body scrolls
-        // within what is left instead of running under the keyboard.
+        // Whether the bottom clearance falls to the body — and **which** clearance.
+        //
+        // The keyboard, and nothing else (milestone 423). It is taken as a **sibling**
+        // rather than as padding inside the body: the room the body is given shrinks, so a
+        // scrolling body scrolls within what is left instead of running under the keyboard.
+        // The gesture bar is *not* here any more; it reaches the body as a description, and
+        // a body that wants to be held clear of it says `SafeArea` — which is what the
+        // reference does, `minInsets.bottom` being the keyboard alone.
+        //
+        // With a bar or a footer below it they hold the edge off, and a body told to run
+        // under them has asked for the room.
         let body_owns_bottom = !extend_body && footer.is_none() && !bar_below_body;
-        let body_spacer = body_owns_bottom && bottom_clear > 0.0;
+        let keyboard_clear = if resize_to_avoid_bottom_inset {
+            view_insets.bottom
+        } else {
+            0.0
+        };
+        let body_spacer = body_owns_bottom && keyboard_clear > 0.0;
 
         // Which slots the body must make room for, and which it runs under. A slot that
         // is extended behind moves out of the body's column and into an overlay layer
@@ -826,7 +885,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             }
             col = col.child(body_pane);
             if body_spacer {
-                col = col.child(Container::new().height(bottom_clear));
+                col = col.child(Container::new().height(keyboard_clear));
             }
             if !bottom_over_body {
                 if let Some(f) = footer.take() {
@@ -867,7 +926,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             }
             content = content.child(body_pane);
             if body_spacer {
-                content = content.child(Container::new().height(bottom_clear));
+                content = content.child(Container::new().height(keyboard_clear));
             }
             if !bottom_over_body {
                 if let Some(f) = footer.take() {
@@ -909,13 +968,6 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         if let Some(fab) = fab {
             // Where the body stops: the top of the bottom bar, which is what both
             // vertical placements are measured from.
-            let nav_h = if bottom_bar_height > 0.0 {
-                bottom_bar_height
-            } else if !rail_nav && has_nav {
-                BAR_HEIGHT
-            } else {
-                0.0
-            };
             let content_bottom = bottom_clear + nav_h;
             let fab_bottom = if fab_location.docked() {
                 // Docked: the button's **centre** on that edge, straddling the bar.
@@ -1224,9 +1276,13 @@ mod tests {
                 .body(filling())
                 .build(),
         );
-        // Declined: only the permanent bottom bar is kept clear, the keyboard covers.
+        // Declined: the screen has said the keyboard is an **overlay**, so nothing
+        // shortens the body at all and it keeps the whole window — `minInsets.bottom` is
+        // zero when `resizeToAvoidBottomInset` is false, and the permanent bottom bar was
+        // never in that number (milestone 423). It reaches the body as a description, and
+        // a body that wants to be clear of it says `SafeArea`.
         assert!(
-            (covered[0].y + covered[0].height - (H - 30.0)).abs() < 1.0,
+            (covered[0].y + covered[0].height - H).abs() < 1.0,
             "the body must run under the keyboard: {:?}",
             covered[0]
         );
@@ -1278,21 +1334,42 @@ mod tests {
         );
     }
 
-    /// Without a bottom bar or a footer, the body itself must clear the system bar —
-    /// there is nobody else below it to do it.
+    /// **A body alone reaches the screen's edge, and is told what is there** (milestone
+    /// 423).
+    ///
+    /// The reference shortens its body for the keyboard and for the widgets below it,
+    /// **never for the gesture bar**: `minInsets.bottom` is `resize ? viewInsets.bottom : 0`
+    /// (`scaffold.dart:3220`). So a plain body runs to the edge — which is what a
+    /// background, a hero image, or a list that should scroll *under* the gesture bar
+    /// wants — and a body that must be held clear of it says `SafeArea`.
     #[test]
-    fn a_body_alone_still_clears_the_navigation_bar() {
-        let body = marks(
+    fn a_body_alone_reaches_the_edge_and_is_told_what_is_there() {
+        const BOTTOM: f32 = 30.0;
+        let size = Size::new(W, H);
+        let surface = MediaQuery::new(size)
+            .with_insets(WindowInsets::bars(Insets::new(40.0, 0.0, BOTTOM, 0.0)));
+
+        // Nothing below it and nothing asked for: it is the whole screen.
+        let bare = marked_under(surface, size, || {
+            Scaffold::new().size(W, H).body(filling::<Msg>()).build()
+        });
+        assert!(
+            (bare.y + bare.height - H).abs() < 1.0,
+            "the body stopped short of the edge: {bare:?}"
+        );
+
+        // And a body that must be clear of the gesture bar says so, and is answered —
+        // which it could not be before, the description having said the bottom was
+        // already dealt with.
+        let asked = marked_under(surface, size, || {
             Scaffold::new()
                 .size(W, H)
-                .insets(Insets::new(40.0, 0.0, 30.0, 0.0))
-                .body(filling())
-                .build(),
-        );
+                .body(crate::SafeArea::new(filling::<Msg>()))
+                .build()
+        });
         assert!(
-            (body[0].y + body[0].height - (H - 30.0)).abs() < 1.0,
-            "the body ran under the navigation bar: {:?}",
-            body[0]
+            (asked.y + asked.height - (H - BOTTOM)).abs() < 1.0,
+            "a body that asked to be held clear of the gesture bar was not: {asked:?}"
         );
     }
 

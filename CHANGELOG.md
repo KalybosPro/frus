@@ -8,10 +8,25 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 422 so far, each documenting the objective, the alternatives
+> record — one per step, 423 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Changed
+
+- **A `Scaffold` no longer spends the system's bottom intrusion on the body's behalf** (J423),
+  which is the reference's arrangement. With a bottom bar or a persistent footer below it,
+  nothing changes — they hold the edge off as before. With **neither**, the body now reaches
+  the screen's edge and is *told* that the gesture bar is there; a body whose content must be
+  clear of it says `SafeArea::new(…)` and is answered. A screen that declines
+  `resize_to_avoid_bottom_inset` likewise keeps the whole window, the keyboard being an
+  overlay it has asked to ignore.
+
+  This is a behaviour change for screens with no bottom slot. The one line that restores the
+  old picture is `.body(SafeArea::new(content))`; the reason not to do it everywhere is that
+  a full-bleed background, a hero image, and a list scrolling under the gesture bar were all
+  impossible while the shell decided for them.
 
 ### Added
 
