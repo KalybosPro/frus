@@ -227,6 +227,11 @@ crate::transparent::forward_transparent!(Flexible {
     ) -> Option<Box<crate::theme::Theme>> {
         self.inner.theme_override(inherited)
     }
+
+    /// Forwarded: a wrapper is its child, and a scoped surface is the child's to impose.
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        self.inner.media_override(inherited)
+    }
 });
 
 crate::transparent::forward_transparent!(Expanded {
@@ -248,6 +253,11 @@ crate::transparent::forward_transparent!(Expanded {
         inherited: &crate::theme::Theme,
     ) -> Option<Box<crate::theme::Theme>> {
         self.inner.theme_override(inherited)
+    }
+
+    /// Forwarded: a wrapper is its child, and a scoped surface is the child's to impose.
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        self.inner.media_override(inherited)
     }
 });
 

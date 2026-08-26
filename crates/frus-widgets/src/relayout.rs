@@ -247,6 +247,14 @@ fn hash_node<Msg, H: Hasher>(
     // store another.
     let scoped = widget.theme_override(theme);
     let theme = scoped.as_deref().unwrap_or(theme);
+    // The same for the **surface**: a scoped description changes what the subtree measures
+    // with, so it has to be in force here as well — and hashed, or two different surfaces
+    // would share one fingerprint and the cache would keep the first one's geometry.
+    let surface = widget.media_override(crate::MediaQuery::of());
+    let _surface = surface.map(crate::MediaQuery::install);
+    if let Some(mq) = surface {
+        mq.measure_hash(hasher);
+    }
     // The cache exists to **skip** `build_layout`, so this walk can be the first one down
     // the tree: a deferred subtree has to be composed here too, or the fingerprint would
     // be taken of a node with no children and the cache would agree with itself forever.

@@ -98,6 +98,11 @@ fn action_size_of(over: Option<f32>, theme: &Theme) -> f32 {
     over.or(theme.text.label_large.size)
         .unwrap_or(frus_core::DEFAULT_TEXT_SIZE)
 }
+/// Whether an untold bar sits at the top of the screen. The reference's default, and the
+/// one that makes a bar used **outside** a shell behave: it consumes the status bar itself
+/// rather than waiting for something to inset it.
+const PRIMARY: bool = true;
+
 /// A button's inner horizontal padding (must follow `button::PAD_X`).
 const BTN_PAD_X: f32 = 20.0;
 /// The space between the bar's elements (the default, overridden by [`AppBar::gap`]).
@@ -140,6 +145,7 @@ pub struct AppBar<Msg> {
     overflow: Option<(bool, Msg)>,
     actions: Vec<Action<Msg>>,
     action_size: Option<f32>,
+    primary: bool,
     gap: f32,
     background: Option<Color>,
     height: Option<f32>,
@@ -197,6 +203,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             overflow: None,
             actions: Vec::new(),
             action_size: None,
+            primary: PRIMARY,
             gap: GAP,
             background: None,
             height: None,
@@ -284,6 +291,25 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// The labelled actions' font size (16 px by default).
     pub fn action_size(mut self, size: f32) -> Self {
         self.action_size = Some(size);
+        self
+    }
+
+    /// Whether this bar sits at the **top of the screen**, and so has to keep its content
+    /// out of the status bar. `true` unless said otherwise, as in the reference.
+    ///
+    /// The bar pads **itself**: its surface still runs behind the status bar — that is what
+    /// a Material bar looks like — and only its toolbar and its `bottom` are held clear.
+    /// The two things this separates are the shell's job and the bar's: a
+    /// [`Scaffold`](crate::Scaffold) makes the slot tall enough, and the bar decides
+    /// whether to use the room. Until milestone 417 the shell insetted the bar from
+    /// outside, which is one switch where the reference has two — and why a bar used
+    /// *without* a shell drew under the status bar.
+    ///
+    /// Turn it off for a bar that is not at the top: one nested in a page, or a second bar
+    /// under the first.
+    #[must_use]
+    pub fn primary(mut self, primary: bool) -> Self {
+        self.primary = primary;
         self
     }
 
@@ -565,6 +591,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             toolbar_opacity,
             bottom_opacity,
             actions_padding,
+            primary,
             flexible_space,
             icon_theme,
             actions_icon_theme,
@@ -857,6 +884,16 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         let content: Box<dyn Widget<Msg>> = match bottom {
             Some(bottom) => Box::new(Flex::column().child_boxed(toolbar).child_boxed(bottom)),
             None => toolbar,
+        };
+        // **The padding applies to the toolbar and the bottom, not to the surface** — the
+        // reference says so in as many words (`app_bar.dart:1189`), and it is what makes a
+        // Material bar look the way it does: the colour runs behind the status bar while
+        // the title sits below it. The bottom edge is left alone; a bar has something under
+        // it by definition.
+        let content: Box<dyn Widget<Msg>> = if primary {
+            Box::new(crate::SafeArea::new(content).edges(crate::Edges::ALL.without_bottom()))
+        } else {
+            content
         };
 
         // The bar **occupies** the width it was told about rather than hugging its
@@ -1560,6 +1597,57 @@ mod tests {
             max_x <= W - H_PAD + 0.5,
             "content overflowing on the right ({max_x} > {})",
             W - H_PAD
+        );
+    }
+
+    /// **A bar outside a shell keeps its own content out of the status bar.**
+    ///
+    /// It did not, and that was the recorded cost of the shell owning the switch: the
+    /// scaffold insetted the bar from outside, so a bar used on its own had nothing to
+    /// inset it and would not inset itself. Milestone 417 gives it the reference's
+    /// arrangement — the shell says what there is to consume, the bar consumes it.
+    ///
+    /// The **surface** still runs behind the status bar; only the toolbar is held clear.
+    /// That is what a Material bar looks like, and what `app_bar.dart:1189` says in words.
+    #[test]
+    fn a_bar_on_its_own_clears_the_status_bar() {
+        const TOP: f32 = 40.0;
+        let title_y = |primary: bool| {
+            let size = frus_core::Size::new(400.0, 200.0);
+            let surface = crate::MediaQuery::new(size).with_insets(frus_core::WindowInsets::bars(
+                frus_core::Insets::new(TOP, 0.0, 0.0, 0.0),
+            ));
+            // Built **and laid out** under the surface, the way a frame does it: the
+            // shell holds one description across the build, the layout and the paint
+            // (milestone 408), and a bar reads it when the walk reaches it.
+            surface.scope(|| {
+                let bar = AppBar::<Msg>::new("Inbox").primary(primary).build();
+                crate::build_ui(
+                    bar.as_ref(),
+                    size,
+                    &crate::Runtime::default(),
+                    &Theme::default(),
+                )
+                .scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Text { position, .. } => Some(position.y),
+                    _ => None,
+                })
+                .expect("the title is drawn")
+            })
+        };
+        assert!(
+            (title_y(true) - title_y(false) - TOP).abs() < 0.5,
+            "a primary bar holds its title off by exactly the intrusion: {} vs {}",
+            title_y(true),
+            title_y(false)
+        );
+        assert!(
+            title_y(true) >= TOP,
+            "and it is below the status bar, not under it: {}",
+            title_y(true)
         );
     }
 

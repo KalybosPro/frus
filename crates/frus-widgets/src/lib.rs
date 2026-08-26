@@ -74,6 +74,7 @@ mod layoutbuilder;
 mod list;
 mod listtile;
 mod media;
+mod mediascope;
 mod menu;
 mod navbar;
 mod navigator;
@@ -222,6 +223,7 @@ pub use listtile::{
 pub use media::{
     Accessibility, AccessibilityOverrides, Brightness, Edges, MediaQuery, SurfaceGuard,
 };
+pub use mediascope::MediaScope;
 pub use menu::PopupMenuButton;
 pub use navbar::NavigationBar;
 pub use navigator::Navigator;

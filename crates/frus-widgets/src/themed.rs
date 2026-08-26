@@ -105,6 +105,11 @@ crate::transparent::forward_transparent!(Themed {
         };
         Some(self.inner.theme_override(&mine).unwrap_or_else(|| Box::new(mine)))
     }
+
+    /// Forwarded: a theme says nothing about the surface.
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        self.inner.media_override(inherited)
+    }
 });
 
 #[cfg(test)]

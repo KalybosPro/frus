@@ -700,9 +700,27 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // sitting beside another, takes the bar's own height and leaves the top
         // intrusion to whatever is actually above it. The reference computes the same
         // thing in the same place: `primary ? MediaQuery.paddingOf(context).top : 0.0`.
+        // The slot is handed a **description**, not a padding (milestone 417). An
+        // `AppBar` consumes the intrusion itself when it is `primary`, exactly as the
+        // reference's does — the shell's job is to say what there is to consume.
+        //
+        // It says it even when the answer is "the same as outside", because the shell's
+        // idea of its intrusions is not always the ambient one: `Scaffold::insets` is an
+        // explicit override, and a slot told nothing would read past it to the surface and
+        // pad by something the shell had already decided against. The left is per call —
+        // beside a rail, the rail has taken it.
         let bar_top = if primary { insets.top } else { 0.0 };
-        let app_bar_pad =
-            |bar: Box<dyn Widget<Msg>>, left: f32| inset_pad(bar, bar_top, insets.right, 0.0, left);
+        let bar_right = insets.right;
+        let app_bar_pad = move |bar: Box<dyn Widget<Msg>>, left: f32| -> Box<dyn Widget<Msg>> {
+            Box::new(crate::MediaScope::tweak(
+                move |mq: &mut crate::MediaQuery| {
+                    mq.padding.top = bar_top;
+                    mq.padding.left = left;
+                    mq.padding.right = bar_right;
+                },
+                bar,
+            ))
+        };
         let nav_pad =
             |n: Box<dyn Widget<Msg>>| inset_pad(n, 0.0, insets.right, bottom_clear, insets.left);
 
@@ -936,7 +954,11 @@ mod tests {
             let surface = MediaQuery::new(size).with_insets(bars);
             let tree = surface.scope(|| {
                 Scaffold::<Msg>::new()
-                    .app_bar(Container::new().height(56.0).child(text("bar")))
+                    // A real bar, because since milestone 417 the shell hands this slot a
+                    // *description* rather than a padding: an `AppBar` consumes the status
+                    // bar itself, as the reference's does, and a bare box in this slot is a
+                    // bare box that does not.
+                    .app_bar(crate::AppBar::<Msg>::new("bar").height(56.0).build())
                     .body(Container::new().flex(1.0).child(text("body")))
                     .build()
             });
@@ -1212,7 +1234,7 @@ mod tests {
             Scaffold::new()
                 .size(W, H)
                 .insets(Insets::new(40.0, 0.0, 0.0, 0.0))
-                .app_bar(Container::<Msg>::new().height(56.0))
+                .app_bar(crate::AppBar::<Msg>::new("").height(56.0).build())
                 .body(marked(200.0))
                 .build(),
         );
@@ -1223,7 +1245,7 @@ mod tests {
                 .size(W, H)
                 .insets(Insets::new(40.0, 0.0, 0.0, 0.0))
                 .extend_body_behind_app_bar(true)
-                .app_bar(Container::<Msg>::new().height(56.0))
+                .app_bar(crate::AppBar::<Msg>::new("").height(56.0).build())
                 .body(marked(200.0))
                 .build(),
         );
@@ -1386,8 +1408,13 @@ mod tests {
     /// The reference's `primary` decides whether the app bar's height is the bar's own
     /// or the bar's plus the top intrusion (`scaffold.dart:3049`). A shell nested in a
     /// page has something else above it, and adding the notch there would inset for it
-    /// twice. Same shell, same surface, one switch, and the bar moves by exactly the
-    /// intrusion.
+    /// twice. Same shell, same surface, one switch, and the bar's title moves by exactly
+    /// the intrusion.
+    ///
+    /// Since milestone 417 the switch works the way the reference's does — through the
+    /// **description** the slot is handed, not through a padding applied from outside. A
+    /// non-primary shell tells its bar's subtree that there is no status bar; the bar,
+    /// which is what actually pads, then has nothing to pad by.
     #[test]
     fn only_a_primary_shell_absorbs_the_status_bar() {
         const TOP: f32 = 40.0;
@@ -1398,7 +1425,7 @@ mod tests {
             let tree = surface.scope(|| {
                 Scaffold::<Msg>::new()
                     .primary(primary)
-                    .app_bar(Container::new().height(56.0).child(text("bar")))
+                    .app_bar(crate::AppBar::<Msg>::new("bar").height(56.0).build())
                     .body(Container::new().flex(1.0))
                     .build()
             });

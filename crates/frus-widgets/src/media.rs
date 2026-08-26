@@ -472,6 +472,37 @@ impl MediaQuery {
     /// The same description with the selected edges' [`padding`](Self::padding)
     /// zeroed — what a widget that has just *consumed* that padding hands to its
     /// descendants, so they do not inset for the same notch a second time.
+    /// Mixes into `hasher` everything about this surface that can change a **measurement**.
+    ///
+    /// The relayout cache fingerprints the walk, and a scoped surface is part of that walk
+    /// (milestone 417): two subtrees given different descriptions must not share a
+    /// fingerprint, or the second would keep the first's geometry.
+    ///
+    /// The colours are left out on purpose — `platform_brightness` and the accessibility
+    /// flags change how a frame is *painted*, and paint is not what this cache stores.
+    pub fn measure_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        use std::hash::Hash;
+        for n in [
+            self.size.width,
+            self.size.height,
+            self.device_pixel_ratio,
+            self.density,
+            self.text_scaler,
+        ] {
+            n.to_bits().hash(hasher);
+        }
+        for insets in [
+            self.padding,
+            self.view_insets,
+            self.view_padding,
+            self.system_gesture_insets,
+        ] {
+            for n in [insets.top, insets.right, insets.bottom, insets.left] {
+                n.to_bits().hash(hasher);
+            }
+        }
+    }
+
     pub fn remove_padding(mut self, edges: Edges) -> Self {
         let consumed = edges.select(self.padding);
         // The **view** padding loses the same amount, floored at zero. Without this a

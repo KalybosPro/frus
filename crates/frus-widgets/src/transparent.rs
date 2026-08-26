@@ -598,7 +598,7 @@ mod tests {
                 .collect()
         };
         // The two the macro deliberately leaves to its callers; each wrapper states both.
-        let claimable = ["key", "theme_override"];
+        let claimable = ["key", "theme_override", "media_override"];
         let missing: Vec<String> = names(trait_body)
             .into_iter()
             .filter(|n| !claimable.contains(&n.as_str()))
@@ -683,6 +683,7 @@ mod tests {
             for hook in [
                 "fn key(",
                 "fn theme_override(",
+                "fn media_override(",
                 "fn restyle(",
                 "fn positioned(",
             ] {

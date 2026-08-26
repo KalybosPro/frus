@@ -8,10 +8,39 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 416 so far, each documenting the objective, the alternatives
+> record — one per step, 417 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`MediaScope`: a surface for one subtree** (J417), the counterpart of `Themed`. Until now
+  a description could only be narrowed where a widget was *constructed* (`SafeArea::build`),
+  which is the wrong end for a shell handed slots that are already built. Backed by a new
+  `Widget::media_override`, applied by the layout walk, the deferred build, the relayout
+  fingerprint and the paint walk alike.
+
+- **`AppBar::primary`** (J417), `true` by default as in the reference. A bar keeps its own
+  toolbar out of the status bar; its surface still runs behind it, which is what a Material
+  bar looks like.
+
+### Fixed
+
+- **An `AppBar` used outside a `Scaffold` drew under the status bar** (J417). Nothing insetted
+  it and it would not inset itself, because the shell owned that switch. The shell now says
+  what there is to consume and the bar consumes it — the reference's arrangement, and the two
+  halves can finally be told apart.
+
+- **`SafeArea` answered with the surface in force when it was built**, not the one in force
+  when it was asked (J417). Its reason for that expired at milestone 408, when the shell began
+  holding one description across the build, the layout and the paint.
+
+### Changed
+
+- A `Scaffold`'s app-bar slot is handed a **description** rather than a padding. A widget in
+  that slot that does not consume intrusions is no longer insetted for them — the reference
+  behaves the same way, and the slot is meant for a bar.
 
 ### Fixed
 

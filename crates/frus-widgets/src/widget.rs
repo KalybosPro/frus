@@ -760,6 +760,26 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// The **surface** this widget imposes on itself and its subtree, given the one it
+    /// inherits. `None` — the default — means "whatever came down from above", which is
+    /// what every widget but [`MediaScope`](crate::MediaScope) answers.
+    ///
+    /// The counterpart of [`Self::theme_override`], and it exists for the same reason one
+    /// milestone later: a surface could until now only be narrowed **where a widget is
+    /// constructed** (`SafeArea::build`), and the widget that knows what to narrow is often
+    /// not the one doing the constructing. A shell hands its app bar's slot the description
+    /// that slot should believe in; the bar then decides for itself whether to consume the
+    /// status bar, which is how the reference splits that job across two widgets.
+    ///
+    /// Applied by the layout walk on the way down and held for the subtree, so anything
+    /// reading [`MediaQuery::of`](crate::MediaQuery::of) below this node sees it — including
+    /// a subtree deferred until [`Self::build_themed`], which runs after the swap.
+    /// [`crate::build_deferred`], the relayout fingerprint and the paint walk make the same
+    /// swap; the four staying in step is what keeps the cache and the picture honest.
+    fn media_override(&self, _inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        None
+    }
+
     /// Builds this widget's subtree **from the ambient theme**, for the widgets that
     /// defer that decision — see [`ThemeBuilder`](crate::ThemeBuilder). Does nothing by
     /// default, which is what all but a handful of widgets want.
@@ -1115,6 +1135,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn theme_override(&self, inherited: &Theme) -> Option<Box<Theme>> {
         (**self).theme_override(inherited)
+    }
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        (**self).media_override(inherited)
     }
     fn build_themed(&self, theme: &Theme) {
         (**self).build_themed(theme)

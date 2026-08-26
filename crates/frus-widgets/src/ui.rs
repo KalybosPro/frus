@@ -1394,6 +1394,12 @@ fn build_layout_scoped<'a, Msg>(
     // the same swap — the two staying in step is what keeps the cache honest.
     let scoped = widget.theme_override(theme);
     let theme = scoped.as_deref().unwrap_or(theme);
+    // And a **scoped surface**, the same idea one milestone later: a shell that hands a slot
+    // a narrowed description narrows it for everything the slot builds, the deferred build
+    // below included. Held for this subtree and put back on the way out.
+    let _surface = widget
+        .media_override(crate::MediaQuery::of())
+        .map(crate::MediaQuery::install);
     // A subtree that could not be composed until the theme was known (`ThemeBuilder`).
     // It has to happen **before** anything reads `children()`, and under the subtree's
     // own theme, which is why it sits after the swap above rather than at the call site.
@@ -2698,6 +2704,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         let outer = widget
             .theme_override(&self.theme)
             .map(|theme| std::mem::replace(&mut self.theme, *theme));
+        // The scoped surface, held for this subtree exactly as the layout walk holds it —
+        // a widget that paints from `MediaQuery::of()` must see the same description it
+        // was measured against, or the two disagree by whatever the scope removed.
+        let _surface = widget
+            .media_override(crate::MediaQuery::of())
+            .map(crate::MediaQuery::install);
         self.walk_node_themed(widget, id, translation, clip, rects, index);
         // Over its own children: the reference's `foregroundDecoration`, and the only
         // point in the walk where a widget paints after its subtree. Still under this
@@ -4454,6 +4466,9 @@ pub fn build_deferred<Msg>(root: &dyn Widget<Msg>, theme: &Theme) {
     fn walk<Msg>(widget: &dyn Widget<Msg>, theme: &Theme) {
         let scoped = widget.theme_override(theme);
         let theme = scoped.as_deref().unwrap_or(theme);
+        let _surface = widget
+            .media_override(crate::MediaQuery::of())
+            .map(crate::MediaQuery::install);
         widget.build_themed(theme);
         for child in widget.children() {
             walk(child.as_ref(), theme);
