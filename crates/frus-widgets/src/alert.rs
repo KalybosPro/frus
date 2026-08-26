@@ -11,19 +11,33 @@ use crate::widget::Widget;
 const PAD: f32 = 12.0;
 const ACCENT: f32 = 4.0;
 const ICON_W: f32 = 26.0;
-const TITLE_SIZE: f32 = 16.0;
-const TEXT_SIZE: f32 = 15.0;
+/// The icon glyph's size. **Geometry, not type**: it sits in a column of a fixed `ICON_W`.
+const ICON_SIZE: f32 = 16.0;
 
-/// The title's style, **resolved once**: the same number measures the box and draws the
-/// glyphs. Resolving is where the reader's font setting is applied, so measuring at the
-/// bare constant and painting through a style is a layout that disagrees with itself.
-fn title_style() -> ResolvedTextStyle {
-    TextStyle::new(TITLE_SIZE).resolved()
+/// The title's style: what the caller said, else what the theme says, else `titleMedium`.
+///
+/// The reference's *dialog* titles in `headlineSmall`, and this is not that dialog: it
+/// wears the name but it has the shape of the reference's banner — an accent bar, an icon
+/// and a tinted background, no actions and no barrier. The banner has no title at all, so
+/// the heading role at this scale is the nearest thing the reference says, and the name is
+/// recorded as the thing to settle rather than papered over with a 24 px heading inside a
+/// 12 px box.
+///
+/// **Resolved once**: the same number measures the box and draws the glyphs. Resolving is
+/// where the reader's font setting is applied, so measuring at the bare constant and
+/// painting through a style is a layout that disagrees with itself.
+fn title_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.alert.title_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).title_medium)
+        .resolved()
 }
 
-/// The message's style. See [`title_style`].
-fn body_style() -> ResolvedTextStyle {
-    TextStyle::new(TEXT_SIZE).resolved()
+/// The message's style — the reference's banner *and* its dialog both say `bodyMedium`.
+/// See [`title_style`].
+fn body_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.alert.content_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_medium)
+        .resolved()
 }
 
 /// The nature of an alert box.
@@ -40,6 +54,8 @@ pub struct AlertDialog {
     title: Option<String>,
     text: String,
     kind: AlertKind,
+    title_text_style: Option<TextStyle>,
+    content_text_style: Option<TextStyle>,
 }
 
 impl AlertDialog {
@@ -49,7 +65,31 @@ impl AlertDialog {
             title: None,
             text: text.into(),
             kind: AlertKind::Info,
+            title_text_style: None,
+            content_text_style: None,
         }
+    }
+
+    /// The heading's type, over the theme's and the reference's.
+    #[must_use]
+    pub fn title_text_style(mut self, style: TextStyle) -> Self {
+        self.title_text_style = Some(style);
+        self
+    }
+
+    /// The message's type, over the theme's and the reference's.
+    #[must_use]
+    pub fn content_text_style(mut self, style: TextStyle) -> Self {
+        self.content_text_style = Some(style);
+        self
+    }
+
+    /// The two styles this box is measured and drawn with.
+    fn styles(&self, theme: Option<&Theme>) -> (ResolvedTextStyle, ResolvedTextStyle) {
+        (
+            title_style(self.title_text_style, theme),
+            body_style(self.content_text_style, theme),
+        )
     }
 
     /// Adds a title.
@@ -102,11 +142,11 @@ impl<Msg> Widget<Msg> for AlertDialog {
         Style::default()
     }
 
-    fn measure(&self, _theme: &Theme) -> Option<frus_layout::MeasureFn<'_>> {
+    fn measure(&self, theme: &Theme) -> Option<frus_layout::MeasureFn<'_>> {
         let text = self.text.clone();
         let title = self.title.clone();
+        let (title_s, body_s) = self.styles(Some(theme));
         Some(Box::new(move |max_width, _| {
-            let (title_s, body_s) = (title_style(), body_style());
             let chrome = ACCENT + ICON_W + PAD; // bar + icon + right margin
             let text_avail = max_width.map(|w| (w - chrome).max(40.0));
             let body = frus_text::measure_wrapped_resolved(&text, &body_s, text_avail);
@@ -126,11 +166,21 @@ impl<Msg> Widget<Msg> for AlertDialog {
         }))
     }
 
-    fn measure_key(&self, _theme: &Theme) -> Option<u64> {
+    fn measure_key(&self, theme: &Theme) -> Option<u64> {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.text.hash(&mut hasher);
         self.title.hash(&mut hasher);
+        // The **resolved** styles, because the theme now has a say in the measurement and
+        // a key that ignores half its inputs is a stale layout waiting for a theme swap.
+        let (title_s, body_s) = self.styles(Some(theme));
+        for style in [title_s, body_s] {
+            style.size.to_bits().hash(&mut hasher);
+            style.weight.to_u16().hash(&mut hasher);
+            style.italic.hash(&mut hasher);
+            style.height.map(f32::to_bits).hash(&mut hasher);
+            style.family.hash(&mut hasher);
+        }
         Some(hasher.finish())
     }
 
@@ -162,14 +212,14 @@ impl<Msg> Widget<Msg> for AlertDialog {
         scene.text(
             Point::new(bounds.x + ACCENT + 7.0, bounds.y + PAD),
             self.icon().to_string(),
-            &ResolvedTextStyle::exact(TITLE_SIZE),
+            &ResolvedTextStyle::exact(ICON_SIZE),
             accent.fade(o),
         );
         let text_x = bounds.x + ACCENT + ICON_W;
         // The message wraps to the width actually available (the laid-out one),
         // to stay consistent with `measure()`.
         let wrap_w = (bounds.width - (ACCENT + ICON_W + PAD)).max(40.0);
-        let (title_s, body_s) = (title_style(), body_style());
+        let (title_s, body_s) = self.styles(Some(theme));
         match &self.title {
             Some(title) => {
                 scene.text(

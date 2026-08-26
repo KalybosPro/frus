@@ -23,16 +23,25 @@ use crate::widget::Widget;
 const DEFAULT_WIDTH: f32 = 260.0;
 const ROW_H: f32 = 32.0;
 const PAD_X: f32 = 10.0;
-const SIZE: f32 = 16.0;
 /// The vertical gap between suggestions.
 const ROW_GAP: f32 = 2.0;
 
-/// The style this widget's text is drawn in, **resolved once** so that the number the box
-/// is measured with is the number the glyphs are drawn at. Resolving is the single place
-/// the reader's font setting is applied (milestone 403); a size that never passes through
-/// it is a size the reader cannot change.
-fn label_style() -> ResolvedTextStyle {
-    TextStyle::new(SIZE).resolved()
+/// The style the suggestions are drawn in: what the caller said, else what the theme says,
+/// else the reference's — the reference's own suggestion list is built out of list tiles,
+/// whose title is `bodyLarge`.
+///
+/// **Resolved once**, so that the number the box is measured with is the number the glyphs
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403); a size that never passes through it is a size the reader cannot change.
+fn label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.autocomplete.text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_large)
+        .resolved()
+}
+
+/// The height of one suggestion — the floor, or the line if the type asks for more.
+fn row_height(style: &ResolvedTextStyle) -> f32 {
+    frus_text::line_box(ROW_H, style, 0.0)
 }
 
 /// The portion of the label (in **character** indices) matching the query
@@ -60,16 +69,27 @@ struct Suggestion<Msg> {
     width: f32,
     /// The **active** suggestion (the one that would be picked): a tinted background.
     active: bool,
+    text_style: Option<TextStyle>,
     message: Msg,
+}
+
+impl<Msg> Suggestion<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        Style {
+            width: Dimension::Length(self.width),
+            height: Dimension::Length(row_height(&label_style(self.text_style, theme))),
+            ..Default::default()
+        }
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
     fn style(&self) -> Style {
-        Style {
-            width: Dimension::Length(self.width),
-            height: Dimension::Length(frus_text::line_box(ROW_H, &label_style(), 0.0)),
-            ..Default::default()
-        }
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -87,7 +107,7 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
         let bg = theme.state_layer(base, theme.on_surface, &status);
         scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.border.fade(o));
 
-        let style = label_style();
+        let style = label_style(self.text_style, Some(theme));
         let ty = bounds.y + (bounds.height - style.line_height()) * 0.5;
         let chars: Vec<char> = self.label.chars().collect();
         let normal = theme.on_surface.fade(o);
@@ -130,6 +150,7 @@ pub struct Autocomplete<Msg> {
     on_input: Rc<dyn Fn(String) -> Msg>,
     on_pick: Rc<dyn Fn(String) -> Msg>,
     labels: Vec<String>,
+    text_style: Option<TextStyle>,
     /// `[field]` or `[field, list]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -150,10 +171,19 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
             on_input: Rc::new(on_input),
             on_pick: Rc::new(on_pick),
             labels: Vec::new(),
+            text_style: None,
             children: Vec::new(),
         };
         ac.rebuild();
         ac
+    }
+
+    /// The suggestions' type, over the theme's and the reference's.
+    #[must_use]
+    pub fn text_style(mut self, style: TextStyle) -> Self {
+        self.text_style = Some(style);
+        self.rebuild();
+        self
     }
 
     /// The width of the field and the suggestions, in logical pixels (260 by default).
@@ -203,13 +233,25 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
                     query: self.value.clone(),
                     width: self.width,
                     active: self.active == Some(index),
+                    text_style: self.text_style,
                     message: (self.on_pick)(label.clone()),
                 });
             }
             // Past the threshold, the list scrolls in a viewport bounded to `n` rows.
             match self.max_visible {
                 Some(n) if self.labels.len() > n => {
-                    let viewport = n as f32 * ROW_H + (n as f32 - 1.0) * ROW_GAP;
+                    // The rows' own height, not the floor: a viewport counted at `ROW_H`
+                    // while the rows are taller shows `n` rows minus a sliver of each —
+                    // which is what the reader's font setting does to them, and it is
+                    // applied here because `resolved()` applies it.
+                    //
+                    // `None` for the theme, and it is the one thing a builder cannot have:
+                    // this list is built before any theme exists. So an application that
+                    // retypesets suggestions through `widgets.autocomplete` and *also*
+                    // caps them with `max_visible` should say it on the widget instead,
+                    // where the same number reaches both the rows and their viewport.
+                    let row = row_height(&label_style(self.text_style, None));
+                    let viewport = n as f32 * row + (n as f32 - 1.0) * ROW_GAP;
                     self.children.push(Box::new(
                         SingleChildScrollView::new()
                             .width(self.width)

@@ -31,29 +31,49 @@ pub struct TextTheme {
     pub label_small: TextStyle,
 }
 
-impl Default for TextTheme {
+impl TextTheme {
     /// The reference Material 3 scale (sizes in logical pixels; the title and label
     /// steps carry a medium weight, as the spec has it).
+    ///
+    /// A **const**, and that matters: a widget measured with no theme in hand — the
+    /// un-themed [`Widget::style`](crate::Widget::style) path the transparent wrappers
+    /// take — reads its step from *this* rather than from a private constant of its own.
+    /// Twelve widgets used to carry their own number, and one of them had drifted two
+    /// pixels from the reference without anybody being able to see it.
+    pub const M3: Self = Self {
+        display_large: TextStyle::new(57.0),
+        display_medium: TextStyle::new(45.0),
+        display_small: TextStyle::new(36.0),
+        headline_large: TextStyle::new(32.0),
+        headline_medium: TextStyle::new(28.0),
+        headline_small: TextStyle::new(24.0),
+        title_large: TextStyle::new(22.0),
+        title_medium: TextStyle::new(16.0).weight(FontWeight::Medium),
+        title_small: TextStyle::new(14.0).weight(FontWeight::Medium),
+        body_large: TextStyle::new(16.0),
+        body_medium: TextStyle::new(14.0),
+        body_small: TextStyle::new(12.0),
+        label_large: TextStyle::new(14.0).weight(FontWeight::Medium),
+        label_medium: TextStyle::new(12.0).weight(FontWeight::Medium),
+        label_small: TextStyle::new(11.0).weight(FontWeight::Medium),
+    };
+}
+
+impl Default for TextTheme {
     fn default() -> Self {
-        let medium = |size: f32| TextStyle::new(size).weight(FontWeight::Medium);
-        Self {
-            display_large: TextStyle::new(57.0),
-            display_medium: TextStyle::new(45.0),
-            display_small: TextStyle::new(36.0),
-            headline_large: TextStyle::new(32.0),
-            headline_medium: TextStyle::new(28.0),
-            headline_small: TextStyle::new(24.0),
-            title_large: TextStyle::new(22.0),
-            title_medium: medium(16.0),
-            title_small: medium(14.0),
-            body_large: TextStyle::new(16.0),
-            body_medium: TextStyle::new(14.0),
-            body_small: TextStyle::new(12.0),
-            label_large: medium(14.0),
-            label_medium: medium(12.0),
-            label_small: medium(11.0),
-        }
+        Self::M3
     }
+}
+
+/// The type scale a widget measures with: the theme's when it has one, the framework's
+/// own when it does not.
+///
+/// `None` is the un-themed [`Widget::style`](crate::Widget::style) path. It answers from
+/// the *same* scale as the themed one — the point of milestone 413 being that a widget
+/// never decides its own type, and a fallback constant beside the scale would be that
+/// decision taken back.
+pub(crate) fn type_scale(theme: Option<&Theme>) -> TextTheme {
+    theme.map_or(TextTheme::M3, |t| t.text)
 }
 
 /// The **color roles** (Material 3) — the **source of truth** for the theme's

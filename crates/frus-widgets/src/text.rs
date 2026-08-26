@@ -607,6 +607,11 @@ impl<Msg> Widget<Msg> for Text {
         r.style.size.to_bits().hash(&mut hasher);
         r.style.weight.to_u16().hash(&mut hasher);
         r.style.italic.hash(&mut hasher);
+        // The leading and the face, which milestones 409 and 410 put into the measurement
+        // and *not* into this key: two paragraphs alike but for their line height wrapped
+        // to the same box, and the second kept the first's geometry.
+        r.style.height.map(f32::to_bits).hash(&mut hasher);
+        r.style.family.hash(&mut hasher);
         r.max_lines.hash(&mut hasher);
         r.wrap.hash(&mut hasher);
         Some(hasher.finish())

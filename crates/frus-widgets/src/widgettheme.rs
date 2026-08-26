@@ -33,24 +33,36 @@ use crate::card::CardVariant;
 /// widget already has, resolved in the same order everywhere.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WidgetThemes {
+    pub alert: AlertTheme,
     pub app_bar: AppBarTheme,
+    pub autocomplete: AutocompleteTheme,
     pub badge: BadgeTheme,
     pub button: ButtonTheme,
     pub card: CardTheme,
     pub checkbox: CheckboxTheme,
     pub chip: ChipTheme,
+    pub date_picker: DatePickerTheme,
     pub divider: DividerTheme,
     pub drawer: DrawerTheme,
+    pub dropdown: DropdownTheme,
     pub icon: IconTheme,
     pub icon_button: IconButtonTheme,
     pub ink: InkTheme,
+    pub kbd: KbdTheme,
+    pub menu: MenuTheme,
+    pub nav_rail: NavRailTheme,
     pub radio: RadioTheme,
     pub segmented: SegmentedTheme,
     pub slider: SliderTheme,
+    pub snack_bar: SnackBarTheme,
+    pub steps: StepsTheme,
     pub switch: SwitchTheme,
     pub tab_bar: TabBarTheme,
+    pub table: TableTheme,
     pub text: DefaultTextStyle,
     pub text_field: TextFieldTheme,
+    pub timeline: TimelineTheme,
+    pub tree: TreeTheme,
 }
 
 /// Defaults for [`Badge`](crate::Badge).
@@ -490,6 +502,116 @@ pub struct InkTheme {
     pub color: Option<Color>,
 }
 
+/// Defaults for [`SnackBar`](crate::SnackBar).
+///
+/// The reference's Material 3 snackbar sets its content in `bodyMedium` and its action in
+/// `labelLarge`, and both are read from the type scale rather than written down here.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SnackBarTheme {
+    /// The message's type.
+    pub content_text_style: Option<TextStyle>,
+    /// The action's type.
+    pub action_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`PopupMenuButton`](crate::PopupMenuButton) and its items.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MenuTheme {
+    /// The items' type.
+    pub text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`DropdownButton`](crate::DropdownButton) and its options.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DropdownTheme {
+    /// The value's and the options' type.
+    pub text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Autocomplete`](crate::Autocomplete) and its suggestions.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AutocompleteTheme {
+    /// The suggestions' type.
+    pub text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Table`](crate::Table).
+///
+/// The reference names the two apart — a heading is `titleSmall`, a cell is `bodyMedium` —
+/// which is why one `text_style` would be the wrong shape here.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TableTheme {
+    /// The column headings' type.
+    pub heading_text_style: Option<TextStyle>,
+    /// The cells' type.
+    pub data_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`DatePicker`](crate::DatePicker).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DatePickerTheme {
+    /// The days' type.
+    pub day_text_style: Option<TextStyle>,
+    /// The weekday initials above them.
+    pub weekday_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`NavigationRail`](crate::NavigationRail) and [`BottomBar`](crate::BottomBar).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct NavRailTheme {
+    /// The destinations' labels.
+    pub label_text_style: Option<TextStyle>,
+    /// The count carried by a destination's badge.
+    pub badge_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`AlertDialog`](crate::AlertDialog).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AlertTheme {
+    /// The heading's type.
+    pub title_text_style: Option<TextStyle>,
+    /// The message's type.
+    pub content_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Steps`](crate::Steps).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct StepsTheme {
+    /// The caption under each marker.
+    pub label_text_style: Option<TextStyle>,
+    /// The number inside the marker. It is a **glyph on a circle** rather than something
+    /// read at length, so the framework's own default does not pass through the reader's
+    /// font setting — a theme that sets this one takes that decision back.
+    pub index_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Tree`](crate::Tree).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TreeTheme {
+    /// The rows' type.
+    pub text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Timeline`](crate::Timeline).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TimelineTheme {
+    /// An entry's heading.
+    pub title_text_style: Option<TextStyle>,
+    /// The line under it.
+    pub detail_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Kbd`](crate::Kbd).
+///
+/// The reference has no key cap, so its type is argued rather than read: a shortcut hint is
+/// a **label**, and a key cap is the one place in this framework where the glyphs stand for
+/// what is printed on a keyboard, hence the monospaced default.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct KbdTheme {
+    /// The cap's label.
+    pub text_style: Option<TextStyle>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -497,7 +619,7 @@ mod tests {
     use crate::divider::{Divider, DIVIDER_SPACE};
     use crate::flex::Flex;
     use crate::runtime::Runtime;
-    use crate::theme::Theme;
+    use crate::theme::{TextTheme, Theme};
     use crate::ui::build_ui;
     use crate::widget::Widget;
     use frus_core::{Color, Primitive, Rect, Size};
@@ -644,6 +766,146 @@ mod tests {
         );
     }
 
+    /// The size every `Primitive::Text` in a frame was drawn at, in the order they were
+    /// painted. A widget's type is not reachable any other way — these widgets paint their
+    /// labels instead of laying them out.
+    fn text_sizes(widget: impl Widget<Msg> + 'static, theme: &Theme) -> Vec<f32> {
+        framed(widget, theme)
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Text { size, .. } => Some(*size),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The weight of the first text in a frame.
+    fn first_weight(widget: impl Widget<Msg> + 'static, theme: &Theme) -> Option<u16> {
+        framed(widget, theme).iter().find_map(|p| match p {
+            Primitive::Text { weight, .. } => Some(weight.to_u16()),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn a_widget_no_longer_decides_its_own_type() {
+        // Milestone 413. Twelve widgets set their text in a private constant that no theme
+        // and no caller could reach, and one of them had **drifted two pixels from the
+        // reference** without anybody being able to see it. Each is checked here at the
+        // step the reference names, and then moved by a theme — which is the part that was
+        // impossible before, and the reason the drift went unseen.
+        let plain = Theme::default();
+
+        // A snackbar's content is `bodyMedium` — 14 px, not the 16 the constant said.
+        assert_eq!(
+            text_sizes(crate::toast::SnackBar::<Msg>::new("Saved"), &plain),
+            vec![plain.text.body_medium.size.unwrap()]
+        );
+        let mut loud = Theme::default();
+        loud.widgets.snack_bar.content_text_style = Some(TextStyle::new(30.0));
+        assert_eq!(
+            text_sizes(crate::toast::SnackBar::<Msg>::new("Saved"), &loud),
+            vec![30.0],
+            "the theme has a say"
+        );
+        assert_eq!(
+            text_sizes(
+                crate::toast::SnackBar::<Msg>::new("Saved").content_text_style(TextStyle::new(9.0)),
+                &loud
+            ),
+            vec![9.0],
+            "and the caller has the last word over it"
+        );
+
+        // A key cap is a label, and monospaced.
+        let kbd = || crate::kbd::Kbd::new("Ctrl");
+        assert_eq!(
+            text_sizes(kbd(), &plain),
+            vec![plain.text.label_medium.size.unwrap()]
+        );
+        assert_eq!(
+            framed(kbd(), &plain).iter().find_map(|p| match p {
+                Primitive::Text { family, .. } => Some(*family),
+                _ => None,
+            }),
+            Some(Some(frus_core::FontFamily::Monospace)),
+            "a cap stands for what is printed on a keyboard"
+        );
+
+        // A tree row is a list tile's title.
+        let tree =
+            || crate::tree::Tree::<Msg>::new(|_| unreachable!()).node(1, 0, "root", false, false);
+        assert_eq!(
+            text_sizes(tree(), &plain),
+            vec![plain.text.body_large.size.unwrap()]
+        );
+        assert_eq!(
+            text_sizes(tree().text_style(TextStyle::new(7.0)), &plain),
+            vec![7.0],
+            "said on the widget, whatever order the builders came in"
+        );
+    }
+
+    #[test]
+    fn the_reference_names_a_table_s_two_rows_apart() {
+        // A data table's heading is `titleSmall` and its cells `bodyMedium` — **two
+        // different steps**, which one `SIZE` constant for the whole widget could not say.
+        let theme = Theme::default();
+        let table = crate::table::Table::<Msg>::new(1)
+            .header(&["Name"])
+            .row(&["Ada"]);
+        assert_eq!(
+            text_sizes(table, &theme),
+            vec![
+                theme.text.title_small.size.unwrap(),
+                theme.text.body_medium.size.unwrap(),
+            ]
+        );
+        // And the heading carries the medium weight the step does.
+        let heading = crate::table::Table::<Msg>::new(1).header(&["Name"]);
+        assert_eq!(
+            first_weight(heading, &theme),
+            Some(frus_core::FontWeight::Medium.to_u16())
+        );
+    }
+
+    #[test]
+    fn a_table_carries_its_own_word_down_to_cells_it_did_not_build_directly() {
+        // `Table` and `DatePicker` hand their override down the **theme**
+        // (`Widget::theme_override`) rather than through the cells' fields: a table builds
+        // cells in half a dozen places and a calendar has five constructors, and a value
+        // carried down the theme reaches all of them without any of them being taught to
+        // pass it on.
+        let theme = Theme::default();
+        let table = crate::table::Table::<Msg>::new(1)
+            .header(&["Name"])
+            .row(&["Ada"])
+            .heading_text_style(TextStyle::new(21.0))
+            .data_text_style(TextStyle::new(8.0));
+        assert_eq!(text_sizes(table, &theme), vec![21.0, 8.0]);
+        // Saying nothing costs nothing: no override, no theme to allocate.
+        assert!(Widget::<Msg>::theme_override(
+            &crate::table::Table::<Msg>::new(1).header(&["Name"]),
+            &theme
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn the_un_themed_path_reads_the_same_scale_as_the_themed_one() {
+        // `Widget::style` has no theme — it is what the transparent wrappers ask a child
+        // when they want its size. It answers from `TextTheme::M3`, the same const
+        // `Theme::default()` carries, rather than from a fallback constant beside it: two
+        // numbers that have to agree is the shape the last five milestones were about.
+        assert_eq!(TextTheme::M3, Theme::default().text);
+        let kbd = crate::kbd::Kbd::new("Ctrl");
+        assert_eq!(
+            Widget::<Msg>::style(&kbd),
+            Widget::<Msg>::style_themed(&kbd, &Theme::default()),
+            "the same widget, sized the same way, with and without a theme in hand"
+        );
+    }
+
     #[test]
     fn a_theme_that_says_nothing_is_the_absence_of_a_theme() {
         // The whole contract of `None`: a fresh theme must carry no opinions at all, or
@@ -658,5 +920,9 @@ mod tests {
         assert_eq!(WidgetThemes::default().button.height, None);
         assert_eq!(WidgetThemes::default().segmented.height, None);
         assert_eq!(WidgetThemes::default().icon_button.size, None);
+        assert_eq!(WidgetThemes::default().snack_bar.content_text_style, None);
+        assert_eq!(WidgetThemes::default().table.heading_text_style, None);
+        assert_eq!(WidgetThemes::default().date_picker.day_text_style, None);
+        assert_eq!(WidgetThemes::default().kbd.text_style, None);
     }
 }

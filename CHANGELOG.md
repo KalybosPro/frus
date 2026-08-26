@@ -8,10 +8,56 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 412 so far, each documenting the objective, the alternatives
+> record — one per step, 413 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Changed
+
+- **Twelve widgets no longer decide their own type** (J413). `Kbd`, `SnackBar`, `Tree`,
+  `Timeline`, `Steps`, `NavigationRail`, `DatePicker`, `Alert`, `PopupMenuButton`,
+  `DropdownButton`, `Autocomplete` and `Table` each held a private `const SIZE: f32` that no
+  theme and no caller could reach. They resolve like every other widget now — what the caller
+  said, then `theme.widgets.<widget>`, then the step of `theme.text` — and each gained the
+  matching builder.
+
+  **This changes how they look.** Read against the reference rather than against their own
+  current values, eleven of the eighteen styles were wrong: a snackbar's content is 14 px and
+  not 16, a menu and a dropdown are `titleMedium`, a data table's headings and cells are named
+  apart (`titleSmall` / `bodyMedium`), a date picker's days are `bodyLarge`, a rail's labels
+  carry a medium weight. `Kbd` is monospaced.
+
+- `TextTheme::M3` is a `const`, and `Default` returns it. The un-themed `Widget::style` path
+  reads its step from the same scale the themed one does, rather than from a fallback constant
+  beside it.
+
+### Added
+
+- `TextStyle::height` and `TextStyle::family` builders (J413). Milestones 409 and 410 added
+  both as public fields and neither as a builder, so a caller could name a font family only by
+  writing the struct out.
+
+### Fixed
+
+- **A sort arrow landed inside the word it followed** (J413). `Table` measured its header
+  label at a bare size rather than at the style it drew with, so any text scale above 1 put the
+  indicator over the text. The same cell also centred its label from a recomputed line height —
+  a survivor of J412, written against a constant instead of a style, which is the one
+  formulation that sweep could not find.
+
+- **Two paragraphs alike but for their leading shared a geometry** (J413). `Text::measure_key`
+  hashed the resolved size, weight and slant, and neither `height` (J409) nor `family` (J410),
+  both of which those milestones had put into the measurement. `AlertDialog::measure_key` had
+  the same hole from the other end, hashing its text and nothing about its styles.
+
+- **A calendar clipped its last column** (J413). `DatePicker` declared its width from the
+  cell constant while its cells sized themselves from that constant *grown by the reader's font
+  setting*. Seven cells against a box built for seven smaller ones.
+
+- **A timeline's second line sat at a fixed offset** (J413), and its dot at half the row
+  constant rather than half the row. The detail follows the title's own line box now, and a row
+  is the floor *or what its two lines need*.
 
 ### Fixed
 

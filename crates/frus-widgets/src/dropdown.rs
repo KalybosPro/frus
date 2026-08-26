@@ -19,14 +19,17 @@ use crate::widget::Widget;
 const DEFAULT_WIDTH: f32 = 240.0;
 const ROW_H: f32 = 40.0;
 const PAD_X: f32 = 12.0;
-const SIZE: f32 = 18.0;
 
-/// The style this widget's text is drawn in, **resolved once** so that the number the box
-/// is measured with is the number the glyphs are drawn at. Resolving is the single place
-/// the reader's font setting is applied (milestone 403); a size that never passes through
-/// it is a size the reader cannot change.
-fn label_style() -> ResolvedTextStyle {
-    TextStyle::new(SIZE).resolved()
+/// The style the value and the options are drawn in: what the caller said, else what the
+/// theme says, else the reference's — a dropdown is `titleMedium`.
+///
+/// **Resolved once**, so that the number the box is measured with is the number the glyphs
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403); a size that never passes through it is a size the reader cannot change.
+fn label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.dropdown.text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).title_medium)
+        .resolved()
 }
 
 /// One row: the header, or an option.
@@ -38,16 +41,31 @@ struct Row<Msg> {
     selected: bool,
     /// The list's availability, handed down to the header and to every option.
     enabled: bool,
+    text_style: Option<TextStyle>,
     on_click: Option<Msg>,
+}
+
+impl<Msg> Row<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        Style {
+            width: Dimension::Length(self.width),
+            height: Dimension::Length(frus_text::line_box(
+                ROW_H,
+                &label_style(self.text_style, theme),
+                0.0,
+            )),
+            ..Default::default()
+        }
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for Row<Msg> {
     fn style(&self) -> Style {
-        Style {
-            width: Dimension::Length(self.width),
-            height: Dimension::Length(frus_text::line_box(ROW_H, &label_style(), 0.0)),
-            ..Default::default()
-        }
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -82,7 +100,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         } else {
             disabled_content(theme)
         };
-        let style = label_style();
+        let style = label_style(self.text_style, Some(theme));
         let ty = bounds.y + (bounds.height - style.line_height()) * 0.5;
         scene.text(
             Point::new(bounds.x + PAD_X, ty),
@@ -164,6 +182,7 @@ pub struct DropdownButton<Msg> {
     open: bool,
     enabled: bool,
     labels: Vec<String>,
+    text_style: Option<TextStyle>,
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -179,11 +198,20 @@ impl<Msg: Clone + 'static> DropdownButton<Msg> {
             open: false,
             enabled: true,
             labels: Vec::new(),
+            text_style: None,
             on_select: None,
             children: Vec::new(),
         };
         dropdown.rebuild();
         dropdown
+    }
+
+    /// The value's and the options' type, over the theme's and the reference's.
+    #[must_use]
+    pub fn text_style(mut self, style: TextStyle) -> Self {
+        self.text_style = Some(style);
+        self.rebuild();
+        self
     }
 
     /// Whether the list can be opened or chosen from. Disabled it is **inert** - the
@@ -237,6 +265,7 @@ impl<Msg: Clone + 'static> DropdownButton<Msg> {
             is_header: true,
             selected: false,
             enabled: self.enabled,
+            text_style: self.text_style,
             on_click: Some(self.on_toggle.clone()),
         };
         self.children = vec![Box::new(header)];
@@ -251,6 +280,7 @@ impl<Msg: Clone + 'static> DropdownButton<Msg> {
                     is_header: false,
                     selected: self.selected == Some(index),
                     enabled: self.enabled,
+                    text_style: self.text_style,
                     on_click,
                 });
             }

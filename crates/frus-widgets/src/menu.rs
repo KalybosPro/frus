@@ -14,14 +14,17 @@ use crate::widget::Widget;
 const WIDTH: f32 = 220.0;
 const ROW_H: f32 = 38.0;
 const PAD_X: f32 = 12.0;
-const SIZE: f32 = 16.0;
 
-/// The style this widget's text is drawn in, **resolved once** so that the number the box
-/// is measured with is the number the glyphs are drawn at. Resolving is the single place
-/// the reader's font setting is applied (milestone 403); a size that never passes through
-/// it is a size the reader cannot change.
-fn label_style() -> ResolvedTextStyle {
-    TextStyle::new(SIZE).resolved()
+/// The style the items are drawn in: what the caller said, else what the theme says, else
+/// the reference's — a popup menu's items are `titleMedium`.
+///
+/// **Resolved once**, so that the number the box is measured with is the number the glyphs
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403); a size that never passes through it is a size the reader cannot change.
+fn label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.menu.text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).title_medium)
+        .resolved()
 }
 
 /// One menu action, a clickable row.
@@ -29,16 +32,31 @@ struct Item<Msg> {
     label: String,
     /// The menu's availability, handed down to every row.
     enabled: bool,
+    text_style: Option<TextStyle>,
     message: Msg,
+}
+
+impl<Msg> Item<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        Style {
+            width: Dimension::Length(WIDTH),
+            height: Dimension::Length(frus_text::line_box(
+                ROW_H,
+                &label_style(self.text_style, theme),
+                0.0,
+            )),
+            ..Default::default()
+        }
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for Item<Msg> {
     fn style(&self) -> Style {
-        Style {
-            width: Dimension::Length(WIDTH),
-            height: Dimension::Length(frus_text::line_box(ROW_H, &label_style(), 0.0)),
-            ..Default::default()
-        }
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -70,7 +88,7 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
         } else {
             disabled_content(theme)
         };
-        let style = label_style();
+        let style = label_style(self.text_style, Some(theme));
         let ty = bounds.y + (bounds.height - style.line_height()) * 0.5;
         scene.text(
             Point::new(bounds.x + PAD_X, ty),
@@ -110,6 +128,7 @@ pub struct PopupMenuButton<Msg> {
     /// `[anchor]`, or `[anchor, list]` when the menu is showing.
     children: Vec<Box<dyn Widget<Msg>>>,
     items: Vec<(String, Msg)>,
+    text_style: Option<TextStyle>,
     dismiss: Option<Msg>,
     on_dismiss: Option<Msg>,
 }
@@ -123,9 +142,18 @@ impl<Msg: Clone + 'static> PopupMenuButton<Msg> {
             enabled: true,
             children: vec![Box::new(anchor)],
             items: Vec::new(),
+            text_style: None,
             dismiss: Some(on_dismiss.clone()),
             on_dismiss: if open { Some(on_dismiss) } else { None },
         }
+    }
+
+    /// The items' type, over the theme's and the reference's.
+    #[must_use]
+    pub fn text_style(mut self, style: TextStyle) -> Self {
+        self.text_style = Some(style);
+        self.rebuild();
+        self
     }
 
     /// Whether the menu can be used. Disabled it is **inert** and, like a disabled
@@ -167,6 +195,7 @@ impl<Msg: Clone + 'static> PopupMenuButton<Msg> {
             list = list.child(Item {
                 label: label.clone(),
                 enabled: self.enabled,
+                text_style: self.text_style,
                 message: message.clone(),
             });
         }

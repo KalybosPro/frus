@@ -16,28 +16,34 @@ pub(crate) const RAIL_WIDTH: f32 = 76.0;
 pub(crate) const BAR_HEIGHT: f32 = 60.0;
 const ITEM_HEIGHT: f32 = 58.0;
 const ICON_SIZE: f32 = 22.0;
-const LABEL_SIZE: f32 = 12.0;
-const BADGE_SIZE: f32 = 10.0;
 /// Notification red (a constant: an alert dot reads as red whatever the
 /// theme).
 const BADGE_COLOR: Color = Color::rgb(0.90, 0.24, 0.24);
 
-/// The item's label, **resolved once** so that the number the bar is measured with is the
-/// number the glyphs are drawn at. Resolving is the single place the reader's font setting
-/// is applied (milestone 403).
-fn label_style() -> ResolvedTextStyle {
-    TextStyle::new(LABEL_SIZE).resolved()
+/// The item's label: what the caller said, else what the theme says, else the reference's
+/// — a Material 3 rail labels its destinations in `labelMedium`.
+///
+/// **Resolved once** so that the number the bar is measured with is the number the glyphs
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403).
+fn label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.nav_rail.label_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).label_medium)
+        .resolved()
 }
 
-/// The notification count. See [`label_style`].
-fn badge_style() -> ResolvedTextStyle {
-    TextStyle::new(BADGE_SIZE).resolved()
+/// The notification count — `labelSmall`, the step [`crate::Badge`] already reads. See
+/// [`label_style`].
+fn badge_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.nav_rail.badge_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).label_small)
+        .resolved()
 }
 
 /// The height an item needs: the constant, unless the icon and a label the reader asked to
 /// enlarge no longer fit inside it.
-fn item_height(floor: f32) -> f32 {
-    floor.max(frus_text::line_height(ICON_SIZE) + 2.0 + label_style().line_height() + 8.0)
+fn item_height(floor: f32, label: &ResolvedTextStyle) -> f32 {
+    floor.max(frus_text::line_height(ICON_SIZE) + 2.0 + label.line_height() + 8.0)
 }
 
 /// One navigation destination (glyph + label), painted according to its state.
@@ -49,25 +55,38 @@ struct NavItem<Msg> {
     badge: Option<u32>,
     /// `true` = a rail item (fixed width); `false` = a bar item (flex).
     rail: bool,
+    label_text_style: Option<TextStyle>,
+    badge_text_style: Option<TextStyle>,
     message: Msg,
 }
 
-impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
-    fn style(&self) -> Style {
+impl<Msg> NavItem<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        let label = label_style(self.label_text_style, theme);
         if self.rail {
             Style {
                 width: Dimension::Length(RAIL_WIDTH),
-                height: Dimension::Length(item_height(ITEM_HEIGHT)),
+                height: Dimension::Length(item_height(ITEM_HEIGHT, &label)),
                 ..Default::default()
             }
         } else {
             // In a bar, the items share the width equally.
             Style {
                 flex_grow: 1.0,
-                height: Dimension::Length(item_height(BAR_HEIGHT)),
+                height: Dimension::Length(item_height(BAR_HEIGHT, &label)),
                 ..Default::default()
             }
         }
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -79,7 +98,7 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
         // The icon is a glyph standing in for an icon: `exact`, so that it stays on its
         // own grid while the label beside it follows the reader.
         let icon_style = ResolvedTextStyle::exact(ICON_SIZE);
-        let label_s = label_style();
+        let label_s = label_style(self.label_text_style, Some(theme));
         let icon_m = frus_text::measure_resolved(&self.icon, &icon_style);
         let label_m = frus_text::measure_resolved(&self.label, &label_s);
         let gap = 2.0;
@@ -142,7 +161,7 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             } else {
                 count.to_string()
             };
-            let badge_s = badge_style();
+            let badge_s = badge_style(self.badge_text_style, Some(theme));
             let m = frus_text::measure_resolved(&text, &badge_s);
             let bw = (m.width + 8.0).max(m.height + 4.0);
             let bh = m.height + 4.0;
@@ -178,6 +197,7 @@ fn build_items<Msg: Clone + 'static>(
     selected: usize,
     on_select: &dyn Fn(usize) -> Msg,
     rail: bool,
+    styles: (Option<TextStyle>, Option<TextStyle>),
 ) -> Vec<Box<dyn Widget<Msg>>> {
     items
         .iter()
@@ -189,6 +209,8 @@ fn build_items<Msg: Clone + 'static>(
                 selected: i == selected,
                 badge: *badge,
                 rail,
+                label_text_style: styles.0,
+                badge_text_style: styles.1,
                 message: on_select(i),
             }) as Box<dyn Widget<Msg>>
         })
@@ -200,6 +222,8 @@ pub struct NavigationRail<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
     items: Vec<Destination>,
+    label_text_style: Option<TextStyle>,
+    badge_text_style: Option<TextStyle>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -210,6 +234,8 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
             selected,
             on_select: Box::new(on_select),
             items: Vec::new(),
+            label_text_style: None,
+            badge_text_style: None,
             children: Vec::new(),
         }
     }
@@ -217,7 +243,7 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
     /// Adds a destination (glyph + label).
     pub fn item(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
         self.items.push((icon.into(), label.into(), None));
-        self.children = build_items(&self.items, self.selected, &*self.on_select, true);
+        self.rebuild();
         self
     }
 
@@ -225,9 +251,37 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
     pub fn badge(mut self, count: u32) -> Self {
         if let Some(last) = self.items.last_mut() {
             last.2 = Some(count);
-            self.children = build_items(&self.items, self.selected, &*self.on_select, true);
+            self.rebuild();
         }
         self
+    }
+
+    /// The destinations' labels, over the theme's and the reference's.
+    #[must_use]
+    pub fn label_text_style(mut self, style: TextStyle) -> Self {
+        self.label_text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// The notification counts, over the theme's and the reference's.
+    #[must_use]
+    pub fn badge_text_style(mut self, style: TextStyle) -> Self {
+        self.badge_text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// Carries the current destinations *and* styles into the items, so that the builders
+    /// are order-independent.
+    fn rebuild(&mut self) {
+        self.children = build_items(
+            &self.items,
+            self.selected,
+            &*self.on_select,
+            true,
+            (self.label_text_style, self.badge_text_style),
+        );
     }
 }
 
@@ -266,6 +320,8 @@ pub struct BottomBar<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
     items: Vec<Destination>,
+    label_text_style: Option<TextStyle>,
+    badge_text_style: Option<TextStyle>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -276,6 +332,8 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
             selected,
             on_select: Box::new(on_select),
             items: Vec::new(),
+            label_text_style: None,
+            badge_text_style: None,
             children: Vec::new(),
         }
     }
@@ -283,7 +341,7 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
     /// Adds a destination (glyph + label).
     pub fn item(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
         self.items.push((icon.into(), label.into(), None));
-        self.children = build_items(&self.items, self.selected, &*self.on_select, false);
+        self.rebuild();
         self
     }
 
@@ -291,21 +349,60 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
     pub fn badge(mut self, count: u32) -> Self {
         if let Some(last) = self.items.last_mut() {
             last.2 = Some(count);
-            self.children = build_items(&self.items, self.selected, &*self.on_select, false);
+            self.rebuild();
         }
         self
     }
+
+    /// The destinations' labels, over the theme's and the reference's.
+    #[must_use]
+    pub fn label_text_style(mut self, style: TextStyle) -> Self {
+        self.label_text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// The notification counts, over the theme's and the reference's.
+    #[must_use]
+    pub fn badge_text_style(mut self, style: TextStyle) -> Self {
+        self.badge_text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// Carries the current destinations *and* styles into the items, so that the builders
+    /// are order-independent.
+    fn rebuild(&mut self) {
+        self.children = build_items(
+            &self.items,
+            self.selected,
+            &*self.on_select,
+            false,
+            (self.label_text_style, self.badge_text_style),
+        );
+    }
 }
 
-impl<Msg: Clone> Widget<Msg> for BottomBar<Msg> {
-    fn style(&self) -> Style {
+impl<Msg> BottomBar<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        let label = label_style(self.label_text_style, theme);
         Style {
-            height: Dimension::Length(item_height(BAR_HEIGHT)),
+            height: Dimension::Length(item_height(BAR_HEIGHT, &label)),
             flex_direction: FlexDirection::Row,
             justify: Justify::SpaceAround,
             align: Align::Stretch,
             ..Default::default()
         }
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for BottomBar<Msg> {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {

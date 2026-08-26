@@ -345,6 +345,20 @@ impl TextStyle {
         self
     }
 
+    /// Sets the line's height, as a **multiple of the font size** — `2.0` is double
+    /// leading, not two pixels. See the [field](Self::height) for why it is a ratio.
+    pub const fn height(mut self, height: f32) -> Self {
+        self.height = Some(height);
+        self
+    }
+
+    /// Names the font family. See the [field](Self::family) for the one case where a
+    /// named family does not get the last word.
+    pub const fn family(mut self, family: FontFamily) -> Self {
+        self.family = Some(family);
+        self
+    }
+
     /// **Merges** `over` on top of `self`, **field by field**: where `over` said nothing,
     /// this one's answer survives.
     ///

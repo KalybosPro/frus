@@ -15,25 +15,34 @@ use crate::widget::Widget;
 
 const PAD_X: f32 = 16.0;
 const PAD_Y: f32 = 12.0;
-const SIZE: f32 = 16.0;
 const ACCENT: f32 = 4.0;
-/// The action button (Material's "UNDO"): font, padding and height.
-const ACTION_SIZE: f32 = 14.0;
+/// The action button (Material's "UNDO"): padding and height.
 const ACTION_PAD_X: f32 = 12.0;
 const ACTION_GAP: f32 = 8.0;
 const ACTION_H: f32 = 32.0;
 
-/// The message's style, **resolved once** so that the number the box is measured with is
-/// the number the glyphs are drawn at. Resolving is the single place the reader's font
-/// setting is applied (milestone 403); a size that never passes through it is a size the
-/// reader cannot change.
-fn text_style() -> ResolvedTextStyle {
-    TextStyle::new(SIZE).resolved()
+/// The message's style: what the caller said, else what the theme says, else the
+/// reference's — a snackbar's content is `bodyMedium`.
+///
+/// **Resolved once**, so that the number the box is measured with is the number the glyphs
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403); a size that never passes through it is a size the reader cannot change.
+fn content_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.snack_bar.content_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_medium)
+        .resolved()
 }
 
-/// The action's style. See [`text_style`].
-fn action_style() -> ResolvedTextStyle {
-    TextStyle::new(ACTION_SIZE).resolved()
+/// The action's style — the reference's is `labelLarge`. See [`content_style`].
+fn action_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.snack_bar.action_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).label_large)
+        .resolved()
+}
+
+/// The width an action label needs, its own padding included.
+fn action_width(label: &str, style: &ResolvedTextStyle) -> f32 {
+    (frus_text::measure_resolved(label, style).width + ACTION_PAD_X * 2.0).ceil()
 }
 
 /// The nature of a notification (its accent color).
@@ -49,8 +58,12 @@ pub enum SnackBarKind {
 pub struct SnackBar<Msg> {
     text: String,
     kind: SnackBarKind,
-    /// Extra width reserved for the action (0 if there is none).
-    action_w: f32,
+    content_text_style: Option<TextStyle>,
+    action_text_style: Option<TextStyle>,
+    /// The action's label and message, kept **beside** the child rather than only inside
+    /// it: the width it reserves is a measurement, and a measurement cannot be taken in a
+    /// builder, before any theme exists to say what type it is in.
+    action: Option<(String, Msg)>,
     /// Empty, or `[action button]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -61,9 +74,26 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
         Self {
             text: text.into(),
             kind: SnackBarKind::Info,
-            action_w: 0.0,
+            content_text_style: None,
+            action_text_style: None,
+            action: None,
             children: Vec::new(),
         }
+    }
+
+    /// The message's type, over the theme's and the reference's.
+    #[must_use]
+    pub fn content_text_style(mut self, style: TextStyle) -> Self {
+        self.content_text_style = Some(style);
+        self
+    }
+
+    /// The action's type, over the theme's and the reference's.
+    #[must_use]
+    pub fn action_text_style(mut self, style: TextStyle) -> Self {
+        self.action_text_style = Some(style);
+        self.rebuild_action();
+        self
     }
 
     /// The success variant.
@@ -81,21 +111,49 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
     /// Adds an **action button** (an uppercased label, Material style) that emits `message`
     /// on click — typically "UNDO", to undo whatever triggered the notification.
     pub fn action(mut self, label: impl Into<String>, message: Msg) -> Self {
-        let label = label.into().to_uppercase();
-        let width = (frus_text::measure_resolved(&label, &action_style()).width
-            + ACTION_PAD_X * 2.0)
-            .ceil();
-        self.action_w = width + ACTION_GAP;
-        self.children = vec![Box::new(ActionButton {
-            label,
-            width,
-            message,
-        })];
+        self.action = Some((label.into().to_uppercase(), message));
+        self.rebuild_action();
         self
+    }
+
+    /// Carries the current action *and the current style* into the child.
+    ///
+    /// Called by both builders so the two are order-independent: `.action(…)` then
+    /// `.action_text_style(…)` and the reverse describe the same notification, which a
+    /// caller is entitled to assume and would otherwise have to discover.
+    fn rebuild_action(&mut self) {
+        self.children = match &self.action {
+            Some((label, message)) => vec![Box::new(ActionButton {
+                label: label.clone(),
+                text_style: self.action_text_style,
+                message: message.clone(),
+            })],
+            None => Vec::new(),
+        };
     }
 }
 
 impl<Msg> SnackBar<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        let measured =
+            frus_text::measure_resolved(&self.text, &content_style(self.content_text_style, theme));
+        let action_w = self.action.as_ref().map_or(0.0, |(label, _)| {
+            action_width(label, &action_style(self.action_text_style, theme)) + ACTION_GAP
+        });
+        let mut style = Style {
+            width: Dimension::Length((measured.width + PAD_X * 2.0 + ACCENT + action_w).ceil()),
+            height: Dimension::Length((measured.height + PAD_Y * 2.0).max(ACTION_H).ceil()),
+            ..Default::default()
+        };
+        // With an action: place it on the right, vertically centred.
+        if !self.children.is_empty() {
+            style.justify = Justify::End;
+            style.align = Align::Center;
+            style.padding = Insets::new(0.0, PAD_X, 0.0, 0.0);
+        }
+        style
+    }
+
     fn accent(&self, theme: &Theme) -> Color {
         match self.kind {
             SnackBarKind::Info => theme.primary,
@@ -107,21 +165,11 @@ impl<Msg> SnackBar<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
     fn style(&self) -> Style {
-        let measured = frus_text::measure_resolved(&self.text, &text_style());
-        let mut style = Style {
-            width: Dimension::Length(
-                (measured.width + PAD_X * 2.0 + ACCENT + self.action_w).ceil(),
-            ),
-            height: Dimension::Length((measured.height + PAD_Y * 2.0).max(ACTION_H).ceil()),
-            ..Default::default()
-        };
-        // With an action: place it on the right, vertically centred.
-        if !self.children.is_empty() {
-            style.justify = Justify::End;
-            style.align = Align::Center;
-            style.padding = Insets::new(0.0, PAD_X, 0.0, 0.0);
-        }
-        style
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -160,7 +208,7 @@ impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
         scene.text(
             Point::new(bounds.x + ACCENT + PAD_X, bounds.y + PAD_Y),
             self.text.clone(),
-            &text_style(),
+            &content_style(self.content_text_style, Some(theme)),
             theme.on_surface.fade(o),
         );
     }
@@ -173,17 +221,28 @@ impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
 /// A notification's action button (uppercased text, accent color), clickable.
 struct ActionButton<Msg> {
     label: String,
-    width: f32,
+    text_style: Option<TextStyle>,
     message: Msg,
+}
+
+impl<Msg> ActionButton<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        let style = action_style(self.text_style, theme);
+        Style {
+            width: Dimension::Length(action_width(&self.label, &style)),
+            height: Dimension::Length(frus_text::line_box(ACTION_H, &style, 0.0)),
+            ..Default::default()
+        }
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for ActionButton<Msg> {
     fn style(&self) -> Style {
-        Style {
-            width: Dimension::Length(self.width),
-            height: Dimension::Length(frus_text::line_box(ACTION_H, &action_style(), 0.0)),
-            ..Default::default()
-        }
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -195,7 +254,7 @@ impl<Msg: Clone> Widget<Msg> for ActionButton<Msg> {
         // Hover/focus background (a baked state layer: invisible at rest, tinted on interaction).
         let bg = theme.state_layer(theme.surface, theme.primary, &status);
         scene.draw_rect(bounds, bg.fade(o), theme.radius, 0.0, Color::TRANSPARENT);
-        let style = action_style();
+        let style = action_style(self.text_style, Some(theme));
         let w = frus_text::measure_resolved(&self.label, &style).width;
         scene.text(
             Point::new(

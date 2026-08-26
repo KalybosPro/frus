@@ -12,25 +12,32 @@ use crate::theme::Theme;
 use crate::widget::Widget;
 
 const CELL: f32 = 34.0;
-const SIZE: f32 = 15.0;
-/// The weekday initials above the grid.
-const WEEKDAY_SIZE: f32 = 13.0;
 
-/// A day's style, **resolved once** so that the number the cell is measured with is the
-/// number the figures are drawn at. Resolving is the single place the reader's font
-/// setting is applied (milestone 403).
-fn day_style() -> ResolvedTextStyle {
-    TextStyle::new(SIZE).resolved()
+/// A day's style: what the calendar was told, else what the theme says, else the
+/// reference's — a Material 3 date picker sets its days in `bodyLarge`.
+///
+/// **Resolved once** so that the number the cell is measured with is the number the figures
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403).
+fn day_style(theme: Option<&Theme>) -> ResolvedTextStyle {
+    theme
+        .and_then(|t| t.widgets.date_picker.day_text_style)
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_large)
+        .resolved()
 }
 
-/// The weekday initial's style. See [`day_style`].
-fn weekday_style() -> ResolvedTextStyle {
-    TextStyle::new(WEEKDAY_SIZE).resolved()
+/// The weekday initial's style — the reference says `bodyLarge` for these too. See
+/// [`day_style`].
+fn weekday_style(theme: Option<&Theme>) -> ResolvedTextStyle {
+    theme
+        .and_then(|t| t.widgets.date_picker.weekday_text_style)
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_large)
+        .resolved()
 }
 
 /// A cell's side: the constant, unless the reader asked for figures that do not fit in it.
-fn cell() -> f32 {
-    frus_text::line_box(CELL, &day_style(), 0.0)
+fn cell(theme: Option<&Theme>) -> f32 {
+    frus_text::line_box(CELL, &day_style(theme), 0.0)
 }
 /// The gap between the two months of a dual calendar.
 const DUAL_GAP: f32 = 24.0;
@@ -104,13 +111,24 @@ struct Day<Msg> {
     message: Option<Msg>,
 }
 
-impl<Msg: Clone> Widget<Msg> for Day<Msg> {
-    fn style(&self) -> Style {
+impl<Msg> Day<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        let side = cell(theme);
         Style {
-            width: Dimension::Length(cell()),
-            height: Dimension::Length(cell()),
+            width: Dimension::Length(side),
+            height: Dimension::Length(side),
             ..Default::default()
         }
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for Day<Msg> {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -125,7 +143,7 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
         // A disabled day (outside the bounds): a dimmed figure, no background, no band.
         if self.disabled {
             let label = self.day.to_string();
-            let style = day_style();
+            let style = day_style(Some(theme));
             let w = frus_text::measure_resolved(&label, &style).width;
             scene.text(
                 Point::new(
@@ -166,7 +184,7 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
             scene.draw_rect(bounds, bg.fade(o), CELL * 0.5, 0.0, Color::TRANSPARENT);
         }
         let label = self.day.to_string();
-        let style = day_style();
+        let style = day_style(Some(theme));
         let w = frus_text::measure_resolved(&label, &style).width;
         scene.text(
             Point::new(
@@ -193,6 +211,30 @@ pub struct DatePicker<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
     /// Two months side by side, which doubles its width.
     dual: bool,
+    day_text_style: Option<TextStyle>,
+    weekday_text_style: Option<TextStyle>,
+}
+
+impl<Msg> DatePicker<Msg> {
+    /// The days' type, over the theme's and the reference's.
+    ///
+    /// It reaches the cells through [`Widget::theme_override`] rather than through the
+    /// cells' fields: a calendar is assembled by five different constructors, and a value
+    /// carried down the theme arrives at every one of them without any of them being
+    /// taught to pass it on.
+    #[must_use]
+    pub fn day_text_style(mut self, style: TextStyle) -> Self {
+        self.day_text_style = Some(style);
+        self
+    }
+
+    /// The weekday initials' type, over the theme's and the reference's. See
+    /// [`day_text_style`](Self::day_text_style).
+    #[must_use]
+    pub fn weekday_text_style(mut self, style: TextStyle) -> Self {
+        self.weekday_text_style = Some(style);
+        self
+    }
 }
 
 const WEEKDAYS: [&str; 7] = ["S", "M", "T", "W", "T", "F", "S"];
@@ -397,6 +439,8 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         Self {
             children: vec![Box::new(row)],
             dual: true,
+            day_text_style: None,
+            weekday_text_style: None,
         }
     }
 
@@ -465,21 +509,37 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         Self {
             children: vec![Box::new(header), Box::new(weekdays), Box::new(grid)],
             dual: false,
+            day_text_style: None,
+            weekday_text_style: None,
         }
     }
 }
+
+/// The floor of the weekday header's height.
+const WEEKDAY_H: f32 = 22.0;
 
 /// A weekday header cell (not clickable).
 struct WeekdayCell {
     label: String,
 }
 
-impl<Msg> Widget<Msg> for WeekdayCell {
-    fn style(&self) -> Style {
+impl WeekdayCell {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        // The floor, or the line the initials actually need.
         Style {
-            height: Dimension::Length(22.0),
+            height: Dimension::Length(frus_text::line_box(WEEKDAY_H, &weekday_style(theme), 0.0)),
             ..Default::default()
         }
+    }
+}
+
+impl<Msg> Widget<Msg> for WeekdayCell {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -487,7 +547,7 @@ impl<Msg> Widget<Msg> for WeekdayCell {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        let style = weekday_style();
+        let style = weekday_style(Some(theme));
         let w = frus_text::measure_resolved(&self.label, &style).width;
         scene.text(
             Point::new(bounds.x + (bounds.width - w) * 0.5, bounds.y),
@@ -502,9 +562,12 @@ impl<Msg> Widget<Msg> for WeekdayCell {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for DatePicker<Msg> {
-    fn style(&self) -> Style {
-        let month_w = 7.0 * (CELL + 2.0);
+impl<Msg> DatePicker<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        // Seven cells and their gaps — the cells' **own** side, not the constant: a
+        // calendar whose cells grew with the reader while its box did not would clip its
+        // last column.
+        let month_w = 7.0 * (cell(theme) + 2.0);
         let width = if self.dual {
             2.0 * month_w + DUAL_GAP
         } else {
@@ -517,6 +580,16 @@ impl<Msg: Clone> Widget<Msg> for DatePicker<Msg> {
             ..Default::default()
         }
     }
+}
+
+impl<Msg: Clone> Widget<Msg> for DatePicker<Msg> {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
+    }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         &self.children
@@ -526,6 +599,23 @@ impl<Msg: Clone> Widget<Msg> for DatePicker<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+
+    /// Carries what this calendar was told down to its cells, over what the subtree
+    /// inherited. `None` when it was told nothing, so a calendar that says nothing costs
+    /// nothing and the theme's own answer stands.
+    fn theme_override(&self, inherited: &Theme) -> Option<Box<Theme>> {
+        if self.day_text_style.is_none() && self.weekday_text_style.is_none() {
+            return None;
+        }
+        let mut theme = *inherited;
+        if let Some(style) = self.day_text_style {
+            theme.widgets.date_picker.day_text_style = Some(style);
+        }
+        if let Some(style) = self.weekday_text_style {
+            theme.widgets.date_picker.weekday_text_style = Some(style);
+        }
+        Some(Box::new(theme))
     }
 }
 
