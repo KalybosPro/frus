@@ -286,12 +286,22 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
 }
 
 impl<Msg: Clone> Widget<Msg> for NavigationRail<Msg> {
+    /// The rail's box: its column of destinations, plus the intrusions it was **told**
+    /// about.
+    ///
+    /// The rail consumes them; its parent does not (milestone 420). The reference keeps
+    /// its safe area inside the `Material` (`navigation_rail.dart:553`) and takes the
+    /// **leading** side, the top and the bottom — never the trailing one, which is where
+    /// the body is. So the rail's surface, and the rule down its edge, run the full
+    /// height of the screen while the destinations stay clear of the notch and the
+    /// gesture bar.
     fn style(&self) -> Style {
+        let safe = crate::MediaQuery::of().padding;
         Style {
-            width: Dimension::Length(RAIL_WIDTH),
+            width: Dimension::Length(RAIL_WIDTH + safe.left),
             flex_direction: FlexDirection::Column,
             align: Align::Center,
-            padding: Insets::new(8.0, 0.0, 8.0, 0.0),
+            padding: Insets::new(8.0 + safe.top, 0.0, 8.0 + safe.bottom, safe.left),
             gap: 4.0,
             ..Default::default()
         }

@@ -8,10 +8,24 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 419 so far, each documenting the objective, the alternatives
+> record — one per step, 420 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **A navigation rail's rule stopped at the notch** (J420). The shell padded the slot from
+  outside, so the rail was a shorter box floated inside the intrusions and everything it
+  painted — the rule down its trailing edge included — stopped with it. The rail now takes
+  the leading side, the top and the bottom into its own box, as the reference's does, and its
+  surface reaches the screen's edges while its destinations stay clear of them.
+
+### Changed
+
+- A `Scaffold`'s rail slot is handed a **description** rather than a padding, the trailing
+  side removed. Beside a rail, the persistent footer no longer pads for a leading intrusion
+  that is inside the rail's box.
 
 ### Fixed
 

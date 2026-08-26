@@ -679,7 +679,13 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             // shell resolved them, and the bottom only when nothing below it holds the
             // edge off — which is what the reference's `removeBottomPadding:
             // bottomNavigationBar != null` says (`scaffold.dart:3158`).
-            let (left, right) = (insets.left, insets.right);
+            // Beside a rail the leading intrusion is the rail's — it is inside the
+            // rail's own box, and the footer sits in the column to its right (milestone
+            // 420). `row_width` below already reads it that way: subtracting the bare
+            // `RAIL_WIDTH` *and* `insets.left` is the same number as subtracting the
+            // rail's box, which is `RAIL_WIDTH + insets.left` since the rail took it.
+            let left = if rail_nav { 0.0 } else { insets.left };
+            let right = insets.right;
             let bottom = if bar_below_body { 0.0 } else { bottom_clear };
             Box::new(crate::MediaScope::tweak(
                 move |mq: &mut crate::MediaQuery| {
@@ -802,7 +808,22 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             if let Some(n) = nav.take() {
                 // The rail is a sibling, never an overlay: `extend_body` speaks of the
                 // bottom bar, and a body sliding under a side rail is nobody's design.
-                row = row.child(inset_pad(n, insets.top, 0.0, bottom_clear, insets.left));
+                //
+                // Told, not padded (milestone 420): the trailing side is the body's, so
+                // it is removed; the leading side, the top and the bottom are the rail's
+                // to consume, which is the set the reference's own safe area takes
+                // (`navigation_rail.dart:556`). The rule down the rail's edge then runs
+                // the full height of the screen instead of stopping at the notch.
+                let (rail_top, rail_left) = (insets.top, insets.left);
+                row = row.child(crate::MediaScope::tweak(
+                    move |mq: &mut crate::MediaQuery| {
+                        mq.padding.top = rail_top;
+                        mq.padding.right = 0.0;
+                        mq.padding.left = rail_left;
+                        mq.padding.bottom = bottom_clear;
+                    },
+                    n,
+                ));
             }
             let mut content = Flex::column().flex(1.0);
             if !bar_over_body {
@@ -1846,6 +1867,85 @@ mod tests {
         assert!(
             lowest < 420.0 * 0.6,
             "a rail stacks from the top, not at y = {lowest}"
+        );
+    }
+
+    /// **The rail is told, not padded** (milestone 420).
+    ///
+    /// The reference keeps its safe area inside the `Material`
+    /// (`navigation_rail.dart:553`) and takes the **leading** side, the top and the
+    /// bottom — never the trailing one, which is where the body is. So the rail's box
+    /// swallows the cutout, the rule down its edge runs the full height of the screen,
+    /// and the destinations are what stays clear of the notch and the gesture bar.
+    ///
+    /// Padded from outside, the rail was a shorter box floated inside the intrusions and
+    /// the rule stopped at the notch — a rule that does not reach the edge it is ruling.
+    #[test]
+    fn a_rail_rules_the_full_height_and_holds_its_destinations_clear() {
+        const TOP: f32 = 40.0;
+        const BOTTOM: f32 = 30.0;
+        const CUTOUT: f32 = 24.0;
+        const WIDE: f32 = 900.0;
+        const TALL: f32 = 420.0;
+        let size = Size::new(WIDE, TALL);
+        let surface = MediaQuery::new(size)
+            .with_insets(WindowInsets::bars(Insets::new(TOP, 0.0, BOTTOM, CUTOUT)));
+        let ui = surface.scope(|| {
+            let tree = Scaffold::new()
+                .size(WIDE, TALL)
+                .body(Container::<Msg>::new().flex(1.0))
+                .nav(0, Msg::Go)
+                .nav_placement(NavPlacement::Rail)
+                .destination("H", "Home")
+                .destination("S", "Stats")
+                .build();
+            build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default())
+        });
+        // The rule: the one-pixel column down the rail's trailing edge.
+        let rule = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, .. }
+                    if rect.width <= 1.5 && rect.height > TALL / 2.0 =>
+                {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("the rail rules itself off from the body");
+        assert!(
+            rule.y.abs() < 0.5 && (rule.y + rule.height - TALL).abs() < 0.5,
+            "the rule stops at the intrusions: {rule:?}"
+        );
+        assert!(
+            (rule.x - (CUTOUT + RAIL_WIDTH - 1.0)).abs() < 0.5,
+            "the rail did not take the cutout into its own box: {rule:?}"
+        );
+        // The destinations: clear of the cutout beside them and the bars above and below.
+        let (mut left, mut top, mut bottom) = (f32::MAX, f32::MAX, f32::MIN);
+        for p in ui.scene().primitives() {
+            if let frus_core::Primitive::Text {
+                position, size: em, ..
+            } = p
+            {
+                left = left.min(position.x);
+                top = top.min(position.y);
+                bottom = bottom.max(position.y + em);
+            }
+        }
+        assert!(
+            left >= CUTOUT - 0.5,
+            "a destination sits in the cutout: {left}"
+        );
+        assert!(
+            top >= TOP - 0.5,
+            "a destination sits under the status bar: {top}"
+        );
+        assert!(
+            bottom <= TALL - BOTTOM + 0.5,
+            "a destination sits on the gesture bar: {bottom}"
         );
     }
 
