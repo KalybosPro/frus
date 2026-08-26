@@ -8,10 +8,30 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 417 so far, each documenting the objective, the alternatives
+> record — one per step, 418 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **A bottom bar's surface stopped short of the screen's edge** (J418). The shell padded the
+  slot from outside, so the bar's background ended above the gesture bar and a strip of the
+  scaffold showed through underneath it. The reference keeps the colour outside the safe area
+  and the safe area inside the bar; the shell now hands the slot a description and the bar
+  consumes it, so the background runs behind the gesture bar and only its destinations are
+  held clear.
+
+- **A notched bottom app bar cut its notch a display cutout away from its button** (J418).
+  The notch is cut in the bar's own coordinates and the bar used to start at the left
+  intrusion, so it was moved back by it; the bar starts at the window's edge now. With no
+  side intrusion the two readings agreed, which is why nothing caught it before.
+
+### Changed
+
+- A `Scaffold`'s navigation slot is handed a **description** rather than a padding, the top
+  intrusion removed and the bottom left in, as the reference does. A widget in that slot that
+  does not consume intrusions is no longer insetted for them.
 
 ### Added
 

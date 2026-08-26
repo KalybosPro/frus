@@ -217,7 +217,7 @@ fn build_items<Msg: Clone + 'static>(
         .collect()
 }
 
-/// Rail de navigation **vertical** (tablette / bureau).
+/// A **vertical** navigation rail (tablet / desktop).
 pub struct NavigationRail<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
@@ -384,10 +384,24 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
 }
 
 impl<Msg> BottomBar<Msg> {
+    /// The bar's box: a row of destinations, plus the intrusions it was **told** about.
+    ///
+    /// The bar consumes them; its parent does not (milestone 418). The reference wraps
+    /// the row in a safe area and leaves the `Material` **outside** it
+    /// (`navigation_bar.dart:285`), so the background runs behind the gesture bar and
+    /// only the destinations are held clear of it. Padding the whole bar from outside
+    /// gives the opposite picture: a bar that stops short of the edge with a strip of
+    /// the screen behind it showing through.
+    ///
+    /// The top intrusion is never consumed here. A shell removes it before handing the
+    /// slot over (`scaffold.dart:3169`), and a bar along the bottom of a screen has
+    /// nothing above it to keep clear of anyway.
     fn sizing(&self, theme: Option<&Theme>) -> Style {
         let label = label_style(self.label_text_style, theme);
+        let safe = crate::MediaQuery::of().padding;
         Style {
-            height: Dimension::Length(item_height(BAR_HEIGHT, &label)),
+            height: Dimension::Length(item_height(BAR_HEIGHT, &label) + safe.bottom),
+            padding: Insets::new(0.0, safe.right, safe.bottom, safe.left),
             flex_direction: FlexDirection::Row,
             justify: Justify::SpaceAround,
             align: Align::Stretch,
@@ -490,6 +504,43 @@ mod tests {
             .primitives()
             .iter()
             .any(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "99+")));
+    }
+
+    /// **The bar consumes what it is told about** (milestone 418). Its parent used to
+    /// pad it from outside, which put the bar's surface above the gesture bar rather
+    /// than behind it; the reference keeps the safe area inside the `Material`
+    /// (`navigation_bar.dart:285`) and the bar grows by the intrusion instead.
+    #[test]
+    fn a_bottom_bar_consumes_the_intrusion_it_was_told_about() {
+        use crate::{MediaQuery, Size};
+        const GESTURE: f32 = 24.0;
+        let bar = BottomBar::new(0, Msg::Go).item("H", "Home");
+        let bare = match Widget::<Msg>::style(&bar).height {
+            Dimension::Length(h) => h,
+            other => panic!("a bar declares a height, not {other:?}"),
+        };
+        let told = MediaQuery::new(Size::new(400.0, 800.0))
+            .with_insets(frus_core::WindowInsets::bars(Insets::new(
+                0.0, 0.0, GESTURE, 0.0,
+            )))
+            .scope(|| Widget::<Msg>::style(&bar));
+        match told.height {
+            Dimension::Length(h) => assert!(
+                (h - (bare + GESTURE)).abs() < 0.01,
+                "the bar did not grow by the intrusion: {h} vs {bare}"
+            ),
+            other => panic!("a bar declares a height, not {other:?}"),
+        }
+        // And it is the **content** that is held clear, not the box: the padding is what
+        // keeps the destinations off the edge while the surface reaches it.
+        assert!(
+            (told.padding.bottom - GESTURE).abs() < 0.01,
+            "the destinations were not held clear: {:?}",
+            told.padding
+        );
+        // Never the top: a shell removes it before handing the slot over, and a bar at
+        // the bottom of a screen has nothing above it to avoid.
+        assert_eq!(told.padding.top, 0.0);
     }
 
     #[test]

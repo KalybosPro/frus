@@ -602,7 +602,11 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             (None, Some(bar)) => {
                 bottom_bar_height = bar.declared_height();
                 let bar = if fab.is_some() && fab_location.docked() {
-                    bar.notched_at(fab_centre_x - insets.left, fab_size / 2.0)
+                    // In the bar's own coordinates, which are the window's: since
+                    // milestone 418 the bottom slot spans the full width and consumes
+                    // the side intrusions itself, so its origin is no longer held off
+                    // by `insets.left` and the notch is no longer moved back by it.
+                    bar.notched_at(fab_centre_x, fab_size / 2.0)
                 } else {
                     bar
                 };
@@ -721,8 +725,31 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                 bar,
             ))
         };
-        let nav_pad =
-            |n: Box<dyn Widget<Msg>>| inset_pad(n, 0.0, insets.right, bottom_clear, insets.left);
+        // **The bottom slot is told, not padded** (milestone 418) — the same split
+        // milestone 417 made at the top of the screen. The reference hands this slot a
+        // description with the **top** intrusion removed and the bottom one left in
+        // (`scaffold.dart:3167`), and the bar consumes what it is told about, inside its
+        // own surface: `NavigationBar` wraps its row in a safe area and leaves the
+        // `Material` outside it (`navigation_bar.dart:285`), and so does `BottomAppBar`
+        // (`bottom_app_bar.dart:230`). That is what makes a bar's background run behind
+        // the gesture bar instead of stopping short above it, with a strip of the
+        // scaffold showing through — which is what a padding from outside produced.
+        //
+        // `bottom_clear` is already the number the reference arrives at through
+        // `maintainBottomViewPadding: !resizeToAvoidBottomInset`, worked out above.
+        let nav_left = insets.left;
+        let nav_right = insets.right;
+        let nav_pad = move |n: Box<dyn Widget<Msg>>| -> Box<dyn Widget<Msg>> {
+            Box::new(crate::MediaScope::tweak(
+                move |mq: &mut crate::MediaQuery| {
+                    mq.padding.top = 0.0;
+                    mq.padding.left = nav_left;
+                    mq.padding.right = nav_right;
+                    mq.padding.bottom = bottom_clear;
+                },
+                n,
+            ))
+        };
 
         // The pinned shell: app bar · body · footer · (bottom bar | rail).
         let mut app_bar = app_bar;
@@ -1400,6 +1427,122 @@ mod tests {
             let d = ((p.x - fab_centre_x).powi(2) + (p.y - bar_top).powi(2)).sqrt();
             assert!(d >= 27.9, "the bar cuts into the button: {p:?} ({d})");
         }
+    }
+
+    /// **The bottom slot is told, not padded** (milestone 418), and the difference is
+    /// one you can see. The reference puts the safe area *inside* the shape that carries
+    /// the colour (`bottom_app_bar.dart:230`), so a bar's surface runs behind the gesture
+    /// bar and only its actions are held clear of it. Padded from outside, the surface
+    /// stopped short of the screen's edge and a strip of the scaffold showed through
+    /// underneath it.
+    #[test]
+    fn a_bottom_bar_s_surface_runs_behind_the_gesture_bar() {
+        use crate::BottomAppBar;
+        const GESTURE: f32 = 24.0;
+        const BAR: f32 = 64.0;
+        let size = Size::new(W, H);
+        let surface = MediaQuery::new(size)
+            .with_insets(WindowInsets::bars(Insets::new(0.0, 0.0, GESTURE, 0.0)));
+        let ui = surface.scope(|| {
+            let tree = Scaffold::new()
+                .size(W, H)
+                .body(Container::<Msg>::new())
+                .bottom_app_bar(
+                    BottomAppBar::new()
+                        .height(BAR)
+                        .padding(0.0)
+                        .color(MARK)
+                        .child(marked::<Msg>(20.0)),
+                )
+                .build();
+            build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default())
+        });
+        let mut rects: Vec<frus_core::Rect> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Rect { rect, color, .. } if *color == MARK => Some(*rect),
+                _ => None,
+            })
+            .collect();
+        rects.sort_by(|a, b| a.height.total_cmp(&b.height));
+        let (content, bar) = (rects[0], rects[rects.len() - 1]);
+        // The surface: it took the intrusion into itself and reaches the window's edge.
+        assert!(
+            (bar.height - (BAR + GESTURE)).abs() < 0.5,
+            "the bar did not consume what it was told about: {bar:?}"
+        );
+        assert!(
+            (bar.y + bar.height - H).abs() < 0.5,
+            "the bar's surface stops short of the edge: {bar:?}"
+        );
+        // Its content: inside that surface, clear of the gesture bar.
+        assert!(
+            content.y + content.height <= H - GESTURE + 0.5,
+            "the actions run under the gesture bar: {content:?}"
+        );
+    }
+
+    /// The notch is cut in the **bar's own** coordinates, and since milestone 418 those
+    /// are the window's: the bottom slot spans the full width and consumes the side
+    /// intrusions itself, so its box is no longer held off by the left one and the notch
+    /// must no longer be moved back by it. With no side intrusion the two readings agree
+    /// and the mistake hides, which is why this test puts a cutout down one edge.
+    #[test]
+    fn a_notch_stays_under_its_button_beside_a_cutout() {
+        use crate::BottomAppBar;
+        const CUTOUT: f32 = 48.0;
+        const BAR: f32 = 64.0;
+        const FAB: f32 = 56.0;
+        let size = Size::new(W, H);
+        let surface = MediaQuery::new(size)
+            .with_insets(WindowInsets::bars(Insets::new(0.0, 0.0, 0.0, CUTOUT)));
+        let ui = surface.scope(|| {
+            let tree = Scaffold::new()
+                .size(W, H)
+                .body(Container::<Msg>::new())
+                .bottom_app_bar(BottomAppBar::new().height(BAR).color(MARK))
+                .fab_location(FabLocation::StartDocked)
+                .fab_size(FAB)
+                .fab(Container::<Msg>::new().width(FAB).height(FAB))
+                .build();
+            build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default())
+        });
+        let outline = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Path { path, fill, .. } if *fill == Some(MARK) => {
+                    Some(path.clone())
+                }
+                _ => None,
+            })
+            .expect("a notched bar paints an outline");
+        // Where the button is: past the cutout, then the usual margin.
+        let fab_centre_x = CUTOUT + FAB_MARGIN + FAB / 2.0;
+        let bar_top = H - BAR;
+        // Every node the notch put below the top edge belongs to the notch, so every one
+        // of them is within the notch's own reach of the button's centre. Cut at the old
+        // place these sit a whole cutout away.
+        let mut dipped = 0;
+        for verb in outline.verbs() {
+            let p = match verb {
+                frus_core::PathVerb::MoveTo(p) | frus_core::PathVerb::LineTo(p) => *p,
+                frus_core::PathVerb::QuadTo { to, .. }
+                | frus_core::PathVerb::CubicTo { to, .. } => *to,
+                frus_core::PathVerb::Close => continue,
+            };
+            if p.y > bar_top + 1.0 && p.y < bar_top + BAR - 1.0 {
+                dipped += 1;
+                assert!(
+                    (p.x - fab_centre_x).abs() <= FAB,
+                    "the notch was cut away from its button: {p:?} (centre {fab_centre_x})"
+                );
+            }
+        }
+        assert!(dipped > 0, "no notch was cut at all");
     }
 
     /// Two drawers, two edges, and a screen may have both.

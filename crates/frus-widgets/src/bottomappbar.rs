@@ -184,9 +184,20 @@ impl<Msg: Clone + 'static> Widget<Msg> for BottomAppBar<Msg> {
     /// [`Widget::fill_axes`]. A `width: 100%` resolves against the parent's *resolved*
     /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
+        // The intrusions it was **told** about, consumed here rather than applied from
+        // outside (milestone 418). The reference puts the safe area inside the shape
+        // that carries the colour (`bottom_app_bar.dart:230`), so the bar's surface runs
+        // behind the gesture bar and only its actions are held clear — which is exactly
+        // what `paint` does with `bounds` below.
+        let safe = crate::MediaQuery::of().padding;
         Style {
-            height: Dimension::Length(self.height),
-            padding: frus_core::Insets::new(self.padding, self.padding, self.padding, self.padding),
+            height: Dimension::Length(self.height + safe.bottom),
+            padding: frus_core::Insets::new(
+                self.padding,
+                self.padding + safe.right,
+                self.padding + safe.bottom,
+                self.padding + safe.left,
+            ),
             ..Default::default()
         }
     }
