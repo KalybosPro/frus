@@ -8,10 +8,28 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 415 so far, each documenting the objective, the alternatives
+> record — one per step, 416 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **Nothing inside an app bar ever faded in or out** (J416). The frame counts a new tree's
+  identities with `collect_ids` *before* the layout pass has built its deferred subtrees, and
+  an `AppBar` is built on one. The count returned the root and nothing else, so the mount and
+  leave bookkeeping never saw a single widget in the bar. A widget moving from outside such a
+  subtree to inside one was also snapshotted as leaving, and a ghost faded out over a widget
+  still on the screen.
+
+  This is the same defect J415 fixed in the shell's *other* build path, found by the tripwire
+  J415 added. Both paths go through one `build_view` now.
+
+### Added
+
+- The first test that drives an `Application` through the shell's own code: an interface that
+  lives entirely inside a deferred subtree, asserted to have identities to mount and to be
+  reachable. It needs no window.
 
 ### Fixed
 

@@ -338,6 +338,31 @@ enum Drag {
 }
 
 /// The driver: an `event → frame` loop around an [`Application`].
+/// Turns an application's `view` into a tree that is **ready to be read**.
+///
+/// The one way this shell builds a tree, and it exists because there were two. A
+/// `ThemeBuilder` — and everything built on one, an `AppBar` included — has no children
+/// until [`build_deferred`] has been over it, so every traversal of a tree that has not
+/// been prepared finds nothing inside such a subtree and says nothing about it.
+///
+/// Both of the shell's build sites read the tree **before** the layout pass would have
+/// prepared it: the frame's own path calls `collect_ids` on it for the mount and leave
+/// bookkeeping, and the burst path hands it straight to `find_widget`. Neither of those is
+/// a mistake to be spotted at a call site; they are why this is one function.
+///
+/// The surface must already be described — the reader's font setting reaches anything a
+/// deferred subtree measures, and a build outside a surface measures at scale 1 while the
+/// frame lays it out at whatever the reader asked for (milestone 408).
+fn build_view<A: Application>(app: &A, theme: &Theme) -> Box<dyn Widget<A::Message>> {
+    debug_assert!(
+        frus_widgets::MediaQuery::of().is_described(),
+        "a view is being built with no surface described: install one first — milestone 416"
+    );
+    let tree = app.view(theme);
+    build_deferred(tree.as_ref(), theme);
+    tree
+}
+
 pub struct App<A: Application> {
     /// The application being driven: its state and logic.
     app: A,
@@ -1720,7 +1745,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 if need_build {
                     // No scope of its own: the surface above is already installed, and
                     // covers the layout and the paint that follow as well.
-                    let tree = self.app.view(&theme);
+                    //
+                    // `build_view`, not `view`: `collect_ids` below reads this tree before
+                    // the layout pass has been down it, so an unprepared tree would report
+                    // no identities at all inside a deferred subtree — and everything in an
+                    // `AppBar` would silently never mount, never fade in and never fade out.
+                    let tree = build_view(&self.app, &theme);
                     let ids = collect_ids(tree.as_ref());
                     let present: std::collections::HashSet<_> = ids.iter().copied().collect();
 
@@ -3832,22 +3862,12 @@ impl<A: Application> App<A> {
             // and the next frame redoes the full pass: mounts, leaving fades and all.
             if let Some((width, height)) = self.last_size {
                 let theme = self.app.theme();
-                let tree = self.media_query(width, height).scope(|| {
-                    let tree = self.app.view(&theme);
-                    // The deferred subtrees, the way the layout pass builds them — because
-                    // this tree is **read before it is laid out**, by the next key in the
-                    // burst. Without it every `ThemeBuilder` in it, an `AppBar` included,
-                    // has no children, and every traversal that comes here (`find_widget`,
-                    // the focus, the caret being revealed) silently finds nothing inside
-                    // one.
-                    //
-                    // **Inside the scope**, not after it: a builder that measures text
-                    // measures it through the reader's font setting, and the frame's own
-                    // path holds its surface across the build and the layout both
-                    // (milestone 408).
-                    build_deferred(tree.as_ref(), &theme);
-                    tree
-                });
+                // A surface of its own, because this build happens between frames rather
+                // than inside one — and the same `build_view` as the frame path, because
+                // the next key in the burst reads this tree straight away.
+                let tree = self
+                    .media_query(width, height)
+                    .scope(|| build_view(&self.app, &theme));
                 self.tree = Some(tree);
             }
         }
@@ -4140,10 +4160,85 @@ fn fetch_image_bytes(
 #[cfg(test)]
 mod tests {
     use super::{
-        claim_area, claim_axis, draw_ghost_card, drop_insertion_line, fling_velocity,
+        build_view, claim_area, claim_axis, draw_ghost_card, drop_insertion_line, fling_velocity,
         gesture_was_a_tap, resolve_focus, spring_toward, Drag, Point, Rect, Scene, Theme,
         VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
     };
+    use super::{collect_ids, find_widget, MediaQuery};
+
+    /// An application whose whole interface lives **inside a deferred subtree** — which is
+    /// what any application with an `AppBar` is, since a bar defers its own composition
+    /// until the theme is known.
+    ///
+    /// It exists because nothing else in this repo can stand in for one: the shell's own
+    /// types need a window and an event-loop proxy, so the only piece of the frame a test
+    /// can hold is the part that turns a `view` into a tree. That part is where two
+    /// milestones' worth of bugs were.
+    struct Deferred;
+
+    impl crate::Application for Deferred {
+        type Message = ();
+
+        fn update(&mut self, _message: ()) -> crate::Command<()> {
+            crate::Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn frus_widgets::Widget<()>> {
+            Box::new(frus_widgets::ThemeBuilder::new(|_: &Theme| {
+                frus_widgets::Flex::column()
+                    .width(300.0)
+                    .height(80.0)
+                    .child(
+                        frus_widgets::TextField::new("hi")
+                            .width(200.0)
+                            .on_input(|_| ()),
+                    )
+            }))
+        }
+    }
+
+    /// The surface every frame installs, so a build outside one measures the way a build
+    /// inside one does.
+    fn surfaced<R>(f: impl FnOnce() -> R) -> R {
+        MediaQuery::new(frus_widgets::Size::new(300.0, 80.0)).scope(f)
+    }
+
+    /// A tree the shell hands to a traversal is **ready to be traversed**.
+    ///
+    /// Milestones 415 and 416 were the same bug found twice, in the two places this shell
+    /// turns a `view` into a tree. A deferred subtree has no children until something has
+    /// built it, so an unprepared tree reports **one** identity — its root — and every
+    /// widget in the application is invisible to `collect_ids`, to `find_widget`, and to
+    /// everything downstream of them: the mount and leave fades, the focus, the caret.
+    ///
+    /// The failure was silence in both places, which is why it went unnoticed twice. This
+    /// is the assertion that would have caught it, and it needs no window.
+    #[test]
+    fn a_view_is_built_ready_to_be_read() {
+        let theme = Theme::default();
+        let prepared = surfaced(|| build_view(&Deferred, &theme));
+        let ids = collect_ids(prepared.as_ref());
+        assert!(
+            ids.len() > 1,
+            "an application inside a deferred subtree has identities to mount: {ids:?}"
+        );
+        // And every one of them is reachable, which is what the burst path needs.
+        for id in &ids {
+            assert!(
+                find_widget(prepared.as_ref(), *id).is_some(),
+                "{id:?} was counted but cannot be found"
+            );
+        }
+    }
+
+    /// The same view, unprepared, is the state both call sites used to read.
+    #[test]
+    #[should_panic(expected = "before it was built")]
+    fn an_unprepared_view_is_the_state_that_broke() {
+        let theme = Theme::default();
+        let raw = surfaced(|| crate::Application::view(&Deferred, &theme));
+        let _ = collect_ids(raw.as_ref());
+    }
 
     /// A press on a **dismissible** row that never moved is a tap, and the widget under
     /// the finger owes it a click (reported on a device: a task row's avatar opened
