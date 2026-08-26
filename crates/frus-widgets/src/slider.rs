@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
+use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
@@ -14,12 +14,16 @@ use crate::widget::Widget;
 /// The height of the value tooltip (above the thumbs) and its gap from the track.
 const TIP_H: f32 = 20.0;
 const TIP_GAP: f32 = 6.0;
-const TIP_SIZE: f32 = 12.0;
-
-/// The value bubble's style, **resolved once** so that the number the bubble is measured
-/// with is the number the digits are drawn at.
-fn tip_style() -> ResolvedTextStyle {
-    TextStyle::new(TIP_SIZE).resolved()
+/// The value bubble's style: what the theme says, else the reference's — it calls this the
+/// *value indicator* and sets it in `labelLarge`.
+///
+/// **Resolved once**, so that the number the bubble is measured with is the number the
+/// digits are drawn at.
+fn tip_style(theme: Option<&Theme>) -> ResolvedTextStyle {
+    theme
+        .and_then(|t| t.widgets.slider.value_indicator_text_style)
+        .unwrap_or_else(|| crate::theme::type_scale(theme).label_large)
+        .resolved()
 }
 /// The default keyboard step (without `divisions`): an arrow moves by 5%.
 const KEY_STEP: f32 = 0.05;
@@ -757,7 +761,7 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
 
 /// Paints a value tooltip centred on `cx` (top edge `top`) showing `text`.
 fn paint_tip(cx: f32, top: f32, text: String, theme: &Theme, o: f32, scene: &mut Scene) {
-    let style = tip_style();
+    let style = tip_style(Some(theme));
     let tw = frus_text::measure_resolved(&text, &style).width;
     let bw = tw + 12.0;
     let bx = cx - bw * 0.5;
@@ -1432,6 +1436,50 @@ mod range_tests {
             Some("110 EUR"),
             "said the caller's way when it gave a formatter"
         );
+    }
+
+    /// The bubble's type is the reference's, and comes from the theme rather than from a
+    /// private constant — milestone 414. The reference calls it the *value indicator* and
+    /// sets it in `labelLarge`, which is 14 px **medium**: the weight is half the step, and
+    /// the `TIP_SIZE: f32 = 12.0` this replaces could not have carried it at any value.
+    #[test]
+    fn the_value_bubble_wears_the_reference_s_step() {
+        let slider = Slider::<Msg>::new(0.3).value_label(|v| format!("{v}"));
+        let styles = |theme: &Theme| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                &slider,
+                Rect::new(0.0, 0.0, 220.0, 50.0),
+                Status {
+                    focused: true,
+                    ..Status::default()
+                },
+                theme,
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Text { size, weight, .. } => {
+                        Some((*size, weight.to_u16()))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let plain = Theme::default();
+        assert_eq!(
+            styles(&plain),
+            vec![(
+                plain.text.label_large.size.unwrap(),
+                frus_core::FontWeight::Medium.to_u16()
+            )]
+        );
+        // And a theme can move it, which nothing could before.
+        let mut themed = Theme::default();
+        themed.widgets.slider.value_indicator_text_style = Some(frus_core::TextStyle::new(25.0));
+        assert_eq!(styles(&themed).first().map(|s| s.0), Some(25.0));
     }
 
     /// A tooltip reserves the room above the track rather than sitting on it.

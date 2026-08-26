@@ -37,6 +37,7 @@ pub struct WidgetThemes {
     pub app_bar: AppBarTheme,
     pub autocomplete: AutocompleteTheme,
     pub badge: BadgeTheme,
+    pub breadcrumb: BreadcrumbTheme,
     pub button: ButtonTheme,
     pub card: CardTheme,
     pub checkbox: CheckboxTheme,
@@ -45,9 +46,11 @@ pub struct WidgetThemes {
     pub divider: DividerTheme,
     pub drawer: DrawerTheme,
     pub dropdown: DropdownTheme,
+    pub form: FormTheme,
     pub icon: IconTheme,
     pub icon_button: IconButtonTheme,
     pub ink: InkTheme,
+    pub kanban: KanbanTheme,
     pub kbd: KbdTheme,
     pub menu: MenuTheme,
     pub nav_rail: NavRailTheme,
@@ -61,6 +64,7 @@ pub struct WidgetThemes {
     pub table: TableTheme,
     pub text: DefaultTextStyle,
     pub text_field: TextFieldTheme,
+    pub time_picker: TimePickerTheme,
     pub timeline: TimelineTheme,
     pub tree: TreeTheme,
 }
@@ -126,6 +130,9 @@ pub struct RadioTheme {
 /// Defaults for [`Slider`](crate::Slider) and [`RangeSlider`](crate::RangeSlider).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SliderTheme {
+    /// The value bubble's type. The reference calls it the *value indicator* and sets it in
+    /// `labelLarge`.
+    pub value_indicator_text_style: Option<TextStyle>,
     /// The travelled part of the track.
     pub active_track_color: Option<Color>,
     /// The part still to travel.
@@ -601,6 +608,61 @@ pub struct TimelineTheme {
     pub detail_text_style: Option<TextStyle>,
 }
 
+/// Defaults for [`Breadcrumb`](crate::Breadcrumb).
+///
+/// The reference has no breadcrumb, so its type is argued rather than read: a trail is a
+/// **secondary** line of navigation above the page's own content, which is `bodyMedium`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BreadcrumbTheme {
+    /// The segments' type, the separators included.
+    pub text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Kanban`](crate::Kanban).
+///
+/// The reference has no board, so its type is argued: a card is a small piece of content
+/// read on its own, which is `bodyLarge` — the step the reference gives a list tile's title
+/// and this framework already gives a `Tree` row.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct KanbanTheme {
+    /// A text card's label.
+    pub card_text_style: Option<TextStyle>,
+    /// A column's heading over its cards.
+    pub column_title_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Form`](crate::Form)'s error summary.
+///
+/// The reference has no summary list, so its type is argued: a bullet restates an error
+/// already shown under its field, which is `bodySmall` — the step the reference gives the
+/// helper line those errors come from.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FormTheme {
+    /// A summary bullet's type.
+    pub bullet_text_style: Option<TextStyle>,
+    /// The summary's heading over them.
+    pub summary_title_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`TimePicker`](crate::TimePicker) and [`TimeRange`](crate::TimeRange).
+///
+/// The reference names three of these four. Its dial is `bodyLarge`, its help line
+/// `labelMedium`, and its day period `titleMedium` — which is the same step as the dial and
+/// is why the AM/PM cells here are simply cells. The **preview** is the fourth: the
+/// reference puts an editable pair of fields at `displayMedium` where this widget shows one
+/// read-only line above two grids, so it takes the heading step that line is.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TimePickerTheme {
+    /// The hour, minute and AM/PM cells.
+    pub dial_text_style: Option<TextStyle>,
+    /// The `HH:MM` line above them.
+    pub preview_text_style: Option<TextStyle>,
+    /// The "Hour" and "Minute" lines over each grid.
+    pub help_text_style: Option<TextStyle>,
+    /// The "Start" and "End" headings of a [`TimeRange`](crate::TimeRange).
+    pub range_label_text_style: Option<TextStyle>,
+}
+
 /// Defaults for [`Kbd`](crate::Kbd).
 ///
 /// The reference has no key cap, so its type is argued rather than read: a shortcut hint is
@@ -907,6 +969,48 @@ mod tests {
     }
 
     #[test]
+    fn the_last_seven_widgets_stop_deciding_their_own_type() {
+        // Milestone 414, the tail of 413. Five of these seven turned out to be **read**
+        // from the reference after all, and the note that sent them here said only two
+        // were — which is the same mistake as the constants themselves, an estimate
+        // standing in for a look.
+        let plain = Theme::default();
+
+        // Argued: a trail is a *secondary* line of navigation, `bodyMedium`.
+        let trail = || crate::breadcrumb::Breadcrumb::<Msg>::new(|_| unreachable!()).crumb("Home");
+        assert_eq!(
+            text_sizes(trail(), &plain),
+            vec![plain.text.body_medium.size.unwrap()]
+        );
+        assert_eq!(
+            text_sizes(trail().text_style(TextStyle::new(9.0)), &plain),
+            vec![9.0],
+            "and a caller can still say otherwise"
+        );
+        let mut themed = Theme::default();
+        themed.widgets.breadcrumb.text_style = Some(TextStyle::new(31.0));
+        assert_eq!(text_sizes(trail(), &themed), vec![31.0]);
+    }
+
+    #[test]
+    fn a_bar_titles_at_the_reference_s_weight() {
+        // The app bar's title was a private `TextStyle::new(22.0).weight(Medium)`: the size
+        // right and **the weight wrong**, because `titleLarge` is regular. Nothing tested it
+        // — the one test that looked compared it against the constant it came from, which is
+        // a tautology, not a check.
+        let plain = Theme::default();
+        assert_eq!(
+            first_weight(crate::navbar::NavigationBar::<Msg>::new("Inbox"), &plain),
+            Some(frus_core::FontWeight::Regular.to_u16())
+        );
+        assert_eq!(
+            text_sizes(crate::navbar::NavigationBar::<Msg>::new("Inbox"), &plain),
+            vec![plain.text.title_large.size.unwrap()],
+            "and a navigation bar titles at 22, not at a private 20"
+        );
+    }
+
+    #[test]
     fn a_theme_that_says_nothing_is_the_absence_of_a_theme() {
         // The whole contract of `None`: a fresh theme must carry no opinions at all, or
         // every widget's built-in default silently becomes unreachable.
@@ -924,5 +1028,13 @@ mod tests {
         assert_eq!(WidgetThemes::default().table.heading_text_style, None);
         assert_eq!(WidgetThemes::default().date_picker.day_text_style, None);
         assert_eq!(WidgetThemes::default().kbd.text_style, None);
+        assert_eq!(WidgetThemes::default().breadcrumb.text_style, None);
+        assert_eq!(WidgetThemes::default().kanban.card_text_style, None);
+        assert_eq!(WidgetThemes::default().form.bullet_text_style, None);
+        assert_eq!(WidgetThemes::default().time_picker.dial_text_style, None);
+        assert_eq!(
+            WidgetThemes::default().slider.value_indicator_text_style,
+            None
+        );
     }
 }

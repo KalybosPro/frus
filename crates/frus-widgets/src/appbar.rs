@@ -23,7 +23,9 @@
 //!     .build()
 //! ```
 
-use frus_core::{BorderRadius, Color, FontWeight, TextStyle};
+#[cfg(test)]
+use frus_core::FontWeight;
+use frus_core::{BorderRadius, Color, TextStyle};
 use frus_layout::{Align, Dimension};
 
 use crate::button::Variant;
@@ -68,9 +70,17 @@ pub const fn platform_centers_title(actions: usize) -> bool {
 /// to be in it makes every screen a slightly different shape, and the page below it move
 /// when an action appears. [`AppBar::height`] overrides it.
 pub const APP_BAR_HEIGHT: f32 = 64.0;
-/// The title's font size — the reference's `title_large` (the default, overridden by
-/// [`AppBar::title_style`]).
-const TITLE_SIZE: f32 = 22.0;
+/// The title's type: what the caller said, else what the theme's `app_bar` says, else the
+/// step of the type scale the reference names — `titleLarge`.
+///
+/// It used to be a private `TextStyle::new(22.0).weight(Medium)`, which had the size right
+/// and **the weight wrong**: `titleLarge` is regular. A number written beside the scale is a
+/// number that can drift from it without anybody seeing, which is milestone 413's lesson and
+/// this is the same constant one file over.
+fn title_style_of(over: Option<TextStyle>, theme: &Theme) -> TextStyle {
+    over.or(theme.widgets.app_bar.title_style)
+        .unwrap_or(theme.text.title_large)
+}
 /// How far the reader's font setting may enlarge the **title**, and no further.
 ///
 /// A bar is chrome: it keeps [`APP_BAR_HEIGHT`] whatever the reader asked for, because a
@@ -79,9 +89,15 @@ const TITLE_SIZE: f32 = 22.0;
 /// hierarchy the same even with larger font sizes". A caller who wants the whole scale
 /// gives the title its own [`AppBar::title_style`] and their own height.
 pub const APP_BAR_MAX_TITLE_SCALE: f32 = 1.34;
-/// The actions' font size — the reference's `label_large`, which is what its app bar's
-/// actions are: text buttons (the default, overridden by [`AppBar::action_size`]).
-const ACTION_SIZE: f32 = 14.0;
+/// The actions' size: what the caller said, else the step the reference gives them.
+///
+/// A bar's actions **are text buttons**, so they take `labelLarge` — the same step
+/// [`crate::Button`] already reads — rather than the `bodyMedium` the reference gives the
+/// toolbar's other text.
+fn action_size_of(over: Option<f32>, theme: &Theme) -> f32 {
+    over.or(theme.text.label_large.size)
+        .unwrap_or(frus_core::DEFAULT_TEXT_SIZE)
+}
 /// A button's inner horizontal padding (must follow `button::PAD_X`).
 const BTN_PAD_X: f32 = 20.0;
 /// The space between the bar's elements (the default, overridden by [`AppBar::gap`]).
@@ -116,15 +132,14 @@ enum Action<Msg> {
 /// An adaptive application bar. A fluent builder finished by [`AppBar::build`].
 pub struct AppBar<Msg> {
     title: Box<dyn Widget<Msg>>,
-    title_style: TextStyle,
+    title_style: Option<TextStyle>,
     /// Was the title's style left at the framework's default? Only then may the theme
     /// have its say — a caller who set one outranks it.
-    title_style_default: bool,
     width: f32,
     leading: Option<Box<dyn Widget<Msg>>>,
     overflow: Option<(bool, Msg)>,
     actions: Vec<Action<Msg>>,
-    action_size: f32,
+    action_size: Option<f32>,
     gap: f32,
     background: Option<Color>,
     height: Option<f32>,
@@ -172,8 +187,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             // `app_bar.dart:1084` — and it is why this could not be written before
             // milestone 400.
             title: Box::new(Text::new(title)),
-            title_style: TextStyle::new(TITLE_SIZE).weight(FontWeight::Medium),
-            title_style_default: true,
+            title_style: None,
             width: if surface.is_described() {
                 surface.size.width
             } else {
@@ -182,7 +196,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             leading: None,
             overflow: None,
             actions: Vec::new(),
-            action_size: ACTION_SIZE,
+            action_size: None,
             gap: GAP,
             background: None,
             height: None,
@@ -220,8 +234,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// The text title's style (size/weight/italic/color). Default: the reference's
     /// `title_large` at medium weight, in the theme's colour.
     pub fn title_style(mut self, style: TextStyle) -> Self {
-        self.title_style = style;
-        self.title_style_default = false;
+        self.title_style = Some(style);
         self
     }
 
@@ -270,7 +283,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
 
     /// The labelled actions' font size (16 px by default).
     pub fn action_size(mut self, size: f32) -> Self {
-        self.action_size = size;
+        self.action_size = Some(size);
         self
     }
 
@@ -530,8 +543,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         let t = theme.widgets.app_bar;
         let AppBar {
             title,
-            mut title_style,
-            title_style_default,
+            title_style,
             width,
             leading,
             overflow,
@@ -568,12 +580,9 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             .unwrap_or_else(|| platform_centers_title(actions.len()));
 
         // The title's type, likewise: the caller's style, else the theme's, else the
-        // reference's `title_large`.
-        if title_style_default {
-            if let Some(style) = t.title_style {
-                title_style = style;
-            }
-        }
+        // reference's `titleLarge`.
+        let mut title_style = title_style_of(title_style, theme);
+        let action_size = action_size_of(action_size, theme);
         let foreground = foreground
             .or(t.foreground)
             .unwrap_or(theme.scheme.on_surface);
@@ -1163,7 +1172,8 @@ mod tests {
                 .build(),
         );
         assert_eq!(
-            inherited, TITLE_SIZE,
+            inherited,
+            Theme::default().text.title_large.size.unwrap(),
             "a title that chose nothing wears the bar's type"
         );
         // And one that chose keeps its own, which is what makes the handover safe.

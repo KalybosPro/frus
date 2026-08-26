@@ -17,30 +17,70 @@ use crate::theme::Theme;
 use crate::widget::Widget;
 
 const CELL: f32 = 34.0;
-const SIZE: f32 = 15.0;
 
-/// The style this widget's text is drawn in, **resolved once** so that the number the box
-/// is measured with is the number the glyphs are drawn at. Resolving is the single place
-/// the reader's font setting is applied (milestone 403); a size that never passes through
-/// it is a size the reader cannot change.
-fn label_style() -> ResolvedTextStyle {
-    TextStyle::new(SIZE).resolved()
+/// A cell's style: what the picker was told, else what the theme says, else the
+/// reference's — its dial is `bodyLarge`, and its day period `titleMedium`, which is the
+/// same size, so the AM/PM cells are simply cells here.
+///
+/// **Resolved once**, so that the number the box is measured with is the number the glyphs
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403); a size that never passes through it is a size the reader cannot change.
+fn dial_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.time_picker.dial_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_large)
+        .resolved()
+}
+
+/// The `HH:MM` line above the grids.
+///
+/// The reference has no counterpart: it puts an **editable pair of fields** at
+/// `displayMedium` where this shows one read-only line, so this takes the heading step that
+/// line is. Left as a [`TextStyle`], because the preview is a [`Text`] child and a `Text`
+/// resolves its own.
+fn preview_style(over: Option<TextStyle>, theme: Option<&Theme>) -> TextStyle {
+    over.or(theme.and_then(|t| t.widgets.time_picker.preview_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).headline_medium)
+}
+
+/// The "Hour" and "Minute" lines — the reference's `helpTextStyle`, `labelMedium`.
+fn help_style(over: Option<TextStyle>, theme: Option<&Theme>) -> TextStyle {
+    over.or(theme.and_then(|t| t.widgets.time_picker.help_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).label_medium)
+}
+
+/// The "Start" and "End" headings of a [`TimeRange`]. Each names a **whole picker**, one
+/// level above the "Hour" and "Minute" lines inside it, so it takes the heading step.
+fn range_label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> TextStyle {
+    over.or(theme.and_then(|t| t.widgets.time_picker.range_label_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).title_small)
 }
 
 /// A clickable number cell (hour, minute or AM/PM), highlighted when selected.
 struct TimeCell<Msg> {
     label: String,
     selected: bool,
+    text_style: Option<TextStyle>,
     message: Option<Msg>,
+}
+
+impl<Msg> TimeCell<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        let side = frus_text::line_box(CELL, &dial_style(self.text_style, theme), 0.0);
+        Style {
+            width: Dimension::Length(side),
+            height: Dimension::Length(side),
+            ..Default::default()
+        }
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for TimeCell<Msg> {
     fn style(&self) -> Style {
-        Style {
-            width: Dimension::Length(frus_text::line_box(CELL, &label_style(), 0.0)),
-            height: Dimension::Length(frus_text::line_box(CELL, &label_style(), 0.0)),
-            ..Default::default()
-        }
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -58,7 +98,7 @@ impl<Msg: Clone> Widget<Msg> for TimeCell<Msg> {
             )
         };
         scene.draw_rect(bounds, bg.fade(o), CELL * 0.5, 0.0, Color::TRANSPARENT);
-        let style = label_style();
+        let style = dial_style(self.text_style, Some(theme));
         let w = frus_text::measure_resolved(&self.label, &style).width;
         scene.text(
             Point::new(
@@ -88,6 +128,9 @@ pub struct TimePicker<Msg> {
     on_minute: Box<dyn Fn(u32) -> Msg>,
     hour12: bool,
     minute_step: u32,
+    dial_text_style: Option<TextStyle>,
+    preview_text_style: Option<TextStyle>,
+    help_text_style: Option<TextStyle>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -117,6 +160,9 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
             on_minute: Box::new(on_minute),
             hour12: false,
             minute_step: 5,
+            dial_text_style: None,
+            preview_text_style: None,
+            help_text_style: None,
             children: Vec::new(),
         };
         picker.rebuild();
@@ -138,17 +184,44 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
         self
     }
 
+    /// The cells' type, over the theme's and the reference's.
+    #[must_use]
+    pub fn dial_text_style(mut self, style: TextStyle) -> Self {
+        self.dial_text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// The `HH:MM` line's type, over the theme's and the framework's.
+    #[must_use]
+    pub fn preview_text_style(mut self, style: TextStyle) -> Self {
+        self.preview_text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// The "Hour" and "Minute" lines' type, over the theme's and the reference's.
+    #[must_use]
+    pub fn help_text_style(mut self, style: TextStyle) -> Self {
+        self.help_text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
     /// Assembles the preview and the grids from the current state.
     fn rebuild(&mut self) {
         let (hour, minute) = (self.hour, self.minute);
         let pm = hour >= 12;
 
         // HH:MM preview (+ AM/PM in 12-hour mode).
+        let preview_s = preview_style(self.preview_text_style, None);
+        let help_s = help_style(self.help_text_style, None);
+        let cell = self.dial_text_style;
         let preview = if self.hour12 {
             let suffix = if pm { "PM" } else { "AM" };
-            Text::new(format!("{}:{minute:02} {suffix}", digit12(hour))).size(28.0)
+            Text::styled(format!("{}:{minute:02} {suffix}", digit12(hour)), preview_s)
         } else {
-            Text::new(format!("{hour:02}:{minute:02}")).size(28.0)
+            Text::styled(format!("{hour:02}:{minute:02}"), preview_s)
         };
 
         // The hours section.
@@ -161,11 +234,13 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
                 .child(TimeCell {
                     label: "AM".into(),
                     selected: !pm,
+                    text_style: cell,
                     message: Some((self.on_hour)(am_target)),
                 })
                 .child(TimeCell {
                     label: "PM".into(),
                     selected: pm,
+                    text_style: cell,
                     message: Some((self.on_hour)(pm_target)),
                 });
             // A 1–12 grid; each cell targets the 24-hour hour of the current half.
@@ -176,12 +251,13 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
                 grid = grid.cell(TimeCell {
                     label: format!("{d}"),
                     selected: d == current12,
+                    text_style: cell,
                     message: Some((self.on_hour)(target24)),
                 });
             }
             Flex::column()
                 .gap(6.0)
-                .child(Text::new("Hour").size(13.0))
+                .child(Text::styled("Hour", help_s))
                 .child(ampm)
                 .child(grid)
         } else {
@@ -190,12 +266,13 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
                 grid = grid.cell(TimeCell {
                     label: format!("{h:02}"),
                     selected: h == hour,
+                    text_style: cell,
                     message: Some((self.on_hour)(h)),
                 });
             }
             Flex::column()
                 .gap(6.0)
-                .child(Text::new("Hour").size(13.0))
+                .child(Text::styled("Hour", help_s))
                 .child(grid)
         };
 
@@ -207,13 +284,14 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
             minutes = minutes.cell(TimeCell {
                 label: format!("{m:02}"),
                 selected: m == minute,
+                text_style: cell,
                 message: Some((self.on_minute)(m)),
             });
             m += self.minute_step;
         }
         let minutes_section = Flex::column()
             .gap(6.0)
-            .child(Text::new("Minute").size(13.0))
+            .child(Text::styled("Minute", help_s))
             .child(minutes);
 
         self.children = vec![
@@ -224,14 +302,27 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for TimePicker<Msg> {
-    fn style(&self) -> Style {
+impl<Msg> TimePicker<Msg> {
+    /// Six cells and their gaps — the cells' **own** side, not the constant: a picker whose
+    /// cells grew with the reader while its box did not would clip its last column.
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        let cell = frus_text::line_box(CELL, &dial_style(self.dial_text_style, theme), 0.0);
         Style {
-            width: Dimension::Length(6.0 * (CELL + 4.0)),
+            width: Dimension::Length(6.0 * (cell + 4.0)),
             flex_direction: FlexDirection::Column,
             gap: 12.0,
             ..Default::default()
         }
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for TimePicker<Msg> {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -269,6 +360,7 @@ pub struct TimeRange<Msg> {
     start: (u32, u32),
     end: (u32, u32),
     on_change: Rc<dyn Fn(Endpoint, TimeField, u32) -> Msg>,
+    label_text_style: Option<TextStyle>,
     hour12: bool,
     minute_step: u32,
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -283,6 +375,7 @@ impl<Msg: Clone + 'static> TimeRange<Msg> {
         on_change: impl Fn(Endpoint, TimeField, u32) -> Msg + 'static,
     ) -> Self {
         let mut range = Self {
+            label_text_style: None,
             start: (start.0.min(23), start.1.min(59)),
             end: (end.0.min(23), end.1.min(59)),
             on_change: Rc::new(on_change),
@@ -292,6 +385,14 @@ impl<Msg: Clone + 'static> TimeRange<Msg> {
         };
         range.rebuild();
         range
+    }
+
+    /// The "Start" and "End" headings' type, over the theme's and the framework's.
+    #[must_use]
+    pub fn label_text_style(mut self, style: TextStyle) -> Self {
+        self.label_text_style = Some(style);
+        self.rebuild();
+        self
     }
 
     /// Switches both pickers to **12-hour** (AM/PM).
@@ -326,13 +427,14 @@ impl<Msg: Clone + 'static> TimeRange<Msg> {
             }
             tp.minute_step(step)
         };
+        let label_s = range_label_style(self.label_text_style, None);
         let start_col = Flex::column()
             .gap(8.0)
-            .child(Text::new("Start").size(14.0))
+            .child(Text::styled("Start", label_s))
             .child(make(Endpoint::Start, self.start.0, self.start.1));
         let end_col = Flex::column()
             .gap(8.0)
-            .child(Text::new("End").size(14.0))
+            .child(Text::styled("End", label_s))
             .child(make(Endpoint::End, self.end.0, self.end.1));
         self.children = vec![Box::new(start_col), Box::new(end_col)];
     }

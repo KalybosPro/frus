@@ -208,6 +208,9 @@ const SUMMARY_PAD: f32 = 12.0;
 /// contents of the errors.
 pub struct ErrorSummary<Msg> {
     empty: bool,
+    items: Vec<(String, Option<Msg>)>,
+    title_text_style: Option<TextStyle>,
+    bullet_text_style: Option<TextStyle>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -230,20 +233,53 @@ impl<Msg: Clone + 'static> ErrorSummary<Msg> {
 
     /// Assembles the title + the bullets (clickable when a message is supplied).
     fn assemble(items: Vec<(String, Option<Msg>)>) -> Self {
-        let title = match items.len() {
+        let mut summary = Self {
+            empty: items.is_empty(),
+            items,
+            title_text_style: None,
+            bullet_text_style: None,
+            children: Vec::new(),
+        };
+        summary.rebuild();
+        summary
+    }
+
+    /// The heading's type, over the theme's and the framework's.
+    #[must_use]
+    pub fn title_text_style(mut self, style: TextStyle) -> Self {
+        self.title_text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// The bullets' type, over the theme's and the framework's.
+    #[must_use]
+    pub fn bullet_text_style(mut self, style: TextStyle) -> Self {
+        self.bullet_text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// Carries the current styles into the heading and every bullet, so that the builders
+    /// are order-independent.
+    fn rebuild(&mut self) {
+        let title = match self.items.len() {
             1 => "Please fix 1 error".to_string(),
             n => format!("Please fix {n} errors"),
         };
-        let empty = items.is_empty();
-        let mut children: Vec<Box<dyn Widget<Msg>>> = Vec::with_capacity(items.len() + 1);
-        children.push(Box::new(Text::new(title).size(14.0)));
-        for (message, msg) in items {
+        let mut children: Vec<Box<dyn Widget<Msg>>> = Vec::with_capacity(self.items.len() + 1);
+        children.push(Box::new(Text::styled(
+            title,
+            summary_title_style(self.title_text_style, None),
+        )));
+        for (message, msg) in &self.items {
             children.push(Box::new(Bullet {
                 label: format!("• {message}"),
-                message: msg,
+                message: msg.clone(),
+                text_style: self.bullet_text_style,
             }));
         }
-        Self { empty, children }
+        self.children = children;
     }
 
     /// `true` when there is no message — the caller can then display nothing.
@@ -252,13 +288,29 @@ impl<Msg: Clone + 'static> ErrorSummary<Msg> {
     }
 }
 
-/// The font size of a summary bullet.
-const BULLET_SIZE: f32 = 13.0;
+/// A summary bullet's style: what the caller said, else what the theme says, else
+/// `bodySmall`.
+///
+/// The reference has no error summary, so this one is argued rather than read: a bullet
+/// **restates** an error already shown under its field, and the reference sets that helper
+/// line in `bodySmall`.
+///
+/// **Resolved once**, so that the number the box is measured with is the number the glyphs
+/// are drawn at.
+fn bullet_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.form.bullet_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_small)
+        .resolved()
+}
 
-/// A bullet's style, **resolved once** so that the number the box is measured with is the
-/// number the glyphs are drawn at.
-fn bullet_style() -> ResolvedTextStyle {
-    TextStyle::new(BULLET_SIZE).resolved()
+/// The summary's heading over the bullets: `titleSmall`, the step a heading over a short
+/// list takes.
+///
+/// Left as a [`TextStyle`] rather than resolved, because the heading is a [`Text`] child
+/// and a `Text` resolves its own.
+fn summary_title_style(over: Option<TextStyle>, theme: Option<&Theme>) -> TextStyle {
+    over.or(theme.and_then(|t| t.widgets.form.summary_title_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).title_small)
 }
 
 /// One summary line ("• message"). **Clickable** when it carries a message (it then
@@ -266,6 +318,19 @@ fn bullet_style() -> ResolvedTextStyle {
 struct Bullet<Msg> {
     label: String,
     message: Option<Msg>,
+    text_style: Option<TextStyle>,
+}
+
+impl<Msg> Bullet<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        let measured =
+            frus_text::measure_resolved(&self.label, &bullet_style(self.text_style, theme));
+        Style {
+            height: Dimension::Length((measured.height + 4.0).ceil()),
+            padding: Insets::new(2.0, 6.0, 2.0, 6.0),
+            ..Default::default()
+        }
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for Bullet<Msg> {
@@ -273,12 +338,11 @@ impl<Msg: Clone> Widget<Msg> for Bullet<Msg> {
     /// [`Widget::fill_axes`]. A `width: 100%` resolves against the parent's *resolved*
     /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
-        let measured = frus_text::measure_resolved(&self.label, &bullet_style());
-        Style {
-            height: Dimension::Length((measured.height + 4.0).ceil()),
-            padding: Insets::new(2.0, 6.0, 2.0, 6.0),
-            ..Default::default()
-        }
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     /// The width it was **offered**, not the width its parent came out at.
@@ -301,7 +365,7 @@ impl<Msg: Clone> Widget<Msg> for Bullet<Msg> {
         scene.text(
             Point::new(bounds.x + 6.0, bounds.y + 2.0),
             self.label.clone(),
-            &bullet_style(),
+            &bullet_style(self.text_style, Some(theme)),
             theme.on_surface.fade(o),
         );
     }

@@ -8,10 +8,36 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 413 so far, each documenting the objective, the alternatives
+> record — one per step, 414 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Changed
+
+- **The last seven widgets no longer decide their own type** (J414). `Breadcrumb`,
+  `TimePicker`, `TimeRange`, `Kanban`, `ErrorSummary`, `Slider`'s value bubble, and the
+  `AppBar` / `NavigationBar` titles resolve through the same chain as the rest — what the
+  caller said, then `theme.widgets.<widget>`, then the step of `theme.text`.
+
+  **This changes how they look.** An app bar's title is regular where it was medium, a
+  navigation bar's is 22 px where it was 20, a slider's bubble is `labelLarge`, a time
+  picker's cells `bodyLarge` and its help lines `labelMedium`, a breadcrumb `bodyMedium`, a
+  board's cards `bodyLarge`, an error summary's heading a heading.
+
+- `AppBar::title_style` is stored as an `Option<TextStyle>`; the `title_style_default`
+  boolean beside it is gone.
+
+### Fixed
+
+- **A helper line's height was recomputed from its size** (J414). `TextField::sub_block`
+  called `frus_text::line_height(FIELD_SUB_SIZE)` with `sub_style()` two methods away — the
+  second survivor of J412's sweep, and written the one way that sweep could not find.
+
+- **An app bar's title was medium where the reference's is regular** (J414). The test that
+  covered it compared the title against the constant the title came from, so it would have
+  passed at any value. `NavigationBar`'s default title — 20 px medium, both halves wrong —
+  had no test at all.
 
 ### Changed
 

@@ -833,7 +833,10 @@ impl<Msg> TextField<Msg> {
     /// Height reserved for the helper/error line below the box (0 if there is none).
     fn sub_block(&self) -> f32 {
         if self.error.is_some() || self.helper.is_some() || self.max_length.is_some() {
-            frus_text::line_height(FIELD_SUB_SIZE) + FIELD_GAP
+            // The helper style's **own** line, not one recomputed from its size: another
+            // of milestone 412's survivors, written against a bare constant rather than a
+            // style, which is the one formulation that sweep could not find.
+            self.sub_style().line_height() + FIELD_GAP
         } else {
             0.0
         }
@@ -1601,7 +1604,7 @@ mod tests {
     /// anything else drawn to the same specification.
     #[test]
     fn a_field_is_the_references_size() {
-        let line = frus_text::line_height(FIELD_TEXT_SIZE);
+        let line = input("x").text_style().line_height();
         let outlined = input("x");
         assert_eq!(
             outlined.field_height(),
@@ -1626,7 +1629,7 @@ mod tests {
     /// the shape, the label or the border.
     #[test]
     fn a_dense_field_gives_back_its_padding() {
-        let line = frus_text::line_height(FIELD_TEXT_SIZE);
+        let line = input("x").text_style().line_height();
         assert_eq!(
             input("x").dense(true).field_height(),
             (line + FIELD_DENSE_OUTLINED_PADDING_TOP + FIELD_DENSE_OUTLINED_PADDING_BOTTOM).ceil()

@@ -2,7 +2,9 @@
 //! button on the left. Placed at the head of a screen, it **slides and fades
 //! with it** during [`crate::Navigator`] transitions.
 
-use frus_core::{FontWeight, Insets, Point, Rect, Scene, TextStyle};
+#[cfg(test)]
+use frus_core::FontWeight;
+use frus_core::{Insets, Point, Rect, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::interaction::Status;
@@ -14,14 +16,18 @@ const HEIGHT: f32 = 56.0;
 /// Left margin: beyond the back-gesture zone, so the button stays clickable
 /// without triggering the swipe.
 const PAD_LEFT: f32 = 28.0;
-/// Title size.
-const TITLE_SIZE: f32 = 20.0;
+/// The title's type: what the caller said, else the step the reference gives an app bar's
+/// title — `titleLarge`. It used to be a private `20.0` at a medium weight, which had **both
+/// halves wrong**: the reference's is 22 and regular.
+fn title_style_of(over: Option<TextStyle>, theme: &Theme) -> TextStyle {
+    over.unwrap_or(theme.text.title_large)
+}
 
 /// A navigation bar: a title + an optional back button.
 pub struct NavigationBar<Msg> {
     title: String,
-    /// Title style (default: 20 px, medium weight, the theme's color).
-    title_style: TextStyle,
+    /// The caller's title style, if one was named. Unset, the theme's `titleLarge`.
+    title_style: Option<TextStyle>,
     /// Bar height (default: [`HEIGHT`]).
     height: f32,
     /// `[]` (root) or `[back button]`.
@@ -33,7 +39,7 @@ impl<Msg: Clone + 'static> NavigationBar<Msg> {
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
-            title_style: TextStyle::new(TITLE_SIZE).weight(FontWeight::Medium),
+            title_style: None,
             height: HEIGHT,
             children: Vec::new(),
         }
@@ -41,7 +47,7 @@ impl<Msg: Clone + 'static> NavigationBar<Msg> {
 
     /// Overrides the title style (size/weight/italic/color).
     pub fn title_style(mut self, style: TextStyle) -> Self {
-        self.title_style = style;
+        self.title_style = Some(style);
         self
     }
 
@@ -92,7 +98,7 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
         // The title is centred horizontally in the bar, following `title_style`
         // (medium weight by default — a bar title is a "title", not body text;
         // the style's color is inherited from the theme when absent).
-        let style = self.title_style;
+        let style = title_style_of(self.title_style, theme);
         let measured = frus_text::measure_style(&self.title, style);
         let tx = bounds.x + (bounds.width - measured.width) * 0.5;
         let ty = bounds.y + (bounds.height - measured.height) * 0.5;
