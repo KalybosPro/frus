@@ -4432,6 +4432,36 @@ pub fn find_path<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Vec<&dyn Widg
     path
 }
 
+/// Runs the **deferred builds** over a tree, the way the layout pass does on its way down.
+///
+/// A [`ThemeBuilder`](crate::ThemeBuilder) — and everything built on one, an
+/// [`AppBar`](crate::AppBar) included — has no children at all until something calls
+/// [`Widget::build_themed`] on it. The layout pass does that first thing, so within a frame
+/// nothing ever meets an unbuilt subtree.
+///
+/// **A tree built outside a frame does.** The shell rebuilds from `view` alone on a burst of
+/// keystrokes, faster than a frame, so the next key sees the current value rather than the
+/// retained tree's — and then reads that tree straight away. Every traversal that arrives
+/// there ([`find_widget`], focus resolution, a caret being revealed) walks a tree whose
+/// deferred subtrees are empty, and silently finds nothing.
+///
+/// This is that half of the walk and nothing else: the theme swap
+/// ([`Widget::theme_override`]) then the build, top-down. The swap is not optional — a
+/// builder inside a [`Themed`](crate::Themed) has to see its own subtree's theme, and a
+/// preparation that is *nearly* the walk is worse than none, because what it builds is wrong
+/// rather than absent.
+pub fn build_deferred<Msg>(root: &dyn Widget<Msg>, theme: &Theme) {
+    fn walk<Msg>(widget: &dyn Widget<Msg>, theme: &Theme) {
+        let scoped = widget.theme_override(theme);
+        let theme = scoped.as_deref().unwrap_or(theme);
+        widget.build_themed(theme);
+        for child in widget.children() {
+            walk(child.as_ref(), theme);
+        }
+    }
+    walk(root, theme);
+}
+
 pub fn find_widget<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Option<&dyn Widget<Msg>> {
     fn walk<Msg>(
         widget: &dyn Widget<Msg>,
@@ -5571,6 +5601,88 @@ mod tests {
             widget.on_edit(&mut edit, &Key::Text("!".to_string())),
             Some(Msg::Edited("hi!".to_string()))
         );
+    }
+
+    #[test]
+    fn a_traversal_can_arrive_before_the_layout_pass() {
+        // Milestone 415. A `ThemeBuilder`'s subtree does not exist until something has
+        // called `build_themed` on it, and `children()` says so in its own doc: "a
+        // traversal that arrives first should call `build_themed`, not this".
+        //
+        // The shell has such a traversal. On a **burst of keystrokes** — a software
+        // keyboard, `adb input text`, auto-repeat — it rebuilds the tree from `view` alone
+        // and reads it immediately, with no layout pass in between, so every deferred
+        // subtree in it is empty and every widget inside one is unreachable.
+        let deferred = |value: &str| {
+            let value = value.to_string();
+            crate::ThemeBuilder::new(move |_: &Theme| {
+                TextField::new(value.clone())
+                    .width(200.0)
+                    .on_input(Msg::Edited)
+            })
+        };
+        let laid_out = Flex::column()
+            .width(300.0)
+            .height(80.0)
+            .child(deferred("hi"));
+        let rt = Runtime::default();
+        let ui = build_ui(&laid_out, Size::new(300.0, 80.0), &rt, &Theme::default());
+        let (id, _) = ui.focus_hit(Point::new(10.0, 10.0)).expect("the field");
+        assert!(
+            find_widget(&laid_out, id).is_some(),
+            "after a layout pass the field is where the hit-test said it was"
+        );
+
+        // The same tree, freshly built and not yet laid out. `build_deferred` is what the
+        // layout pass does on its way down, and nothing else.
+        let fresh = Flex::column()
+            .width(300.0)
+            .height(80.0)
+            .child(deferred("hi"));
+        build_deferred(&fresh, &Theme::default());
+        assert!(
+            find_widget(&fresh, id).is_some(),
+            "prepared the same way, the same traversal reaches the same widget"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "before it was built")]
+    fn reading_an_unbuilt_deferred_subtree_trips_the_wire() {
+        // Without the preparation the traversal used to return `None` and the caller
+        // shrugged: no field found, no caret revealed, nothing said. The failure mode was
+        // **silence**, so the guard is a panic in debug rather than a comment.
+        let fresh =
+            Flex::<Msg>::column()
+                .width(300.0)
+                .height(80.0)
+                .child(crate::ThemeBuilder::new(|_: &Theme| {
+                    Container::<Msg>::new().width(10.0).height(10.0)
+                }));
+        let _ = find_widget(&fresh, WidgetId::ROOT.child(9));
+    }
+
+    #[test]
+    fn a_deferred_subtree_is_built_under_its_own_theme() {
+        // The layout pass swaps the theme before it builds (`theme_override`), so a
+        // builder inside a `Themed` sees the subtree's theme and not the frame's.
+        // `build_deferred` has to make the same swap or it would build the wrong subtree
+        // — and being *nearly* the walk is worse than not being it at all.
+        let seen = std::rc::Rc::new(std::cell::Cell::new(0.0f32));
+        let recorder = {
+            let seen = seen.clone();
+            crate::ThemeBuilder::new(move |theme: &Theme| {
+                seen.set(theme.radius);
+                Container::<Msg>::new().width(10.0).height(10.0)
+            })
+        };
+        let inner = Theme {
+            radius: 99.0,
+            ..Theme::default()
+        };
+        let tree = Flex::<Msg>::column().child(crate::Themed::new(inner, recorder));
+        build_deferred(&tree, &Theme::default());
+        assert_eq!(seen.get(), 99.0, "the subtree's theme, not the frame's");
     }
 
     #[test]

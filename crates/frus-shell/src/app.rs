@@ -13,11 +13,11 @@ use web_time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, collect_ids, find_by_key, find_path, find_widget, reflow_reorder_cards,
-    reflow_reorder_columns, subtree_ids, Accessibility, Brightness, Color, Cursor as UiCursor,
-    Edit, FocusDirection, Insets, Key, KeyResponse, KeyStroke, MediaQuery, Point, Primitive, Rect,
-    ReorderAxis, Runtime, Scene, ShortcutKey, Size, Theme, Ui, VelocityEstimate, VelocityTracker,
-    Widget, WidgetId, WindowInsets,
+    build_deferred, build_ui, collect_ids, find_by_key, find_path, find_widget,
+    reflow_reorder_cards, reflow_reorder_columns, subtree_ids, Accessibility, Brightness, Color,
+    Cursor as UiCursor, Edit, FocusDirection, Insets, Key, KeyResponse, KeyStroke, MediaQuery,
+    Point, Primitive, Rect, ReorderAxis, Runtime, Scene, ShortcutKey, Size, Theme, Ui,
+    VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -3832,10 +3832,23 @@ impl<A: Application> App<A> {
             // and the next frame redoes the full pass: mounts, leaving fades and all.
             if let Some((width, height)) = self.last_size {
                 let theme = self.app.theme();
-                self.tree = Some(
-                    self.media_query(width, height)
-                        .scope(|| self.app.view(&theme)),
-                );
+                let tree = self.media_query(width, height).scope(|| {
+                    let tree = self.app.view(&theme);
+                    // The deferred subtrees, the way the layout pass builds them — because
+                    // this tree is **read before it is laid out**, by the next key in the
+                    // burst. Without it every `ThemeBuilder` in it, an `AppBar` included,
+                    // has no children, and every traversal that comes here (`find_widget`,
+                    // the focus, the caret being revealed) silently finds nothing inside
+                    // one.
+                    //
+                    // **Inside the scope**, not after it: a builder that measures text
+                    // measures it through the reader's font setting, and the frame's own
+                    // path holds its surface across the build and the layout both
+                    // (milestone 408).
+                    build_deferred(tree.as_ref(), &theme);
+                    tree
+                });
+                self.tree = Some(tree);
             }
         }
     }

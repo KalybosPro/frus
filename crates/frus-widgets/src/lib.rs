@@ -298,8 +298,8 @@ pub use transform::Transform;
 pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use ui::{
-    build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget, subtree_ids,
-    FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
+    build_deferred, build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget,
+    subtree_ids, FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
 };
 pub use widget::{CellFn, FillAxes, FilterContext, ReorderAxis, Widget};
 // **Every** one of them, and not only the ones a doc link happened to need. A theme

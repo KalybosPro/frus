@@ -8,10 +8,29 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 414 so far, each documenting the objective, the alternatives
+> record — one per step, 415 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **Typing fast into a field under an app bar stopped the caret following it** (J415). Keys
+  can arrive faster than a frame, so the shell rebuilds the tree from `view` alone and reads
+  it straight away. That tree had never been through a layout pass, and a `ThemeBuilder` —
+  which an `AppBar` is built on — has no children until one has run over it. Every traversal
+  into such a subtree returned nothing: no field found, no caret revealed, no focus resolved.
+
+  Nothing logged and nothing looked wrong, because all thirty-eight call sites are `and_then`
+  chains that shrug at `None`.
+
+### Added
+
+- `build_deferred(tree, &theme)` runs a tree's deferred builds the way the layout pass does,
+  theme scoping included, for anything that reads a tree before laying it out.
+
+- A **tripwire**: reading an unbuilt `ThemeBuilder`'s children panics in debug rather than
+  answering "no children". The rule had been a comment for three milestones.
 
 ### Changed
 
