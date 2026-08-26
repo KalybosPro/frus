@@ -8,10 +8,26 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 420 so far, each documenting the objective, the alternatives
+> record — one per step, 421 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **A `SafeArea` inside a `Scaffold`'s body padded for intrusions the shell had already dealt
+  with** (J421). The body was told nothing, so a safe area in it read the ambient description
+  — the whole notch — and held its content off a second time: under an app bar, a whole
+  status bar of empty space. The slot is handed a description now, as the reference does, and
+  a body that wants the notch avoided can finally ask for it and be answered correctly.
+
+### Changed
+
+- A `Scaffold` lays its body out **full width** and tells it about the side intrusions rather
+  than padding its content for them, as the reference does. A body that says nothing reaches
+  the screen's edge — which is what a background or a hero image wants — and one that says
+  `SafeArea` is held clear. Side intrusions are zero in portrait, so this is a landscape and
+  display-cutout change.
 
 ### Fixed
 

@@ -698,16 +698,51 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             )) as Box<dyn Widget<Msg>>
         });
 
-        // The body: given the room the bars leave, with the side insets applied to its
-        // content, and **not** wrapped in a scroller. A pane rather than a viewport —
+        // **The body is told, not padded** (milestone 421), the last of the four slots.
+        // The shell used to apply the side intrusions to its content and tell it nothing,
+        // so a `SafeArea` inside a body read the **ambient** description and padded for
+        // intrusions that had already been dealt with — the status bar twice over under an
+        // app bar, and the sides twice over anywhere.
+        //
+        // The reference lays its body out full width and hands the slot a description
+        // (`scaffold.dart:3019`): the sides kept, the top removed when there is an app bar,
+        // the bottom removed when something below it holds the edge off, and the keyboard
+        // removed when the layout has already shortened the body for it.
+        //
+        // Which is also to say: **a body that wants the notch avoided says so.** The slot
+        // is now told the truth about its edges, and `SafeArea` is what reads it.
+        //
+        // It is still **not** wrapped in a scroller: a pane rather than a viewport —
         // whether this screen scrolls is the screen's to say, and it says it by what it
         // puts here.
-        let body_pane = Flex::column().flex(1.0).child(inset_pad(
+        let bar_over_body = extend_body_behind_app_bar && app_bar.is_some();
+        // The top is the app bar's when there is one in front of the body. Behind it
+        // (`extend_body_behind_app_bar`) the body faces the status bar itself again, which
+        // is the `max(padding.top, appBarHeight)` half of the reference's `_BodyBuilder`
+        // (`scaffold.dart:973`) — the bar's own height is not in it yet.
+        let body_top = if app_bar.is_some() && !bar_over_body {
+            0.0
+        } else {
+            insets.top
+        };
+        // And the bottom is whatever is below it: a bar, a footer, or the spacer the
+        // column adds. Only a body told to run **under** the bottom slots faces the edge.
+        let body_bottom = if extend_body { insets.bottom } else { 0.0 };
+        let (body_left, body_right) = (insets.left, insets.right);
+        let body_keyboard = resize_to_avoid_bottom_inset;
+        let body_pane = Flex::column().flex(1.0).child(crate::MediaScope::tweak(
+            move |mq: &mut crate::MediaQuery| {
+                mq.padding.top = body_top;
+                mq.padding.left = body_left;
+                mq.padding.right = body_right;
+                mq.padding.bottom = body_bottom;
+                // `removeBottomInset: _resizeToAvoidBottomInset` — the column has already
+                // shortened the body for the keyboard, so there is nothing left to avoid.
+                if body_keyboard {
+                    mq.view_insets.bottom = 0.0;
+                }
+            },
             body_widget,
-            0.0,
-            insets.right,
-            0.0,
-            insets.left,
         ));
 
         // Whether the bottom clearance falls to the body. With a bar or a footer below
@@ -726,7 +761,6 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // actually is one. Wide, the navigation is a rail beside the body and the
         // overlay would span the rail as well as the content; a footer there stays in
         // the column, which is what it should do anyway when nothing is under it.
-        let bar_over_body = extend_body_behind_app_bar && app_bar.is_some();
         let bottom_over_body = extend_body && !rail_nav && (footer.is_some() || nav.is_some());
         // **Only a primary shell absorbs the status bar.** One nested in a page, or
         // sitting beside another, takes the bar's own height and leaves the top
@@ -958,27 +992,6 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                 .height(height)
                 .color(bg)
                 .child(content),
-        )
-    }
-}
-
-/// Keeps a slot clear of the system bars, **without a superfluous wrapper**: if
-/// all the insets are zero, returns the widget as is (preserving the parent's
-/// stretch); otherwise wraps it in a padding `Container`.
-fn inset_pad<Msg: Clone + 'static>(
-    widget: Box<dyn Widget<Msg>>,
-    top: f32,
-    right: f32,
-    bottom: f32,
-    left: f32,
-) -> Box<dyn Widget<Msg>> {
-    if top == 0.0 && right == 0.0 && bottom == 0.0 && left == 0.0 {
-        widget
-    } else {
-        Box::new(
-            Container::new()
-                .padding_each(top, right, bottom, left)
-                .child(widget),
         )
     }
 }
@@ -1470,6 +1483,103 @@ mod tests {
             let d = ((p.x - fab_centre_x).powi(2) + (p.y - bar_top).powi(2)).sqrt();
             assert!(d >= 27.9, "the bar cuts into the button: {p:?} ({d})");
         }
+    }
+
+    /// The first marked rectangle of a scaffold built under `surface`.
+    fn marked_under(
+        surface: MediaQuery,
+        size: Size,
+        build: impl FnOnce() -> Box<dyn Widget<Msg>>,
+    ) -> frus_core::Rect {
+        let ui = surface.scope(|| {
+            let tree = build();
+            build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default())
+        });
+        ui.scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, color, .. } if *color == MARK => Some(*rect),
+                _ => None,
+            })
+            .expect("the body is drawn")
+    }
+
+    /// **A `SafeArea` in the body padded for a status bar the app bar had already taken**
+    /// (milestone 421).
+    ///
+    /// The shell told the body nothing, so a safe area inside it read the **ambient**
+    /// description — the shell's whole notch — and held its content off by it a second
+    /// time, below a bar that was already clear of it. The reference removes the top from
+    /// that slot's description whenever there is an app bar (`scaffold.dart:3030`).
+    #[test]
+    fn a_safe_area_in_the_body_is_told_what_the_bar_already_took() {
+        const TOP: f32 = 40.0;
+        const BAR: f32 = 56.0;
+        let size = Size::new(W, H);
+        let surface =
+            MediaQuery::new(size).with_insets(WindowInsets::bars(Insets::new(TOP, 0.0, 0.0, 0.0)));
+        let top_of_content = |with_bar: bool| {
+            marked_under(surface, size, || {
+                let mut scaffold = Scaffold::new().size(W, H);
+                if with_bar {
+                    scaffold =
+                        scaffold.app_bar(crate::AppBar::<Msg>::new("bar").height(BAR).build());
+                }
+                scaffold
+                    .body(crate::SafeArea::new(marked::<Msg>(20.0).width(20.0)))
+                    .build()
+            })
+            .y
+        };
+        // No bar: the body faces the status bar, and its safe area is what holds it off.
+        assert!(
+            (top_of_content(false) - TOP).abs() < 0.5,
+            "a body alone must clear the status bar itself: {}",
+            top_of_content(false)
+        );
+        // A bar: it stands `BAR + TOP` tall, having taken the notch (milestone 417), and
+        // the body's safe area is told there is nothing left to take. Padding twice put
+        // the content a whole notch lower.
+        assert!(
+            (top_of_content(true) - (BAR + TOP)).abs() < 0.5,
+            "the body padded for a notch the bar had already taken: {}",
+            top_of_content(true)
+        );
+    }
+
+    /// **The body is told about the cutout beside it, not padded for it** (milestone 421).
+    ///
+    /// The reference lays its body out full width and keeps the side intrusions in the
+    /// description it hands the slot (`scaffold.dart:3029`). So a body that says nothing
+    /// reaches the screen's edge — which is what a background, a hero image or a list's
+    /// own scrollbar wants — and a body that says `SafeArea` is held clear of it.
+    #[test]
+    fn a_body_is_told_about_the_cutout_beside_it_rather_than_padded_for_it() {
+        const CUTOUT: f32 = 48.0;
+        let size = Size::new(W, H);
+        let surface = MediaQuery::new(size)
+            .with_insets(WindowInsets::bars(Insets::new(0.0, 0.0, 0.0, CUTOUT)));
+        let bare = marked_under(surface, size, || {
+            Scaffold::new()
+                .size(W, H)
+                .body(marked::<Msg>(20.0).width(20.0))
+                .build()
+        });
+        assert!(
+            bare.x.abs() < 0.5,
+            "the body was padded for the cutout instead of told about it: {bare:?}"
+        );
+        let asked = marked_under(surface, size, || {
+            Scaffold::new()
+                .size(W, H)
+                .body(crate::SafeArea::new(marked::<Msg>(20.0).width(20.0)))
+                .build()
+        });
+        assert!(
+            (asked.x - CUTOUT).abs() < 0.5,
+            "the body was not told about the cutout: {asked:?}"
+        );
     }
 
     /// **A footer alone held nothing off the bottom edge** (milestone 419).
