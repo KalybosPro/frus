@@ -103,6 +103,7 @@ mod rowcolumn;
 mod runtime;
 mod safearea;
 mod scaffold;
+mod scaffoldinfo;
 mod scroll;
 mod segmented;
 /// Stating what a widget **is** from outside it: the [`semantics::Semantics`] wrapper.
@@ -258,6 +259,7 @@ pub use runtime::{
 };
 pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};
+pub use scaffoldinfo::{ScaffoldGuard, ScaffoldInfo, ScaffoldScope};
 pub use scroll::{Axis, SingleChildScrollView};
 pub use segmented::{
     SegmentedButton, SEGMENTED_BORDER_WIDTH, SEGMENTED_HEIGHT, SEGMENTED_ICON_GAP,

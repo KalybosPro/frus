@@ -165,4 +165,7 @@ crate::transparent::forward_transparent!(Positioned {
     fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
         self.inner.media_override(inherited)
     }
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        self.inner.scaffold_override()
+    }
 });

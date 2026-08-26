@@ -1400,6 +1400,10 @@ fn build_layout_scoped<'a, Msg>(
     let _surface = widget
         .media_override(crate::MediaQuery::of())
         .map(crate::MediaQuery::install);
+    // And the **shell**, the third inherited thing (milestone 422): a slot told what shell
+    // it stands in composes differently — a bar grows a menu button — so it has to be in
+    // force before `build_themed` below, exactly as the surface is.
+    let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
     // A subtree that could not be composed until the theme was known (`ThemeBuilder`).
     // It has to happen **before** anything reads `children()`, and under the subtree's
     // own theme, which is why it sits after the swap above rather than at the call site.
@@ -2710,6 +2714,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         let _surface = widget
             .media_override(crate::MediaQuery::of())
             .map(crate::MediaQuery::install);
+        let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
         self.walk_node_themed(widget, id, translation, clip, rects, index);
         // Over its own children: the reference's `foregroundDecoration`, and the only
         // point in the walk where a widget paints after its subtree. Still under this
@@ -4469,6 +4474,7 @@ pub fn build_deferred<Msg>(root: &dyn Widget<Msg>, theme: &Theme) {
         let _surface = widget
             .media_override(crate::MediaQuery::of())
             .map(crate::MediaQuery::install);
+        let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
         widget.build_themed(theme);
         for child in widget.children() {
             walk(child.as_ref(), theme);

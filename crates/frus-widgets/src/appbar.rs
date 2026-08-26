@@ -142,6 +142,10 @@ pub struct AppBar<Msg> {
     /// have its say — a caller who set one outranks it.
     width: f32,
     leading: Option<Box<dyn Widget<Msg>>>,
+    /// Whether a bar with no `leading` of its own may take one from the shell it stands in.
+    automatically_imply_leading: bool,
+    /// The same for the trailing end.
+    automatically_imply_actions: bool,
     overflow: Option<(bool, Msg)>,
     actions: Vec<Action<Msg>>,
     action_size: Option<f32>,
@@ -200,6 +204,8 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                 f32::MAX
             },
             leading: None,
+            automatically_imply_leading: true,
+            automatically_imply_actions: true,
             overflow: None,
             actions: Vec::new(),
             action_size: None,
@@ -261,6 +267,38 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// The leading element (a menu or back button…), optional.
     pub fn leading(mut self, widget: impl Widget<Msg> + 'static) -> Self {
         self.leading = Some(Box::new(widget));
+        self
+    }
+
+    /// Whether a bar with **no `leading` of its own** may take one from the shell it
+    /// stands in. `true` unless said otherwise, as in the reference.
+    ///
+    /// A bar on a screen that has a drawer then grows the button that opens it, and a bar
+    /// on a screen that has none stays as it was — the shell is what knows, and until
+    /// milestone 422 it had no way to say so to a slot handed to it already built.
+    ///
+    /// The reference's other branch has no counterpart here. There a bar also implies a
+    /// **back button** when the route it is in can be popped; frus's
+    /// [`Navigator`](crate::Navigator) is controlled — the application holds the stack — so
+    /// the framework does not know a depth to imply anything from. A screen that can be
+    /// left says so with [`AppBar::leading`].
+    ///
+    /// `false` is for a bar that wants its leading slot empty on a screen that has a
+    /// drawer: a logo where the button would be, and some other way in.
+    pub fn automatically_imply_leading(mut self, imply: bool) -> Self {
+        self.automatically_imply_leading = imply;
+        self
+    }
+
+    /// Whether a bar with **no actions of its own** may take one from the shell it stands
+    /// in. `true` unless said otherwise, as in the reference (`app_bar.dart:1113`).
+    ///
+    /// A bar with nothing at its trailing end, on a screen that has an end drawer, grows
+    /// the button that opens it. One action of its own and it does not: the reference's
+    /// test is the same — the implied button is what fills an **empty** end, never
+    /// something added beside what the caller put there.
+    pub fn automatically_imply_actions(mut self, imply: bool) -> Self {
+        self.automatically_imply_actions = imply;
         self
     }
 
@@ -572,6 +610,8 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             title_style,
             width,
             leading,
+            automatically_imply_leading,
+            automatically_imply_actions,
             overflow,
             actions,
             action_size,
@@ -598,6 +638,38 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             toolbar_text_style,
             exclude_header_semantics,
         } = self;
+
+        // **What the shell knows and the bar does not** (milestone 422). This bar was
+        // handed to its `Scaffold` already built, so it cannot see the screen it stands on;
+        // the shell tells it, through the ambient the walk installs on the way down, and
+        // this composition runs under that ambient because it is deferred.
+        //
+        // A bar with no `leading` of its own, on a screen with a drawer, grows the button
+        // that opens it — the reference's first branch at `app_bar.dart:1010`. The second,
+        // a back button for a route that can be popped, has no counterpart: frus's
+        // `Navigator` is controlled, so there is no stack depth for the framework to read.
+        let shell = crate::ScaffoldInfo::of();
+        let leading = leading.or_else(|| {
+            if !automatically_imply_leading {
+                return None;
+            }
+            let toggle = shell.drawer_toggle::<Msg>()?;
+            Some(
+                Box::new(crate::IconButton::new(crate::Icons::Menu).on_press(toggle))
+                    as Box<dyn Widget<Msg>>,
+            )
+        });
+        // And the trailing end, on the same terms: **an empty end**, never a button added
+        // beside what the caller put there (`app_bar.dart:1113`). An overflow toggle counts
+        // as something at that end, since it is what the bar puts there itself.
+        let mut actions = actions;
+        if actions.is_empty() && overflow.is_none() && automatically_imply_actions {
+            if let Some(toggle) = shell.end_drawer_toggle::<Msg>() {
+                actions.push(Action::Custom(Box::new(
+                    crate::IconButton::new(crate::Icons::Menu).on_press(toggle),
+                )));
+            }
+        }
 
         // `caller ?? theme ?? platform`. The platform is the last word rather than the
         // framework's own taste, because where a title sits is a system convention before

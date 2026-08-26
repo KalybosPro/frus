@@ -780,6 +780,25 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// The **shell** this widget imposes on its subtree: what a
+    /// [`Scaffold`](crate::Scaffold) knows about itself and its slots do not.
+    ///
+    /// The third of the inherited things, after the theme and the surface, and it exists
+    /// for the same reason as the second: a slot is handed to a shell **already built**, so
+    /// the widget that knows there is a drawer is never the one that has to draw the button
+    /// for it. The reference reads it from the context (`Scaffold.of`), which is how a bar
+    /// with no `leading` grows a menu button on a screen that has a menu and stays empty on
+    /// one that does not (`app_bar.dart:1010`).
+    ///
+    /// `None` — the default — means "whatever came down from above", which is what every
+    /// widget but [`ScaffoldScope`](crate::ScaffoldScope) answers. Applied by the same four
+    /// walks as [`Self::media_override`], and for the same reason: an
+    /// [`AppBar`](crate::AppBar) is composed in [`Self::build_themed`], which runs after the
+    /// swap, and the relayout fingerprint has to see what the composition saw.
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        None
+    }
+
     /// Builds this widget's subtree **from the ambient theme**, for the widgets that
     /// defer that decision — see [`ThemeBuilder`](crate::ThemeBuilder). Does nothing by
     /// default, which is what all but a handful of widgets want.
@@ -1138,6 +1157,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
         (**self).media_override(inherited)
+    }
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        (**self).scaffold_override()
     }
     fn build_themed(&self, theme: &Theme) {
         (**self).build_themed(theme)

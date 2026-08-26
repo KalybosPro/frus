@@ -124,6 +124,9 @@ crate::transparent::forward_transparent!(MediaScope {
         };
         Some(self.inner.media_override(mine).unwrap_or(mine))
     }
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        self.inner.scaffold_override()
+    }
 });
 
 #[cfg(test)]

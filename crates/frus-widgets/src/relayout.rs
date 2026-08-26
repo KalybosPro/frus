@@ -255,6 +255,13 @@ fn hash_node<Msg, H: Hasher>(
     if let Some(mq) = surface {
         mq.measure_hash(hasher);
     }
+    // And the **shell** (milestone 422), hashed for the same reason: whether there is a
+    // drawer decides whether a bar composes a menu button, and a button is a different row.
+    let shell = widget.scaffold_override();
+    if let Some(info) = &shell {
+        info.shape_hash(hasher);
+    }
+    let _shell = shell.map(crate::ScaffoldInfo::install);
     // The cache exists to **skip** `build_layout`, so this walk can be the first one down
     // the tree: a deferred subtree has to be composed here too, or the fingerprint would
     // be taken of a node with no children and the cache would agree with itself forever.

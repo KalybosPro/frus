@@ -8,10 +8,22 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 421 so far, each documenting the objective, the alternatives
+> record — one per step, 422 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`AppBar::automatically_imply_leading` and `AppBar::automatically_imply_actions`** (J422),
+  both `true` by default as in the reference. A bar with an empty leading slot, on a screen
+  that has a drawer, grows the button that opens it; a bar with an empty trailing end grows
+  the one for an end drawer. Neither ever adds a button beside what the caller put there.
+
+- **`ScaffoldInfo` and `ScaffoldScope`: what the shell knows and its slots do not** (J422) —
+  the third inherited thing, beside the theme and the surface, and the first to carry a
+  *message* rather than plain data. A slot is handed to a shell already built, so the shell
+  says what it is and the walk carries it down. `Widget::scaffold_override` is the hook.
 
 ### Fixed
 

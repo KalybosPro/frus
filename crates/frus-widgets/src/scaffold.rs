@@ -949,6 +949,16 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             );
         }
 
+        // What this shell knows, for the slots that cannot see it (milestone 422). Taken
+        // before the drawers are consumed below, since the message is what a bar needs.
+        let mut info = crate::ScaffoldInfo::default();
+        if let Some((_, _, toggle)) = &drawer {
+            info = info.with_drawer(toggle.clone());
+        }
+        if let Some((_, _, toggle)) = &end_drawer {
+            info = info.with_end_drawer(toggle.clone());
+        }
+
         // The modal drawers, then the modal sheet, wrap the shell as overlays. The
         // leading drawer goes on first so that the trailing one, wrapping it, is the
         // outer layer — with both open the end drawer is the one on top, which is the
@@ -986,13 +996,24 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         }
 
         // A full-window background (edge to edge) giving the slots a definite size.
-        Box::new(
+        let shell: Box<dyn Widget<Msg>> = Box::new(
             Container::new()
                 .width(width)
                 .height(height)
                 .color(bg)
                 .child(content),
-        )
+        );
+        // **And the shell says what it is** (milestone 422). Its slots were handed to it
+        // already built and cannot see the screen they stand on; this is how a bar with no
+        // leading of its own learns that there is a drawer, and what opens it. It wraps the
+        // whole shell rather than the app-bar slot alone, because the reference's
+        // `Scaffold.of` is readable from anywhere below the scaffold and not only from the
+        // bar (`scaffold.dart:3232`).
+        if info.has_drawer() || info.has_end_drawer() {
+            Box::new(crate::ScaffoldScope::new(info, shell))
+        } else {
+            shell
+        }
     }
 }
 
@@ -1503,6 +1524,126 @@ mod tests {
                 _ => None,
             })
             .expect("the body is drawn")
+    }
+
+    /// Every message a click anywhere in `tree` would emit, the deferred subtrees built
+    /// first — an app bar is composed there, which is the whole point here.
+    fn click_messages(tree: &dyn Widget<Msg>) -> Vec<Msg> {
+        crate::build_deferred(tree, &Theme::default());
+        fn walk(widget: &dyn Widget<Msg>, out: &mut Vec<Msg>) {
+            if let Some(message) = widget.on_click() {
+                out.push(message);
+            }
+            for child in widget.children() {
+                walk(child.as_ref(), out);
+            }
+        }
+        let mut found = Vec::new();
+        walk(tree, &mut found);
+        found
+    }
+
+    /// **What the shell knows and the bar does not** (milestone 422).
+    ///
+    /// An `AppBar` is handed to its `Scaffold` already built, so it cannot see the screen
+    /// it is about to stand on. The reference's reads it from the context: a bar with no
+    /// `leading` of its own, on a screen that has a drawer, grows the button that opens it
+    /// (`app_bar.dart:1010`), and one with nothing at its trailing end grows the button for
+    /// an end drawer (`app_bar.dart:1113`).
+    ///
+    /// Counted rather than searched for, because a closed drawer has a dismiss target of
+    /// its own carrying the same message: what this asserts is **one more** click that
+    /// opens the drawer, which is the button.
+    #[test]
+    fn a_bar_grows_the_buttons_for_drawers_it_could_not_see() {
+        let bar = |leading: bool, actions: bool| {
+            let tree = Scaffold::new()
+                .size(W, H)
+                .body(Container::<Msg>::new())
+                .drawer(text("Menu"), false, Msg::Drawer)
+                .end_drawer(text("Filters"), false, Msg::Add)
+                .app_bar(
+                    crate::AppBar::<Msg>::new("Title")
+                        .automatically_imply_leading(leading)
+                        .automatically_imply_actions(actions)
+                        .build(),
+                )
+                .build();
+            click_messages(tree.as_ref())
+        };
+        let count = |found: &[Msg], wanted: &Msg| found.iter().filter(|m| *m == wanted).count();
+
+        let implied = bar(true, true);
+        let asked_not_to = bar(false, false);
+        assert_eq!(
+            count(&implied, &Msg::Drawer),
+            count(&asked_not_to, &Msg::Drawer) + 1,
+            "the bar did not grow the button for the drawer it stands over"
+        );
+        assert_eq!(
+            count(&implied, &Msg::Add),
+            count(&asked_not_to, &Msg::Add) + 1,
+            "the bar did not grow the button for the end drawer"
+        );
+    }
+
+    /// And it implies nothing where there is nothing to imply, or where the caller has
+    /// already filled the slot. The implied button **fills an empty end**; it is never
+    /// added beside what the bar was given.
+    #[test]
+    fn a_bar_implies_a_button_only_into_an_empty_slot() {
+        let without_a_drawer = click_messages(
+            Scaffold::new()
+                .size(W, H)
+                .body(Container::<Msg>::new())
+                .app_bar(crate::AppBar::<Msg>::new("Title").build())
+                .build()
+                .as_ref(),
+        );
+        assert!(
+            !without_a_drawer.contains(&Msg::Drawer),
+            "a bar on a screen with no drawer grew a button for one"
+        );
+
+        // A leading of its own, and an action of its own: neither slot is empty, so
+        // neither is filled. The drawer's own dismiss target is the only `Drawer` left,
+        // and the caller's own action is the only `Go(1)`.
+        let filled = click_messages(
+            Scaffold::new()
+                .size(W, H)
+                .body(Container::<Msg>::new())
+                .drawer(text("Menu"), false, Msg::Drawer)
+                .end_drawer(text("Filters"), false, Msg::Add)
+                .app_bar(
+                    crate::AppBar::<Msg>::new("Title")
+                        .leading(button("Back", Msg::Go(1)))
+                        .action("Save", Msg::Go(2))
+                        .build(),
+                )
+                .build()
+                .as_ref(),
+        );
+        let bare = click_messages(
+            Scaffold::new()
+                .size(W, H)
+                .body(Container::<Msg>::new())
+                .drawer(text("Menu"), false, Msg::Drawer)
+                .end_drawer(text("Filters"), false, Msg::Add)
+                .body(Container::<Msg>::new())
+                .build()
+                .as_ref(),
+        );
+        let count = |found: &[Msg], wanted: &Msg| found.iter().filter(|m| *m == wanted).count();
+        assert_eq!(
+            count(&filled, &Msg::Drawer),
+            count(&bare, &Msg::Drawer),
+            "a bar with its own leading grew a menu button beside it"
+        );
+        assert_eq!(
+            count(&filled, &Msg::Add),
+            count(&bare, &Msg::Add),
+            "a bar with its own action grew an end-drawer button beside it"
+        );
     }
 
     /// **A `SafeArea` in the body padded for a status bar the app bar had already taken**
