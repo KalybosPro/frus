@@ -19,7 +19,7 @@ use frus_core::{
 };
 use frus_test::render_widget;
 use frus_widgets::{
-    text, AlertDialog, Align, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar, BottomSheet,
+    text, Alert, Align, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar, BottomSheet,
     Breadcrumb, Card, CarouselView, Checkbox, CircularProgressIndicator, ClipOval, ClipPath,
     ClipRRect, ColorPicker, ConstrainedBox, Container, CustomPaint, Divider, Expanded,
     ExpansionTile, FittedBox, Flex, FontWeight, FractionallySizedBox, GridView, Icon, Icons, Image,
@@ -132,19 +132,19 @@ fn the_four_alert_kinds() {
     let root: Container<()> = Container::new().padding(12.0).child(
         Flex::column()
             .gap(8.0)
-            .child(AlertDialog::new("Saved as a draft.").title("Note"))
+            .child(Alert::new("Saved as a draft.").title("Note"))
             .child(
-                AlertDialog::new("Everything went through.")
+                Alert::new("Everything went through.")
                     .title("Done")
                     .success(),
             )
             .child(
-                AlertDialog::new("Two rows were skipped.")
+                Alert::new("Two rows were skipped.")
                     .title("Careful")
                     .warning(),
             )
             .child(
-                AlertDialog::new("The server refused the change.")
+                Alert::new("The server refused the change.")
                     .title("Failed")
                     .error(),
             ),

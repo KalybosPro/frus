@@ -23,7 +23,7 @@
 //! beside `style`. A theme that could only reach paint would be able to recolour a
 //! divider but not make one thin, which is the setting an application actually wants.
 
-use frus_core::{BorderRadius, Color, TextAlign, TextOverflow, TextStyle};
+use frus_core::{BorderRadius, Color, Insets, TextAlign, TextOverflow, TextStyle};
 
 use crate::card::CardVariant;
 
@@ -34,6 +34,7 @@ use crate::card::CardVariant;
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WidgetThemes {
     pub alert: AlertTheme,
+    pub dialog: DialogTheme,
     pub app_bar: AppBarTheme,
     pub autocomplete: AutocompleteTheme,
     pub badge: BadgeTheme,
@@ -572,12 +573,38 @@ pub struct NavRailTheme {
     pub badge_text_style: Option<TextStyle>,
 }
 
-/// Defaults for [`AlertDialog`](crate::AlertDialog).
+/// Defaults for [`Alert`](crate::Alert) — the message box, not the dialog. See
+/// [`DialogTheme`] for [`AlertDialog`](crate::AlertDialog).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct AlertTheme {
     /// The heading's type.
     pub title_text_style: Option<TextStyle>,
     /// The message's type.
+    pub content_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Dialog`](crate::Dialog) and [`AlertDialog`](crate::AlertDialog).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DialogTheme {
+    /// The surface's colour. Unset, the scheme's `surfaceContainerHigh`.
+    pub color: Option<Color>,
+    /// How far off the page it sits. Unset, 6.
+    pub elevation: Option<f32>,
+    /// The shadow's colour. Unset, **transparent**: the reference's Material 3 dialog
+    /// shows its height by its container tone, not by a drop shadow.
+    pub shadow_color: Option<Color>,
+    /// What the surface is tinted towards for its elevation. Unset, nothing is — see
+    /// [`Self::shadow_color`] for why.
+    pub surface_tint: Option<Color>,
+    /// The corner. Unset, 28.
+    pub shape: Option<BorderRadius>,
+    /// How far the dialog is held off the window's edges. Unset, 40 across and 24 down.
+    pub inset_padding: Option<Insets>,
+    /// The glyph above the title. Unset, the scheme's `secondary`.
+    pub icon_color: Option<Color>,
+    /// The heading's type. Unset, `headlineSmall`.
+    pub title_text_style: Option<TextStyle>,
+    /// What the dialog says. Unset, `bodyMedium`.
     pub content_text_style: Option<TextStyle>,
 }
 

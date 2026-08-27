@@ -1,5 +1,10 @@
-//! [`AlertDialog`]: a **persistent** (contextual) message box, as opposed to the
-//! transient [`crate::SnackBar`].
+//! [`Alert`]: a **persistent** (contextual) message box, as opposed to the transient
+//! [`crate::SnackBar`].
+//!
+//! It was called `AlertDialog` until milestone 424, and it never was one: it has no
+//! actions, no barrier and no message type, and it sits in the flow rather than over it.
+//! The reference's `AlertDialog` is [`crate::AlertDialog`] now, and this kept the shape it
+//! always had under a name that describes it.
 
 use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::Style;
@@ -16,12 +21,11 @@ const ICON_SIZE: f32 = 16.0;
 
 /// The title's style: what the caller said, else what the theme says, else `titleMedium`.
 ///
-/// The reference's *dialog* titles in `headlineSmall`, and this is not that dialog: it
-/// wears the name but it has the shape of the reference's banner — an accent bar, an icon
-/// and a tinted background, no actions and no barrier. The banner has no title at all, so
-/// the heading role at this scale is the nearest thing the reference says, and the name is
-/// recorded as the thing to settle rather than papered over with a 24 px heading inside a
-/// 12 px box.
+/// The reference's *dialog* titles in `headlineSmall`, and this is not that dialog —
+/// [`crate::AlertDialog`] is, since milestone 424. This has the shape of the reference's
+/// banner: an accent bar, an icon and a tinted background, no actions and no barrier. The
+/// banner has no title at all, so the heading role at this scale is the nearest thing the
+/// reference says — a 24 px heading inside a 12 px box would not be.
 ///
 /// **Resolved once**: the same number measures the box and draws the glyphs. Resolving is
 /// where the reader's font setting is applied, so measuring at the bare constant and
@@ -50,7 +54,7 @@ pub enum AlertKind {
 }
 
 /// A message box.
-pub struct AlertDialog {
+pub struct Alert {
     title: Option<String>,
     text: String,
     kind: AlertKind,
@@ -58,7 +62,7 @@ pub struct AlertDialog {
     content_text_style: Option<TextStyle>,
 }
 
-impl AlertDialog {
+impl Alert {
     /// Creates an informational box.
     pub fn new(text: impl Into<String>) -> Self {
         Self {
@@ -135,7 +139,7 @@ impl AlertDialog {
     }
 }
 
-impl<Msg> Widget<Msg> for AlertDialog {
+impl<Msg> Widget<Msg> for Alert {
     fn style(&self) -> Style {
         // A paragraph: free dimensions, the size comes from `measure()` — the
         // message wraps to the width the parent offers.
@@ -260,7 +264,7 @@ mod tests {
 
     #[test]
     fn paints_accent_and_text() {
-        let alert = AlertDialog::new("Attention !").title("Alerte").warning();
+        let alert = Alert::new("Attention !").title("Alerte").warning();
         let mut scene = Scene::new();
         Widget::<()>::paint(
             &alert,
@@ -290,9 +294,8 @@ mod tests {
     /// wider than the offer) — no more box overflowing its parent.
     #[test]
     fn message_wraps_to_the_offered_width() {
-        let alert =
-            AlertDialog::new("Press Enter to add a task; swipe from the left edge to go back.")
-                .title("Tip");
+        let alert = Alert::new("Press Enter to add a task; swipe from the left edge to go back.")
+            .title("Tip");
         let theme = Theme::default();
         let measure = Widget::<()>::measure(&alert, &theme).expect("a measure closure");
         let free = measure(None, None);
@@ -304,7 +307,7 @@ mod tests {
         );
         assert!(narrow.height > free.height, "wrapped → taller");
         // The measure key follows the content (the relayout cache).
-        let other = AlertDialog::new("short");
+        let other = Alert::new("short");
         assert_ne!(
             Widget::<()>::measure_key(&alert, &theme),
             Widget::<()>::measure_key(&other, &theme)

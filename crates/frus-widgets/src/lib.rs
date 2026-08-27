@@ -37,6 +37,7 @@ mod datatable;
 mod datepicker;
 mod datetimepicker;
 mod datetimerange;
+mod dialog;
 /// The **disabled state** every control shares: two colours and a four-part contract.
 pub mod disabled;
 /// Swipe-to-dismiss: the [`dismiss::Dismissible`] widget and its retained state.
@@ -135,7 +136,7 @@ mod ui;
 mod widget;
 mod widgettheme;
 
-pub use alert::{AlertDialog, AlertKind};
+pub use alert::{Alert, AlertKind};
 pub use animated::{AnimatedContainer, AnimatedOpacity, Opacity};
 pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT, APP_BAR_MAX_TITLE_SCALE};
 pub use aspectratio::AspectRatio;
@@ -176,6 +177,10 @@ pub use datatable::{
 pub use datepicker::DatePicker;
 pub use datetimepicker::DateTimePicker;
 pub use datetimerange::DateTimeRange;
+pub use dialog::{
+    ActionsAlignment, AlertDialog, Dialog, DIALOG_ELEVATION, DIALOG_INSET_PADDING,
+    DIALOG_MIN_WIDTH, DIALOG_RADIUS,
+};
 pub use disabled::{
     disabled_container, disabled_content, disabled_mark, over_surface, DISABLED_CONTAINER_OPACITY,
     DISABLED_CONTENT_OPACITY,

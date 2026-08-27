@@ -8,10 +8,30 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 423 so far, each documenting the objective, the alternatives
+> record — one per step, 424 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`Dialog` and `AlertDialog`: the modal frus did not have** (J424). A rounded, elevated
+  surface over the screen — 28 corner, elevation 6, `surfaceContainerHigh`, held off the
+  window's edges, never narrower than 280, all of it the reference's numbers and all of it
+  overridable on the instance and on the theme. `AlertDialog` adds the icon / title /
+  content / actions column with the reference's conditional paddings, and an icon centres
+  the title as the reference's does. Controlled like every other overlay here: `open` is the
+  application's field, and a dialog told nothing about dismissal has an inert scrim, which is
+  `barrierDismissible: false`.
+
+- **`DialogTheme`**, so a theme can set the surface, the elevation, the shadow, the tint, the
+  corner, the inset padding, the icon's colour and the two text styles.
+
+### Changed
+
+- **`AlertDialog` was renamed `Alert`** (J424) — a breaking rename, and the reason is that it
+  was never a dialog: no actions, no barrier, and no message type. It is unchanged in every
+  other respect, and the name now means what it means in the reference.
 
 ### Changed
 

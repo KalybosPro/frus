@@ -329,7 +329,7 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
         // repainted every frame.
         card_body = card_body.child(
             Container::new().repaint_boundary().child(
-                AlertDialog::new("Press Enter to add a task; swipe from the left edge to go back.")
+                Alert::new("Press Enter to add a task; swipe from the left edge to go back.")
                     .title("Tip"),
             ),
         );

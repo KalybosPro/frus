@@ -19,7 +19,7 @@ pub(crate) use frus_shell::{Application, Command, Lifecycle, Subscription};
 // to be imported by name in each module, not carried in through a glob.
 pub(crate) use frus_widgets::form::{Form, Rule};
 pub(crate) use frus_widgets::{
-    bar_spacer, button, disabled_content, fab_button, keyed, spacer, text, AlertDialog, Align,
+    bar_spacer, button, disabled_content, fab_button, keyed, spacer, text, Alert, Align,
     AnimationController, AppBar, Autocomplete, Axis, BarChart, BottomAppBar, BoxFit, Breadcrumb,
     Card, CarouselView, CellFn, Checkbox, Chip, CircleAvatar, Color, ColorPicker, ConstrainedBox,
     Container, CustomPaint, DataTable, DatePicker, Dismissible, Divider, DragTarget, Draggable,
