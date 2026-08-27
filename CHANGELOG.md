@@ -8,10 +8,31 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 431 so far, each documenting the objective, the alternatives
+> record — one per step, 432 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`RailLabels`** (J432): `None`, `Selected` or `All`, on both `NavigationRail::labels` and
+  `BottomBar::labels`. The reference keeps two names for the one idea and gives them
+  different defaults, which these follow.
+
+### Changed
+
+- **A `NavigationRail` shows no labels by default** (J432), as the reference's does — glyphs
+  alone until it is told `.labels(RailLabels::All)`. A `BottomBar` still shows all of them,
+  which is also the reference's default. **This changes what an existing rail looks like**;
+  the one-line fix is on the rail.
+
+- **A rail is 80 wide** (J432), the reference's `minWidth`, where it was 76.
+
+### Fixed
+
+- **The layout and the paint disagreed about a destination's label gap by two pixels**
+  (J432) after milestone 431 moved the painted one to the reference's 4 and left the
+  reserved one at 2. Hidden until now because the row's constant floor won every time.
 
 ### Changed
 

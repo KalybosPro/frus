@@ -10,8 +10,39 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
+/// **When a navigation widget shows its destinations' labels.**
+///
+/// The reference keeps two names for one idea — `NavigationRailLabelType`
+/// (`navigation_rail.dart:1238`) and `NavigationDestinationLabelBehavior`
+/// (`navigation_bar.dart:342`) — and gives them **different defaults**, which is the part
+/// worth knowing: a rail shows no labels until asked, a bar shows all of them.
+///
+/// The reason is what each is for. A rail stands beside a page it does not own, and glyphs
+/// alone keep it narrow; a bar owns the bottom of the screen and has the room to say what
+/// its destinations are.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RailLabels {
+    /// Never — glyphs alone. A rail's default.
+    None,
+    /// On the selected destination only, so the one that matters names itself.
+    Selected,
+    /// On every destination. A bar's default.
+    All,
+}
+
+impl RailLabels {
+    /// Whether destination `index` shows its label, `selected` being the live one.
+    fn shows(self, index: usize, selected: usize) -> bool {
+        match self {
+            RailLabels::None => false,
+            RailLabels::Selected => index == selected,
+            RailLabels::All => true,
+        }
+    }
+}
+
 /// Width of a vertical rail, in logical pixels.
-pub(crate) const RAIL_WIDTH: f32 = 76.0;
+pub(crate) const RAIL_WIDTH: f32 = 80.0;
 /// Height of a bottom navigation bar, in logical pixels.
 pub(crate) const BAR_HEIGHT: f32 = 60.0;
 const ITEM_HEIGHT: f32 = 58.0;
@@ -42,8 +73,15 @@ fn badge_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextSt
 
 /// The height an item needs: the constant, unless the icon and a label the reader asked to
 /// enlarge no longer fit inside it.
-fn item_height(floor: f32, label: &ResolvedTextStyle) -> f32 {
-    floor.max(frus_text::line_height(ICON_SIZE) + 2.0 + label.line_height() + 8.0)
+///
+/// A destination with **no** label still keeps the floor: a rail whose rows shrank when the
+/// labels went away would move every destination the first time one was selected under
+/// [`RailLabels::Selected`].
+fn item_height(floor: f32, label: Option<&ResolvedTextStyle>) -> f32 {
+    let content = frus_text::line_height(ICON_SIZE)
+        + label.map_or(0.0, |l| LABEL_GAP + l.line_height())
+        + 8.0;
+    floor.max(content)
 }
 
 /// One navigation destination (glyph + label), painted according to its state.
@@ -55,6 +93,8 @@ struct NavItem<Msg> {
     badge: Option<u32>,
     /// `true` = a rail item (fixed width); `false` = a bar item (flex).
     rail: bool,
+    /// Whether this destination says what it is. See [`RailLabels`].
+    show_label: bool,
     label_text_style: Option<TextStyle>,
     badge_text_style: Option<TextStyle>,
     message: Msg,
@@ -62,18 +102,20 @@ struct NavItem<Msg> {
 
 impl<Msg> NavItem<Msg> {
     fn sizing(&self, theme: Option<&Theme>) -> Style {
-        let label = label_style(self.label_text_style, theme);
+        let label = self
+            .show_label
+            .then(|| label_style(self.label_text_style, theme));
         if self.rail {
             Style {
                 width: Dimension::Length(RAIL_WIDTH),
-                height: Dimension::Length(item_height(ITEM_HEIGHT, &label)),
+                height: Dimension::Length(item_height(ITEM_HEIGHT, label.as_ref())),
                 ..Default::default()
             }
         } else {
             // In a bar, the items share the width equally.
             Style {
                 flex_grow: 1.0,
-                height: Dimension::Length(item_height(BAR_HEIGHT, &label)),
+                height: Dimension::Length(item_height(BAR_HEIGHT, label.as_ref())),
                 ..Default::default()
             }
         }
@@ -101,9 +143,13 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
         let icon_style = ResolvedTextStyle::exact(t.icon_size.unwrap_or(ICON_SIZE));
         let label_s = label_style(self.label_text_style, Some(theme));
         let icon_m = frus_text::measure_resolved(&self.icon, &icon_style);
-        let label_m = frus_text::measure_resolved(&self.label, &label_s);
+        let label_m = self
+            .show_label
+            .then(|| frus_text::measure_resolved(&self.label, &label_s));
         let gap = LABEL_GAP;
-        let total_h = icon_m.height + gap + label_m.height;
+        // With no label the glyph centres on its own, rather than staying where it sat
+        // when there was one below it.
+        let total_h = icon_m.height + label_m.as_ref().map_or(0.0, |m| gap + m.height);
         let top = bounds.y + ((bounds.height - total_h) * 0.5).max(0.0);
 
         // Background pill: solid when selected, discreet on hover.
@@ -169,15 +215,17 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             &icon_style,
             icon_color.fade(o),
         );
-        scene.text(
-            Point::new(
-                bounds.x + (bounds.width - label_m.width) * 0.5,
-                top + icon_m.height + gap,
-            ),
-            self.label.clone(),
-            &label_s,
-            label_color.fade(o),
-        );
+        if let Some(label_m) = &label_m {
+            scene.text(
+                Point::new(
+                    bounds.x + (bounds.width - label_m.width) * 0.5,
+                    top + icon_m.height + gap,
+                ),
+                self.label.clone(),
+                &label_s,
+                label_color.fade(o),
+            );
+        }
 
         // Notification dot, anchored to the top-right corner of the icon glyph.
         if let Some(count) = self.badge.filter(|&n| n > 0) {
@@ -238,6 +286,7 @@ fn build_items<Msg: Clone + 'static>(
     selected: usize,
     on_select: &dyn Fn(usize) -> Msg,
     rail: bool,
+    labels: RailLabels,
     styles: (Option<TextStyle>, Option<TextStyle>),
 ) -> Vec<Box<dyn Widget<Msg>>> {
     items
@@ -250,6 +299,7 @@ fn build_items<Msg: Clone + 'static>(
                 selected: i == selected,
                 badge: *badge,
                 rail,
+                show_label: labels.shows(i, selected),
                 label_text_style: styles.0,
                 badge_text_style: styles.1,
                 message: on_select(i),
@@ -266,6 +316,7 @@ pub struct NavigationRail<Msg> {
     label_text_style: Option<TextStyle>,
     badge_text_style: Option<TextStyle>,
     background: Option<Color>,
+    labels: RailLabels,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -279,8 +330,21 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
             label_text_style: None,
             badge_text_style: None,
             background: None,
+            // The reference's default for a **rail** (`navigation_rail.dart:1238`), which
+            // is not the one it gives a bar. A rail stands beside a page it does not own
+            // and glyphs alone keep it narrow.
+            labels: RailLabels::None,
             children: Vec::new(),
         }
+    }
+
+    /// When the destinations say what they are. [`RailLabels::None`] by default, as the
+    /// reference's rail does.
+    #[must_use]
+    pub fn labels(mut self, labels: RailLabels) -> Self {
+        self.labels = labels;
+        self.rebuild();
+        self
     }
 
     /// Adds a destination (glyph + label).
@@ -331,6 +395,7 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
             self.selected,
             &*self.on_select,
             true,
+            self.labels,
             (self.label_text_style, self.badge_text_style),
         );
     }
@@ -392,6 +457,7 @@ pub struct BottomBar<Msg> {
     label_text_style: Option<TextStyle>,
     badge_text_style: Option<TextStyle>,
     background: Option<Color>,
+    labels: RailLabels,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -405,8 +471,21 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
             label_text_style: None,
             badge_text_style: None,
             background: None,
+            // A **bar** shows them all (`navigation_bar.dart:1388`), which is the other
+            // half of the reference's answer: a bar owns the bottom of the screen and has
+            // the room to say what its destinations are.
+            labels: RailLabels::All,
             children: Vec::new(),
         }
+    }
+
+    /// When the destinations say what they are. [`RailLabels::All`] by default, as the
+    /// reference's bar does.
+    #[must_use]
+    pub fn labels(mut self, labels: RailLabels) -> Self {
+        self.labels = labels;
+        self.rebuild();
+        self
     }
 
     /// Adds a destination (glyph + label).
@@ -458,6 +537,7 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
             self.selected,
             &*self.on_select,
             false,
+            self.labels,
             (self.label_text_style, self.badge_text_style),
         );
     }
@@ -477,10 +557,14 @@ impl<Msg> BottomBar<Msg> {
     /// slot over (`scaffold.dart:3169`), and a bar along the bottom of a screen has
     /// nothing above it to keep clear of anyway.
     fn sizing(&self, theme: Option<&Theme>) -> Style {
-        let label = label_style(self.label_text_style, theme);
+        // The bar keeps the height a labelled destination needs as soon as **any** of
+        // them is labelled: under [`RailLabels::Selected`] only one is at a time, and a
+        // bar that resized as the selection moved would shift the page under it.
+        let label =
+            (self.labels != RailLabels::None).then(|| label_style(self.label_text_style, theme));
         let safe = crate::MediaQuery::of().padding;
         Style {
-            height: Dimension::Length(item_height(BAR_HEIGHT, &label) + safe.bottom),
+            height: Dimension::Length(item_height(BAR_HEIGHT, label.as_ref()) + safe.bottom),
             padding: Insets::new(0.0, safe.right, safe.bottom, safe.left),
             flex_direction: FlexDirection::Row,
             justify: Justify::SpaceAround,
@@ -613,12 +697,24 @@ mod tests {
 
     /// One destination, painted.
     fn destination(rail: bool, selected: bool, badge: Option<u32>, theme: &Theme) -> Scene {
+        labelled(rail, selected, badge, true, theme)
+    }
+
+    /// The same, saying whether the destination shows its label.
+    fn labelled(
+        rail: bool,
+        selected: bool,
+        badge: Option<u32>,
+        show_label: bool,
+        theme: &Theme,
+    ) -> Scene {
         let item = NavItem::<Msg> {
             icon: "H".into(),
             label: "Home".into(),
             selected,
             badge,
             rail,
+            show_label,
             label_text_style: None,
             badge_text_style: None,
             message: Msg::Go(0),
@@ -732,6 +828,94 @@ mod tests {
             Some(told),
             "and recolouring badges recolours this one too"
         );
+    }
+
+    /// Which destinations name themselves, under each of the three modes.
+    fn labelled_indices(labels: RailLabels, count: usize, selected: usize) -> Vec<usize> {
+        (0..count).filter(|&i| labels.shows(i, selected)).collect()
+    }
+
+    /// The three modes, and the two **different defaults** the reference gives the two
+    /// widgets (`navigation_rail.dart:1238` against `navigation_bar.dart:1388`).
+    ///
+    /// The asymmetry is the part worth holding onto: a rail stands beside a page it does
+    /// not own and glyphs alone keep it narrow, a bar owns the bottom of the screen and
+    /// has the room to say what its destinations are.
+    #[test]
+    fn a_rail_and_a_bar_start_from_opposite_defaults() {
+        assert_eq!(
+            labelled_indices(RailLabels::None, 3, 1),
+            Vec::<usize>::new()
+        );
+        assert_eq!(labelled_indices(RailLabels::Selected, 3, 1), vec![1]);
+        assert_eq!(labelled_indices(RailLabels::All, 3, 1), vec![0, 1, 2]);
+
+        let rail = NavigationRail::new(0, Msg::Go).item("H", "Home");
+        let bar = BottomBar::new(0, Msg::Go).item("H", "Home");
+        assert_eq!(
+            rail.labels,
+            RailLabels::None,
+            "a rail says nothing until asked"
+        );
+        assert_eq!(bar.labels, RailLabels::All, "a bar says everything");
+    }
+
+    /// A destination with no label paints no label — and centres the glyph on its own
+    /// rather than leaving it where it sat when there was something below it.
+    #[test]
+    fn a_silent_destination_centres_its_glyph() {
+        let theme = Theme::default();
+        let with = labelled(true, false, None, true, &theme);
+        let without = labelled(true, false, None, false, &theme);
+
+        let glyph_y = |scene: &Scene| {
+            scene.primitives().iter().find_map(|p| match p {
+                frus_core::Primitive::Text { position, .. } => Some(position.y),
+                _ => None,
+            })
+        };
+        assert_eq!(
+            without
+                .primitives()
+                .iter()
+                .filter(|p| matches!(p, frus_core::Primitive::Text { .. }))
+                .count(),
+            1,
+            "the glyph and nothing else"
+        );
+        assert_eq!(texts(&with).len(), 2, "the glyph and its label");
+        assert!(
+            glyph_y(&without) > glyph_y(&with),
+            "and the glyph moved down into the room the label was using"
+        );
+    }
+
+    /// The row keeps its height when the label goes.
+    ///
+    /// Under [`RailLabels::Selected`] exactly one destination is labelled at a time, so a
+    /// row that shrank without one would move every destination in the rail the first
+    /// time the selection changed.
+    #[test]
+    fn a_row_does_not_shrink_when_its_label_goes() {
+        let theme = Theme::default();
+        let height = |show_label: bool| {
+            let item = NavItem::<Msg> {
+                icon: "H".into(),
+                label: "Home".into(),
+                selected: false,
+                badge: None,
+                rail: true,
+                show_label,
+                label_text_style: None,
+                badge_text_style: None,
+                message: Msg::Go(0),
+            };
+            match Widget::<Msg>::style_themed(&item, &theme).height {
+                Dimension::Length(h) => h,
+                other => panic!("a rail row names its height, got {other:?}"),
+            }
+        };
+        assert_eq!(height(true), height(false));
     }
 
     #[test]

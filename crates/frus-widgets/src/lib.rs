@@ -235,7 +235,7 @@ pub use mediascope::MediaScope;
 pub use menu::PopupMenuButton;
 pub use navbar::NavigationBar;
 pub use navigator::Navigator;
-pub use navrail::{BottomBar, NavigationRail};
+pub use navrail::{BottomBar, NavigationRail, RailLabels};
 pub use navscaffold::NavScaffold;
 pub use overscroll::{
     cross_axis as glow_cross_axis, edge_for, GlowEdge, OverscrollGlow, ScrollGlows,

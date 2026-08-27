@@ -2135,9 +2135,12 @@ mod tests {
         assert_eq!(ui.msg_for(target), Some(Msg::Add));
     }
 
-    /// Where the navigation is drawn: `(min x, max y)` of the destinations' labels.
-    /// A bottom bar sits low and spans the width; a rail is a narrow column against
-    /// the leading edge.
+    /// Where the navigation is drawn: `(min x, max y)` of the destinations' **glyphs**.
+    ///
+    /// The glyph rather than the label, since milestone 432: a rail shows no labels
+    /// unless it is asked to, so a helper that looked for them stopped finding the
+    /// navigation it was measuring. The glyph is the one thing every destination paints
+    /// in every mode.
     fn nav_extent(root: &dyn Widget<Msg>, width: f32, height: f32) -> (f32, f32) {
         let ui = build_ui(
             root,
@@ -2148,10 +2151,10 @@ mod tests {
         let mut leftmost = f32::MAX;
         let mut lowest: f32 = 0.0;
         for primitive in ui.scene().primitives() {
-            // The labels are what identify the navigation: "Home" and "Stats" are in
-            // the destinations and nowhere else in the test's scaffold.
+            // The glyphs are what identify the navigation: "H" and "S" are in the
+            // destinations and nowhere else in the test's scaffold.
             if let frus_core::Primitive::Text { text, position, .. } = primitive {
-                if text == "Home" || text == "Stats" {
+                if text == "H" || text == "S" {
                     leftmost = leftmost.min(position.x);
                     lowest = lowest.max(position.y);
                 }
