@@ -8,10 +8,23 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 427 so far, each documenting the objective, the alternatives
+> record — one per step, 428 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Changed
+
+- **`Switch` takes the reference's whole off state** (J428), which is a design of five
+  parts rather than a colour: a `surface_container_highest` track with a 2px `outline` edge
+  that only the off end has, an `outline` thumb where the on one is `on_primary`, and a
+  thumb that **grows** from radius 8 to 12 as the switch is flipped, on a 52×32 track. The
+  growing thumb is what tells the two states apart before either colour is read.
+
+- **A switch's two thumb colours are now two** (J428). `inactive_thumb_color` used to
+  default to whatever the on thumb was; it defaults to the scheme's `outline`. It is still
+  one thumb sliding — one that changes colour as it travels, the way the track under it
+  does.
 
 ### Added
 
