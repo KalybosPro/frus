@@ -8,10 +8,19 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 428 so far, each documenting the objective, the alternatives
+> record — one per step, 429 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **Ten colour roles the scheme was without** (J429): the `tertiary` four, `error_container`
+  and `on_error_container`, `inverse_primary`, `surface_tint`, `surface_dim` and
+  `surface_bright`. The seeded scheme generates the tertiary palette a sixth of the wheel
+  from the seed at chroma 24, as the reference does; the hand-written schemes' literals were
+  read off this crate's own HCT rather than chosen by eye. The contrast test now covers
+  tertiary and all four containers, since a container carries text too.
 
 ### Changed
 

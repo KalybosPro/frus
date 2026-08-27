@@ -90,6 +90,13 @@ pub struct ColorScheme {
     pub on_secondary: Color,
     pub secondary_container: Color,
     pub on_secondary_container: Color,
+    /// A **third** accent, for what is neither the app's main colour nor its supporting
+    /// one: a highlight that has to stand apart from both. Generated a sixth of the way
+    /// round the wheel from the seed, which is what keeps it from reading as either.
+    pub tertiary: Color,
+    pub on_tertiary: Color,
+    pub tertiary_container: Color,
+    pub on_tertiary_container: Color,
     pub background: Color,
     pub surface: Color,
     pub on_surface: Color,
@@ -119,6 +126,24 @@ pub struct ColorScheme {
     pub outline_variant: Color,
     pub error: Color,
     pub on_error: Color,
+    /// The **quiet** form of `error`: a field's error surface, a warning that has to be
+    /// read rather than shouted. `on_error_container` is what is legible on it — and it
+    /// is what an errored field's border, label and helper take, not `error` itself
+    /// (`input_decorator.dart:5981`).
+    pub error_container: Color,
+    pub on_error_container: Color,
+    /// The accent as it must be drawn **on `inverse_surface`**: a snack bar's action
+    /// (`snack_bar.dart:954`). `primary` on an inverted surface is the pair the scheme
+    /// guarantees nothing about, which is exactly why this role exists.
+    pub inverse_primary: Color,
+    /// What a raised surface is tinted **towards** as it lifts — `primary` in Material 3.
+    /// The elevation model there is a tint, not a shadow, and this is the colour it tints
+    /// with (`bottom_app_bar.dart:301`).
+    pub surface_tint: Color,
+    /// The **darkest** surface in either theme, and the **lightest** — the two ends the
+    /// container ladder runs between.
+    pub surface_dim: Color,
+    pub surface_bright: Color,
     /// The scrim for modals and drawers (the alpha is applied at the point of use).
     pub scrim: Color,
     /// The color of drop shadows (the alpha is applied at the point of use).
@@ -142,6 +167,13 @@ impl ColorScheme {
             // resolved that fill in sRGB; before, it was 14 tones adrift.
             secondary_container: Color::rgb8(63, 71, 88),
             on_secondary_container: Color::rgb8(205, 220, 240),
+            // The tertiary family, a sixth of the wheel from the primary at the chroma
+            // the reference's tonal-spot scheme uses (24), read off this crate's own HCT
+            // rather than picked by eye.
+            tertiary: Color::rgb8(162, 206, 217),
+            on_tertiary: Color::rgb8(1, 54, 63),
+            tertiary_container: Color::rgb8(32, 77, 86),
+            on_tertiary_container: Color::rgb8(190, 234, 246),
             background: Color::rgb8(18, 20, 24),
             surface: Color::rgb8(30, 33, 40),
             on_surface: Color::rgb8(230, 232, 236),
@@ -161,6 +193,12 @@ impl ColorScheme {
             outline_variant: Color::rgb8(67, 71, 78),
             error: Color::rgb8(224, 108, 108),
             on_error: Color::rgb8(38, 12, 12),
+            error_container: Color::rgb8(130, 37, 41),
+            on_error_container: Color::rgb8(255, 218, 216),
+            inverse_primary: Color::rgb8(2, 109, 56),
+            surface_tint: Color::rgb8(96, 200, 130),
+            surface_dim: Color::rgb8(30, 33, 40),
+            surface_bright: Color::rgb8(57, 61, 74),
             scrim: Color::BLACK,
             shadow: Color::BLACK,
         }
@@ -177,6 +215,10 @@ impl ColorScheme {
             on_secondary: Color::rgb8(255, 255, 255),
             secondary_container: Color::rgb8(220, 228, 244),
             on_secondary_container: Color::rgb8(30, 42, 66),
+            tertiary: Color::rgb8(58, 100, 111),
+            on_tertiary: Color::rgb8(255, 255, 255),
+            tertiary_container: Color::rgb8(190, 234, 246),
+            on_tertiary_container: Color::rgb8(1, 31, 38),
             background: Color::rgb8(245, 246, 248),
             surface: Color::rgb8(255, 255, 255),
             on_surface: Color::rgb8(28, 32, 38),
@@ -195,6 +237,12 @@ impl ColorScheme {
             outline_variant: Color::rgb8(195, 198, 207),
             error: Color::rgb8(200, 64, 64),
             on_error: Color::rgb8(255, 255, 255),
+            error_container: Color::rgb8(255, 218, 215),
+            on_error_container: Color::rgb8(65, 0, 5),
+            inverse_primary: Color::rgb8(111, 220, 149),
+            surface_tint: Color::rgb8(46, 160, 96),
+            surface_dim: Color::rgb8(223, 228, 234),
+            surface_bright: Color::rgb8(255, 255, 255),
             scrim: Color::BLACK,
             shadow: Color::BLACK,
         }
@@ -225,12 +273,17 @@ impl ColorScheme {
         // the other palettes are muted variations on the hue.
         let primary = TonalPalette::new(hct.hue, hct.chroma.max(48.0));
         let secondary = TonalPalette::new(hct.hue, 16.0);
+        // A sixth of the wheel away, at the chroma the reference's tonal-spot scheme
+        // gives a tertiary: far enough from the primary to read as a third thing, close
+        // enough to belong to the same palette.
+        let tertiary = TonalPalette::new(hct.hue + 60.0, 24.0);
         let neutral = TonalPalette::new(hct.hue, 4.0);
         let neutral_variant = TonalPalette::new(hct.hue, 8.0);
         let error = TonalPalette::new(25.0, 84.0);
 
         let p = |tone: f64| primary.tone(tone);
         let s = |tone: f64| secondary.tone(tone);
+        let ter = |tone: f64| tertiary.tone(tone);
         let n = |tone: f64| neutral.tone(tone);
         let nv = |tone: f64| neutral_variant.tone(tone);
         let e = |tone: f64| error.tone(tone);
@@ -245,6 +298,10 @@ impl ColorScheme {
                 on_secondary: s(20.0),
                 secondary_container: s(30.0),
                 on_secondary_container: s(90.0),
+                tertiary: ter(80.0),
+                on_tertiary: ter(20.0),
+                tertiary_container: ter(30.0),
+                on_tertiary_container: ter(90.0),
                 background: n(6.0),
                 surface: n(12.0),
                 on_surface: n(90.0),
@@ -261,6 +318,14 @@ impl ColorScheme {
                 outline_variant: nv(30.0),
                 error: e(80.0),
                 on_error: e(20.0),
+                error_container: e(30.0),
+                on_error_container: e(90.0),
+                // The accent as it reads on the inverted surface: the *other* theme's
+                // tone of the same palette, which is what an inverted surface is.
+                inverse_primary: p(40.0),
+                surface_tint: p(80.0),
+                surface_dim: n(12.0),
+                surface_bright: n(30.0),
                 scrim: n(0.0),
                 shadow: n(0.0),
             }
@@ -274,6 +339,10 @@ impl ColorScheme {
                 on_secondary: s(100.0),
                 secondary_container: s(90.0),
                 on_secondary_container: s(10.0),
+                tertiary: ter(40.0),
+                on_tertiary: ter(100.0),
+                tertiary_container: ter(90.0),
+                on_tertiary_container: ter(10.0),
                 background: n(98.0),
                 surface: n(100.0),
                 on_surface: n(10.0),
@@ -290,6 +359,12 @@ impl ColorScheme {
                 outline_variant: nv(80.0),
                 error: e(40.0),
                 on_error: e(100.0),
+                error_container: e(90.0),
+                on_error_container: e(10.0),
+                inverse_primary: p(80.0),
+                surface_tint: p(40.0),
+                surface_dim: n(89.0),
+                surface_bright: n(100.0),
                 scrim: n(0.0),
                 shadow: n(0.0),
             }
@@ -308,6 +383,10 @@ impl ColorScheme {
             on_secondary: c(self.on_secondary, other.on_secondary),
             secondary_container: c(self.secondary_container, other.secondary_container),
             on_secondary_container: c(self.on_secondary_container, other.on_secondary_container),
+            tertiary: c(self.tertiary, other.tertiary),
+            on_tertiary: c(self.on_tertiary, other.on_tertiary),
+            tertiary_container: c(self.tertiary_container, other.tertiary_container),
+            on_tertiary_container: c(self.on_tertiary_container, other.on_tertiary_container),
             background: c(self.background, other.background),
             surface: c(self.surface, other.surface),
             on_surface: c(self.on_surface, other.on_surface),
@@ -330,6 +409,12 @@ impl ColorScheme {
             outline_variant: c(self.outline_variant, other.outline_variant),
             error: c(self.error, other.error),
             on_error: c(self.on_error, other.on_error),
+            error_container: c(self.error_container, other.error_container),
+            on_error_container: c(self.on_error_container, other.on_error_container),
+            inverse_primary: c(self.inverse_primary, other.inverse_primary),
+            surface_tint: c(self.surface_tint, other.surface_tint),
+            surface_dim: c(self.surface_dim, other.surface_dim),
+            surface_bright: c(self.surface_bright, other.surface_bright),
             scrim: c(self.scrim, other.scrim),
             shadow: c(self.shadow, other.shadow),
         }
@@ -521,7 +606,7 @@ mod tests {
         for seed in [
             Color::rgb8(0x42, 0x85, 0xF4), // Google blue
             Color::rgb8(0x9C, 0x27, 0xB0), // violet
-            Color::rgb8(0x80, 0x80, 0x80), // gris (chroma quasi nul)
+            Color::rgb8(0x80, 0x80, 0x80), // grey — very nearly no chroma at all
         ] {
             for dark in [false, true] {
                 let s = ColorScheme::from_seed(seed, dark);
@@ -529,13 +614,33 @@ mod tests {
                     ("primary", s.primary, s.on_primary),
                     ("secondary", s.secondary, s.on_secondary),
                     ("surface", s.surface, s.on_surface),
+                    ("tertiary", s.tertiary, s.on_tertiary),
                     ("error", s.error, s.on_error),
                     ("inverse", s.inverse_surface, s.on_inverse_surface),
+                    // The containers carry text too — an errored field's helper line is
+                    // `on_error_container` on `error_container`, and it has to be read.
+                    (
+                        "primary_container",
+                        s.primary_container,
+                        s.on_primary_container,
+                    ),
+                    (
+                        "secondary_container",
+                        s.secondary_container,
+                        s.on_secondary_container,
+                    ),
+                    (
+                        "tertiary_container",
+                        s.tertiary_container,
+                        s.on_tertiary_container,
+                    ),
+                    ("error_container", s.error_container, s.on_error_container),
                 ] {
                     let ratio = contrast(base, on);
                     assert!(
                         ratio >= 4.5,
-                        "contraste {name} insuffisant ({ratio:.2}) — graine {seed:?}, dark={dark}"
+                        "{name} does not contrast enough ({ratio:.2}) — seed {seed:?}, \
+                         dark={dark}"
                     );
                 }
             }
@@ -712,6 +817,24 @@ mod tests {
                 ("high", s.surface_container_high),
                 ("highest", s.surface_container_highest),
             ];
+            // `surface_dim` and `surface_bright` bracket the **surface**, in either
+            // theme — "always the darkest" and "always the lightest"
+            // (`color_scheme.dart:1236`, `:1241`).
+            //
+            // They do not bracket the *containers*, and the first draft of this test
+            // asserted that they did. The reference's own dark scheme puts
+            // `surfaceContainerLowest` at tone 4 and `surfaceDim` at 6, so the ladder's
+            // bottom rung is darker than the darkest surface: the two are separate
+            // families, and dim/bright are a claim about the surface alone.
+            assert!(
+                tone(s.surface_dim) <= tone(s.surface) + 1e-6,
+                "surface_dim is not the darker end"
+            );
+            assert!(
+                tone(s.surface) <= tone(s.surface_bright) + 1e-6,
+                "surface_bright is not the lighter one"
+            );
+            checked += 2;
             for pair in rungs.windows(2) {
                 let ((below, b), (above, a)) = (pair[0], pair[1]);
                 let step = (tone(a) - tone(b)) * up;
@@ -723,7 +846,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 16);
+        assert_eq!(checked, 24);
     }
 
     #[test]
