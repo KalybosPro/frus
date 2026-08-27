@@ -97,10 +97,19 @@ pub struct ColorScheme {
     pub surface_variant: Color,
     /// Secondary content on surfaces (the historical `muted`).
     pub on_surface_variant: Color,
-    /// An **elevated** surface (floating panels, menus).
+    /// The container ladder's **lowest** rung: the least emphasis against the
+    /// surface. Its neighbour rather than its opposite — in a dark scheme it is
+    /// *darker* than the surface, as the reference's is.
+    pub surface_container_lowest: Color,
+    /// Less emphasis than [`Self::surface_container`]: cards off the page, banners,
+    /// drawers, sheets.
+    pub surface_container_low: Color,
+    /// A distinct area **within** the surface: menus, navigation bars.
     pub surface_container: Color,
-    /// A surface higher still (menus above dialogs…).
+    /// More emphasis than [`Self::surface_container`]: dialogs, search views.
     pub surface_container_high: Color,
+    /// The **most** emphasis against the surface: filled cards, filled fields.
+    pub surface_container_highest: Color,
     /// An inverted surface (toasts and snackbars that stand out from the background).
     pub inverse_surface: Color,
     pub on_inverse_surface: Color,
@@ -138,8 +147,11 @@ impl ColorScheme {
             on_surface: Color::rgb8(230, 232, 236),
             surface_variant: Color::rgb8(38, 42, 52),
             on_surface_variant: Color::rgb8(150, 156, 168),
+            surface_container_lowest: Color::rgb8(26, 29, 35),
+            surface_container_low: Color::rgb8(34, 37, 45),
             surface_container: Color::rgb8(36, 40, 48),
             surface_container_high: Color::rgb8(44, 48, 58),
+            surface_container_highest: Color::rgb8(52, 56, 68),
             inverse_surface: Color::rgb8(226, 228, 234),
             on_inverse_surface: Color::rgb8(28, 32, 38),
             // Tones 60 and 30 of this palette's neutral-variant family, which is where
@@ -170,8 +182,11 @@ impl ColorScheme {
             on_surface: Color::rgb8(28, 32, 38),
             surface_variant: Color::rgb8(238, 240, 244),
             on_surface_variant: Color::rgb8(110, 116, 126),
+            surface_container_lowest: Color::rgb8(255, 255, 255),
+            surface_container_low: Color::rgb8(250, 250, 252),
             surface_container: Color::rgb8(244, 245, 248),
             surface_container_high: Color::rgb8(238, 240, 244),
+            surface_container_highest: Color::rgb8(232, 235, 240),
             inverse_surface: Color::rgb8(45, 50, 58),
             on_inverse_surface: Color::rgb8(240, 242, 246),
             // Tones 50 and 80, the reference's light-scheme positions. A disabled
@@ -194,6 +209,14 @@ impl ColorScheme {
     /// Deliberate departures from the M3 spec: `surface` sits slightly apart from
     /// `background` (our cards lay a surface over the background, tones 12/6 in
     /// dark, 100/98 in light) — the 2023 spec conflates them.
+    ///
+    /// The **container ladder** is anchored on *that* surface rather than on the
+    /// spec's. Its five rungs keep the reference's own tonal steps — going toward
+    /// more emphasis, −4, −2, −2, −2 in light and +6, +2, +5, +5 in dark — measured
+    /// from `surface_container`, so every rung stands off this scheme's surface by
+    /// what it stands off the reference's. In light the top rung lands on tone 100,
+    /// which is where this scheme's `surface` already is: the departure showing
+    /// through.
     pub fn from_seed(seed: Color, dark: bool) -> Self {
         use frus_core::{Hct, TonalPalette};
 
@@ -227,8 +250,11 @@ impl ColorScheme {
                 on_surface: n(90.0),
                 surface_variant: nv(20.0),
                 on_surface_variant: nv(80.0),
+                surface_container_lowest: n(9.0),
+                surface_container_low: n(15.0),
                 surface_container: n(17.0),
                 surface_container_high: n(22.0),
+                surface_container_highest: n(27.0),
                 inverse_surface: n(90.0),
                 on_inverse_surface: n(20.0),
                 outline: nv(60.0),
@@ -253,8 +279,11 @@ impl ColorScheme {
                 on_surface: n(10.0),
                 surface_variant: nv(94.0),
                 on_surface_variant: nv(30.0),
+                surface_container_lowest: n(100.0),
+                surface_container_low: n(98.0),
                 surface_container: n(96.0),
                 surface_container_high: n(94.0),
+                surface_container_highest: n(92.0),
                 inverse_surface: n(20.0),
                 on_inverse_surface: n(95.0),
                 outline: nv(50.0),
@@ -284,8 +313,17 @@ impl ColorScheme {
             on_surface: c(self.on_surface, other.on_surface),
             surface_variant: c(self.surface_variant, other.surface_variant),
             on_surface_variant: c(self.on_surface_variant, other.on_surface_variant),
+            surface_container_lowest: c(
+                self.surface_container_lowest,
+                other.surface_container_lowest,
+            ),
+            surface_container_low: c(self.surface_container_low, other.surface_container_low),
             surface_container: c(self.surface_container, other.surface_container),
             surface_container_high: c(self.surface_container_high, other.surface_container_high),
+            surface_container_highest: c(
+                self.surface_container_highest,
+                other.surface_container_highest,
+            ),
             inverse_surface: c(self.inverse_surface, other.inverse_surface),
             on_inverse_surface: c(self.on_inverse_surface, other.on_inverse_surface),
             outline: c(self.outline, other.outline),
@@ -640,6 +678,52 @@ mod tests {
             }
         }
         assert_eq!(checked, 10);
+    }
+
+    /// The five container rungs are a **ladder**: each stands further from the
+    /// surface than the one below it, in whichever direction the scheme's own
+    /// brightness sends them. A rung out of order — or two on the same tone — is two
+    /// widgets that cannot be told apart while their roles say they should be.
+    #[test]
+    fn the_container_ladder_climbs_in_one_direction() {
+        let tone = |c: Color| frus_core::Hct::from_color(c).tone;
+        /// Two rungs closer than this read as the same colour.
+        const RUNG: f64 = 1.0;
+        let mut checked = 0;
+        for (name, s) in [
+            ("dark", ColorScheme::dark()),
+            ("light", ColorScheme::light()),
+            (
+                "seeded dark",
+                ColorScheme::from_seed(Color::rgb8(0x42, 0x85, 0xF4), true),
+            ),
+            (
+                "seeded light",
+                ColorScheme::from_seed(Color::rgb8(0x42, 0x85, 0xF4), false),
+            ),
+        ] {
+            // A dark scheme's containers grow lighter as they take emphasis, a light
+            // scheme's darker.
+            let up = if tone(s.surface) < 50.0 { 1.0 } else { -1.0 };
+            let rungs = [
+                ("lowest", s.surface_container_lowest),
+                ("low", s.surface_container_low),
+                ("container", s.surface_container),
+                ("high", s.surface_container_high),
+                ("highest", s.surface_container_highest),
+            ];
+            for pair in rungs.windows(2) {
+                let ((below, b), (above, a)) = (pair[0], pair[1]);
+                let step = (tone(a) - tone(b)) * up;
+                assert!(
+                    step >= RUNG,
+                    "{name}: the {above} rung is {step:.1} tones of emphasis above the \
+                     {below} one — a ladder cannot go back down"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 16);
     }
 
     #[test]

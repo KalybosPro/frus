@@ -282,7 +282,12 @@ impl<Msg> Button<Msg> {
                 theme.scheme.on_secondary_container,
                 None,
             ),
-            Variant::Elevated => (theme.scheme.surface_container, theme.scheme.primary, None),
+            // `elevated_button.dart:534` — off the page, on the low rung.
+            Variant::Elevated => (
+                theme.scheme.surface_container_low,
+                theme.scheme.primary,
+                None,
+            ),
             Variant::Outlined => (
                 Color::TRANSPARENT,
                 theme.scheme.primary,

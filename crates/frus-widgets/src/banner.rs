@@ -355,11 +355,12 @@ struct BannerSurface<Msg> {
 }
 
 impl<Msg> BannerSurface<Msg> {
-    /// The reference reaches for `surfaceContainerLow`, a tone lower than this scheme
-    /// carries; `surface_container` is the nearest it has, and the one a banner sitting
-    /// just off the page wants.
+    /// A banner sits just off the page, on the ladder's low rung
+    /// (`banner.dart:510`).
     fn background(&self, theme: &Theme) -> Color {
-        let base = self.background.unwrap_or(theme.scheme.surface_container);
+        let base = self
+            .background
+            .unwrap_or(theme.scheme.surface_container_low);
         match self.surface_tint {
             Some(tint) => base.surface_tint(tint, self.elevation),
             None => base,

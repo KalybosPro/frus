@@ -160,11 +160,11 @@ impl<Msg> Card<Msg> {
         self.color
             .or(theme.widgets.card.color)
             .unwrap_or(match self.kind(Some(theme)) {
-                // The reference reaches for a *lower* container tone than this scheme
-                // carries; `surface_container` is the nearest it has, and the one an
-                // elevated card wants to sit slightly above the page in.
-                CardVariant::Elevated => theme.scheme.surface_container,
-                CardVariant::Filled => theme.scheme.surface_container_high,
+                // The two ends of the ladder the reference puts them on
+                // (`card.dart:313` and `:348`): a card off the page takes the least
+                // emphasis a container has, a filled one the most.
+                CardVariant::Elevated => theme.scheme.surface_container_low,
+                CardVariant::Filled => theme.scheme.surface_container_highest,
                 CardVariant::Outlined => theme.scheme.surface,
             })
     }
@@ -329,12 +329,12 @@ mod tests {
         };
         assert_eq!(
             fill(&Card::new()),
-            Some(theme.scheme.surface_container),
+            Some(theme.scheme.surface_container_low),
             "elevated"
         );
         assert_eq!(
             fill(&Card::new().filled()),
-            Some(theme.scheme.surface_container_high),
+            Some(theme.scheme.surface_container_highest),
             "filled"
         );
         assert_eq!(fill(&Card::new().outlined()), Some(theme.scheme.surface));

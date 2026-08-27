@@ -8,10 +8,26 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 425 so far, each documenting the objective, the alternatives
+> record — one per step, 426 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **The scheme's full container ladder** (J426): `surface_container_lowest`,
+  `surface_container_low` and `surface_container_highest` join the two rungs that already
+  existed, so the five roles the reference names together exist here too. The two old rungs
+  keep their exact values; the new ones sit at the reference's own tonal steps measured from
+  them, because this scheme's surface deliberately sits apart from the spec's and a ladder
+  anchored elsewhere would put "more emphasis" below the page it stands on.
+
+### Changed
+
+- **Six call sites now take the rung the reference names them** (J426): an elevated card, an
+  elevated button and a banner move to `surface_container_low`; a filled card and a filled
+  text field to `surface_container_highest`; a menu to `surface_container`. Each was
+  standing on the nearest rung the scheme had, and two of them said so in a comment.
 
 ### Added
 

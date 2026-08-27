@@ -65,17 +65,14 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // A floating panel is an **elevated** surface, the `surface_container_high` role.
-        // No state layer while disabled: a hover tint promises that a press would do
-        // something. The row's outline is its container, so it takes the container opacity.
+        // A menu is a distinct area within the surface, the `surface_container` role
+        // (`popup_menu.dart:1858`). No state layer while disabled: a hover tint promises
+        // that a press would do something. The row's outline is its container, so it
+        // takes the container opacity.
         let bg = if self.enabled {
-            theme.state_layer(
-                theme.scheme.surface_container_high,
-                theme.on_surface,
-                &status,
-            )
+            theme.state_layer(theme.scheme.surface_container, theme.on_surface, &status)
         } else {
-            theme.scheme.surface_container_high
+            theme.scheme.surface_container
         };
         let outline = if self.enabled {
             theme.border

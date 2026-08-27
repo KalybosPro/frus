@@ -413,7 +413,9 @@ impl<Msg> TextField<Msg> {
                 if self.is_outlined() {
                     frus_core::Color::TRANSPARENT
                 } else {
-                    theme.scheme.surface_container_high
+                    // `input_decorator.dart:5968` — a filled field takes the most
+                    // emphasis a container has.
+                    theme.scheme.surface_container_highest
                 },
             ),
             border_color: pick(
