@@ -16,6 +16,8 @@
 //!     .nav(app.section, Msg::SetSection)     // destinations, in a bottom bar
 //!     .destination("✔", "Tasks").badge(3)
 //!     .destination("▦", "Stats")
+//!     .rail(|rail| rail.extended(true))      // when the navigation is a rail
+
 //!     .drawer(menu, app.menu_open, Msg::ToggleMenu)          // leading edge
 //!     .end_drawer(filters, app.drawer_open, Msg::ToggleDrawer)
 //!     .persistent_footer(row![cancel, save])  // never scrolls away
@@ -69,7 +71,7 @@ use crate::button::Variant;
 use crate::container::Container;
 use crate::flex::Flex;
 use crate::media::MediaQuery;
-use crate::navrail::{BottomBar, NavigationRail, BAR_HEIGHT, RAIL_WIDTH};
+use crate::navrail::{BottomBar, NavigationRail, RailLabels, BAR_HEIGHT};
 use crate::stack::Stack;
 use crate::widget::Widget;
 
@@ -80,6 +82,10 @@ const FOOTER_PAD: f32 = 12.0;
 /// The height a floating action button is assumed to have, absent
 /// [`Scaffold::fab_size`]. The conventional Material diameter.
 const FAB_SIZE: f32 = 56.0;
+
+/// What a caller wants done to the [`NavigationRail`] the shell built for it, once it is
+/// built and before it is measured. See [`Scaffold::rail`].
+type RailConfig<Msg> = Box<dyn FnOnce(NavigationRail<Msg>) -> NavigationRail<Msg>>;
 
 /// Where a [`Scaffold`]'s navigation destinations are drawn.
 ///
@@ -168,6 +174,10 @@ pub struct Scaffold<Msg> {
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,
     destinations: Vec<(String, String, Option<u32>)>,
     nav_placement: NavPlacement,
+    nav_labels: Option<RailLabels>,
+    /// What the caller wants done to the rail once the shell has built it. `None` leaves
+    /// the rail the shell would have built anyway.
+    rail: Option<RailConfig<Msg>>,
     drawer: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
     end_drawer: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
     bottom_app_bar: Option<BottomAppBar<Msg>>,
@@ -226,6 +236,12 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             on_select: None,
             destinations: Vec::new(),
             nav_placement: NavPlacement::default(),
+            // **Not a default of its own.** Left unsaid, each of the two navigation
+            // widgets keeps the one the reference gives it — a rail labels nothing, a
+            // bar labels everything (milestone 432) — and collapsing them to one answer
+            // here would quietly undo that.
+            nav_labels: None,
+            rail: None,
             drawer: None,
             end_drawer: None,
             bottom_app_bar: None,
@@ -368,6 +384,41 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// window changed size. For that, use [`NavScaffold`](crate::NavScaffold).
     pub fn nav_placement(mut self, placement: NavPlacement) -> Self {
         self.nav_placement = placement;
+        self
+    }
+
+    /// **When the destinations say what they are**, whichever of the two widgets ends
+    /// up carrying them. See [`RailLabels`].
+    ///
+    /// Unsaid, each keeps the default the reference gives it: a rail shows no labels, a
+    /// bar shows them all (milestone 432).
+    pub fn nav_labels(mut self, labels: RailLabels) -> Self {
+        self.nav_labels = Some(labels);
+        self
+    }
+
+    /// **What to do to the rail** once the shell has built it from the destinations —
+    /// `.rail(|rail| rail.extended(true).group_alignment(0.0))`.
+    ///
+    /// The shell builds the navigation itself, which is what makes it a shell: an
+    /// application says `.destination("✔", "Tasks")` and never sees the widget. That
+    /// left everything a rail can do and a bar cannot — its extended form, where its
+    /// destinations sit, the slots above and below them — reachable only by building the
+    /// rail by hand and giving up the shell. This is the door: the shell builds the rail,
+    /// hands it over, and takes back whatever comes out.
+    ///
+    /// It runs **last**, after the destinations and after [`Self::nav_labels`], so it has
+    /// the final word on both. Silent when the navigation is a bottom bar, which has none
+    /// of these properties to set.
+    ///
+    /// The shell then measures the rail it was handed rather than assuming the width it
+    /// started with — an extended rail is 256 wide, and everything the shell puts beside
+    /// it has to know.
+    pub fn rail(
+        mut self,
+        configure: impl FnOnce(NavigationRail<Msg>) -> NavigationRail<Msg> + 'static,
+    ) -> Self {
+        self.rail = Some(Box::new(configure));
         self
     }
 
@@ -551,6 +602,8 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             on_select,
             destinations,
             nav_placement,
+            nav_labels,
+            rail: configure_rail,
             drawer,
             end_drawer,
             bottom_app_bar,
@@ -581,6 +634,11 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         let body_widget = body.unwrap_or_else(|| Box::new(Container::new()));
 
         // Navigation: a bottom bar, or a side rail if one was asked for.
+        //
+        // **How wide the rail came out**, which is not a constant since milestone 433: a
+        // caller can extend it, and everything the shell puts beside it — the persistent
+        // footer's row, for one — is laid out against this number.
+        let mut rail_width = 0.0;
         let nav: Option<Box<dyn Widget<Msg>>> = if has_nav {
             let on_select =
                 on_select.expect("nav(selected, on_select) is required with destinations");
@@ -592,6 +650,9 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                         bar = bar.badge(count);
                     }
                 }
+                if let Some(labels) = nav_labels {
+                    bar = bar.labels(labels);
+                }
                 Some(Box::new(bar))
             } else {
                 let mut rail = NavigationRail::new(selected, on_select);
@@ -601,6 +662,15 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                         rail = rail.badge(count);
                     }
                 }
+                if let Some(labels) = nav_labels {
+                    rail = rail.labels(labels);
+                }
+                // The caller's word is the last one, and the measurement is taken after
+                // it rather than before.
+                if let Some(configure) = configure_rail {
+                    rail = configure(rail);
+                }
+                rail_width = rail.declared_width();
                 Some(Box::new(rail))
             }
         } else {
@@ -675,8 +745,8 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             // The row is **given** the width it has to fill. A row that hugged its
             // content would leave the alignment nothing to distribute, and every
             // footer would sit at the leading edge whatever it was asked for.
-            let rail = if rail_nav { RAIL_WIDTH } else { 0.0 };
-            let row_width = (width - insets.left - insets.right - rail - FOOTER_PAD * 2.0).max(0.0);
+            let row_width =
+                (width - insets.left - insets.right - rail_width - FOOTER_PAD * 2.0).max(0.0);
             let row = Flex::row()
                 .width(row_width)
                 .justify(persistent_footer_alignment)
@@ -712,9 +782,9 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             // bottomNavigationBar != null` says (`scaffold.dart:3158`).
             // Beside a rail the leading intrusion is the rail's — it is inside the
             // rail's own box, and the footer sits in the column to its right (milestone
-            // 420). `row_width` below already reads it that way: subtracting the bare
-            // `RAIL_WIDTH` *and* `insets.left` is the same number as subtracting the
-            // rail's box, which is `RAIL_WIDTH + insets.left` since the rail took it.
+            // 420). `row_width` above already reads it that way: subtracting the rail's
+            // bare width *and* `insets.left` is the same number as subtracting the rail's
+            // box, which is the two added together since the rail took the intrusion.
             let left = if rail_nav { 0.0 } else { insets.left };
             let right = insets.right;
             let bottom = if bar_below_body { 0.0 } else { bottom_clear };
@@ -1088,6 +1158,9 @@ pub fn fab_button<Msg: Clone + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Named by the tests alone since milestone 434: the shell asks the rail how wide it
+    // came out rather than reading the constant, because a rail can be extended.
+    use crate::navrail::{EXTENDED_RAIL_WIDTH, RAIL_WIDTH};
     use crate::{build_ui, dsl::button, dsl::text, Runtime, Size, Theme};
 
     #[derive(Clone, Debug, PartialEq)]
@@ -2133,6 +2206,121 @@ mod tests {
             .hit(frus_core::Point::new(40.0, 20.0))
             .expect("the body's button must be reachable under two overlay layers");
         assert_eq!(ui.msg_for(target), Some(Msg::Add));
+    }
+
+    /// **The shell can say what kind of rail it wants** (milestone 434).
+    ///
+    /// It builds the navigation itself, which is what makes it a shell — and until now
+    /// that meant everything a rail can do and a bar cannot was reachable only by giving
+    /// the shell up and building the rail by hand.
+    #[test]
+    fn the_shell_can_ask_for_an_extended_rail() {
+        let body_x = |placement, extended: bool| {
+            marks(
+                Scaffold::new()
+                    .size(W, H)
+                    .body(filling::<Msg>())
+                    .nav(0, Msg::Go)
+                    .nav_placement(placement)
+                    .destination("H", "Home")
+                    .rail(move |rail| rail.extended(extended))
+                    .build(),
+            )[0]
+            .x
+        };
+        assert!(
+            (body_x(NavPlacement::Rail, false) - RAIL_WIDTH).abs() < 0.01,
+            "a rail is 80 wide: {}",
+            body_x(NavPlacement::Rail, false)
+        );
+        assert!(
+            (body_x(NavPlacement::Rail, true) - EXTENDED_RAIL_WIDTH).abs() < 0.01,
+            "an extended one is 256, and the body starts after it: {}",
+            body_x(NavPlacement::Rail, true)
+        );
+        assert_eq!(
+            body_x(NavPlacement::Bottom, true),
+            0.0,
+            "and the door is shut when the navigation is a bar, which has none of it"
+        );
+    }
+
+    /// **What the shell puts beside a rail has to know how wide the rail came out.**
+    ///
+    /// The persistent footer's row is *given* its width, so that the alignment has
+    /// something to distribute. That width was `window - RAIL_WIDTH - padding`, read off
+    /// the constant — which is right until a caller extends the rail, and then it is 176
+    /// pixels too wide and an end-aligned footer is pushed clean off the screen. The
+    /// shell asks the rail it was handed instead.
+    #[test]
+    fn a_footer_beside_an_extended_rail_stays_on_the_screen() {
+        let footer_x = |extended: bool| {
+            marks(
+                Scaffold::new()
+                    .size(W, H)
+                    .body(Container::<Msg>::new())
+                    .nav(0, Msg::Go)
+                    .nav_placement(NavPlacement::Rail)
+                    .destination("H", "Home")
+                    .persistent_footer_alignment(Justify::End)
+                    .persistent_footer(marked::<Msg>(40.0).width(100.0))
+                    .rail(move |rail| rail.extended(extended))
+                    .build(),
+            )[0]
+            .x
+        };
+        assert!(
+            footer_x(true) + 100.0 <= W,
+            "the footer was pushed off the screen: {}",
+            footer_x(true)
+        );
+        // And it lands in the *same* place either way: the footer's row ends where the
+        // window does, whatever the rail took off the front of it.
+        assert!(
+            (footer_x(true) - footer_x(false)).abs() < 0.01,
+            "{} against {}",
+            footer_x(true),
+            footer_x(false)
+        );
+    }
+
+    /// The label mode reaches **whichever** of the two widgets the placement chose, and
+    /// saying nothing leaves each of them on the default the reference gives it
+    /// (milestone 432) rather than collapsing the two onto one answer.
+    #[test]
+    fn the_shell_hands_the_label_mode_on() {
+        let says_home = |placement, labels: Option<RailLabels>| {
+            let mut shell = Scaffold::new()
+                .size(W, H)
+                .body(Container::<Msg>::new())
+                .nav(0, Msg::Go)
+                .nav_placement(placement)
+                .destination("H", "Home");
+            if let Some(labels) = labels {
+                shell = shell.nav_labels(labels);
+            }
+            let shell = shell.build();
+            let ui = build_ui(
+                shell.as_ref(),
+                Size::new(W, H),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            ui.scene()
+                .primitives()
+                .iter()
+                .any(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "Home"))
+        };
+        assert!(
+            !says_home(NavPlacement::Rail, None),
+            "a rail says nothing until it is asked"
+        );
+        assert!(
+            says_home(NavPlacement::Bottom, None),
+            "a bar says everything"
+        );
+        assert!(says_home(NavPlacement::Rail, Some(RailLabels::All)));
+        assert!(!says_home(NavPlacement::Bottom, Some(RailLabels::None)));
     }
 
     /// Where the navigation is drawn: `(min x, max y)` of the destinations' **glyphs**.

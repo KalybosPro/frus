@@ -551,9 +551,14 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
         self.built.take();
     }
 
-    /// How wide the rail asks to be: [`RAIL_WIDTH`], or [`EXTENDED_RAIL_WIDTH`] when the
-    /// labels have moved out beside the glyphs.
-    fn width(&self) -> f32 {
+    /// **How wide the rail asks to be**: [`RAIL_WIDTH`], or [`EXTENDED_RAIL_WIDTH`] when
+    /// the labels have moved out beside the glyphs. Without the leading intrusion, which
+    /// the rail adds on top of this and consumes on its parent's behalf.
+    ///
+    /// A shell that puts something else beside a rail has to know how much of the window
+    /// the rail took. Asking the rail is the only answer that stays right: reading the
+    /// constant is right until the caller extends it, and then it is 176 pixels wrong.
+    pub(crate) fn declared_width(&self) -> f32 {
         if self.extended {
             EXTENDED_RAIL_WIDTH
         } else {
@@ -643,7 +648,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for NavigationRail<Msg> {
     fn style(&self) -> Style {
         let safe = crate::MediaQuery::of().padding;
         Style {
-            width: Dimension::Length(self.width() + safe.left),
+            width: Dimension::Length(self.declared_width() + safe.left),
             flex_direction: FlexDirection::Column,
             align: Align::Center,
             padding: Insets::new(8.0 + safe.top, 0.0, 8.0 + safe.bottom, safe.left),

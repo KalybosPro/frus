@@ -8,10 +8,27 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 433 so far, each documenting the objective, the alternatives
+> record — one per step, 434 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`Scaffold::rail`** (J434): a function the shell runs over the `NavigationRail` it built
+  for you — `.rail(|rail| rail.extended(true))`. One door instead of a pass-through per
+  property, so everything the rail learns later is reachable the day it learns it. It runs
+  after the destinations and after `nav_labels`, and is silent when the navigation is a bar.
+
+- **`Scaffold::nav_labels`** (J434): the label mode, applied to whichever navigation widget
+  the placement chose. Unsaid, each keeps the opposite default the reference gives it.
+
+### Fixed
+
+- **A persistent footer beside an extended rail was pushed off the screen** (J434). Its row
+  is given its width, and that width subtracted the rail's *constant* rather than the rail's
+  actual width — 176 pixels too wide once a caller extended it. The shell asks the rail now,
+  after the caller has finished with it.
 
 ### Added
 
