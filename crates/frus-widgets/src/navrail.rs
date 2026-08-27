@@ -15,10 +15,10 @@ pub(crate) const RAIL_WIDTH: f32 = 76.0;
 /// Height of a bottom navigation bar, in logical pixels.
 pub(crate) const BAR_HEIGHT: f32 = 60.0;
 const ITEM_HEIGHT: f32 = 58.0;
-const ICON_SIZE: f32 = 22.0;
-/// Notification red (a constant: an alert dot reads as red whatever the
-/// theme).
-const BADGE_COLOR: Color = Color::rgb(0.90, 0.24, 0.24);
+/// The destinations' glyphs, at the reference's size (`navigation_bar.dart:1452`).
+const ICON_SIZE: f32 = 24.0;
+/// The air between a glyph and its label (`navigation_bar.dart:1483`).
+const LABEL_GAP: f32 = 4.0;
 
 /// The item's label: what the caller said, else what the theme says, else the reference's
 /// — a Material 3 rail labels its destinations in `labelMedium`.
@@ -97,11 +97,12 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
         let o = status.opacity;
         // The icon is a glyph standing in for an icon: `exact`, so that it stays on its
         // own grid while the label beside it follows the reader.
-        let icon_style = ResolvedTextStyle::exact(ICON_SIZE);
+        let t = &theme.widgets.nav_rail;
+        let icon_style = ResolvedTextStyle::exact(t.icon_size.unwrap_or(ICON_SIZE));
         let label_s = label_style(self.label_text_style, Some(theme));
         let icon_m = frus_text::measure_resolved(&self.icon, &icon_style);
         let label_m = frus_text::measure_resolved(&self.label, &label_s);
-        let gap = 2.0;
+        let gap = LABEL_GAP;
         let total_h = icon_m.height + gap + label_m.height;
         let top = bounds.y + ((bounds.height - total_h) * 0.5).max(0.0);
 
@@ -115,9 +116,17 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             pill_h,
         );
         if self.selected {
+            // The indicator is a **container**, not a wash: the reference fills it with
+            // an opaque `secondaryContainer` (`navigation_bar.dart:1463`,
+            // `navigation_rail.dart:1272`) where this painted `primary` at 16 %. A tint
+            // was the wrong role and the wrong kind of colour at once — a translucent
+            // fill blends in linear light here, so 16 % does not paint at 16 %, which is
+            // the trap milestone 329 resolved for the disabled tokens.
             scene.draw_rect(
                 pill,
-                theme.primary.fade(0.16 * o),
+                t.indicator_color
+                    .unwrap_or(theme.scheme.secondary_container)
+                    .fade(o),
                 pill_h * 0.5,
                 0.0,
                 Color::TRANSPARENT,
@@ -133,16 +142,32 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             );
         }
 
-        let color = if self.selected {
-            theme.primary
+        // The glyph is drawn **on** the indicator and the label below it, so the two do
+        // not take the same colour when selected: the glyph is the indicator's content
+        // (`navigation_bar.dart:1456`) and the label is the surface's (`:1476`).
+        let icon_color = if self.selected {
+            t.selected_icon_color
+                .unwrap_or(theme.scheme.on_secondary_container)
         } else {
-            theme.muted
+            t.unselected_icon_color
+                .unwrap_or(theme.scheme.on_surface_variant)
+        };
+        let label_color = if self.selected {
+            t.selected_label_color.unwrap_or(theme.scheme.on_surface)
+        } else {
+            t.unselected_label_color.unwrap_or(if self.rail {
+                // The one place the reference answers differently for the two:
+                // `navigation_rail.dart:1251` against `navigation_bar.dart:1477`.
+                theme.scheme.on_surface
+            } else {
+                theme.scheme.on_surface_variant
+            })
         };
         scene.text(
             Point::new(bounds.x + (bounds.width - icon_m.width) * 0.5, top),
             self.icon.clone(),
             &icon_style,
-            color.fade(o),
+            icon_color.fade(o),
         );
         scene.text(
             Point::new(
@@ -151,7 +176,7 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             ),
             self.label.clone(),
             &label_s,
-            color.fade(o),
+            label_color.fade(o),
         );
 
         // Notification dot, anchored to the top-right corner of the icon glyph.
@@ -169,12 +194,28 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             let bx = (icon_right - bw * 0.4).min(bounds.x + bounds.width - bw);
             let by = top - bh * 0.35;
             let rect = Rect::new(bx, by, bw, bh);
-            scene.draw_rect(rect, BADGE_COLOR.fade(o), bh * 0.5, 0.0, Color::TRANSPARENT);
+            // A badge is a badge. This one used to carry a red of its own, on the
+            // reasoning that an alert dot reads as red whatever the theme — but the
+            // [`Badge`](crate::Badge) widget beside it already answers the same question
+            // from the scheme's `error`, and two badges in one framework painting
+            // different reds is the part that is actually wrong. Same roles, same theme,
+            // so recolouring one recolours both.
+            let fill = theme
+                .widgets
+                .badge
+                .background_color
+                .unwrap_or(theme.scheme.error);
+            let ink = theme
+                .widgets
+                .badge
+                .text_color
+                .unwrap_or(theme.scheme.on_error);
+            scene.draw_rect(rect, fill.fade(o), bh * 0.5, 0.0, Color::TRANSPARENT);
             scene.text(
                 Point::new(bx + (bw - m.width) * 0.5, by + 2.0),
                 text,
                 &badge_s,
-                Color::WHITE.fade(o),
+                ink.fade(o),
             );
         }
     }
@@ -568,6 +609,129 @@ mod tests {
             }
             _ => None,
         })
+    }
+
+    /// One destination, painted.
+    fn destination(rail: bool, selected: bool, badge: Option<u32>, theme: &Theme) -> Scene {
+        let item = NavItem::<Msg> {
+            icon: "H".into(),
+            label: "Home".into(),
+            selected,
+            badge,
+            rail,
+            label_text_style: None,
+            badge_text_style: None,
+            message: Msg::Go(0),
+        };
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            &item,
+            Rect::new(0.0, 0.0, RAIL_WIDTH, ITEM_HEIGHT),
+            Status {
+                opacity: 1.0,
+                ..Default::default()
+            },
+            theme,
+            &mut scene,
+        );
+        scene
+    }
+
+    fn rects(scene: &Scene) -> Vec<Color> {
+        scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Rect { color, .. } => Some(*color),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn texts(scene: &Scene) -> Vec<Color> {
+        scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Text { color, .. } => Some(*color),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A destination's colours, each against the role the reference names.
+    ///
+    /// The indicator is the one that mattered most: it was `primary` at 16 %, which was
+    /// the wrong **role** and the wrong **kind** of colour at once — a translucent fill
+    /// blends in linear light here, so 16 % never painted at 16 %.
+    #[test]
+    fn a_destination_takes_the_roles_the_reference_names() {
+        let theme = Theme::default();
+
+        let on = destination(false, true, None, &theme);
+        assert_eq!(
+            rects(&on).first().copied(),
+            Some(theme.scheme.secondary_container),
+            "the indicator is an opaque container (`navigation_bar.dart:1463`)"
+        );
+        assert_eq!(
+            texts(&on),
+            vec![theme.scheme.on_secondary_container, theme.scheme.on_surface],
+            "the glyph is the indicator's content, the label is the surface's"
+        );
+        assert_ne!(
+            theme.scheme.on_secondary_container, theme.scheme.on_surface,
+            "the two have to differ for that split to be worth making"
+        );
+
+        let off = destination(false, false, None, &theme);
+        assert!(rects(&off).is_empty(), "nothing behind an unselected one");
+        assert_eq!(
+            texts(&off),
+            vec![
+                theme.scheme.on_surface_variant,
+                theme.scheme.on_surface_variant
+            ]
+        );
+    }
+
+    /// The one question the reference answers differently for the two widgets: an
+    /// unselected label is `on_surface` on a rail (`navigation_rail.dart:1251`) and
+    /// `on_surface_variant` on a bar (`navigation_bar.dart:1477`).
+    #[test]
+    fn a_rail_and_a_bar_part_company_on_one_colour() {
+        let theme = Theme::default();
+        let rail = texts(&destination(true, false, None, &theme));
+        let bar = texts(&destination(false, false, None, &theme));
+        assert_eq!(rail[1], theme.scheme.on_surface);
+        assert_eq!(bar[1], theme.scheme.on_surface_variant);
+        assert_eq!(rail[0], bar[0], "and agree on the glyph");
+    }
+
+    /// **One badge, one theme.** The rail drew its own red on the reasoning that an alert
+    /// dot reads as red whatever the theme; the [`Badge`](crate::Badge) widget beside it
+    /// already answered the same question from the scheme. Two badges in one framework
+    /// painting different reds was the part that was actually wrong.
+    #[test]
+    fn the_rail_s_badge_is_the_badge_widget_s_badge() {
+        let mut theme = Theme::default();
+        let scene = destination(false, false, Some(3), &theme);
+        assert_eq!(rects(&scene).first().copied(), Some(theme.scheme.error));
+        assert_eq!(
+            texts(&scene).last().copied(),
+            Some(theme.scheme.on_error),
+            "the count is what is legible on it"
+        );
+
+        let told = Color::rgb8(1, 2, 3);
+        theme.widgets.badge.background_color = Some(told);
+        assert_eq!(
+            rects(&destination(false, false, Some(3), &theme))
+                .first()
+                .copied(),
+            Some(told),
+            "and recolouring badges recolours this one too"
+        );
     }
 
     #[test]

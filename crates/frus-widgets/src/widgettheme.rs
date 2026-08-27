@@ -593,6 +593,23 @@ pub struct NavRailTheme {
     pub badge_text_style: Option<TextStyle>,
     /// The **rail's** surface. Unset, the scheme's `surface`.
     pub background_color: Option<Color>,
+    /// The pill behind the selected destination. Unset, the scheme's
+    /// `secondary_container` — **opaque**, as the reference's is.
+    pub indicator_color: Option<Color>,
+    /// The selected destination's glyph. Unset, `on_secondary_container`: it is drawn on
+    /// the indicator, so it takes the indicator's content colour.
+    pub selected_icon_color: Option<Color>,
+    /// An unselected destination's glyph. Unset, `on_surface_variant`.
+    pub unselected_icon_color: Option<Color>,
+    /// The selected destination's label. Unset, `on_surface` — the label sits *below* the
+    /// indicator rather than on it, which is why it is not the indicator's content colour.
+    pub selected_label_color: Option<Color>,
+    /// An unselected destination's label. Unset, `on_surface` on a rail and
+    /// `on_surface_variant` on a bar, which is the one place the reference gives the two
+    /// different answers.
+    pub unselected_label_color: Option<Color>,
+    /// The destinations' glyphs. Unset, the reference's 24.
+    pub icon_size: Option<f32>,
     /// The **bottom bar's** surface, a rung higher than the rail's. Unset, the scheme's
     /// `surface_container`.
     ///

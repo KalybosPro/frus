@@ -8,10 +8,28 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 430 so far, each documenting the objective, the alternatives
+> record — one per step, 431 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Changed
+
+- **A navigation destination takes the roles the reference names** (J431). The selected
+  indicator is an **opaque** `secondary_container` where it was `primary` at 16 % — the
+  wrong role, and a translucent fill that never painted at the alpha it was written at. The
+  glyph and the label stop sharing a colour: the glyph is drawn on the indicator and takes
+  its content colour, the label sits below it and takes the surface's. An unselected label
+  differs between a rail and a bar, as it does in the reference.
+
+- **The rail's badge is the `Badge` widget's badge** (J431): the scheme's `error` and
+  `on_error` through `BadgeTheme`, where it carried a red of its own. Recolouring badges now
+  recolours both.
+
+### Added
+
+- **Six `NavRailTheme` slots** (J431) — the indicator, the selected and unselected glyph and
+  label colours, and the glyph's size. All six had been hard-coded.
 
 ### Changed
 
