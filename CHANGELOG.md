@@ -8,10 +8,27 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 424 so far, each documenting the objective, the alternatives
+> record — one per step, 425 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`MaterialBanner`** (J425): a message across the top of the screen with the actions that
+  answer it, staying until one is taken — the middle of the three ways of saying something,
+  between a snack bar's few seconds and a dialog's barrier. Its actions are required, as in
+  the reference: a message that stays until it is dismissed and offers no way to dismiss it
+  stays for ever. One action rides on the message's line and two take a line of their own,
+  and the rule along the bottom is drawn only where the banner is flat.
+
+- **`SimpleDialog` and `SimpleDialogOption`** (J425), on the same surface as `AlertDialog`.
+  The difference is what they are for: an alert dialog asks a question and puts the answers
+  in a row of buttons; a simple dialog lists them, and each row **is** an answer — which is
+  why an option's ink runs the full width of the dialog.
+
+- **`BannerTheme`**, so a theme can set the banner's colour, elevation, tint, shadow, rule,
+  paddings and text style.
 
 ### Added
 

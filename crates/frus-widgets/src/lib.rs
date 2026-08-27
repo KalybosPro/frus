@@ -16,6 +16,7 @@ mod aspectratio;
 mod autocomplete;
 mod avatar;
 mod badge;
+mod banner;
 mod barrier;
 mod baseline;
 mod bottomappbar;
@@ -143,6 +144,7 @@ pub use aspectratio::AspectRatio;
 pub use autocomplete::Autocomplete;
 pub use avatar::CircleAvatar;
 pub use badge::Badge;
+pub use banner::{MaterialBanner, BANNER_ELEVATION, BANNER_MIN_ACTION_BAR_HEIGHT};
 pub use barrier::{
     AbsorbPointer, ExcludeSemantics, IgnorePointer, ModalBarrier, Offstage, Visibility,
 };
@@ -178,8 +180,8 @@ pub use datepicker::DatePicker;
 pub use datetimepicker::DateTimePicker;
 pub use datetimerange::DateTimeRange;
 pub use dialog::{
-    ActionsAlignment, AlertDialog, Dialog, DIALOG_ELEVATION, DIALOG_INSET_PADDING,
-    DIALOG_MIN_WIDTH, DIALOG_RADIUS,
+    ActionsAlignment, AlertDialog, Dialog, SimpleDialog, SimpleDialogOption, DIALOG_ELEVATION,
+    DIALOG_INSET_PADDING, DIALOG_MIN_WIDTH, DIALOG_RADIUS,
 };
 pub use disabled::{
     disabled_container, disabled_content, disabled_mark, over_surface, DISABLED_CONTAINER_OPACITY,

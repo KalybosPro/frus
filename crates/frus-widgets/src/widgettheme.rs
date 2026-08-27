@@ -38,6 +38,7 @@ pub struct WidgetThemes {
     pub app_bar: AppBarTheme,
     pub autocomplete: AutocompleteTheme,
     pub badge: BadgeTheme,
+    pub banner: BannerTheme,
     pub breadcrumb: BreadcrumbTheme,
     pub button: ButtonTheme,
     pub card: CardTheme,
@@ -580,6 +581,30 @@ pub struct AlertTheme {
     /// The heading's type.
     pub title_text_style: Option<TextStyle>,
     /// The message's type.
+    pub content_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`MaterialBanner`](crate::MaterialBanner).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BannerTheme {
+    /// The banner's colour. Unset, a low container tone.
+    pub color: Option<Color>,
+    /// What the surface is tinted towards for its elevation. Unset, nothing is.
+    pub surface_tint: Option<Color>,
+    /// The shadow's colour. Unset, there is none.
+    pub shadow_color: Option<Color>,
+    /// The rule along the bottom, drawn only where the banner is flat. Unset, the
+    /// scheme's `outlineVariant`.
+    pub divider_color: Option<Color>,
+    /// How far off the page it sits. Unset, 1.
+    pub elevation: Option<f32>,
+    /// The padding around the message row. Unset, it depends on where the actions went.
+    pub padding: Option<Insets>,
+    /// The margin around the banner. Unset, it depends on the elevation.
+    pub margin: Option<Insets>,
+    /// What the leading slot is held off the message by. Unset, 16 at its trailing edge.
+    pub leading_padding: Option<Insets>,
+    /// What the message is set in. Unset, `bodyMedium`.
     pub content_text_style: Option<TextStyle>,
 }
 

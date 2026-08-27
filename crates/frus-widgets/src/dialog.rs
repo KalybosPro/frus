@@ -664,6 +664,263 @@ impl<Msg: Clone + 'static> AlertDialog<Msg> {
     }
 }
 
+/// The padding around a [`SimpleDialog`]'s title (`dialog.dart:1168`).
+const SIMPLE_TITLE_PADDING: Insets = Insets {
+    top: 24.0,
+    right: 24.0,
+    bottom: 0.0,
+    left: 24.0,
+};
+/// The padding around its list of options (`dialog.dart:1171`) — **no side padding**,
+/// because each option is a full-width row that pads itself and lights up across the
+/// whole dialog when it is pressed.
+const SIMPLE_CONTENT_PADDING: Insets = Insets {
+    top: 12.0,
+    right: 0.0,
+    bottom: 16.0,
+    left: 0.0,
+};
+/// A [`SimpleDialogOption`]'s own padding (`dialog.dart:1082`).
+const OPTION_PADDING: Insets = Insets {
+    top: 8.0,
+    right: 24.0,
+    bottom: 8.0,
+    left: 24.0,
+};
+
+/// One row of a [`SimpleDialog`]: a full-width option that answers the question by being
+/// chosen.
+///
+/// It is a widget of its own rather than a closure argument for the reason the reference
+/// makes it one — the row is the tappable thing, and its ink has to run the full width of
+/// the dialog, which only a widget that *is* the row can do.
+pub struct SimpleDialogOption<Msg> {
+    child: Option<Box<dyn Widget<Msg>>>,
+    on_press: Option<Msg>,
+    padding: Option<Insets>,
+}
+
+impl<Msg: Clone + 'static> SimpleDialogOption<Msg> {
+    /// An option showing `label`, sending `message` when it is chosen.
+    pub fn new(label: impl Into<String>, message: Msg) -> Self {
+        Self {
+            child: Some(Box::new(crate::Text::new(label))),
+            on_press: Some(message),
+            padding: None,
+        }
+    }
+
+    /// The same, with a widget in place of the text.
+    pub fn with_child(child: impl Widget<Msg> + 'static) -> Self {
+        Self {
+            child: Some(Box::new(child)),
+            on_press: None,
+            padding: None,
+        }
+    }
+
+    /// What choosing it sends. Without one it cannot be chosen, which is the reference's
+    /// null `onPressed`.
+    #[must_use]
+    pub fn on_press(mut self, message: Msg) -> Self {
+        self.on_press = Some(message);
+        self
+    }
+
+    /// The space around the row's content. 8 down and 24 across by default.
+    #[must_use]
+    pub fn padding(mut self, padding: Insets) -> Self {
+        self.padding = Some(padding);
+        self
+    }
+
+    /// Assembles the option.
+    pub fn build(self) -> Box<dyn Widget<Msg>> {
+        let padding = self.padding.unwrap_or(OPTION_PADDING);
+        let mut row = crate::Flex::row().align(Align::Center).padding_each(
+            padding.top,
+            padding.right,
+            padding.bottom,
+            padding.left,
+        );
+        if let Some(child) = self.child {
+            row = row.child_boxed(child);
+        }
+        let mut ink = crate::InkWell::new();
+        if let Some(message) = self.on_press {
+            ink = ink.on_click(message);
+        }
+        Box::new(ink.child(row))
+    }
+}
+
+/// A dialog that **offers a choice**: a title, and a list of options to pick from.
+///
+/// The one the reference calls simple, and the difference from [`AlertDialog`] is what it
+/// is for: an alert dialog asks a question and puts the answers in a row of buttons at the
+/// bottom, this one lists them and each row *is* an answer.
+pub struct SimpleDialog<Msg> {
+    dialog: Dialog<Msg>,
+    title: Option<Box<dyn Widget<Msg>>>,
+    title_text_style: Option<TextStyle>,
+    title_padding: Option<Insets>,
+    content_padding: Option<Insets>,
+    content_text_style: Option<TextStyle>,
+    options: Vec<Box<dyn Widget<Msg>>>,
+}
+
+impl<Msg: Clone + 'static> SimpleDialog<Msg> {
+    /// Creates one; `open` says whether it is showing.
+    pub fn new(open: bool) -> Self {
+        Self {
+            dialog: Dialog::new(open),
+            title: None,
+            title_text_style: None,
+            title_padding: None,
+            content_padding: None,
+            content_text_style: None,
+            options: Vec::new(),
+        }
+    }
+
+    /// What a click on the scrim sends — see [`Dialog::on_dismiss`].
+    #[must_use]
+    pub fn on_dismiss(mut self, message: Msg) -> Self {
+        self.dialog = self.dialog.on_dismiss(message);
+        self
+    }
+
+    /// The heading, as text.
+    #[must_use]
+    pub fn title(self, title: impl Into<String>) -> Self {
+        let text = crate::Text::new(title);
+        self.title_widget(text)
+    }
+
+    /// The heading, as a widget.
+    #[must_use]
+    pub fn title_widget(mut self, title: impl Widget<Msg> + 'static) -> Self {
+        self.title = Some(Box::new(title));
+        self
+    }
+
+    /// The heading's type. `headlineSmall` by default, as [`AlertDialog`]'s is.
+    #[must_use]
+    pub fn title_text_style(mut self, style: TextStyle) -> Self {
+        self.title_text_style = Some(style);
+        self
+    }
+
+    /// The space around the heading.
+    #[must_use]
+    pub fn title_padding(mut self, padding: Insets) -> Self {
+        self.title_padding = Some(padding);
+        self
+    }
+
+    /// The space around the list of options. **No side padding** by default: an option is
+    /// a full-width row that pads itself.
+    #[must_use]
+    pub fn content_padding(mut self, padding: Insets) -> Self {
+        self.content_padding = Some(padding);
+        self
+    }
+
+    /// What the options are set in. `bodyMedium` by default.
+    #[must_use]
+    pub fn content_text_style(mut self, style: TextStyle) -> Self {
+        self.content_text_style = Some(style);
+        self
+    }
+
+    /// Adds an option — usually a [`SimpleDialogOption`].
+    #[must_use]
+    pub fn option(mut self, option: impl Widget<Msg> + 'static) -> Self {
+        self.options.push(Box::new(option));
+        self
+    }
+
+    /// The surface's colour — see [`Dialog::background`].
+    #[must_use]
+    pub fn background(mut self, color: Color) -> Self {
+        self.dialog = self.dialog.background(color);
+        self
+    }
+
+    /// How far off the page it sits — see [`Dialog::elevation`].
+    #[must_use]
+    pub fn elevation(mut self, elevation: f32) -> Self {
+        self.dialog = self.dialog.elevation(elevation);
+        self
+    }
+
+    /// The corner — see [`Dialog::shape`].
+    #[must_use]
+    pub fn shape(mut self, shape: impl Into<BorderRadius>) -> Self {
+        self.dialog = self.dialog.shape(shape);
+        self
+    }
+
+    /// How far off the window's edges — see [`Dialog::inset_padding`].
+    #[must_use]
+    pub fn inset_padding(mut self, padding: Insets) -> Self {
+        self.dialog = self.dialog.inset_padding(padding);
+        self
+    }
+
+    /// Sets the screen behind it and finalises the dialog.
+    #[must_use]
+    pub fn body(self, body: impl Widget<Msg> + 'static) -> Dialog<Msg> {
+        let SimpleDialog {
+            dialog,
+            title,
+            title_text_style,
+            title_padding,
+            content_padding,
+            content_text_style,
+            options,
+        } = self;
+        let has_options = !options.is_empty();
+        let column = crate::ThemeBuilder::boxed(move |theme| {
+            let mut column = crate::Flex::column().align(Align::Stretch);
+            if let Some(title) = title {
+                let pad = title_padding.unwrap_or(SIMPLE_TITLE_PADDING);
+                // The reference drops the title's **bottom** padding when options follow:
+                // the list has a top padding of its own, and two of them stacked would be
+                // a gap nobody asked for (`dialog.dart:1316`).
+                let bottom = if has_options { 0.0 } else { pad.bottom };
+                column = column.child(
+                    crate::Flex::column()
+                        .padding_each(pad.top, pad.right, bottom, pad.left)
+                        .child(texted(
+                            title_style(title_text_style, Some(theme)),
+                            None,
+                            title,
+                        )),
+                );
+            }
+            if has_options {
+                let pad = content_padding.unwrap_or(SIMPLE_CONTENT_PADDING);
+                let mut list = crate::Flex::column().align(Align::Stretch);
+                for option in options {
+                    list = list.child_boxed(option);
+                }
+                column = column.child(
+                    crate::Flex::column()
+                        .padding_each(pad.top, pad.right, pad.bottom, pad.left)
+                        .child(texted(
+                            content_style(content_text_style, Some(theme)),
+                            None,
+                            Box::new(list),
+                        )),
+                );
+            }
+            Box::new(column) as Box<dyn Widget<Msg>>
+        });
+        dialog.child(column).body(body)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -794,6 +1051,87 @@ mod tests {
         );
         assert_eq!(size_of("Body"), theme.text.body_medium.resolved().size);
         assert!(size_of("Heading") > size_of("Body"));
+    }
+
+    /// A simple dialog lists its options, and each row **is** an answer: choosing one
+    /// sends its message, which is the difference from an alert dialog's row of buttons.
+    #[test]
+    fn a_simple_dialog_lists_options_that_answer_it() {
+        let dialog = SimpleDialog::<Msg>::new(true)
+            .title("Set backup account")
+            .option(SimpleDialogOption::new("someone@example.com", Msg::Close).build())
+            .option(SimpleDialogOption::new("Add account", Msg::Delete).build())
+            .body(Container::new());
+        let found = texts(&dialog);
+        for wanted in ["Set backup account", "someone@example.com", "Add account"] {
+            assert!(
+                found.iter().any(|t| t == wanted),
+                "{wanted:?} is missing from {found:?}"
+            );
+        }
+        // And the rows are clickable. The panel is the dialog's **overlay**, not one of
+        // its children — a modal is drawn over the screen, not in it — so the walk has to
+        // start there. `texts` above has already built it.
+        fn walk(widget: &dyn Widget<Msg>, out: &mut Vec<Msg>) {
+            if let Some(message) = widget.on_click() {
+                out.push(message);
+            }
+            for child in widget.children() {
+                walk(child.as_ref(), out);
+            }
+        }
+        let (panel, _) = Widget::<Msg>::overlay(&dialog).expect("an open dialog is shown");
+        let mut clicks = Vec::new();
+        walk(panel, &mut clicks);
+        assert!(
+            clicks.contains(&Msg::Close) && clicks.contains(&Msg::Delete),
+            "an option that cannot be chosen is not an option: {clicks:?}"
+        );
+    }
+
+    /// **An option's row runs the full width of the dialog**, which is what the reference's
+    /// zero side padding on the list is for: the row is the tappable thing, and its ink has
+    /// to reach both edges. Padding the *list* instead would inset the ripple.
+    #[test]
+    fn an_option_s_row_reaches_both_edges_of_the_dialog() {
+        let dialog = SimpleDialog::<Msg>::new(true)
+            .title("Pick one")
+            .option(SimpleDialogOption::new("An option", Msg::Close).build())
+            .body(Container::new());
+        let ui = build_ui(
+            &dialog,
+            Size::new(400.0, 800.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        // The dialog's own surface, and the option's text: the text starts one option
+        // padding in from the surface's edge, not one option padding **plus** a list one.
+        let surface = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, radius, .. } if radius.top_left > 0.0 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("the dialog's surface is drawn");
+        let option = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Text { text, bounds, .. } if text == "An option" => {
+                    Some(*bounds)
+                }
+                _ => None,
+            })
+            .expect("the option is drawn");
+        assert!(
+            (option.x - (surface.x + OPTION_PADDING.left)).abs() < 0.5,
+            "the option is inset twice: surface {surface:?}, option {option:?}"
+        );
     }
 
     /// **An icon centres the title.** It is the one place where the presence of one slot
