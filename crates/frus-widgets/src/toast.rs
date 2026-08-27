@@ -13,6 +13,18 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
+/// A snack bar's corner and how far off the page it sits (`snack_bar.dart:983`, `:980`).
+pub const SNACK_BAR_RADIUS: f32 = 4.0;
+pub const SNACK_BAR_ELEVATION: f32 = 6.0;
+/// The stripe for a **success**.
+///
+/// Every other colour here is a role. This one cannot be: Material 3's scheme carries
+/// `error` and nothing that means *it worked*, so a success has no role to reach for and
+/// a framework that shipped no colour at all would be shipping no success variant. It is
+/// this crate's own, and [`SnackBarTheme::success_color`] is where an application replaces
+/// it.
+const SUCCESS_ACCENT: Color = Color::rgb(70.0 / 255.0, 190.0 / 255.0, 120.0 / 255.0);
+
 const PAD_X: f32 = 16.0;
 const PAD_Y: f32 = 12.0;
 const ACCENT: f32 = 4.0;
@@ -60,6 +72,10 @@ pub struct SnackBar<Msg> {
     kind: SnackBarKind,
     content_text_style: Option<TextStyle>,
     action_text_style: Option<TextStyle>,
+    background: Option<Color>,
+    text_color: Option<Color>,
+    action_text_color: Option<Color>,
+    accent: Option<Color>,
     /// The action's label and message, kept **beside** the child rather than only inside
     /// it: the width it reserves is a measurement, and a measurement cannot be taken in a
     /// builder, before any theme exists to say what type it is in.
@@ -76,9 +92,42 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
             kind: SnackBarKind::Info,
             content_text_style: None,
             action_text_style: None,
+            background: None,
+            text_color: None,
+            action_text_color: None,
+            accent: None,
             action: None,
             children: Vec::new(),
         }
+    }
+
+    /// The bar's surface, over the theme's and the scheme's `inverse_surface`.
+    #[must_use]
+    pub fn background(mut self, color: Color) -> Self {
+        self.background = Some(color);
+        self
+    }
+
+    /// The message's colour, over the theme's and the scheme's `on_inverse_surface`.
+    #[must_use]
+    pub fn text_color(mut self, color: Color) -> Self {
+        self.text_color = Some(color);
+        self
+    }
+
+    /// The action's colour, over the theme's and the scheme's `inverse_primary`.
+    #[must_use]
+    pub fn action_text_color(mut self, color: Color) -> Self {
+        self.action_text_color = Some(color);
+        self.rebuild_action();
+        self
+    }
+
+    /// The stripe down the leading edge, over the theme's and the kind's.
+    #[must_use]
+    pub fn accent(mut self, color: Color) -> Self {
+        self.accent = Some(color);
+        self
     }
 
     /// The message's type, over the theme's and the reference's.
@@ -102,7 +151,7 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
         self
     }
 
-    /// Variante erreur.
+    /// The error variant.
     pub fn error(mut self) -> Self {
         self.kind = SnackBarKind::Error;
         self
@@ -126,6 +175,7 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
             Some((label, message)) => vec![Box::new(ActionButton {
                 label: label.clone(),
                 text_style: self.action_text_style,
+                color: self.action_text_color,
                 message: message.clone(),
             })],
             None => Vec::new(),
@@ -154,11 +204,23 @@ impl<Msg> SnackBar<Msg> {
         style
     }
 
-    fn accent(&self, theme: &Theme) -> Color {
+    /// The stripe's colour: the caller's word, then the theme's, then the kind's.
+    ///
+    /// Two of the three kinds now name a role. The third cannot — see [`SUCCESS_ACCENT`].
+    fn accent_color(&self, theme: &Theme) -> Color {
+        if let Some(color) = self.accent.or(theme.widgets.snack_bar.accent_color) {
+            return color;
+        }
         match self.kind {
-            SnackBarKind::Info => theme.primary,
-            SnackBarKind::Success => Color::rgb8(70, 190, 120),
-            SnackBarKind::Error => Color::rgb8(210, 96, 96),
+            // The accent stands on the **inverted** surface, so it is the inverted
+            // accent — `primary` there is the pair the scheme guarantees nothing about.
+            SnackBarKind::Info => theme.scheme.inverse_primary,
+            SnackBarKind::Success => theme
+                .widgets
+                .snack_bar
+                .success_color
+                .unwrap_or(SUCCESS_ACCENT),
+            SnackBarKind::Error => theme.scheme.error,
         }
     }
 }
@@ -178,29 +240,35 @@ impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Shadow + card.
+        let t = &theme.widgets.snack_bar;
+        let radius = t.radius.unwrap_or(SNACK_BAR_RADIUS);
+        let elevation = t.elevation.unwrap_or(SNACK_BAR_ELEVATION);
+        // A notification is **inverted**: it is not a card on the page, it is a bar that
+        // stands out from it (`snack_bar.dart:949`). The scheme has carried the pair for
+        // this since it was written, and said so in its own documentation.
+        let fill = self
+            .background
+            .or(t.background_color)
+            .unwrap_or(theme.scheme.inverse_surface);
         scene.shadow(
             Rect::new(
-                bounds.x - 8.0,
-                bounds.y - 4.0,
-                bounds.width + 16.0,
-                bounds.height + 16.0,
+                bounds.x - elevation,
+                bounds.y - elevation * 0.5,
+                bounds.width + elevation * 2.0,
+                bounds.height + elevation * 2.0,
             ),
             theme.scheme.shadow.with_alpha(0.3).fade(o),
-            theme.radius + 8.0,
-            8.0,
+            radius + elevation,
+            elevation,
         );
-        scene.draw_rect(
-            bounds,
-            theme.surface.fade(o),
-            theme.radius,
-            1.0,
-            theme.border.fade(o),
-        );
-        // Accent bar on the left.
+        // No border: the inverted surface is what separates the bar from the page, and a
+        // rule round it would be edging a thing that is already distinct.
+        scene.draw_rect(bounds, fill.fade(o), radius, 0.0, Color::TRANSPARENT);
+        // The stripe down the leading edge is this crate's own — the reference's bar has
+        // one look and no kinds — so it is drawn inside the corner rather than over it.
         scene.draw_rect(
             Rect::new(bounds.x, bounds.y, ACCENT, bounds.height),
-            self.accent(theme).fade(o),
+            self.accent_color(theme).fade(o),
             0.0,
             0.0,
             Color::TRANSPARENT,
@@ -209,7 +277,10 @@ impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
             Point::new(bounds.x + ACCENT + PAD_X, bounds.y + PAD_Y),
             self.text.clone(),
             &content_style(self.content_text_style, Some(theme)),
-            theme.on_surface.fade(o),
+            self.text_color
+                .or(t.text_color)
+                .unwrap_or(theme.scheme.on_inverse_surface)
+                .fade(o),
         );
     }
 
@@ -222,7 +293,19 @@ impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
 struct ActionButton<Msg> {
     label: String,
     text_style: Option<TextStyle>,
+    /// The caller's colour, carried down from the bar so the two are said in one place.
+    color: Option<Color>,
     message: Msg,
+}
+
+impl<Msg> ActionButton<Msg> {
+    /// `inverse_primary` (`snack_bar.dart:965`): the accent as it must be drawn on an
+    /// inverted surface.
+    fn color(&self, theme: &Theme) -> Color {
+        self.color
+            .or(theme.widgets.snack_bar.action_text_color)
+            .unwrap_or(theme.scheme.inverse_primary)
+    }
 }
 
 impl<Msg> ActionButton<Msg> {
@@ -251,8 +334,17 @@ impl<Msg: Clone> Widget<Msg> for ActionButton<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Hover/focus background (a baked state layer: invisible at rest, tinted on interaction).
-        let bg = theme.state_layer(theme.surface, theme.primary, &status);
+        // Hover/focus background (a baked state layer: invisible at rest, tinted on
+        // interaction). It is layered on the **inverted** surface the button stands on,
+        // not on the page's — a state layer mixed from the wrong ground reads as a patch
+        // of the wrong colour rather than as a tint.
+        let label = self.color(theme);
+        let ground = theme
+            .widgets
+            .snack_bar
+            .background_color
+            .unwrap_or(theme.scheme.inverse_surface);
+        let bg = theme.state_layer(ground, label, &status);
         scene.draw_rect(bounds, bg.fade(o), theme.radius, 0.0, Color::TRANSPARENT);
         let style = action_style(self.text_style, Some(theme));
         let w = frus_text::measure_resolved(&self.label, &style).width;
@@ -263,7 +355,7 @@ impl<Msg: Clone> Widget<Msg> for ActionButton<Msg> {
             ),
             self.label.clone(),
             &style,
-            theme.primary.fade(o),
+            label.fade(o),
         );
     }
 
@@ -378,27 +470,125 @@ mod tests {
         Undo,
     }
 
-    #[test]
-    fn paints_card_accent_and_text() {
-        let toast = SnackBar::<()>::new("Saved").success();
+    /// Everything one notification paints, in one place.
+    fn painted(bar: &SnackBar<()>, theme: &Theme) -> Scene {
         let mut scene = Scene::new();
         Widget::<()>::paint(
-            &toast,
+            bar,
             Rect::new(0.0, 0.0, 160.0, 44.0),
             Status::default(),
-            &Theme::default(),
+            theme,
             &mut scene,
         );
-        // The success accent is present, plus the text.
-        let green = Color::rgb8(70, 190, 120);
+        scene
+    }
+
+    /// The colour of the first crisp rectangle covering the whole box: the bar's surface,
+    /// drawn before the stripe that sits on one edge of it.
+    fn surface_of(scene: &Scene) -> Option<Color> {
+        scene.primitives().iter().find_map(|p| match p {
+            Primitive::Rect {
+                rect, color, blur, ..
+            } if *blur == 0.0 && rect.width == 160.0 => Some(*color),
+            _ => None,
+        })
+    }
+
+    fn text_color(scene: &Scene) -> Option<Color> {
+        scene.primitives().iter().find_map(|p| match p {
+            Primitive::Text { color, .. } => Some(*color),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn paints_accent_and_text() {
+        let scene = painted(&SnackBar::<()>::new("Saved").success(), &Theme::default());
         assert!(scene
             .primitives()
             .iter()
-            .any(|p| matches!(p, Primitive::Rect { color, .. } if *color == green)));
+            .any(|p| matches!(p, Primitive::Rect { color, .. } if *color == SUCCESS_ACCENT)));
         assert!(scene
             .primitives()
             .iter()
             .any(|p| matches!(p, Primitive::Text { text, .. } if text == "Saved")));
+    }
+
+    /// A notification is **inverted**: it does not sit on the page, it stands out from it
+    /// (`snack_bar.dart:949`). The scheme has carried the pair for exactly this since it
+    /// was written, saying so in its own documentation, and the bar never used it.
+    #[test]
+    fn a_notification_stands_out_rather_than_sitting_on_the_page() {
+        let theme = Theme::default();
+        let scene = painted(&SnackBar::<()>::new("Saved"), &theme);
+        assert_eq!(
+            surface_of(&scene),
+            Some(theme.scheme.inverse_surface),
+            "not a card on the page"
+        );
+        assert_ne!(
+            theme.scheme.inverse_surface, theme.surface,
+            "and the two have to be tellable apart for that to mean anything"
+        );
+        assert_eq!(
+            text_color(&scene),
+            Some(theme.scheme.on_inverse_surface),
+            "with the message that is legible on it"
+        );
+    }
+
+    /// The action takes the one role whose whole reason for existing is being legible on
+    /// an inverted surface (`snack_bar.dart:965`).
+    #[test]
+    fn the_action_takes_the_inverted_accent() {
+        let theme = Theme::default();
+        let bar = SnackBar::<()>::new("Deleted").action("Undo", ());
+        let kids = Widget::<()>::children(&bar);
+        let mut scene = Scene::new();
+        kids[0].paint(
+            Rect::new(0.0, 0.0, 60.0, ACTION_H),
+            Status::default(),
+            &theme,
+            &mut scene,
+        );
+        assert_eq!(text_color(&scene), Some(theme.scheme.inverse_primary));
+        assert_ne!(
+            theme.scheme.inverse_primary, theme.primary,
+            "which is not the page's accent, and is the point"
+        );
+    }
+
+    /// Two of the three kinds name a role now. The third cannot — Material 3 carries
+    /// `error` and nothing that means *it worked* — so it keeps a colour of this crate's
+    /// own, and the theme is where an application replaces it.
+    #[test]
+    fn the_kinds_name_a_role_wherever_one_exists() {
+        let mut theme = Theme::default();
+        assert_eq!(
+            SnackBar::<()>::new("x").accent_color(&theme),
+            theme.scheme.inverse_primary
+        );
+        assert_eq!(
+            SnackBar::<()>::new("x").error().accent_color(&theme),
+            theme.scheme.error
+        );
+        assert_eq!(
+            SnackBar::<()>::new("x").success().accent_color(&theme),
+            SUCCESS_ACCENT
+        );
+
+        let told = Color::rgb8(1, 2, 3);
+        theme.widgets.snack_bar.success_color = Some(told);
+        assert_eq!(
+            SnackBar::<()>::new("x").success().accent_color(&theme),
+            told,
+            "the one colour without a role is the one a theme most needs to reach"
+        );
+        assert_eq!(
+            SnackBar::<()>::new("x").accent(told).accent_color(&theme),
+            told,
+            "and the caller outranks all three kinds"
+        );
     }
 
     #[test]
@@ -431,7 +621,7 @@ mod tests {
         // A manual close (action or cross).
         assert_eq!(q.dismiss(), Some("second"));
         assert!(q.is_empty());
-        assert!(!q.tick(1.0), "file vide : rien ne change");
+        assert!(!q.tick(1.0), "an empty queue: nothing changes");
     }
 
     #[test]

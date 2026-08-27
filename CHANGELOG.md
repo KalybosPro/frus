@@ -8,10 +8,25 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 429 so far, each documenting the objective, the alternatives
+> record — one per step, 430 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Changed
+
+- **`SnackBar` is the reference's inverted bar** (J430): `inverse_surface` with no border,
+  `on_inverse_surface` text, an `inverse_primary` action, corner 4 and elevation 6. The
+  scheme has carried the inverted pair since it was written, documented as being for toasts
+  and snack bars, and the bar had never used it. Two of its three kinds now name a role;
+  the third keeps a colour of this crate's own, because Material 3 has `error` and nothing
+  that means "it worked".
+
+### Added
+
+- **Seven `SnackBarTheme` slots and four `SnackBar` builders** (J430) — background, text,
+  action text, accent, the success colour, radius and elevation. All of those had been
+  hard-coded, reachable by neither a caller nor a theme.
 
 ### Added
 

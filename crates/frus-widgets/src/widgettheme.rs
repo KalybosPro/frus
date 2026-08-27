@@ -523,6 +523,23 @@ pub struct SnackBarTheme {
     pub content_text_style: Option<TextStyle>,
     /// The action's type.
     pub action_text_style: Option<TextStyle>,
+    /// The bar's surface. Unset, the scheme's `inverse_surface`.
+    pub background_color: Option<Color>,
+    /// The message's colour. Unset, the scheme's `on_inverse_surface`.
+    pub text_color: Option<Color>,
+    /// The action's colour. Unset, the scheme's `inverse_primary` — the one role in the
+    /// scheme whose whole reason for existing is being legible on an inverted surface.
+    pub action_text_color: Option<Color>,
+    /// The stripe down a notification's leading edge, whichever kind it is. Unset, the
+    /// kind decides.
+    pub accent_color: Option<Color>,
+    /// The stripe for a **success**, the one kind Material 3 has no role for. Unset, a
+    /// green of this crate's own choosing.
+    pub success_color: Option<Color>,
+    /// The corner. Unset, the reference's 4.
+    pub radius: Option<f32>,
+    /// How far off the page it sits. Unset, the reference's 6.
+    pub elevation: Option<f32>,
 }
 
 /// Defaults for [`PopupMenuButton`](crate::PopupMenuButton) and its items.
