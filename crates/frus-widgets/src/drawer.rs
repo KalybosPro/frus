@@ -25,7 +25,7 @@
 //!
 //! ```ignore
 //! Drawer::new(open)
-//!     .background_color(theme.scheme.surface_container)
+//!     .background_color(theme.scheme.surface_container_low)
 //!     .border_width(0.0)          // told apart by colour, not by a rule
 //!     .elevation(2.0)             // …or by a shadow along its inner edge
 //!     .radius(0.0)                // …or squared off entirely
@@ -178,8 +178,9 @@ impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
         let fill = self
             .style
             .background_color
+            // `navigation_drawer.dart:740` — a panel off the page, on the low rung.
             .or(theme.widgets.drawer.background_color)
-            .unwrap_or(theme.surface);
+            .unwrap_or(theme.scheme.surface_container_low);
         scene.draw_rect(bounds, fill.fade(o), radius, 0.0, Color::TRANSPARENT);
 
         // The hairline on the inner edge, drawn as its own sliver rather than as a border
@@ -772,7 +773,11 @@ mod tests {
                 .panel(Text::new("menu"))
                 .body(Container::<Msg>::new())
         };
-        assert_eq!(fill(&plain(), &theme), theme.surface, "the theme's surface");
+        assert_eq!(
+            fill(&plain(), &theme),
+            theme.scheme.surface_container_low,
+            "the ladder's low rung"
+        );
 
         theme.widgets.drawer.background_color = Some(Color::rgb(0.0, 1.0, 0.0));
         assert_eq!(

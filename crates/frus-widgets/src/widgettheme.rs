@@ -39,6 +39,8 @@ pub struct WidgetThemes {
     pub autocomplete: AutocompleteTheme,
     pub badge: BadgeTheme,
     pub banner: BannerTheme,
+    pub bottom_app_bar: BottomAppBarTheme,
+    pub bottom_sheet: BottomSheetTheme,
     pub breadcrumb: BreadcrumbTheme,
     pub button: ButtonTheme,
     pub card: CardTheme,
@@ -572,6 +574,15 @@ pub struct NavRailTheme {
     pub label_text_style: Option<TextStyle>,
     /// The count carried by a destination's badge.
     pub badge_text_style: Option<TextStyle>,
+    /// The **rail's** surface. Unset, the scheme's `surface`.
+    pub background_color: Option<Color>,
+    /// The **bottom bar's** surface, a rung higher than the rail's. Unset, the scheme's
+    /// `surface_container`.
+    ///
+    /// The reference keeps a theme object per navigation widget and gives them different
+    /// defaults; this crate keeps one for the two, so the two surfaces are two fields
+    /// rather than two structs.
+    pub bar_background_color: Option<Color>,
 }
 
 /// Defaults for [`Alert`](crate::Alert) — the message box, not the dialog. See
@@ -582,6 +593,20 @@ pub struct AlertTheme {
     pub title_text_style: Option<TextStyle>,
     /// The message's type.
     pub content_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`BottomAppBar`](crate::BottomAppBar).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BottomAppBarTheme {
+    /// The bar's surface. Unset, the scheme's `surface_container`.
+    pub color: Option<Color>,
+}
+
+/// Defaults for [`BottomSheet`](crate::BottomSheet).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BottomSheetTheme {
+    /// The sheet's surface. Unset, the scheme's `surface_container_low`.
+    pub background_color: Option<Color>,
 }
 
 /// Defaults for [`MaterialBanner`](crate::MaterialBanner).

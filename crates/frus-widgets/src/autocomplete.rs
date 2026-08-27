@@ -98,11 +98,14 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // The active suggestion: a `primary`-tinted background; hover on top.
+        // A menu panel is a distinct area within the surface, the `surface_container`
+        // role (`menu_anchor.dart:4240`). The active suggestion: a `primary`-tinted
+        // background; hover on top.
+        let panel = theme.scheme.surface_container;
         let base = if self.active {
-            theme.surface.lerp(theme.primary, 0.14)
+            panel.lerp(theme.primary, 0.14)
         } else {
-            theme.surface
+            panel
         };
         let bg = theme.state_layer(base, theme.on_surface, &status);
         scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.border.fade(o));
@@ -375,7 +378,7 @@ mod tests {
             &Theme::default(),
         );
         let theme = Theme::default();
-        let tint = theme.surface.lerp(theme.primary, 0.14);
+        let tint = theme.scheme.surface_container.lerp(theme.primary, 0.14);
         let has_tint = ui.scene().primitives().iter().any(|p| {
             matches!(
                 p,

@@ -224,6 +224,7 @@ pub struct NavigationRail<Msg> {
     items: Vec<Destination>,
     label_text_style: Option<TextStyle>,
     badge_text_style: Option<TextStyle>,
+    background: Option<Color>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -236,6 +237,7 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
             items: Vec::new(),
             label_text_style: None,
             badge_text_style: None,
+            background: None,
             children: Vec::new(),
         }
     }
@@ -269,6 +271,14 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
     pub fn badge_text_style(mut self, style: TextStyle) -> Self {
         self.badge_text_style = Some(style);
         self.rebuild();
+        self
+    }
+
+    /// The rail's surface. Unset, the theme's, then the scheme's `surface` — where the
+    /// reference puts a rail (`navigation_rail.dart:1202`), a rung below the bottom bar.
+    #[must_use]
+    pub fn background(mut self, color: Color) -> Self {
+        self.background = Some(color);
         self
     }
 
@@ -312,6 +322,14 @@ impl<Msg: Clone> Widget<Msg> for NavigationRail<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        // The rail's own surface. It had none until milestone 427 and showed whatever was
+        // behind it; the reference gives it `surface` (`navigation_rail.dart:1202`).
+        let fill = self
+            .background
+            .or(theme.widgets.nav_rail.background_color)
+            .unwrap_or(theme.scheme.surface);
+        scene.fill_rect(bounds, fill.fade(status.opacity));
+
         // Vertical separator on the right edge.
         let x = bounds.x + bounds.width - 1.0;
         scene.fill_rect(
@@ -332,6 +350,7 @@ pub struct BottomBar<Msg> {
     items: Vec<Destination>,
     label_text_style: Option<TextStyle>,
     badge_text_style: Option<TextStyle>,
+    background: Option<Color>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -344,6 +363,7 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
             items: Vec::new(),
             label_text_style: None,
             badge_text_style: None,
+            background: None,
             children: Vec::new(),
         }
     }
@@ -377,6 +397,15 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
     pub fn badge_text_style(mut self, style: TextStyle) -> Self {
         self.badge_text_style = Some(style);
         self.rebuild();
+        self
+    }
+
+    /// The bar's surface. Unset, the theme's, then the scheme's `surface_container` —
+    /// where the reference puts a navigation bar (`navigation_bar.dart:1440`), a rung
+    /// above the rail.
+    #[must_use]
+    pub fn background(mut self, color: Color) -> Self {
+        self.background = Some(color);
         self
     }
 
@@ -434,6 +463,14 @@ impl<Msg: Clone> Widget<Msg> for BottomBar<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        // The bar's own surface, a rung above the rail's: it stands on the page rather
+        // than beside it (`navigation_bar.dart:1440`).
+        let fill = self
+            .background
+            .or(theme.widgets.nav_rail.bar_background_color)
+            .unwrap_or(theme.scheme.surface_container);
+        scene.fill_rect(bounds, fill.fade(status.opacity));
+
         // Horizontal separator on the top edge.
         scene.fill_rect(
             Rect::new(bounds.x, bounds.y, bounds.width, 1.0),
@@ -453,6 +490,84 @@ mod tests {
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         Go(usize),
+    }
+
+    /// The **surface each of the two navigation widgets stands on**.
+    ///
+    /// Neither painted one until milestone 427: they drew a hairline and let whatever was
+    /// behind them show through, so a bar sitting on a page was the page with a line above
+    /// it. The reference gives the rail `surface` (`navigation_rail.dart:1202`) and the bar
+    /// `surface_container` (`navigation_bar.dart:1440`) — a rung apart, because a bar
+    /// stands *on* the page and a rail stands beside it.
+    #[test]
+    fn a_bar_and_a_rail_each_paint_the_rung_they_stand_on() {
+        let theme = Theme::default();
+        let bar = BottomBar::new(0, Msg::Go).item("H", "Home");
+        let rail = NavigationRail::new(0, Msg::Go).item("H", "Home");
+        let bar_box = Rect::new(0.0, 0.0, 320.0, BAR_HEIGHT);
+        let rail_box = Rect::new(0.0, 0.0, RAIL_WIDTH, 600.0);
+
+        assert_eq!(
+            surface_of(&bar, bar_box, &theme),
+            Some(theme.scheme.surface_container),
+            "a bar stands on the page"
+        );
+        assert_eq!(
+            surface_of(&rail, rail_box, &theme),
+            Some(theme.scheme.surface),
+            "a rail stands beside it"
+        );
+        assert_ne!(
+            theme.scheme.surface_container, theme.scheme.surface,
+            "the two rungs have to be tellable apart for the assertions above to mean \
+             anything"
+        );
+    }
+
+    /// The caller outranks the theme and the theme outranks the rung — both surfaces.
+    #[test]
+    fn the_caller_and_the_theme_outrank_the_rung() {
+        let mut theme = Theme::default();
+        theme.widgets.nav_rail.background_color = Some(Color::rgb8(1, 2, 3));
+        theme.widgets.nav_rail.bar_background_color = Some(Color::rgb8(4, 5, 6));
+        let bar_box = Rect::new(0.0, 0.0, 320.0, BAR_HEIGHT);
+        let rail_box = Rect::new(0.0, 0.0, RAIL_WIDTH, 600.0);
+
+        let bar = BottomBar::new(0, Msg::Go).item("H", "Home");
+        let rail = NavigationRail::new(0, Msg::Go).item("H", "Home");
+        assert_eq!(
+            surface_of(&bar, bar_box, &theme),
+            Some(Color::rgb8(4, 5, 6))
+        );
+        assert_eq!(
+            surface_of(&rail, rail_box, &theme),
+            Some(Color::rgb8(1, 2, 3))
+        );
+
+        let told = Color::rgb8(7, 8, 9);
+        let bar = BottomBar::new(0, Msg::Go)
+            .item("H", "Home")
+            .background(told);
+        let rail = NavigationRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .background(told);
+        assert_eq!(surface_of(&bar, bar_box, &theme), Some(told));
+        assert_eq!(surface_of(&rail, rail_box, &theme), Some(told));
+    }
+
+    /// The colour of the first rect covering the whole box — the widget's own surface,
+    /// drawn before the hairline that sits on one edge of it.
+    fn surface_of(widget: &dyn Widget<Msg>, bounds: Rect, theme: &Theme) -> Option<Color> {
+        let mut scene = Scene::new();
+        widget.paint(bounds, Status::default(), theme, &mut scene);
+        scene.primitives().iter().find_map(|p| match p {
+            frus_core::Primitive::Rect { rect, color, .. }
+                if rect.width == bounds.width && rect.height == bounds.height =>
+            {
+                Some(*color)
+            }
+            _ => None,
+        })
     }
 
     #[test]

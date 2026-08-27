@@ -74,11 +74,14 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Selected option: a primary-tinted background; hover on top (the state layer).
+        // A menu panel is a distinct area within the surface, the `surface_container`
+        // role (`menu_anchor.dart:4035`). Selected option: a primary-tinted background;
+        // hover on top (the state layer).
+        let panel = theme.scheme.surface_container;
         let base = if self.selected && self.enabled {
-            theme.surface.lerp(theme.primary, 0.14)
+            panel.lerp(theme.primary, 0.14)
         } else {
-            theme.surface
+            panel
         };
         // No state layer while disabled: a hover tint is a promise that a press would do
         // something. The outline is the row's **container**, so it takes the container
@@ -378,7 +381,7 @@ mod tests {
             .any(|p| matches!(p, Primitive::Path { .. }));
         assert!(has_check, "the selected option is ticked");
         // The selected option's primary-tinted background.
-        let sel = theme.surface.lerp(theme.primary, 0.14);
+        let sel = theme.scheme.surface_container.lerp(theme.primary, 0.14);
         let has_tint = ui.scene().primitives().iter().any(|p| {
             matches!(
                 p,

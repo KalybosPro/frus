@@ -212,7 +212,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for BottomAppBar<Msg> {
     }
 
     fn paint(&self, bounds: Rect, _status: Status, theme: &Theme, scene: &mut Scene) {
-        let color = self.color.unwrap_or(theme.surface);
+        // `bottom_app_bar.dart:327` — a distinct area within the surface.
+        let color = self
+            .color
+            .or(theme.widgets.bottom_app_bar.color)
+            .unwrap_or(theme.scheme.surface_container);
         match self.notch {
             Some((centre_x, radius)) => {
                 let path =

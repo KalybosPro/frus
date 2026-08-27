@@ -8,10 +8,29 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 426 so far, each documenting the objective, the alternatives
+> record — one per step, 427 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **A surface for `NavigationRail` and `BottomBar`** (J427). Neither painted one: they drew
+  a hairline and let whatever was behind them show through, so a bottom bar on a page was
+  the page with a line above it. The reference gives them different rungs and the difference
+  says what each is — a rail stands *beside* the page (`surface`), a bar stands *on* it
+  (`surface_container`). Both take a `background(…)`, and `NavRailTheme` carries the two
+  colours.
+
+- **`BottomSheetTheme` and `BottomSheet::background`** (J427), the sheet's surface having
+  been a hard-coded read that neither a caller nor a theme could reach. **`BottomAppBarTheme`**
+  for the same reason on the theme side.
+
+### Changed
+
+- **Five more panels take the rung the reference names them** (J427): `Drawer` and
+  `BottomSheet` to `surface_container_low`, `BottomAppBar` and the dropdown and autocomplete
+  panels to `surface_container`. All five were filled from the flat `surface`.
 
 ### Added
 

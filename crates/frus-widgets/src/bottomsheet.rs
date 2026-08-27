@@ -30,6 +30,8 @@ const GRABBER_HEIGHT: f32 = 4.0;
 /// a hairline and a grabber at the top.
 struct SheetPanel<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
+    /// The caller's surface colour, if one was named.
+    background: Option<Color>,
 }
 
 impl<Msg: Clone> Widget<Msg> for SheetPanel<Msg> {
@@ -61,9 +63,14 @@ impl<Msg: Clone> Widget<Msg> for SheetPanel<Msg> {
         // An opaque surface with rounded **top** corners (the bottom edge is flush
         // with the window) + a thin top hairline, inset from the rounding.
         let radius = theme.radius + 6.0;
+        // `bottom_sheet.dart:1496` — a sheet rises off the page, on the low rung.
+        let fill = self
+            .background
+            .or(theme.widgets.bottom_sheet.background_color)
+            .unwrap_or(theme.scheme.surface_container_low);
         scene.draw_rect(
             bounds,
-            theme.surface.fade(o),
+            fill.fade(o),
             frus_core::BorderRadius::top(radius),
             0.0,
             Color::TRANSPARENT,
@@ -102,6 +109,8 @@ pub struct BottomSheet<Msg> {
     sheet_content: Option<Box<dyn Widget<Msg>>>,
     /// The wrapped modal panel, ready for the overlay.
     modal_panel: Option<Box<dyn Widget<Msg>>>,
+    /// The sheet's surface, over the theme's and the framework's.
+    background: Option<Color>,
     /// Children in the flow: `[body]` (the panel floats as an overlay).
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -114,8 +123,17 @@ impl<Msg: Clone + 'static> BottomSheet<Msg> {
             on_dismiss: None,
             sheet_content: None,
             modal_panel: None,
+            background: None,
             children: Vec::new(),
         }
+    }
+
+    /// The sheet's surface. Unset, the theme's, then the scheme's
+    /// `surface_container_low`.
+    #[must_use]
+    pub fn background(mut self, color: Color) -> Self {
+        self.background = Some(color);
+        self
     }
 
     /// Message emitted on a click on the scrim (outside the sheet) — to close it.
@@ -132,9 +150,11 @@ impl<Msg: Clone + 'static> BottomSheet<Msg> {
 
     /// Sets the **background body** (always visible) and finalises the sheet.
     pub fn body(mut self, body: impl Widget<Msg> + 'static) -> Self {
+        let background = self.background;
         self.modal_panel = self.sheet_content.take().map(|content| {
             Box::new(SheetPanel {
                 children: vec![content],
+                background,
             }) as Box<dyn Widget<Msg>>
         });
         self.children = vec![Box::new(body)];
