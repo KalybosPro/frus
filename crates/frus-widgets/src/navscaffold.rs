@@ -1,24 +1,43 @@
-//! [`NavScaffold`]: the **adaptive** navigation scaffold. Depending on the
-//! [`SizeClass`] it places the primary navigation in a **vertical rail**
-//! (Medium/Expanded) or in a **bottom bar** (Compact), the body filling the rest. This
-//! is where the size class drives the screen's *structure*.
+//! [`NavScaffold`]: the **adaptive** navigation scaffold. It reads the [`SizeClass`] and
+//! gives each of its three bands its own presentation of the primary navigation, the body
+//! filling the rest. This is where the size class drives the screen's *structure*.
+//!
+//! | class | navigation |
+//! |---|---|
+//! | `Compact` | a bottom bar |
+//! | `Medium` | a rail, glyphs alone |
+//! | `Expanded` | an [extended](NavigationRail::extended) rail, labels beside the glyphs |
 
 use frus_core::{Rect, Scene, SizeClass};
 use frus_layout::{FlexDirection, Style};
 
 use crate::flex::Flex;
 use crate::interaction::Status;
-use crate::navrail::{BottomBar, NavigationRail};
+use crate::navrail::{BottomBar, NavigationRail, RailLabels};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Adaptive navigation shell: a rail ↔ a bottom bar, depending on the size.
+/// What a caller wants done to the rail this shell built for it. See
+/// [`NavScaffold::rail`].
+type RailConfig<Msg> = Box<dyn FnOnce(NavigationRail<Msg>) -> NavigationRail<Msg>>;
+
+/// Adaptive navigation shell: a bottom bar, a rail, or an extended rail, by size.
 pub struct NavScaffold<Msg> {
-    compact: bool,
+    class: SizeClass,
     selected: usize,
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,
     destinations: Vec<(String, String, Option<u32>)>,
+    labels: Option<RailLabels>,
+    rail: Option<RailConfig<Msg>>,
     children: Vec<Box<dyn Widget<Msg>>>,
+}
+
+impl<Msg> NavScaffold<Msg> {
+    /// Whether the navigation is a bottom bar rather than a rail. Free of the bounds the
+    /// builders carry, since the layout asks it too.
+    fn compact(&self) -> bool {
+        self.class == SizeClass::Compact
+    }
 }
 
 impl<Msg: Clone + 'static> NavScaffold<Msg> {
@@ -30,10 +49,12 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
         on_select: impl Fn(usize) -> Msg + 'static,
     ) -> Self {
         Self {
-            compact: class == SizeClass::Compact,
+            class,
             selected,
             on_select: Some(Box::new(on_select)),
             destinations: Vec::new(),
+            labels: None,
+            rail: None,
             children: Vec::new(),
         }
     }
@@ -42,16 +63,52 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
     ///
     /// [`body`]: NavScaffold::body
     pub fn destination(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
+        self.describing("destination");
         self.destinations.push((icon.into(), label.into(), None));
         self
     }
 
     /// Adds a notification count to the **last** destination.
     pub fn badge(mut self, count: u32) -> Self {
+        self.describing("badge");
         if let Some(last) = self.destinations.last_mut() {
             last.2 = Some(count);
         }
         self
+    }
+
+    /// **When the destinations say what they are**, whichever widget the class chose.
+    /// Unsaid, each keeps its own default — a bar labels everything, a plain rail
+    /// nothing, an extended rail everything (milestones 432 and 433).
+    pub fn nav_labels(mut self, labels: RailLabels) -> Self {
+        self.describing("nav_labels");
+        self.labels = Some(labels);
+        self
+    }
+
+    /// **What to do to the rail** once the shell has built it — the door
+    /// [`Scaffold::rail`](crate::Scaffold::rail) opens on the fixed shell, and the way to
+    /// decline this one's extended form: `.rail(|rail| rail.extended(false))`.
+    ///
+    /// It runs last, after the destinations and after [`Self::nav_labels`], and is silent
+    /// when the class chose a bottom bar.
+    pub fn rail(
+        mut self,
+        configure: impl FnOnce(NavigationRail<Msg>) -> NavigationRail<Msg> + 'static,
+    ) -> Self {
+        self.describing("rail");
+        self.rail = Some(Box::new(configure));
+        self
+    }
+
+    /// Everything above **describes** the navigation, and [`Self::body`] is what builds
+    /// it. Saying so afterwards is a mistake with no effect, so it says which one.
+    fn describing(&self, what: &str) {
+        assert!(
+            self.on_select.is_some(),
+            "{what}() describes the navigation and has to come before body(), which \
+             builds it"
+        );
     }
 
     /// Sets the body and **finalises** the scaffold; call it last. The body fills the
@@ -62,13 +119,16 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
         let body_pane: Box<dyn Widget<Msg>> = Box::new(Flex::column().flex(1.0).child(body));
 
         // Only one arm runs, so `on_select` is moved exactly once.
-        let nav: Box<dyn Widget<Msg>> = if self.compact {
+        let nav: Box<dyn Widget<Msg>> = if self.compact() {
             let mut bar = BottomBar::new(self.selected, on_select);
             for (icon, label, badge) in destinations {
                 bar = bar.item(icon, label);
                 if let Some(count) = badge {
                     bar = bar.badge(count);
                 }
+            }
+            if let Some(labels) = self.labels {
+                bar = bar.labels(labels);
             }
             Box::new(bar)
         } else {
@@ -79,12 +139,25 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
                     rail = rail.badge(count);
                 }
             }
+            // **The third band gets the third presentation.** A window past the expanded
+            // threshold has room for the words, and the reference's own adaptive study
+            // spends it: `extended: !isTablet` on the desktop navigation
+            // (`reply/adaptive_nav.dart:97`) — a bar below `medium`, a plain rail at
+            // `medium`, an extended rail above it. This shell had two answers for three
+            // bands, and gave the widest window the tablet's rail.
+            rail = rail.extended(self.class == SizeClass::Expanded);
+            if let Some(labels) = self.labels {
+                rail = rail.labels(labels);
+            }
+            if let Some(configure) = self.rail.take() {
+                rail = configure(rail);
+            }
             Box::new(rail)
         };
 
         // Compact puts the body above and the bar below; otherwise the rail is on the
         // left and the body on the right.
-        self.children = if self.compact {
+        self.children = if self.compact() {
             vec![body_pane, nav]
         } else {
             vec![nav, body_pane]
@@ -100,7 +173,7 @@ impl<Msg: Clone> Widget<Msg> for NavScaffold<Msg> {
     /// nested in one vanished entirely (milestone 404).
     fn style(&self) -> Style {
         Style {
-            flex_direction: if self.compact {
+            flex_direction: if self.compact() {
                 FlexDirection::Column
             } else {
                 FlexDirection::Row
@@ -153,15 +226,98 @@ mod tests {
         assert_eq!(Widget::<Msg>::children(&s).len(), 2);
     }
 
+    /// The width the navigation declared, whichever of the three it is.
+    fn nav_width(s: &NavScaffold<Msg>) -> frus_layout::Dimension {
+        Widget::<Msg>::style(&*Widget::<Msg>::children(s)[0]).width
+    }
+
     #[test]
     fn expanded_puts_rail_first_then_body_in_a_row() {
         let s = scaffold(SizeClass::Expanded);
         assert_eq!(Widget::<Msg>::style(&s).flex_direction, FlexDirection::Row);
         // The rail (1st child) has a fixed width; the body takes the rest.
-        let children = Widget::<Msg>::children(&s);
         assert_eq!(
-            Widget::<Msg>::style(&*children[0]).width,
+            nav_width(&s),
+            frus_layout::Dimension::Length(crate::navrail::EXTENDED_RAIL_WIDTH)
+        );
+    }
+
+    /// **Three bands, three presentations** (milestone 435).
+    ///
+    /// The shell had two answers for three classes, so the widest window got the
+    /// tablet's rail. The reference's own adaptive study spends the room instead —
+    /// `extended: !isTablet` on its desktop navigation (`reply/adaptive_nav.dart:97`):
+    /// a bar below `medium`, a plain rail at `medium`, an extended rail above it.
+    #[test]
+    fn each_of_the_three_classes_gets_its_own_presentation() {
+        assert_eq!(
+            Widget::<Msg>::style(&scaffold(SizeClass::Compact)).flex_direction,
+            FlexDirection::Column,
+            "compact: a bar under the body"
+        );
+        assert_eq!(
+            nav_width(&scaffold(SizeClass::Medium)),
+            frus_layout::Dimension::Length(crate::navrail::RAIL_WIDTH),
+            "medium: a rail, glyphs alone"
+        );
+        assert_eq!(
+            nav_width(&scaffold(SizeClass::Expanded)),
+            frus_layout::Dimension::Length(crate::navrail::EXTENDED_RAIL_WIDTH),
+            "expanded: an extended rail, labels beside the glyphs"
+        );
+    }
+
+    /// And the caller has the last word on it, through the same door the fixed shell
+    /// opens: a window may be wide and still want its 176 pixels back.
+    #[test]
+    fn the_extended_rail_can_be_declined() {
+        let s = NavScaffold::new(SizeClass::Expanded, 0, Msg::Go)
+            .destination("H", "Home")
+            .rail(|rail| rail.extended(false))
+            .body(Container::new());
+        assert_eq!(
+            nav_width(&s),
             frus_layout::Dimension::Length(crate::navrail::RAIL_WIDTH)
         );
+    }
+
+    /// The label mode reaches whichever widget the class chose.
+    #[test]
+    fn the_label_mode_reaches_the_widget_the_class_chose() {
+        let says_home = |class, labels: Option<RailLabels>| {
+            let mut s = NavScaffold::new(class, 0, Msg::Go).destination("H", "Home");
+            if let Some(labels) = labels {
+                s = s.nav_labels(labels);
+            }
+            let s = s.body(Container::new());
+            let ui = crate::build_ui(
+                &s as &dyn Widget<Msg>,
+                frus_core::Size::new(900.0, 600.0),
+                &crate::Runtime::default(),
+                &Theme::default(),
+            );
+            ui.scene()
+                .primitives()
+                .iter()
+                .any(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "Home"))
+        };
+        assert!(
+            !says_home(SizeClass::Medium, None),
+            "a plain rail says nothing until asked"
+        );
+        assert!(says_home(SizeClass::Medium, Some(RailLabels::All)));
+        assert!(!says_home(SizeClass::Compact, Some(RailLabels::None)));
+    }
+
+    /// Everything that **describes** the navigation has to come before the `body` that
+    /// **builds** it. It used to be silently ignored, which is a bug that looks like a
+    /// property that does not work.
+    #[test]
+    #[should_panic(expected = "has to come before body()")]
+    fn describing_the_navigation_after_the_body_is_refused() {
+        let _ = NavScaffold::new(SizeClass::Expanded, 0, Msg::Go)
+            .destination("H", "Home")
+            .body(Container::<Msg>::new())
+            .destination("S", "Settings");
     }
 }

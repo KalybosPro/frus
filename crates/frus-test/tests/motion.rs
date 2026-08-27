@@ -393,10 +393,14 @@ fn a_layout_builder_reads_its_box() {
     accept("layout_builder_box", stage.render(&root));
 }
 
-/// The navigation scaffold at both presentations: a bar across the bottom when the
-/// window is compact, a rail down the side when it is not.
+/// The navigation scaffold at **all three** of its presentations (milestone 435): a bar
+/// across the bottom when the window is compact, a rail down the side at medium, and an
+/// extended rail — labels beside the glyphs — when the window is expanded.
+///
+/// It showed two of them until milestone 435, because the shell had two answers for three
+/// size classes and handed the widest window the tablet's rail.
 #[test]
-fn the_nav_scaffold_both_ways() {
+fn the_nav_scaffold_three_ways() {
     let scaffold = |class: SizeClass| -> NavScaffold<()> {
         NavScaffold::new(class, 1, |_: usize| ())
             .destination("★", "Home")
@@ -412,24 +416,23 @@ fn the_nav_scaffold_both_ways() {
     // 198, not 190: a rail of three destinations is 198 tall, and it used to be squeezed
     // into 190. Nothing is squeezed now (milestone 349) — a rail taller than its window
     // overflows, wears a band and says so, which is what the reference does too.
+    let pane = |width: f32, class: SizeClass| {
+        Container::new()
+            .width(width)
+            .height(198.0)
+            .child(scaffold(class))
+    };
     let root: Flex<()> = Flex::row()
         .gap(10.0)
-        .child(
-            Container::new()
-                .width(150.0)
-                .height(198.0)
-                .child(scaffold(SizeClass::Compact)),
-        )
-        .child(
-            Container::new()
-                .width(180.0)
-                .height(198.0)
-                .child(scaffold(SizeClass::Expanded)),
-        );
+        .child(pane(150.0, SizeClass::Compact))
+        .child(pane(180.0, SizeClass::Medium))
+        // Wide enough for the extended rail's 256 and a strip of body beside it, which is
+        // the whole point of the third pane.
+        .child(pane(340.0, SizeClass::Expanded));
 
-    let mut stage = Stage::new(350, 208);
+    let mut stage = Stage::new(700, 208);
     stage.settle(&root);
-    accept("nav_scaffold_both_ways", stage.render(&root));
+    accept("nav_scaffold_three_ways", stage.render(&root));
 }
 
 /// The stage steps the frame loop rather than jumping to the end: a glow pulled and

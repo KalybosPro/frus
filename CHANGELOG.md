@@ -8,10 +8,30 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 434 so far, each documenting the objective, the alternatives
+> record — one per step, 435 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`NavScaffold::rail` and `::nav_labels`** (J435), the door `Scaffold` got in J434: a
+  function run over the rail the shell built, and the label mode for whichever widget the
+  size class chose.
+
+### Changed
+
+- **A `NavScaffold` at `SizeClass::Expanded` shows an extended rail** (J435) — labels beside
+  the glyphs, 256 wide — where it showed the same glyph-only rail as `Medium`. Three size
+  classes had two presentations between them, so the widest window got the portrait tablet's
+  navigation. **This changes what an existing expanded window looks like**; `.rail(|rail|
+  rail.extended(false))` declines it.
+
+### Fixed
+
+- **Describing a `NavScaffold`'s navigation after its `body` was silently ignored** (J435),
+  `destination` included. `body` is what builds the navigation; the four builders that
+  describe it now assert, and name themselves in the message.
 
 ### Added
 
