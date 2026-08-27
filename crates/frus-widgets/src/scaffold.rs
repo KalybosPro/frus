@@ -71,7 +71,7 @@ use crate::button::Variant;
 use crate::container::Container;
 use crate::flex::Flex;
 use crate::media::MediaQuery;
-use crate::navrail::{BottomBar, NavigationRail, RailLabels, BAR_HEIGHT};
+use crate::navrail::{BottomBar, Destination, NavigationRail, RailLabels, BAR_HEIGHT};
 use crate::stack::Stack;
 use crate::widget::Widget;
 
@@ -172,7 +172,7 @@ pub struct Scaffold<Msg> {
     body: Option<Box<dyn Widget<Msg>>>,
     selected: usize,
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,
-    destinations: Vec<(String, String, Option<u32>)>,
+    destinations: Vec<Destination>,
     nav_placement: NavPlacement,
     nav_labels: Option<RailLabels>,
     /// What the caller wants done to the rail once the shell has built it. `None` leaves
@@ -424,14 +424,37 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
 
     /// Adds a navigation destination (glyph + label).
     pub fn destination(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
-        self.destinations.push((icon.into(), label.into(), None));
+        self.destinations.push(Destination::new(icon, label));
         self
     }
 
     /// A notification count on the **last** destination.
-    pub fn badge(mut self, count: u32) -> Self {
+    pub fn badge(self, count: u32) -> Self {
+        self.decorate(|last| last.badge = Some(count))
+    }
+
+    /// The glyph the **last** destination shows while it is selected, where that differs
+    /// from its resting one. See [`NavigationRail::selected_icon`].
+    pub fn selected_icon(self, icon: impl Into<String>) -> Self {
+        let icon = icon.into();
+        self.decorate(move |last| last.selected_icon = Some(icon))
+    }
+
+    /// Marks the **last** destination inaccessible. See [`NavigationRail::disabled`].
+    pub fn disabled(self) -> Self {
+        self.decorate(|last| last.disabled = true)
+    }
+
+    /// The **last** destination's own indicator colour, over the theme's. See
+    /// [`NavigationRail::indicator_color`].
+    pub fn indicator_color(self, color: Color) -> Self {
+        self.decorate(move |last| last.indicator_color = Some(color))
+    }
+
+    /// Applies `f` to the destination just added. Silent when there is none.
+    fn decorate(mut self, f: impl FnOnce(&mut Destination)) -> Self {
         if let Some(last) = self.destinations.last_mut() {
-            last.2 = Some(count);
+            f(last);
         }
         self
     }
@@ -644,11 +667,8 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                 on_select.expect("nav(selected, on_select) is required with destinations");
             if !rail_nav {
                 let mut bar = BottomBar::new(selected, on_select);
-                for (icon, label, badge) in &destinations {
-                    bar = bar.item(icon.clone(), label.clone());
-                    if let Some(count) = *badge {
-                        bar = bar.badge(count);
-                    }
+                for destination in &destinations {
+                    bar = bar.destination(destination.clone());
                 }
                 if let Some(labels) = nav_labels {
                     bar = bar.labels(labels);
@@ -656,11 +676,8 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                 Some(Box::new(bar))
             } else {
                 let mut rail = NavigationRail::new(selected, on_select);
-                for (icon, label, badge) in &destinations {
-                    rail = rail.item(icon.clone(), label.clone());
-                    if let Some(count) = *badge {
-                        rail = rail.badge(count);
-                    }
+                for destination in &destinations {
+                    rail = rail.destination(destination.clone());
                 }
                 if let Some(labels) = nav_labels {
                     rail = rail.labels(labels);
@@ -2206,6 +2223,37 @@ mod tests {
             .hit(frus_core::Point::new(40.0, 20.0))
             .expect("the body's button must be reachable under two overlay layers");
         assert_eq!(ui.msg_for(target), Some(Msg::Add));
+    }
+
+    /// **The shell forwards what a destination says about itself** (milestone 436). A
+    /// property the navigation widgets have and the shell drops is a property most
+    /// applications do not have, which is milestone 434's lesson applied one level down.
+    #[test]
+    fn the_shell_forwards_a_disabled_destination() {
+        let shell = Scaffold::new()
+            .size(W, H)
+            .body(Container::<Msg>::new())
+            .nav(0, Msg::Go)
+            .destination("H", "Home")
+            .destination("S", "Stats")
+            .disabled()
+            .build();
+        let ui = build_ui(
+            shell.as_ref(),
+            Size::new(W, H),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let msg_at = |x: f32| {
+            ui.hit(frus_core::Point::new(x, H - 30.0))
+                .and_then(|target| ui.msg_for(target))
+        };
+        assert_eq!(
+            msg_at(W * 0.25),
+            Some(Msg::Go(0)),
+            "the live destination is where this test thinks it is"
+        );
+        assert_eq!(msg_at(W * 0.75), None, "and the disabled one emits nothing");
     }
 
     /// **The shell can say what kind of rail it wants** (milestone 434).

@@ -14,6 +14,7 @@ use std::cell::{OnceCell, RefCell};
 use frus_core::{Color, Insets, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
+use crate::disabled::disabled_content;
 use crate::flex::Flex;
 use crate::interaction::Status;
 use crate::theme::Theme;
@@ -121,6 +122,10 @@ struct NavItem<Msg> {
     /// Whether the label stands **beside** the glyph rather than under it. See
     /// [`NavigationRail::extended`].
     extended: bool,
+    /// This destination cannot be reached. See [`NavigationRail::disabled`].
+    disabled: bool,
+    /// This destination's own indicator colour, over the theme's.
+    indicator_color: Option<Color>,
     label_text_style: Option<TextStyle>,
     badge_text_style: Option<TextStyle>,
     message: Msg,
@@ -211,16 +216,23 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             // was the wrong role and the wrong kind of colour at once — a translucent
             // fill blends in linear light here, so 16 % does not paint at 16 %, which is
             // the trap milestone 329 resolved for the disabled tokens.
+            //
+            // The destination's own colour outranks the theme's
+            // (`navigation_rail.dart:1144`), which is how one entry in a list marks
+            // itself out from the rest.
             scene.draw_rect(
                 pill,
-                t.indicator_color
+                self.indicator_color
+                    .or(t.indicator_color)
                     .unwrap_or(theme.scheme.secondary_container)
                     .fade(o),
                 pill_h * 0.5,
                 0.0,
                 Color::TRANSPARENT,
             );
-        } else if status.hover_progress > 0.0 {
+        } else if status.hover_progress > 0.0 && !self.disabled {
+            // Nothing lights under the pointer on a destination that cannot be reached:
+            // a hover is the promise of a click, and there is no click here.
             let a = 0.12 * status.hover_progress * o;
             scene.draw_rect(
                 pill,
@@ -234,14 +246,21 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
         // The glyph is drawn **on** the indicator and the label below it, so the two do
         // not take the same colour when selected: the glyph is the indicator's content
         // (`navigation_bar.dart:1456`) and the label is the surface's (`:1476`).
-        let icon_color = if self.selected {
+        let icon_color = if self.disabled {
+            // **One rule for both halves** (`navigation_rail.dart:717`, `:723`):
+            // `on_surface` at 38 %, which this framework resolves opaque rather than
+            // handing the GPU an alpha — see [`crate::disabled_content`].
+            disabled_content(theme)
+        } else if self.selected {
             t.selected_icon_color
                 .unwrap_or(theme.scheme.on_secondary_container)
         } else {
             t.unselected_icon_color
                 .unwrap_or(theme.scheme.on_surface_variant)
         };
-        let label_color = if self.selected {
+        let label_color = if self.disabled {
+            disabled_content(theme)
+        } else if self.selected {
             t.selected_label_color.unwrap_or(theme.scheme.on_surface)
         } else {
             t.unselected_label_color.unwrap_or(if self.rail {
@@ -315,17 +334,60 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
         }
     }
 
+    /// A destination that cannot be reached emits nothing (`navigation_rail.dart:957`,
+    /// where the reference passes the ink well a null `onTap`).
     fn on_click(&self) -> Option<Msg> {
-        Some(self.message.clone())
+        (!self.disabled).then(|| self.message.clone())
     }
 
+    /// And the keyboard skips it, as it skips a disabled button.
     fn focusable(&self) -> bool {
-        true
+        !self.disabled
     }
 }
 
-/// A declared destination: glyph, label, and an optional badge count.
-type Destination = (String, String, Option<u32>);
+/// **A declared destination**: everything the caller said about one entry in the list.
+///
+/// It was a `(glyph, label, badge)` tuple until milestone 436, which is exactly as far as a
+/// tuple goes. The two shells declare their destinations with this too, so a property added
+/// here is a property they can both forward.
+#[derive(Clone, Default)]
+pub(crate) struct Destination {
+    /// The glyph standing in for an icon.
+    pub icon: String,
+    /// What the destination is called.
+    pub label: String,
+    /// The glyph shown **while selected**, when it differs from the resting one
+    /// (`navigation_rail.dart:1132`).
+    pub selected_icon: Option<String>,
+    /// Notification count. `None` or `0` = nothing.
+    pub badge: Option<u32>,
+    /// This destination cannot be reached (`navigation_rail.dart:1161`).
+    pub disabled: bool,
+    /// This destination's own indicator colour, over the theme's
+    /// (`navigation_rail.dart:1144`).
+    pub indicator_color: Option<Color>,
+}
+
+impl Destination {
+    /// A destination with nothing said about it but its glyph and its name.
+    pub(crate) fn new(icon: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            icon: icon.into(),
+            label: label.into(),
+            ..Default::default()
+        }
+    }
+
+    /// The glyph to draw in this state: the selected one when there is one and the
+    /// destination is selected, the resting one otherwise.
+    fn glyph(&self, selected: bool) -> &str {
+        match &self.selected_icon {
+            Some(icon) if selected => icon,
+            _ => &self.icon,
+        }
+    }
+}
 
 /// Builds the navigation items from the declared destinations.
 fn build_items<Msg: Clone + 'static>(
@@ -340,18 +402,21 @@ fn build_items<Msg: Clone + 'static>(
     items
         .iter()
         .enumerate()
-        .map(|(i, (icon, label, badge))| {
+        .map(|(i, item)| {
+            let is_selected = i == selected;
             Box::new(NavItem {
-                icon: icon.clone(),
-                label: label.clone(),
-                selected: i == selected,
-                badge: *badge,
+                icon: item.glyph(is_selected).to_string(),
+                label: item.label.clone(),
+                selected: is_selected,
+                badge: item.badge,
                 rail,
                 // An extended rail labels **every** destination
                 // (`navigation_rail.dart:219`): the label has its own room there, so
                 // there is nothing for a mode to trade away.
                 show_label: extended || labels.shows(i, selected),
                 extended,
+                disabled: item.disabled,
+                indicator_color: item.indicator_color,
                 label_text_style: styles.0,
                 badge_text_style: styles.1,
                 message: on_select(i),
@@ -507,15 +572,55 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
 
     /// Adds a destination (glyph + label).
     pub fn item(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
-        self.items.push((icon.into(), label.into(), None));
+        self.items.push(Destination::new(icon, label));
+        self.rebuild();
+        self
+    }
+
+    /// Adds a destination declared **in full** — what a shell hands over, having taken
+    /// the caller's decorations itself.
+    pub(crate) fn destination(mut self, destination: Destination) -> Self {
+        self.items.push(destination);
         self.rebuild();
         self
     }
 
     /// Adds a notification count to the **last** destination.
-    pub fn badge(mut self, count: u32) -> Self {
+    pub fn badge(self, count: u32) -> Self {
+        self.decorate(|last| last.badge = Some(count))
+    }
+
+    /// The glyph the **last** destination shows while it is selected, where that differs
+    /// from its resting one (`navigation_rail.dart:1132`).
+    ///
+    /// The reference pairs a stroked icon with its filled version, which is how a
+    /// selected destination reads as selected without leaning on colour alone.
+    #[must_use]
+    pub fn selected_icon(self, icon: impl Into<String>) -> Self {
+        let icon = icon.into();
+        self.decorate(move |last| last.selected_icon = Some(icon))
+    }
+
+    /// Marks the **last** destination inaccessible (`navigation_rail.dart:1161`): its
+    /// glyph and its label take the disabled ink, nothing lights under the pointer, it
+    /// emits no message, and the keyboard steps over it.
+    #[must_use]
+    pub fn disabled(self) -> Self {
+        self.decorate(|last| last.disabled = true)
+    }
+
+    /// The **last** destination's own indicator colour, over the theme's
+    /// (`navigation_rail.dart:1144`) — how one entry marks itself out from the rest.
+    #[must_use]
+    pub fn indicator_color(self, color: Color) -> Self {
+        self.decorate(move |last| last.indicator_color = Some(color))
+    }
+
+    /// Applies `f` to the destination just added. Silent when there is none, which is the
+    /// shape `badge` has always had.
+    fn decorate(mut self, f: impl FnOnce(&mut Destination)) -> Self {
         if let Some(last) = self.items.last_mut() {
-            last.2 = Some(count);
+            f(last);
             self.rebuild();
         }
         self
@@ -725,15 +830,55 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
 
     /// Adds a destination (glyph + label).
     pub fn item(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
-        self.items.push((icon.into(), label.into(), None));
+        self.items.push(Destination::new(icon, label));
+        self.rebuild();
+        self
+    }
+
+    /// Adds a destination declared **in full** — what a shell hands over, having taken
+    /// the caller's decorations itself.
+    pub(crate) fn destination(mut self, destination: Destination) -> Self {
+        self.items.push(destination);
         self.rebuild();
         self
     }
 
     /// Adds a notification count to the **last** destination.
-    pub fn badge(mut self, count: u32) -> Self {
+    pub fn badge(self, count: u32) -> Self {
+        self.decorate(|last| last.badge = Some(count))
+    }
+
+    /// The glyph the **last** destination shows while it is selected, where that differs
+    /// from its resting one (`navigation_rail.dart:1132`).
+    ///
+    /// The reference pairs a stroked icon with its filled version, which is how a
+    /// selected destination reads as selected without leaning on colour alone.
+    #[must_use]
+    pub fn selected_icon(self, icon: impl Into<String>) -> Self {
+        let icon = icon.into();
+        self.decorate(move |last| last.selected_icon = Some(icon))
+    }
+
+    /// Marks the **last** destination inaccessible (`navigation_rail.dart:1161`): its
+    /// glyph and its label take the disabled ink, nothing lights under the pointer, it
+    /// emits no message, and the keyboard steps over it.
+    #[must_use]
+    pub fn disabled(self) -> Self {
+        self.decorate(|last| last.disabled = true)
+    }
+
+    /// The **last** destination's own indicator colour, over the theme's
+    /// (`navigation_rail.dart:1144`) — how one entry marks itself out from the rest.
+    #[must_use]
+    pub fn indicator_color(self, color: Color) -> Self {
+        self.decorate(move |last| last.indicator_color = Some(color))
+    }
+
+    /// Applies `f` to the destination just added. Silent when there is none, which is the
+    /// shape `badge` has always had.
+    fn decorate(mut self, f: impl FnOnce(&mut Destination)) -> Self {
         if let Some(last) = self.items.last_mut() {
-            last.2 = Some(count);
+            f(last);
             self.rebuild();
         }
         self
@@ -996,6 +1141,8 @@ mod tests {
             rail,
             show_label,
             extended,
+            disabled: false,
+            indicator_color: None,
             label_text_style: label_style,
             badge_text_style: None,
             message: Msg::Go(0),
@@ -1425,12 +1572,148 @@ mod tests {
         }
     }
 
+    /// A [`Status`] a destination is actually being painted under, rather than the
+    /// default's zero opacity.
+    fn live() -> Status {
+        Status {
+            opacity: 1.0,
+            ..Default::default()
+        }
+    }
+
+    /// The same, with the pointer over it.
+    fn hovered() -> Status {
+        Status {
+            hover_progress: 1.0,
+            ..live()
+        }
+    }
+
+    /// Paints destination `index` of `rail`, in a rail-sized box.
+    fn paint_destination(
+        rail: &NavigationRail<Msg>,
+        index: usize,
+        status: Status,
+        theme: &Theme,
+    ) -> Scene {
+        let mut scene = Scene::new();
+        destinations(rail)[index].paint(
+            Rect::new(0.0, 0.0, RAIL_WIDTH, ITEM_HEIGHT),
+            status,
+            theme,
+            &mut scene,
+        );
+        scene
+    }
+
+    /// **A destination that cannot be reached says so, four ways** (milestone 436).
+    ///
+    /// The reference gives the glyph and the label one rule — `on_surface` at 38 %
+    /// (`navigation_rail.dart:717`, `:723`) — and hands the ink well a null `onTap`
+    /// (`:957`). The hover and the focus follow from there rather than from a fifth
+    /// property: a hover is the promise of a click, and there is no click here.
+    #[test]
+    fn a_destination_that_cannot_be_reached_says_so() {
+        let theme = Theme::default();
+        // 9 with two destinations: nothing selected, so no indicator confuses the count.
+        let rail = NavigationRail::new(9, Msg::Go)
+            .labels(RailLabels::All)
+            .item("H", "Home")
+            .disabled();
+        let item = &destinations(&rail)[0];
+        assert_eq!(item.on_click(), None, "it emits nothing");
+        assert!(!item.focusable(), "and the keyboard steps over it");
+
+        let ink = disabled_content(&theme);
+        assert_eq!(
+            texts(&paint_destination(&rail, 0, live(), &theme)),
+            vec![ink, ink],
+            "one rule for the glyph and for the label"
+        );
+        assert!(
+            rects(&paint_destination(&rail, 0, hovered(), &theme)).is_empty(),
+            "and nothing lights under the pointer"
+        );
+
+        // Which means something only if a live one does all four.
+        let live_rail = NavigationRail::new(9, Msg::Go)
+            .labels(RailLabels::All)
+            .item("H", "Home");
+        let live_item = &destinations(&live_rail)[0];
+        assert_eq!(live_item.on_click(), Some(Msg::Go(0)));
+        assert!(live_item.focusable());
+        assert_ne!(
+            texts(&paint_destination(&live_rail, 0, live(), &theme))[0],
+            ink
+        );
+        assert!(!rects(&paint_destination(&live_rail, 0, hovered(), &theme)).is_empty());
+    }
+
+    /// **A selected destination can show a different glyph** (`navigation_rail.dart:1132`).
+    ///
+    /// The reference pairs a stroked icon with its filled version, which is how a
+    /// selected destination reads as selected without leaning on colour alone.
+    #[test]
+    fn a_selected_destination_can_show_a_different_glyph() {
+        let theme = Theme::default();
+        let glyph = |selected: usize| {
+            let rail = NavigationRail::new(selected, Msg::Go)
+                .item("H", "Home")
+                .selected_icon("\u{2605}")
+                .item("S", "Search");
+            placed(&paint_destination(&rail, 0, live(), &theme))[0]
+                .0
+                .clone()
+        };
+        assert_eq!(glyph(1), "H", "at rest, the one it was given");
+        assert_eq!(glyph(0), "\u{2605}", "selected, the other one");
+
+        // A destination that names no second glyph keeps its first in both states.
+        let plain = |selected: usize| {
+            let rail = NavigationRail::new(selected, Msg::Go).item("H", "Home");
+            placed(&paint_destination(&rail, 0, live(), &theme))[0]
+                .0
+                .clone()
+        };
+        assert_eq!(plain(0), plain(1));
+    }
+
+    /// **A destination's own indicator colour outranks the theme's**
+    /// (`navigation_rail.dart:1144`) — how one entry marks itself out from the rest.
+    #[test]
+    fn a_destination_can_carry_its_own_indicator_colour() {
+        let mut theme = Theme::default();
+        theme.widgets.nav_rail.indicator_color = Some(Color::rgb8(1, 2, 3));
+        let told = Color::rgb8(4, 5, 6);
+
+        let mine = NavigationRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .indicator_color(told);
+        assert_eq!(
+            rects(&paint_destination(&mine, 0, live(), &theme))
+                .first()
+                .copied(),
+            Some(told)
+        );
+
+        let theirs = NavigationRail::new(0, Msg::Go).item("H", "Home");
+        assert_eq!(
+            rects(&paint_destination(&theirs, 0, live(), &theme))
+                .first()
+                .copied(),
+            Some(Color::rgb8(1, 2, 3)),
+            "and the theme's when the destination says nothing"
+        );
+    }
+
     /// The rail's destinations, which since milestone 433 sit inside the **group** that
     /// [`NavigationRail::group_alignment`] moves rather than directly under the rail.
     fn destinations(rail: &NavigationRail<Msg>) -> &[Box<dyn Widget<Msg>>] {
+        // By what the children **are**, not by whether they are clickable: a rail whose
+        // only destination is disabled has nothing clickable in it (milestone 436).
         Widget::<Msg>::children(rail)
             .iter()
-            .find(|child| child.children().iter().any(|c| c.on_click().is_some()))
+            .find(|child| child.children().iter().any(|c| c.debug_name() == "NavItem"))
             .expect("the rail assembles its destinations into one group")
             .children()
     }

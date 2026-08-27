@@ -8,10 +8,22 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 435 so far, each documenting the objective, the alternatives
+> record — one per step, 436 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **A destination can be `disabled`** (J436), on `NavigationRail`, `BottomBar`, `Scaffold`
+  and `NavScaffold`: its glyph and label take the disabled ink, nothing lights under the
+  pointer, it emits no message and the keyboard steps over it. The indicator stays — greying
+  a destination says you cannot go there now, not that you are not there.
+
+- **`selected_icon`** (J436): the glyph a destination shows while it is selected, where that
+  differs from its resting one. Unset, the resting one serves for both.
+
+- **`indicator_color` per destination** (J436), over the theme's and the scheme's.
 
 ### Added
 

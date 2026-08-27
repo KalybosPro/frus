@@ -8,12 +8,12 @@
 //! | `Medium` | a rail, glyphs alone |
 //! | `Expanded` | an [extended](NavigationRail::extended) rail, labels beside the glyphs |
 
-use frus_core::{Rect, Scene, SizeClass};
+use frus_core::{Color, Rect, Scene, SizeClass};
 use frus_layout::{FlexDirection, Style};
 
 use crate::flex::Flex;
 use crate::interaction::Status;
-use crate::navrail::{BottomBar, NavigationRail, RailLabels};
+use crate::navrail::{BottomBar, Destination, NavigationRail, RailLabels};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -26,7 +26,7 @@ pub struct NavScaffold<Msg> {
     class: SizeClass,
     selected: usize,
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,
-    destinations: Vec<(String, String, Option<u32>)>,
+    destinations: Vec<Destination>,
     labels: Option<RailLabels>,
     rail: Option<RailConfig<Msg>>,
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -64,15 +64,41 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
     /// [`body`]: NavScaffold::body
     pub fn destination(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
         self.describing("destination");
-        self.destinations.push((icon.into(), label.into(), None));
+        self.destinations.push(Destination::new(icon, label));
         self
     }
 
     /// Adds a notification count to the **last** destination.
-    pub fn badge(mut self, count: u32) -> Self {
+    pub fn badge(self, count: u32) -> Self {
         self.describing("badge");
+        self.decorate(|last| last.badge = Some(count))
+    }
+
+    /// The glyph the **last** destination shows while it is selected, where that differs
+    /// from its resting one. See [`NavigationRail::selected_icon`].
+    pub fn selected_icon(self, icon: impl Into<String>) -> Self {
+        self.describing("selected_icon");
+        let icon = icon.into();
+        self.decorate(move |last| last.selected_icon = Some(icon))
+    }
+
+    /// Marks the **last** destination inaccessible. See [`NavigationRail::disabled`].
+    pub fn disabled(self) -> Self {
+        self.describing("disabled");
+        self.decorate(|last| last.disabled = true)
+    }
+
+    /// The **last** destination's own indicator colour, over the theme's. See
+    /// [`NavigationRail::indicator_color`].
+    pub fn indicator_color(self, color: Color) -> Self {
+        self.describing("indicator_color");
+        self.decorate(move |last| last.indicator_color = Some(color))
+    }
+
+    /// Applies `f` to the destination just added. Silent when there is none.
+    fn decorate(mut self, f: impl FnOnce(&mut Destination)) -> Self {
         if let Some(last) = self.destinations.last_mut() {
-            last.2 = Some(count);
+            f(last);
         }
         self
     }
@@ -121,11 +147,8 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
         // Only one arm runs, so `on_select` is moved exactly once.
         let nav: Box<dyn Widget<Msg>> = if self.compact() {
             let mut bar = BottomBar::new(self.selected, on_select);
-            for (icon, label, badge) in destinations {
-                bar = bar.item(icon, label);
-                if let Some(count) = badge {
-                    bar = bar.badge(count);
-                }
+            for destination in destinations {
+                bar = bar.destination(destination);
             }
             if let Some(labels) = self.labels {
                 bar = bar.labels(labels);
@@ -133,11 +156,8 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
             Box::new(bar)
         } else {
             let mut rail = NavigationRail::new(self.selected, on_select);
-            for (icon, label, badge) in destinations {
-                rail = rail.item(icon, label);
-                if let Some(count) = badge {
-                    rail = rail.badge(count);
-                }
+            for destination in destinations {
+                rail = rail.destination(destination);
             }
             // **The third band gets the third presentation.** A window past the expanded
             // threshold has room for the words, and the reference's own adaptive study
