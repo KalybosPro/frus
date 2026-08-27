@@ -8,10 +8,30 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 436 so far, each documenting the objective, the alternatives
+> record — one per step, 437 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **A navigation destination's state layer was a translucent pill** (J437) — `muted` at
+  12 %, handed to the GPU and therefore blended in linear light, where it paints like a
+  third. It is the theme's own state rule now, resolved opaquely over the ground the
+  destination stands on, with the reference's `primary` as its ink.
+
+- **A selected destination did not respond to the pointer at all** (J437): the state layer
+  lived in the `else` of "is it selected", so the one destination a pointer is most likely
+  to be over was the one that never lit. The layer goes over the indicator.
+
+- **`NavigationRail::background` and `BottomBar::background` did not invalidate their
+  destinations** (J437). Harmless until the destinations began reading the background, which
+  they must, a state layer being a lerp from the ground up.
+
+### Added
+
+- **A destination answers focus and press**, not only hover (J437) — they came with the
+  theme's state rule.
 
 ### Added
 

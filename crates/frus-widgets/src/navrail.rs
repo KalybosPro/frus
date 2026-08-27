@@ -126,6 +126,10 @@ struct NavItem<Msg> {
     disabled: bool,
     /// This destination's own indicator colour, over the theme's.
     indicator_color: Option<Color>,
+    /// The surface the destination **stands on**, when the widget carrying it was told
+    /// one. A state layer is a lerp from the ground toward the ink, so it has to be the
+    /// ground the caller actually painted.
+    ground: Option<Color>,
     label_text_style: Option<TextStyle>,
     badge_text_style: Option<TextStyle>,
     message: Msg,
@@ -209,38 +213,53 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
         let pill_w = icon_m.width + 28.0;
         let pill_h = icon_m.height + 8.0;
         let pill = Rect::new(bounds.x + (col - pill_w) * 0.5, top - 4.0, pill_w, pill_h);
-        if self.selected {
-            // The indicator is a **container**, not a wash: the reference fills it with
-            // an opaque `secondaryContainer` (`navigation_bar.dart:1463`,
-            // `navigation_rail.dart:1272`) where this painted `primary` at 16 %. A tint
-            // was the wrong role and the wrong kind of colour at once — a translucent
-            // fill blends in linear light here, so 16 % does not paint at 16 %, which is
-            // the trap milestone 329 resolved for the disabled tokens.
-            //
-            // The destination's own colour outranks the theme's
-            // (`navigation_rail.dart:1144`), which is how one entry in a list marks
-            // itself out from the rest.
-            scene.draw_rect(
-                pill,
-                self.indicator_color
-                    .or(t.indicator_color)
-                    .unwrap_or(theme.scheme.secondary_container)
-                    .fade(o),
-                pill_h * 0.5,
-                0.0,
-                Color::TRANSPARENT,
-            );
-        } else if status.hover_progress > 0.0 && !self.disabled {
-            // Nothing lights under the pointer on a destination that cannot be reached:
-            // a hover is the promise of a click, and there is no click here.
-            let a = 0.12 * status.hover_progress * o;
-            scene.draw_rect(
-                pill,
-                theme.muted.fade(a),
-                pill_h * 0.5,
-                0.0,
-                Color::TRANSPARENT,
-            );
+        // **The ground this destination stands on**, which is what a state layer is
+        // measured from: the indicator when it has one, else the surface the rail or the
+        // bar painted under it — the caller's, the theme's, or the rung each of the two
+        // takes by default (milestone 427).
+        let ground = self.ground.or(if self.rail {
+            theme.widgets.nav_rail.background_color
+        } else {
+            theme.widgets.nav_rail.bar_background_color
+        });
+        let ground = ground.unwrap_or(if self.rail {
+            theme.scheme.surface
+        } else {
+            theme.scheme.surface_container
+        });
+        // The indicator is a **container**, not a wash: the reference fills it with an
+        // opaque `secondaryContainer` (`navigation_bar.dart:1463`,
+        // `navigation_rail.dart:1272`) where this painted `primary` at 16 %. A tint was
+        // the wrong role and the wrong kind of colour at once — a translucent fill blends
+        // in linear light here, so 16 % does not paint at 16 %, which is the trap
+        // milestone 329 resolved for the disabled tokens.
+        //
+        // The destination's own colour outranks the theme's (`navigation_rail.dart:1144`),
+        // which is how one entry in a list marks itself out from the rest.
+        let indicator = self
+            .indicator_color
+            .or(t.indicator_color)
+            .unwrap_or(theme.scheme.secondary_container);
+        let base = if self.selected { indicator } else { ground };
+        // **And the state layer over it, resolved opaquely.** This used to be `muted` at
+        // 12 % handed to the GPU as an alpha, which is three mistakes in one line: the
+        // wrong kind of colour (a translucent overlay blends in linear light here, so
+        // 12 % paints like a third), the wrong role (the reference's ink for this widget
+        // is `primary`, `navigation_rail.dart:946`), and the wrong number (12 % is the
+        // *splash*'s, `:943`; the hover's is smaller). [`Theme::state_layer`] is the one
+        // rule the rest of the framework already asks — a lerp from the ground toward the
+        // ink, in the space the tokens were written in — and it answers hover, focus and
+        // press at once, where this answered only hover.
+        //
+        // Nothing lights on a destination that cannot be reached: a state layer is the
+        // promise of an interaction, and there is none here (milestone 436).
+        let fill = if self.disabled {
+            base
+        } else {
+            theme.state_layer(base, theme.scheme.primary, &status)
+        };
+        if self.selected || fill != base {
+            scene.draw_rect(pill, fill.fade(o), pill_h * 0.5, 0.0, Color::TRANSPARENT);
         }
 
         // The glyph is drawn **on** the indicator and the label below it, so the two do
@@ -389,15 +408,30 @@ impl Destination {
     }
 }
 
+/// **How a list of destinations is being presented** — everything an item needs that is
+/// the same for every item in the list.
+///
+/// One argument rather than six: the two widgets pass the same thing, and a function taking
+/// four booleans and two colours in a row is a function whose call sites are read by
+/// counting commas.
+#[derive(Copy, Clone)]
+struct Presentation {
+    /// `true` = a rail's items (fixed width); `false` = a bar's (they share the row).
+    rail: bool,
+    labels: RailLabels,
+    extended: bool,
+    /// The surface the destinations stand on, when the widget carrying them was told one.
+    ground: Option<Color>,
+    label_text_style: Option<TextStyle>,
+    badge_text_style: Option<TextStyle>,
+}
+
 /// Builds the navigation items from the declared destinations.
 fn build_items<Msg: Clone + 'static>(
     items: &[Destination],
     selected: usize,
     on_select: &dyn Fn(usize) -> Msg,
-    rail: bool,
-    labels: RailLabels,
-    extended: bool,
-    styles: (Option<TextStyle>, Option<TextStyle>),
+    how: Presentation,
 ) -> Vec<Box<dyn Widget<Msg>>> {
     items
         .iter()
@@ -409,16 +443,17 @@ fn build_items<Msg: Clone + 'static>(
                 label: item.label.clone(),
                 selected: is_selected,
                 badge: item.badge,
-                rail,
+                rail: how.rail,
                 // An extended rail labels **every** destination
                 // (`navigation_rail.dart:219`): the label has its own room there, so
                 // there is nothing for a mode to trade away.
-                show_label: extended || labels.shows(i, selected),
-                extended,
+                show_label: how.extended || how.labels.shows(i, selected),
+                extended: how.extended,
                 disabled: item.disabled,
                 indicator_color: item.indicator_color,
-                label_text_style: styles.0,
-                badge_text_style: styles.1,
+                ground: how.ground,
+                label_text_style: how.label_text_style,
+                badge_text_style: how.badge_text_style,
                 message: on_select(i),
             }) as Box<dyn Widget<Msg>>
         })
@@ -647,6 +682,9 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
     #[must_use]
     pub fn background(mut self, color: Color) -> Self {
         self.background = Some(color);
+        // The destinations read it too, since milestone 437: a state layer is a lerp from
+        // the ground toward the ink, and this is the ground.
+        self.rebuild();
         self
     }
 
@@ -715,10 +753,14 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
             &self.items,
             self.selected,
             &*self.on_select,
-            true,
-            self.labels,
-            self.extended,
-            (self.label_text_style, self.badge_text_style),
+            Presentation {
+                rail: true,
+                labels: self.labels,
+                extended: self.extended,
+                ground: self.background,
+                label_text_style: self.label_text_style,
+                badge_text_style: self.badge_text_style,
+            },
         ) {
             group = group.child_boxed(item);
         }
@@ -906,6 +948,9 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
     #[must_use]
     pub fn background(mut self, color: Color) -> Self {
         self.background = Some(color);
+        // The destinations read it too, since milestone 437: a state layer is a lerp from
+        // the ground toward the ink, and this is the ground.
+        self.rebuild();
         self
     }
 
@@ -916,10 +961,15 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
             &self.items,
             self.selected,
             &*self.on_select,
-            false,
-            self.labels,
-            false,
-            (self.label_text_style, self.badge_text_style),
+            Presentation {
+                rail: false,
+                labels: self.labels,
+                // A bar is one row: it has no extended form, and no room for one.
+                extended: false,
+                ground: self.background,
+                label_text_style: self.label_text_style,
+                badge_text_style: self.badge_text_style,
+            },
         );
     }
 }
@@ -1143,6 +1193,7 @@ mod tests {
             extended,
             disabled: false,
             indicator_color: None,
+            ground: None,
             label_text_style: label_style,
             badge_text_style: None,
             message: Msg::Go(0),
@@ -1336,6 +1387,136 @@ mod tests {
             }
         };
         assert_eq!(height(true), height(false));
+    }
+
+    /// The one rectangle a destination paints under itself, if it paints one.
+    fn layer(rail: &NavigationRail<Msg>, status: Status, theme: &Theme) -> Option<Color> {
+        rects(&paint_destination(rail, 0, status, theme))
+            .first()
+            .copied()
+    }
+
+    /// **A state layer is opaque, and it is a lerp from the ground** (milestone 437).
+    ///
+    /// This painted `muted` at 12 % handed to the GPU as an alpha, which is three
+    /// mistakes in one line: the wrong *kind* of colour, since a translucent overlay
+    /// blends in linear light here and 12 % paints like a third (milestone 329); the
+    /// wrong *role*, the reference's ink for this widget being `primary`
+    /// (`navigation_rail.dart:946`); and the wrong *number*, 12 % being the splash's
+    /// (`:943`) rather than the hover's.
+    #[test]
+    fn a_destination_s_state_layer_is_opaque_and_starts_from_the_ground() {
+        let theme = Theme::default();
+        let rail = NavigationRail::new(9, Msg::Go).item("H", "Home");
+        let painted = layer(&rail, hovered(), &theme).expect("a hovered destination lights");
+        assert_eq!(painted.a, 1.0, "resolved here, not handed over as an alpha");
+        assert_eq!(
+            painted,
+            theme.state_layer(theme.scheme.surface, theme.scheme.primary, &hovered()),
+            "the framework's one state rule, over the rail's own rung"
+        );
+        assert_eq!(
+            layer(&rail, live(), &theme),
+            None,
+            "and nothing at rest, which is what it has always drawn"
+        );
+    }
+
+    /// It starts from the ground the widget **actually painted**: the two widgets stand on
+    /// different rungs (milestone 427), and either can be told a third colour.
+    #[test]
+    fn the_layer_starts_from_the_ground_the_widget_painted() {
+        let theme = Theme::default();
+        let rail = NavigationRail::new(9, Msg::Go).item("H", "Home");
+        let on_rail = layer(&rail, hovered(), &theme).expect("lit");
+
+        let mut bar_scene = Scene::new();
+        let bar = BottomBar::new(9, Msg::Go).item("H", "Home");
+        Widget::<Msg>::children(&bar)[0].paint(
+            Rect::new(0.0, 0.0, RAIL_WIDTH, BAR_HEIGHT),
+            hovered(),
+            &theme,
+            &mut bar_scene,
+        );
+        let on_bar = rects(&bar_scene).first().copied().expect("lit");
+        assert_ne!(
+            on_rail, on_bar,
+            "a bar stands a rung above a rail, so its layer starts higher"
+        );
+
+        let told = Color::rgb8(120, 20, 20);
+        let painted = NavigationRail::new(9, Msg::Go)
+            .item("H", "Home")
+            .background(told);
+        assert_eq!(
+            layer(&painted, hovered(), &theme),
+            Some(theme.state_layer(told, theme.scheme.primary, &hovered())),
+            "and a rail told a colour is the colour its destinations stand on"
+        );
+    }
+
+    /// **A selected destination lights too.** The old branch answered hover only when
+    /// there was no indicator, so the one destination a pointer is most likely to be over
+    /// was the one that never responded.
+    #[test]
+    fn a_selected_destination_lights_under_the_pointer_too() {
+        let theme = Theme::default();
+        let rail = NavigationRail::new(0, Msg::Go).item("H", "Home");
+        let resting = layer(&rail, live(), &theme).expect("the indicator");
+        let lit = layer(&rail, hovered(), &theme).expect("the indicator, plus the layer");
+        assert_eq!(resting, theme.scheme.secondary_container);
+        assert_ne!(lit, resting, "the indicator takes the layer over it");
+        assert_eq!(
+            lit,
+            theme.state_layer(
+                theme.scheme.secondary_container,
+                theme.scheme.primary,
+                &hovered()
+            )
+        );
+    }
+
+    /// And **focus and press** light it as well, which nothing did before: the old line
+    /// read `hover_progress` alone, where the theme's rule answers all three states.
+    #[test]
+    fn focus_and_press_light_it_as_well() {
+        let theme = Theme::default();
+        let rail = NavigationRail::new(9, Msg::Go).item("H", "Home");
+        let focused = Status {
+            focus_progress: 1.0,
+            ..live()
+        };
+        let pressed = Status {
+            interaction: crate::interaction::Interaction::Pressed,
+            ..live()
+        };
+        assert!(layer(&rail, focused, &theme).is_some(), "focus");
+        assert!(layer(&rail, pressed, &theme).is_some(), "press");
+        assert!(
+            layer(&rail, live(), &theme).is_none(),
+            "and still nothing at rest"
+        );
+    }
+
+    /// Nothing lights on a destination that cannot be reached, in any of the three states:
+    /// a state layer is the promise of an interaction, and there is none here.
+    #[test]
+    fn a_disabled_destination_lights_in_no_state_at_all() {
+        let theme = Theme::default();
+        let rail = NavigationRail::new(9, Msg::Go).item("H", "Home").disabled();
+        for status in [
+            hovered(),
+            Status {
+                focus_progress: 1.0,
+                ..live()
+            },
+            Status {
+                interaction: crate::interaction::Interaction::Pressed,
+                ..live()
+            },
+        ] {
+            assert_eq!(layer(&rail, status, &theme), None);
+        }
     }
 
     /// **The wide form.** An extended rail puts each label beside its glyph rather than
