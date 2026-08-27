@@ -8,10 +8,27 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 432 so far, each documenting the objective, the alternatives
+> record — one per step, 433 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`NavigationRail::extended`** (J433): 256 across instead of 80, with every label beside
+  its glyph instead of under it. The glyphs keep the column they had, so extending a rail
+  widens it and moves nothing; the row is as tall as the taller of glyph and label rather
+  than as tall as both; and every destination is labelled, whatever `RailLabels` says.
+
+- **`NavigationRail::group_alignment`** (J433): where the destinations sit between the
+  rail's two ends, `-1.0` (the default, against the top) to `1.0`, **continuously** — a
+  third of the way down is a thing you can ask for.
+
+- **`NavigationRail::leading` and `::trailing`** (J433), with `leading_boxed` and
+  `trailing_boxed` for a slot that is already built: the slots above and below the
+  destinations, where an application puts a floating action button or an account switcher.
+  `leading_at_top` and `trailing_at_bottom` say which of them travels when the group moves;
+  as the reference has it, the leading slot is pinned and the trailing one travels.
 
 ### Added
 

@@ -2,10 +2,19 @@
 //! **main navigation**. Same API (`new(selected, on_select).item(icon, label)`);
 //! [`crate::NavScaffold`] picks one or the other by size. The "icon" is a text
 //! glyph (the framework has no icon font): an emoji, or a Unicode character.
+//!
+//! The rail has three things a column of its own height can have and a single row
+//! cannot: an [extended](NavigationRail::extended) form, a slot
+//! [above](NavigationRail::leading) and [below](NavigationRail::trailing) the
+//! destinations, and a say in [where those destinations
+//! sit](NavigationRail::group_alignment) between its two ends.
+
+use std::cell::{OnceCell, RefCell};
 
 use frus_core::{Color, Insets, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
+use crate::flex::Flex;
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -43,6 +52,9 @@ impl RailLabels {
 
 /// Width of a vertical rail, in logical pixels.
 pub(crate) const RAIL_WIDTH: f32 = 80.0;
+/// Width of an **extended** rail (`navigation_rail.dart:1241`), where the labels stand
+/// beside the glyphs instead of under them.
+pub(crate) const EXTENDED_RAIL_WIDTH: f32 = 256.0;
 /// Height of a bottom navigation bar, in logical pixels.
 pub(crate) const BAR_HEIGHT: f32 = 60.0;
 const ITEM_HEIGHT: f32 = 58.0;
@@ -50,6 +62,10 @@ const ITEM_HEIGHT: f32 = 58.0;
 const ICON_SIZE: f32 = 24.0;
 /// The air between a glyph and its label (`navigation_bar.dart:1483`).
 const LABEL_GAP: f32 = 4.0;
+/// The air between two destinations.
+const DESTINATION_GAP: f32 = 4.0;
+/// The air a slot keeps from the destinations (`navigation_rail.dart:1179`).
+const SLOT_GAP: f32 = 8.0;
 
 /// The item's label: what the caller said, else what the theme says, else the reference's
 /// — a Material 3 rail labels its destinations in `labelMedium`.
@@ -77,10 +93,17 @@ fn badge_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextSt
 /// A destination with **no** label still keeps the floor: a rail whose rows shrank when the
 /// labels went away would move every destination the first time one was selected under
 /// [`RailLabels::Selected`].
-fn item_height(floor: f32, label: Option<&ResolvedTextStyle>) -> f32 {
-    let content = frus_text::line_height(ICON_SIZE)
-        + label.map_or(0.0, |l| LABEL_GAP + l.line_height())
-        + 8.0;
+///
+/// `beside` is an [extended](NavigationRail::extended) rail's row, where the label stands
+/// next to the glyph rather than under it: the row is then as tall as the taller of the
+/// two, not as tall as both.
+fn item_height(floor: f32, label: Option<&ResolvedTextStyle>, beside: bool) -> f32 {
+    let icon = frus_text::line_height(ICON_SIZE);
+    let content = match label {
+        Some(label) if beside => icon.max(label.line_height()),
+        Some(label) => icon + LABEL_GAP + label.line_height(),
+        None => icon,
+    } + 8.0;
     floor.max(content)
 }
 
@@ -95,6 +118,9 @@ struct NavItem<Msg> {
     rail: bool,
     /// Whether this destination says what it is. See [`RailLabels`].
     show_label: bool,
+    /// Whether the label stands **beside** the glyph rather than under it. See
+    /// [`NavigationRail::extended`].
+    extended: bool,
     label_text_style: Option<TextStyle>,
     badge_text_style: Option<TextStyle>,
     message: Msg,
@@ -107,15 +133,19 @@ impl<Msg> NavItem<Msg> {
             .then(|| label_style(self.label_text_style, theme));
         if self.rail {
             Style {
-                width: Dimension::Length(RAIL_WIDTH),
-                height: Dimension::Length(item_height(ITEM_HEIGHT, label.as_ref())),
+                width: Dimension::Length(if self.extended {
+                    EXTENDED_RAIL_WIDTH
+                } else {
+                    RAIL_WIDTH
+                }),
+                height: Dimension::Length(item_height(ITEM_HEIGHT, label.as_ref(), self.extended)),
                 ..Default::default()
             }
         } else {
             // In a bar, the items share the width equally.
             Style {
                 flex_grow: 1.0,
-                height: Dimension::Length(item_height(BAR_HEIGHT, label.as_ref())),
+                height: Dimension::Length(item_height(BAR_HEIGHT, label.as_ref(), false)),
                 ..Default::default()
             }
         }
@@ -147,20 +177,33 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             .show_label
             .then(|| frus_text::measure_resolved(&self.label, &label_s));
         let gap = LABEL_GAP;
+        // **The column the glyph lives in**, which is not the row on an extended rail.
+        // There the label stands beside the glyph (`navigation_rail.dart:796`) and the
+        // glyph keeps the column it would have had unextended (`:753`) — so extending a
+        // rail does not move its destinations sideways, and the indicator stays around
+        // the glyph alone (`:756`) rather than growing to swallow the label.
+        let col = if self.extended {
+            RAIL_WIDTH.min(bounds.width)
+        } else {
+            bounds.width
+        };
         // With no label the glyph centres on its own, rather than staying where it sat
         // when there was one below it.
-        let total_h = icon_m.height + label_m.as_ref().map_or(0.0, |m| gap + m.height);
-        let top = bounds.y + ((bounds.height - total_h) * 0.5).max(0.0);
+        let stacked_h = icon_m.height + label_m.as_ref().map_or(0.0, |m| gap + m.height);
+        let top = bounds.y
+            + ((bounds.height
+                - if self.extended {
+                    icon_m.height
+                } else {
+                    stacked_h
+                })
+                * 0.5)
+                .max(0.0);
 
         // Background pill: solid when selected, discreet on hover.
         let pill_w = icon_m.width + 28.0;
         let pill_h = icon_m.height + 8.0;
-        let pill = Rect::new(
-            bounds.x + (bounds.width - pill_w) * 0.5,
-            top - 4.0,
-            pill_w,
-            pill_h,
-        );
+        let pill = Rect::new(bounds.x + (col - pill_w) * 0.5, top - 4.0, pill_w, pill_h);
         if self.selected {
             // The indicator is a **container**, not a wash: the reference fills it with
             // an opaque `secondaryContainer` (`navigation_bar.dart:1463`,
@@ -210,21 +253,25 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             })
         };
         scene.text(
-            Point::new(bounds.x + (bounds.width - icon_m.width) * 0.5, top),
+            Point::new(bounds.x + (col - icon_m.width) * 0.5, top),
             self.icon.clone(),
             &icon_style,
             icon_color.fade(o),
         );
         if let Some(label_m) = &label_m {
-            scene.text(
+            // Beside the glyph's column on an extended rail, centred under it otherwise.
+            let position = if self.extended {
                 Point::new(
-                    bounds.x + (bounds.width - label_m.width) * 0.5,
+                    bounds.x + col,
+                    bounds.y + ((bounds.height - label_m.height) * 0.5).max(0.0),
+                )
+            } else {
+                Point::new(
+                    bounds.x + (col - label_m.width) * 0.5,
                     top + icon_m.height + gap,
-                ),
-                self.label.clone(),
-                &label_s,
-                label_color.fade(o),
-            );
+                )
+            };
+            scene.text(position, self.label.clone(), &label_s, label_color.fade(o));
         }
 
         // Notification dot, anchored to the top-right corner of the icon glyph.
@@ -238,7 +285,7 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             let m = frus_text::measure_resolved(&text, &badge_s);
             let bw = (m.width + 8.0).max(m.height + 4.0);
             let bh = m.height + 4.0;
-            let icon_right = bounds.x + (bounds.width + icon_m.width) * 0.5;
+            let icon_right = bounds.x + (col + icon_m.width) * 0.5;
             let bx = (icon_right - bw * 0.4).min(bounds.x + bounds.width - bw);
             let by = top - bh * 0.35;
             let rect = Rect::new(bx, by, bw, bh);
@@ -287,6 +334,7 @@ fn build_items<Msg: Clone + 'static>(
     on_select: &dyn Fn(usize) -> Msg,
     rail: bool,
     labels: RailLabels,
+    extended: bool,
     styles: (Option<TextStyle>, Option<TextStyle>),
 ) -> Vec<Box<dyn Widget<Msg>>> {
     items
@@ -299,7 +347,11 @@ fn build_items<Msg: Clone + 'static>(
                 selected: i == selected,
                 badge: *badge,
                 rail,
-                show_label: labels.shows(i, selected),
+                // An extended rail labels **every** destination
+                // (`navigation_rail.dart:219`): the label has its own room there, so
+                // there is nothing for a mode to trade away.
+                show_label: extended || labels.shows(i, selected),
+                extended,
                 label_text_style: styles.0,
                 badge_text_style: styles.1,
                 message: on_select(i),
@@ -317,7 +369,16 @@ pub struct NavigationRail<Msg> {
     badge_text_style: Option<TextStyle>,
     background: Option<Color>,
     labels: RailLabels,
-    children: Vec<Box<dyn Widget<Msg>>>,
+    extended: bool,
+    group_alignment: f32,
+    leading: RefCell<Option<Box<dyn Widget<Msg>>>>,
+    trailing: RefCell<Option<Box<dyn Widget<Msg>>>>,
+    leading_at_top: bool,
+    trailing_at_bottom: bool,
+    /// The assembled subtree — see [`Self::assemble`]. Built on the **first read**
+    /// rather than as the builders run, because assembling it consumes the slots and a
+    /// builder can still arrive after the one that set them.
+    built: OnceCell<Vec<Box<dyn Widget<Msg>>>>,
 }
 
 impl<Msg: Clone + 'static> NavigationRail<Msg> {
@@ -334,15 +395,112 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
             // is not the one it gives a bar. A rail stands beside a page it does not own
             // and glyphs alone keep it narrow.
             labels: RailLabels::None,
-            children: Vec::new(),
+            extended: false,
+            // Against the top (`navigation_rail.dart:1237`).
+            group_alignment: -1.0,
+            leading: RefCell::new(None),
+            trailing: RefCell::new(None),
+            // **The reference's asymmetry** (`navigation_rail.dart:112`, `:113`): the
+            // leading slot is chrome at the top of the rail, the trailing one is the tail
+            // of the list of destinations and travels with it.
+            leading_at_top: true,
+            trailing_at_bottom: false,
+            built: OnceCell::new(),
         }
     }
 
     /// When the destinations say what they are. [`RailLabels::None`] by default, as the
     /// reference's rail does.
+    ///
+    /// Silent on an [extended](Self::extended) rail, which labels every destination. The
+    /// two are different label **layouts** rather than modes of one another, and the
+    /// reference forbids the combination outright (`navigation_rail.dart:121`).
     #[must_use]
     pub fn labels(mut self, labels: RailLabels) -> Self {
         self.labels = labels;
+        self.rebuild();
+        self
+    }
+
+    /// **The wide form**: 256 across instead of 80, with every label beside its glyph
+    /// instead of under it (`navigation_rail.dart:131`).
+    ///
+    /// The glyphs keep the 80-pixel column they had, so extending a rail widens it and
+    /// moves nothing: the destinations stay on the line they were on and the label opens
+    /// out to the side of them. A rail with room for words is what a desktop window has
+    /// and a tablet in portrait does not, which is why this is a property and not a size
+    /// class — the caller knows which it is building.
+    #[must_use]
+    pub fn extended(mut self, extended: bool) -> Self {
+        self.extended = extended;
+        self.rebuild();
+        self
+    }
+
+    /// **Where the destinations sit** between the rail's top and bottom: `-1.0` against
+    /// the top (the default), `0.0` centred, `1.0` against the bottom — and every value
+    /// in between (`navigation_rail.dart:205`).
+    ///
+    /// Continuous rather than three names, as the reference's is: a rail whose
+    /// destinations sit a third of the way down is a thing an application asks for, and a
+    /// three-valued enum would have to be replaced the first time one did.
+    ///
+    /// It moves the **group**, which is the destinations plus whichever slot is not
+    /// pinned. See [`Self::leading_at_top`].
+    #[must_use]
+    pub fn group_alignment(mut self, alignment: f32) -> Self {
+        self.group_alignment = alignment.clamp(-1.0, 1.0);
+        self.rebuild();
+        self
+    }
+
+    /// The slot **above** the destinations, where an application puts a floating action
+    /// button or a menu button (`navigation_rail.dart:145`).
+    #[must_use]
+    pub fn leading(self, widget: impl Widget<Msg> + 'static) -> Self {
+        self.leading_boxed(Box::new(widget))
+    }
+
+    /// [`Self::leading`], for a slot that is already boxed.
+    #[must_use]
+    pub fn leading_boxed(mut self, widget: Box<dyn Widget<Msg>>) -> Self {
+        *self.leading.borrow_mut() = Some(widget);
+        self.rebuild();
+        self
+    }
+
+    /// The slot **below** the destinations (`navigation_rail.dart:156`) — an account
+    /// switcher, a settings button, the end of the list rather than chrome above it.
+    #[must_use]
+    pub fn trailing(self, widget: impl Widget<Msg> + 'static) -> Self {
+        self.trailing_boxed(Box::new(widget))
+    }
+
+    /// [`Self::trailing`], for a slot that is already boxed.
+    #[must_use]
+    pub fn trailing_boxed(mut self, widget: Box<dyn Widget<Msg>>) -> Self {
+        *self.trailing.borrow_mut() = Some(widget);
+        self.rebuild();
+        self
+    }
+
+    /// Whether the leading slot is **pinned to the top** instead of travelling with the
+    /// destinations. `true` by default (`navigation_rail.dart:112`), which is why
+    /// [`Self::group_alignment`] leaves it where it is.
+    #[must_use]
+    pub fn leading_at_top(mut self, pinned: bool) -> Self {
+        self.leading_at_top = pinned;
+        self.rebuild();
+        self
+    }
+
+    /// Whether the trailing slot is **pinned to the bottom**. `false` by default
+    /// (`navigation_rail.dart:113`), the other half of the reference's asymmetry: a
+    /// leading slot is chrome at the top of the rail, a trailing one is the tail of the
+    /// list of destinations and moves when the list does.
+    #[must_use]
+    pub fn trailing_at_bottom(mut self, pinned: bool) -> Self {
+        self.trailing_at_bottom = pinned;
         self.rebuild();
         self
     }
@@ -387,21 +545,92 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
         self
     }
 
-    /// Carries the current destinations *and* styles into the items, so that the builders
-    /// are order-independent.
+    /// Throws the assembled subtree away, so that the next read of it is built from
+    /// everything the builders have said by then and they stay order-independent.
     fn rebuild(&mut self) {
-        self.children = build_items(
+        self.built.take();
+    }
+
+    /// How wide the rail asks to be: [`RAIL_WIDTH`], or [`EXTENDED_RAIL_WIDTH`] when the
+    /// labels have moved out beside the glyphs.
+    fn width(&self) -> f32 {
+        if self.extended {
+            EXTENDED_RAIL_WIDTH
+        } else {
+            RAIL_WIDTH
+        }
+    }
+
+    /// The rail's subtree, in the reference's shape (`navigation_rail.dart:559`):
+    ///
+    /// ```text
+    /// leading      if it is pinned to the top
+    /// spacer       (1 + alignment) / 2
+    /// group        an unpinned leading slot, the destinations, an unpinned trailing one
+    /// spacer       (1 - alignment) / 2
+    /// trailing     if it is pinned to the bottom
+    /// ```
+    ///
+    /// **The two spacers are what makes the alignment continuous.** A `justify` offers
+    /// three positions; two flexible boxes whose grow factors add up to one offer every
+    /// position between them, and the ends of the range are the same three. The
+    /// destinations' own spacing belongs to the group they are in rather than to the
+    /// rail, because a gap on the rail would also push the spacers away from the group
+    /// and move the top-aligned default four pixels down.
+    fn assemble(&self) -> Vec<Box<dyn Widget<Msg>>> {
+        // Taking the slots is why this runs once: a `Box<dyn Widget>` cannot be cloned,
+        // so assembling **consumes** them. A widget tree is rebuilt from `view` rather
+        // than mutated, so once per instance and once per frame are the same thing — the
+        // reasoning [`Widget::build_themed`] is written on.
+        let leading = self.leading.borrow_mut().take();
+        let trailing = self.trailing.borrow_mut().take();
+
+        let mut out: Vec<Box<dyn Widget<Msg>>> = Vec::new();
+        let mut group = Flex::<Msg>::column()
+            .align(Align::Center)
+            .gap(DESTINATION_GAP);
+
+        if let Some(leading) = leading {
+            let slot = Flex::<Msg>::column()
+                .align(Align::Center)
+                .padding_each(0.0, 0.0, SLOT_GAP, 0.0)
+                .child_boxed(leading);
+            if self.leading_at_top {
+                out.push(Box::new(slot));
+            } else {
+                group = group.child(slot);
+            }
+        }
+        for item in build_items(
             &self.items,
             self.selected,
             &*self.on_select,
             true,
             self.labels,
+            self.extended,
             (self.label_text_style, self.badge_text_style),
-        );
+        ) {
+            group = group.child_boxed(item);
+        }
+        let mut pinned = None;
+        match trailing {
+            Some(trailing) if self.trailing_at_bottom => pinned = Some(trailing),
+            Some(trailing) => group = group.child_boxed(trailing),
+            None => {}
+        }
+
+        let a = self.group_alignment;
+        out.push(Box::new(Flex::<Msg>::column().flex((1.0 + a) * 0.5)));
+        out.push(Box::new(group));
+        out.push(Box::new(Flex::<Msg>::column().flex((1.0 - a) * 0.5)));
+        if let Some(trailing) = pinned {
+            out.push(trailing);
+        }
+        out
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for NavigationRail<Msg> {
+impl<Msg: Clone + 'static> Widget<Msg> for NavigationRail<Msg> {
     /// The rail's box: its column of destinations, plus the intrusions it was **told**
     /// about.
     ///
@@ -414,17 +643,18 @@ impl<Msg: Clone> Widget<Msg> for NavigationRail<Msg> {
     fn style(&self) -> Style {
         let safe = crate::MediaQuery::of().padding;
         Style {
-            width: Dimension::Length(RAIL_WIDTH + safe.left),
+            width: Dimension::Length(self.width() + safe.left),
             flex_direction: FlexDirection::Column,
             align: Align::Center,
             padding: Insets::new(8.0 + safe.top, 0.0, 8.0 + safe.bottom, safe.left),
-            gap: 4.0,
+            // No gap: see [`Self::assemble`]. The destinations are spaced inside the
+            // group, so that the boxes placing that group are not spaced away from it.
             ..Default::default()
         }
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        &self.children
+        self.built.get_or_init(|| self.assemble())
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
@@ -538,6 +768,7 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
             &*self.on_select,
             false,
             self.labels,
+            false,
             (self.label_text_style, self.badge_text_style),
         );
     }
@@ -564,7 +795,7 @@ impl<Msg> BottomBar<Msg> {
             (self.labels != RailLabels::None).then(|| label_style(self.label_text_style, theme));
         let safe = crate::MediaQuery::of().padding;
         Style {
-            height: Dimension::Length(item_height(BAR_HEIGHT, label.as_ref()) + safe.bottom),
+            height: Dimension::Length(item_height(BAR_HEIGHT, label.as_ref(), false) + safe.bottom),
             padding: Insets::new(0.0, safe.right, safe.bottom, safe.left),
             flex_direction: FlexDirection::Row,
             justify: Justify::SpaceAround,
@@ -708,21 +939,33 @@ mod tests {
         show_label: bool,
         theme: &Theme,
     ) -> Scene {
-        let item = NavItem::<Msg> {
-            icon: "H".into(),
-            label: "Home".into(),
-            selected,
-            badge,
-            rail,
-            show_label,
-            label_text_style: None,
-            badge_text_style: None,
-            message: Msg::Go(0),
+        painted(rail, selected, badge, show_label, false, theme)
+    }
+
+    /// The same again, saying whether the rail it stands in is **extended** — which
+    /// widens its box and moves its label beside the glyph.
+    fn painted(
+        rail: bool,
+        selected: bool,
+        badge: Option<u32>,
+        show_label: bool,
+        extended: bool,
+        theme: &Theme,
+    ) -> Scene {
+        let item = row(rail, show_label, extended, None);
+        let width = if extended {
+            EXTENDED_RAIL_WIDTH
+        } else {
+            RAIL_WIDTH
         };
         let mut scene = Scene::new();
         Widget::<Msg>::paint(
-            &item,
-            Rect::new(0.0, 0.0, RAIL_WIDTH, ITEM_HEIGHT),
+            &NavItem {
+                selected,
+                badge,
+                ..item
+            },
+            Rect::new(0.0, 0.0, width, ITEM_HEIGHT),
             Status {
                 opacity: 1.0,
                 ..Default::default()
@@ -731,6 +974,41 @@ mod tests {
             &mut scene,
         );
         scene
+    }
+
+    /// One destination, unpainted — the thing whose style the layout reads.
+    fn row(
+        rail: bool,
+        show_label: bool,
+        extended: bool,
+        label_style: Option<TextStyle>,
+    ) -> NavItem<Msg> {
+        NavItem::<Msg> {
+            icon: "H".into(),
+            label: "Home".into(),
+            selected: false,
+            badge: None,
+            rail,
+            show_label,
+            extended,
+            label_text_style: label_style,
+            badge_text_style: None,
+            message: Msg::Go(0),
+        }
+    }
+
+    /// Every text primitive in a scene, with where it was drawn.
+    fn placed(scene: &Scene) -> Vec<(String, Point)> {
+        scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Text { text, position, .. } => {
+                    Some((text.clone(), *position))
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     fn rects(scene: &Scene) -> Vec<Color> {
@@ -899,17 +1177,7 @@ mod tests {
     fn a_row_does_not_shrink_when_its_label_goes() {
         let theme = Theme::default();
         let height = |show_label: bool| {
-            let item = NavItem::<Msg> {
-                icon: "H".into(),
-                label: "Home".into(),
-                selected: false,
-                badge: None,
-                rail: true,
-                show_label,
-                label_text_style: None,
-                badge_text_style: None,
-                message: Msg::Go(0),
-            };
+            let item = row(true, show_label, false, None);
             match Widget::<Msg>::style_themed(&item, &theme).height {
                 Dimension::Length(h) => h,
                 other => panic!("a rail row names its height, got {other:?}"),
@@ -918,13 +1186,257 @@ mod tests {
         assert_eq!(height(true), height(false));
     }
 
+    /// **The wide form.** An extended rail puts each label beside its glyph rather than
+    /// under it (`navigation_rail.dart:796`), and the glyph keeps the 80-pixel column it
+    /// had (`:753`) — so extending a rail widens it and moves nothing.
+    #[test]
+    fn an_extended_rail_puts_the_label_beside_the_glyph() {
+        let theme = Theme::default();
+        let under = placed(&painted(true, false, None, true, false, &theme));
+        let beside = placed(&painted(true, false, None, true, true, &theme));
+        assert_eq!(under.len(), 2, "the glyph and its label");
+        assert_eq!(beside.len(), 2);
+
+        assert!(
+            under[1].1.y > under[0].1.y + frus_text::line_height(ICON_SIZE),
+            "unextended, the label is clear of the glyph's line"
+        );
+        assert!(
+            beside[1].1.x >= RAIL_WIDTH,
+            "extended, the label starts where the glyph's column ends, not at x = {}",
+            beside[1].1.x
+        );
+        assert!(
+            beside[1].1.y > beside[0].1.y
+                && beside[1].1.y < beside[0].1.y + frus_text::line_height(ICON_SIZE),
+            "extended, the two stand on one line: {} against {}",
+            beside[1].1.y,
+            beside[0].1.y
+        );
+        assert!(
+            (beside[0].1.x - under[0].1.x).abs() < 0.01,
+            "and the glyph kept its column: {} against {}",
+            beside[0].1.x,
+            under[0].1.x
+        );
+    }
+
+    /// An extended row is **wider, not taller**: the label left the column, so the row is
+    /// as tall as the taller of the two rather than as tall as both.
+    ///
+    /// Asked with a label big enough to beat the row's constant floor, which is what
+    /// makes the two numbers differ at all.
+    #[test]
+    fn an_extended_row_is_wider_and_not_taller() {
+        let theme = Theme::default();
+        let big = Some(TextStyle {
+            size: Some(40.0),
+            ..Default::default()
+        });
+        let size = |extended: bool| {
+            let style = Widget::<Msg>::style_themed(&row(true, true, extended, big), &theme);
+            match (style.width, style.height) {
+                (Dimension::Length(w), Dimension::Length(h)) => (w, h),
+                other => panic!("a rail row names both of its sides, got {other:?}"),
+            }
+        };
+        let (narrow, tall) = size(false);
+        let (wide, short) = size(true);
+        assert_eq!(narrow, RAIL_WIDTH);
+        assert_eq!(wide, EXTENDED_RAIL_WIDTH);
+        assert!(
+            short < tall,
+            "the label moved out of the column and the row did not follow it: {short} \
+             against {tall}"
+        );
+    }
+
+    /// And it labels **every** destination, whatever the rail's label mode says
+    /// (`navigation_rail.dart:219`): the label has room of its own there, so there is
+    /// nothing for a mode to trade away.
+    #[test]
+    fn an_extended_rail_labels_every_destination() {
+        let theme = Theme::default();
+        let rail = NavigationRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .item("S", "Search")
+            .labels(RailLabels::None)
+            .extended(true);
+        for destination in destinations(&rail) {
+            let mut scene = Scene::new();
+            destination.paint(
+                Rect::new(0.0, 0.0, EXTENDED_RAIL_WIDTH, ITEM_HEIGHT),
+                Status::default(),
+                &theme,
+                &mut scene,
+            );
+            assert_eq!(
+                placed(&scene).len(),
+                2,
+                "an extended destination says what it is even under RailLabels::None"
+            );
+        }
+    }
+
+    /// The rail, in a window tall enough for its destinations to have somewhere to go.
+    fn glyph_ys(rail: NavigationRail<Msg>) -> Vec<f32> {
+        marks(rail)
+            .into_iter()
+            .filter(|(text, _)| text == "H" || text == "S")
+            .map(|(_, y)| y)
+            .collect()
+    }
+
+    /// Every glyph the rail painted, top to bottom, as `(text, y)`.
+    fn marks(rail: NavigationRail<Msg>) -> Vec<(String, f32)> {
+        const TALL: f32 = 600.0;
+        let root = crate::Flex::row().width(200.0).height(TALL).child(rail);
+        let ui = crate::build_ui(
+            &root as &dyn Widget<Msg>,
+            crate::Size::new(200.0, TALL),
+            &crate::Runtime::default(),
+            &Theme::default(),
+        );
+        let mut found: Vec<(String, f32)> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Text { text, position, .. } => {
+                    Some((text.clone(), position.y))
+                }
+                _ => None,
+            })
+            .collect();
+        found.sort_by(|a, b| a.1.partial_cmp(&b.1).expect("no NaN in a laid-out rail"));
+        found
+    }
+
+    /// **Where the destinations sit**, anywhere between the rail's two ends
+    /// (`navigation_rail.dart:205`).
+    ///
+    /// Continuous, which is the part a three-valued enum could not have done: `-0.5`
+    /// lands between the top and the middle rather than at one of them.
+    #[test]
+    fn the_group_travels_between_the_rail_s_ends() {
+        let at = |alignment: f32| {
+            glyph_ys(
+                NavigationRail::new(0, Msg::Go)
+                    .item("H", "Home")
+                    .item("S", "Search")
+                    .group_alignment(alignment),
+            )
+        };
+        let top = at(-1.0);
+        let quarter = at(-0.5);
+        let middle = at(0.0);
+        let bottom = at(1.0);
+        assert!(
+            top[0] < quarter[0] && quarter[0] < middle[0] && middle[0] < bottom[0],
+            "the group did not travel: {top:?} {quarter:?} {middle:?} {bottom:?}"
+        );
+        assert!(
+            (bottom[1] - bottom[0] - (top[1] - top[0])).abs() < 0.01,
+            "the group changed shape on the way: {top:?} against {bottom:?}"
+        );
+    }
+
+    /// **A pinned slot does not travel with the group.** The reference pins the leading
+    /// slot to the top and lets the trailing one travel (`navigation_rail.dart:148`,
+    /// `:158`): a leading slot is chrome at the top of the rail, a trailing one is the
+    /// tail of the list of destinations.
+    #[test]
+    fn the_leading_slot_stays_where_the_trailing_one_travels() {
+        let at = |alignment: f32| {
+            marks(
+                NavigationRail::new(0, Msg::Go)
+                    .leading(crate::text("L"))
+                    .trailing(crate::text("T"))
+                    .item("H", "Home")
+                    .group_alignment(alignment),
+            )
+        };
+        let (up, down) = (at(-1.0), at(1.0));
+        let (top, bottom) = (y_of(&up), y_of(&down));
+        assert!(
+            (top("L") - bottom("L")).abs() < 0.01,
+            "the leading slot moved with the group: {} against {}",
+            top("L"),
+            bottom("L")
+        );
+        assert!(
+            bottom("T") > top("T"),
+            "the trailing slot did not travel: {} against {}",
+            bottom("T"),
+            top("T")
+        );
+        assert!(
+            bottom("T") > bottom("H"),
+            "and it is still the tail of the list"
+        );
+        assert!(top("L") < top("H"), "the leading slot is above them");
+    }
+
+    /// And **which** of the two is pinned is the caller's to say, both ways round.
+    #[test]
+    fn and_which_of_them_is_pinned_can_be_swapped() {
+        let at = |alignment: f32| {
+            marks(
+                NavigationRail::new(0, Msg::Go)
+                    .leading(crate::text("L"))
+                    .trailing(crate::text("T"))
+                    .leading_at_top(false)
+                    .trailing_at_bottom(true)
+                    .item("H", "Home")
+                    .group_alignment(alignment),
+            )
+        };
+        let (up, down) = (at(-1.0), at(1.0));
+        let (top, bottom) = (y_of(&up), y_of(&down));
+        assert!(
+            bottom("L") > top("L"),
+            "an unpinned leading slot travels with the group"
+        );
+        assert!(
+            (top("T") - bottom("T")).abs() < 0.01,
+            "a pinned trailing slot does not: {} against {}",
+            top("T"),
+            bottom("T")
+        );
+        assert!(
+            top("T") > top("H"),
+            "and it stays below the destinations either way"
+        );
+    }
+
+    /// Reads one glyph's `y` out of what [`marks`] collected.
+    fn y_of(found: &[(String, f32)]) -> impl Fn(&str) -> f32 + '_ {
+        move |glyph| {
+            found
+                .iter()
+                .find(|(text, _)| text == glyph)
+                .unwrap_or_else(|| panic!("{glyph} was never painted, only {found:?}"))
+                .1
+        }
+    }
+
+    /// The rail's destinations, which since milestone 433 sit inside the **group** that
+    /// [`NavigationRail::group_alignment`] moves rather than directly under the rail.
+    fn destinations(rail: &NavigationRail<Msg>) -> &[Box<dyn Widget<Msg>>] {
+        Widget::<Msg>::children(rail)
+            .iter()
+            .find(|child| child.children().iter().any(|c| c.on_click().is_some()))
+            .expect("the rail assembles its destinations into one group")
+            .children()
+    }
+
     #[test]
     fn rail_items_emit_index_and_track_selection() {
         let rail = NavigationRail::new(1, Msg::Go)
             .item("H", "Home")
             .item("S", "Search")
             .item("P", "Profile");
-        let children = Widget::<Msg>::children(&rail);
+        let children = destinations(&rail);
         assert_eq!(children.len(), 3);
         assert_eq!(children[2].on_click(), Some(Msg::Go(2)));
     }
@@ -935,7 +1447,7 @@ mod tests {
             .item("H", "Home")
             .item("M", "Mail")
             .badge(5);
-        let children = Widget::<Msg>::children(&rail);
+        let children = destinations(&rail);
         // The badge paints a dot + the count text on the targeted item.
         let mut scene = Scene::new();
         children[1].paint(
