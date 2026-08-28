@@ -6,7 +6,7 @@
 
 use frus_core::{Color, FontWeight, TextDirection, TextStyle};
 
-use crate::interaction::{Interaction, Status};
+use crate::interaction::Status;
 
 /// The **named** typographic scale (Material 3's 15 steps). Widgets pick a step
 /// (`theme.text.title_medium`), never a hardcoded size — changing the scale
@@ -542,15 +542,19 @@ impl Theme {
     /// Applies the Material **state layer** over `base`: it overlays the content
     /// color `on` at low opacity according to the interaction state — hover 8%,
     /// focus 10%, press 12% — taking the animated progressions into account
-    /// (`hover_progress`/`focus_progress`). This is the state rule **baked** into
-    /// the theme: widgets stay declarative (they pass their base color and their
-    /// content color, and the theme decides on the overlay).
+    /// (`hover_progress`/`focus_progress`/`press_progress`). This is the state rule
+    /// **baked** into the theme: widgets stay declarative (they pass their base color and
+    /// their content color, and the theme decides on the overlay).
+    ///
+    /// All three terms are **progressions**, the press included. It read the flag until
+    /// milestone 441, which meant that term could only ever be 0 or 12%: the layer
+    /// arrived whole under a finger and vanished whole when it left. Reading
+    /// `press_progress` is what lets it fade, and reading the flag *as well* would defeat
+    /// that — the term would reach full on the first frame and the fade would never run.
     pub fn state_layer(&self, base: Color, on: Color, status: &Status) -> Color {
-        let mut overlay = 0.08 * status.hover_progress.clamp(0.0, 1.0)
-            + 0.10 * status.focus_progress.clamp(0.0, 1.0);
-        if status.interaction == Interaction::Pressed {
-            overlay += 0.12;
-        }
+        let overlay = 0.08 * status.hover_progress.clamp(0.0, 1.0)
+            + 0.10 * status.focus_progress.clamp(0.0, 1.0)
+            + 0.12 * status.press_progress.clamp(0.0, 1.0);
         base.lerp(on, overlay.min(1.0))
     }
 }
@@ -897,10 +901,45 @@ mod tests {
 
         // Pressed: a stronger overlay than hover alone.
         let pressed = Status {
-            interaction: Interaction::Pressed,
+            press_progress: 1.0,
             ..Default::default()
         };
         assert!(theme.state_layer(base, on, &pressed).r < h.r);
+    }
+
+    /// **A press lights by degrees** (milestone 441). The term read
+    /// `Interaction::Pressed`, a flag, so it could only ever be 0 or 12 %: the layer
+    /// arrived whole under a finger and left whole with it.
+    #[test]
+    fn a_press_lights_by_degrees() {
+        let theme = Theme::dark();
+        let base = Color::rgb(0.4, 0.4, 0.4);
+        let on = Color::BLACK;
+        let at = |p: f32| {
+            theme.state_layer(
+                base,
+                on,
+                &Status {
+                    press_progress: p,
+                    ..Default::default()
+                },
+            )
+        };
+        let (rest, half, full) = (at(0.0), at(0.5), at(1.0));
+        assert_eq!(rest, base, "nothing at rest");
+        assert!(full.r < half.r && half.r < rest.r, "half way is half way");
+        assert!(
+            (half.r - (rest.r + full.r) * 0.5).abs() < 1e-4,
+            "and it is the overlay that is halved, not the colour"
+        );
+
+        // And the flag alone no longer lights it. If it were read as well the term would
+        // reach full on the very first frame, and the fade above could never run.
+        let flagged = Status {
+            interaction: crate::interaction::Interaction::Pressed,
+            ..Default::default()
+        };
+        assert_eq!(theme.state_layer(base, on, &flagged), base);
     }
 
     #[test]

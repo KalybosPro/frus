@@ -102,6 +102,9 @@ pub enum Interaction {
     /// The pointer is over it.
     Hovered,
     /// The pointer is pressed on this widget.
+    ///
+    /// This is the **flag**: true from the first frame the finger is down. What a paint
+    /// wants is almost always [`Status::press_progress`], the same thing as a fade.
     Pressed,
 }
 
@@ -126,6 +129,19 @@ pub struct Status {
     pub hover_progress: f32,
     /// The focus transition's progress (`0.0..=1.0`).
     pub focus_progress: f32,
+    /// The **press** transition's progress (`0.0..=1.0`): the animated form of
+    /// [`Interaction::Pressed`], as `hover_progress` is the animated form of
+    /// [`Interaction::Hovered`].
+    ///
+    /// A press used to be a flag and nothing else, so every state layer and every held
+    /// radius in the crate reached full the instant a finger landed and vanished the
+    /// instant it left. The reference fades its press highlight over 200 ms against the
+    /// 50 ms it gives hover and focus (`ink_well.dart:995`) — the press is the *slower*
+    /// of the two, which is the opposite of what a flag does.
+    ///
+    /// `interaction` stays for the decisions that really are discrete — is this the
+    /// widget being held? — and this is what the **paint** reads.
+    pub press_progress: f32,
     /// The opacity to apply (a fade-in); `1.0` = opaque.
     pub opacity: f32,
     /// The widget's own animated value (a switch's `0 → 1`, for instance), driven
@@ -162,6 +178,7 @@ impl Default for Status {
             drag_over: false,
             hover_progress: 0.0,
             focus_progress: 0.0,
+            press_progress: 0.0,
             opacity: 1.0,
             value: 0.0,
             time: 0.0,
@@ -207,6 +224,7 @@ impl InputState {
             drag_over: false,
             hover_progress: 0.0,
             focus_progress: 0.0,
+            press_progress: 0.0,
             opacity: 1.0,
             value: 0.0,
             time: 0.0,

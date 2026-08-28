@@ -6,7 +6,7 @@ use frus_layout::{Dimension, Style};
 use crate::disabled::DISABLED_CONTAINER_OPACITY;
 use crate::disabled::{disabled_container, disabled_content, disabled_mark, over_surface};
 use crate::icons::Icons;
-use crate::interaction::{Interaction, Status};
+use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -20,7 +20,8 @@ const H: f32 = 32.0;
 const THUMB_OFF: f32 = 8.0;
 const THUMB_ON: f32 = 12.0;
 /// The thumb while it is **held** (`switch.dart:2357`): larger than either end of the
-/// travel, which is the squish a finger expects back.
+/// travel, which is the squish a finger expects back. It **grows** into it — the press is
+/// a progression since milestone 441, not a flag.
 const THUMB_PRESSED: f32 = 14.0;
 /// A thumb **carrying an icon** is the on-thumb's size at both ends (`switch.dart:2369`):
 /// 16 pixels of glyph do not fit in a 16-pixel dot, and a switch whose thumb changed size
@@ -238,11 +239,11 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
         };
         let mut r = off_r + (THUMB_ON - off_r) * t;
         // Held, it swells past either end (`switch.dart:2357`) — the squish a finger
-        // expects back. Discrete, because `Status` carries no press *progress*: a press is
-        // a state here, not a progression, which is the one thing between this and the
-        // reference's animated one.
-        if self.enabled && status.interaction == Interaction::Pressed {
-            r = THUMB_PRESSED;
+        // expects back, **grown** into over the press's own 200 ms rather than jumped to.
+        // It is measured from wherever the thumb has got to, so a switch held mid-travel
+        // swells from where it is instead of snapping back to an end first.
+        if self.enabled {
+            r += (THUMB_PRESSED - r) * status.press_progress.clamp(0.0, 1.0);
         }
         let cx = bounds.x + H * 0.5 + (W - H) * t;
         let cy = bounds.y + H * 0.5;
@@ -494,7 +495,7 @@ mod tests {
                 ..state(false)
             },
             Status {
-                interaction: Interaction::Pressed,
+                press_progress: 1.0,
                 ..state(false)
             },
         ] {
@@ -591,7 +592,7 @@ mod tests {
         let theme = Theme::default();
         let switch = Switch::<Msg>::new(false).on_toggle(Msg::Set);
         let pressed = Status {
-            interaction: Interaction::Pressed,
+            press_progress: 1.0,
             ..state(false)
         };
         assert_eq!(thumb_radius(&switch, pressed, &theme), THUMB_PRESSED);
@@ -603,6 +604,32 @@ mod tests {
                 "not past the {end} end"
             );
         }
+    }
+
+    /// And it **grows** into it (milestone 441): half way through the press the thumb is
+    /// half way there, where it used to arrive whole on the first frame the finger was
+    /// down and leave whole on the first frame it was not.
+    #[test]
+    fn a_held_thumb_grows_into_it() {
+        let theme = Theme::default();
+        let switch = Switch::<Msg>::new(false).on_toggle(Msg::Set);
+        let at = |p: f32| {
+            thumb_radius(
+                &switch,
+                Status {
+                    press_progress: p,
+                    ..state(false)
+                },
+                &theme,
+            )
+        };
+        assert_eq!(at(0.0), THUMB_OFF, "untouched");
+        assert_eq!(at(1.0), THUMB_PRESSED, "held");
+        assert!(
+            (at(0.5) - (THUMB_OFF + THUMB_PRESSED) * 0.5).abs() < 0.01,
+            "half way = {}",
+            at(0.5)
+        );
     }
 
     #[test]

@@ -47,6 +47,14 @@ impl Edit {
 /// [`crate::widget::Widget::anim_duration`].
 pub(crate) const ANIM_DURATION: f32 = 0.12;
 
+/// The **press** transition's duration, in seconds (`ink_well.dart:998`).
+///
+/// Its own, and longer than [`ANIM_DURATION`], because the reference gives the press
+/// highlight 200 ms against the 50 ms it gives hover and focus (`ink_well.dart:995`).
+/// A press is the one interaction the pointer commits to, and it is drawn slowly enough
+/// to be seen arriving and leaving.
+pub(crate) const PRESS_DURATION: f32 = 0.2;
+
 /// The fling in flight on one scroll region: one simulation per axis, and the time
 /// elapsed since the finger let go.
 ///
@@ -102,6 +110,10 @@ fn scroll_axis(current: f32, vel: f32, target: f32, max: f32, dt: f32) -> (f32, 
 pub struct Anim {
     pub hover: f32,
     pub focus: f32,
+    /// The press (0 at rest), on its own clock: 200 ms against the 120 the other two
+    /// run on, because the reference gives the press highlight four times the fade it
+    /// gives hover and focus (`ink_well.dart:995`).
+    pub press: f32,
     /// Opacity (1 at rest; started at 0 on mount for the fade-in).
     pub opacity: f32,
 }
@@ -111,6 +123,7 @@ impl Default for Anim {
         Self {
             hover: 0.0,
             focus: 0.0,
+            press: 0.0,
             opacity: 1.0,
         }
     }
@@ -424,6 +437,21 @@ impl Runtime {
     /// A widget's animated focus progress.
     pub fn focus_progress(&self, id: WidgetId) -> f32 {
         self.anims.get(&id).map(|a| a.focus).unwrap_or(0.0)
+    }
+
+    /// A widget's animated **press** progress, or `default` where the runtime has never
+    /// heard of it.
+    ///
+    /// The fallback is the rule [`Runtime::value_or`] applies: a frame built before the
+    /// loop has advanced anything — a test, an isolated render — must draw a widget that
+    /// *is* being held as held, not as untouched on its way there.
+    pub fn press_progress_or(&self, id: WidgetId, default: f32) -> f32 {
+        self.anims.get(&id).map(|a| a.press).unwrap_or(default)
+    }
+
+    /// A widget's animated press progress (0 by default).
+    pub fn press_progress(&self, id: WidgetId) -> f32 {
+        self.press_progress_or(id, 0.0)
     }
 
     /// A widget's animated opacity (1 by default).
@@ -839,15 +867,22 @@ impl Runtime {
         animating
     }
 
-    /// Advances the transitions (hover/focus) by `dt` seconds towards their targets.
-    /// Returns `true` if at least one animation is still running.
+    /// Advances the transitions (hover/focus/press) by `dt` seconds towards their
+    /// targets. Returns `true` if at least one animation is still running.
     pub fn advance(&mut self, dt: f32) -> bool {
         let hovered = self.input.hovered;
         let focused = self.input.focused;
+        // Held **and** still under the pointer, which is what makes it a press: the same
+        // rule `InputState::status_for` applies, so the progression and the flag can
+        // never disagree about what is happening.
+        let held = self.input.pressed.filter(|id| Some(*id) == hovered);
         if let Some(id) = hovered {
             self.anims.entry(id).or_default();
         }
         if let Some(id) = focused {
+            self.anims.entry(id).or_default();
+        }
+        if let Some(id) = held {
             self.anims.entry(id).or_default();
         }
 
@@ -856,20 +891,32 @@ impl Runtime {
         } else {
             1.0
         };
+        // The press runs on its own, slower clock (`ink_well.dart:995`).
+        let press_step = if PRESS_DURATION > 0.0 {
+            dt / PRESS_DURATION
+        } else {
+            1.0
+        };
         let mut animating = false;
 
         self.anims.retain(|id, anim| {
             let hover_target = if Some(*id) == hovered { 1.0 } else { 0.0 };
             let focus_target = if Some(*id) == focused { 1.0 } else { 0.0 };
+            let press_target = if Some(*id) == held { 1.0 } else { 0.0 };
             approach(&mut anim.hover, hover_target, step, &mut animating);
             approach(&mut anim.focus, focus_target, step, &mut animating);
+            approach(&mut anim.press, press_target, press_step, &mut animating);
             // Opacity always tends towards 1 (the fade-in).
             approach(&mut anim.opacity, 1.0, step, &mut animating);
-            // Entries that are entirely at rest are forgotten (nothing to animate).
+            // Entries that are entirely at rest are forgotten (nothing to animate). A
+            // press still fading **out** is not at rest: forgetting it here would be the
+            // jump this progression exists to remove, on the way back.
             !(hover_target == 0.0
                 && focus_target == 0.0
+                && press_target == 0.0
                 && anim.hover <= 0.0
                 && anim.focus <= 0.0
+                && anim.press <= 0.0
                 && anim.opacity >= 1.0)
         });
 
@@ -1608,6 +1655,81 @@ mod tests {
         rt.advance(1.0);
         assert_eq!(rt.hover_progress(id), 0.0);
         assert!(rt.anims.is_empty());
+    }
+
+    /// **A press rises and falls** (milestone 441).
+    ///
+    /// It was a flag and nothing else, so a state layer reached full the instant a finger
+    /// landed and vanished the instant it left. The reference fades its press highlight
+    /// in and out instead (`ink_highlight.dart:62`), and this is that fade in the shape
+    /// hover and focus already had here.
+    #[test]
+    fn a_press_rises_then_falls_back() {
+        let id = WidgetId::ROOT.child(3);
+        let mut rt = Runtime::default();
+        rt.input.hovered = Some(id);
+        rt.input.pressed = Some(id);
+
+        // Under the finger: part way there, still running.
+        assert!(rt.advance(0.05));
+        let p = rt.press_progress(id);
+        assert!(p > 0.0 && p < 1.0, "on the way in: {p}");
+        rt.advance(1.0);
+        assert_eq!(rt.press_progress(id), 1.0);
+
+        // Let go: it comes back down rather than disappearing, which is the same jump
+        // the other way round.
+        rt.input.pressed = None;
+        assert!(rt.advance(0.05));
+        let p = rt.press_progress(id);
+        assert!(p > 0.0 && p < 1.0, "on the way back: {p}");
+        rt.advance(1.0);
+        assert_eq!(rt.press_progress(id), 0.0);
+    }
+
+    /// And it is the **slower** of the two clocks: the reference gives the press 200 ms
+    /// against the 50 it gives hover and focus (`ink_well.dart:995`). A press is the one
+    /// interaction the pointer commits to, and it is drawn slowly enough to be seen.
+    #[test]
+    fn a_press_arrives_more_slowly_than_a_hover() {
+        let id = WidgetId::ROOT.child(4);
+        let mut rt = Runtime::default();
+        rt.input.hovered = Some(id);
+        rt.input.pressed = Some(id);
+        rt.advance(0.06);
+        let (press, hover) = (rt.press_progress(id), rt.hover_progress(id));
+        assert!(press < hover, "press {press} should trail hover {hover}");
+        assert!(press > 0.0, "but it is under way");
+    }
+
+    /// A press counts only while the pointer is **still on the widget** — the rule
+    /// `InputState::status_for` applies, so the progression and the flag can never
+    /// disagree about what is happening.
+    #[test]
+    fn a_press_dragged_off_the_widget_comes_back_down() {
+        let id = WidgetId::ROOT.child(5);
+        let elsewhere = WidgetId::ROOT.child(6);
+        let mut rt = Runtime::default();
+        rt.input.hovered = Some(id);
+        rt.input.pressed = Some(id);
+        rt.advance(1.0);
+        assert_eq!(rt.press_progress(id), 1.0);
+
+        // Still held, but the finger has slid away: not a press any more. Long enough
+        // for the hover to have finished falling and the press not to have — which is
+        // the case the forget-predicate has to survive, since an entry with nothing left
+        // *but* a press is exactly what a release looks like on the way out.
+        rt.input.hovered = Some(elsewhere);
+        assert!(rt.advance(0.13));
+        assert_eq!(rt.hover_progress(id), 0.0, "the hover is done");
+        let p = rt.press_progress(id);
+        assert!(
+            p > 0.0 && p < 1.0,
+            "and the press is still coming down: {p}"
+        );
+
+        rt.advance(1.0);
+        assert_eq!(rt.press_progress(id), 0.0);
     }
 
     #[test]

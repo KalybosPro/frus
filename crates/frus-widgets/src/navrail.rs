@@ -1487,7 +1487,7 @@ mod tests {
             ..live()
         };
         let pressed = Status {
-            interaction: crate::interaction::Interaction::Pressed,
+            press_progress: 1.0,
             ..live()
         };
         assert!(layer(&rail, focused, &theme).is_some(), "focus");
@@ -1511,7 +1511,7 @@ mod tests {
                 ..live()
             },
             Status {
-                interaction: crate::interaction::Interaction::Pressed,
+                press_progress: 1.0,
                 ..live()
             },
         ] {

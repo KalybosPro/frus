@@ -8,10 +8,27 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 440 so far, each documenting the objective, the alternatives
+> record — one per step, 441 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`Status::press_progress`** (J441): a press is a progression, not a flag. Every state
+  layer in the crate used to arrive whole under a finger and leave whole with it. It fades
+  now, on its own clock — slower than hover and focus, as the reference's is.
+
+### Changed
+
+- **`Theme::state_layer` reads `press_progress` and no longer reads
+  `Interaction::Pressed`** (J441). Widgets that resolve their own state layer through the
+  theme need no change. A widget that builds a `Status` by hand — a test, a custom paint —
+  must now set `press_progress` rather than the flag to ask for the pressed layer;
+  `Interaction` stays for decisions that really are discrete.
+
+- **A held `Switch` thumb grows into its larger radius, and a `Container` crosses over to
+  its `pressed_color`** (J441) instead of snapping to either.
 
 ### Added
 

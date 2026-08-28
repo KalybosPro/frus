@@ -472,6 +472,7 @@ fn hash_status<H: Hasher>(s: &Status, h: &mut H) {
     s.composing.hash(h);
     quant(s.hover_progress).hash(h);
     quant(s.focus_progress).hash(h);
+    quant(s.press_progress).hash(h);
     quant(s.opacity).hash(h);
     quant(s.value).hash(h);
     // Sub-region hover (milestone 208): a change of position repaints the highlight.
@@ -3781,6 +3782,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         let mut status = self.runtime.input.status_for(id);
         status.hover_progress = self.runtime.hover_progress(id);
         status.focus_progress = self.runtime.focus_progress(id);
+        // A press is a progression now, and where the runtime has never heard of this
+        // widget the flag is adopted whole — the rule `value` follows just below. Without
+        // it a frame built outside the loop would draw a held widget as untouched.
+        status.press_progress = self.runtime.press_progress_or(
+            id,
+            if status.interaction == crate::interaction::Interaction::Pressed {
+                1.0
+            } else {
+                0.0
+            },
+        );
         status.opacity = self.runtime.opacity(id);
         // A widget's own animated value, or **its target** where the runtime has never
         // heard of it: the same rule the runtime applies on mount (adopt, do not animate
@@ -6183,8 +6195,7 @@ mod tests {
             WidgetId::ROOT,
             crate::Anim {
                 hover: 0.5,
-                focus: 0.0,
-                opacity: 1.0,
+                ..Default::default()
             },
         );
         build_ui(&tree, size, &rt, &theme); // frame 2
