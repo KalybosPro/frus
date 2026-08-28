@@ -8,10 +8,21 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 438 so far, each documenting the objective, the alternatives
+> record — one per step, 439 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Changed
+
+- **A time picker's selected AM/PM takes the tertiary container** (J439), where it took the
+  accent the selected hour takes. Picking an hour picks the value; picking AM says which half
+  of the day it is in, and the reference gives the two different families for that reason.
+
+- **An errored field deepens under the pointer** (J439): its border and label move from
+  `error` to `on_error_container` while hovered, and back once focused. The message below the
+  field does not — it is a sentence, not a control. `TextFieldStyle::error_hover_color` and
+  the theme slot beside it replace the colour.
 
 ### Added
 

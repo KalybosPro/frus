@@ -98,6 +98,9 @@ pub struct TextFieldStyle {
     pub focused_border_color: Option<frus_core::Color>,
     /// Border, label and helper colour while an error is showing.
     pub error_color: Option<frus_core::Color>,
+    /// The same, **under the pointer**: an errored field deepens on hover
+    /// (`input_decorator.dart:5981`). Unset, the scheme's `on_error_container`.
+    pub error_hover_color: Option<frus_core::Color>,
     /// The value's colour.
     pub text_color: Option<frus_core::Color>,
     /// The label and the hint, at rest.
@@ -433,6 +436,11 @@ impl<Msg> TextField<Msg> {
                 theme.scheme.primary,
             ),
             error_color: pick(self.style.error_color, t.error_color, theme.scheme.error),
+            error_hover_color: pick(
+                self.style.error_hover_color,
+                t.error_hover_color,
+                theme.scheme.on_error_container,
+            ),
             text_color: pick(self.style.text_color, t.text_color, theme.scheme.on_surface),
             label_color: pick(
                 self.style.label_color,
@@ -886,6 +894,21 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         } else {
             0.0
         };
+        // **An errored field deepens under the pointer** (`input_decorator.dart:5981`,
+        // `:6004`, `:6053`): `error` at rest, `on_error_container` while hovered — and
+        // back to `error` once focused, because the reference tests focus **before**
+        // hover and a focused field is already saying everything it can.
+        //
+        // Continuous where the reference is discrete, which is this framework's habit
+        // with the pointer: `hover_progress` is a progression, not a flag.
+        let error_ink = s.error_color.unwrap().lerp(s.error_hover_color.unwrap(), {
+            let hover = if self.enabled {
+                status.hover_progress.clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            hover * (1.0 - fp)
+        });
 
         // Decoration: label above, input box in the middle, helper/error below. The
         // box is the sub-rectangle where all the editing lives.
@@ -925,7 +948,7 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
             let resolved = self.text_style().size;
             let size = resolved + (self.label_size() - resolved) * float_t;
             let color = if has_error {
-                s.error_color.unwrap()
+                error_ink
             } else {
                 s.label_color
                     .unwrap()
@@ -936,6 +959,10 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         // Helper/error line below the box (the error takes precedence over the helper).
         let sub = self.error.as_ref().or(self.helper.as_ref());
         if let Some(sub) = sub {
+            // The message itself does **not** deepen: `errorStyle` is `error` in every
+            // state (`input_decorator.dart:6100`). It is a sentence, not a control, and
+            // a sentence that changed colour under the pointer would be claiming to be
+            // one.
             let color = if has_error {
                 s.error_color.unwrap()
             } else {
@@ -970,7 +997,7 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         // both together is what makes a focused field unmistakable without relying on
         // colour, which not every reader has.
         let border_color = if has_error {
-            s.error_color.unwrap()
+            error_ink
         } else {
             s.border_color
                 .unwrap()
@@ -2766,6 +2793,97 @@ mod tests {
             float_y < rest_y,
             "once focused the label rises ({rest_y} → {float_y})"
         );
+    }
+
+    /// **An errored field deepens under the pointer** (milestone 439).
+    ///
+    /// `error` at rest, `on_error_container` while hovered, and `error` again once
+    /// focused — the reference tests focus **before** hover
+    /// (`input_decorator.dart:5977`), because a focused field is already saying
+    /// everything it can. The message below it does not move: `errorStyle` is `error` in
+    /// every state (`:6100`), it being a sentence rather than a control.
+    ///
+    /// It is the first thing here to ask the scheme for `on_error_container`, which
+    /// arrived in milestone 429 with nothing wanting it.
+    #[test]
+    fn an_errored_field_deepens_under_the_pointer() {
+        let theme = Theme::default();
+        let field = input("x").label("Name").error("Required").outlined();
+        let painted = |status: Status| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                &field,
+                Rect::new(0.0, 0.0, 220.0, 90.0),
+                status,
+                &theme,
+                &mut scene,
+            );
+            scene
+        };
+        // The border is the only stroked rectangle a field paints.
+        let border = |status: Status| {
+            painted(status)
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Rect {
+                        border_color,
+                        border_width,
+                        ..
+                    } if *border_width > 0.0 => Some(*border_color),
+                    _ => None,
+                })
+                .expect("an outlined field draws a border")
+        };
+        let message = |status: Status| {
+            painted(status)
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Text { text, color, .. } if text == "Required" => {
+                        Some(*color)
+                    }
+                    _ => None,
+                })
+                .expect("the message is painted")
+        };
+        let rest = Status {
+            opacity: 1.0,
+            ..Default::default()
+        };
+        let hovered = Status {
+            hover_progress: 1.0,
+            ..rest
+        };
+        let both = Status {
+            focused: true,
+            focus_progress: 1.0,
+            ..hovered
+        };
+
+        assert_eq!(border(rest), theme.scheme.error);
+        assert_eq!(
+            border(hovered),
+            theme.scheme.on_error_container,
+            "it deepens under the pointer"
+        );
+        assert_eq!(
+            border(both),
+            theme.scheme.error,
+            "and comes back once focused, which the reference tests first"
+        );
+        assert_ne!(
+            theme.scheme.error, theme.scheme.on_error_container,
+            "the two have to differ for any of the above to mean anything"
+        );
+
+        for status in [rest, hovered, both] {
+            assert_eq!(
+                message(status),
+                theme.scheme.error,
+                "the message is a sentence, not a control"
+            );
+        }
     }
 
     #[test]

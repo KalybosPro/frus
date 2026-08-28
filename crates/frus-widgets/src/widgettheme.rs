@@ -299,6 +299,9 @@ pub struct TextFieldTheme {
     pub focused_border_color: Option<Color>,
     /// Border, label and helper colour while an error is showing.
     pub error_color: Option<Color>,
+    /// The same under the pointer: an errored field **deepens** on hover
+    /// (`input_decorator.dart:5981`). Unset, the scheme's `on_error_container`.
+    pub error_hover_color: Option<Color>,
     /// The value's colour.
     pub text_color: Option<Color>,
     /// The label and the hint, at rest.

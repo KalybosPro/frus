@@ -59,8 +59,39 @@ fn range_label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> TextStyl
 struct TimeCell<Msg> {
     label: String,
     selected: bool,
+    /// Whether this cell is **AM/PM** rather than a number, which is a different role
+    /// and not only a different label. See [`TimeCell::palette`].
+    day_period: bool,
     text_style: Option<TextStyle>,
     message: Option<Msg>,
+}
+
+impl<Msg> TimeCell<Msg> {
+    /// `(background, ink)`.
+    ///
+    /// **The day period is not an hour.** The reference selects a number on the dial with
+    /// `primary` / `onPrimary` (`time_picker.dart:3762`) and the AM/PM cell with
+    /// `tertiaryContainer` / `onTertiaryContainer` (`:3664`, `:3700`) — a different
+    /// family on purpose, because the two choices are not the same kind of choice. Picking
+    /// an hour is picking a value; picking AM or PM is saying which half of the day the
+    /// value is in, and giving both the accent makes the smaller decision shout as loudly
+    /// as the larger one.
+    ///
+    /// It is also the first thing in this framework to ask the scheme for a tertiary role
+    /// at all: they arrived in milestone 429 and nothing had wanted one.
+    fn palette(&self, theme: &Theme, status: &Status) -> (Color, Color) {
+        match (self.selected, self.day_period) {
+            (true, true) => (
+                theme.scheme.tertiary_container,
+                theme.scheme.on_tertiary_container,
+            ),
+            (true, false) => (theme.primary, theme.on_primary),
+            (false, _) => (
+                theme.state_layer(theme.surface, theme.on_surface, status),
+                theme.on_surface,
+            ),
+        }
+    }
 }
 
 impl<Msg> TimeCell<Msg> {
@@ -89,14 +120,7 @@ impl<Msg: Clone> Widget<Msg> for TimeCell<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let (bg, fg) = if self.selected {
-            (theme.primary, theme.on_primary)
-        } else {
-            (
-                theme.state_layer(theme.surface, theme.on_surface, &status),
-                theme.on_surface,
-            )
-        };
+        let (bg, fg) = self.palette(theme, &status);
         scene.draw_rect(bounds, bg.fade(o), CELL * 0.5, 0.0, Color::TRANSPARENT);
         let style = dial_style(self.text_style, Some(theme));
         let w = frus_text::measure_resolved(&self.label, &style).width;
@@ -234,12 +258,14 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
                 .child(TimeCell {
                     label: "AM".into(),
                     selected: !pm,
+                    day_period: true,
                     text_style: cell,
                     message: Some((self.on_hour)(am_target)),
                 })
                 .child(TimeCell {
                     label: "PM".into(),
                     selected: pm,
+                    day_period: true,
                     text_style: cell,
                     message: Some((self.on_hour)(pm_target)),
                 });
@@ -251,6 +277,7 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
                 grid = grid.cell(TimeCell {
                     label: format!("{d}"),
                     selected: d == current12,
+                    day_period: false,
                     text_style: cell,
                     message: Some((self.on_hour)(target24)),
                 });
@@ -266,6 +293,7 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
                 grid = grid.cell(TimeCell {
                     label: format!("{h:02}"),
                     selected: h == hour,
+                    day_period: false,
                     text_style: cell,
                     message: Some((self.on_hour)(h)),
                 });
@@ -284,6 +312,7 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
             minutes = minutes.cell(TimeCell {
                 label: format!("{m:02}"),
                 selected: m == minute,
+                day_period: false,
                 text_style: cell,
                 message: Some((self.on_minute)(m)),
             });
@@ -479,6 +508,80 @@ mod tests {
             }
             _ => None,
         })
+    }
+
+    /// `(background, ink)` of one painted cell.
+    fn cell_colors(selected: bool, day_period: bool, theme: &Theme) -> (Color, Color) {
+        let cell = TimeCell::<Msg> {
+            label: "AM".into(),
+            selected,
+            day_period,
+            text_style: None,
+            message: Some(Msg::Hour(0)),
+        };
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            &cell,
+            Rect::new(0.0, 0.0, 40.0, 40.0),
+            Status {
+                opacity: 1.0,
+                ..Default::default()
+            },
+            theme,
+            &mut scene,
+        );
+        let bg = scene
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { color, .. } => Some(*color),
+                _ => None,
+            })
+            .expect("a cell paints a box");
+        let ink = scene
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Text { color, .. } => Some(*color),
+                _ => None,
+            })
+            .expect("a cell paints its label");
+        (bg, ink)
+    }
+
+    /// **The day period is not an hour** (milestone 439).
+    ///
+    /// The reference selects a number with `primary` / `onPrimary`
+    /// (`time_picker.dart:3762`) and AM/PM with `tertiaryContainer` /
+    /// `onTertiaryContainer` (`:3664`, `:3700`) — a different family on purpose, because
+    /// the two are not the same kind of choice. Both were painted with the accent here,
+    /// which made the smaller decision shout as loudly as the larger one.
+    #[test]
+    fn the_day_period_is_not_an_hour() {
+        let theme = Theme::default();
+        assert_eq!(
+            cell_colors(true, true, &theme),
+            (
+                theme.scheme.tertiary_container,
+                theme.scheme.on_tertiary_container
+            )
+        );
+        assert_eq!(
+            cell_colors(true, false, &theme),
+            (theme.primary, theme.on_primary)
+        );
+        assert_ne!(
+            cell_colors(true, true, &theme).0,
+            cell_colors(true, false, &theme).0,
+            "the two have to differ for the distinction to be worth making"
+        );
+        // Unselected, neither is anything in particular: both are the surface under a
+        // state layer, which at rest is the surface.
+        assert_eq!(
+            cell_colors(false, true, &theme),
+            cell_colors(false, false, &theme),
+            "only the selected one names a family"
+        );
     }
 
     #[test]
