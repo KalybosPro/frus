@@ -530,6 +530,9 @@ pub struct SnackBarTheme {
     /// The action's colour. Unset, the scheme's `inverse_primary` — the one role in the
     /// scheme whose whole reason for existing is being legible on an inverted surface.
     pub action_text_color: Option<Color>,
+    /// The close cross's colour. Unset, the scheme's `on_inverse_surface`
+    /// (`snack_bar.dart:995`).
+    pub close_icon_color: Option<Color>,
     /// The stripe down a notification's leading edge, whichever kind it is. Unset, the
     /// kind decides.
     pub accent_color: Option<Color>,

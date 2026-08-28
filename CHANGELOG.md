@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 437 so far, each documenting the objective, the alternatives
+> record — one per step, 438 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`SnackBar::close_icon`** (J438): the cross at the end of the bar. It takes the message a
+  click emits rather than a `bool`, because the application owns the queue here and a cross
+  with nothing to call would be a way out that is not one. With `close_icon_color` and
+  `close_icon_label`, and `SnackBarTheme::close_icon_color` beside them.
 
 ### Fixed
 

@@ -9,9 +9,13 @@ use frus_core::{
 };
 use frus_layout::{Align, Dimension, Justify, Style};
 
+use crate::iconbutton::{ICON_BUTTON_ICON_SIZE, ICON_BUTTON_SIZE};
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
+
+/// The grid the icon paths are drawn on, and therefore what a glyph is scaled from.
+const ICON_GRID: f32 = 24.0;
 
 /// A snack bar's corner and how far off the page it sits (`snack_bar.dart:983`, `:980`).
 pub const SNACK_BAR_RADIUS: f32 = 4.0;
@@ -32,6 +36,14 @@ const ACCENT: f32 = 4.0;
 const ACTION_PAD_X: f32 = 12.0;
 const ACTION_GAP: f32 = 8.0;
 const ACTION_H: f32 = 32.0;
+/// The air either side of the close icon. The reference's is a **twelfth** of the bar's
+/// horizontal padding (`snack_bar.dart:698`), which is as near to nothing as a margin
+/// gets — the cross is meant to sit at the very end of the bar.
+const CLOSE_MARGIN: f32 = PAD_X / 12.0;
+/// The default label a reader hears on it. The reference takes it from
+/// `MaterialLocalizations`, which this framework has no equivalent of yet, so it is
+/// English until a caller says otherwise — see [`SnackBar::close_icon_label`].
+const CLOSE_LABEL: &str = "Close";
 
 /// The message's style: what the caller said, else what the theme says, else the
 /// reference's — a snackbar's content is `bodyMedium`.
@@ -80,7 +92,11 @@ pub struct SnackBar<Msg> {
     /// it: the width it reserves is a measurement, and a measurement cannot be taken in a
     /// builder, before any theme exists to say what type it is in.
     action: Option<(String, Msg)>,
-    /// Empty, or `[action button]`.
+    /// What a click on the cross emits, when there is one. See [`SnackBar::close_icon`].
+    close: Option<Msg>,
+    close_icon_color: Option<Color>,
+    close_label: Option<String>,
+    /// The trailing controls, in order: the action, then the cross.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -97,6 +113,9 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
             action_text_color: None,
             accent: None,
             action: None,
+            close: None,
+            close_icon_color: None,
+            close_label: None,
             children: Vec::new(),
         }
     }
@@ -119,7 +138,7 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
     #[must_use]
     pub fn action_text_color(mut self, color: Color) -> Self {
         self.action_text_color = Some(color);
-        self.rebuild_action();
+        self.rebuild_controls();
         self
     }
 
@@ -141,7 +160,7 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
     #[must_use]
     pub fn action_text_style(mut self, style: TextStyle) -> Self {
         self.action_text_style = Some(style);
-        self.rebuild_action();
+        self.rebuild_controls();
         self
     }
 
@@ -161,25 +180,72 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
     /// on click — typically "UNDO", to undo whatever triggered the notification.
     pub fn action(mut self, label: impl Into<String>, message: Msg) -> Self {
         self.action = Some((label.into().to_uppercase(), message));
-        self.rebuild_action();
+        self.rebuild_controls();
         self
     }
 
     /// Carries the current action *and the current style* into the child.
     ///
-    /// Called by both builders so the two are order-independent: `.action(…)` then
-    /// `.action_text_style(…)` and the reverse describe the same notification, which a
-    /// caller is entitled to assume and would otherwise have to discover.
-    fn rebuild_action(&mut self) {
-        self.children = match &self.action {
-            Some((label, message)) => vec![Box::new(ActionButton {
+    /// **The cross at the end of the bar** (`snack_bar.dart:700`), emitting `message`.
+    ///
+    /// The reference's property is a `bool`, because there a `ScaffoldMessenger` owns the
+    /// bar and the button can call `hideCurrentSnackBar` on it. Here the application owns
+    /// the queue — [`SnackBarQueue`] is deliberately application-side — so a bool would
+    /// draw a cross that does nothing, and a button that cannot say what it does is worse
+    /// than no button. It takes the message instead.
+    #[must_use]
+    pub fn close_icon(mut self, message: Msg) -> Self {
+        self.close = Some(message);
+        self.rebuild_controls();
+        self
+    }
+
+    /// The cross's colour, over the theme's and the scheme's `on_inverse_surface`
+    /// (`snack_bar.dart:995`).
+    #[must_use]
+    pub fn close_icon_color(mut self, color: Color) -> Self {
+        self.close_icon_color = Some(color);
+        self.rebuild_controls();
+        self
+    }
+
+    /// What a reader hears on the cross. `"Close"` unless said otherwise: the reference
+    /// takes this from `MaterialLocalizations` (`snack_bar.dart:709`), which this
+    /// framework has no equivalent of, so the caller is the only one who can translate it.
+    #[must_use]
+    pub fn close_icon_label(mut self, label: impl Into<String>) -> Self {
+        self.close_label = Some(label.into());
+        self.rebuild_controls();
+        self
+    }
+
+    /// Called by every builder that touches them, so the builders are order-independent:
+    /// `.action(…)` then `.action_text_style(…)` and the reverse describe the same
+    /// notification, which a caller is entitled to assume and would otherwise have to
+    /// discover.
+    fn rebuild_controls(&mut self) {
+        self.children = Vec::new();
+        if let Some((label, message)) = &self.action {
+            self.children.push(Box::new(ActionButton {
                 label: label.clone(),
                 text_style: self.action_text_style,
                 color: self.action_text_color,
                 message: message.clone(),
-            })],
-            None => Vec::new(),
-        };
+            }));
+        }
+        // **After** the action, which is the order the reference builds them in
+        // (`snack_bar.dart:742`): the cross is the last thing on the line, so the action
+        // keeps the place a reader looks for it whether or not there is a cross.
+        if let Some(message) = &self.close {
+            self.children.push(Box::new(CloseButton {
+                color: self.close_icon_color,
+                label: self
+                    .close_label
+                    .clone()
+                    .unwrap_or_else(|| CLOSE_LABEL.to_string()),
+                message: message.clone(),
+            }));
+        }
     }
 }
 
@@ -190,16 +256,41 @@ impl<Msg> SnackBar<Msg> {
         let action_w = self.action.as_ref().map_or(0.0, |(label, _)| {
             action_width(label, &action_style(self.action_text_style, theme)) + ACTION_GAP
         });
+        let close_w = self
+            .close
+            .as_ref()
+            .map_or(0.0, |_| ICON_BUTTON_SIZE + CLOSE_MARGIN * 2.0);
+        // The bar is at least as tall as the tallest thing in it. A cross is a 40-pixel
+        // box where the action is 32, so a bar sized for the action alone would have cut
+        // the top and bottom off it.
+        let floor = if self.close.is_some() {
+            ICON_BUTTON_SIZE
+        } else {
+            ACTION_H
+        };
         let mut style = Style {
-            width: Dimension::Length((measured.width + PAD_X * 2.0 + ACCENT + action_w).ceil()),
-            height: Dimension::Length((measured.height + PAD_Y * 2.0).max(ACTION_H).ceil()),
+            width: Dimension::Length(
+                (measured.width + PAD_X * 2.0 + ACCENT + action_w + close_w).ceil(),
+            ),
+            height: Dimension::Length((measured.height + PAD_Y * 2.0).max(floor).ceil()),
             ..Default::default()
         };
-        // With an action: place it on the right, vertically centred.
+        // With controls: place them on the right, vertically centred, the cross tight
+        // against the end of the bar.
         if !self.children.is_empty() {
             style.justify = Justify::End;
             style.align = Align::Center;
-            style.padding = Insets::new(0.0, PAD_X, 0.0, 0.0);
+            style.gap = CLOSE_MARGIN;
+            style.padding = Insets::new(
+                0.0,
+                if self.close.is_some() {
+                    CLOSE_MARGIN
+                } else {
+                    PAD_X
+                },
+                0.0,
+                0.0,
+            );
         }
         style
     }
@@ -376,6 +467,86 @@ impl<Msg: Clone> Widget<Msg> for ActionButton<Msg> {
     }
 }
 
+/// A notification's **close** button: the cross at the end of the bar
+/// (`snack_bar.dart:700`).
+struct CloseButton<Msg> {
+    /// The caller's colour, carried down from the bar so the two are said in one place.
+    color: Option<Color>,
+    label: String,
+    message: Msg,
+}
+
+impl<Msg> CloseButton<Msg> {
+    /// `on_inverse_surface` (`snack_bar.dart:995`): the cross stands on the inverted
+    /// surface, so it takes the ink that surface guarantees is legible.
+    fn color(&self, theme: &Theme) -> Color {
+        self.color
+            .or(theme.widgets.snack_bar.close_icon_color)
+            .unwrap_or(theme.scheme.on_inverse_surface)
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for CloseButton<Msg> {
+    fn style(&self) -> Style {
+        Style {
+            width: Dimension::Length(ICON_BUTTON_SIZE),
+            height: Dimension::Length(ICON_BUTTON_SIZE),
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &[]
+    }
+
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        let o = status.opacity;
+        let ink = self.color(theme);
+        // Grounded on the **inverted** surface the bar painted, not on the page's, for
+        // the reason [`ActionButton`] gives: a state layer mixed from the wrong ground
+        // reads as a patch of the wrong colour rather than as a tint. It is also why this
+        // is not a plain [`crate::IconButton`], which grounds a standard one on nothing.
+        let ground = theme
+            .widgets
+            .snack_bar
+            .background_color
+            .unwrap_or(theme.scheme.inverse_surface);
+        let bg = theme.state_layer(ground, ink, &status);
+        scene.draw_rect(
+            bounds,
+            bg.fade(o),
+            bounds.height.min(bounds.width) * 0.5,
+            0.0,
+            Color::TRANSPARENT,
+        );
+        let size = ICON_BUTTON_ICON_SIZE;
+        let path = crate::Icons::Close
+            .path()
+            .scaled(size / ICON_GRID)
+            .translated(
+                bounds.x + (bounds.width - size) * 0.5,
+                bounds.y + (bounds.height - size) * 0.5,
+            );
+        scene.fill_path(&path, ink.fade(o));
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        Some(self.message.clone())
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+
+    fn semantics(&self) -> Option<SemanticsProperties> {
+        Some(
+            SemanticsProperties::new(Role::Button)
+                .label(self.label.clone())
+                .clickable(),
+        )
+    }
+}
+
 /// A **notification queue** — pure, application-side (in the spirit of [`crate::form::Form`]).
 ///
 /// Only one notification is visible at a time; the others wait. The application calls
@@ -468,6 +639,7 @@ mod tests {
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         Undo,
+        Dismiss,
     }
 
     /// Everything one notification paints, in one place.
@@ -499,6 +671,170 @@ mod tests {
             Primitive::Text { color, .. } => Some(*color),
             _ => None,
         })
+    }
+
+    /// The width a notification asks for.
+    fn width_of(bar: &SnackBar<Msg>) -> f32 {
+        match Widget::<Msg>::style_themed(bar, &Theme::default()).width {
+            Dimension::Length(w) => w,
+            other => panic!("a notification names its width, got {other:?}"),
+        }
+    }
+
+    /// The height a notification asks for.
+    fn height_of(bar: &SnackBar<Msg>) -> f32 {
+        match Widget::<Msg>::style_themed(bar, &Theme::default()).height {
+            Dimension::Length(h) => h,
+            other => panic!("a notification names its height, got {other:?}"),
+        }
+    }
+
+    /// Paints one of a notification's trailing controls, in its own box.
+    fn control(bar: &SnackBar<Msg>, index: usize, status: Status, theme: &Theme) -> Scene {
+        let mut scene = Scene::new();
+        Widget::<Msg>::children(bar)[index].paint(
+            Rect::new(0.0, 0.0, ICON_BUTTON_SIZE, ICON_BUTTON_SIZE),
+            status,
+            theme,
+            &mut scene,
+        );
+        scene
+    }
+
+    /// **A close icon is a button that says what it does** (`snack_bar.dart:700`).
+    ///
+    /// The reference's property is a `bool`, because a `ScaffoldMessenger` owns the bar
+    /// there and the cross can hide it. Here the application owns the queue, so a bool
+    /// would draw a cross that does nothing.
+    #[test]
+    fn a_close_icon_is_a_button_that_says_what_it_does() {
+        let bar = SnackBar::new("Message archived").close_icon(Msg::Dismiss);
+        let children = Widget::<Msg>::children(&bar);
+        assert_eq!(children.len(), 1, "the cross, and nothing else");
+        assert_eq!(children[0].on_click(), Some(Msg::Dismiss));
+        assert!(children[0].focusable(), "and the keyboard can reach it");
+
+        let heard = |bar: &SnackBar<Msg>| {
+            Widget::<Msg>::children(bar)[0]
+                .semantics()
+                .and_then(|s| s.label)
+                .expect("a cross with no name is a cross nobody can use")
+        };
+        assert_eq!(heard(&bar), CLOSE_LABEL);
+        assert_eq!(
+            heard(
+                &SnackBar::new("x")
+                    .close_icon(Msg::Dismiss)
+                    .close_icon_label("Fermer")
+            ),
+            "Fermer",
+            "the caller is the only one who can translate it"
+        );
+    }
+
+    /// **The cross comes after the action** (`snack_bar.dart:742`), so the action keeps
+    /// the place a reader looks for it whether or not there is a cross.
+    #[test]
+    fn the_cross_comes_after_the_action() {
+        let bar = SnackBar::new("Message archived")
+            .close_icon(Msg::Dismiss)
+            .action("Undo", Msg::Undo);
+        let children = Widget::<Msg>::children(&bar);
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].on_click(), Some(Msg::Undo));
+        assert_eq!(children[1].on_click(), Some(Msg::Dismiss));
+    }
+
+    /// And the bar makes room for it: wider by the cross's box, and **at least as tall**
+    /// as it. A bar sized for the action alone is 32 high, and the cross is 40.
+    #[test]
+    fn a_bar_with_a_cross_makes_room_for_it() {
+        let bare = SnackBar::new("Saved");
+        let crossed = SnackBar::new("Saved").close_icon(Msg::Dismiss);
+        assert!(
+            (width_of(&crossed) - width_of(&bare) - (ICON_BUTTON_SIZE + CLOSE_MARGIN * 2.0)).abs()
+                < 1.0,
+            "{} against {}",
+            width_of(&crossed),
+            width_of(&bare)
+        );
+        // Asked with type small enough that the message alone does not already make the
+        // bar tall enough, which is what makes the floor a floor rather than a comment.
+        let small = TextStyle {
+            size: Some(8.0),
+            ..Default::default()
+        };
+        let tiny = SnackBar::new("Saved")
+            .close_icon(Msg::Dismiss)
+            .content_text_style(small);
+        assert!(
+            height_of(&SnackBar::new("Saved").content_text_style(small)) < ICON_BUTTON_SIZE,
+            "the premise: a bar of small type is shorter than a cross"
+        );
+        assert!(
+            height_of(&tiny) >= ICON_BUTTON_SIZE,
+            "the cross would have been cut off: {}",
+            height_of(&tiny)
+        );
+    }
+
+    /// The cross takes the ink that is legible on the bar (`snack_bar.dart:995`), and the
+    /// caller and the theme each outrank the scheme.
+    #[test]
+    fn the_cross_takes_the_ink_that_is_legible_on_the_bar() {
+        let mut theme = Theme::default();
+        let ink = |bar: &SnackBar<Msg>, theme: &Theme| {
+            control(bar, 0, Status::default(), theme)
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Path { fill, .. } => *fill,
+                    _ => None,
+                })
+                .expect("the cross is drawn")
+        };
+        let bar = SnackBar::new("x").close_icon(Msg::Dismiss);
+        assert_eq!(ink(&bar, &theme), theme.scheme.on_inverse_surface);
+
+        theme.widgets.snack_bar.close_icon_color = Some(Color::rgb8(1, 2, 3));
+        assert_eq!(ink(&bar, &theme), Color::rgb8(1, 2, 3));
+
+        let told = SnackBar::new("x")
+            .close_icon(Msg::Dismiss)
+            .close_icon_color(Color::rgb8(4, 5, 6));
+        assert_eq!(ink(&told, &theme), Color::rgb8(4, 5, 6));
+    }
+
+    /// **Its state layer is grounded on the bar**, not on the page. A layer mixed from
+    /// the wrong ground reads as a patch of the wrong colour rather than as a tint —
+    /// which is also why this is not a plain `IconButton`, whose standard variant grounds
+    /// on nothing at all.
+    #[test]
+    fn the_cross_grounds_its_state_layer_on_the_bar() {
+        let theme = Theme::default();
+        let bar = SnackBar::new("x").close_icon(Msg::Dismiss);
+        let hovered = Status {
+            opacity: 1.0,
+            hover_progress: 1.0,
+            ..Default::default()
+        };
+        let fill = control(&bar, 0, hovered, &theme)
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { color, .. } => Some(*color),
+                _ => None,
+            })
+            .expect("a hovered cross lights");
+        assert_eq!(fill.a, 1.0, "resolved here, not handed over as an alpha");
+        assert_eq!(
+            fill,
+            theme.state_layer(
+                theme.scheme.inverse_surface,
+                theme.scheme.on_inverse_surface,
+                &hovered
+            )
+        );
     }
 
     #[test]
