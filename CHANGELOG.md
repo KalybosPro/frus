@@ -8,10 +8,35 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 441 so far, each documenting the objective, the alternatives
+> record — one per step, 442 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`TapTarget`, `Theme::tap_target`, and `tap_target()` on `Switch`, `Checkbox`,
+  `RadioGroup` and `IconButton`** (J442): a small control reserves at least 48 pixels for
+  the finger that works it, as the reference does. `TapTarget::ShrinkWrap` asks for the 40
+  the specification allows. With the matching `SwitchTheme`/`CheckboxTheme`/`RadioTheme`/
+  `IconButtonTheme` field, so the per-widget rung exists between caller and theme.
+
+### Changed
+
+- **`Switch`, `Checkbox`, `Radio` and `IconButton` lay out inside their tap target** (J442)
+  and paint what they painted in the middle of it. Nothing they draw changed; the room
+  around them did, and so did the area a click may land in. **A layout that pinned a row to
+  the old sizes will need the difference** — the icon button's box is 48 where it was 40.
+
+- **`NavigationBar` has no vertical padding** (J442). Six pixels left 44 for the 48-pixel
+  back button it holds; a toolbar is 56 tall and holds that button centred, with the four
+  pixels either side coming from the difference.
+
+### Fixed
+
+- **A theme fade no longer drops the per-widget defaults it crosses** (J442). `Theme::lerp`
+  rebuilt from the interpolated scheme and started from an empty `WidgetThemes`, so every
+  override an application had written vanished for the length of a light/dark crossing.
 
 ### Added
 

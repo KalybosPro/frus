@@ -298,7 +298,7 @@ pub use textinput::{
     FIELD_LABEL_SCALE, FIELD_NOTCH_GAP, FIELD_OUTLINED_PADDING_BOTTOM, FIELD_OUTLINED_PADDING_TOP,
     FIELD_PADDING_X, FIELD_PADDING_Y, FIELD_RADIUS, FIELD_SUB_SIZE, FIELD_TEXT_SIZE,
 };
-pub use theme::{ColorScheme, TextTheme, Theme};
+pub use theme::{ColorScheme, TapTarget, TextTheme, Theme, MIN_TAP_TARGET, SHRUNK_TAP_TARGET};
 pub use themebuilder::ThemeBuilder;
 pub use themed::Themed;
 pub use timeline::Timeline;

@@ -5,7 +5,7 @@ use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::disabled::disabled_content;
 use crate::interaction::{Interaction, Status};
-use crate::theme::Theme;
+use crate::theme::{TapTarget, Theme};
 use crate::widget::Widget;
 
 const DOT: f32 = 20.0;
@@ -21,6 +21,8 @@ struct RadioOption<Msg> {
     /// The group's availability, handed down. An option that stayed live under a disabled
     /// group would be the whole group, since a group is only ever its options.
     enabled: bool,
+    /// The group's answer on how much room to reserve for a finger, handed down.
+    tap_target: Option<TapTarget>,
     on_click: Option<Msg>,
 }
 
@@ -31,16 +33,34 @@ impl<Msg> RadioOption<Msg> {
     fn label_style(&self) -> ResolvedTextStyle {
         TextStyle::new(self.size).resolved()
     }
+
+    /// The room this option reserves, resolved as `group ?? theme ?? framework`
+    /// (`radio.dart:734`).
+    fn reserved(&self, theme: &Theme) -> f32 {
+        self.tap_target
+            .or(theme.widgets.radio.tap_target)
+            .unwrap_or(theme.tap_target)
+            .min_side()
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for RadioOption<Msg> {
     fn style(&self) -> Style {
+        Widget::<Msg>::style_themed(self, &Theme::default())
+    }
+
+    /// **A 20-pixel ring is not something a finger can be asked to hit** — the reference
+    /// lays a radio out inside a 48-pixel square whatever it paints in the middle
+    /// (`radio.dart:734`). As with a checkbox, the target is the whole control: an option
+    /// with words beside it is already wider than the minimum.
+    fn style_themed(&self, theme: &Theme) -> Style {
+        let least = self.reserved(theme);
         let style = self.label_style();
         let line = style.line_height().max(DOT);
         let label_w = frus_text::measure_resolved(&self.label, &style).width;
         Style {
-            width: Dimension::Length((DOT + GAP + label_w).ceil()),
-            height: Dimension::Length(line.ceil()),
+            width: Dimension::Length((DOT + GAP + label_w).max(least).ceil()),
+            height: Dimension::Length(line.max(least).ceil()),
             ..Default::default()
         }
     }
@@ -54,6 +74,7 @@ impl<Msg: Clone> Widget<Msg> for RadioOption<Msg> {
         let c = self.colors;
         let cy = bounds.y + (bounds.height - DOT) * 0.5;
         let outer = Rect::new(bounds.x, cy, DOT, DOT);
+        let label_style = self.label_style();
         // A radio has no container: the ring and the dot *are* the control, so both take
         // the content opacity — the reference disables its fill at 38 % whether the option
         // is the chosen one or not.
@@ -103,10 +124,15 @@ impl<Msg: Clone> Widget<Msg> for RadioOption<Msg> {
                 Color::TRANSPARENT,
             );
         }
+        // Centred down the ring's own height. It used to be drawn at the top of the
+        // bounds, which was the same sentence while the bounds *were* the line.
         scene.text(
-            Point::new(bounds.x + DOT + GAP, bounds.y),
+            Point::new(
+                bounds.x + DOT + GAP,
+                bounds.y + (bounds.height - label_style.line_height()) * 0.5,
+            ),
             self.label.clone(),
-            &self.label_style(),
+            &label_style,
             label.fade(o),
         );
     }
@@ -157,6 +183,7 @@ pub struct RadioGroup<Msg> {
     gap: f32,
     enabled: bool,
     colors: RadioColors,
+    tap_target: Option<TapTarget>,
     on_select: Box<dyn Fn(usize) -> Msg>,
     /// The labels as given. The options are **derived** from these, so that a builder
     /// called after them — `enabled`, and any that follow — still reaches every option
@@ -174,6 +201,7 @@ impl<Msg: Clone + 'static> RadioGroup<Msg> {
             gap: 8.0,
             enabled: true,
             colors: RadioColors::default(),
+            tap_target: None,
             on_select: Box::new(on_select),
             labels: Vec::new(),
             options: Vec::new(),
@@ -230,6 +258,17 @@ impl<Msg: Clone + 'static> RadioGroup<Msg> {
         self
     }
 
+    /// **How much room it reserves for a finger** ([`TapTarget`]). Unset, the theme's
+    /// answer, which is [`Padded`](TapTarget::Padded) — at least 48 pixels either way,
+    /// whatever this control paints in the middle of it.
+    ///
+    /// It reaches every option, as the group's other answers do.
+    pub fn tap_target(mut self, target: TapTarget) -> Self {
+        self.tap_target = Some(target);
+        self.rebuild();
+        self
+    }
+
     /// Rebuilds the options from the labels, so that the order of the builders does not
     /// change what comes out.
     fn rebuild(&mut self) {
@@ -244,6 +283,7 @@ impl<Msg: Clone + 'static> RadioGroup<Msg> {
                     size: self.size,
                     colors: self.colors,
                     enabled: self.enabled,
+                    tap_target: self.tap_target,
                     on_click: Some((self.on_select)(index)),
                 }) as Box<dyn Widget<Msg>>
             })
@@ -274,10 +314,94 @@ impl<Msg: Clone> Widget<Msg> for RadioGroup<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::{MIN_TAP_TARGET, SHRUNK_TAP_TARGET};
 
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         Pick(usize),
+    }
+
+    /// **A 20-pixel ring is not something a finger can be asked to hit** (milestone 442).
+    ///
+    /// The reference lays a radio out inside a 48-pixel square whatever it paints in the
+    /// middle (`radio.dart:734`). Here the target is the whole option, words included,
+    /// because a `RadioOption` carries its label where the reference's radio does not.
+    #[test]
+    fn an_option_reserves_room_for_a_finger() {
+        let theme = Theme::dark();
+        let option = |target: Option<TapTarget>| RadioOption::<Msg> {
+            label: "Daily".into(),
+            selected: false,
+            size: 18.0,
+            colors: RadioColors::default(),
+            enabled: true,
+            tap_target: target,
+            on_click: None,
+        };
+        let height = |option: &RadioOption<Msg>, theme: &Theme| match Widget::<Msg>::style_themed(
+            option, theme,
+        )
+        .height
+        {
+            Dimension::Length(h) => h,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(height(&option(None), &theme), MIN_TAP_TARGET);
+        assert_eq!(
+            height(&option(Some(TapTarget::ShrinkWrap)), &theme),
+            SHRUNK_TAP_TARGET
+        );
+
+        // The group hands its answer to every option, whenever it is said.
+        let group = RadioGroup::new(0, Msg::Pick)
+            .option("Daily")
+            .tap_target(TapTarget::ShrinkWrap);
+        for child in Widget::<Msg>::children(&group) {
+            assert_eq!(
+                match child.style_themed(&theme).height {
+                    Dimension::Length(h) => h,
+                    other => panic!("{other:?}"),
+                },
+                SHRUNK_TAP_TARGET
+            );
+        }
+    }
+
+    /// And the label is centred down that room. It used to be drawn at the top of the
+    /// bounds, which was the same sentence while the bounds *were* the line.
+    #[test]
+    fn the_label_is_centred_in_the_room() {
+        let theme = Theme::dark();
+        let option = RadioOption::<Msg> {
+            label: "Daily".into(),
+            selected: false,
+            size: 18.0,
+            colors: RadioColors::default(),
+            enabled: true,
+            tap_target: None,
+            on_click: None,
+        };
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            &option,
+            Rect::new(0.0, 0.0, 200.0, MIN_TAP_TARGET),
+            Status::default(),
+            &theme,
+            &mut scene,
+        );
+        let at = scene
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Text { position, .. } => Some(*position),
+                _ => None,
+            })
+            .expect("an option paints its label");
+        let line = option.label_style().line_height();
+        assert!(
+            (at.y - (MIN_TAP_TARGET - line) * 0.5).abs() < 0.01,
+            "the label sits in the middle: {at:?}"
+        );
     }
 
     /// An unselected ring, state by state — the same rule as a checkbox's box, and for
@@ -295,6 +419,7 @@ mod tests {
                     size: 18.0,
                     colors: RadioColors::default(),
                     enabled: true,
+                    tap_target: None,
                     on_click: Some(Msg::Pick(0)),
                 },
                 Rect::new(0.0, 0.0, 120.0, 20.0),

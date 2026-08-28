@@ -26,7 +26,7 @@ use frus_layout::{Dimension, Style};
 use crate::disabled::{disabled_container, disabled_content};
 use crate::icons::Icons;
 use crate::interaction::Status;
-use crate::theme::Theme;
+use crate::theme::{TapTarget, Theme};
 use crate::widget::Widget;
 
 /// The box: as wide as it is tall.
@@ -74,6 +74,7 @@ pub struct IconButton<Msg> {
     border_color: Option<Color>,
     border_width: Option<f32>,
     radius: Option<BorderRadius>,
+    tap_target: Option<TapTarget>,
 }
 
 impl<Msg> IconButton<Msg> {
@@ -103,6 +104,7 @@ impl<Msg> IconButton<Msg> {
             border_color: None,
             border_width: None,
             radius: None,
+            tap_target: None,
         }
     }
 
@@ -179,10 +181,39 @@ impl<Msg> IconButton<Msg> {
         self
     }
 
+    /// **How much room it reserves for a finger** ([`TapTarget`]). Unset, the theme's
+    /// answer, which is [`Padded`](TapTarget::Padded) — at least 48 pixels either way,
+    /// whatever this control paints in the middle of it.
+    pub fn tap_target(mut self, target: TapTarget) -> Self {
+        self.tap_target = Some(target);
+        self
+    }
+
     fn side(&self, theme: &Theme) -> f32 {
         self.size
             .or(theme.widgets.icon_button.size)
             .unwrap_or(ICON_BUTTON_SIZE)
+    }
+
+    /// The room this button reserves, resolved as `caller ?? theme ?? framework`
+    /// (`icon_button.dart:708`).
+    fn reserved(&self, theme: &Theme) -> f32 {
+        self.tap_target
+            .or(theme.widgets.icon_button.tap_target)
+            .unwrap_or(theme.tap_target)
+            .min_side()
+    }
+
+    /// The **face** — what the button paints — centred in the box it was given, which is
+    /// its tap target and is larger.
+    fn face(&self, bounds: Rect, theme: &Theme) -> Rect {
+        let side = self.side(theme);
+        Rect::new(
+            bounds.x + (bounds.width - side) * 0.5,
+            bounds.y + (bounds.height - side) * 0.5,
+            side,
+            side,
+        )
     }
 
     fn glyph_size(&self, theme: &Theme) -> f32 {
@@ -263,8 +294,12 @@ impl<Msg: Clone> Widget<Msg> for IconButton<Msg> {
         Widget::<Msg>::style_themed(self, &Theme::default())
     }
 
+    /// **The box is the tap target, not the face** (`icon_button.dart:708`). An icon
+    /// button paints 40 pixels and the reference reserves 48 for the finger, painting the
+    /// face in the middle of it. This is the control most often placed at the very edge
+    /// of a bar, where the eight missing pixels are the ones a thumb reaches for.
     fn style_themed(&self, theme: &Theme) -> Style {
-        let side = self.side(theme);
+        let side = self.side(theme).max(self.reserved(theme));
         Style {
             width: Dimension::Length(side),
             height: Dimension::Length(side),
@@ -279,6 +314,7 @@ impl<Msg: Clone> Widget<Msg> for IconButton<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         let (surface, glyph, outline) = self.palette(theme);
+        let bounds = self.face(bounds, theme);
         let radius = self.radius_of(theme, bounds.height.min(bounds.width));
         let (border_width, border_color) = match (
             self.border_width.or(theme.widgets.icon_button.border_width),
@@ -379,6 +415,7 @@ impl<Msg: Clone> Widget<Msg> for IconButton<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::{MIN_TAP_TARGET, SHRUNK_TAP_TARGET};
     use frus_core::Primitive;
 
     #[derive(Clone, Debug, PartialEq)]
@@ -398,12 +435,74 @@ mod tests {
         scene.primitives().to_vec()
     }
 
+    /// **An icon button paints 40 pixels and the reference reserves 48** (milestone 442,
+    /// `icon_button.dart:708`). It is the control most often put at the very edge of a
+    /// bar, where the eight missing pixels are the ones a thumb reaches for.
+    #[test]
+    fn an_icon_button_reserves_room_for_a_finger() {
+        let theme = Theme::dark();
+        let side = |button: &IconButton<()>, theme: &Theme| match Widget::<()>::style_themed(
+            button, theme,
+        )
+        .width
+        {
+            Dimension::Length(w) => w,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(side(&IconButton::new(Icons::Close), &theme), MIN_TAP_TARGET);
+        assert_eq!(
+            side(
+                &IconButton::new(Icons::Close).tap_target(TapTarget::ShrinkWrap),
+                &theme
+            ),
+            SHRUNK_TAP_TARGET
+        );
+        // A button asked for a face **larger** than the target keeps its own size: the
+        // target is a floor, not a size.
+        assert_eq!(
+            side(&IconButton::new(Icons::Close).size(64.0), &theme),
+            64.0
+        );
+    }
+
+    /// And **the face it paints does not grow with the room**: it keeps its own side and
+    /// sits in the middle of it.
+    #[test]
+    fn the_face_is_centred_in_the_room() {
+        let theme = Theme::dark();
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            &IconButton::new(Icons::Close),
+            Rect::new(0.0, 0.0, MIN_TAP_TARGET, MIN_TAP_TARGET),
+            Status::default(),
+            &theme,
+            &mut scene,
+        );
+        let face = scene
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("an icon button paints its surface");
+        assert_eq!(face.width, ICON_BUTTON_SIZE);
+        assert_eq!(face.height, ICON_BUTTON_SIZE);
+        let inset = (MIN_TAP_TARGET - ICON_BUTTON_SIZE) * 0.5;
+        assert!(
+            (face.x - inset).abs() < 0.01 && (face.y - inset).abs() < 0.01,
+            "centred in the room: {face:?}"
+        );
+    }
+
     #[test]
     fn it_is_a_circle_as_wide_as_it_is_tall() {
         let theme = Theme::default();
+        // The **box** is square at the tap target since milestone 442; the face it paints
+        // inside that box is square at its own side.
         let style = Widget::<Msg>::style_themed(&IconButton::new(Icons::Close), &theme);
-        assert_eq!(style.width, Dimension::Length(ICON_BUTTON_SIZE));
-        assert_eq!(style.height, Dimension::Length(ICON_BUTTON_SIZE));
+        assert_eq!(style.width, Dimension::Length(MIN_TAP_TARGET));
+        assert_eq!(style.height, Dimension::Length(MIN_TAP_TARGET));
         let radius = painted(&IconButton::new(Icons::Close))
             .iter()
             .find_map(|p| match p {
@@ -530,14 +629,26 @@ mod tests {
     #[test]
     fn every_measurement_is_the_callers_and_then_the_themes() {
         let mut theme = Theme::default();
-        theme.widgets.icon_button.size = Some(48.0);
-        let side = |button: IconButton<Msg>, theme: &Theme| match Widget::<Msg>::style_themed(
-            &button, theme,
-        )
-        .width
-        {
-            Dimension::Length(w) => w,
-            other => panic!("{other:?}"),
+        theme.widgets.icon_button.size = Some(56.0);
+        // The **face** — what the button paints — since milestone 442, because the box
+        // around it is the tap target and is a floor rather than a size.
+        let side = |button: IconButton<Msg>, theme: &Theme| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                &button,
+                Rect::new(0.0, 0.0, 96.0, 96.0),
+                Status::default(),
+                theme,
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect { rect, .. } => Some(rect.width),
+                    _ => None,
+                })
+                .expect("a box")
         };
         assert_eq!(
             side(IconButton::new(Icons::Close), &Theme::default()),
@@ -546,13 +657,24 @@ mod tests {
         );
         assert_eq!(
             side(IconButton::new(Icons::Close), &theme),
-            48.0,
+            56.0,
             "the theme's"
         );
         assert_eq!(
             side(IconButton::new(Icons::Close).size(32.0), &theme),
             32.0,
             "the caller's, over the theme's"
+        );
+        // And a face smaller than the target still gets the target's room around it: the
+        // control shrinks, the area a finger may land in does not.
+        assert_eq!(
+            match Widget::<Msg>::style_themed(&IconButton::new(Icons::Close).size(32.0), &theme)
+                .width
+            {
+                Dimension::Length(w) => w,
+                other => panic!("{other:?}"),
+            },
+            MIN_TAP_TARGET
         );
     }
 }

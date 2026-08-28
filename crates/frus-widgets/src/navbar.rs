@@ -77,7 +77,13 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
             flex_direction: FlexDirection::Row,
             justify: Justify::Start,
             align: Align::Center,
-            padding: Insets::new(6.0, 16.0, 6.0, PAD_LEFT),
+            // **No vertical padding**, and that is the reference's arrangement rather than
+            // a saving: a toolbar is 56 tall and holds a 48-pixel button centred in it
+            // (`constants.dart:27`, `constants.dart:30`), with the four pixels either side
+            // coming from the difference and not from a rule. Six pixels of padding left 44
+            // for the button, which is under the target it now reserves (milestone 442) —
+            // the bar squeezed the one control in it.
+            padding: Insets::new(0.0, 16.0, 0.0, PAD_LEFT),
             ..Default::default()
         }
     }

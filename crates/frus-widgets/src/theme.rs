@@ -421,6 +421,49 @@ impl ColorScheme {
     }
 }
 
+/// **The smallest box a control that a finger works reserves for it**, in pixels
+/// (`constants.dart:27`).
+///
+/// Not a look: a target. Forty-eight is the number the accessibility scanners on both
+/// mobile platforms check for, and it is what the reference reserves by default for
+/// every switch, checkbox, radio and icon button it draws — whatever those controls
+/// actually paint inside it.
+pub const MIN_TAP_TARGET: f32 = 48.0;
+
+/// The same for a control told to reserve only what the specification requires: the
+/// minimum less eight (`checkbox.dart:522`, `switch.dart:2090`).
+pub const SHRUNK_TAP_TARGET: f32 = 40.0;
+
+/// **How much room a small control reserves for the finger that works it.**
+///
+/// A switch paints a track 32 pixels tall; a checkbox paints a box of 20. Neither is
+/// something a finger can be asked to hit. The reference lays both out inside a
+/// 48-pixel square and paints the small thing in the middle of it, and it makes that a
+/// theme-wide setting with a per-widget override, because it is the kind of decision an
+/// application makes once (`theme_data.dart:172`).
+///
+/// This is a **layout** answer, not a visual one. What the control paints does not
+/// change; the room around it does, and so does the area a click may land in.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+pub enum TapTarget {
+    /// At least [`MIN_TAP_TARGET`] on both sides — the default, as it is over there.
+    #[default]
+    Padded,
+    /// Only [`SHRUNK_TAP_TARGET`]: for the dense interface that has measured its own
+    /// reach and decided, which is a decision rather than an oversight.
+    ShrinkWrap,
+}
+
+impl TapTarget {
+    /// The smallest side, in pixels, this answer reserves.
+    pub fn min_side(self) -> f32 {
+        match self {
+            TapTarget::Padded => MIN_TAP_TARGET,
+            TapTarget::ShrinkWrap => SHRUNK_TAP_TARGET,
+        }
+    }
+}
+
 /// A set of style tokens.
 ///
 /// The [`ColorScheme`] (`theme.scheme`) is the **source of truth** for the colors;
@@ -475,6 +518,11 @@ pub struct Theme {
     /// nothing behaves exactly as if there were none. See
     /// [`WidgetThemes`](crate::WidgetThemes).
     pub widgets: crate::widgettheme::WidgetThemes,
+    /// **How much room the small controls reserve for a finger** ([`TapTarget`]).
+    /// [`Padded`](TapTarget::Padded) by default, as it is over there: a switch, a
+    /// checkbox, a radio and an icon button each lay out inside at least
+    /// [`MIN_TAP_TARGET`] and paint what they paint in the middle of it.
+    pub tap_target: TapTarget,
 }
 
 impl Theme {
@@ -502,6 +550,7 @@ impl Theme {
             spacing: 8.0,
             direction: TextDirection::Ltr,
             widgets: crate::widgettheme::WidgetThemes::default(),
+            tap_target: TapTarget::default(),
         }
     }
 
@@ -578,6 +627,12 @@ impl Theme {
         out.spacing = f(self.spacing, other.spacing);
         // Direction is discrete: keep the fade target's.
         out.direction = other.direction;
+        // So is the tap target — and so are the per-widget defaults, which the fade used
+        // to **drop**: `from_scheme` starts from an empty set and nothing put them back,
+        // so every override an application had written disappeared for the length of a
+        // light/dark crossing and came back when it ended.
+        out.tap_target = other.tap_target;
+        out.widgets = other.widgets;
         out
     }
 }
@@ -940,6 +995,50 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(theme.state_layer(base, on, &flagged), base);
+    }
+
+    /// **A tap target is a theme-wide answer with a per-widget override** (milestone
+    /// 442), and the default is the reference's: at least 48 pixels for anything a
+    /// finger works.
+    #[test]
+    fn a_theme_reserves_a_tap_target_by_default() {
+        assert_eq!(Theme::dark().tap_target, TapTarget::Padded);
+        assert_eq!(Theme::light().tap_target, TapTarget::Padded);
+        // Read through the enum, which is what a widget asking would get.
+        let sides: Vec<f32> = [TapTarget::Padded, TapTarget::ShrinkWrap]
+            .iter()
+            .map(|t| t.min_side())
+            .collect();
+        assert_eq!(sides, vec![MIN_TAP_TARGET, SHRUNK_TAP_TARGET]);
+        assert!(
+            sides[1] < sides[0],
+            "shrink-wrapping is a smaller answer, not a different one"
+        );
+    }
+
+    /// **A fade used to drop every per-widget default it crossed** (milestone 442).
+    ///
+    /// `lerp` rebuilds the theme from the interpolated scheme, and `from_scheme` starts
+    /// from an empty set of widget defaults — so every override an application had
+    /// written disappeared for the length of a light/dark crossing and came back when it
+    /// ended. Discrete, like the direction beside it: a corner radius is not a colour and
+    /// has no half-way.
+    #[test]
+    fn a_fade_keeps_what_it_cannot_interpolate() {
+        let mut target = Theme::light();
+        target.widgets.checkbox.radius = Some(3.0);
+        target.tap_target = TapTarget::ShrinkWrap;
+
+        let mid = Theme::dark().lerp(&target, 0.5);
+        assert_eq!(
+            mid.widgets.checkbox.radius,
+            Some(3.0),
+            "the defaults survive"
+        );
+        assert_eq!(mid.tap_target, TapTarget::ShrinkWrap);
+        // And the colours are still half way across, which is what the fade is for.
+        assert_ne!(mid.background, Theme::dark().background);
+        assert_ne!(mid.background, target.background);
     }
 
     #[test]

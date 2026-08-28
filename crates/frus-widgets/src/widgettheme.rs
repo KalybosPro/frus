@@ -116,6 +116,9 @@ pub struct CheckboxTheme {
     pub radius: Option<f32>,
     /// The label beside it.
     pub label_color: Option<Color>,
+    /// **How much room it reserves for a finger** — the reference's per-widget say over
+    /// the theme's (`checkbox.dart:512`). Unset, the theme's own answer.
+    pub tap_target: Option<crate::theme::TapTarget>,
 }
 
 /// Defaults for [`RadioGroup`](crate::RadioGroup).
@@ -129,6 +132,9 @@ pub struct RadioTheme {
     pub active_border_color: Option<Color>,
     /// The labels.
     pub label_color: Option<Color>,
+    /// **How much room it reserves for a finger** — the reference's per-widget say over
+    /// the theme's (`radio.dart:734`). Unset, the theme's own answer.
+    pub tap_target: Option<crate::theme::TapTarget>,
 }
 
 /// Defaults for [`Slider`](crate::Slider) and [`RangeSlider`](crate::RangeSlider).
@@ -166,6 +172,9 @@ pub struct SwitchTheme {
     /// (`switch.dart:2349`) — the track's own colour, so the glyph reads as a hole in the
     /// thumb rather than as a mark on it.
     pub inactive_icon_color: Option<Color>,
+    /// **How much room it reserves for a finger** — the reference's per-widget say over
+    /// the theme's (`switch.dart:603`). Unset, the theme's own answer.
+    pub tap_target: Option<crate::theme::TapTarget>,
 }
 
 /// The text style a **subtree** hands down — the reference's `DefaultTextStyle`, and an
@@ -511,6 +520,9 @@ pub struct IconButtonTheme {
     pub border_width: Option<f32>,
     /// The corner radii. Unset, an icon button is a circle.
     pub radius: Option<BorderRadius>,
+    /// **How much room it reserves for a finger** — the reference's per-widget say over
+    /// the theme's (`icon_button.dart:708`). Unset, the theme's own answer.
+    pub tap_target: Option<crate::theme::TapTarget>,
 }
 
 /// Defaults for the **ink ripple** — every surface that splashes, including

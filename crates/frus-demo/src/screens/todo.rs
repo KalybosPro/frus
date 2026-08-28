@@ -34,7 +34,13 @@ pub(crate) fn todo_row_swipeable(todo: &Todo, theme: &Theme) -> Dismissible<Msg>
 }
 
 /// The height of a task row. Fixed, because a swipeable row is a layout leaf.
-pub(crate) const TODO_ROW_HEIGHT: f32 = 62.0;
+///
+/// Sixty-six, not sixty-two: the checkbox and the delete button each reserve a 48-pixel
+/// tap target (milestone 442), and around them this row has 8 pixels of padding above and
+/// below plus a one-pixel rule. It was pinned at 62 when those controls were 20 and 40,
+/// and the framework's own overflow check said so on all nine screens at once the moment
+/// they grew — which is the instrument working.
+pub(crate) const TODO_ROW_HEIGHT: f32 = 66.0;
 
 /// One task row: a checkbox, the label (dimmed **and struck through** when done) and a delete
 /// button.

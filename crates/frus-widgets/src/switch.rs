@@ -7,7 +7,7 @@ use crate::disabled::DISABLED_CONTAINER_OPACITY;
 use crate::disabled::{disabled_container, disabled_content, disabled_mark, over_surface};
 use crate::icons::Icons;
 use crate::interaction::Status;
-use crate::theme::Theme;
+use crate::theme::{TapTarget, Theme};
 use crate::widget::Widget;
 
 /// The track, at the reference's size (`switch.dart:2378`, `:2375`).
@@ -44,6 +44,7 @@ pub struct Switch<Msg> {
     inactive_thumb_color: Option<Color>,
     thumb_icon: Option<Icons>,
     inactive_thumb_icon: Option<Icons>,
+    tap_target: Option<TapTarget>,
     on_toggle: Option<Box<dyn Fn(bool) -> Msg>>,
 }
 
@@ -59,8 +60,26 @@ impl<Msg> Switch<Msg> {
             inactive_thumb_color: None,
             thumb_icon: None,
             inactive_thumb_icon: None,
+            tap_target: None,
             on_toggle: None,
         }
+    }
+
+    /// **How much room it reserves for a finger** ([`TapTarget`]). Unset, the theme's
+    /// answer, which is [`Padded`](TapTarget::Padded) — at least 48 pixels either way,
+    /// whatever this control paints inside it.
+    pub fn tap_target(mut self, target: TapTarget) -> Self {
+        self.tap_target = Some(target);
+        self
+    }
+
+    /// The room this switch reserves, resolved as `caller ?? theme ?? framework`
+    /// (`switch.dart:603`).
+    fn reserved(&self, theme: &Theme) -> f32 {
+        self.tap_target
+            .or(theme.widgets.switch.tap_target)
+            .unwrap_or(theme.tap_target)
+            .min_side()
     }
 
     /// The track's colour when the switch is **on**; the theme's `primary` otherwise.
@@ -136,9 +155,17 @@ impl<Msg> Switch<Msg> {
 
 impl<Msg> Widget<Msg> for Switch<Msg> {
     fn style(&self) -> Style {
+        Widget::<Msg>::style_themed(self, &Theme::default())
+    }
+
+    /// **The box is the tap target, not the track** (`switch.dart:605`). The track is 32
+    /// tall and a finger is not; the reference lays a switch out at 52 × 48 and paints
+    /// the track in the middle of it. Nothing about the switch moves — the room around it
+    /// appears, and with it the area a click may land in.
+    fn style_themed(&self, theme: &Theme) -> Style {
         Style {
             width: Dimension::Length(W),
-            height: Dimension::Length(H),
+            height: Dimension::Length(H.max(self.reserved(theme))),
             ..Default::default()
         }
     }
@@ -211,8 +238,16 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
         // reference returns a transparent one for a switch that is on whether it is
         // available or not (`switch.dart:2254`) — so fading it out along the travel *is*
         // that rule, written as the animation it already was.
+        // The box a switch is given is its **tap target**, which is taller than the
+        // track it paints. Everything below is measured from the track, centred in it.
+        let track_rect = Rect::new(
+            bounds.x,
+            bounds.y + (bounds.height - H) * 0.5,
+            bounds.width,
+            H,
+        );
         scene.draw_rect(
-            bounds,
+            track_rect,
             track.fade(o),
             H * 0.5,
             TRACK_OUTLINE,
@@ -245,8 +280,8 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
         if self.enabled {
             r += (THUMB_PRESSED - r) * status.press_progress.clamp(0.0, 1.0);
         }
-        let cx = bounds.x + H * 0.5 + (W - H) * t;
-        let cy = bounds.y + H * 0.5;
+        let cx = track_rect.x + H * 0.5 + (W - H) * t;
+        let cy = track_rect.y + H * 0.5;
 
         // **The state layer**, which this had none of. The reference paints the toggle's
         // radial reaction over the track and under the thumb (`switch.dart:2264`); here it
@@ -349,6 +384,7 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
 mod tests {
     use super::*;
     use crate::disabled::{disabled_container, disabled_content, disabled_mark};
+    use crate::theme::{MIN_TAP_TARGET, SHRUNK_TAP_TARGET};
     use crate::widget::Widget;
 
     #[derive(Clone, Debug, PartialEq)]
@@ -629,6 +665,87 @@ mod tests {
             (at(0.5) - (THUMB_OFF + THUMB_PRESSED) * 0.5).abs() < 0.01,
             "half way = {}",
             at(0.5)
+        );
+    }
+
+    /// The height a switch asks the layout for, under a given theme.
+    fn reserved_height(switch: &Switch<Msg>, theme: &Theme) -> f32 {
+        match Widget::<Msg>::style_themed(switch, theme).height {
+            Dimension::Length(h) => h,
+            other => panic!("a switch asks for a length, not {other:?}"),
+        }
+    }
+
+    /// **A switch's box is its tap target, not its track** (milestone 442).
+    ///
+    /// The track is 32 pixels tall and a finger is not. The reference lays a switch out
+    /// at 52 × 48 and paints the track in the middle (`switch.dart:605`); this asked the
+    /// layout for the track and nothing else, so the area a click could land in was the
+    /// track exactly.
+    #[test]
+    fn a_switch_reserves_room_for_a_finger() {
+        let theme = Theme::default();
+        assert_eq!(
+            reserved_height(&Switch::<Msg>::new(false).on_toggle(Msg::Set), &theme),
+            MIN_TAP_TARGET
+        );
+        assert_eq!(
+            reserved_height(
+                &Switch::<Msg>::new(false)
+                    .on_toggle(Msg::Set)
+                    .tap_target(TapTarget::ShrinkWrap),
+                &theme
+            ),
+            SHRUNK_TAP_TARGET,
+            "and a caller may ask for the smaller answer"
+        );
+
+        // The theme answers for a switch that has not said, and the widget theme sits
+        // between the two.
+        let dense = Theme {
+            tap_target: TapTarget::ShrinkWrap,
+            ..Theme::default()
+        };
+        let plain = Switch::<Msg>::new(false).on_toggle(Msg::Set);
+        assert_eq!(reserved_height(&plain, &dense), SHRUNK_TAP_TARGET);
+        let mut mixed = dense;
+        mixed.widgets.switch.tap_target = Some(TapTarget::Padded);
+        assert_eq!(reserved_height(&plain, &mixed), MIN_TAP_TARGET);
+    }
+
+    /// And **nothing it paints moves**: the track is centred in the room, and the thumb
+    /// stays centred on the track.
+    #[test]
+    fn the_track_is_centred_in_the_room() {
+        let theme = Theme::default();
+        let switch = Switch::<Msg>::new(false).on_toggle(Msg::Set);
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            &switch,
+            Rect::new(0.0, 0.0, W, MIN_TAP_TARGET),
+            state(false),
+            &theme,
+            &mut scene,
+        );
+        let rects: Vec<Rect> = scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Rect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect();
+
+        let track = rects[0];
+        assert_eq!(track.height, H, "the track keeps its own height");
+        assert!(
+            (track.y - (MIN_TAP_TARGET - H) * 0.5).abs() < 0.01,
+            "and sits in the middle of the room: {track:?}"
+        );
+        let thumb = *rects.last().expect("a switch paints a thumb");
+        assert!(
+            (thumb.y + thumb.height * 0.5 - MIN_TAP_TARGET * 0.5).abs() < 0.01,
+            "the thumb is centred on the track: {thumb:?}"
         );
     }
 
