@@ -159,6 +159,13 @@ pub struct SwitchTheme {
     /// The thumb, off. Unset it follows the on colour, which is what the reference does
     /// and what a switch looks like: one thumb sliding, not two.
     pub inactive_thumb_color: Option<Color>,
+    /// The glyph inside the thumb, on. Unset, the scheme's `on_primary_container`
+    /// (`switch.dart:2338`).
+    pub icon_color: Option<Color>,
+    /// The glyph inside the thumb, off. Unset, the scheme's `surface_container_highest`
+    /// (`switch.dart:2349`) — the track's own colour, so the glyph reads as a hole in the
+    /// thumb rather than as a mark on it.
+    pub inactive_icon_color: Option<Color>,
 }
 
 /// The text style a **subtree** hands down — the reference's `DefaultTextStyle`, and an

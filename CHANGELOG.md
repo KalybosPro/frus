@@ -8,10 +8,23 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 439 so far, each documenting the objective, the alternatives
+> record — one per step, 440 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **A `Switch` answers the pointer** (J440): a state layer over the track and under the
+  thumb, on hover, focus and press, resolved opaquely from the track's own colour. It had
+  none.
+
+- **`Switch::thumb_icon` and `::inactive_thumb_icon`** (J440): a glyph inside the thumb, for
+  a setting that has to be legible in more than colour and position. Naming either one makes
+  both thumbs the larger size, as the reference does — a switch that changed size when
+  flipped would be two switches. With `SwitchTheme::icon_color` and `::inactive_icon_color`.
+
+- **A held thumb swells** (J440) to the reference's pressed radius.
 
 ### Changed
 
