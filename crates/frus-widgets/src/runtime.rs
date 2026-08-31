@@ -335,6 +335,13 @@ pub struct Runtime {
     /// decoration, and a list that jumped to a stop would be harder to use rather than
     /// calmer — the reference draws the same line.
     pub still: bool,
+    /// **Whether scroll areas draw a scrollbar**, as the platform answers it and the
+    /// application may override it. Set by the shell every frame, like `still` above.
+    ///
+    /// It lives here rather than on the theme because it is a platform behaviour and not
+    /// an appearance: the reference resolves it through `ScrollBehavior`, beside the
+    /// physics, and not through `ThemeData`.
+    pub scrollbars: crate::physics::Scrollbars,
     /// Hover / press / focus.
     pub input: InputState,
     /// **Current** scroll offsets (the rendered ones), per region.
@@ -429,6 +436,16 @@ pub struct Runtime {
 }
 
 impl Runtime {
+    /// A runtime that answers a given **scrollbar policy** — what the shell sets from the
+    /// application's `scrollbars()`, and what an isolated render has to say for itself,
+    /// there being no shell to set it.
+    pub fn with_scrollbars(scrollbars: crate::physics::Scrollbars) -> Self {
+        Self {
+            scrollbars,
+            ..Self::default()
+        }
+    }
+
     /// A widget's animated hover progress.
     pub fn hover_progress(&self, id: WidgetId) -> f32 {
         self.anims.get(&id).map(|a| a.hover).unwrap_or(0.0)

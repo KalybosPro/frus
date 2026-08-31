@@ -1741,6 +1741,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .accessibility
                     .with_overrides(self.app.accessibility())
                     .disable_animations;
+                // And whether its scroll areas draw a bar, read every frame for the same
+                // reason: it is the application's answer, and it may change.
+                self.runtime.scrollbars = self.app.scrollbars();
                 let need_build = self.build_dirty || app_animating || self.tree.is_none();
                 if need_build {
                     // No scope of its own: the surface above is already installed, and

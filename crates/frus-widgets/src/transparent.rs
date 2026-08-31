@@ -361,6 +361,10 @@ macro_rules! forward_transparent {
                 self.inner.scroll_axis()
             }
 
+            fn scrollbars(&self) -> Option<$crate::physics::Scrollbars> {
+                self.inner.scrollbars()
+            }
+
             fn scroll_physics(&self) -> Option<$crate::physics::ScrollPhysics> {
                 self.inner.scroll_physics()
             }

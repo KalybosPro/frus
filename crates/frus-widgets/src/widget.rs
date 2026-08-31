@@ -576,6 +576,13 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// **Whether this area draws a scrollbar**, when it wants its own answer rather than
+    /// the application's. `None` — the default — follows the application, which follows
+    /// the platform. See [`crate::Scrollbars`].
+    fn scrollbars(&self) -> Option<crate::physics::Scrollbars> {
+        None
+    }
+
     /// What the **software keyboard** should be, when this widget is the focused
     /// editable one.
     ///
@@ -1361,6 +1368,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn scroll_physics(&self) -> Option<crate::physics::ScrollPhysics> {
         (**self).scroll_physics()
+    }
+    fn scrollbars(&self) -> Option<crate::physics::Scrollbars> {
+        (**self).scrollbars()
     }
     fn ime(&self) -> crate::ime::Ime {
         (**self).ime()

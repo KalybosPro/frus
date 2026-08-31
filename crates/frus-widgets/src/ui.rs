@@ -31,10 +31,30 @@ use crate::widget::Widget;
 /// exactly). It is what gives a native navigation its depth.
 const NAV_PARALLAX: f32 = 0.3;
 
-/// Thickness of a scrollbar, in pixels.
-const BAR_SIZE: f32 = 10.0;
-/// Minimum length of a thumb.
-const MIN_THUMB: f32 = 28.0;
+/// Thickness of a scrollbar, in pixels (`scrollbar.dart:12`).
+const BAR_SIZE: f32 = 8.0;
+/// Minimum length of a thumb (`scrollbar.dart:15`). It is the tap target: a thumb has to
+/// be catchable by a pointer, whatever fraction of the content the viewport shows.
+const MIN_THUMB: f32 = 48.0;
+/// The thumb's opacity at rest, over `on_surface` (`scrollbar.dart:248`, `:242`). The two
+/// numbers are the reference's, and which one applies follows the surface's own
+/// brightness — this crate's scheme carries no brightness flag, so it is read off the
+/// surface rather than declared.
+const THUMB_ON_DARK: f32 = 0.30;
+const THUMB_ON_LIGHT: f32 = 0.10;
+
+/// One **axis** of a scroll area, as a scrollbar needs to see it: which way it runs, where
+/// it has got to, how far it may go, whether its numbers run backwards, and what the area
+/// itself said about whether it wants a bar at all.
+#[derive(Copy, Clone)]
+struct Bar {
+    vertical: bool,
+    offset: f32,
+    max: f32,
+    reverse: bool,
+    /// The area's own answer, over the application's. See [`crate::Scrollbars`].
+    asked: Option<crate::physics::Scrollbars>,
+}
 
 /// A scrollbar thumb (for hit-testing a drag).
 #[derive(Copy, Clone, Debug)]
@@ -583,6 +603,12 @@ impl<Msg: Clone> Ui<Msg> {
     /// delete button sit off-screen through three milestones.
     pub fn overflows(&self) -> &[Overflowing] {
         &self.overflows
+    }
+
+    /// The scrollbars this frame drew, and therefore the ones a pointer may drag. Empty
+    /// where the platform draws none — see [`crate::Scrollbars`].
+    pub fn scrollbars(&self) -> &[Scrollbar] {
+        &self.scrollbars
     }
 
     pub fn scene(&self) -> &Scene {
@@ -2890,7 +2916,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                             .map(|s| s.1)
                             .unwrap_or(0.0)
                             .clamp(0.0, max_y);
-                        self.add_scrollbar(id, vp, true, offset_y, max_y, false);
+                        self.add_scrollbar(
+                            id,
+                            vp,
+                            Bar {
+                                vertical: true,
+                                offset: offset_y,
+                                max: max_y,
+                                reverse: false,
+                                asked: widget.scrollbars(),
+                            },
+                        );
                     }
                 }
             }
@@ -3215,10 +3251,30 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.scene.set_clip(clip);
             self.add_overscroll_glow(id, viewport);
             if max_y > 0.0 {
-                self.add_scrollbar(id, viewport, true, offset_y, max_y, reverse.1);
+                self.add_scrollbar(
+                    id,
+                    viewport,
+                    Bar {
+                        vertical: true,
+                        offset: offset_y,
+                        max: max_y,
+                        reverse: reverse.1,
+                        asked: widget.scrollbars(),
+                    },
+                );
             }
             if max_x > 0.0 {
-                self.add_scrollbar(id, viewport, false, offset_x, max_x, reverse.0);
+                self.add_scrollbar(
+                    id,
+                    viewport,
+                    Bar {
+                        vertical: false,
+                        offset: offset_x,
+                        max: max_x,
+                        reverse: reverse.0,
+                        asked: widget.scrollbars(),
+                    },
+                );
             }
         } else if let Some(vlist) =
             widget.virtual_list(Size::new(draw_rect.width, draw_rect.height))
@@ -3327,7 +3383,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.scene.set_clip(clip);
             self.add_overscroll_glow(id, viewport);
             if max > 0.0 {
-                self.add_scrollbar(id, viewport, !across, offset, max, reverse);
+                self.add_scrollbar(
+                    id,
+                    viewport,
+                    Bar {
+                        vertical: !across,
+                        offset,
+                        max,
+                        reverse,
+                        asked: widget.scrollbars(),
+                    },
+                );
             }
         } else if let Some(pages) = widget.page_view() {
             // A paged view: like a virtualised list turned on its side, and with the
@@ -4150,15 +4216,27 @@ impl<Msg: Clone> Builder<'_, Msg> {
         }
     }
 
-    fn add_scrollbar(
-        &mut self,
-        id: WidgetId,
-        viewport: Rect,
-        vertical: bool,
-        offset: f32,
-        max: f32,
-        reverse: bool,
-    ) {
+    fn add_scrollbar(&mut self, id: WidgetId, viewport: Rect, axis: Bar) {
+        let Bar {
+            vertical,
+            offset,
+            max,
+            reverse,
+            asked,
+        } = axis;
+        // **Along the horizontal axis, never** (`app.dart:861`) — on any platform, under
+        // any setting. A sideways strip is scrolled by the thing that made it sideways,
+        // and a bar under it takes room from content that is short of it already.
+        if !vertical {
+            return;
+        }
+        // And down the vertical one, only where the platform's own scroll views have a
+        // bar (`app.dart:865` against `:870`). A finger already knows where it is on the
+        // page; a permanent bar over the content is an affordance for a pointer that
+        // cannot feel the edges. This drew one everywhere, on both axes, always.
+        if asked.unwrap_or(self.runtime.scrollbars) == crate::physics::Scrollbars::Never {
+            return;
+        }
         let (track_start, track_len, content_len) = if vertical {
             (viewport.y, viewport.height, viewport.height + max)
         } else {
@@ -4174,7 +4252,9 @@ impl<Msg: Clone> Builder<'_, Msg> {
         let fraction = if reverse { 1.0 - fraction } else { fraction };
         let thumb_pos = track_start + fraction * travel;
 
-        let (track, thumb) = if vertical {
+        // The track's rectangle is still worked out — it is the geometry the thumb sits
+        // in — but nothing is painted for it; see below.
+        let (_track, thumb) = if vertical {
             let x = viewport.x + viewport.width - BAR_SIZE;
             (
                 Rect::new(x, viewport.y, BAR_SIZE, viewport.height),
@@ -4188,10 +4268,19 @@ impl<Msg: Clone> Builder<'_, Msg> {
             )
         };
 
-        let track_color = self.theme.muted.fade(0.18);
-        let thumb_color = self.theme.muted.fade(0.55);
-        self.scene
-            .draw_rect(track, track_color, BAR_SIZE * 0.5, 0.0, Color::TRANSPARENT);
+        // **No track.** The reference's is transparent unless a caller asks for one
+        // (`scrollbar.dart:281`), and even then it is 3 to 5 % — this painted 18 %, which
+        // is a second permanent stripe down the side of every scrolling page.
+        //
+        // The thumb, at the reference's resting opacity for the surface's brightness
+        // (`scrollbar.dart:242`, `:248`). It used to be 55 %, and translucent fills blend
+        // in linear light here, so it painted heavier than the number said as well.
+        let dark = self.theme.scheme.surface.compute_luminance() < 0.5;
+        let thumb_color =
+            self.theme
+                .scheme
+                .on_surface
+                .fade(if dark { THUMB_ON_DARK } else { THUMB_ON_LIGHT });
         self.scene.draw_rect(
             thumb,
             thumb_color,
@@ -4562,6 +4651,7 @@ fn fold_filter(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::physics::Scrollbars;
     use crate::runtime::Edit;
     use crate::{
         Button, Container, Flex, Key, Keyed, OverlayPortal, Placement, SingleChildScrollView,
@@ -5066,6 +5156,107 @@ mod tests {
         assert_eq!(ui.msg_for(id_a), Some(Msg::A));
         assert_eq!(ui.msg_for(id_b), Some(Msg::B));
         assert_eq!(ui.hit(Point::new(3.0, 3.0)), None);
+    }
+
+    /// A tall page in a short window, and every rectangle the frame paints for the
+    /// scrollbar over it.
+    fn bars(area: SingleChildScrollView<()>, how: Scrollbars) -> Vec<(Rect, Color)> {
+        let runtime = Runtime::with_scrollbars(how);
+        let ui = build_ui(&area, Size::new(200.0, 100.0), &runtime, &Theme::dark());
+        // The bar is drawn last, over the content, and it is the only thing painted
+        // inside the right-hand `BAR_SIZE` of the viewport.
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if rect.x >= 200.0 - BAR_SIZE => {
+                    Some((*rect, *color))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A tall column in a short viewport: something to scroll.
+    fn tall() -> SingleChildScrollView<()> {
+        SingleChildScrollView::new()
+            .width(200.0)
+            .height(100.0)
+            .child(Container::<()>::new().width(200.0).height(1000.0))
+    }
+
+    /// **A touch screen gets no scrollbar** (`app.dart:870`).
+    ///
+    /// This drew one on every platform, on both axes, always — a permanent bar over the
+    /// content of every scrolling page on a phone, where the reference draws nothing at
+    /// all. A finger already knows where it is on the page.
+    #[test]
+    fn a_touch_screen_gets_no_scrollbar() {
+        assert_eq!(bars(tall(), Scrollbars::Never), vec![]);
+        assert_eq!(
+            bars(tall(), Scrollbars::Always).len(),
+            1,
+            "and a desktop gets one"
+        );
+
+        // Nothing to drag, either: a bar that is not drawn is not a target.
+        let runtime = Runtime::with_scrollbars(Scrollbars::Never);
+        let ui = build_ui(&tall(), Size::new(200.0, 100.0), &runtime, &Theme::dark());
+        assert!(ui.scrollbars().is_empty());
+    }
+
+    /// **And it is a thumb and nothing else** (`scrollbar.dart:281`): the reference's
+    /// track is transparent unless a caller asks for one, and even then it is 3 to 5 %.
+    /// This painted an 18 % stripe down every scrolling page, under a 55 % thumb.
+    #[test]
+    fn a_bar_is_a_thumb_and_no_track() {
+        let painted = bars(tall(), Scrollbars::Always);
+        assert_eq!(painted.len(), 1, "one rectangle: the thumb");
+        let (thumb, color) = painted[0];
+        assert!(
+            (thumb.width - (BAR_SIZE - 2.0)).abs() < 0.01,
+            "at the reference's thickness: {thumb:?}"
+        );
+        assert!(
+            thumb.height >= MIN_THUMB,
+            "and never shorter than a pointer can catch: {thumb:?}"
+        );
+        let theme = Theme::dark();
+        assert_eq!(color, theme.scheme.on_surface.fade(THUMB_ON_DARK));
+    }
+
+    /// **Along the horizontal axis, never** (`app.dart:861`) — on any platform, under any
+    /// setting. A sideways strip is scrolled by whatever made it sideways, and a bar
+    /// under it takes room from content that is short of it already.
+    #[test]
+    fn a_sideways_strip_never_gets_one() {
+        let strip = SingleChildScrollView::new()
+            .axis(crate::scroll::Axis::Horizontal)
+            .width(200.0)
+            .height(100.0)
+            .child(Container::<()>::new().width(1000.0).height(100.0));
+        let runtime = Runtime::with_scrollbars(Scrollbars::Always);
+        let ui = build_ui(&strip, Size::new(200.0, 100.0), &runtime, &Theme::dark());
+        assert!(
+            ui.scrollbars().is_empty(),
+            "a desktop draws none across, either"
+        );
+    }
+
+    /// And **one area may answer for itself**, over the application's answer — the
+    /// per-area say the physics beside it already had.
+    #[test]
+    fn an_area_may_ask_for_its_own_answer() {
+        assert_eq!(
+            bars(tall().scrollbars(Scrollbars::Always), Scrollbars::Never).len(),
+            1,
+            "asked for one where the platform gives none"
+        );
+        assert_eq!(
+            bars(tall().scrollbars(Scrollbars::Never), Scrollbars::Always),
+            vec![],
+            "and refused one where it does"
+        );
     }
 
     #[test]

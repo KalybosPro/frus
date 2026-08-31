@@ -8,10 +8,26 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 443 so far, each documenting the objective, the alternatives
+> record — one per step, 444 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`Scrollbars`, `Application::scrollbars()` and `SingleChildScrollView::scrollbars()`**
+  (J444): whether a scroll area draws a bar, answered by the platform, overridable by the
+  application and by one area — beside `ScrollPhysics`, which is where the reference keeps
+  it.
+
+### Changed
+
+- **No scrollbar on a touch screen, and none on the horizontal axis anywhere** (J444), as
+  the reference has it. **Applications on Android and iOS lose the bar they had**; an
+  application that wants it back says `Scrollbars::Always`.
+
+- **Where a bar is drawn it is a thumb and no track** (J444), 8 pixels rather than 10, at
+  the reference's resting opacity rather than at twice it, and never shorter than 48.
 
 ### Added
 

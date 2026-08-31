@@ -5,7 +5,7 @@
 //! A minimal app implements `update` and `view` and nothing else. Every other method
 //! has a default: a fixed dark theme, no animation, no navigation.
 
-use frus_widgets::{ScrollPhysics, Theme, Widget, WindowInsets};
+use frus_widgets::{ScrollPhysics, Scrollbars, Theme, Widget, WindowInsets};
 
 use crate::command::Command;
 use crate::subscription::Subscription;
@@ -124,6 +124,17 @@ pub trait Application {
     /// individual [`frus_widgets::SingleChildScrollView`] can still ask for its own.
     fn scroll_physics(&self) -> ScrollPhysics {
         ScrollPhysics::platform_default()
+    }
+
+    /// **Whether the app's scrollables draw a scrollbar.**
+    ///
+    /// The default is what the running platform does: none on a touch screen, one down
+    /// the inner edge on a desktop — which is the reference's own answer, resolved the
+    /// same way and for the same reason (`app.dart:857`). A finger already knows where it
+    /// is on the page. Override it to pin one behaviour everywhere; an individual
+    /// [`frus_widgets::SingleChildScrollView`] can still ask for its own.
+    fn scrollbars(&self) -> Scrollbars {
+        Scrollbars::platform_default()
     }
 
     /// Called when the surface's **logical** size changes, whether the window was

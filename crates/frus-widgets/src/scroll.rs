@@ -49,6 +49,9 @@ pub struct SingleChildScrollView<Msg> {
     /// Edge and fling behaviour, when this area wants one of its own; `None`
     /// follows the application, which follows the platform.
     physics: Option<ScrollPhysics>,
+    /// Whether this area draws a scrollbar, when it wants its own answer; `None`
+    /// follows the application, which follows the platform.
+    scrollbars: Option<crate::physics::Scrollbars>,
     reverse: bool,
     /// Room around the content, inside the viewport; see [`SingleChildScrollView::padding`].
     padding: Insets,
@@ -66,6 +69,7 @@ impl<Msg> SingleChildScrollView<Msg> {
             flex_grow: 0.0,
             axis: Axis::Vertical,
             physics: None,
+            scrollbars: None,
             reverse: false,
             padding: Insets::ZERO,
             content: Vec::new(),
@@ -103,6 +107,16 @@ impl<Msg> SingleChildScrollView<Msg> {
     /// content wants a particular feel, not for making an app feel native.
     pub fn physics(mut self, physics: ScrollPhysics) -> Self {
         self.physics = Some(physics);
+        self
+    }
+
+    /// **Whether this area draws a scrollbar**, over the application's answer.
+    ///
+    /// Left unset it follows the application, which itself follows the platform — so
+    /// setting this is for the one area that wants a bar where the platform gives none,
+    /// or none where it gives one, not for making an app feel native.
+    pub fn scrollbars(mut self, scrollbars: crate::physics::Scrollbars) -> Self {
+        self.scrollbars = Some(scrollbars);
         self
     }
 
@@ -204,6 +218,10 @@ impl<Msg: Clone> Widget<Msg> for SingleChildScrollView<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+
+    fn scrollbars(&self) -> Option<crate::physics::Scrollbars> {
+        self.scrollbars
     }
 
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
