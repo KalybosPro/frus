@@ -635,6 +635,14 @@ pub struct NavRailTheme {
     pub unselected_label_color: Option<Color>,
     /// The destinations' glyphs. Unset, the reference's 24.
     pub icon_size: Option<f32>,
+    /// Whether a **rail's** selected destination gets an indicator behind its glyph.
+    /// Unset, `true` (`navigation_rail.dart:1233`). `false` is the arrangement that
+    /// predates it, where the selected destination says so in the accent instead.
+    pub use_indicator: Option<bool>,
+    /// How far off the page a **rail** sits. Unset, `0` — flat, as the reference's is
+    /// (`navigation_rail.dart:1236`), the rail being separated by a rule and not by a
+    /// shadow.
+    pub elevation: Option<f32>,
     /// The **bottom bar's** surface, a rung higher than the rail's. Unset, the scheme's
     /// `surface_container`.
     ///

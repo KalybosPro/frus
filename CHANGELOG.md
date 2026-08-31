@@ -8,10 +8,18 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 442 so far, each documenting the objective, the alternatives
+> record — one per step, 443 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`NavigationRail::scrollable`, `::main_axis_alignment`, `::use_indicator` and
+  `::elevation`** (J443), with `NavRailTheme::use_indicator` and `::elevation`. A rail with
+  more destinations than height can scroll them; the destinations can be spread along it;
+  the selection indicator can be turned off, and the selected destination then says so in
+  the accent, glyph and label both; and a raised rail drops its hairline.
 
 ### Added
 

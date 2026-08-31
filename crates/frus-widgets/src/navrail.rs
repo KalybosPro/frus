@@ -17,6 +17,7 @@ use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 use crate::disabled::disabled_content;
 use crate::flex::Flex;
 use crate::interaction::Status;
+use crate::scroll::SingleChildScrollView;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -126,6 +127,9 @@ struct NavItem<Msg> {
     disabled: bool,
     /// This destination's own indicator colour, over the theme's.
     indicator_color: Option<Color>,
+    /// Whether a selected destination gets an indicator behind its glyph at all. See
+    /// [`NavigationRail::use_indicator`].
+    use_indicator: bool,
     /// The surface the destination **stands on**, when the widget carrying it was told
     /// one. A state layer is a lerp from the ground toward the ink, so it has to be the
     /// ground the caller actually painted.
@@ -240,7 +244,12 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             .indicator_color
             .or(t.indicator_color)
             .unwrap_or(theme.scheme.secondary_container);
-        let base = if self.selected { indicator } else { ground };
+        // **And whether there is an indicator at all** (`navigation_rail.dart:310`).
+        // Turned off, the selected destination has no container behind it, so its ground
+        // is the rail's surface like everyone else's — which is what the state layer is
+        // then measured from.
+        let lit = self.selected && self.use_indicator;
+        let base = if lit { indicator } else { ground };
         // **And the state layer over it, resolved opaquely.** This used to be `muted` at
         // 12 % handed to the GPU as an alpha, which is three mistakes in one line: the
         // wrong kind of colour (a translucent overlay blends in linear light here, so
@@ -258,7 +267,7 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
         } else {
             theme.state_layer(base, theme.scheme.primary, &status)
         };
-        if self.selected || fill != base {
+        if lit || fill != base {
             scene.draw_rect(pill, fill.fade(o), pill_h * 0.5, 0.0, Color::TRANSPARENT);
         }
 
@@ -271,8 +280,17 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             // handing the GPU an alpha — see [`crate::disabled_content`].
             disabled_content(theme)
         } else if self.selected {
-            t.selected_icon_color
-                .unwrap_or(theme.scheme.on_secondary_container)
+            t.selected_icon_color.unwrap_or(if self.use_indicator {
+                theme.scheme.on_secondary_container
+            } else {
+                // With no indicator behind it the glyph stands on the rail's own surface,
+                // and the indicator's content colour would be a colour for a ground that
+                // is not there. The reference's arrangement without one paints both the
+                // glyph and the label the **accent** (`navigation_rail.dart:1221`,
+                // `:1211`) — with nothing behind it, the destination has to say *this
+                // one* by itself.
+                theme.primary
+            })
         } else {
             t.unselected_icon_color
                 .unwrap_or(theme.scheme.on_surface_variant)
@@ -280,7 +298,11 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
         let label_color = if self.disabled {
             disabled_content(theme)
         } else if self.selected {
-            t.selected_label_color.unwrap_or(theme.scheme.on_surface)
+            t.selected_label_color.unwrap_or(if self.use_indicator {
+                theme.scheme.on_surface
+            } else {
+                theme.primary
+            })
         } else {
             t.unselected_label_color.unwrap_or(if self.rail {
                 // The one place the reference answers differently for the two:
@@ -422,6 +444,8 @@ struct Presentation {
     extended: bool,
     /// The surface the destinations stand on, when the widget carrying them was told one.
     ground: Option<Color>,
+    /// Whether a selected destination gets an indicator at all.
+    use_indicator: bool,
     label_text_style: Option<TextStyle>,
     badge_text_style: Option<TextStyle>,
 }
@@ -451,6 +475,7 @@ fn build_items<Msg: Clone + 'static>(
                 extended: how.extended,
                 disabled: item.disabled,
                 indicator_color: item.indicator_color,
+                use_indicator: how.use_indicator,
                 ground: how.ground,
                 label_text_style: how.label_text_style,
                 badge_text_style: how.badge_text_style,
@@ -471,6 +496,15 @@ pub struct NavigationRail<Msg> {
     labels: RailLabels,
     extended: bool,
     group_alignment: f32,
+    /// See [`Self::main_axis_alignment`]. `Some` fills the group, which is what makes it
+    /// override `group_alignment`.
+    main_axis_alignment: Option<Justify>,
+    /// See [`Self::scrollable`].
+    scrollable: bool,
+    /// See [`Self::use_indicator`]; `None` = the theme's, then the framework's `true`.
+    use_indicator: Option<bool>,
+    /// See [`Self::elevation`]; `None` = the theme's, then the reference's `0`.
+    elevation: Option<f32>,
     leading: RefCell<Option<Box<dyn Widget<Msg>>>>,
     trailing: RefCell<Option<Box<dyn Widget<Msg>>>>,
     leading_at_top: bool,
@@ -498,6 +532,10 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
             extended: false,
             // Against the top (`navigation_rail.dart:1237`).
             group_alignment: -1.0,
+            main_axis_alignment: None,
+            scrollable: false,
+            use_indicator: None,
+            elevation: None,
             leading: RefCell::new(None),
             trailing: RefCell::new(None),
             // **The reference's asymmetry** (`navigation_rail.dart:112`, `:113`): the
@@ -581,6 +619,70 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
     pub fn trailing_boxed(mut self, widget: Box<dyn Widget<Msg>>) -> Self {
         *self.trailing.borrow_mut() = Some(widget);
         self.rebuild();
+        self
+    }
+
+    /// **How the destinations are placed along the rail**, when there is room to spare
+    /// (`navigation_rail.dart:371`).
+    ///
+    /// It is the flexbox question — start, centre, end, or one of the three ways of
+    /// spreading the spare room between them — asked of the group rather than of the rail
+    /// around it, so `SpaceEvenly` puts equal room between every destination and at both
+    /// ends.
+    ///
+    /// Saying this **overrides [`Self::group_alignment`]**, and not by a rule: the group
+    /// fills the rail to distribute the room, so there is no room left outside it for an
+    /// alignment to work in. The reference reaches the same place the same way
+    /// (`navigation_rail.dart:501`).
+    #[must_use]
+    pub fn main_axis_alignment(mut self, alignment: Justify) -> Self {
+        self.main_axis_alignment = Some(alignment);
+        self.rebuild();
+        self
+    }
+
+    /// **A rail too short for its destinations scrolls them** (`navigation_rail.dart:353`)
+    /// rather than running them off the bottom of the screen.
+    ///
+    /// The pinned slots stay put — that is what pinning them is for — and what scrolls is
+    /// the group: the destinations, plus whichever of [`Self::leading`] and
+    /// [`Self::trailing`] was left in it.
+    ///
+    /// Like [`Self::main_axis_alignment`], this leaves [`Self::group_alignment`] with
+    /// nothing to do: a viewport that fills the rail has no spare room to place a group
+    /// in. A rail scrolls because it has less room than it needs, which is the case where
+    /// an alignment had no room to work in either.
+    #[must_use]
+    pub fn scrollable(mut self) -> Self {
+        self.scrollable = true;
+        self.rebuild();
+        self
+    }
+
+    /// **Whether the selected destination gets an indicator behind its glyph**
+    /// (`navigation_rail.dart:310`). On unless said otherwise, as it is over there.
+    ///
+    /// Turning it off is not just removing a shape. With nothing behind it the glyph
+    /// stands on the rail's own surface, so the indicator's content colour would be a
+    /// colour for a ground that is not there — the selected destination takes the
+    /// **accent** instead, glyph and label both, which is the arrangement the reference
+    /// keeps for exactly this case (`navigation_rail.dart:1221`, `:1211`).
+    #[must_use]
+    pub fn use_indicator(mut self, use_indicator: bool) -> Self {
+        self.use_indicator = Some(use_indicator);
+        self.rebuild();
+        self
+    }
+
+    /// **How far off the page the rail sits** (`navigation_rail.dart:192`). Flat by
+    /// default, as the reference's is (`:1236`).
+    ///
+    /// A raised rail drops its hairline: a shadow and a rule are two ways of saying the
+    /// same thing, and a widget that draws both says it twice — the lesson
+    /// [`Card`](crate::Card) already carries.
+    #[must_use]
+    pub fn elevation(mut self, elevation: f32) -> Self {
+        self.elevation = Some(elevation);
         self
     }
 
@@ -737,6 +839,12 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
         let mut group = Flex::<Msg>::column()
             .align(Align::Center)
             .gap(DESTINATION_GAP);
+        // `main_axis_alignment` distributes the spare room **between** the destinations,
+        // so the group has to have that room: it fills, where otherwise it is as tall as
+        // what is in it (`navigation_rail.dart:501`).
+        if let Some(alignment) = self.main_axis_alignment {
+            group = group.justify(alignment).flex(1.0);
+        }
 
         if let Some(leading) = leading {
             let slot = Flex::<Msg>::column()
@@ -758,6 +866,7 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
                 labels: self.labels,
                 extended: self.extended,
                 ground: self.background,
+                use_indicator: self.use_indicator.unwrap_or(true),
                 label_text_style: self.label_text_style,
                 badge_text_style: self.badge_text_style,
             },
@@ -771,10 +880,21 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
             None => {}
         }
 
-        let a = self.group_alignment;
-        out.push(Box::new(Flex::<Msg>::column().flex((1.0 + a) * 0.5)));
-        out.push(Box::new(group));
-        out.push(Box::new(Flex::<Msg>::column().flex((1.0 - a) * 0.5)));
+        // A group that **fills** — because it was told to scroll, or told to spread its
+        // destinations — leaves no room outside itself, so the two spacers that place it
+        // would have nothing to place and would take room from it if they tried.
+        if self.scrollable {
+            out.push(Box::new(
+                SingleChildScrollView::<Msg>::new().flex(1.0).child(group),
+            ));
+        } else if self.main_axis_alignment.is_some() {
+            out.push(Box::new(group));
+        } else {
+            let a = self.group_alignment;
+            out.push(Box::new(Flex::<Msg>::column().flex((1.0 + a) * 0.5)));
+            out.push(Box::new(group));
+            out.push(Box::new(Flex::<Msg>::column().flex((1.0 - a) * 0.5)));
+        }
         if let Some(trailing) = pinned {
             out.push(trailing);
         }
@@ -810,20 +930,47 @@ impl<Msg: Clone + 'static> Widget<Msg> for NavigationRail<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        let o = status.opacity;
         // The rail's own surface. It had none until milestone 427 and showed whatever was
         // behind it; the reference gives it `surface` (`navigation_rail.dart:1202`).
         let fill = self
             .background
             .or(theme.widgets.nav_rail.background_color)
             .unwrap_or(theme.scheme.surface);
-        scene.fill_rect(bounds, fill.fade(status.opacity));
 
-        // Vertical separator on the right edge.
-        let x = bounds.x + bounds.width - 1.0;
-        scene.fill_rect(
-            Rect::new(x, bounds.y, 1.0, bounds.height),
-            theme.scheme.outline_variant.fade(status.opacity),
-        );
+        // **How far off the page it sits** (`navigation_rail.dart:192`), flat unless
+        // asked, as the reference's default is (`:1236`). The shadow reads on the inner
+        // side — the rail runs the height of the screen, so the top and bottom of it are
+        // off it.
+        let depth = self.elevation.or(theme.widgets.nav_rail.elevation);
+        let depth = depth.unwrap_or(0.0);
+        if depth > 0.0 {
+            let blur = depth * 4.0 + 8.0;
+            scene.shadow(
+                Rect::new(
+                    bounds.x - blur,
+                    bounds.y + depth * 2.0 - blur,
+                    bounds.width + 2.0 * blur,
+                    bounds.height + 2.0 * blur,
+                ),
+                theme.scheme.shadow.with_alpha(0.30).fade(o),
+                frus_core::BorderRadius::uniform(blur),
+                blur,
+            );
+        }
+
+        scene.fill_rect(bounds, fill.fade(o));
+
+        // The rule down the inner edge — **and only when there is no shadow**. A raised
+        // surface and a hairline are two ways of saying the same thing, and drawing both
+        // says it twice: the mash-up [`Card`](crate::Card) was taken apart for.
+        if depth <= 0.0 {
+            let x = bounds.x + bounds.width - 1.0;
+            scene.fill_rect(
+                Rect::new(x, bounds.y, 1.0, bounds.height),
+                theme.scheme.outline_variant.fade(o),
+            );
+        }
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -967,6 +1114,10 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
                 // A bar is one row: it has no extended form, and no room for one.
                 extended: false,
                 ground: self.background,
+                // A bar's indicator is not optional: the reference gives `useIndicator`
+                // to the rail alone (`navigation_rail.dart:310`), a bar's destinations
+                // sitting side by side with nothing else to tell them apart.
+                use_indicator: true,
                 label_text_style: self.label_text_style,
                 badge_text_style: self.badge_text_style,
             },
@@ -1193,6 +1344,7 @@ mod tests {
             extended,
             disabled: false,
             indicator_color: None,
+            use_indicator: true,
             ground: None,
             label_text_style: label_style,
             badge_text_style: None,
@@ -1889,6 +2041,177 @@ mod tests {
 
     /// The rail's destinations, which since milestone 433 sit inside the **group** that
     /// [`NavigationRail::group_alignment`] moves rather than directly under the rail.
+    /// **A rail too short for its destinations scrolls them**
+    /// (`navigation_rail.dart:353`) rather than running them off the bottom.
+    ///
+    /// The pinned slots stay put and the group goes in a viewport that fills what is
+    /// left, which is why the two spacers that would otherwise place it are gone: a
+    /// viewport filling the rail has no spare room to be placed in.
+    #[test]
+    fn a_short_rail_scrolls_its_destinations() {
+        let plain = NavigationRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .item("S", "Saved");
+        assert!(
+            !Widget::<Msg>::children(&plain)
+                .iter()
+                .any(|c| c.debug_name() == "SingleChildScrollView"),
+            "a rail does not scroll unless asked"
+        );
+        assert_eq!(
+            Widget::<Msg>::children(&plain).len(),
+            3,
+            "two spacers around the group"
+        );
+
+        let scrolling = NavigationRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .item("S", "Saved")
+            .scrollable();
+        let children = Widget::<Msg>::children(&scrolling);
+        assert_eq!(
+            children.len(),
+            1,
+            "the viewport fills, so nothing places it"
+        );
+        assert_eq!(children[0].debug_name(), "SingleChildScrollView");
+        // And the destinations are still in there, one level down.
+        assert!(
+            children[0]
+                .children()
+                .iter()
+                .any(|c| c.children().iter().any(|d| d.debug_name() == "NavItem")),
+            "the group went into the viewport"
+        );
+    }
+
+    /// **Spreading the destinations replaces the alignment** (`navigation_rail.dart:362`),
+    /// and not by a rule: the group fills the rail to have room to spread them in, so
+    /// there is none left outside it for `group_alignment` to work in — which is how the
+    /// reference arrives at the same sentence (`:501`).
+    #[test]
+    fn spreading_the_destinations_replaces_the_alignment() {
+        let spread = NavigationRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .item("S", "Saved")
+            .group_alignment(0.0)
+            .main_axis_alignment(Justify::SpaceEvenly);
+        let children = Widget::<Msg>::children(&spread);
+        assert_eq!(children.len(), 1, "no spacers left to fight the group");
+        assert!(
+            children[0]
+                .children()
+                .iter()
+                .any(|c| c.debug_name() == "NavItem"),
+            "and the group itself is what fills"
+        );
+        assert_eq!(children[0].style().justify, Justify::SpaceEvenly);
+        assert_eq!(
+            children[0].style().flex_grow,
+            1.0,
+            "it has to fill to spread"
+        );
+    }
+
+    /// **Without an indicator the selected destination says so in the accent**
+    /// (`navigation_rail.dart:1221`, `:1211`).
+    ///
+    /// Turning the indicator off is not just removing a shape: with nothing behind it the
+    /// glyph stands on the rail's own surface, and the indicator's content colour would
+    /// be a colour for a ground that is not there.
+    #[test]
+    fn a_rail_without_an_indicator_says_so_in_the_accent() {
+        let theme = Theme::default();
+        let ink = |use_indicator: bool| {
+            let rail = NavigationRail::new(0, Msg::Go)
+                .item("H", "Home")
+                .labels(RailLabels::All)
+                .use_indicator(use_indicator);
+            let item = &destinations(&rail)[0];
+            let mut scene = Scene::new();
+            item.paint(
+                Rect::new(0.0, 0.0, RAIL_WIDTH, ITEM_HEIGHT),
+                Status {
+                    opacity: 1.0,
+                    ..Default::default()
+                },
+                &theme,
+                &mut scene,
+            );
+            let pills = scene
+                .primitives()
+                .iter()
+                .filter(|p| matches!(p, frus_core::Primitive::Rect { .. }))
+                .count();
+            let inks: Vec<Color> = scene
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Text { color, .. } => Some(*color),
+                    _ => None,
+                })
+                .collect();
+            (pills, inks)
+        };
+
+        let (with, on_indicator) = ink(true);
+        assert_eq!(with, 1, "the indicator is drawn");
+        assert_eq!(on_indicator[0], theme.scheme.on_secondary_container);
+
+        let (without, on_surface) = ink(false);
+        assert_eq!(without, 0, "and it is not, when it was turned off");
+        assert_eq!(on_surface[0], theme.primary, "the glyph carries the accent");
+        assert_eq!(
+            on_surface[1], theme.primary,
+            "and so does the label (`navigation_rail.dart:1211`)"
+        );
+    }
+
+    /// **A raised rail drops its rule** (`navigation_rail.dart:192`). A shadow and a
+    /// hairline are two ways of saying the same thing, and drawing both says it twice.
+    #[test]
+    fn a_raised_rail_drops_its_rule() {
+        let theme = Theme::default();
+        let painted = |rail: &NavigationRail<Msg>| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                rail,
+                Rect::new(0.0, 0.0, RAIL_WIDTH, 400.0),
+                Status {
+                    opacity: 1.0,
+                    ..Default::default()
+                },
+                &theme,
+                &mut scene,
+            );
+            // A shadow is a rect with a blurred edge — see `Scene::shadow`.
+            let shadows = scene
+                .primitives()
+                .iter()
+                .filter(|p| match p {
+                    frus_core::Primitive::Rect { blur, .. } => *blur > 0.0,
+                    _ => false,
+                })
+                .count();
+            let rules = scene
+                .primitives()
+                .iter()
+                .filter(|p| match p {
+                    frus_core::Primitive::Rect { rect, .. } => rect.width == 1.0,
+                    _ => false,
+                })
+                .count();
+            (shadows, rules)
+        };
+
+        let flat = NavigationRail::new(0, Msg::Go).item("H", "Home");
+        assert_eq!(painted(&flat), (0, 1), "flat by default, and ruled");
+        let raised = NavigationRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .elevation(3.0);
+        assert_eq!(painted(&raised), (1, 0), "raised, and the rule is gone");
+    }
+
     fn destinations(rail: &NavigationRail<Msg>) -> &[Box<dyn Widget<Msg>>] {
         // By what the children **are**, not by whether they are clickable: a rail whose
         // only destination is disabled has nothing clickable in it (milestone 436).
