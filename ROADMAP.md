@@ -255,7 +255,44 @@ Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` a
 
 - 🔴 **DevTools.** `inspector.rs` can already dump the widget tree. A live inspector — tree view, layout overlay, rebuild counts, frame timing — is a large but very high-leverage project.
 - 🟡 **Better error messages.** Layout and constraint failures should say what went wrong and what to change, not just produce a wrong-looking screen.
-- 🔴 **Hot reload** beyond the current live-reload, with state preservation.
+- 🔴 **A `frus` command-line tool, and hot reload under it.** The architecture below is
+  recorded here **before any of it is written**, so that the shape is argued once rather
+  than discovered halfway through.
+
+  **What already exists.** `crates/frus-shell/src/reload.rs`: in a debug build, under
+  `FRUS_WATCH=1`, the shell watches the mtime of its own executable; when it changes, it
+  asks the application for its state (`Application::save_state`), relaunches, and hands the
+  bytes back (`restore_state`). That is a **full restart with state preserved**, and it is
+  the rung every other rung falls back to. It needs no stable ABI and no tooling of ours:
+  `FRUS_WATCH=1 cargo watch -x build` and the running app replaces itself.
+
+  What is missing, in the order it should be built:
+
+  - 🟡 **A `frus` binary.** The framework has no command of its own; everything is
+    `cargo` plus environment variables that a newcomer has to be told about. `frus run`,
+    `frus dev`, `frus build`, `frus release`, `frus test`, `frus analyze`, `frus doctor` —
+    each a thin, honest wrapper that shells out to what already works, and `doctor`
+    checking the toolchain, the Android SDK/NDK, `adb`, and the wasm target.
+  - 🟡 **A source watcher.** The exe watch reacts only *after* a build someone else
+    started. Watching `src/**` and the asset directories, debounced, is what turns two
+    commands into one. It belongs in the tool, not in the shell.
+  - 🟡 **A `Compiler` abstraction, with `CargoCompiler` as its only implementation.**
+    `cargo build --message-format=json` gives structured diagnostics; parsing them is what
+    lets the tool report a build failure without a wall of text, and lets the dev loop know
+    whether to restart at all.
+  - 🔴 **A typed dev protocol.** A `DevCommand` / `DevEvent` channel between the tool
+    and the running application over a **loopback-only** socket, so the tool can ask for a
+    restart, a state dump, or a widget tree instead of only killing a process. This is also
+    DevTools' transport; it should be designed once, for both, or it will be designed twice.
+  - 🔴 **Hot reload proper, as three rungs.** Full restart (exists) → **hot restart**
+    (same process, fresh state, tree rebuilt from the root) → hot reload (code swapped,
+    state kept). The framework half of the third rung is small — the reference locks the
+    event queue, flushes its caches and rebuilds from the root (`binding.dart:701`) — and
+    the hard half is entirely the code swap, which **has no safe answer in Rust today**:
+    there is no stable dynamic ABI, so a `dylib` swap is sound only when both sides come
+    from the same compiler with the same flags in the same run. Debug-only, opt-in, and
+    never promised as a supported feature. **Hot restart is the honest next rung**, and it
+    is worth having on its own.
 
 ---
 
