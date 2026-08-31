@@ -81,6 +81,34 @@ impl ScrollBallistic {
     }
 }
 
+/// How long a scrollbar waits, after its area stops moving, before it starts to go
+/// (`scrollbar.dart:18`).
+const BAR_TIME_TO_FADE: f32 = 0.6;
+/// How long a scrollbar takes to arrive, and to leave (`scrollbar.dart:17`).
+const BAR_FADE: f32 = 0.3;
+/// How long the thumb takes to reach its hovered colour (`scrollbar.dart:319`).
+const BAR_HOVER: f32 = 0.2;
+
+/// **The life of one area's scrollbar over time**: whether it is on screen at all, and
+/// how far the thumb has gone towards the colour it takes under a pointer.
+///
+/// A bar is not a permanent fixture. It arrives when the area moves, waits, and goes
+/// again — which is the whole of what makes it bearable to have one at all.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct ScrollbarFade {
+    /// The offset this area was last seen at. The bar answers **movement**, and the
+    /// offset is written from the drag, the fling and the spring alike; watching the
+    /// value catches all three, and anything added later, without asking any of them
+    /// to remember to say so.
+    pub(crate) seen: (f32, f32),
+    /// Seconds since it last moved.
+    pub(crate) since: f32,
+    /// `0.0..=1.0` — how present the bar is.
+    pub opacity: f32,
+    /// `0.0..=1.0` — how far the thumb has gone towards its hovered colour.
+    pub hover: f32,
+}
+
 /// Stiffness of the scroll spring (px·s⁻²).
 const SCROLL_K: f32 = 200.0;
 /// Damping of the scroll spring.
@@ -342,6 +370,16 @@ pub struct Runtime {
     /// an appearance: the reference resolves it through `ScrollBehavior`, beside the
     /// physics, and not through `ThemeData`.
     pub scrollbars: crate::physics::Scrollbars,
+    /// **How present each area's scrollbar is**, and how close a pointer has come to
+    /// it. Advanced by [`Runtime::advance_scroll`], which is where movement is seen.
+    pub scrollbar_fade: HashMap<WidgetId, ScrollbarFade>,
+    /// The area whose scrollbar a **mouse is near**, set by the shell from the previous
+    /// frame's registry. A bar that has gone comes back for a pointer that reaches for
+    /// it — otherwise a faded bar could never be grabbed again (`scrollbar.dart:2132`).
+    pub scrollbar_hovered: Option<WidgetId>,
+    /// The area whose scrollbar is **being dragged**. It stays while the thumb is held,
+    /// however long the hand pauses (`scrollbar.dart:1970`).
+    pub scrollbar_dragged: Option<WidgetId>,
     /// Hover / press / focus.
     pub input: InputState,
     /// **Current** scroll offsets (the rendered ones), per region.
@@ -1001,7 +1039,59 @@ impl Runtime {
                 self.scroll_velocity.remove(&id);
             }
         }
+        animating | self.advance_scrollbars(regions, dt)
+    }
+
+    /// Advances every area's **scrollbar fade** by `dt`, and returns `true` while any of
+    /// them has something left to do — including simply *waiting* to start going.
+    ///
+    /// The bar arrives on movement and leaves `BAR_TIME_TO_FADE` after it stops. Nothing
+    /// reports that movement: the offset is written from the drag handler, from the
+    /// fling and from the spring, and none of the three leaves word. So this compares
+    /// the offset against the one it saw last frame, which catches every writer there
+    /// is, and every writer there will be.
+    fn advance_scrollbars(&mut self, regions: &[Scrollable], dt: f32) -> bool {
+        self.scrollbar_fade
+            .retain(|id, _| regions.iter().any(|area| area.id == *id));
+        let mut animating = false;
+        for area in regions {
+            let now = self.scroll.get(&area.id).copied().unwrap_or((0.0, 0.0));
+            let hovered = self.scrollbar_hovered == Some(area.id);
+            let held = hovered || self.scrollbar_dragged == Some(area.id);
+            let fade = self.scrollbar_fade.entry(area.id).or_insert(ScrollbarFade {
+                seen: now,
+                // An area **nobody has moved yet** has no bar: the reference's fade
+                // starts closed and is only ever opened by a scroll notification. A
+                // list that has just appeared shows its content, not its furniture.
+                since: BAR_TIME_TO_FADE,
+                ..ScrollbarFade::default()
+            });
+            if fade.seen != now {
+                fade.seen = now;
+                fade.since = 0.0;
+            } else if held {
+                fade.since = 0.0;
+            } else {
+                fade.since += dt;
+            }
+            let waiting = fade.since < BAR_TIME_TO_FADE;
+            let target = if waiting { 1.0 } else { 0.0 };
+            approach(&mut fade.opacity, target, dt / BAR_FADE, &mut animating);
+            let warm = if hovered { 1.0 } else { 0.0 };
+            approach(&mut fade.hover, warm, dt / BAR_HOVER, &mut animating);
+            // The wait is not a movement, but it still needs a frame at the end of it,
+            // or the bar would sit there until something else happened to ask for one.
+            if waiting && !held {
+                animating = true;
+            }
+        }
         animating
+    }
+
+    /// What `id`'s scrollbar looks like this frame. An area nothing has touched, or one
+    /// rendered in isolation with no runtime behind it, answers a closed fade.
+    pub fn scrollbar_fade_of(&self, id: WidgetId) -> ScrollbarFade {
+        self.scrollbar_fade.get(&id).copied().unwrap_or_default()
     }
 
     /// Samples one region's fling for this frame. Returns `true` while it runs.
@@ -2110,6 +2200,87 @@ mod tests {
             !rt.scroll_target.contains_key(&id),
             "animation state cleared at rest"
         );
+    }
+
+    /// **A scrollbar arrives when its area moves, and leaves once it has been still**
+    /// (`scrollbar.dart:17`, `:18`): 600 ms of stillness, then 300 ms of going.
+    ///
+    /// Nothing announces that movement. The offset is written by the drag handler, by
+    /// the fling and by the spring, and none of the three leaves word — so this watches
+    /// the value itself, which catches all three and whatever is added next.
+    #[test]
+    fn a_bar_arrives_on_movement_and_goes_again() {
+        let id = WidgetId::ROOT;
+        let mut rt = Runtime::default();
+        let regions = [region(id, 200.0)];
+        let run = |rt: &mut Runtime, frames: usize| {
+            for _ in 0..frames {
+                rt.advance_scroll(&regions, ScrollPhysics::Clamping, 0.016);
+            }
+        };
+
+        // An area nobody has scrolled has no bar at all.
+        run(&mut rt, 10);
+        assert_eq!(
+            rt.scrollbar_fade_of(id).opacity,
+            0.0,
+            "untouched: no bar to see"
+        );
+
+        // Moved by something — anything — and it comes, over `BAR_FADE`.
+        rt.scroll.insert(id, (0.0, 40.0));
+        run(&mut rt, 1);
+        let arriving = rt.scrollbar_fade_of(id).opacity;
+        assert!(
+            arriving > 0.0 && arriving < 1.0,
+            "on its way in, not snapped: {arriving}"
+        );
+        run(&mut rt, 20);
+        assert!(rt.scrollbar_fade_of(id).opacity > 0.99, "there");
+
+        // Still for less than `BAR_TIME_TO_FADE` all told: it stays put.
+        run(&mut rt, 10);
+        assert!(
+            rt.scrollbar_fade_of(id).opacity > 0.99,
+            "half a second of stillness is not enough to send it away"
+        );
+
+        // And then it goes.
+        run(&mut rt, 80);
+        assert_eq!(rt.scrollbar_fade_of(id).opacity, 0.0, "gone");
+    }
+
+    /// **A held thumb keeps its bar**, however long the hand pauses on it
+    /// (`scrollbar.dart:1970`), and so does a bar a pointer is resting near — which is
+    /// what lets a faded bar be found again at all (`scrollbar.dart:2132`).
+    #[test]
+    fn a_bar_stays_for_the_pointer_that_wants_it() {
+        let id = WidgetId::ROOT;
+        let regions = [region(id, 200.0)];
+        let run = |rt: &mut Runtime, frames: usize| {
+            for _ in 0..frames {
+                rt.advance_scroll(&regions, ScrollPhysics::Clamping, 0.016);
+            }
+        };
+
+        let mut held = Runtime::default();
+        held.scroll.insert(id, (0.0, 40.0));
+        held.scrollbar_dragged = Some(id);
+        run(&mut held, 140); // well past 600 ms of stillness
+        assert!(
+            held.scrollbar_fade_of(id).opacity > 0.99,
+            "a thumb in a hand does not fade out from under it"
+        );
+
+        // A bar that has gone entirely comes back for a pointer that reaches for it,
+        // and the thumb warms towards its hovered colour while it is there.
+        let mut faded = Runtime::default();
+        run(&mut faded, 10);
+        assert_eq!(faded.scrollbar_fade_of(id).opacity, 0.0);
+        faded.scrollbar_hovered = Some(id);
+        run(&mut faded, 25);
+        assert!(faded.scrollbar_fade_of(id).opacity > 0.99, "back");
+        assert!(faded.scrollbar_fade_of(id).hover > 0.99, "and warmed");
     }
 
     #[test]

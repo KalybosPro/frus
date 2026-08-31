@@ -8,10 +8,30 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 444 so far, each documenting the objective, the alternatives
+> record — one per step, 445 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`SingleChildScrollView::thumb_visibility()`** (J445): keeps a scroll area's bar on
+  screen instead of letting it fade, for an area whose content does not look scrollable —
+  and for any frame rendered in isolation, which advances nothing and so has never moved.
+
+- **`Ui::scrollbar_near()` and `Scrollbar::opacity`/`reach`** (J445): the pointer's hit
+  test, as distinct from the drag's. A pointer finds a bar at any opacity; a drag finds
+  nothing at zero.
+
+### Changed
+
+- **A scrollbar fades** (J445): it arrives when its area moves and goes 600 ms after it
+  stops, over 300 — and an area nobody has scrolled shows none at all. Its thumb takes a
+  second colour near a pointer and a third while it is held. **A frame rendered in
+  isolation now shows no bar** unless the area asks for `thumb_visibility(true)`.
+
+- **The thumb is 8 pixels and sits 2 clear of the edge** (J445), rather than 6 pixels
+  inside an 8-pixel slot.
 
 ### Added
 

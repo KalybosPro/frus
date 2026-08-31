@@ -40,8 +40,18 @@ const MIN_THUMB: f32 = 48.0;
 /// numbers are the reference's, and which one applies follows the surface's own
 /// brightness — this crate's scheme carries no brightness flag, so it is read off the
 /// surface rather than declared.
+/// The gap between the thumb and the edge of the viewport (`scrollbar.dart:14`).
+const BAR_MARGIN: f32 = 2.0;
 const THUMB_ON_DARK: f32 = 0.30;
 const THUMB_ON_LIGHT: f32 = 0.10;
+/// And under a pointer (`scrollbar.dart:245`, `:239`) — a five-fold change on a light
+/// surface, which is what makes a bar you can barely see worth reaching for.
+const THUMB_HOVER_ON_DARK: f32 = 0.65;
+const THUMB_HOVER_ON_LIGHT: f32 = 0.50;
+/// And while it is being dragged (`scrollbar.dart:244`, `:238`), which arrives at once:
+/// the hand is already on it, and a fade would only lag behind the grab.
+const THUMB_DRAG_ON_DARK: f32 = 0.75;
+const THUMB_DRAG_ON_LIGHT: f32 = 0.60;
 
 /// One **axis** of a scroll area, as a scrollbar needs to see it: which way it runs, where
 /// it has got to, how far it may go, whether its numbers run backwards, and what the area
@@ -54,6 +64,8 @@ struct Bar {
     reverse: bool,
     /// The area's own answer, over the application's. See [`crate::Scrollbars`].
     asked: Option<crate::physics::Scrollbars>,
+    /// Whether the area asked for its bar to stay put instead of fading.
+    visible: Option<bool>,
 }
 
 /// A scrollbar thumb (for hit-testing a drag).
@@ -72,6 +84,15 @@ pub struct Scrollbar {
     /// is the far end, so the thumb rests there and a drag towards the start raises the
     /// number. See [`Scrollable::reverse_y`].
     pub reverse: bool,
+    /// **How present the bar is**, `0.0..=1.0`. A bar at zero is painted by nothing and
+    /// cannot be grabbed — but it is still here, because a mouse that comes near it
+    /// brings it back.
+    pub opacity: f32,
+    /// The rectangle a **mouse** has to be inside for the bar to notice it: the track,
+    /// widened to take in a tap target's worth of room around the thumb. The reference
+    /// reaches out like this on purpose (`scrollbar.dart:762`) — a bar 8 pixels wide,
+    /// resting at a tenth of an opacity, is not something a hand aims at precisely.
+    pub reach: Rect,
 }
 
 /// A scrollable area of the frame: where it is, how far it may scroll, and how it
@@ -1016,7 +1037,22 @@ impl<Msg: Clone> Ui<Msg> {
         self.scrollbars
             .iter()
             .rev()
-            .find(|bar| bar.thumb.contains(point))
+            .find(|bar| bar.opacity > 0.0 && bar.thumb.contains(point))
+            .copied()
+    }
+
+    /// The scrollbar a **pointer is near enough to wake**: inside its track, or within a
+    /// tap target's reach of its thumb.
+    ///
+    /// Wider than [`Ui::scrollbar_at`], and — unlike it — it answers for a bar that has
+    /// faded out entirely, which is the whole point. A bar nobody can see is a bar nobody
+    /// can grab, so the reference lets a mouse coming near one bring it back first
+    /// (`scrollbar.dart:766`); only then is it something to take hold of.
+    pub fn scrollbar_near(&self, point: Point) -> Option<Scrollbar> {
+        self.scrollbars
+            .iter()
+            .rev()
+            .find(|bar| bar.reach.contains(point))
             .copied()
     }
 
@@ -2925,6 +2961,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                                 max: max_y,
                                 reverse: false,
                                 asked: widget.scrollbars(),
+                                visible: widget.thumb_visibility(),
                             },
                         );
                     }
@@ -3260,6 +3297,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                         max: max_y,
                         reverse: reverse.1,
                         asked: widget.scrollbars(),
+                        visible: widget.thumb_visibility(),
                     },
                 );
             }
@@ -3273,6 +3311,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                         max: max_x,
                         reverse: reverse.0,
                         asked: widget.scrollbars(),
+                        visible: widget.thumb_visibility(),
                     },
                 );
             }
@@ -3392,6 +3431,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                         max,
                         reverse,
                         asked: widget.scrollbars(),
+                        visible: widget.thumb_visibility(),
                     },
                 );
             }
@@ -4223,6 +4263,7 @@ impl<Msg: Clone> Builder<'_, Msg> {
             max,
             reverse,
             asked,
+            visible,
         } = axis;
         // **Along the horizontal axis, never** (`app.dart:861`) — on any platform, under
         // any setting. A sideways strip is scrolled by the thing that made it sideways,
@@ -4252,42 +4293,91 @@ impl<Msg: Clone> Builder<'_, Msg> {
         let fraction = if reverse { 1.0 - fraction } else { fraction };
         let thumb_pos = track_start + fraction * travel;
 
-        // The track's rectangle is still worked out — it is the geometry the thumb sits
-        // in — but nothing is painted for it; see below.
-        let (_track, thumb) = if vertical {
-            let x = viewport.x + viewport.width - BAR_SIZE;
+        // The track's rectangle is still worked out — it is the room a pointer has to be
+        // in, and the geometry the thumb sits in — but nothing is painted for it.
+        //
+        // `BAR_SIZE` is the **thumb's** thickness, not a slot's: the reference keeps the
+        // thumb clear of the edge with `crossAxisMargin` (`scrollbar.dart:357`) rather
+        // than shrinking it to fit. This drew a 6-pixel thumb inside an 8-pixel slot,
+        // which is the same arithmetic with the wrong number left over.
+        let (track, thumb) = if vertical {
+            let x = viewport.x + viewport.width - BAR_MARGIN - BAR_SIZE;
             (
-                Rect::new(x, viewport.y, BAR_SIZE, viewport.height),
-                Rect::new(x + 1.0, thumb_pos, BAR_SIZE - 2.0, thumb_len),
+                Rect::new(
+                    x - BAR_MARGIN,
+                    viewport.y,
+                    BAR_SIZE + BAR_MARGIN * 2.0,
+                    viewport.height,
+                ),
+                Rect::new(x, thumb_pos, BAR_SIZE, thumb_len),
             )
         } else {
-            let y = viewport.y + viewport.height - BAR_SIZE;
+            let y = viewport.y + viewport.height - BAR_MARGIN - BAR_SIZE;
             (
-                Rect::new(viewport.x, y, viewport.width, BAR_SIZE),
-                Rect::new(thumb_pos, y + 1.0, thumb_len, BAR_SIZE - 2.0),
+                Rect::new(
+                    viewport.x,
+                    y - BAR_MARGIN,
+                    viewport.width,
+                    BAR_SIZE + BAR_MARGIN * 2.0,
+                ),
+                Rect::new(thumb_pos, y, thumb_len, BAR_SIZE),
             )
+        };
+        // What a mouse has to be inside for the bar to notice it: the track, widened to
+        // take in a tap target's worth of room around the thumb (`scrollbar.dart:762`).
+        let reach = {
+            let (cx, cy) = (thumb.x + thumb.width * 0.5, thumb.y + thumb.height * 0.5);
+            let r = crate::theme::MIN_TAP_TARGET * 0.5;
+            let x0 = track.x.min(cx - r);
+            let y0 = track.y.min(cy - r);
+            let x1 = (track.x + track.width).max(cx + r);
+            let y1 = (track.y + track.height).max(cy + r);
+            Rect::new(x0, y0, x1 - x0, y1 - y0)
+        };
+
+        // **How present the bar is**, this frame. It arrives when the area moves and goes
+        // again once the area has been still long enough; an area nobody has scrolled has
+        // none at all. Unless it was asked to stay (`scrollbar.dart:214`).
+        let fade = self.runtime.scrollbar_fade_of(id);
+        let opacity = if visible.unwrap_or(false) {
+            1.0
+        } else {
+            fade.opacity.clamp(0.0, 1.0)
         };
 
         // **No track.** The reference's is transparent unless a caller asks for one
-        // (`scrollbar.dart:281`), and even then it is 3 to 5 % — this painted 18 %, which
-        // is a second permanent stripe down the side of every scrolling page.
+        // (`scrollbar.dart:281`), and even then it is 3 to 5 %.
         //
-        // The thumb, at the reference's resting opacity for the surface's brightness
-        // (`scrollbar.dart:242`, `:248`). It used to be 55 %, and translucent fills blend
-        // in linear light here, so it painted heavier than the number said as well.
+        // The thumb takes the reference's opacity for the surface's brightness: at rest
+        // (`scrollbar.dart:242`, `:248`), warmed towards its hovered value while a
+        // pointer is near it (`:239`, `:245`), and at its dragged value the moment the
+        // thumb is held (`:238`, `:244`) — that one does not fade in, because the hand is
+        // already on it and a fade would only lag behind the grab.
         let dark = self.theme.scheme.surface.compute_luminance() < 0.5;
-        let thumb_color =
-            self.theme
-                .scheme
-                .on_surface
-                .fade(if dark { THUMB_ON_DARK } else { THUMB_ON_LIGHT });
-        self.scene.draw_rect(
-            thumb,
-            thumb_color,
-            (BAR_SIZE - 2.0) * 0.5,
-            0.0,
-            Color::TRANSPARENT,
-        );
+        let (rest, warm, grabbed) = if dark {
+            (THUMB_ON_DARK, THUMB_HOVER_ON_DARK, THUMB_DRAG_ON_DARK)
+        } else {
+            (THUMB_ON_LIGHT, THUMB_HOVER_ON_LIGHT, THUMB_DRAG_ON_LIGHT)
+        };
+        let level = if self.runtime.scrollbar_dragged == Some(id) {
+            grabbed
+        } else {
+            rest + (warm - rest) * fade.hover.clamp(0.0, 1.0)
+        };
+        if opacity > 0.0 {
+            self.scene.draw_rect(
+                thumb,
+                self.theme.scheme.on_surface.fade(level * opacity),
+                BAR_SIZE * 0.5,
+                0.0,
+                Color::TRANSPARENT,
+            );
+        }
+        // Registered even when nothing was painted for it — unlike a bar the platform
+        // does not draw at all, which is not registered because it is not there. A mouse
+        // coming near a faded bar is what brings it back (`scrollbar.dart:2132`), so
+        // something has to be here for the mouse to find. What a bar at zero cannot be is
+        // **grabbed**; see `Ui::scrollbar_at`.
         self.scrollbars.push(Scrollbar {
             id,
             vertical,
@@ -4297,6 +4387,8 @@ impl<Msg: Clone> Builder<'_, Msg> {
             thumb_len,
             reverse,
             max,
+            opacity,
+            reach,
         });
     }
 }
@@ -5158,23 +5250,34 @@ mod tests {
         assert_eq!(ui.hit(Point::new(3.0, 3.0)), None);
     }
 
-    /// A tall page in a short window, and every rectangle the frame paints for the
-    /// scrollbar over it.
-    fn bars(area: SingleChildScrollView<()>, how: Scrollbars) -> Vec<(Rect, Color)> {
-        let runtime = Runtime::with_scrollbars(how);
-        let ui = build_ui(&area, Size::new(200.0, 100.0), &runtime, &Theme::dark());
-        // The bar is drawn last, over the content, and it is the only thing painted
-        // inside the right-hand `BAR_SIZE` of the viewport.
+    /// Every rectangle a frame paints down the right-hand edge of a 200-wide viewport.
+    /// The bar is drawn last, over the content, and it is the only thing over there.
+    fn painted(ui: &Ui<()>) -> Vec<(Rect, Color)> {
         ui.scene()
             .primitives()
             .iter()
             .filter_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if rect.x >= 200.0 - BAR_SIZE => {
+                Primitive::Rect { rect, color, .. }
+                    if rect.x >= 200.0 - BAR_SIZE - BAR_MARGIN * 2.0 =>
+                {
                     Some((*rect, *color))
                 }
                 _ => None,
             })
             .collect()
+    }
+
+    /// A tall page in a short window, its bar **pinned**: whether a bar fades is the
+    /// business of the tests below, and these are about whether there is one to fade.
+    fn bars(area: SingleChildScrollView<()>, how: Scrollbars) -> Vec<(Rect, Color)> {
+        let runtime = Runtime::with_scrollbars(how);
+        let ui = build_ui(
+            &area.thumb_visibility(true),
+            Size::new(200.0, 100.0),
+            &runtime,
+            &Theme::dark(),
+        );
+        painted(&ui)
     }
 
     /// A tall column in a short viewport: something to scroll.
@@ -5214,8 +5317,12 @@ mod tests {
         assert_eq!(painted.len(), 1, "one rectangle: the thumb");
         let (thumb, color) = painted[0];
         assert!(
-            (thumb.width - (BAR_SIZE - 2.0)).abs() < 0.01,
+            (thumb.width - BAR_SIZE).abs() < 0.01,
             "at the reference's thickness: {thumb:?}"
+        );
+        assert!(
+            ((thumb.x + thumb.width) - (200.0 - BAR_MARGIN)).abs() < 0.01,
+            "and clear of the edge by `crossAxisMargin`, not shrunk to fit: {thumb:?}"
         );
         assert!(
             thumb.height >= MIN_THUMB,
@@ -5257,6 +5364,94 @@ mod tests {
             vec![],
             "and refused one where it does"
         );
+    }
+
+    /// **A bar nobody has scrolled is not there at all.** The reference's fade starts
+    /// closed and is opened only by movement (`scrollbar.dart:1960`); a list that has
+    /// just appeared shows its content, not its furniture.
+    ///
+    /// It is **registered** even so, which a bar the platform does not draw is not. The
+    /// difference is real: that one is not there, and this one is here and invisible —
+    /// and a mouse coming near it is the only thing that can bring it back.
+    #[test]
+    fn an_untouched_area_shows_no_bar_but_can_still_be_reached_for() {
+        let runtime = Runtime::with_scrollbars(Scrollbars::Always);
+        let ui = build_ui(&tall(), Size::new(200.0, 100.0), &runtime, &Theme::dark());
+        assert_eq!(painted(&ui), vec![], "nothing is painted for it");
+
+        let bar = *ui.scrollbars().first().expect("registered all the same");
+        assert_eq!(bar.opacity, 0.0);
+        let on_it = Point::new(194.0, 20.0);
+        assert!(
+            ui.scrollbar_at(on_it).is_none(),
+            "and a bar at zero cannot be grabbed"
+        );
+        assert!(
+            ui.scrollbar_near(on_it).is_some(),
+            "but it can be reached for, which is what brings it back"
+        );
+        // The reach is wider than the bar: 8 pixels at a tenth of an opacity is not
+        // something a hand aims at precisely.
+        assert!(
+            ui.scrollbar_near(Point::new(178.0, 20.0)).is_some(),
+            "the reach takes in a tap target's room around the thumb: {:?}",
+            bar.reach
+        );
+    }
+
+    /// **A pinned bar does not fade** (`scrollbar.dart:214`) — for an area whose content
+    /// does not look scrollable, or one a reader should be able to aim at without
+    /// scrolling first to make the bar appear.
+    #[test]
+    fn a_pinned_bar_does_not_fade() {
+        let runtime = Runtime::with_scrollbars(Scrollbars::Always);
+        let ui = build_ui(
+            &tall().thumb_visibility(true),
+            Size::new(200.0, 100.0),
+            &runtime,
+            &Theme::dark(),
+        );
+        assert_eq!(painted(&ui).len(), 1, "there without being scrolled to");
+        assert_eq!(ui.scrollbars()[0].opacity, 1.0);
+    }
+
+    /// **A thumb under a pointer, and a thumb in a hand**, are two different colours
+    /// (`scrollbar.dart:245`, `:244`) — and neither is the resting one. The dragged
+    /// value arrives at once: the hand is already on it.
+    #[test]
+    fn a_thumb_answers_the_pointer() {
+        use crate::runtime::ScrollbarFade;
+        let build = |prime: &dyn Fn(&mut Runtime)| {
+            let mut runtime = Runtime::with_scrollbars(Scrollbars::Always);
+            prime(&mut runtime);
+            let ui = build_ui(
+                &tall().thumb_visibility(true),
+                Size::new(200.0, 100.0),
+                &runtime,
+                &Theme::dark(),
+            );
+            let id = ui.scrollbars()[0].id;
+            (id, painted(&ui)[0].1)
+        };
+
+        let theme = Theme::dark();
+        let (id, resting) = build(&|_| {});
+        assert_eq!(resting, theme.scheme.on_surface.fade(THUMB_ON_DARK));
+
+        let (_, warmed) = build(&|rt| {
+            rt.scrollbar_fade.insert(
+                id,
+                ScrollbarFade {
+                    opacity: 1.0,
+                    hover: 1.0,
+                    ..ScrollbarFade::default()
+                },
+            );
+        });
+        assert_eq!(warmed, theme.scheme.on_surface.fade(THUMB_HOVER_ON_DARK));
+
+        let (_, grabbed) = build(&|rt| rt.scrollbar_dragged = Some(id));
+        assert_eq!(grabbed, theme.scheme.on_surface.fade(THUMB_DRAG_ON_DARK));
     }
 
     #[test]

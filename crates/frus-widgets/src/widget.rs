@@ -583,6 +583,16 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// **Keep this area's scrollbar on screen**, instead of letting it fade away when
+    /// the area stops moving (`scrollbar.dart:214`).
+    ///
+    /// `None` — the default — lets it fade, which is what a bar over content should do.
+    /// `Some(true)` pins it: for an area whose content is not obviously scrollable, or
+    /// one a reader is meant to be able to aim at without scrolling first.
+    fn thumb_visibility(&self) -> Option<bool> {
+        None
+    }
+
     /// What the **software keyboard** should be, when this widget is the focused
     /// editable one.
     ///
@@ -1371,6 +1381,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn scrollbars(&self) -> Option<crate::physics::Scrollbars> {
         (**self).scrollbars()
+    }
+    fn thumb_visibility(&self) -> Option<bool> {
+        (**self).thumb_visibility()
     }
     fn ime(&self) -> crate::ime::Ime {
         (**self).ime()

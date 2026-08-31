@@ -262,7 +262,8 @@ pub use richtext::RichText;
 pub use rotatedbox::RotatedBox;
 pub use rowcolumn::{Column, MainAxisSize, Row, VerticalDirection};
 pub use runtime::{
-    spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState, ValueAnim,
+    spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState, ScrollbarFade,
+    ValueAnim,
 };
 pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};

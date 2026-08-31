@@ -365,6 +365,10 @@ macro_rules! forward_transparent {
                 self.inner.scrollbars()
             }
 
+            fn thumb_visibility(&self) -> Option<bool> {
+                self.inner.thumb_visibility()
+            }
+
             fn scroll_physics(&self) -> Option<$crate::physics::ScrollPhysics> {
                 self.inner.scroll_physics()
             }

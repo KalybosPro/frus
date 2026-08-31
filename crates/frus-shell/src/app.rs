@@ -1744,6 +1744,22 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // And whether its scroll areas draw a bar, read every frame for the same
                 // reason: it is the application's answer, and it may change.
                 self.runtime.scrollbars = self.app.scrollbars();
+                // And where the pointer stands in relation to a bar, from the previous
+                // frame's registry — the only one there is at this point in the frame.
+                //
+                // Near a bar, it holds it open and warms the thumb; a bar that has faded
+                // out entirely still answers here, and comes back for the reach. On a
+                // touch platform nothing draws a bar in the first place, so the registry
+                // is empty and a lingering finger position says nothing.
+                self.runtime.scrollbar_hovered = self
+                    .ui
+                    .as_ref()
+                    .and_then(|ui| ui.scrollbar_near(self.cursor))
+                    .map(|bar| bar.id);
+                self.runtime.scrollbar_dragged = match self.drag {
+                    Some(Drag::Scrollbar { id, .. }) => Some(id),
+                    _ => None,
+                };
                 let need_build = self.build_dirty || app_animating || self.tree.is_none();
                 if need_build {
                     // No scope of its own: the surface above is already installed, and
