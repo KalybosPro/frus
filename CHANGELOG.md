@@ -8,10 +8,30 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 450 so far, each documenting the objective, the alternatives
+> record — one per step, 451 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`shape()` on `Card`, `Chip`, `Dialog` and `Button`, and `shape` on their themes**
+  (J451): what shape the box is, not just what its corners are. `radius()` stays as the
+  shorthand for a rounded rectangle; the last of the two called is the one that counts.
+
+- **`resolve_shape`** (J451): the one rule all of them use — caller, theme's shape, theme's
+  radius, widget's default.
+
+### Fixed
+
+- **A button is a pill at any size** (J451). Its stadium was `height / 2`, which is the
+  wrong number for a button taller than it is wide. The FAB had the same number written
+  out.
+
+### Changed
+
+- **`Dialog::shape` and `DialogTheme::shape` take a `ShapeBorder`** (J451), not a
+  `BorderRadius`. **Callers passing a number** say `.radius(28.0)`.
 
 ### Added
 

@@ -1168,7 +1168,12 @@ pub fn fab_button<Msg: Clone + 'static>(
         // **Round**, and not only because the convention is round: a docked button
         // sits in a circular notch, and a square one would leave the bar curving
         // around a shape that is not there.
-        .radius(FAB_SIZE / 2.0)
+        //
+        // A stadium rather than `FAB_SIZE / 2`, which was the same number written out
+        // and only right while the button was exactly that tall: a stadium takes half
+        // its **short** side, so an extended one stays a lozenge instead of a box with
+        // corners rounded past its own height.
+        .shape(frus_core::ShapeBorder::stadium())
         .on_press(message)
 }
 

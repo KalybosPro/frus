@@ -5,7 +5,8 @@
 use std::collections::VecDeque;
 
 use frus_core::{
-    Color, Insets, Point, Rect, ResolvedTextStyle, Role, Scene, SemanticsProperties, TextStyle,
+    BorderRadius, Color, Insets, Point, Rect, ResolvedTextStyle, Role, Scene, SemanticsProperties,
+    ShapeBorder, TextStyle,
 };
 use frus_layout::{Align, Dimension, Justify, Style};
 
@@ -444,10 +445,20 @@ impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
         // bar is floating (`snack_bar.dart:798`), and a `Material` with no shape has
         // square corners — a bar flush against three edges of the page has nothing to
         // round, and rounding it would leave four slivers of page showing through.
-        let radius = t.radius.unwrap_or(match self.placing(Some(theme)) {
-            SnackBarBehavior::Fixed => 0.0,
-            SnackBarBehavior::Floating => SNACK_BAR_RADIUS,
-        });
+        let shape = crate::resolve_shape(
+            t.shape,
+            None,
+            t.radius.map(BorderRadius::uniform),
+            ShapeBorder::rounded(match self.placing(Some(theme)) {
+                SnackBarBehavior::Fixed => 0.0,
+                SnackBarBehavior::Floating => SNACK_BAR_RADIUS,
+            }),
+        );
+        // The shadow is a rectangle whatever the bar is.
+        let radius = shape
+            .as_rounded(bounds)
+            .map(|(_, radius)| radius)
+            .unwrap_or(BorderRadius::ZERO);
         let elevation = t.elevation.unwrap_or(SNACK_BAR_ELEVATION);
         // A notification is **inverted**: it is not a card on the page, it is a bar that
         // stands out from it (`snack_bar.dart:949`). The scheme has carried the pair for
@@ -464,12 +475,12 @@ impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
                 bounds.height + elevation * 2.0,
             ),
             theme.scheme.shadow.with_alpha(0.3).fade(o),
-            radius + elevation,
+            radius.inflate(elevation),
             elevation,
         );
         // No border: the inverted surface is what separates the bar from the page, and a
         // rule round it would be edging a thing that is already distinct.
-        scene.draw_rect(bounds, fill.fade(o), radius, 0.0, Color::TRANSPARENT);
+        scene.draw_shape(bounds, shape, fill.fade(o));
         // The stripe down the leading edge is this crate's own — the reference's bar has
         // one look and no kinds — so it is drawn inside the corner rather than over it.
         scene.draw_rect(

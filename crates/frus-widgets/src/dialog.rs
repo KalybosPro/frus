@@ -22,7 +22,7 @@
 //! [`Dialog`] is the surface on its own — rounded, elevated, held off the window's edges,
 //! at least 280 wide — for content that is not a title-and-actions box.
 
-use frus_core::{BorderRadius, Color, Insets, Rect, Scene, TextAlign, TextStyle};
+use frus_core::{BorderRadius, Color, Insets, Rect, Scene, ShapeBorder, TextAlign, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::interaction::Status;
@@ -94,7 +94,7 @@ struct DialogSurface<Msg> {
     elevation: Option<f32>,
     shadow_color: Option<Color>,
     surface_tint: Option<Color>,
-    shape: Option<BorderRadius>,
+    shape: Option<ShapeBorder>,
     inset_padding: Option<Insets>,
     min_width: Option<f32>,
     max_width: Option<f32>,
@@ -107,10 +107,15 @@ impl<Msg> DialogSurface<Msg> {
             .unwrap_or(DIALOG_ELEVATION)
     }
 
-    fn radius(&self, theme: Option<&Theme>) -> BorderRadius {
-        self.shape
-            .or(theme.and_then(|t| t.widgets.dialog.shape))
-            .unwrap_or_else(|| DIALOG_RADIUS.into())
+    /// **What shape this dialog is** (`dialog.dart:1967`): its own word, then the
+    /// theme's, then a 28-radius rounded rectangle.
+    fn shape(&self, theme: Option<&Theme>) -> ShapeBorder {
+        crate::resolve_shape(
+            self.shape,
+            theme.and_then(|t| t.widgets.dialog.shape),
+            None,
+            ShapeBorder::rounded(DIALOG_RADIUS),
+        )
     }
 
     /// The surface's colour, tinted for its elevation **only where a tint is named**.
@@ -160,7 +165,13 @@ impl<Msg: Clone> Widget<Msg> for DialogSurface<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let radius = self.radius(Some(theme));
+        let shape = self.shape(Some(theme));
+        // The shadow is a rectangle whatever the shape is, so it takes the corners the
+        // shape resolves to and none at all from one that has no rounded form.
+        let radius = shape
+            .as_rounded(bounds)
+            .map(|(_, radius)| radius)
+            .unwrap_or(BorderRadius::ZERO);
         let depth = self.elevation(Some(theme));
         // The shadow, drawn the way `Card` draws one: the blur grows with the depth and
         // the drop is half of it. The reference's Material 3 shadow colour is transparent
@@ -183,13 +194,7 @@ impl<Msg: Clone> Widget<Msg> for DialogSurface<Msg> {
                 blur,
             );
         }
-        scene.draw_rect(
-            bounds,
-            self.background(theme).fade(o),
-            radius,
-            0.0,
-            Color::TRANSPARENT,
-        );
+        scene.draw_shape(bounds, shape, self.background(theme).fade(o));
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -212,7 +217,7 @@ pub struct Dialog<Msg> {
     elevation: Option<f32>,
     shadow_color: Option<Color>,
     surface_tint: Option<Color>,
-    shape: Option<BorderRadius>,
+    shape: Option<ShapeBorder>,
     inset_padding: Option<Insets>,
     min_width: Option<f32>,
     max_width: Option<f32>,
@@ -284,11 +289,24 @@ impl<Msg: Clone + 'static> Dialog<Msg> {
         self
     }
 
-    /// The corner. `28` by default (`dialog.dart:1967`).
+    /// **What shape it is** (`dialog.dart:1967`). A 28-radius rounded rectangle by
+    /// default.
+    ///
+    /// It took a `BorderRadius` under this name until milestone 451, which is the
+    /// clearest case of the deviation that milestone closed: `shape` in the reference is
+    /// a `ShapeBorder`, and a corner radius is one of the things one can be. See
+    /// [`Dialog::radius`] for the shorthand.
     #[must_use]
-    pub fn shape(mut self, shape: impl Into<BorderRadius>) -> Self {
-        self.shape = Some(shape.into());
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.shape = Some(shape);
         self
+    }
+
+    /// **Its corners**, as a shorthand for a rounded rectangle of that radius. The last
+    /// of this and [`shape`](Self::shape) to be called is the one that counts.
+    #[must_use]
+    pub fn radius(self, radius: impl Into<BorderRadius>) -> Self {
+        self.shape(ShapeBorder::rounded(radius))
     }
 
     /// How far the dialog is held off the window's edges. 40 across and 24 down by
@@ -518,9 +536,9 @@ impl<Msg: Clone + 'static> AlertDialog<Msg> {
         self
     }
 
-    /// The corner — see [`Dialog::shape`].
+    /// **What shape it is** — see [`Dialog::shape`].
     #[must_use]
-    pub fn shape(mut self, shape: impl Into<BorderRadius>) -> Self {
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
         self.dialog = self.dialog.shape(shape);
         self
     }
@@ -854,9 +872,9 @@ impl<Msg: Clone + 'static> SimpleDialog<Msg> {
         self
     }
 
-    /// The corner — see [`Dialog::shape`].
+    /// **What shape it is** — see [`Dialog::shape`].
     #[must_use]
-    pub fn shape(mut self, shape: impl Into<BorderRadius>) -> Self {
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
         self.dialog = self.dialog.shape(shape);
         self
     }

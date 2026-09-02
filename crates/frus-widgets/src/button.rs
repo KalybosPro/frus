@@ -16,7 +16,7 @@
 //! Every measurement and colour is overridable, per call or through
 //! [`ButtonTheme`](crate::ButtonTheme).
 
-use frus_core::{BorderRadius, Color, Point, Rect, Scene, TextStyle};
+use frus_core::{BorderRadius, Color, Point, Rect, Scene, ShapeBorder, TextStyle};
 use frus_layout::{Dimension, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
@@ -90,7 +90,7 @@ pub struct Button<Msg> {
     label_color: Option<Color>,
     border_color: Option<Color>,
     border_width: Option<f32>,
-    radius: Option<BorderRadius>,
+    shape: Option<ShapeBorder>,
     padding: Option<f32>,
     height: Option<f32>,
     min_width: Option<f32>,
@@ -110,7 +110,7 @@ impl<Msg> Button<Msg> {
             label_color: None,
             border_color: None,
             border_width: None,
-            radius: None,
+            shape: None,
             padding: None,
             height: None,
             min_width: None,
@@ -130,7 +130,16 @@ impl<Msg> Button<Msg> {
     /// connected segments, button groups…). Defaults to a **stadium**: the radius is half
     /// the button's height, whatever that height turns out to be.
     pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
-        self.radius = Some(radius.into());
+        self.shape = Some(ShapeBorder::rounded(radius));
+        self
+    }
+
+    /// **What shape it is** (`shape_border.dart`), over the corners named above. The last
+    /// of the two to be called is the one that counts — they are one property, and
+    /// [`radius`](Self::radius) is the shorthand for the common case.
+    #[must_use]
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.shape = Some(shape);
         self
     }
 
@@ -242,13 +251,21 @@ impl<Msg> Button<Msg> {
             .unwrap_or(self.variant.elevation())
     }
 
-    fn radius_of(&self, theme: &Theme, height: f32) -> BorderRadius {
-        self.radius
-            .or(theme.widgets.button.radius)
-            // A stadium, which is what the reference's buttons are: the radius follows the
-            // height, so a shorter button stays a lozenge rather than becoming a box with
-            // soft corners.
-            .unwrap_or(BorderRadius::uniform(height / 2.0))
+    /// **What shape this button is**: its own word, then the theme's shape, then the
+    /// theme's plain radius, then a **stadium** — which is what the reference's buttons
+    /// are (`button_style.dart`).
+    ///
+    /// It used to work the stadium out here as `height / 2`, which is the right number
+    /// for a button wider than it is tall and the wrong one for a button that is not:
+    /// a stadium takes half its **short** side. Saying the word instead of the number
+    /// gets that right at every size, and lets a caller say `circle` or `beveled`.
+    fn shape_of(&self, theme: &Theme) -> ShapeBorder {
+        crate::resolve_shape(
+            self.shape,
+            theme.widgets.button.shape,
+            theme.widgets.button.radius,
+            ShapeBorder::stadium(),
+        )
     }
 
     /// `(background, label, outline)` for the variant and the theme, disabled included.
@@ -333,7 +350,11 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         let (base, on_color, border) = self.palette(theme);
-        let radius = self.radius_of(theme, bounds.height);
+        let shape = self.shape_of(theme);
+        let radius = shape
+            .as_rounded(bounds)
+            .map(|(_, radius)| radius)
+            .unwrap_or(BorderRadius::ZERO);
         let elevation = self.elevation_of(theme);
 
         // The shadow belongs to **one** variant. Every enabled button used to cast one,
@@ -370,12 +391,13 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
             (None, Some(color)) => (BUTTON_BORDER_WIDTH, color),
             (None, None) => (0.0, Color::TRANSPARENT),
         };
-        scene.draw_rect(
+        scene.draw_shape(
             bounds,
+            shape.with_side(frus_core::BorderSide::new(
+                border_color.fade(o),
+                border_width,
+            )),
             color.fade(o),
-            radius,
-            border_width,
-            border_color.fade(o),
         );
 
         // Centred, both ways: a label pinned to the padding drifts off centre the moment
@@ -420,7 +442,21 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
         Some(
             crate::InkStyle::of(theme)
                 .color(splash)
-                .radius(self.radius_of(theme, self.height_of(theme))),
+                // The ink is clipped to the button, so it takes the corners the shape
+                // resolves to at the button's own height. A width is not known here —
+                // the ripple is placed before layout — so the height stands in, which
+                // is what a stadium's short side is for a button wider than it is tall.
+                .radius(
+                    self.shape_of(theme)
+                        .as_rounded(Rect::new(
+                            0.0,
+                            0.0,
+                            self.height_of(theme),
+                            self.height_of(theme),
+                        ))
+                        .map(|(_, radius)| radius)
+                        .unwrap_or(BorderRadius::ZERO),
+                ),
         )
     }
 
@@ -462,6 +498,67 @@ mod tests {
             &mut scene,
         );
         scene.primitives().to_vec()
+    }
+
+    /// **A button is a pill at any size** (`button_style.dart`), which it was not.
+    ///
+    /// The stadium used to be worked out here as `height / 2` — the right number for a
+    /// button wider than it is tall, and the wrong one for a button that is not: a
+    /// stadium takes half its **short** side. Saying the word instead of the number gets
+    /// it right at every size.
+    #[test]
+    fn a_button_is_a_pill_at_any_size() {
+        let corners = |w: f32, h: f32, button: &Button<Msg>| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                button,
+                Rect::new(0.0, 0.0, w, h),
+                Status::default(),
+                &Theme::default(),
+                &mut scene,
+            );
+            // The first crisp rectangle is the box: the shadow before it is blurred, and
+            // a circle's box is **not** the one the button was given, so the search
+            // cannot be narrowed by width.
+            scene.primitives().iter().find_map(|p| match p {
+                Primitive::Rect {
+                    rect, radius, blur, ..
+                } if *blur == 0.0 => Some((*rect, *radius)),
+                _ => None,
+            })
+        };
+        let button = Button::new("OK").on_press(Msg::Pressed);
+
+        let (_, wide) = corners(120.0, 40.0, &button).expect("a box");
+        assert_eq!(
+            wide,
+            BorderRadius::uniform(20.0),
+            "half the height, being shorter"
+        );
+
+        let (_, narrow) = corners(24.0, 80.0, &button).expect("a box");
+        assert_eq!(
+            narrow,
+            BorderRadius::uniform(12.0),
+            "half the *width* here — the old `height / 2` said 40 and turned the box \
+             inside out"
+        );
+
+        // And a caller may say something else entirely.
+        let boxed = Button::new("OK")
+            .on_press(Msg::Pressed)
+            .shape(frus_core::ShapeBorder::rounded(4.0));
+        assert_eq!(
+            corners(120.0, 40.0, &boxed).unwrap().1,
+            BorderRadius::uniform(4.0)
+        );
+
+        // A circle takes a square out of the middle rather than filling the box.
+        let round = Button::new("OK")
+            .on_press(Msg::Pressed)
+            .shape(frus_core::ShapeBorder::circle());
+        let (box_, _) = corners(120.0, 40.0, &round).expect("a box");
+        assert_eq!(box_, Rect::new(40.0, 0.0, 40.0, 40.0));
     }
 
     fn surface(button: &Button<Msg>) -> (Color, BorderRadius, f32) {

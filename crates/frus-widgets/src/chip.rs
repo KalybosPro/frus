@@ -16,7 +16,7 @@
 //! Every measurement and colour is overridable, per call or through
 //! [`ChipTheme`](crate::ChipTheme).
 
-use frus_core::{BorderRadius, Color, Insets, Point, Rect, Scene, TextStyle};
+use frus_core::{BorderRadius, Color, Insets, Point, Rect, Scene, ShapeBorder, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
@@ -51,7 +51,9 @@ pub(crate) struct ChipStyle {
     pub label_style: Option<TextStyle>,
     pub border_color: Option<Color>,
     pub border_width: Option<f32>,
-    pub radius: Option<BorderRadius>,
+    /// What shape it is, over the theme's. A radius named through
+    /// [`Chip::radius`](crate::Chip::radius) arrives here as a rounded rectangle.
+    pub shape: Option<ShapeBorder>,
     pub padding: Option<f32>,
     pub label_padding: Option<f32>,
     pub height: Option<f32>,
@@ -106,10 +108,25 @@ impl ChipStyle {
         (width, color)
     }
 
+    /// **What shape this chip is**: its own word, then the theme's shape, then the
+    /// theme's plain radius, then the reference's 8.
+    fn shape(&self, theme: &Theme) -> ShapeBorder {
+        crate::resolve_shape(
+            self.shape,
+            theme.widgets.chip.shape,
+            theme.widgets.chip.radius,
+            ShapeBorder::rounded(CHIP_RADIUS),
+        )
+    }
+
+    /// The corners that shape resolves to in a box of this chip's height — what the ink
+    /// is clipped to, and what a shape with no rounded form has none of.
     fn radius(&self, theme: &Theme) -> BorderRadius {
-        self.radius
-            .or(theme.widgets.chip.radius)
-            .unwrap_or(BorderRadius::uniform(CHIP_RADIUS))
+        let side = self.height(theme);
+        self.shape(theme)
+            .as_rounded(Rect::new(0.0, 0.0, side, side))
+            .map(|(_, radius)| radius)
+            .unwrap_or(BorderRadius::ZERO)
     }
 
     fn padding(&self, theme: &Theme) -> f32 {
@@ -352,9 +369,17 @@ impl<Msg: Clone + 'static> Chip<Msg> {
         self.rebuild()
     }
 
-    /// The corner radii (uniform via `f32`, per corner via [`BorderRadius`]).
+    /// The corner radii (uniform via `f32`, per corner via [`BorderRadius`]) — the
+    /// shorthand for a rounded rectangle. See [`Chip::shape`].
     pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
-        self.style.radius = Some(radius.into());
+        self.style.shape = Some(ShapeBorder::rounded(radius));
+        self.rebuild()
+    }
+
+    /// **What shape it is** (`chip.dart`), over the corners named above. The last of the
+    /// two to be called is the one that counts: they are one property.
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.style.shape = Some(shape);
         self.rebuild()
     }
 
@@ -479,16 +504,19 @@ impl<Msg: Clone + 'static> Widget<Msg> for Chip<Msg> {
             )
         };
 
-        scene.draw_rect(
+        scene.draw_shape(
             bounds,
+            self.style
+                .shape(theme)
+                .with_side(frus_core::BorderSide::new(
+                    if border_width > 0.0 {
+                        border_color.fade(o)
+                    } else {
+                        Color::TRANSPARENT
+                    },
+                    border_width,
+                )),
             background.fade(o),
-            self.style.radius(theme),
-            border_width,
-            if border_width > 0.0 {
-                border_color.fade(o)
-            } else {
-                Color::TRANSPARENT
-            },
         );
 
         // The leading slot: an icon if the chip has one, otherwise a selected chip's

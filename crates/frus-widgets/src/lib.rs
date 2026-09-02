@@ -325,6 +325,7 @@ pub use widgetstate::{StateFilter, WidgetState, WidgetStateProperty, WidgetState
 // they cannot name the type — so `AppBar::icon_theme` took an `IconTheme` no caller
 // could build from milestone 396 until now. A property that ships unusable is a property
 // that did not ship.
+pub use widgettheme::resolve_shape;
 pub use widgettheme::{
     AppBarTheme, BadgeTheme, ButtonTheme, CardTheme, CheckboxTheme, ChipTheme, DefaultTextStyle,
     DividerTheme, DrawerTheme, IconButtonTheme, IconTheme, InkTheme, RadioTheme, SegmentedTheme,

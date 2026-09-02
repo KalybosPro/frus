@@ -23,9 +23,29 @@
 //! beside `style`. A theme that could only reach paint would be able to recolour a
 //! divider but not make one thin, which is the setting an application actually wants.
 
-use frus_core::{BorderRadius, Color, Insets, TextAlign, TextOverflow, TextStyle};
+use frus_core::{BorderRadius, Color, Insets, ShapeBorder, TextAlign, TextOverflow, TextStyle};
 
 use crate::card::CardVariant;
+
+/// **The shape a box takes**, on the rungs everything here is resolved on
+/// (`card.dart`, `button_style.dart`, and every other `shape` in the reference).
+///
+/// The caller's word first, then the theme's shape, then the theme's plain **radius** read
+/// as a rounded rectangle, then the widget's own default.
+///
+/// The third rung is the one worth explaining. A radius was the only thing a theme could
+/// say until milestone 450, and applications have written them; a theme that names a
+/// `shape` outranks one that names only a `radius`, and naming both is naming the shape.
+pub fn resolve_shape(
+    own: Option<ShapeBorder>,
+    themed: Option<ShapeBorder>,
+    radius: Option<BorderRadius>,
+    fallback: ShapeBorder,
+) -> ShapeBorder {
+    own.or(themed)
+        .or_else(|| radius.map(ShapeBorder::rounded))
+        .unwrap_or(fallback)
+}
 
 /// The per-widget defaults carried by a [`Theme`](crate::Theme).
 ///
@@ -339,6 +359,9 @@ pub struct TextFieldTheme {
 /// Defaults for [`Button`](crate::Button).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ButtonTheme {
+    /// **What shape it is** (`shape_border.dart`), over the plain `radius` below:
+    /// a button's, whose default is a **pill** (`button_style.dart`). Unset, the widget decides.
+    pub shape: Option<ShapeBorder>,
     /// The surface under the label, whatever the variant would have used.
     pub color: Option<Color>,
     /// The label's colour.
@@ -364,6 +387,9 @@ pub struct ButtonTheme {
 /// Defaults for [`Card`](crate::Card).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CardTheme {
+    /// **What shape it is** (`shape_border.dart`), over the plain `radius` below:
+    /// a card's. Unset, the widget decides.
+    pub shape: Option<ShapeBorder>,
     /// Which of the three cards an untold `Card::new()` is.
     pub variant: Option<CardVariant>,
     /// How far off the surface it sits.
@@ -381,6 +407,9 @@ pub struct CardTheme {
 /// Defaults for [`Chip`](crate::Chip).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ChipTheme {
+    /// **What shape it is** (`shape_border.dart`), over the plain `radius` below:
+    /// a chip's. Unset, the widget decides.
+    pub shape: Option<ShapeBorder>,
     /// The surface under an unselected chip.
     pub color: Option<Color>,
     /// The surface under a selected one.
@@ -541,6 +570,9 @@ pub struct InkTheme {
 /// `labelLarge`, and both are read from the type scale rather than written down here.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SnackBarTheme {
+    /// **What shape it is** (`shape_border.dart`), over the plain `radius` below:
+    /// a snack bar's, which its behaviour already decides — see [`crate::SnackBarBehavior`]. Unset, the widget decides.
+    pub shape: Option<ShapeBorder>,
     /// **Where its bars sit**, and therefore what they look like. Unset, the reference's
     /// `Fixed` (`snack_bar.dart:986`). See [`SnackBarBehavior`](crate::SnackBarBehavior).
     pub behavior: Option<crate::toast::SnackBarBehavior>,
@@ -734,8 +766,12 @@ pub struct DialogTheme {
     /// What the surface is tinted towards for its elevation. Unset, nothing is — see
     /// [`Self::shadow_color`] for why.
     pub surface_tint: Option<Color>,
-    /// The corner. Unset, 28.
-    pub shape: Option<BorderRadius>,
+    /// **What shape it is** (`dialog.dart`). Unset, a 28-radius rounded rectangle.
+    ///
+    /// It carried the reference's *name* and a `BorderRadius` until milestone 451, which
+    /// is the deviation this field is the clearest case of: `shape` in the reference is a
+    /// `ShapeBorder`, and a corner radius is one of the things one can be.
+    pub shape: Option<ShapeBorder>,
     /// How far the dialog is held off the window's edges. Unset, 40 across and 24 down.
     pub inset_padding: Option<Insets>,
     /// The glyph above the title. Unset, the scheme's `secondary`.
@@ -841,6 +877,45 @@ pub struct KbdTheme {
 
 #[cfg(test)]
 mod tests {
+    /// **The rungs a shape is resolved on**, and the third one in particular: a radius
+    /// was all a theme could say until milestone 450, and applications have written them.
+    /// A theme naming a `shape` outranks one naming only a `radius`; naming both is
+    /// naming the shape.
+    #[test]
+    fn a_shape_outranks_a_radius_and_a_caller_outranks_both() {
+        use super::{resolve_shape, BorderRadius, ShapeBorder};
+        let fallback = ShapeBorder::stadium();
+        let told = ShapeBorder::circle();
+        let themed = ShapeBorder::beveled(3.0);
+
+        assert_eq!(resolve_shape(None, None, None, fallback), fallback);
+        assert_eq!(
+            resolve_shape(None, None, Some(BorderRadius::uniform(4.0)), fallback),
+            ShapeBorder::rounded(4.0),
+            "a plain radius still speaks"
+        );
+        assert_eq!(
+            resolve_shape(
+                None,
+                Some(themed),
+                Some(BorderRadius::uniform(4.0)),
+                fallback
+            ),
+            themed,
+            "and a shape beside it outranks it"
+        );
+        assert_eq!(
+            resolve_shape(
+                Some(told),
+                Some(themed),
+                Some(BorderRadius::uniform(4.0)),
+                fallback
+            ),
+            told,
+            "and the caller outranks the theme"
+        );
+    }
+
     use super::*;
     use crate::card::{Card, CardVariant, CARD_MARGIN};
     use crate::divider::{Divider, DIVIDER_SPACE};
