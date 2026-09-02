@@ -608,7 +608,7 @@ impl<Msg: Clone> Widget<Msg> for DatePicker<Msg> {
         if self.day_text_style.is_none() && self.weekday_text_style.is_none() {
             return None;
         }
-        let mut theme = *inherited;
+        let mut theme = inherited.clone();
         if let Some(style) = self.day_text_style {
             theme.widgets.date_picker.day_text_style = Some(style);
         }

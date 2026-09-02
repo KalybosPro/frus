@@ -96,9 +96,9 @@ crate::transparent::forward_transparent!(Themed {
     /// which is what nesting means when it is written out.
     fn theme_override(&self, inherited: &Theme) -> Option<Box<Theme>> {
         let mine = match &self.source {
-            Source::Data(theme) => **theme,
+            Source::Data(theme) => (**theme).clone(),
             Source::Tweak(change) => {
-                let mut theme = *inherited;
+                let mut theme = inherited.clone();
                 change(&mut theme);
                 theme
             }

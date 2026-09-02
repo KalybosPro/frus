@@ -272,14 +272,19 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
         // painted over the ground, so resolved opaquely here its **alpha is how far** the
         // ground moves and its colour is **where** it moves to — the same arithmetic
         // `state_layer` does, with the caller's numbers instead of Material's.
-        let told = self.overlay_color.as_ref().and_then(|per_state| {
-            per_state.resolve(
-                status
-                    .states()
-                    .set(crate::WidgetState::Selected, self.selected)
-                    .set(crate::WidgetState::Disabled, self.disabled),
-            )
-        });
+        let states = status
+            .states()
+            .set(crate::WidgetState::Selected, self.selected)
+            .set(crate::WidgetState::Disabled, self.disabled);
+        // The destination's own word, then the theme's, then nothing — and *nothing* is
+        // the state layer below. Three rungs, as everywhere else here; a property that
+        // matches no entry falls through to the next rung rather than answering with a
+        // default, which is what makes naming one state safe.
+        let told = self
+            .overlay_color
+            .as_ref()
+            .and_then(|own| own.resolve(states))
+            .or_else(|| t.overlay_color.as_ref().and_then(|w| w.resolve(states)));
         let fill = if self.disabled {
             base
         } else if let Some(overlay) = told {
@@ -1443,6 +1448,57 @@ mod tests {
             pill_of(&item, Interaction::Pressed, &theme),
             pill_of(&plain, Interaction::Pressed, &theme),
             "and held, which was named, does not"
+        );
+    }
+
+    /// **And a theme can hold one**, which is where the reference keeps most of them
+    /// (`NavigationBarThemeData.overlayColor`, and every button theme). It could not
+    /// until milestone 448: `WidgetThemes` derived `Copy`, and a property owns a `Vec`.
+    ///
+    /// Three rungs, as everywhere else here — the destination's word, then the theme's,
+    /// then the framework's state layer.
+    #[test]
+    fn a_theme_answers_for_every_destination_and_one_may_still_answer_for_itself() {
+        let told = Color::rgb8(10, 200, 90).fade(0.5);
+        let mine = Color::rgb8(200, 10, 90).fade(0.25);
+        let mut theme = Theme::dark();
+        theme.widgets.nav_rail.overlay_color =
+            Some(WidgetStateProperty::new().when(crate::WidgetState::Hovered, told));
+        let ground = theme.scheme.surface;
+
+        let plain = row(true, true, false, None);
+        assert_eq!(
+            pill_of(&plain, Interaction::Hovered, &theme),
+            Some(ground.lerp(told.fade(1.0), told.a)),
+            "a destination that said nothing takes the theme's word"
+        );
+
+        let own = NavItem::<Msg> {
+            overlay_color: Some(WidgetStateProperty::new().when(crate::WidgetState::Hovered, mine)),
+            ..row(true, true, false, None)
+        };
+        assert_eq!(
+            pill_of(&own, Interaction::Hovered, &theme),
+            Some(ground.lerp(mine.fade(1.0), mine.a)),
+            "and one that said something outranks it"
+        );
+    }
+
+    /// A state **neither of them named** still falls through to the state layer: a
+    /// property that matches no entry says nothing, and saying nothing is not an answer.
+    #[test]
+    fn a_state_neither_rung_names_falls_through() {
+        let mut theme = Theme::dark();
+        theme.widgets.nav_rail.overlay_color = Some(WidgetStateProperty::new().when(
+            crate::WidgetState::Pressed,
+            Color::rgb8(10, 200, 90).fade(0.5),
+        ));
+        let bare = Theme::dark();
+        let item = row(true, true, false, None);
+        assert_eq!(
+            pill_of(&item, Interaction::Hovered, &theme),
+            pill_of(&item, Interaction::Hovered, &bare),
+            "hovered was never named by either rung"
         );
     }
 

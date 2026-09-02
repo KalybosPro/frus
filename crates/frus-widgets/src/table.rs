@@ -1417,7 +1417,7 @@ impl<Msg: Clone> Widget<Msg> for Table<Msg> {
         if self.heading_text_style.is_none() && self.data_text_style.is_none() {
             return None;
         }
-        let mut theme = *inherited;
+        let mut theme = inherited.clone();
         if let Some(style) = self.heading_text_style {
             theme.widgets.table.heading_text_style = Some(style);
         }

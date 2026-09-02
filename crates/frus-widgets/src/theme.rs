@@ -471,7 +471,7 @@ impl TapTarget {
 /// views** of the most used roles, derived from the scheme — the widgets'
 /// historical API stays intact. `focus`/`selection` are interaction accents
 /// specific to frus (outside the M3 roles).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Theme {
     /// The color roles (the source of truth).
     pub scheme: ColorScheme,
@@ -632,7 +632,7 @@ impl Theme {
         // so every override an application had written disappeared for the length of a
         // light/dark crossing and came back when it ended.
         out.tap_target = other.tap_target;
-        out.widgets = other.widgets;
+        out.widgets = other.widgets.clone();
         out
     }
 }
@@ -645,6 +645,22 @@ impl Default for Theme {
 
 #[cfg(test)]
 mod tests {
+    /// **A theme is eight kilobytes, and it used to be `Copy`.** Every `*theme` in the
+    /// crate was a silent eight-kilobyte memcpy — in the layout walk, in every themed
+    /// subtree, once per overlay. Milestone 448 dropped `Copy`, which turned nine of
+    /// those into `clone()` calls that say what they cost.
+    ///
+    /// The number itself is not a promise; the assertion is that it is **large**, since
+    /// that is the whole argument for the change.
+    #[test]
+    fn a_theme_is_far_too_big_to_copy_by_accident() {
+        assert!(
+            std::mem::size_of::<super::Theme>() > 4096,
+            "a theme is {} bytes",
+            std::mem::size_of::<super::Theme>()
+        );
+    }
+
     use super::*;
     use crate::disabled::DISABLED_CONTAINER_OPACITY;
 

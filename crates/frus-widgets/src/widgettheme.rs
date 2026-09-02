@@ -31,7 +31,7 @@ use crate::card::CardVariant;
 ///
 /// Adding a widget here is adding a field: the pattern is one `Option` per builder the
 /// widget already has, resolved in the same order everywhere.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct WidgetThemes {
     pub alert: AlertTheme,
     pub dialog: DialogTheme,
@@ -620,8 +620,16 @@ pub struct DatePickerTheme {
 }
 
 /// Defaults for [`NavigationRail`](crate::NavigationRail) and [`BottomBar`](crate::BottomBar).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct NavRailTheme {
+    /// **The highlight over a destination, per state** — over the framework's own state
+    /// layer, and under the destination's own word (`navigation_bar.dart:232`).
+    ///
+    /// The first field here that is not a plain value but a
+    /// [`WidgetStateProperty`](crate::WidgetStateProperty). It owns a `Vec`, which is why
+    /// this struct and [`WidgetThemes`] stopped being `Copy` in milestone 448 — a theme
+    /// that weighed eight kilobytes had no business being copied implicitly anyway.
+    pub overlay_color: Option<crate::widgetstate::WidgetStateProperty<frus_core::Color>>,
     /// The destinations' labels.
     pub label_text_style: Option<TextStyle>,
     /// The count carried by a destination's badge.

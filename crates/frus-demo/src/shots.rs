@@ -102,7 +102,7 @@ fn write_shot(dir: &Path, shot: &Shot) -> anyhow::Result<()> {
 
     let (width, height) = (shot.width, shot.height);
     let theme = app.theme();
-    let mut stage = Stage::new(width, height).theme(theme);
+    let mut stage = Stage::new(width, height).theme(theme.clone());
     let root = MediaQuery::new(Size::new(width as f32, height as f32)).scope(|| app.view(&theme));
     stage.settle(root.as_ref());
     // Two settled frames: the first adopts every implicit target, the second draws
@@ -142,7 +142,7 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
 
     let mut app = seeded_app(false);
     let theme = app.theme();
-    let mut stage = Stage::new(WIDTH, HEIGHT).theme(theme);
+    let mut stage = Stage::new(WIDTH, HEIGHT).theme(theme.clone());
     {
         let root =
             MediaQuery::new(Size::new(WIDTH as f32, HEIGHT as f32)).scope(|| app.view(&theme));
@@ -152,7 +152,7 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
     let mut frames: Vec<Vec<u8>> = Vec::new();
     let capture = |app: &TodoApp, stage: &mut Stage, frames: &mut Vec<Vec<u8>>| {
         let theme = app.theme();
-        stage.theme = theme;
+        stage.theme = theme.clone();
         let root =
             MediaQuery::new(Size::new(WIDTH as f32, HEIGHT as f32)).scope(|| app.view(&theme));
         stage.advance(root.as_ref(), DT);

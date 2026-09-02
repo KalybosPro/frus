@@ -222,7 +222,7 @@ impl Application for TodoApp {
 
     fn theme(&self) -> Theme {
         let target = theme_of(self);
-        match self.theme_from {
+        match &self.theme_from {
             Some(from) => from.lerp(&target, self.theme_progress),
             None => target,
         }

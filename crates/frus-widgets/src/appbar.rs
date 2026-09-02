@@ -701,7 +701,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         };
         // The same thing as a whole theme, for asking a title how wide it naturally is.
         let dressed_title_theme = {
-            let mut dressed = *theme;
+            let mut dressed = theme.clone();
             dressed.widgets.text = dressed.widgets.text.merge(title_words);
             dressed
         };

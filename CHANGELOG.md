@@ -8,10 +8,23 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 447 so far, each documenting the objective, the alternatives
+> record — one per step, 448 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`NavRailTheme::overlay_color`** (J448): the first theme field that is a
+  `WidgetStateProperty` rather than a plain value — a destination's highlight per state,
+  for a whole application. A state it does not name falls through to the framework's own
+  state layer.
+
+### Changed
+
+- **`Theme` and `WidgetThemes` are `Clone` but no longer `Copy`** (J448). A theme measures
+  **7952 bytes**; `Copy` made every `*theme` a silent eight-kilobyte `memcpy`. **Code
+  that copied a theme implicitly** now says `theme.clone()`.
 
 ### Added
 

@@ -1570,11 +1570,15 @@ fn build_layout_scoped<'a, Msg>(
     // knows, so `LayoutBuilder::height(200.0)` behaves exactly as it did.
     if let Some(build) = widget.layout_builder() {
         let style = effective_style(widget, id, runtime, theme);
-        // `Theme` is `Copy`, and it has to be **owned**: a themed subtree's theme is a
-        // local in this function, so it cannot be borrowed for as long as the closure
-        // lives. The runtime and the widget are borrowed, which is the whole reason
-        // `Layout` carries a lifetime.
-        let theme = *theme;
+        // The closure needs an **owned** theme: a themed subtree's theme is a local in
+        // this function, so it cannot be borrowed for as long as the closure lives. The
+        // runtime and the widget are borrowed, which is the whole reason `Layout` carries
+        // a lifetime.
+        //
+        // This is a clone of eight kilobytes, and it used to be a silent one — `Theme`
+        // was `Copy` until milestone 448, so `*theme` read like a pointer copy and was
+        // not. It happens once per `LayoutBuilder`, not once per node.
+        let owned = theme.clone();
         let cid = id.child(0);
         let measure: frus_layout::MeasureFn<'a> = Box::new(move |w, h| {
             // What taffy offers. `None` is an *intrinsic* question — how big would you
@@ -1587,7 +1591,7 @@ fn build_layout_scoped<'a, Msg>(
             let offered = Size::new(w.unwrap_or(0.0), h.unwrap_or(0.0));
             let child = build(offered);
             let mut inner: Layout<BaselineData> = Layout::new();
-            let node = build_layout(child.as_ref(), cid, runtime, &theme, &mut inner);
+            let node = build_layout(child.as_ref(), cid, runtime, &owned, &mut inner);
             // The content is **handed** the offered box, not asked what it would like:
             // it was built from that box. An axis that was not offered is the one being
             // asked about, and stays free so the content's own size comes back.
@@ -1605,7 +1609,7 @@ fn build_layout_scoped<'a, Msg>(
         });
         return (
             layout.measured_leaf(style, own_baseline, measure),
-            Fills::own(widget, &theme),
+            Fills::own(widget, theme),
         );
     }
     // Scrollables, interactive viewports, fitters (`FittedBox`), navigators, virtualised
@@ -3788,7 +3792,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     progress,
                     widget.overlay_traps_focus(),
                     widget.overlay_scrim(&self.theme),
-                    self.theme,
+                    self.theme.clone(),
                 ));
             }
         } else {
@@ -4478,7 +4482,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         wants_animation: false,
         available,
         runtime,
-        theme: *theme,
+        theme: theme.clone(),
         inspector: inspect.then(Vec::new),
         depth: 0,
         refresh_host: None,
