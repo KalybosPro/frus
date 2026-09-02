@@ -14,6 +14,8 @@ use std::cell::{OnceCell, RefCell};
 use frus_core::{Color, Insets, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
+use crate::widgetstate::WidgetStateProperty;
+
 use crate::disabled::disabled_content;
 use crate::flex::Flex;
 use crate::interaction::Status;
@@ -127,6 +129,8 @@ struct NavItem<Msg> {
     disabled: bool,
     /// This destination's own indicator colour, over the theme's.
     indicator_color: Option<Color>,
+    /// This destination's own highlight, per state, over the framework's state layer.
+    overlay_color: Option<WidgetStateProperty<Color>>,
     /// Whether a selected destination gets an indicator behind its glyph at all. See
     /// [`NavigationRail::use_indicator`].
     use_indicator: bool,
@@ -262,8 +266,24 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
         //
         // Nothing lights on a destination that cannot be reached: a state layer is the
         // promise of an interaction, and there is none here (milestone 436).
+        //
+        // Unless the destination was given a colour of its own for the state it is in
+        // (`navigation_bar.dart:232`). The reference's overlay is a translucent colour
+        // painted over the ground, so resolved opaquely here its **alpha is how far** the
+        // ground moves and its colour is **where** it moves to — the same arithmetic
+        // `state_layer` does, with the caller's numbers instead of Material's.
+        let told = self.overlay_color.as_ref().and_then(|per_state| {
+            per_state.resolve(
+                status
+                    .states()
+                    .set(crate::WidgetState::Selected, self.selected)
+                    .set(crate::WidgetState::Disabled, self.disabled),
+            )
+        });
         let fill = if self.disabled {
             base
+        } else if let Some(overlay) = told {
+            base.lerp(overlay.fade(1.0), overlay.a)
         } else {
             theme.state_layer(base, theme.scheme.primary, &status)
         };
@@ -408,6 +428,9 @@ pub(crate) struct Destination {
     /// This destination's own indicator colour, over the theme's
     /// (`navigation_rail.dart:1144`).
     pub indicator_color: Option<Color>,
+    /// This destination's own highlight per state, over the framework's state layer
+    /// (`navigation_bar.dart:232`).
+    pub overlay_color: Option<WidgetStateProperty<Color>>,
 }
 
 impl Destination {
@@ -475,6 +498,7 @@ fn build_items<Msg: Clone + 'static>(
                 extended: how.extended,
                 disabled: item.disabled,
                 indicator_color: item.indicator_color,
+                overlay_color: item.overlay_color.clone(),
                 use_indicator: how.use_indicator,
                 ground: how.ground,
                 label_text_style: how.label_text_style,
@@ -751,6 +775,19 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
     #[must_use]
     pub fn indicator_color(self, color: Color) -> Self {
         self.decorate(move |last| last.indicator_color = Some(color))
+    }
+
+    /// The **last** destination's own highlight, per state
+    /// (`navigation_bar.dart:232`): the colour that marks it as focused, hovered or
+    /// pressed, instead of the framework's own state layer.
+    ///
+    /// The resolved colour is an **overlay** as the reference means it: its alpha is how
+    /// far the ground moves towards it, and its colour is where the ground moves to. A
+    /// state the property says nothing about falls back to the state layer, so naming one
+    /// state does not silence the rest.
+    #[must_use]
+    pub fn overlay_color(self, overlay: WidgetStateProperty<Color>) -> Self {
+        self.decorate(move |last| last.overlay_color = Some(overlay))
     }
 
     /// Applies `f` to the destination just added. Silent when there is none, which is the
@@ -1063,6 +1100,19 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
         self.decorate(move |last| last.indicator_color = Some(color))
     }
 
+    /// The **last** destination's own highlight, per state
+    /// (`navigation_bar.dart:232`): the colour that marks it as focused, hovered or
+    /// pressed, instead of the framework's own state layer.
+    ///
+    /// The resolved colour is an **overlay** as the reference means it: its alpha is how
+    /// far the ground moves towards it, and its colour is where the ground moves to. A
+    /// state the property says nothing about falls back to the state layer, so naming one
+    /// state does not silence the rest.
+    #[must_use]
+    pub fn overlay_color(self, overlay: WidgetStateProperty<Color>) -> Self {
+        self.decorate(move |last| last.overlay_color = Some(overlay))
+    }
+
     /// Applies `f` to the destination just added. Silent when there is none, which is the
     /// shape `badge` has always had.
     fn decorate(mut self, f: impl FnOnce(&mut Destination)) -> Self {
@@ -1327,6 +1377,104 @@ mod tests {
         scene
     }
 
+    use crate::interaction::Interaction;
+
+    /// **A destination can carry a colour per state** (`navigation_bar.dart:232`), which
+    /// nothing here could say until milestone 447: the framework's rule was one lerp
+    /// towards `primary` at three fixed opacities, right for a state layer and no answer
+    /// at all for a caller who wants a particular colour in a particular state.
+    ///
+    /// The resolved colour is an overlay as the reference means it: its alpha is how far
+    /// the ground moves, its colour is where it moves to.
+    #[test]
+    fn a_destination_may_carry_a_colour_per_state() {
+        let theme = Theme::dark();
+        let told = Color::rgb8(10, 200, 90).fade(0.5);
+        let item = NavItem::<Msg> {
+            overlay_color: Some(WidgetStateProperty::new().when(crate::WidgetState::Hovered, told)),
+            ..row(true, true, false, None)
+        };
+        let ground = theme.scheme.surface;
+
+        let hovered = pill_of(&item, Interaction::Hovered, &theme);
+        assert_eq!(
+            hovered,
+            Some(ground.lerp(told.fade(1.0), told.a)),
+            "the caller's colour, at the caller's strength"
+        );
+        assert_ne!(
+            hovered,
+            Some(theme.state_layer(
+                ground,
+                theme.scheme.primary,
+                &Status {
+                    interaction: Interaction::Hovered,
+                    hover_progress: 1.0,
+                    ..Default::default()
+                }
+            )),
+            "and not the framework's own"
+        );
+    }
+
+    /// And **a state the property says nothing about falls back** to the state layer.
+    /// Naming one state is not a way of silencing the rest — a property that answers
+    /// `None` means *say nothing*, as the reference's nullable properties do.
+    #[test]
+    fn an_unnamed_state_still_gets_the_framework_s_layer() {
+        let theme = Theme::dark();
+        let item = NavItem::<Msg> {
+            overlay_color: Some(WidgetStateProperty::new().when(
+                crate::WidgetState::Pressed,
+                Color::rgb8(10, 200, 90).fade(0.5),
+            )),
+            ..row(true, true, false, None)
+        };
+        let plain = NavItem::<Msg> {
+            overlay_color: None,
+            ..row(true, true, false, None)
+        };
+        assert_eq!(
+            pill_of(&item, Interaction::Hovered, &theme),
+            pill_of(&plain, Interaction::Hovered, &theme),
+            "hovered was never named, so the state layer answers"
+        );
+        assert_ne!(
+            pill_of(&item, Interaction::Pressed, &theme),
+            pill_of(&plain, Interaction::Pressed, &theme),
+            "and held, which was named, does not"
+        );
+    }
+
+    /// The pill this destination paints under its glyph, in a given interaction — or
+    /// `None` when it paints none at all, which is what a resting unselected one does.
+    fn pill_of(item: &NavItem<Msg>, interaction: Interaction, theme: &Theme) -> Option<Color> {
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            item,
+            Rect::new(0.0, 0.0, RAIL_WIDTH, ITEM_HEIGHT),
+            Status {
+                opacity: 1.0,
+                interaction,
+                hover_progress: 1.0,
+                press_progress: if interaction == Interaction::Pressed {
+                    1.0
+                } else {
+                    0.0
+                },
+                ..Default::default()
+            },
+            theme,
+            &mut scene,
+        );
+        scene.primitives().iter().find_map(|p| match p {
+            frus_core::Primitive::Rect { rect, color, .. } if rect.height < ITEM_HEIGHT => {
+                Some(*color)
+            }
+            _ => None,
+        })
+    }
+
     /// One destination, unpainted — the thing whose style the layout reads.
     fn row(
         rail: bool,
@@ -1344,6 +1492,7 @@ mod tests {
             extended,
             disabled: false,
             indicator_color: None,
+            overlay_color: None,
             use_indicator: true,
             ground: None,
             label_text_style: label_style,

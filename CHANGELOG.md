@@ -8,10 +8,24 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 446 so far, each documenting the objective, the alternatives
+> record — one per step, 447 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`WidgetState`, `WidgetStates`, `StateFilter` and `WidgetStateProperty<T>`** (J447): a
+  value chosen by the states a widget is in, the way the reference resolves nearly every
+  Material property. Entries are tried in order and the first match wins; a property that
+  matches nothing says nothing, leaving the widget or the theme to answer.
+
+- **`Status::states()`** (J447): the states a status honestly knows — hovered, focused,
+  pressed. Selection, disablement and the rest are the widget's own to add with
+  `WidgetStates::set`.
+
+- **`NavigationRail::overlay_color()` and `BottomBar::overlay_color()`** (J447): a
+  destination's own highlight, per state, over the framework's state layer.
 
 ### Added
 

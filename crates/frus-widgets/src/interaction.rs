@@ -167,6 +167,34 @@ pub struct Status {
     pub hover_cursor: Option<frus_core::Point>,
 }
 
+impl Status {
+    /// **The states this widget is in**, as a [`WidgetStateProperty`] resolves against
+    /// (`widget_state.dart:168`).
+    ///
+    /// Three of the eight, because three are all a status honestly knows: hovered,
+    /// focused and pressed. `Selected`, `Disabled`, `Error`, `Dragged` and
+    /// `ScrolledUnder` are the **widget's own** to add with
+    /// [`WidgetStates::set`] — nothing outside a checkbox knows whether it is ticked, and
+    /// a status that guessed would be wrong for every widget that never selects anything.
+    ///
+    /// It reads the **flags**, not the fades: a property is a step between values, and
+    /// where the change should be gradual the widget animates between two resolved values
+    /// rather than resolving a fraction. See the module note.
+    ///
+    /// [`WidgetStateProperty`]: crate::WidgetStateProperty
+    /// [`WidgetStates::set`]: crate::WidgetStates::set
+    pub fn states(&self) -> crate::widgetstate::WidgetStates {
+        use crate::widgetstate::{WidgetState, WidgetStates};
+        WidgetStates::EMPTY
+            .set(WidgetState::Hovered, self.interaction != Interaction::None)
+            .set(
+                WidgetState::Pressed,
+                self.interaction == Interaction::Pressed,
+            )
+            .set(WidgetState::Focused, self.focused)
+    }
+}
+
 impl Default for Status {
     fn default() -> Self {
         Self {

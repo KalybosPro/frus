@@ -135,6 +135,7 @@ mod tree;
 mod twopane;
 mod ui;
 mod widget;
+mod widgetstate;
 mod widgettheme;
 
 pub use alert::{Alert, AlertKind};
@@ -314,6 +315,7 @@ pub use ui::{
     subtree_ids, FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
 };
 pub use widget::{CellFn, FillAxes, FilterContext, ReorderAxis, Widget};
+pub use widgetstate::{StateFilter, WidgetState, WidgetStateProperty, WidgetStates};
 // **Every** one of them, and not only the ones a doc link happened to need. A theme
 // struct that is `pub` inside a private module is public and unreachable: callers can
 // still set `theme.widgets.button.background`, because the field's type is inferred, but
