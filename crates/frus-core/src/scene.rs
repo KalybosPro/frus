@@ -9,7 +9,7 @@
 
 use crate::{
     Affine, BorderRadius, Color, FontWeight, ImageHandle, LayerFilter, Path, PathVerb, Point, Rect,
-    ResolvedTextStyle, ShaderMask, Size, Stroke, TextAlign, TextDecoration, TextRun,
+    ResolvedTextStyle, ShaderMask, ShapeBorder, Size, Stroke, TextAlign, TextDecoration, TextRun,
 };
 
 /// The transform applied to a **layer** ([`Primitive::Layer`]) at compositing time:
@@ -1100,6 +1100,31 @@ impl Scene {
 
     /// Adds a rectangle with rounded corners (uniform through `f32`, or per corner
     /// through [`BorderRadius`]) and/or a border.
+    /// **Fills a shape**, and draws its edge if it has one.
+    ///
+    /// Three of the four shapes are rounded rectangles once the box is known, so they go
+    /// down the same path as [`Scene::draw_rect`] and cost nothing extra; a bevel becomes
+    /// a filled path plus a stroked one. A caller who does this by hand at each site gets
+    /// the fast path wrong somewhere, which is the whole reason this is one function.
+    pub fn draw_shape(&mut self, rect: Rect, shape: ShapeBorder, fill: Color) {
+        let side = shape.side();
+        if let Some((box_, radius)) = shape.as_rounded(rect) {
+            self.draw_rect(
+                box_,
+                fill,
+                radius,
+                if side.is_drawn() { side.width } else { 0.0 },
+                side.color,
+            );
+            return;
+        }
+        let outline = shape.outline(rect);
+        self.fill_path(&outline, fill);
+        if side.is_drawn() {
+            self.stroke_path(&outline, side.color, side.width);
+        }
+    }
+
     pub fn draw_rect(
         &mut self,
         rect: Rect,

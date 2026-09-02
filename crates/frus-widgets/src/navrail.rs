@@ -14,6 +14,8 @@ use std::cell::{OnceCell, RefCell};
 use frus_core::{Color, Insets, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
+use frus_core::ShapeBorder;
+
 use crate::widgetstate::WidgetStateProperty;
 
 use crate::disabled::disabled_content;
@@ -129,6 +131,8 @@ struct NavItem<Msg> {
     disabled: bool,
     /// This destination's own indicator colour, over the theme's.
     indicator_color: Option<Color>,
+    /// This destination's own indicator shape, over the theme's.
+    indicator_shape: Option<ShapeBorder>,
     /// This destination's own highlight, per state, over the framework's state layer.
     overlay_color: Option<WidgetStateProperty<Color>>,
     /// Whether a selected destination gets an indicator behind its glyph at all. See
@@ -293,7 +297,15 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             theme.state_layer(base, theme.scheme.primary, &status)
         };
         if lit || fill != base {
-            scene.draw_rect(pill, fill.fade(o), pill_h * 0.5, 0.0, Color::TRANSPARENT);
+            // **A pill, and it can say so** (`navigation_rail.dart:1148`). Until
+            // milestone 450 this was `pill_h * 0.5` — the arithmetic a stadium does, but
+            // written out here, so a caller who wanted a rounded box or a circle had
+            // nowhere to say it and the shape had to be inferred from a number.
+            let shape = self
+                .indicator_shape
+                .or(t.indicator_shape)
+                .unwrap_or_else(ShapeBorder::stadium);
+            scene.draw_shape(pill, shape, fill.fade(o));
         }
 
         // The glyph is drawn **on** the indicator and the label below it, so the two do
@@ -433,6 +445,9 @@ pub(crate) struct Destination {
     /// This destination's own indicator colour, over the theme's
     /// (`navigation_rail.dart:1144`).
     pub indicator_color: Option<Color>,
+    /// This destination's own indicator shape, over the theme's
+    /// (`navigation_rail.dart:1148`).
+    pub indicator_shape: Option<ShapeBorder>,
     /// This destination's own highlight per state, over the framework's state layer
     /// (`navigation_bar.dart:232`).
     pub overlay_color: Option<WidgetStateProperty<Color>>,
@@ -503,6 +518,7 @@ fn build_items<Msg: Clone + 'static>(
                 extended: how.extended,
                 disabled: item.disabled,
                 indicator_color: item.indicator_color,
+                indicator_shape: item.indicator_shape,
                 overlay_color: item.overlay_color.clone(),
                 use_indicator: how.use_indicator,
                 ground: how.ground,
@@ -780,6 +796,17 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
     #[must_use]
     pub fn indicator_color(self, color: Color) -> Self {
         self.decorate(move |last| last.indicator_color = Some(color))
+    }
+
+    /// The **last** destination's own indicator shape, over the theme's
+    /// (`navigation_rail.dart:1148`).
+    ///
+    /// A pill unless something says otherwise, which is what the reference's default
+    /// `StadiumBorder` is — and what this painted, as a radius worked out from the
+    /// height, until it could say the word.
+    #[must_use]
+    pub fn indicator_shape(self, shape: ShapeBorder) -> Self {
+        self.decorate(move |last| last.indicator_shape = Some(shape))
     }
 
     /// The **last** destination's own highlight, per state
@@ -1103,6 +1130,17 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
     #[must_use]
     pub fn indicator_color(self, color: Color) -> Self {
         self.decorate(move |last| last.indicator_color = Some(color))
+    }
+
+    /// The **last** destination's own indicator shape, over the theme's
+    /// (`navigation_rail.dart:1148`).
+    ///
+    /// A pill unless something says otherwise, which is what the reference's default
+    /// `StadiumBorder` is — and what this painted, as a radius worked out from the
+    /// height, until it could say the word.
+    #[must_use]
+    pub fn indicator_shape(self, shape: ShapeBorder) -> Self {
+        self.decorate(move |last| last.indicator_shape = Some(shape))
     }
 
     /// The **last** destination's own highlight, per state
@@ -1502,6 +1540,89 @@ mod tests {
         );
     }
 
+    /// **A selected destination's indicator is a pill, and now it can say so**
+    /// (`navigation_rail.dart:1148`).
+    ///
+    /// It painted one before — as `pill_h * 0.5`, the arithmetic a stadium does written
+    /// out at the call site. A caller who wanted a rounded box, or a circle, had nowhere
+    /// to put the word, and the shape had to be read back out of a number.
+    #[test]
+    fn an_indicator_is_a_pill_unless_it_is_told_otherwise() {
+        let theme = Theme::dark();
+        let pill = indicator(&row_selected(None), &theme).expect("a selected destination");
+        assert!(
+            (pill.1.top_left - pill.0.height * 0.5).abs() < 0.01,
+            "a stadium's radius is half its short side: {pill:?}"
+        );
+
+        // A caller's own shape, over it.
+        let boxed = indicator(&row_selected(Some(ShapeBorder::rounded(4.0))), &theme)
+            .expect("still painted");
+        assert_eq!(boxed.1, frus_core::BorderRadius::uniform(4.0));
+
+        // And a circle takes a square out of the middle rather than filling the box.
+        let round =
+            indicator(&row_selected(Some(ShapeBorder::circle())), &theme).expect("still painted");
+        assert_eq!(
+            round.0.width, round.0.height,
+            "a circle is square: {round:?}"
+        );
+        assert!(
+            round.0.width < pill.0.width,
+            "and narrower than the pill it replaced"
+        );
+    }
+
+    /// And the **theme** answers for every destination at once, under each one's own word
+    /// — the three rungs this framework resolves everything on.
+    #[test]
+    fn a_theme_shapes_every_indicator_and_one_may_still_differ() {
+        let mut theme = Theme::dark();
+        theme.widgets.nav_rail.indicator_shape = Some(ShapeBorder::rounded(2.0));
+        assert_eq!(
+            indicator(&row_selected(None), &theme).unwrap().1,
+            frus_core::BorderRadius::uniform(2.0),
+            "the theme's word"
+        );
+        assert_eq!(
+            indicator(&row_selected(Some(ShapeBorder::rounded(9.0))), &theme)
+                .unwrap()
+                .1,
+            frus_core::BorderRadius::uniform(9.0),
+            "and one destination still answers for itself"
+        );
+    }
+
+    /// A selected destination, with an indicator shape or without one.
+    fn row_selected(shape: Option<ShapeBorder>) -> NavItem<Msg> {
+        NavItem::<Msg> {
+            selected: true,
+            indicator_shape: shape,
+            ..row(true, true, false, None)
+        }
+    }
+
+    /// The box and the corners the indicator was actually painted with.
+    fn indicator(item: &NavItem<Msg>, theme: &Theme) -> Option<(Rect, frus_core::BorderRadius)> {
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            item,
+            Rect::new(0.0, 0.0, RAIL_WIDTH, ITEM_HEIGHT),
+            Status {
+                opacity: 1.0,
+                ..Default::default()
+            },
+            theme,
+            &mut scene,
+        );
+        scene.primitives().iter().find_map(|p| match p {
+            frus_core::Primitive::Rect { rect, radius, .. } if rect.height < ITEM_HEIGHT => {
+                Some((*rect, *radius))
+            }
+            _ => None,
+        })
+    }
+
     /// The pill this destination paints under its glyph, in a given interaction — or
     /// `None` when it paints none at all, which is what a resting unselected one does.
     fn pill_of(item: &NavItem<Msg>, interaction: Interaction, theme: &Theme) -> Option<Color> {
@@ -1548,6 +1669,7 @@ mod tests {
             extended,
             disabled: false,
             indicator_color: None,
+            indicator_shape: None,
             overlay_color: None,
             use_indicator: true,
             ground: None,

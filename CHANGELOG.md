@@ -8,10 +8,25 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 449 so far, each documenting the objective, the alternatives
+> record — one per step, 450 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`ShapeBorder` and `BorderSide`** (J450, `frus-core`): what shape a box is — a rounded
+  rectangle, a stadium, a circle, or a bevel — and the edge around it. `as_rounded` keeps
+  three of the four on the renderer's existing rectangle path; `outline` answers for all
+  four as a path.
+
+- **`Scene::draw_shape`** (J450): fills a shape and draws its edge, choosing between the
+  two paths so no call site has to.
+
+- **`NavigationRail::indicator_shape()`, `BottomBar::indicator_shape()` and
+  `NavRailTheme::indicator_shape`** (J450): the shape of a selected destination's
+  indicator (`navigation_rail.dart:1148`). A pill unless something says otherwise — which
+  is what it already drew, and now what it can be told.
 
 ### Added
 

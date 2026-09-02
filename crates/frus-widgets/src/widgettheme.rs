@@ -622,6 +622,9 @@ pub struct DatePickerTheme {
 /// Defaults for [`NavigationRail`](crate::NavigationRail) and [`BottomBar`](crate::BottomBar).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct NavRailTheme {
+    /// **The shape of a selected destination's indicator** (`navigation_rail.dart:1148`).
+    /// Unset, the reference's pill.
+    pub indicator_shape: Option<frus_core::ShapeBorder>,
     /// **The highlight over a destination, per state** — over the framework's own state
     /// layer, and under the destination's own word (`navigation_bar.dart:232`).
     ///
