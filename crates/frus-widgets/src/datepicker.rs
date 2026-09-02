@@ -237,21 +237,20 @@ impl<Msg> DatePicker<Msg> {
     }
 }
 
-const WEEKDAYS: [&str; 7] = ["S", "M", "T", "W", "T", "F", "S"];
-const MONTHS: [&str; 12] = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-];
+/// **How far into the week the 1st of the month falls**, counting from whichever day
+/// the week starts on where the reader is (`date.dart:356`).
+///
+/// [`first_weekday`] answers Sunday-based, and so does
+/// [`Localizations::first_day_of_week_index`](crate::Localizations::first_day_of_week_index)
+/// — so the difference between them is the number of blank cells, and it is taken
+/// **Euclidean** because the difference goes negative for every locale that does not
+/// start on Sunday.
+///
+/// This used to be `first_weekday` alone, which is the same number only in a country
+/// whose week starts on Sunday. Everywhere else the days were in the wrong columns.
+fn lead_cells(year: i32, month: u32, first_day_of_week: usize) -> usize {
+    (first_weekday(year, month) as isize - first_day_of_week as isize).rem_euclid(7) as usize
+}
 
 impl<Msg: Clone + 'static> DatePicker<Msg> {
     /// Creates a calendar for `year`/`month` (1..=12), with an optional `selected`
@@ -467,7 +466,14 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
                     .on_press(on_nav(-1)),
             )
             .child(Flex::row().flex(1.0))
-            .child(Text::new(format!("{} {}", MONTHS[(month - 1) as usize], year)).size(16.0))
+            .child(
+                Text::new(format!(
+                    "{} {}",
+                    crate::localizations::of().months()[(month - 1) as usize],
+                    year
+                ))
+                .size(16.0),
+            )
             .child(Flex::row().flex(1.0))
             .child(
                 crate::IconButton::new(crate::icons::Icons::ChevronRight)
@@ -476,16 +482,21 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
                     .on_press(on_nav(1)),
             );
 
-        // The weekday row.
+        // The weekday row, **rotated to start where the reader's week does**
+        // (`calendar_date_picker.dart:1100`). The initials themselves are always listed
+        // Sunday-first, which is what lets the index be an index into them.
+        let l10n = crate::localizations::of();
+        let first = l10n.first_day_of_week_index() % 7;
+        let initials = l10n.narrow_weekdays();
         let mut weekdays = GridView::new(7).gap(2.0);
-        for wd in WEEKDAYS {
+        for column in 0..7 {
             weekdays = weekdays.cell(WeekdayCell {
-                label: wd.to_string(),
+                label: initials[(first + column) % 7].to_string(),
             });
         }
 
         // The day grid (empty cells before the 1st).
-        let lead = first_weekday(year, month);
+        let lead = lead_cells(year, month, first);
         let total = days_in_month(year, month);
         let mut grid = GridView::new(7).gap(2.0);
         for _ in 0..lead {
@@ -627,6 +638,110 @@ mod tests {
     enum Msg {
         Pick(u32),
         Nav(i32),
+    }
+
+    /// A table whose weeks start on Monday, and whose columns say so.
+    struct Fr;
+
+    impl crate::Localizations for Fr {
+        fn first_day_of_week_index(&self) -> usize {
+            1
+        }
+
+        fn narrow_weekdays(&self) -> [&str; 7] {
+            ["D", "L", "M", "M", "J", "V", "S"]
+        }
+
+        fn months(&self) -> [&str; 12] {
+            [
+                "janvier",
+                "f\u{e9}vrier",
+                "mars",
+                "avril",
+                "mai",
+                "juin",
+                "juillet",
+                "ao\u{fb}t",
+                "septembre",
+                "octobre",
+                "novembre",
+                "d\u{e9}cembre",
+            ]
+        }
+    }
+
+    /// **A calendar starts its week where the reader's week starts**
+    /// (`calendar_date_picker.dart:1100`, `date.dart:356`).
+    ///
+    /// This is not a translation: it is which column a day sits in. The grid always began
+    /// on Sunday, so in every country whose week starts on Monday — most of Europe — every
+    /// date in the month was one column out.
+    #[test]
+    fn a_week_starts_where_the_reader_s_week_starts() {
+        // 1 July 2026 is a Wednesday. Sunday-first: three blanks (Sun, Mon, Tue).
+        assert_eq!(lead_cells(2026, 7, 0), 3);
+        // Monday-first: two (Mon, Tue).
+        assert_eq!(lead_cells(2026, 7, 1), 2);
+        // And 1 March 2026 is a Sunday: no blanks at all Sunday-first, six Monday-first.
+        assert_eq!(first_weekday(2026, 3), 0);
+        assert_eq!(lead_cells(2026, 3, 0), 0);
+        assert_eq!(
+            lead_cells(2026, 3, 1),
+            6,
+            "the difference goes negative here, which is why it is taken Euclidean"
+        );
+
+        // And the grid really has that many cells.
+        let cells = |l10n: Option<std::rc::Rc<dyn crate::Localizations>>| {
+            let build = || {
+                let dp = DatePicker::new(2026, 7, Some(11), Msg::Pick, Msg::Nav);
+                Widget::<Msg>::children(&dp)[2].children().len()
+            };
+            match l10n {
+                Some(table) => crate::localizations::scope(table, build),
+                None => build(),
+            }
+        };
+        assert_eq!(cells(None), 3 + 31, "Sunday-first");
+        assert_eq!(cells(Some(std::rc::Rc::new(Fr))), 2 + 31, "Monday-first");
+    }
+
+    /// And the **column headings rotate with it**, out of a list that is always written
+    /// Sunday-first (`date.dart:353`) — which is what lets one index serve both.
+    #[test]
+    fn the_column_headings_rotate_and_the_month_is_named() {
+        let heading = |i: usize, table: Option<std::rc::Rc<dyn crate::Localizations>>| {
+            let build = || {
+                let dp = DatePicker::new(2026, 7, None, Msg::Pick, Msg::Nav);
+                let row = &Widget::<Msg>::children(&dp)[1];
+                let mut scene = Scene::new();
+                row.children()[i].paint(
+                    Rect::new(0.0, 0.0, 32.0, 32.0),
+                    Status::default(),
+                    &Theme::dark(),
+                    &mut scene,
+                );
+                scene.primitives().iter().find_map(|p| match p {
+                    frus_core::Primitive::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+            };
+            match table {
+                Some(table) => crate::localizations::scope(table, build),
+                None => build(),
+            }
+        };
+        assert_eq!(heading(0, None).as_deref(), Some("S"), "Sunday first");
+        assert_eq!(
+            heading(0, Some(std::rc::Rc::new(Fr))).as_deref(),
+            Some("L"),
+            "Monday first, and in the reader's letters"
+        );
+        assert_eq!(
+            heading(6, Some(std::rc::Rc::new(Fr))).as_deref(),
+            Some("D"),
+            "and Sunday has moved to the end"
+        );
     }
 
     #[test]

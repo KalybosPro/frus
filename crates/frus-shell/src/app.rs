@@ -353,6 +353,22 @@ enum Drag {
 /// The surface must already be described — the reader's font setting reaches anything a
 /// deferred subtree measures, and a build outside a surface measures at scale 1 while the
 /// frame lays it out at whatever the reader asked for (milestone 408).
+/// **The ambient answers an application gives**, read afresh every frame.
+///
+/// Both of these are settings rather than facts: a settings screen may turn scrollbars on
+/// or change the reader's language while the application is running, and neither should
+/// wait for a restart. Reading them once at start-up is the bug this shape avoids.
+///
+/// It is one function so that a test can drive it. The frame loop needs a window and an
+/// event-loop proxy, so nothing in this repo can call the loop — which is exactly how a
+/// setting that never reached production got shipped once already (milestone 408).
+fn install_ambient<A: Application>(app: &A, runtime: &mut frus_widgets::Runtime) {
+    runtime.scrollbars = app.scrollbars();
+    if let Some(table) = app.localizations() {
+        frus_widgets::localizations::install(table);
+    }
+}
+
 fn build_view<A: Application>(app: &A, theme: &Theme) -> Box<dyn Widget<A::Message>> {
     debug_assert!(
         frus_widgets::MediaQuery::of().is_described(),
@@ -1743,7 +1759,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .disable_animations;
                 // And whether its scroll areas draw a bar, read every frame for the same
                 // reason: it is the application's answer, and it may change.
-                self.runtime.scrollbars = self.app.scrollbars();
+                install_ambient(&self.app, &mut self.runtime);
                 // And where the pointer stands in relation to a bar, from the previous
                 // frame's registry — the only one there is at this point in the frame.
                 //
@@ -4180,8 +4196,8 @@ fn fetch_image_bytes(
 mod tests {
     use super::{
         build_view, claim_area, claim_axis, draw_ghost_card, drop_insertion_line, fling_velocity,
-        gesture_was_a_tap, resolve_focus, spring_toward, Drag, Point, Rect, Scene, Theme,
-        VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
+        gesture_was_a_tap, install_ambient, resolve_focus, spring_toward, Drag, Point, Rect, Scene,
+        Theme, VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
     };
     use super::{collect_ids, find_widget, MediaQuery};
 
@@ -4220,6 +4236,67 @@ mod tests {
     /// inside one does.
     fn surfaced<R>(f: impl FnOnce() -> R) -> R {
         MediaQuery::new(frus_widgets::Size::new(300.0, 80.0)).scope(f)
+    }
+
+    /// **A shell installs the application's words** — which is the assertion that keeps
+    /// milestone 449 from being a table nobody ever reads.
+    ///
+    /// `localizations::of` answers English with nothing installed, so every widget test
+    /// and every golden would pass whether or not the shell ever called `install`. The
+    /// default is what makes the feature safe to add; it is also what would hide the
+    /// wiring being missing. So this drives the shell's own reading of the trait.
+    #[test]
+    fn a_shell_installs_the_application_s_words() {
+        struct Fr;
+
+        impl frus_widgets::localizations::Localizations for Fr {
+            fn back_button_label(&self) -> &str {
+                "Retour"
+            }
+
+            fn first_day_of_week_index(&self) -> usize {
+                1
+            }
+        }
+
+        struct Speaks;
+
+        impl crate::Application for Speaks {
+            type Message = ();
+
+            fn update(&mut self, _message: ()) -> crate::Command<()> {
+                crate::Command::none()
+            }
+
+            fn view(&self, _theme: &Theme) -> Box<dyn frus_widgets::Widget<()>> {
+                Box::new(frus_widgets::Flex::<()>::column())
+            }
+
+            fn localizations(&self) -> Option<std::rc::Rc<dyn frus_widgets::Localizations>> {
+                Some(std::rc::Rc::new(Fr))
+            }
+        }
+
+        let mut runtime = frus_widgets::Runtime::default();
+        install_ambient(&Speaks, &mut runtime);
+        assert_eq!(
+            frus_widgets::localizations::of().back_button_label(),
+            "Retour",
+            "the shell read the application's table and installed it"
+        );
+        assert_eq!(
+            frus_widgets::localizations::of().first_day_of_week_index(),
+            1
+        );
+
+        // And an application that says nothing leaves whatever is in force alone rather
+        // than forcing English back on top of a table installed elsewhere.
+        install_ambient(&Deferred, &mut runtime);
+        assert_eq!(
+            frus_widgets::localizations::of().back_button_label(),
+            "Retour",
+            "saying nothing is not the same as saying English"
+        );
     }
 
     /// A tree the shell hands to a traversal is **ready to be traversed**.

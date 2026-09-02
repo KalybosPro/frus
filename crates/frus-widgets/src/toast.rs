@@ -50,10 +50,12 @@ const ACTION_H: f32 = 32.0;
 fn close_margin(pad_x: f32) -> f32 {
     pad_x / 12.0
 }
-/// The default label a reader hears on it. The reference takes it from
-/// `MaterialLocalizations`, which this framework has no equivalent of yet, so it is
-/// English until a caller says otherwise — see [`SnackBar::close_icon_label`].
-const CLOSE_LABEL: &str = "Close";
+/// The default label a reader hears on it, from the table in force
+/// (`snack_bar.dart:709`) — see [`crate::localizations`]. A caller may still say its own,
+/// which is what [`SnackBar::close_icon_label`] is for.
+fn close_label() -> String {
+    crate::localizations::of().close_button_label().to_string()
+}
 
 /// The message's style: what the caller said, else what the theme says, else the
 /// reference's — a snackbar's content is `bodyMedium`.
@@ -276,9 +278,8 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
         self
     }
 
-    /// What a reader hears on the cross. `"Close"` unless said otherwise: the reference
-    /// takes this from `MaterialLocalizations` (`snack_bar.dart:709`), which this
-    /// framework has no equivalent of, so the caller is the only one who can translate it.
+    /// What a reader hears on the cross, over the word the table in force would give
+    /// (`snack_bar.dart:709`). See [`crate::localizations`].
     #[must_use]
     pub fn close_icon_label(mut self, label: impl Into<String>) -> Self {
         self.close_label = Some(label.into());
@@ -306,10 +307,7 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
         if let Some(message) = &self.close {
             self.children.push(Box::new(CloseButton {
                 color: self.close_icon_color,
-                label: self
-                    .close_label
-                    .clone()
-                    .unwrap_or_else(|| CLOSE_LABEL.to_string()),
+                label: self.close_label.clone().unwrap_or_else(close_label),
                 message: message.clone(),
             }));
         }
@@ -982,7 +980,7 @@ mod tests {
                 .and_then(|s| s.label)
                 .expect("a cross with no name is a cross nobody can use")
         };
-        assert_eq!(heard(&bar), CLOSE_LABEL);
+        assert_eq!(heard(&bar), close_label());
         assert_eq!(
             heard(
                 &SnackBar::new("x")

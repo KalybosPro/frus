@@ -75,6 +75,8 @@ mod keyed;
 mod layoutbuilder;
 mod list;
 mod listtile;
+/// The words the framework itself says: [`localizations::Localizations`] and [`localizations::of`].
+pub mod localizations;
 mod media;
 mod mediascope;
 mod menu;
@@ -229,6 +231,7 @@ pub use listtile::{
     LIST_TILE_MIN_VERTICAL_PADDING, LIST_TILE_PADDING_END, LIST_TILE_PADDING_START,
     LIST_TILE_TITLE_GAP,
 };
+pub use localizations::{English, Localizations};
 pub use media::{
     Accessibility, AccessibilityOverrides, Brightness, Edges, MediaQuery, SurfaceGuard,
 };

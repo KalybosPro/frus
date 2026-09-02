@@ -8,10 +8,28 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 448 so far, each documenting the objective, the alternatives
+> record — one per step, 449 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`localizations::Localizations`, `English`, `of`, `install` and `scope`** (J449): the
+  words the framework says on an application's behalf, in the reader's language. Every
+  method has an English body, so a table writes down only what differs.
+
+- **`Application::localizations()`** (J449): the table the shell installs every frame, so
+  an application that changes language while running is obeyed on the next one.
+
+### Fixed
+
+- **A calendar starts its week where the reader's week starts** (J449). It always started
+  on Sunday, so in every locale whose week starts on Monday — most of Europe — **every
+  date in the month sat a column out of place**.
+
+- **The month names were written out three times** (J449), in `DatePicker`,
+  `DateTimePicker` and `DateTimeRange`. They now come from one place.
 
 ### Added
 

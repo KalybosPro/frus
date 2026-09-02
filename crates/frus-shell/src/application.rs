@@ -5,6 +5,7 @@
 //! A minimal app implements `update` and `view` and nothing else. Every other method
 //! has a default: a fixed dark theme, no animation, no navigation.
 
+use frus_widgets::localizations::Localizations;
 use frus_widgets::{ScrollPhysics, Scrollbars, Theme, Widget, WindowInsets};
 
 use crate::command::Command;
@@ -135,6 +136,20 @@ pub trait Application {
     /// [`frus_widgets::SingleChildScrollView`] can still ask for its own.
     fn scrollbars(&self) -> Scrollbars {
         Scrollbars::platform_default()
+    }
+
+    /// **The words the framework says on this application's behalf**, in the reader's
+    /// language: the label on a back arrow, the word on a notification's cross, a
+    /// calendar's month names and *which day its weeks start on*.
+    ///
+    /// `None` — the default — leaves them in English, which is what they were before
+    /// any of them could be translated. Answer with a table and the shell installs it
+    /// **every frame**, so an application that changes language while it is running is
+    /// obeyed on the next one.
+    ///
+    /// See [`frus_widgets::localizations`].
+    fn localizations(&self) -> Option<std::rc::Rc<dyn Localizations>> {
+        None
     }
 
     /// Called when the surface's **logical** size changes, whether the window was

@@ -61,7 +61,7 @@ impl<Msg: Clone + 'static> NavigationBar<Msg> {
     pub fn on_back(mut self, message: Msg) -> Self {
         self.children = vec![Box::new(
             crate::IconButton::glyph("←")
-                .label("Back")
+                .label(crate::localizations::of().back_button_label())
                 .icon_size(20.0)
                 .on_press(message),
         )];

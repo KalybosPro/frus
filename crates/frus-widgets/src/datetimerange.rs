@@ -17,21 +17,6 @@ use crate::theme::Theme;
 use crate::timepicker::{Endpoint, TimeField, TimeRange};
 use crate::widget::Widget;
 
-const MONTHS: [&str; 12] = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-];
-
 /// A date-and-time range picker.
 pub struct DateTimeRange<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -60,10 +45,11 @@ impl<Msg: Clone + 'static> DateTimeRange<Msg> {
 
         let mut children: Vec<Box<dyn Widget<Msg>>> = Vec::new();
         if let (Some(s), Some(e)) = (start_date, end_date) {
+            let l10n = crate::localizations::of();
             let stamp = |d: (i32, u32, u32), t: (u32, u32)| {
                 format!(
                     "{} {}, {}  {:02}:{:02}",
-                    MONTHS[(d.1 - 1) as usize],
+                    l10n.months()[(d.1 - 1) as usize],
                     d.2,
                     d.0,
                     t.0,
