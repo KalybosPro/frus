@@ -29,7 +29,14 @@ pub const SNACK_BAR_ELEVATION: f32 = 6.0;
 /// it.
 const SUCCESS_ACCENT: Color = Color::rgb(70.0 / 255.0, 190.0 / 255.0, 120.0 / 255.0);
 
-const PAD_X: f32 = 16.0;
+/// A bar's horizontal padding, which is **not the same for both behaviours**
+/// (`snack_bar.dart:687`): a fixed bar spans the page and holds its text further in; a
+/// floating one is already held off the edges by its own margin.
+const PAD_X_FIXED: f32 = 24.0;
+const PAD_X_FLOATING: f32 = 16.0;
+/// What a **floating** bar keeps clear of the page (`snack_bar.dart:989`). A fixed one
+/// keeps nothing clear: it is fixed to the edge, which is what fixed means.
+const INSET_PADDING: Insets = Insets::new(5.0, 15.0, 10.0, 15.0);
 const PAD_Y: f32 = 12.0;
 const ACCENT: f32 = 4.0;
 /// The action button (Material's "UNDO"): padding and height.
@@ -38,8 +45,11 @@ const ACTION_GAP: f32 = 8.0;
 const ACTION_H: f32 = 32.0;
 /// The air either side of the close icon. The reference's is a **twelfth** of the bar's
 /// horizontal padding (`snack_bar.dart:698`), which is as near to nothing as a margin
-/// gets — the cross is meant to sit at the very end of the bar.
-const CLOSE_MARGIN: f32 = PAD_X / 12.0;
+/// gets — the cross is meant to sit at the very end of the bar. It follows the padding,
+/// so it is not the same number for both behaviours either.
+fn close_margin(pad_x: f32) -> f32 {
+    pad_x / 12.0
+}
 /// The default label a reader hears on it. The reference takes it from
 /// `MaterialLocalizations`, which this framework has no equivalent of yet, so it is
 /// English until a caller says otherwise — see [`SnackBar::close_icon_label`].
@@ -69,6 +79,23 @@ fn action_width(label: &str, style: &ResolvedTextStyle) -> f32 {
     (frus_text::measure_resolved(label, style).width + ACTION_PAD_X * 2.0).ceil()
 }
 
+/// **Where a snack bar sits, and therefore what it looks like** (`snack_bar_theme.dart:27`).
+///
+/// The reference treats this as one question with consequences rather than a bag of
+/// settings: a bar fixed to the bottom of the page and a bar floating above it differ in
+/// their corners, their padding and the room they keep clear, and they differ that way
+/// because of where they are.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum SnackBarBehavior {
+    /// **Fixed to the bottom of the page**: square corners, flush to the edges, its text
+    /// held further in. The reference's default (`snack_bar.dart:986`).
+    #[default]
+    Fixed,
+    /// **Floating above the page**: rounded, held clear of the edges by its own margin,
+    /// and drawn over everything rather than pushing anything up.
+    Floating,
+}
+
 /// The nature of a notification (its accent color).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum SnackBarKind {
@@ -82,6 +109,12 @@ pub enum SnackBarKind {
 pub struct SnackBar<Msg> {
     text: String,
     kind: SnackBarKind,
+    /// Where it sits; `None` follows the theme, which follows the reference's `Fixed`.
+    behavior: Option<SnackBarBehavior>,
+    /// A floating bar's own width, over the room it is given. Floating only.
+    width: Option<f32>,
+    /// A floating bar's own margin, over `insetPadding`. Floating only.
+    margin: Option<Insets>,
     content_text_style: Option<TextStyle>,
     action_text_style: Option<TextStyle>,
     background: Option<Color>,
@@ -106,6 +139,9 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
         Self {
             text: text.into(),
             kind: SnackBarKind::Info,
+            behavior: None,
+            width: None,
+            margin: None,
             content_text_style: None,
             action_text_style: None,
             background: None,
@@ -118,6 +154,37 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
             close_label: None,
             children: Vec::new(),
         }
+    }
+
+    /// **Where the bar sits** (`snack_bar.dart:405`), over the theme's answer and the
+    /// reference's `Fixed`.
+    ///
+    /// It is one question with consequences, not a setting: see [`SnackBarBehavior`].
+    #[must_use]
+    pub fn behavior(mut self, behavior: SnackBarBehavior) -> Self {
+        self.behavior = Some(behavior);
+        self
+    }
+
+    /// **A floating bar's own width** (`snack_bar.dart:329`), instead of the room it is
+    /// given less its margin.
+    ///
+    /// Floating only, as in the reference: a fixed bar spans the page by definition, and
+    /// a width would be a contradiction rather than an override. Ignored under `Fixed`.
+    #[must_use]
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = Some(width);
+        self
+    }
+
+    /// **A floating bar's own margin** (`snack_bar.dart:347`), over `insetPadding`.
+    ///
+    /// Floating only, for the same reason as [`SnackBar::width`]: what a fixed bar keeps
+    /// clear of the page is nothing, which is what fixed means. Ignored under `Fixed`.
+    #[must_use]
+    pub fn margin(mut self, margin: Insets) -> Self {
+        self.margin = Some(margin);
+        self
     }
 
     /// The bar's surface, over the theme's and the scheme's `inverse_surface`.
@@ -256,10 +323,12 @@ impl<Msg> SnackBar<Msg> {
         let action_w = self.action.as_ref().map_or(0.0, |(label, _)| {
             action_width(label, &action_style(self.action_text_style, theme)) + ACTION_GAP
         });
+        let pad_x = self.pad_x(theme);
+        let close_margin = close_margin(pad_x);
         let close_w = self
             .close
             .as_ref()
-            .map_or(0.0, |_| ICON_BUTTON_SIZE + CLOSE_MARGIN * 2.0);
+            .map_or(0.0, |_| ICON_BUTTON_SIZE + close_margin * 2.0);
         // The bar is at least as tall as the tallest thing in it. A cross is a 40-pixel
         // box where the action is 32, so a bar sized for the action alone would have cut
         // the top and bottom off it.
@@ -268,11 +337,24 @@ impl<Msg> SnackBar<Msg> {
         } else {
             ACTION_H
         };
+        // A floating bar may be given a width of its own (`snack_bar.dart:329`); a fixed
+        // one may not, and says so by ignoring it rather than by asserting, this being a
+        // builder and not a debug-mode framework.
+        let asked = match self.placing(theme) {
+            SnackBarBehavior::Floating => {
+                self.width.or(theme.and_then(|t| t.widgets.snack_bar.width))
+            }
+            SnackBarBehavior::Fixed => None,
+        };
         let mut style = Style {
             width: Dimension::Length(
-                (measured.width + PAD_X * 2.0 + ACCENT + action_w + close_w).ceil(),
+                asked
+                    .unwrap_or((measured.width + pad_x * 2.0 + ACCENT + action_w + close_w).ceil()),
             ),
             height: Dimension::Length((measured.height + PAD_Y * 2.0).max(floor).ceil()),
+            // What it keeps clear of the page belongs to the **bar**, which is where the
+            // reference keeps it (`snack_bar.dart:823`) — not to whatever is hosting it.
+            margin: self.inset(theme),
             ..Default::default()
         };
         // With controls: place them on the right, vertically centred, the cross tight
@@ -280,19 +362,47 @@ impl<Msg> SnackBar<Msg> {
         if !self.children.is_empty() {
             style.justify = Justify::End;
             style.align = Align::Center;
-            style.gap = CLOSE_MARGIN;
+            style.gap = close_margin;
             style.padding = Insets::new(
                 0.0,
                 if self.close.is_some() {
-                    CLOSE_MARGIN
+                    close_margin
                 } else {
-                    PAD_X
+                    pad_x
                 },
                 0.0,
                 0.0,
             );
         }
         style
+    }
+
+    /// Where this bar sits: its own word, then the theme's, then the reference's
+    /// `Fixed` (`snack_bar.dart:986`).
+    fn placing(&self, theme: Option<&Theme>) -> SnackBarBehavior {
+        self.behavior
+            .or(theme.and_then(|t| t.widgets.snack_bar.behavior))
+            .unwrap_or_default()
+    }
+
+    /// The horizontal padding that placing implies (`snack_bar.dart:687`).
+    fn pad_x(&self, theme: Option<&Theme>) -> f32 {
+        match self.placing(theme) {
+            SnackBarBehavior::Fixed => PAD_X_FIXED,
+            SnackBarBehavior::Floating => PAD_X_FLOATING,
+        }
+    }
+
+    /// What it keeps clear of the page: nothing when fixed; its own word, the theme's,
+    /// then `insetPadding` when floating (`snack_bar.dart:989`).
+    fn inset(&self, theme: Option<&Theme>) -> Insets {
+        match self.placing(theme) {
+            SnackBarBehavior::Fixed => Insets::ZERO,
+            SnackBarBehavior::Floating => self
+                .margin
+                .or(theme.and_then(|t| t.widgets.snack_bar.inset_padding))
+                .unwrap_or(INSET_PADDING),
+        }
     }
 
     /// The stripe's colour: the caller's word, then the theme's, then the kind's.
@@ -332,7 +442,14 @@ impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         let t = &theme.widgets.snack_bar;
-        let radius = t.radius.unwrap_or(SNACK_BAR_RADIUS);
+        // **A fixed bar has no shape.** The reference passes `shape` at all only when the
+        // bar is floating (`snack_bar.dart:798`), and a `Material` with no shape has
+        // square corners — a bar flush against three edges of the page has nothing to
+        // round, and rounding it would leave four slivers of page showing through.
+        let radius = t.radius.unwrap_or(match self.placing(Some(theme)) {
+            SnackBarBehavior::Fixed => 0.0,
+            SnackBarBehavior::Floating => SNACK_BAR_RADIUS,
+        });
         let elevation = t.elevation.unwrap_or(SNACK_BAR_ELEVATION);
         // A notification is **inverted**: it is not a card on the page, it is a bar that
         // stands out from it (`snack_bar.dart:949`). The scheme has carried the pair for
@@ -365,7 +482,10 @@ impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
             Color::TRANSPARENT,
         );
         scene.text(
-            Point::new(bounds.x + ACCENT + PAD_X, bounds.y + PAD_Y),
+            Point::new(
+                bounds.x + ACCENT + self.pad_x(Some(theme)),
+                bounds.y + PAD_Y,
+            ),
             self.text.clone(),
             &content_style(self.content_text_style, Some(theme)),
             self.text_color
@@ -655,6 +775,148 @@ mod tests {
         scene
     }
 
+    /// The corner of the first crisp rectangle covering the whole box.
+    fn corner_of(scene: &Scene) -> Option<f32> {
+        scene.primitives().iter().find_map(|p| match p {
+            Primitive::Rect {
+                rect, radius, blur, ..
+            } if *blur == 0.0 && rect.width == 160.0 => Some(radius.top_left),
+            _ => None,
+        })
+    }
+
+    /// Where the message starts, horizontally.
+    fn text_x(scene: &Scene) -> Option<f32> {
+        scene.primitives().iter().find_map(|p| match p {
+            Primitive::Text { position, .. } => Some(position.x),
+            _ => None,
+        })
+    }
+
+    /// **A bar is fixed unless it is told otherwise** (`snack_bar.dart:986`), and a fixed
+    /// bar has **no corners**: the reference passes a shape at all only when the bar is
+    /// floating (`:798`), and a bar flush against three edges of the page has nothing to
+    /// round — rounding it would leave four slivers of page showing through.
+    ///
+    /// This rounded every bar, and held its text in by a floating bar's 16 whichever it
+    /// was (`:687`).
+    #[test]
+    fn a_bar_is_fixed_by_default_and_has_no_corners() {
+        let theme = Theme::default();
+        let bar = SnackBar::<Msg>::new("Saved");
+        let scene = painted(&SnackBar::<()>::new("Saved"), &theme);
+        assert_eq!(corner_of(&scene), Some(0.0), "square, being flush");
+        assert_eq!(
+            text_x(&scene),
+            Some(ACCENT + PAD_X_FIXED),
+            "and its text held in by a fixed bar's padding"
+        );
+        assert_eq!(
+            Widget::<Msg>::style_themed(&bar, &theme).margin,
+            Insets::ZERO,
+            "a fixed bar keeps nothing clear of the page: that is what fixed means"
+        );
+    }
+
+    /// **A floating bar rounds, and keeps clear of the page** by its own margin
+    /// (`snack_bar.dart:989`, `:823`) — which belongs to the bar and not to whatever is
+    /// hosting it.
+    #[test]
+    fn a_floating_bar_rounds_and_keeps_clear_of_the_page() {
+        let theme = Theme::default();
+        let scene = painted(
+            &SnackBar::<()>::new("Saved").behavior(SnackBarBehavior::Floating),
+            &theme,
+        );
+        assert_eq!(corner_of(&scene), Some(SNACK_BAR_RADIUS));
+        assert_eq!(
+            text_x(&scene),
+            Some(ACCENT + PAD_X_FLOATING),
+            "and its text is held in less, the margin having held it in already"
+        );
+
+        let bar = SnackBar::<Msg>::new("Saved").behavior(SnackBarBehavior::Floating);
+        assert_eq!(
+            Widget::<Msg>::style_themed(&bar, &theme).margin,
+            INSET_PADDING
+        );
+        let own = Insets::uniform(4.0);
+        assert_eq!(
+            Widget::<Msg>::style_themed(
+                &SnackBar::<Msg>::new("Saved")
+                    .behavior(SnackBarBehavior::Floating)
+                    .margin(own),
+                &theme
+            )
+            .margin,
+            own,
+            "and a caller may say what it keeps clear"
+        );
+    }
+
+    /// **A width, and a margin, are a floating bar's alone** (`snack_bar.dart:678`): a
+    /// fixed bar spans the page by definition, so both would contradict the behaviour
+    /// rather than override it. The reference asserts; a builder can only ignore.
+    #[test]
+    fn a_width_is_a_floating_bar_s_alone() {
+        let theme = Theme::default();
+        let floating = SnackBar::<Msg>::new("Saved")
+            .behavior(SnackBarBehavior::Floating)
+            .width(300.0);
+        assert_eq!(width_of(&floating), 300.0);
+
+        let fixed = SnackBar::<Msg>::new("Saved")
+            .width(300.0)
+            .margin(Insets::uniform(9.0));
+        assert_ne!(
+            width_of(&fixed),
+            300.0,
+            "a fixed bar spans what it is given"
+        );
+        assert_eq!(
+            Widget::<Msg>::style_themed(&fixed, &theme).margin,
+            Insets::ZERO,
+            "and keeps nothing clear, whatever it was told"
+        );
+    }
+
+    /// And the **theme** answers for a whole application's bars, as it does for every
+    /// other widget here: the caller's word, then the theme's, then the reference's.
+    #[test]
+    fn a_theme_places_every_bar_at_once() {
+        let mut theme = Theme::default();
+        theme.widgets.snack_bar.behavior = Some(SnackBarBehavior::Floating);
+        let scene = {
+            let mut scene = Scene::new();
+            Widget::<()>::paint(
+                &SnackBar::<()>::new("Saved"),
+                Rect::new(0.0, 0.0, 160.0, 44.0),
+                Status::default(),
+                &theme,
+                &mut scene,
+            );
+            scene
+        };
+        assert_eq!(
+            corner_of(&scene),
+            Some(SNACK_BAR_RADIUS),
+            "the theme's word"
+        );
+        assert_eq!(
+            Widget::<Msg>::style_themed(&SnackBar::<Msg>::new("Saved"), &theme).margin,
+            INSET_PADDING
+        );
+        assert_eq!(
+            Widget::<Msg>::style_themed(
+                &SnackBar::<Msg>::new("Saved").behavior(SnackBarBehavior::Fixed),
+                &theme
+            )
+            .margin,
+            Insets::ZERO,
+            "and one bar may still answer for itself"
+        );
+    }
+
     /// The colour of the first crisp rectangle covering the whole box: the bar's surface,
     /// drawn before the stripe that sits on one edge of it.
     fn surface_of(scene: &Scene) -> Option<Color> {
@@ -752,7 +1014,10 @@ mod tests {
         let bare = SnackBar::new("Saved");
         let crossed = SnackBar::new("Saved").close_icon(Msg::Dismiss);
         assert!(
-            (width_of(&crossed) - width_of(&bare) - (ICON_BUTTON_SIZE + CLOSE_MARGIN * 2.0)).abs()
+            (width_of(&crossed)
+                - width_of(&bare)
+                - (ICON_BUTTON_SIZE + close_margin(PAD_X_FIXED) * 2.0))
+                .abs()
                 < 1.0,
             "{} against {}",
             width_of(&crossed),

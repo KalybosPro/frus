@@ -541,6 +541,15 @@ pub struct InkTheme {
 /// `labelLarge`, and both are read from the type scale rather than written down here.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SnackBarTheme {
+    /// **Where its bars sit**, and therefore what they look like. Unset, the reference's
+    /// `Fixed` (`snack_bar.dart:986`). See [`SnackBarBehavior`](crate::SnackBarBehavior).
+    pub behavior: Option<crate::toast::SnackBarBehavior>,
+    /// What a **floating** bar keeps clear of the page. Unset, the reference's
+    /// `insetPadding` (`snack_bar.dart:989`). Silent under `Fixed`.
+    pub inset_padding: Option<Insets>,
+    /// A **floating** bar's width, instead of the room it is given. Unset, the room it is
+    /// given. Silent under `Fixed`, where a width would contradict the behaviour.
+    pub width: Option<f32>,
     /// The message's type.
     pub content_text_style: Option<TextStyle>,
     /// The action's type.
@@ -561,7 +570,8 @@ pub struct SnackBarTheme {
     /// The stripe for a **success**, the one kind Material 3 has no role for. Unset, a
     /// green of this crate's own choosing.
     pub success_color: Option<Color>,
-    /// The corner. Unset, the reference's 4.
+    /// The corner. Unset, the reference's 4 for a **floating** bar and **nothing at all**
+    /// for a fixed one, which is flush against the edges and has nothing to round.
     pub radius: Option<f32>,
     /// How far off the page it sits. Unset, the reference's 6.
     pub elevation: Option<f32>,

@@ -304,7 +304,7 @@ pub use themebuilder::ThemeBuilder;
 pub use themed::Themed;
 pub use timeline::Timeline;
 pub use timepicker::{Endpoint, TimeField, TimePicker, TimeRange};
-pub use toast::{SnackBar, SnackBarKind, SnackBarQueue};
+pub use toast::{SnackBar, SnackBarBehavior, SnackBarKind, SnackBarQueue};
 pub use toasthost::{ScaffoldMessenger, SnackBarPosition};
 pub use transform::Transform;
 pub use tree::Tree;

@@ -4,6 +4,8 @@ Where frus is, where it's going, and — the point of this document — **what i
 
 Items are tagged:
 
+- 🟢 **A snack bar has one behaviour where the reference has two — done, milestone 446.** `SnackBarBehavior` (`snack_bar_theme.dart:27`) is a question about **position** — fixed to the bottom of the scaffold, pushing the other non-fixed things up; or floating above them, moving nothing — and everything else follows from it. A fixed bar has **no corner at all** (the reference passes a shape only when floating, `snack_bar.dart:798`), holds its text in by 24 rather than 16 (`:687`), and keeps nothing clear of the page; a floating one rounds at 4, pads by 16, and keeps `insetPadding` — 15, 5, 15, 10 (`:989`). The default is **fixed** (`:986`). This rounded every bar and padded every bar as though it were floating, which left four slivers of page showing through the corners of a bar that was flush against the edges. `width` and `margin` are floating's alone (`:678`); a fixed bar ignores both, a width being a contradiction rather than an override. And the inset moved **into the bar**, where the reference keeps it (`:823`): `ScaffoldMessenger` was imposing 16 on everything it held, which a floating bar then added its own margin to.
+- 🔴 **A snack bar still sizes itself to its text.** The reference never does: a fixed bar spans the page, and a floating one spans the room it is given less its margin (`snack_bar.dart:734`). Spanning means stretching on the host's cross axis, and the fade wrapper in between shrink-wraps — `AnimatedOpacity` forwards its inner `Container`'s style, not its child's. Underneath it is a question about what a notification layer **is** here: the reference's messenger shows one bar across the bottom of the scaffold, and `ScaffoldMessenger` is a corner that stacks several.
 - 🟢 **Good first issue** — self-contained, clear success criterion, no deep context needed
 - 🟡 **Help wanted** — meaty, well-scoped, needs some familiarity with a subsystem
 - 🔴 **Design first** — open a discussion before writing code; the shape isn't settled
@@ -15,7 +17,7 @@ If something here interests you, **comment on the matching issue** (or open one)
 
 ## Where we are
 
-445 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
+446 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
 
 What does not exist is everything around it: distribution, tooling, more platforms, and the ecosystem.
 

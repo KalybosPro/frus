@@ -17,8 +17,15 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Default margin between the toasts and the edges.
-const HOST_PAD: f32 = 16.0;
+/// Default margin between the toasts and the edges: **none**.
+///
+/// What a notification keeps clear of the page belongs to the notification, which is
+/// where the reference keeps it (`snack_bar.dart:823`, `:989`) — a fixed bar keeps
+/// nothing clear and a floating one keeps 15 and 10, and neither number is the host's to
+/// decide. This used to impose 16 on everything it held, which a floating bar then added
+/// its own margin to. [`ScaffoldMessenger::padding`] is still there for a caller who
+/// wants a layer of their own arrangement.
+const HOST_PAD: f32 = 0.0;
 /// Vertical gap between stacked toasts.
 const STACK_GAP: f32 = 8.0;
 
@@ -71,7 +78,9 @@ impl<Msg: Clone + 'static> ScaffoldMessenger<Msg> {
         }
     }
 
-    /// Margin between the toasts and the edges (16 px by default).
+    /// Margin between the toasts and the edges. **None by default**: what a notification
+    /// keeps clear of the page is the notification's own business — see
+    /// [`SnackBar::margin`](crate::SnackBar::margin).
     pub fn padding(mut self, padding: f32) -> Self {
         self.padding = padding;
         self

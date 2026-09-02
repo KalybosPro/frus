@@ -8,10 +8,30 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 445 so far, each documenting the objective, the alternatives
+> record — one per step, 446 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`SnackBarBehavior`, `SnackBar::behavior()`, `::width()` and `::margin()`** (J446):
+  where a notification sits — fixed to the bottom of the page or floating above it — and
+  the corner, the padding and the margin that follow from it. `SnackBarTheme` answers for
+  a whole application (`behavior`, `inset_padding`, `width`).
+
+### Changed
+
+- **A snack bar is `Fixed` by default, and a fixed bar has square corners** (J446), as
+  the reference has it. **Bars that relied on the old rounded look** say
+  `.behavior(SnackBarBehavior::Floating)`.
+
+- **A fixed bar holds its text in by 24 rather than 16** (J446), and a floating one keeps
+  15/5/15/10 clear of the page on its own.
+
+- **`ScaffoldMessenger` no longer imposes a 16-pixel inset** (J446): what a notification
+  keeps clear of the page belongs to the notification. `ScaffoldMessenger::padding` still
+  takes one for a caller who wants it.
 
 ### Added
 
