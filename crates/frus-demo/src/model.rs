@@ -165,8 +165,13 @@ pub(crate) struct TodoApp {
     pub(crate) seed_index: usize,
     /// A right-to-left layout (Arabic/Hebrew)?
     pub(crate) rtl: bool,
-    /// The current language (an index into `LANGS`).
-    pub(crate) lang: usize,
+    /// The language **the reader picked in this application** (an index into `LANGS`).
+    ///
+    /// `None` — the default — follows the device, which is what an application should do
+    /// until it is told otherwise. The framework resolves the platform's languages against
+    /// [`Application::supported_locales`](frus_shell::Application::supported_locales) and
+    /// installs the answer; `lang_of` reads it.
+    pub(crate) lang: Option<usize>,
     /// The state came from a live-reload snapshot: `init` does not reload the tasks from disk
     /// (the snapshot is the authority).
     pub(crate) restored: bool,

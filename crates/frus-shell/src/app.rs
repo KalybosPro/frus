@@ -30,7 +30,7 @@ use winit::window::{CursorIcon, Window, WindowId};
 use crate::application::{Application, Lifecycle};
 
 /// Everything the platform reports about its user, in one walk.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PlatformSettings {
     /// The system's *Font size* slider. `1.0` is normal; Android's own slider reaches
     /// 1.3, and the accessibility sizes go further.
@@ -39,6 +39,12 @@ pub(crate) struct PlatformSettings {
     pub brightness: Brightness,
     /// The accessibility settings, as far as they could be read.
     pub accessibility: Accessibility,
+    /// **The reader's preferred languages**, best first, as the platform reports them.
+    ///
+    /// Empty where the platform said nothing — which is a real answer and not a failure:
+    /// the resolution treats it as *no preference* and hands back the application's own
+    /// first choice, exactly as the reference does (`app.dart:153`).
+    pub locales: Vec<frus_widgets::Locale>,
 }
 
 impl Default for PlatformSettings {
@@ -48,6 +54,7 @@ impl Default for PlatformSettings {
             text_scaler: 1.0,
             brightness: Brightness::Light,
             accessibility: Accessibility::NONE,
+            locales: Vec::new(),
         }
     }
 }
@@ -362,8 +369,16 @@ enum Drag {
 /// It is one function so that a test can drive it. The frame loop needs a window and an
 /// event-loop proxy, so nothing in this repo can call the loop — which is exactly how a
 /// setting that never reached production got shipped once already (milestone 408).
-fn install_ambient<A: Application>(app: &A, runtime: &mut frus_widgets::Runtime) {
+fn install_ambient<A: Application>(
+    app: &A,
+    runtime: &mut frus_widgets::Runtime,
+    preferred: &[frus_widgets::Locale],
+) {
     runtime.scrollbars = app.scrollbars();
+    // **Which language the interface is in**, resolved from what the platform reports
+    // against what the application has. Installed before the table, because an
+    // application choosing its table by language reads it from here.
+    frus_widgets::locale::install(app.resolved_locale(preferred));
     if let Some(table) = app.localizations() {
         frus_widgets::localizations::install(table);
     }
@@ -896,6 +911,65 @@ impl<A: Application> App<A> {
             self.platform.brightness = brightness;
             self.build_dirty = true;
         }
+
+        // **The reader's languages**, read once. Changing the display language on a
+        // desktop means signing out and back in on Windows, and is a per-process
+        // environment variable on Linux — so there is nothing to watch for, and re-reading
+        // it every time the window comes back would allocate for an answer that cannot
+        // have moved. Android is the platform where it *does* change under a running
+        // application, and Android reads it on every walk.
+        if self.platform.locales.is_empty() {
+            let read = platform_locales();
+            if !read.is_empty() {
+                self.platform.locales = read;
+                self.build_dirty = true;
+            }
+        }
+    }
+}
+
+/// **The reader's preferred languages**, best first, from whatever the platform keeps
+/// them in. Empty when it says nothing, or when there is no way to ask.
+///
+/// Android does not come through here: its answer lives on the activity's
+/// `Configuration`, which [`crate::android_settings`] already walks.
+/// On **Android** there is nothing to ask here: the answer lives on the activity's
+/// `Configuration`, and the branch above returns before reaching this. A build with no
+/// activity at all has no reader to ask about.
+#[cfg(android)]
+fn platform_locales() -> Vec<frus_widgets::Locale> {
+    Vec::new()
+}
+
+#[cfg(not(android))]
+fn platform_locales() -> Vec<frus_widgets::Locale> {
+    #[cfg(not(web))]
+    {
+        sys_locale::get_locales()
+            .filter_map(|tag| frus_widgets::Locale::parse(&tag))
+            .collect()
+    }
+    #[cfg(web)]
+    {
+        // `navigator.languages` is the ordered list; `navigator.language` is its first
+        // entry and the fallback for a browser that does not offer the list.
+        let Some(navigator) = web_sys::window().map(|window| window.navigator()) else {
+            return Vec::new();
+        };
+        let listed: Vec<frus_widgets::Locale> = navigator
+            .languages()
+            .iter()
+            .filter_map(|value| value.as_string())
+            .filter_map(|tag| frus_widgets::Locale::parse(&tag))
+            .collect();
+        if listed.is_empty() {
+            return navigator
+                .language()
+                .and_then(|tag| frus_widgets::Locale::parse(&tag))
+                .into_iter()
+                .collect();
+        }
+        listed
     }
 }
 
@@ -1745,6 +1819,18 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .platform
                     .accessibility
                     .with_overrides(self.app.accessibility());
+
+                // **The ambient scopes, before anything reads them** — which the theme
+                // does: the direction of the layout follows the language, so an
+                // application whose theme is right-to-left in Arabic needs the language
+                // installed before its theme is asked for. This used to sit further down,
+                // beside the build, where it was in time for the widgets and one frame
+                // late for the theme.
+                //
+                // Read every frame, all of it: these are the application's answers and
+                // they may change while it is running.
+                install_ambient(&self.app, &mut self.runtime, &self.platform.locales);
+
                 let theme_moved = self.themes.advance(
                     &self.app,
                     self.platform.brightness,
@@ -1782,9 +1868,6 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // advanced with it, and it is read every frame: a settings screen with a
                 // *reduce motion* switch changes it while the application is running.
                 self.runtime.still = settings.disable_animations;
-                // And whether its scroll areas draw a bar, read every frame for the same
-                // reason: it is the application's answer, and it may change.
-                install_ambient(&self.app, &mut self.runtime);
                 // And where the pointer stands in relation to a bar, from the previous
                 // frame's registry — the only one there is at this point in the frame.
                 //
@@ -4225,6 +4308,7 @@ mod tests {
         Theme, VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
     };
     use super::{collect_ids, find_widget, MediaQuery};
+    use frus_widgets::Locale;
 
     /// An application whose whole interface lives **inside a deferred subtree** — which is
     /// what any application with an `AppBar` is, since a bar defers its own composition
@@ -4261,6 +4345,78 @@ mod tests {
     /// inside one does.
     fn surfaced<R>(f: impl FnOnce() -> R) -> R {
         MediaQuery::new(frus_widgets::Size::new(300.0, 80.0)).scope(f)
+    }
+
+    /// **A shell installs the reader's language** — the assertion that keeps milestone 454
+    /// from being a resolution nobody ever runs.
+    ///
+    /// `locale::of()` answers `en` with nothing installed, exactly as
+    /// `localizations::of()` answers English, and for the same reason: an application that
+    /// says nothing must keep working. That default is also what would hide the wiring
+    /// being missing, so this drives the shell's own reading of the trait rather than
+    /// calling `resolve` directly — milestone 408's bug, and milestone 449's guard against
+    /// it.
+    #[test]
+    fn a_shell_installs_the_reader_s_language() {
+        /// An application with three languages, and a switch of its own it may or may not
+        /// have been told to use.
+        struct Speaks(Option<Locale>);
+
+        impl crate::Application for Speaks {
+            type Message = ();
+
+            fn update(&mut self, _message: ()) -> crate::Command<()> {
+                crate::Command::none()
+            }
+
+            fn view(&self, _theme: &Theme) -> Box<dyn frus_widgets::Widget<()>> {
+                Box::new(frus_widgets::Flex::<()>::column())
+            }
+
+            fn supported_locales(&self) -> Vec<Locale> {
+                vec![
+                    Locale::new("en"),
+                    Locale::new("fr"),
+                    Locale::with_country("fr", "CA"),
+                ]
+            }
+
+            fn locale(&self) -> Option<Locale> {
+                self.0.clone()
+            }
+        }
+
+        let mut runtime = frus_widgets::Runtime::default();
+
+        // The device speaks Belgian French; the application has French, so it wins.
+        install_ambient(
+            &Speaks(None),
+            &mut runtime,
+            &[Locale::with_country("fr", "BE")],
+        );
+        assert_eq!(frus_widgets::locale::of(), Locale::new("fr"));
+
+        // A platform that reported nothing is not a failure: the application's own first
+        // choice stands.
+        install_ambient(&Speaks(None), &mut runtime, &[]);
+        assert_eq!(frus_widgets::locale::of(), Locale::new("en"));
+
+        // And an application with a language menu of its own outranks the device — still
+        // resolved, so asking for one it does not have gives the nearest thing it does.
+        install_ambient(
+            &Speaks(Some(Locale::with_country("fr", "FR"))),
+            &mut runtime,
+            &[Locale::new("en")],
+        );
+        assert_eq!(frus_widgets::locale::of(), Locale::new("fr"));
+
+        // An application that says nothing at all is where it was: English.
+        install_ambient(&Deferred, &mut runtime, &[Locale::new("fr")]);
+        assert_eq!(
+            frus_widgets::locale::of(),
+            Locale::new("en"),
+            "it supports only English, so French resolves to it"
+        );
     }
 
     /// **A shell installs the application's words** — which is the assertion that keeps
@@ -4303,7 +4459,7 @@ mod tests {
         }
 
         let mut runtime = frus_widgets::Runtime::default();
-        install_ambient(&Speaks, &mut runtime);
+        install_ambient(&Speaks, &mut runtime, &[]);
         assert_eq!(
             frus_widgets::localizations::of().back_button_label(),
             "Retour",
@@ -4316,7 +4472,7 @@ mod tests {
 
         // And an application that says nothing leaves whatever is in force alone rather
         // than forcing English back on top of a table installed elsewhere.
-        install_ambient(&Deferred, &mut runtime);
+        install_ambient(&Deferred, &mut runtime, &[]);
         assert_eq!(
             frus_widgets::localizations::of().back_button_label(),
             "Retour",

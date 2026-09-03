@@ -13,7 +13,9 @@ pub(crate) use std::path::{Path, PathBuf};
 pub(crate) use std::time::Duration;
 
 pub(crate) use frus_l10n::args;
-pub(crate) use frus_shell::{Application, Brightness, Command, Lifecycle, Subscription, ThemeMode};
+pub(crate) use frus_shell::{
+    Application, Brightness, Command, Lifecycle, Locale, Subscription, ThemeMode,
+};
 
 // `column!` and `row!` are macros: they are exported at frus-widgets' root and have
 // to be imported by name in each module, not carried in through a glob.

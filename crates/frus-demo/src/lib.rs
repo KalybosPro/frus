@@ -220,6 +220,18 @@ impl Application for TodoApp {
         Box::new(build_view(self, theme))
     }
 
+    /// **The languages this demonstration has**, best first — the three it embeds as
+    /// Fluent resources. The framework resolves the device's list against these.
+    fn supported_locales(&self) -> Vec<Locale> {
+        LANGS.iter().map(|(_, tag)| Locale::new(*tag)).collect()
+    }
+
+    /// And the one the reader picked in the application, over the device's. `None` — the
+    /// default — follows the device, which is where the language menu starts.
+    fn locale(&self) -> Option<Locale> {
+        self.lang.map(|index| Locale::new(LANGS[index].1))
+    }
+
     fn theme(&self) -> Theme {
         theme_of(self, false)
     }

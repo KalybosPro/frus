@@ -8,10 +8,32 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 453 so far, each documenting the objective, the alternatives
+> record — one per step, 454 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`Locale`, `locale::resolve` and `locale::of`** (J454, `frus-widgets`): which language the
+  interface is in. `resolve` is the reference's negotiation between the reader's preferred
+  languages and the application's; `of` is the ambient answer any widget can read.
+
+- **`supported_locales`, `locale` and `resolved_locale` on `Application`** (J454). The
+  order of `supported_locales` decides ties and its first entry is the fallback; `locale` is
+  what an application's own language setting writes to, and is still resolved rather than
+  obeyed.
+
+- **The shell reads the reader's languages** (J454): `sys-locale` on Windows, macOS, Linux
+  and iOS, `Configuration.getLocales()` on Android, `navigator.languages` on the Web. It
+  installs the resolved one every frame, so a language changed while the application is
+  running is obeyed on the next.
+
+### Fixed
+
+- **The ambient scopes are installed before the theme is resolved** (J454), not beside the
+  build. The layout's direction follows the language, so a right-to-left theme was being
+  asked for one frame before the language that decides it arrived.
 
 ### Added
 

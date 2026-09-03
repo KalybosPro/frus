@@ -167,7 +167,7 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     let section_title = match app.section {
         1 => "Stats".to_string(),
         2 => "About".to_string(),
-        _ => tr(app.lang, "app-title"),
+        _ => tr(lang_of(app), "app-title"),
     };
     let header = AppBar::new(section_title)
         .leading(
@@ -182,7 +182,7 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
         .action(seed_label(app), Msg::CycleSeed)
         .action(if app.rtl { "LTR" } else { "RTL" }, Msg::ToggleRtl)
         // The language toggle: the label shows the language being switched TO.
-        .action(LANGS[(app.lang + 1) % LANGS.len()].0, Msg::CycleLang)
+        .action(lang_label(app), Msg::CycleLang)
         .action("A+", Msg::SetDensity(app.density + 0.1))
         .action("A−", Msg::SetDensity(app.density - 0.1))
         .action("Log →", Msg::Push(Route::Journal))
@@ -213,9 +213,9 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     let segmented = SegmentedButton::new(filter_index(app.filter), |i| {
         Msg::SetFilter(filter_from_index(i))
     })
-    .segment(tr(app.lang, "filter-all"))
-    .segment(tr(app.lang, "filter-active"))
-    .segment(tr(app.lang, "filter-done"));
+    .segment(tr(lang_of(app), "filter-all"))
+    .segment(tr(lang_of(app), "filter-active"))
+    .segment(tr(lang_of(app), "filter-done"));
     let mut filters = row![segmented].align(Align::Center).gap(8.0);
     // The active filter (other than "All") is shown as a removable chip.
     if app.filter != Filter::All {
@@ -289,7 +289,7 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     // localized through Fluent) when there is room, short text when it is narrow — at a fixed
     // height.
     let muted = theme.muted;
-    let lang = app.lang;
+    let lang = lang_of(app);
     let total = active + done;
     let summary = LayoutBuilder::new(move |size: Size| {
         let label = if size.width >= 360.0 {

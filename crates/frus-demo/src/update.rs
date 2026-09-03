@@ -132,7 +132,7 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::CycleLang => {
-            app.lang = (app.lang + 1) % LANGS.len();
+            app.lang = next_lang(app);
             Command::none()
         }
         Msg::SetNotifs(v) => {

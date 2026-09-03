@@ -64,7 +64,7 @@ pub(crate) fn theme_of(app: &TodoApp, dark: bool) -> Theme {
     };
     // The ambient direction: RTL if the user asked for it OR if the current language is
     // written right to left (Arabic). The whole layout mirrors.
-    if app.rtl || lang_is_rtl(app.lang) {
+    if app.rtl || lang_is_rtl(lang_of(app)) {
         theme.rtl()
     } else {
         theme

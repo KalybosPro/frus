@@ -75,6 +75,9 @@ mod keyed;
 mod layoutbuilder;
 mod list;
 mod listtile;
+/// Which language the interface is in: [`locale::Locale`], [`locale::resolve`] and
+/// [`locale::of`].
+pub mod locale;
 /// The words the framework itself says: [`localizations::Localizations`] and [`localizations::of`].
 pub mod localizations;
 mod media;
@@ -231,6 +234,7 @@ pub use listtile::{
     LIST_TILE_MIN_VERTICAL_PADDING, LIST_TILE_PADDING_END, LIST_TILE_PADDING_START,
     LIST_TILE_TITLE_GAP,
 };
+pub use locale::Locale;
 pub use localizations::{English, Localizations};
 pub use media::{
     Accessibility, AccessibilityOverrides, Brightness, Edges, MediaQuery, SurfaceGuard,

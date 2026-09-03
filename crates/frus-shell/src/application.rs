@@ -7,7 +7,7 @@
 
 use frus_widgets::localizations::Localizations;
 use frus_widgets::{
-    Brightness, Curve, ScrollPhysics, Scrollbars, Theme, ThemeMode, Widget, WindowInsets,
+    Brightness, Curve, Locale, ScrollPhysics, Scrollbars, Theme, ThemeMode, Widget, WindowInsets,
 };
 
 use crate::command::Command;
@@ -253,6 +253,50 @@ pub trait Application {
     /// [`frus_widgets::SingleChildScrollView`] can still ask for its own.
     fn scrollbars(&self) -> Scrollbars {
         Scrollbars::platform_default()
+    }
+
+    /// **The languages this application has** (`app.dart`'s `supportedLocales`), best
+    /// first — the answer to *what can I actually show this reader?*
+    ///
+    /// The default is `["en"]`, which is what every string in the framework was written in
+    /// before any of them could be translated. **The order matters**: it decides ties, so
+    /// an application listing `en-US` before `en-GB` has said which English a reader who
+    /// asked only for `en` should get, and the first entry is what a reader whose
+    /// languages are all unavailable ends up with.
+    ///
+    /// An application that translates nothing can leave this alone and lose nothing: the
+    /// resolution then always answers `en`, which is where it was.
+    fn supported_locales(&self) -> Vec<Locale> {
+        vec![Locale::default()]
+    }
+
+    /// **A language pinned by the application**, over the reader's own (`app.dart`'s
+    /// `locale`); `None` — the default — follows the device.
+    ///
+    /// This is what an application's *Language* setting writes to. It is still resolved
+    /// against [`supported_locales`](Application::supported_locales), so pinning one the
+    /// application does not have gives the nearest thing it does have rather than nothing.
+    fn locale(&self) -> Option<Locale> {
+        None
+    }
+
+    /// **Which language the interface ends up in**, given what the reader prefers.
+    ///
+    /// `preferred` is the platform's list, best first. An application that pinned a
+    /// [`locale`](Application::locale) replaces that list with the one it named — the
+    /// reference does the same, resolving the pin rather than obeying it blindly — and
+    /// everything then goes through [`locale::resolve`](frus_widgets::locale::resolve),
+    /// which is the reference's `basicLocaleListResolution` (`app.dart:146`).
+    ///
+    /// **The framework calls this every frame** and installs the answer, so a language
+    /// setting changed while the application is running is obeyed on the next one.
+    /// Override it to negotiate differently — the reference's `localeListResolutionCallback`.
+    fn resolved_locale(&self, preferred: &[Locale]) -> Locale {
+        let supported = self.supported_locales();
+        match self.locale() {
+            Some(pinned) => frus_widgets::locale::resolve(&[pinned], &supported),
+            None => frus_widgets::locale::resolve(preferred, &supported),
+        }
     }
 
     /// **The words the framework says on this application's behalf**, in the reader's

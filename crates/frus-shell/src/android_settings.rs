@@ -31,10 +31,10 @@
 //! that holds no borrow of the environment, and an outer one that clears the exception
 //! before handing back `None`.
 
-use frus_widgets::{Accessibility, Brightness};
+use frus_widgets::{Accessibility, Brightness, Locale};
 
 use crate::app::PlatformSettings;
-use jni::objects::{JObject, JValue};
+use jni::objects::{JObject, JString, JValue};
 use jni::{JNIEnv, JavaVM};
 use winit::platform::android::activity::AndroidApp;
 
@@ -171,7 +171,69 @@ fn try_read(app: &AndroidApp) -> Result<PlatformSettings, jni::errors::Error> {
         text_scaler,
         brightness,
         accessibility,
+        locales: locales(&mut env, &config),
     })
+}
+
+/// **The reader's preferred languages**, best first, off the configuration already walked.
+///
+/// `Configuration.getLocales()` arrived in **API 24** and is the whole list — a person
+/// who reads Breton and falls back to French has said so, and the single locale below it
+/// cannot express that. Under 24 there is the `locale` field, which is one answer and
+/// still a true one.
+///
+/// Best-effort throughout, like everything else in this module: a list that cannot be read
+/// comes back empty, and an empty list is a real answer — the resolution reads it as *no
+/// preference* and gives the application its own first choice.
+fn locales(env: &mut JNIEnv, config: &JObject) -> Vec<Locale> {
+    let read = if sdk_int(env) >= 24 {
+        try_locale_list(env, config)
+    } else {
+        try_single_locale(env, config)
+    };
+    match read {
+        Ok(locales) => locales,
+        Err(_) => {
+            clear_pending(env);
+            Vec::new()
+        }
+    }
+}
+
+/// `configuration.getLocales()` — a `LocaleList`, in the order the reader put them.
+fn try_locale_list(env: &mut JNIEnv, config: &JObject) -> Result<Vec<Locale>, jni::errors::Error> {
+    let list = env
+        .call_method(config, "getLocales", "()Landroid/os/LocaleList;", &[])?
+        .l()?;
+    let size = env.call_method(&list, "size", "()I", &[])?.i()?;
+    let mut out = Vec::with_capacity(size.max(0) as usize);
+    for index in 0..size {
+        let locale = env
+            .call_method(&list, "get", "(I)Ljava/util/Locale;", &[JValue::Int(index)])?
+            .l()?;
+        if let Some(parsed) = language_tag(env, &locale)? {
+            out.push(parsed);
+        }
+    }
+    Ok(out)
+}
+
+/// `configuration.locale` — the one before the list, kept for API 23 and below.
+fn try_single_locale(
+    env: &mut JNIEnv,
+    config: &JObject,
+) -> Result<Vec<Locale>, jni::errors::Error> {
+    let locale = env.get_field(config, "locale", "Ljava/util/Locale;")?.l()?;
+    Ok(language_tag(env, &locale)?.into_iter().collect())
+}
+
+/// `locale.toLanguageTag()` — `fr-CA`, `zh-Hant-TW` — read as one of ours.
+fn language_tag(env: &mut JNIEnv, locale: &JObject) -> Result<Option<Locale>, jni::errors::Error> {
+    let tag = env
+        .call_method(locale, "toLanguageTag", "()Ljava/lang/String;", &[])?
+        .l()?;
+    let tag: String = env.get_string(&JString::from(tag))?.into();
+    Ok(Locale::parse(&tag))
 }
 
 /// `activity.getContentResolver()`.
