@@ -32,6 +32,13 @@ any release may break.
   whole light/dark decision comes down to, on the type an application's own settings
   screen already holds.
 
+### Changed
+
+- **`Application::theme` defaults to the light theme** (J452), not the dark one, as in the
+  reference. An application that never overrode it and expected dark now says
+  `fn theme(&self) -> Theme { Theme::dark() }` — or better, names both and lets
+  `theme_mode` choose.
+
 ### Added
 
 - **`shape()` on `Card`, `Chip`, `Dialog` and `Button`, and `shape` on their themes**

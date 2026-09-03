@@ -74,8 +74,13 @@ pub trait Application {
     /// [`theme_mode`](Application::theme_mode) choose; the framework resolves the pair
     /// every frame and **fades** between them, so nothing here has to be an animated
     /// blend and no application needs to hold a fade's progress in its own state.
+    ///
+    /// **The default is the light theme**, which is the reference's (`app.dart:415`). It
+    /// was dark here until milestone 452 named this slot the light one: a `theme()` that
+    /// answers dark and a `dark_theme()` beside it is a contradiction an application
+    /// would have had to work around.
     fn theme(&self) -> Theme {
-        Theme::dark()
+        Theme::light()
     }
 
     /// **The theme to use when a dark interface is asked for** (`app.dart:447`).
