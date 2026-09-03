@@ -464,6 +464,18 @@ pub struct DividerTheme {
 /// panel does not know which side of the screen it landed on until it paints.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DrawerTheme {
+    /// **What shape a leading panel is** — the reference's `DrawerThemeData.shape`
+    /// (`drawer.dart:268`). Unset, the framework rounds the panel's *inner* edge by
+    /// [`DRAWER_RADIUS`](crate::DRAWER_RADIUS).
+    pub shape: Option<ShapeBorder>,
+    /// **And a trailing one** — the reference's `endShape` (`drawer.dart:269`), which is a
+    /// separate field rather than a mirror of the first because a panel's rounded edge is
+    /// the one facing the page, and that is the opposite side.
+    ///
+    /// A trailing panel does **not** fall back to [`shape`](Self::shape): a theme that
+    /// named only the leading panel's shape has said nothing about the other one, and the
+    /// framework's own default is a better answer than a shape rounded on the wrong edge.
+    pub end_shape: Option<ShapeBorder>,
     /// The panel's width.
     pub width: Option<f32>,
     /// The panel's fill.

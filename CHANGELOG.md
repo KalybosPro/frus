@@ -8,10 +8,21 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 455 so far, each documenting the objective, the alternatives
+> record — one per step, 456 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`BorderRadiusDirectional`** (J456, `frus-core`): a corner radius named by the reading
+  direction — `top_start`, `top_end`, `bottom_end`, `bottom_start` — with
+  `resolve(direction)` giving the concrete `BorderRadius`. `uniform`, `start`, `end`,
+  `horizontal` and `vertical` construct one.
+
+- **`Drawer::shape()`, `DrawerTheme::shape` and `DrawerTheme::end_shape`** (J456): a panel
+  takes a whole shape where it took a single `f32`, and the two panels have separate theme
+  entries as in the reference — a trailing panel does not inherit a leading panel's shape.
 
 ### Added
 
