@@ -8,10 +8,29 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 451 so far, each documenting the objective, the alternatives
+> record — one per step, 452 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`dark_theme`, `theme_mode` and the high-contrast pair on `Application`** (J452): an
+  application names its themes and the framework picks between them, following the
+  platform's brightness by default. `ThemeMode::System` is the default, so an application
+  with one theme behaves exactly as before.
+
+- **The framework crosses between themes** (J452): `theme_animation_duration` (200 ms) and
+  `theme_animation_curve` on `Application`. Applications holding an outgoing theme and a
+  progress value in their own state can delete both — this repo's demonstration did.
+
+- **`Application::resolved_theme(brightness, high_contrast)`** (J452): which of the four
+  themes is on display. The framework calls it every frame; an off-screen renderer or a
+  test calls it because there is no context here to ask instead.
+
+- **`ThemeMode`** (J452, `frus-widgets`), with `wants_dark(brightness)` — the one line the
+  whole light/dark decision comes down to, on the type an application's own settings
+  screen already holds.
 
 ### Added
 

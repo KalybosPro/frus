@@ -7,6 +7,60 @@
 use frus_core::{Color, FontWeight, TextDirection, TextStyle};
 
 use crate::interaction::Status;
+use crate::media::Brightness;
+
+/// **Which of an application's themes is on display** (`app.dart:57`).
+///
+/// An application supplies a light theme and, if it has one, a dark theme; this says
+/// which of the two the framework picks. It is a *question about the application*, not
+/// about the device: [`Brightness`](crate::Brightness) is what the platform reports, and
+/// [`System`](Self::System) is the mode that agrees to follow it.
+///
+/// The framework resolves this once a frame and fades between the answers, so an
+/// application never has to read the platform's brightness or write a crossfade of its
+/// own.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ThemeMode {
+    /// Follow the platform: the dark theme where the system asks for a dark interface,
+    /// the light one otherwise. **The default**, and the answer most applications want.
+    #[default]
+    System,
+    /// The light theme, whatever the platform says.
+    Light,
+    /// The dark theme, whatever the platform says — falling back to the light one when
+    /// the application has no dark theme to give.
+    Dark,
+}
+
+impl ThemeMode {
+    /// Does this mode follow the platform?
+    pub const fn is_system(self) -> bool {
+        matches!(self, ThemeMode::System)
+    }
+
+    /// Does this mode pin the light theme?
+    pub const fn is_light(self) -> bool {
+        matches!(self, ThemeMode::Light)
+    }
+
+    /// Does this mode pin the dark theme?
+    pub const fn is_dark(self) -> bool {
+        matches!(self, ThemeMode::Dark)
+    }
+
+    /// **Does this mode want a dark interface** on a platform reporting `brightness`?
+    ///
+    /// The one line the whole light/dark decision comes down to (`app.dart:1000`), and
+    /// the reason it lives here rather than in the shell: an application that shows a
+    /// *theme* setting with a *System* entry needs the same answer to tick the right row.
+    pub const fn wants_dark(self, brightness: Brightness) -> bool {
+        match self {
+            ThemeMode::Dark => true,
+            ThemeMode::Light => false,
+            ThemeMode::System => matches!(brightness, Brightness::Dark),
+        }
+    }
+}
 
 /// The **named** typographic scale (Material 3's 15 steps). Widgets pick a step
 /// (`theme.text.title_medium`), never a hardcoded size — changing the scale

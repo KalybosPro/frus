@@ -406,6 +406,11 @@ pub struct App<A: Application> {
     last_size: Option<(f32, f32)>,
     /// State retained between frames: hover and focus, scroll, caret and selection.
     runtime: Runtime,
+    /// **The theme on display and the fade toward the one now asked for** — the
+    /// framework's, not the application's, since milestone 452. It resolves the
+    /// application's themes against the platform's brightness and the reader's contrast
+    /// setting once a frame, and crosses between two of them over time.
+    themes: crate::theming::ThemeFade,
     /// Live-reload watching (development, `FRUS_WATCH=1`): relaunch on recompilation.
     reload: Option<crate::reload::ReloadWatcher>,
     /// Overflowing boxes already named on the console, so that a layout that does not
@@ -546,6 +551,7 @@ impl<A: Application> App<A> {
             scale: 1.0,
             last_size: None,
             runtime: Runtime::default(),
+            themes: crate::theming::ThemeFade::default(),
             reload: crate::reload::ReloadWatcher::new(),
             reported_overflows: std::cell::RefCell::new(std::collections::HashSet::new()),
             inspector: false,
@@ -1724,9 +1730,32 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.elapsed += dt;
                 self.runtime.time = self.elapsed;
 
-                // The application advances its own animations: theme, navigation, gesture.
-                let app_animating = self.app.tick(dt);
-                let theme = self.app.theme();
+                // The application advances its own animations: navigation, gesture.
+                let mut app_animating = self.app.tick(dt);
+
+                // And the framework advances the **theme**, which is its own work: it
+                // resolves the application's themes against the brightness the platform
+                // reports and the contrast the reader asked for, and crosses from the one
+                // on screen to the one now wanted over `theme_animation_duration`.
+                //
+                // Both halves of that were the application's before milestone 452, and
+                // both were being done by hand in this repo's own demonstration — which
+                // is a fair sign of what every application was having to write.
+                let settings = self
+                    .platform
+                    .accessibility
+                    .with_overrides(self.app.accessibility());
+                let theme_moved = self.themes.advance(
+                    &self.app,
+                    self.platform.brightness,
+                    settings.high_contrast,
+                    settings.disable_animations,
+                    dt,
+                );
+                // A theme that moved is a rebuild — the view is a pure function of
+                // `(state, theme, size)` — and a fade still running is another frame.
+                app_animating |= theme_moved | self.themes.animating();
+                let theme = self.themes.displayed(&self.app);
 
                 // **The surface, in force for the whole frame** — not just for `view`.
                 // A size becomes a number in three places: while the widgets are built,
@@ -1752,11 +1781,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // The user's motion setting reaches the runtime before anything is
                 // advanced with it, and it is read every frame: a settings screen with a
                 // *reduce motion* switch changes it while the application is running.
-                self.runtime.still = self
-                    .platform
-                    .accessibility
-                    .with_overrides(self.app.accessibility())
-                    .disable_animations;
+                self.runtime.still = settings.disable_animations;
                 // And whether its scroll areas draw a bar, read every frame for the same
                 // reason: it is the application's answer, and it may change.
                 install_ambient(&self.app, &mut self.runtime);
@@ -2115,7 +2140,7 @@ impl<A: Application> App<A> {
 
     /// The current layout direction; RTL flips both the layout and the gestures.
     fn is_rtl(&self) -> bool {
-        self.app.theme().direction.is_rtl()
+        self.themes.displayed(&self.app).direction.is_rtl()
     }
 
     /// The window's **logical** width, in px, for the edge thresholds.
@@ -3896,7 +3921,7 @@ impl<A: Application> App<A> {
             // keystroke. So we refresh the tree right away; `build_dirty` stays raised
             // and the next frame redoes the full pass: mounts, leaving fades and all.
             if let Some((width, height)) = self.last_size {
-                let theme = self.app.theme();
+                let theme = self.themes.displayed(&self.app);
                 // A surface of its own, because this build happens between frames rather
                 // than inside one — and the same `build_view` as the frame path, because
                 // the next key in the burst reads this tree straight away.

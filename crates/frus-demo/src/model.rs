@@ -72,12 +72,10 @@ pub(crate) struct TodoApp {
     pub(crate) next_id: u64,
     /// Is the "clear completed" confirmation modal open?
     pub(crate) confirm_clear: bool,
-    /// A light theme (otherwise dark).
+    /// A light theme (otherwise dark) — read by `theme_mode`, and nothing else. The
+    /// **fade** between the two used to live here as well, as an outgoing theme and a
+    /// progress value; milestone 452 moved it into the framework, where it belongs.
     pub(crate) light: bool,
-    /// The outgoing theme during a switch fade (`None` = no transition).
-    pub(crate) theme_from: Option<Theme>,
-    /// Progress of the theme fade (`0 → 1`).
-    pub(crate) theme_progress: f32,
     /// Does the log list bounce at its ends rather than stop dead? `false` leaves
     /// it on the platform's own behaviour.
     pub(crate) journal_bounces: bool,

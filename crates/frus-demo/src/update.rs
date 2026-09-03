@@ -105,17 +105,15 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::ToggleTheme => {
-            // Captures the current theme (before the switch) as the fade's starting point.
-            app.theme_from = Some(theme_of(app));
+            // Nothing to capture and nothing to start: the framework notices that the
+            // theme this application resolves to has changed, and crosses to it.
             app.light = !app.light;
-            app.theme_progress = 0.0;
             Command::none()
         }
         Msg::CycleSeed => {
-            // The same fade as the light/dark switch, towards the generated scheme.
-            app.theme_from = Some(theme_of(app));
+            // The same, and it is the same crossing: what is watched is the resolved
+            // theme, not the light/dark switch that usually moves it.
             app.seed_index = (app.seed_index + 1) % (THEME_SEEDS.len() + 1);
-            app.theme_progress = 0.0;
             Command::none()
         }
         Msg::ToggleScrollPhysics => {

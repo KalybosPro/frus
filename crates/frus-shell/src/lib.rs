@@ -29,6 +29,7 @@ mod remote;
 #[cfg(not(web))]
 pub(crate) mod runtime;
 mod subscription;
+mod theming;
 
 pub use app::App;
 pub use application::{Application, Lifecycle};
@@ -43,7 +44,7 @@ pub use net::{fetch, fetch_bytes, FetchError, Method, Request, MAX_RESPONSE_BYTE
 
 /// Re-export: size classes and orientation, so the application can drive its own
 /// responsive behaviour.
-pub use frus_widgets::{Orientation, ScrollPhysics, SizeClass};
+pub use frus_widgets::{Brightness, Orientation, ScrollPhysics, SizeClass, ThemeMode};
 
 /// Re-export of the Android entry type (supplied by `winit` / `android-activity`),
 /// so an application can type its `android_main` without depending on winit.

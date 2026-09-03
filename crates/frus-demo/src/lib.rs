@@ -221,10 +221,21 @@ impl Application for TodoApp {
     }
 
     fn theme(&self) -> Theme {
-        let target = theme_of(self);
-        match &self.theme_from {
-            Some(from) => from.lerp(&target, self.theme_progress),
-            None => target,
+        theme_of(self, false)
+    }
+
+    fn dark_theme(&self) -> Option<Theme> {
+        Some(theme_of(self, true))
+    }
+
+    /// The demonstration has a light/dark switch of its own, so it **pins** the mode
+    /// rather than following the platform. An application with no such switch says
+    /// nothing here and gets [`ThemeMode::System`], which is the default.
+    fn theme_mode(&self) -> ThemeMode {
+        if self.light {
+            ThemeMode::Light
+        } else {
+            ThemeMode::Dark
         }
     }
 
@@ -239,17 +250,6 @@ impl Application for TodoApp {
                 self.journal_reloads += 1;
             }
             animating = true;
-        }
-
-        // The theme fade.
-        if self.theme_from.is_some() {
-            self.theme_progress += dt / 0.25;
-            if self.theme_progress >= 1.0 {
-                self.theme_progress = 1.0;
-                self.theme_from = None;
-            } else {
-                animating = true;
-            }
         }
 
         // The screen transition: the controller samples the shared spring.
