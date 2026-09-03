@@ -72,6 +72,8 @@ pub struct WidgetThemes {
     /// Defaults for [`ListTile`](crate::ListTile).
     pub list_tile: ListTileTheme,
     pub dropdown: DropdownTheme,
+    /// Defaults for [`ExpansionTile`](crate::ExpansionTile).
+    pub expansion_tile: ExpansionTileTheme,
     pub form: FormTheme,
     pub icon: IconTheme,
     pub icon_button: IconButtonTheme,
@@ -544,6 +546,42 @@ pub struct TooltipTheme {
     pub radius: Option<f32>,
     /// How wide the bubble may get before the label wraps.
     pub max_width: Option<f32>,
+}
+
+/// Defaults for [`ExpansionTile`](crate::ExpansionTile) — the reference's
+/// `ExpansionTileThemeData`.
+///
+/// The tile already had every one of these as a **builder**; what it had nowhere was a
+/// place to say them **once**. A settings screen is a column of these, and an
+/// application that wants its open sections tinted said so on each of them.
+///
+/// Every colour comes in a pair, because an expansion tile is two things: the row that
+/// is always there, and the row while what it hides is showing.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ExpansionTileTheme {
+    /// The row's surface while the tile is **open**.
+    pub background: Option<Color>,
+    /// And while it is shut.
+    pub collapsed_background: Option<Color>,
+    /// The title's colour while it is open.
+    pub text_color: Option<Color>,
+    /// And while it is shut.
+    pub collapsed_text_color: Option<Color>,
+    /// The chevron's colour while it is open.
+    pub icon_color: Option<Color>,
+    /// And while it is shut.
+    pub collapsed_icon_color: Option<Color>,
+    /// The room kept inside the row, round its content.
+    pub tile_padding: Option<Insets>,
+    /// The room kept round what the tile hides, while it is showing.
+    pub children_padding: Option<Insets>,
+    /// What shape the row is while the tile is open.
+    pub shape: Option<ShapeBorder>,
+    /// And while it is shut. Deliberately **not** falling back to
+    /// [`shape`](Self::shape): the reference keeps the two apart
+    /// (`expansion_tile_theme.dart:55`), and a tile that is square when shut and rounded
+    /// when open is a design, not a mistake.
+    pub collapsed_shape: Option<ShapeBorder>,
 }
 
 /// Defaults for [`Divider`](crate::Divider).

@@ -8,10 +8,26 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 462 so far, each documenting the objective, the alternatives
+> record — one per step, 463 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`ExpansionTileTheme`** (J463): ten entries — the two surfaces, the two text colours,
+  the two icon colours, the two paddings and the two shapes. The tile had every one of
+  them as a builder and nowhere to say them once.
+
+- **`ExpansionTile::shape`, `collapsed_shape` and `radius`** (J463). It had no shape at
+  all; the row is a `ListTile`, which has taken one since J457, on its surface **and** its
+  ink. The open and shut shapes stay apart, as the reference keeps them.
+
+### Changed
+
+- **`ExpansionTile::children_padding` is an `Option` inside** (J463), so `Insets::ZERO` is
+  an answer rather than a silence and a theme can be heard under it. The builder's
+  signature is unchanged.
 
 ### Added
 
