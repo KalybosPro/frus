@@ -22,11 +22,12 @@ use frus_widgets::{
     text, Alert, Align, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar, BottomSheet,
     Breadcrumb, Card, CarouselView, Checkbox, CircularProgressIndicator, ClipOval, ClipPath,
     ClipRRect, ColorPicker, ConstrainedBox, Container, CustomPaint, Divider, Expanded,
-    ExpansionTile, FittedBox, Flex, FontWeight, FractionallySizedBox, GridView, Icon, Icons, Image,
-    Intrinsic, Kbd, LinearProgressIndicator, ListView, MenuAnchor, NavigationBar, NavigationRail,
-    Offstage, Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup, RichText, RotatedBox,
-    SafeArea, SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Stack, Stepper, Switch,
-    TabBar, Theme, Timeline, Transform, TwoPane, Visibility, Widget,
+    ExpansionTile, FittedBox, Flex, FloatingActionButton, FontWeight, FractionallySizedBox,
+    GridView, Icon, Icons, Image, Intrinsic, Kbd, LinearProgressIndicator, ListView, MenuAnchor,
+    NavigationBar, NavigationRail, Offstage, Opacity, OverflowBox, OverlayPortal, Placement,
+    RadioGroup, RichText, RotatedBox, SafeArea, SegmentedButton, SingleChildScrollView, SizedBox,
+    Skeleton, Stack, Stepper, Switch, TabBar, Theme, Timeline, Transform, TwoPane, Visibility,
+    Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -123,6 +124,33 @@ fn the_small_indicators() {
             .child(Skeleton::new().width(120.0).height(12.0).radius(6.0)),
     );
     check("small_indicators", 260, 220, &root);
+}
+
+/// **The four floating action buttons**, which had no widget at all until milestone 464
+/// — only a helper returning a filled `Button`, two colour roles off the reference's.
+/// Small, regular, large and extended, so the three numbers each size carries (its box,
+/// its corner, its glyph) can be seen to be three and not one.
+#[test]
+fn the_floating_action_buttons() {
+    let root: Container<()> = Container::new().padding(16.0).child(
+        Flex::column()
+            .gap(12.0)
+            .align(Align::Center)
+            .child(
+                Flex::row()
+                    .gap(12.0)
+                    .align(Align::Center)
+                    .child(FloatingActionButton::new(Icons::Add).small().on_press(()))
+                    .child(FloatingActionButton::new(Icons::Add).on_press(()))
+                    .child(FloatingActionButton::new(Icons::Add).large().on_press(())),
+            )
+            .child(
+                FloatingActionButton::extended("New list")
+                    .icon(Icons::Add)
+                    .on_press(()),
+            ),
+    );
+    check("floating_action_buttons", 260, 220, &root);
 }
 
 /// The four alert kinds together, which is the only way to see that they are four

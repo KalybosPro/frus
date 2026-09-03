@@ -8,10 +8,29 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 463 so far, each documenting the objective, the alternatives
+> record — one per step, 464 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`FloatingActionButton` and `FabSize`** (J464): the widget this framework did not have.
+  `new(icon)`, `glyph(text)`, `extended(label)`, `.small()`, `.large()`, and the surface,
+  foreground, elevation, shape, glyph size and type behind them. Four sizes, each carrying
+  its own box, corner and glyph.
+
+- **`FabTheme`** (J464): ten entries.
+
+### Changed
+
+- **A floating action button takes `primary_container` on `on_primary_container`** (J464),
+  not `primary` on `on_primary`. `fab_button` returned a filled `Button`, so a screen's
+  main action was drawn in the wrong pair of roles.
+
+- **`fab_button` returns a `FloatingActionButton`** (J464) rather than a `Button`. It is a
+  two-line shorthand for the widget now; callers that only pass it to `Scaffold::fab` need
+  no change.
 
 ### Added
 

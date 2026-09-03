@@ -74,6 +74,8 @@ pub struct WidgetThemes {
     pub dropdown: DropdownTheme,
     /// Defaults for [`ExpansionTile`](crate::ExpansionTile).
     pub expansion_tile: ExpansionTileTheme,
+    /// Defaults for [`FloatingActionButton`](crate::FloatingActionButton).
+    pub fab: FabTheme,
     pub form: FormTheme,
     pub icon: IconTheme,
     pub icon_button: IconButtonTheme,
@@ -582,6 +584,37 @@ pub struct ExpansionTileTheme {
     /// (`expansion_tile_theme.dart:55`), and a tile that is square when shut and rounded
     /// when open is a design, not a mistake.
     pub collapsed_shape: Option<ShapeBorder>,
+}
+
+/// Defaults for [`FloatingActionButton`](crate::FloatingActionButton) — the
+/// reference's `FloatingActionButtonThemeData`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FabTheme {
+    /// The surface. Unset, `primary_container`
+    /// (`floating_action_button.dart:810`) — **not** `primary`, which is what a filled
+    /// button takes and what this framework's `fab_button` helper was giving it.
+    pub background: Option<Color>,
+    /// What is drawn on it. Unset, `on_primary_container`.
+    pub foreground: Option<Color>,
+    /// How far off the page it sits at rest. Unset, six.
+    pub elevation: Option<f32>,
+    /// And under a pointer. Unset, eight.
+    pub hover_elevation: Option<f32>,
+    /// What shape it is. Unset, the corner its size asks for — sixteen, twelve or
+    /// twenty-eight (`floating_action_button.dart:816`).
+    pub shape: Option<ShapeBorder>,
+    /// The radius of its corners, for a theme that would rather give the number than the
+    /// shape. Outranked by [`shape`](Self::shape).
+    pub radius: Option<f32>,
+    /// How big the glyph inside is. Unset, the size's own — twenty-four, or
+    /// thirty-six on a large one.
+    pub icon_size: Option<f32>,
+    /// An extended button's type. Unset, `label_large`.
+    pub label_style: Option<TextStyle>,
+    /// The room either side of an extended button's content.
+    pub extended_padding: Option<f32>,
+    /// The gap between an extended button's glyph and its words. Unset, eight.
+    pub extended_gap: Option<f32>,
 }
 
 /// Defaults for [`Divider`](crate::Divider).

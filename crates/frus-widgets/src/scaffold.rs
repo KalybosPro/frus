@@ -67,7 +67,6 @@ use frus_core::{Color, Insets, WindowInsets};
 use frus_layout::Justify;
 
 use crate::bottomappbar::BottomAppBar;
-use crate::button::Variant;
 use crate::container::Container;
 use crate::flex::Flex;
 use crate::media::MediaQuery;
@@ -1156,23 +1155,25 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     }
 }
 
-/// A conventional floating action button (round, accent), to be passed to
-/// [`Scaffold::fab`]. Sugar for `button(label, msg)` styled as primary.
+/// The floating action button the [`Scaffold`] examples show: **one character**, round,
+/// wired to a message.
+///
+/// It is a two-line shorthand for [`FloatingActionButton`](crate::FloatingActionButton),
+/// which is the widget and where every property lives. Until milestone 464 it was not a
+/// shorthand for anything: it returned a filled [`Button`](crate::Button), so a screen's
+/// most prominent control took `primary` on `on_primary` where the reference's floating
+/// action button takes `primary_container` on `on_primary_container`.
+///
+/// **Round**, and not only because the convention is round: a docked button sits in the
+/// circular notch a [`BottomAppBar`](crate::BottomAppBar) cuts for it, and the reference's
+/// own sixteen-pixel corner would leave four of them hanging over the bar. A stadium
+/// rather than `FAB_SIZE / 2`, which is the same number written out and only right while
+/// the button is exactly that tall.
 pub fn fab_button<Msg: Clone + 'static>(
     label: impl Into<String>,
     message: Msg,
-) -> crate::Button<Msg> {
-    crate::Button::new(label)
-        .variant(Variant::Filled)
-        .size(24.0)
-        // **Round**, and not only because the convention is round: a docked button
-        // sits in a circular notch, and a square one would leave the bar curving
-        // around a shape that is not there.
-        //
-        // A stadium rather than `FAB_SIZE / 2`, which was the same number written out
-        // and only right while the button was exactly that tall: a stadium takes half
-        // its **short** side, so an extended one stays a lozenge instead of a box with
-        // corners rounded past its own height.
+) -> crate::FloatingActionButton<Msg> {
+    crate::FloatingActionButton::glyph(label)
         .shape(frus_core::ShapeBorder::stadium())
         .on_press(message)
 }
