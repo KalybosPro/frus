@@ -94,6 +94,8 @@ pub struct WidgetThemes {
     pub text_field: TextFieldTheme,
     pub time_picker: TimePickerTheme,
     pub timeline: TimelineTheme,
+    /// Defaults for [`Tooltip`](crate::Tooltip).
+    pub tooltip: TooltipTheme,
     pub tree: TreeTheme,
 }
 
@@ -515,6 +517,33 @@ pub struct ProgressTheme {
     /// How thick the ring's dots are. Unset, the framework's own proportional rule, so
     /// that a large indicator does not draw a hairline.
     pub stroke_width: Option<f32>,
+}
+
+/// Defaults for [`Tooltip`](crate::Tooltip) — the reference's `TooltipThemeData`.
+///
+/// A tooltip is the one widget an application is likely to use on *every* icon it draws,
+/// so saying what one looks like on each of them is saying it a hundred times.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TooltipTheme {
+    /// The bubble's surface. Unset, `inverse_surface` — a tooltip is a label **over**
+    /// the interface, not another panel of it.
+    pub background: Option<Color>,
+    /// The label's type. Unset, `body_small`.
+    pub text_style: Option<TextStyle>,
+    /// The label's colour. Unset, `on_inverse_surface`.
+    pub text_color: Option<Color>,
+    /// Where the lines sit once the label has wrapped. Unset, the start edge, as the
+    /// reference's `_defaultTextAlign` is (`tooltip.dart:398`).
+    pub text_align: Option<TextAlign>,
+    /// The room kept round the label.
+    pub padding: Option<Insets>,
+    /// What shape the bubble is.
+    pub shape: Option<ShapeBorder>,
+    /// The radius of its corners, for a theme that would rather give the number than the
+    /// shape. Outranked by [`shape`](Self::shape).
+    pub radius: Option<f32>,
+    /// How wide the bubble may get before the label wraps.
+    pub max_width: Option<f32>,
 }
 
 /// Defaults for [`Divider`](crate::Divider).

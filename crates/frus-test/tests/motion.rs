@@ -16,9 +16,9 @@
 use frus_core::{Color, Size, SizeClass};
 use frus_test::{Snapshot, Stage};
 use frus_widgets::{
-    text, Align, Container, Dismissible, DragTarget, Draggable, Flex, GlowEdge, Hero, Keyed,
-    LayoutBuilder, NavScaffold, Navigator, PageView, RefreshIndicator, Responsive,
-    SingleChildScrollView,
+    text, Align, Button, Container, Dismissible, DragTarget, Draggable, Flex, GlowEdge, Hero,
+    Keyed, LayoutBuilder, NavScaffold, Navigator, PageView, Point, RefreshIndicator, Responsive,
+    SingleChildScrollView, Tooltip,
 };
 
 fn golden(name: &str) -> String {
@@ -33,6 +33,37 @@ fn accept(name: &str, snapshot: Option<Snapshot>) {
     };
     assert!(snapshot.lit_pixels(48) > 40, "{name}: the frame is empty");
     snapshot.assert_golden(golden(name));
+}
+
+/// **A tooltip, caught while the pointer is on it.** Its picture is not a function of
+/// its arguments either: the bubble exists only while the thing it describes is
+/// hovered, which is a fact about the `Runtime` and not about the widget. So it
+/// belongs here rather than beside the settled widgets.
+#[test]
+fn a_tooltip_while_the_pointer_rests_on_it() {
+    // The gap is wide on purpose. A bubble floats over whatever is above the thing it
+    // describes, which is right in an application and makes a poor picture of one; and
+    // with the button too near the top the overlay flips the bubble **below** it, which
+    // is the placement working and not the one worth photographing.
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(40.0)
+            .child(text("Hover the button"))
+            .child(Tooltip::new("Delete this row").child(Button::new("Delete").on_press(()))),
+    );
+
+    let mut stage = Stage::new(240, 170);
+    stage.settle(&root);
+    // The button is the tooltip's own child 0, which is exactly the identity the
+    // overlay checks against the hovered one — so hitting it in the frame is how the
+    // test names it, rather than counting nodes.
+    let button = stage
+        .build(&root)
+        .hit(Point::new(60.0, 105.0))
+        .expect("the button is in the frame");
+    stage.runtime.input.hovered = Some(button);
+    stage.advance(&root, 1.0 / 60.0);
+    accept("tooltip_hovered", stage.render(&root));
 }
 
 /// A coloured box that fills its row, the filler these screens are made of.

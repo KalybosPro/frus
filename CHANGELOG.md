@@ -8,10 +8,21 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 461 so far, each documenting the objective, the alternatives
+> record — one per step, 462 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`Tooltip`** (J462): a short label that appears while a pointer rests on the thing it
+  describes. The overlay system has had the placement for one since it was built — above
+  the anchor, flipped below when there is no room, only while hovered — and no widget
+  used it. `Tooltip::new(message).child(widget)`; an empty message is the child and no
+  overlay, so an optional hint needs no branch.
+
+- **`TooltipTheme`** (J462): background, text style, text colour, text alignment, padding,
+  shape, radius and maximum width.
 
 ### Added
 
