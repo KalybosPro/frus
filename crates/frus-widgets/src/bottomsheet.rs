@@ -14,7 +14,7 @@
 //!     .body(main_screen)      // the background content (always visible)
 //! ```
 
-use frus_core::{Color, Insets, Rect, Scene};
+use frus_core::{Color, Insets, Rect, Scene, ShapeBorder};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::interaction::Status;
@@ -32,6 +32,28 @@ struct SheetPanel<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
     /// The caller's surface colour, if one was named.
     background: Option<Color>,
+    /// The caller's shape, if one was named.
+    shape: Option<ShapeBorder>,
+}
+
+impl<Msg> SheetPanel<Msg> {
+    /// **What shape the sheet is**: the caller's word, then the theme's shape, then the
+    /// theme's plain radius on the **top** two corners, then the framework's own.
+    ///
+    /// The bottom edge is flush against the window: rounding it would cut two notches out
+    /// of the screen, so the framework's default rounds the top pair and nothing else.
+    fn shape_of(&self, theme: &Theme) -> ShapeBorder {
+        crate::resolve_shape(
+            self.shape,
+            theme.widgets.bottom_sheet.shape,
+            theme
+                .widgets
+                .bottom_sheet
+                .radius
+                .map(frus_core::BorderRadius::top),
+            ShapeBorder::rounded(frus_core::BorderRadius::top(theme.radius + 6.0)),
+        )
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for SheetPanel<Msg> {
@@ -62,24 +84,25 @@ impl<Msg: Clone> Widget<Msg> for SheetPanel<Msg> {
         let o = status.opacity;
         // An opaque surface with rounded **top** corners (the bottom edge is flush
         // with the window) + a thin top hairline, inset from the rounding.
-        let radius = theme.radius + 6.0;
+        let shape = self.shape_of(theme);
+        // The corners that shape resolves to — what the fill takes, and what the hairline
+        // below is inset by so it does not cross a curve.
+        let radius = shape
+            .as_rounded(bounds)
+            .map(|(_, r)| r)
+            .unwrap_or(frus_core::BorderRadius::ZERO);
+        let inset = radius.top_left.max(radius.top_right);
         // `bottom_sheet.dart:1496` — a sheet rises off the page, on the low rung.
         let fill = self
             .background
             .or(theme.widgets.bottom_sheet.background_color)
             .unwrap_or(theme.scheme.surface_container_low);
-        scene.draw_rect(
-            bounds,
-            fill.fade(o),
-            frus_core::BorderRadius::top(radius),
-            0.0,
-            Color::TRANSPARENT,
-        );
+        scene.draw_shape(bounds, shape, fill.fade(o));
         scene.fill_rect(
             Rect::new(
-                bounds.x + radius,
+                bounds.x + inset,
                 bounds.y,
-                (bounds.width - 2.0 * radius).max(0.0),
+                (bounds.width - 2.0 * inset).max(0.0),
                 1.0,
             ),
             theme.scheme.outline_variant.fade(o),
@@ -111,6 +134,8 @@ pub struct BottomSheet<Msg> {
     modal_panel: Option<Box<dyn Widget<Msg>>>,
     /// The sheet's surface, over the theme's and the framework's.
     background: Option<Color>,
+    /// The sheet's shape, over the theme's and the framework's.
+    shape: Option<ShapeBorder>,
     /// Children in the flow: `[body]` (the panel floats as an overlay).
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -124,6 +149,7 @@ impl<Msg: Clone + 'static> BottomSheet<Msg> {
             sheet_content: None,
             modal_panel: None,
             background: None,
+            shape: None,
             children: Vec::new(),
         }
     }
@@ -133,6 +159,18 @@ impl<Msg: Clone + 'static> BottomSheet<Msg> {
     #[must_use]
     pub fn background(mut self, color: Color) -> Self {
         self.background = Some(color);
+        self
+    }
+
+    /// **What shape the sheet is** — the reference's `shape`
+    /// (`BottomSheetThemeData.shape`), over the theme's.
+    ///
+    /// A sheet's bottom edge is flush against the window, so the framework rounds the top
+    /// pair only. A caller naming a shape has taken that decision on: a
+    /// `ShapeBorder::rounded(28.0)` rounds all four, and two of them are off-screen.
+    #[must_use]
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.shape = Some(shape);
         self
     }
 
@@ -151,10 +189,12 @@ impl<Msg: Clone + 'static> BottomSheet<Msg> {
     /// Sets the **background body** (always visible) and finalises the sheet.
     pub fn body(mut self, body: impl Widget<Msg> + 'static) -> Self {
         let background = self.background;
+        let shape = self.shape;
         self.modal_panel = self.sheet_content.take().map(|content| {
             Box::new(SheetPanel {
                 children: vec![content],
                 background,
+                shape,
             }) as Box<dyn Widget<Msg>>
         });
         self.children = vec![Box::new(body)];
@@ -209,6 +249,80 @@ impl<Msg: Clone> Widget<Msg> for BottomSheet<Msg> {
 
 #[cfg(test)]
 mod tests {
+    /// **A sheet takes a shape**, which it could not: its corner was `theme.radius + 6.0`,
+    /// an expression nobody chose, with no way for a caller or a theme to say otherwise.
+    ///
+    /// The framework's own default still rounds the **top** pair only — the bottom edge is
+    /// flush against the window, and rounding it would cut two notches out of the screen —
+    /// so the pixels of a sheet that says nothing are what they were.
+    #[test]
+    fn a_sheet_takes_a_shape() {
+        let corners = |sheet: BottomSheet<Msg>, theme: &Theme| {
+            let ui = build_ui(&sheet, Size::new(400.0, 600.0), &Runtime::default(), theme);
+            fn find(primitives: &[frus_core::Primitive]) -> Option<frus_core::BorderRadius> {
+                for p in primitives {
+                    match p {
+                        frus_core::Primitive::Rect { rect, radius, .. }
+                            if rect.width >= 399.0 && *radius != frus_core::BorderRadius::ZERO =>
+                        {
+                            return Some(*radius)
+                        }
+                        frus_core::Primitive::Layer { primitives, .. } => {
+                            if let Some(found) = find(primitives) {
+                                return Some(found);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                None
+            }
+            find(ui.scene().primitives())
+        };
+
+        let theme = Theme::default();
+        // `body` is what wraps the panel, so anything the panel reads has to be said
+        // **before** it — the same ordering `background` has always had.
+        let open = |shape: Option<frus_core::ShapeBorder>| {
+            let mut sheet =
+                BottomSheet::<Msg>::new(true).sheet(Container::<Msg>::new().height(120.0));
+            if let Some(shape) = shape {
+                sheet = sheet.shape(shape);
+            }
+            sheet.body(Container::<Msg>::new())
+        };
+        assert_eq!(
+            corners(open(None), &theme),
+            Some(frus_core::BorderRadius::top(theme.radius + 6.0)),
+            "the framework's own, unchanged"
+        );
+        assert_eq!(
+            corners(
+                open(Some(frus_core::ShapeBorder::rounded(
+                    frus_core::BorderRadius::top(28.0),
+                ))),
+                &theme
+            ),
+            Some(frus_core::BorderRadius::top(28.0)),
+            "the caller's"
+        );
+
+        let mut themed = Theme::default();
+        themed.widgets.bottom_sheet.radius = Some(20.0);
+        assert_eq!(
+            corners(open(None), &themed),
+            Some(frus_core::BorderRadius::top(20.0)),
+            "a theme's plain radius, on the top pair"
+        );
+        themed.widgets.bottom_sheet.shape = Some(frus_core::ShapeBorder::rounded(
+            frus_core::BorderRadius::top(4.0),
+        ));
+        assert_eq!(
+            corners(open(None), &themed),
+            Some(frus_core::BorderRadius::top(4.0)),
+            "and a theme's shape outranks its radius"
+        );
+    }
     use super::*;
     use crate::{build_ui, Container, Runtime, Size, Text};
 

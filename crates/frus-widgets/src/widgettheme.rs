@@ -69,6 +69,8 @@ pub struct WidgetThemes {
     pub date_picker: DatePickerTheme,
     pub divider: DividerTheme,
     pub drawer: DrawerTheme,
+    /// Defaults for [`ListTile`](crate::ListTile).
+    pub list_tile: ListTileTheme,
     pub dropdown: DropdownTheme,
     pub form: FormTheme,
     pub icon: IconTheme,
@@ -441,6 +443,42 @@ pub struct ChipTheme {
     pub show_checkmark: Option<bool>,
 }
 
+/// Defaults for [`ListTile`](crate::ListTile) — the reference's `ListTileThemeData`.
+///
+/// Every field is what the tile would otherwise decide for itself, on the usual rungs: the
+/// tile's own word, then this, then the framework's. An application that wants all its
+/// tiles rounded, or all its selected rows tinted, says it **once** here rather than on
+/// every tile it ever builds.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ListTileTheme {
+    /// The tile's surface. Unset, transparent — a tile takes the colour of what it sits on.
+    pub tile_color: Option<Color>,
+    /// The surface while the tile is the chosen one.
+    pub selected_tile_color: Option<Color>,
+    /// The colour its words and slots take while it is the chosen one.
+    pub selected_color: Option<Color>,
+    /// The two slots' icon colour.
+    pub icon_color: Option<Color>,
+    /// The title's and subtitle's colour.
+    pub text_color: Option<Color>,
+    /// What shape the tile is — taken by its surface and by its ink.
+    pub shape: Option<ShapeBorder>,
+    /// The room kept inside the tile, round its content.
+    pub content_padding: Option<Insets>,
+    /// The title's type.
+    pub title_style: Option<TextStyle>,
+    /// The subtitle's.
+    pub subtitle_style: Option<TextStyle>,
+    /// The gap between the slots and the text column.
+    pub title_gap: Option<f32>,
+    /// How much room the leading slot is guaranteed, so the text lines up down a list.
+    pub min_leading_width: Option<f32>,
+    /// The tile's minimum height, over the one its line count asks for.
+    pub min_height: Option<f32>,
+    /// Whether tiles are the tighter kind.
+    pub dense: Option<bool>,
+}
+
 /// Defaults for [`Divider`](crate::Divider).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DividerTheme {
@@ -740,6 +778,13 @@ pub struct BottomAppBarTheme {
 /// Defaults for [`BottomSheet`](crate::BottomSheet).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct BottomSheetTheme {
+    /// **What shape the sheet is** — the reference's `BottomSheetThemeData.shape`. Unset,
+    /// the framework rounds the **top** corners only: the bottom edge is flush against the
+    /// window, and rounding it would cut two notches out of the screen.
+    pub shape: Option<ShapeBorder>,
+    /// The radius of those top two corners, for a theme that would rather give the number
+    /// than the shape. Outranked by [`shape`](Self::shape).
+    pub radius: Option<f32>,
     /// The sheet's surface. Unset, the scheme's `surface_container_low`.
     pub background_color: Option<Color>,
 }

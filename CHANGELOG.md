@@ -8,10 +8,20 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 457 so far, each documenting the objective, the alternatives
+> record — one per step, 458 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`ListTileTheme`** (J458): thirteen entries — colours, shape, padding, type, gaps,
+  height and density — so an application says once what every tile does. There was no list
+  tile theme at all before this.
+
+- **`BottomSheet::shape()`, `BottomSheetTheme::shape` and `BottomSheetTheme::radius`**
+  (J458). The sheet's corner was `theme.radius + 6.0` and nothing could change it. The
+  default is unchanged.
 
 ### Added
 
