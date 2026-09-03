@@ -8,10 +8,24 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 459 so far, each documenting the objective, the alternatives
+> record — one per step, 460 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Changed
+
+- **A menu is one panel** (J460), not a stack of buttons. Every row used to paint its own
+  filled, outlined, rounded rectangle with a two-pixel gutter between them; there is now a
+  single `surface_container` surface with a shadow, and rows that paint nothing at rest.
+  A row is also **a tap target tall** (it was 38 pixels) and its label is `label_large`
+  (it was `title_medium`). One golden moved.
+
+### Added
+
+- **`PopupMenuButton::background`, `shape`, `radius`, `elevation`, `menu_padding`,
+  `item_padding` and `item_height`** (J460), with `MenuTheme` growing from one field to
+  eight to match. A menu picked every one of these for itself before.
 
 ### Added
 

@@ -667,6 +667,25 @@ pub struct SnackBarTheme {
 pub struct MenuTheme {
     /// The items' type.
     pub text_style: Option<TextStyle>,
+    /// **The panel's surface.** Unset, `surface_container` — a menu is a distinct area
+    /// within the surface, not a thing that floats above it in a different colour
+    /// (`popup_menu.dart:1858`).
+    pub background: Option<Color>,
+    /// What shape the panel is.
+    pub shape: Option<ShapeBorder>,
+    /// The radius of its corners, for a theme that would rather give the number than the
+    /// shape. Outranked by [`shape`](Self::shape).
+    pub radius: Option<f32>,
+    /// How far off the page the panel sits, in pixels. Unset, three
+    /// (`popup_menu.dart:1839`).
+    pub elevation: Option<f32>,
+    /// The room kept **above and below** the rows, inside the panel
+    /// (`popup_menu.dart:1872`).
+    pub padding: Option<Insets>,
+    /// The room kept either side of a row's label (`popup_menu.dart:1876`).
+    pub item_padding: Option<Insets>,
+    /// How tall one row is. Unset, the smallest box a finger can be asked to hit.
+    pub item_height: Option<f32>,
 }
 
 /// Defaults for [`DropdownButton`](crate::DropdownButton) and its options.

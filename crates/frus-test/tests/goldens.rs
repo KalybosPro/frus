@@ -805,7 +805,11 @@ fn table_column_menu_matches_golden() {
         .row(&["Ada", "5"])
         .row(&["Bob", "3"]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
-    let Some(snapshot) = render_widget(&root, 340, 230, &theme) else {
+    // Fifty pixels taller than it was: milestone 460 gave every row the tap target the
+    // reference gives it and the panel the room above and below the reference gives it,
+    // and the menu no longer fits in the old frame. A picture that cuts the bottom off
+    // the thing it documents is worse than no picture.
+    let Some(snapshot) = render_widget(&root, 340, 280, &theme) else {
         eprintln!("no GPU adapter available: test skipped");
         return;
     };
