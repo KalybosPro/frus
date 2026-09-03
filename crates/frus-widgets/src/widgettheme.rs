@@ -80,6 +80,8 @@ pub struct WidgetThemes {
     pub kbd: KbdTheme,
     pub menu: MenuTheme,
     pub nav_rail: NavRailTheme,
+    /// Defaults for the two progress indicators.
+    pub progress: ProgressTheme,
     pub radio: RadioTheme,
     pub segmented: SegmentedTheme,
     pub slider: SliderTheme,
@@ -477,6 +479,42 @@ pub struct ListTileTheme {
     pub min_height: Option<f32>,
     /// Whether tiles are the tighter kind.
     pub dense: Option<bool>,
+}
+
+/// Defaults for [`LinearProgressIndicator`](crate::LinearProgressIndicator) and
+/// [`CircularProgressIndicator`](crate::CircularProgressIndicator) — the reference's
+/// `ProgressIndicatorThemeData`.
+///
+/// Neither of them read a theme at all before this, and between them they had **two**
+/// builders: a width and a size. Everything else — the height of the bar, the colour of
+/// its track, the colour of the fill — was decided inside `paint` where nothing could
+/// reach it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ProgressTheme {
+    /// The colour of the moving part: the bar's fill and the ring's dots. Unset,
+    /// `primary` (`progress_indicator.dart:1618`).
+    pub color: Option<Color>,
+    /// The colour of the bar's track — the part not yet filled. Unset,
+    /// `secondary_container` (`progress_indicator.dart:1621`).
+    pub linear_track_color: Option<Color>,
+    /// How tall the bar is. Unset, four (`progress_indicator.dart:1624`).
+    pub linear_min_height: Option<f32>,
+    /// A track **behind the ring**, for a determinate circular indicator
+    /// (`progress_indicator.dart:1590`). Unset, none is drawn.
+    pub circular_track_color: Option<Color>,
+    /// The corners of the bar and of its track. Unset, fully rounded.
+    pub border_radius: Option<BorderRadius>,
+    /// The dot at the far end of the track, which says where the bar is going. Unset,
+    /// the same colour as the fill (`progress_indicator.dart:1630`).
+    pub stop_indicator_color: Option<Color>,
+    /// That dot's radius. Unset, two (`progress_indicator.dart:1633`). Zero draws none.
+    pub stop_indicator_radius: Option<f32>,
+    /// The gap left between the end of the fill and the start of the track. Unset, four
+    /// (`progress_indicator.dart:1636`).
+    pub track_gap: Option<f32>,
+    /// How thick the ring's dots are. Unset, the framework's own proportional rule, so
+    /// that a large indicator does not draw a hairline.
+    pub stroke_width: Option<f32>,
 }
 
 /// Defaults for [`Divider`](crate::Divider).

@@ -8,10 +8,31 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 460 so far, each documenting the objective, the alternatives
+> record — one per step, 461 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`ProgressTheme`** (J461, the reference's `ProgressIndicatorThemeData`): nine entries
+  for two widgets that read no theme at all before this.
+
+- **`LinearProgressIndicator::color`, `track_color`, `min_height`, `radius`,
+  `stop_indicator_color`, `stop_indicator_radius` and `track_gap`** (J461), and
+  **`CircularProgressIndicator::color`, `track_color` and `stroke_width`**. Between them
+  the two widgets had a width and a size.
+
+### Changed
+
+- **A progress bar is four pixels tall and its track is `secondary_container`** (J461).
+  It was eight — twice the reference's — with a track of `muted` faded to 30%, which
+  is a colour nobody chose and no theme could name.
+
+- **A bar leaves a gap before its track and puts a dot at the far end** (J461), which is
+  the reference's current appearance rather than the deprecated default it still ships.
+  `track_gap(0.0)` and `stop_indicator_radius(0.0)` write the older look back. One golden
+  moved.
 
 ### Changed
 
