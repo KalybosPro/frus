@@ -1,6 +1,6 @@
 //! [`Divider`]: a thin horizontal separator, in the theme's colours.
 
-use frus_core::{Color, Rect, Scene};
+use frus_core::{BorderRadius, Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
@@ -38,6 +38,8 @@ pub struct Divider {
     end_indent: Option<f32>,
     /// `None` = the theme's discreet outline.
     color: Option<Color>,
+    /// `None` = square ends, as a hairline wants.
+    radius: Option<BorderRadius>,
 }
 
 impl Divider {
@@ -49,6 +51,7 @@ impl Divider {
             indent: None,
             end_indent: None,
             color: None,
+            radius: None,
         }
     }
 
@@ -79,6 +82,14 @@ impl Divider {
     }
 
     /// Overrides the line's colour. Defaults to the theme's discreet outline.
+    /// **The rule's own corner radius** — the reference's `Divider.radius`
+    /// (`divider.dart:68`). A thick rule reads as a bar, and a bar with square ends is the
+    /// only thing in an interface that still has them.
+    pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
+        self.radius = Some(radius.into());
+        self
+    }
+
     pub fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
@@ -148,7 +159,16 @@ impl<Msg> Widget<Msg> for Divider {
             width,
             thickness,
         );
-        scene.fill_rect(line, color.fade(status.opacity));
+        match self.radius {
+            Some(radius) => scene.draw_rect(
+                line,
+                color.fade(status.opacity),
+                radius,
+                0.0,
+                Color::TRANSPARENT,
+            ),
+            None => scene.fill_rect(line, color.fade(status.opacity)),
+        }
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -160,6 +180,37 @@ impl<Msg> Widget<Msg> for Divider {
 mod tests {
     use super::*;
     use frus_core::Primitive;
+
+    /// **A rule can round its ends** — the reference's `Divider.radius`
+    /// (`divider.dart:68`). A thick rule reads as a bar, and a bar with square ends is the
+    /// only thing left in an interface that still has them.
+    #[test]
+    fn a_rule_can_round_its_ends() {
+        let corners = |divider: &Divider| {
+            let mut scene = Scene::new();
+            Widget::<()>::paint(
+                divider,
+                Rect::new(0.0, 0.0, 200.0, 16.0),
+                Status::default(),
+                &Theme::default(),
+                &mut scene,
+            );
+            scene.primitives().iter().find_map(|p| match p {
+                frus_core::Primitive::Rect { radius, .. } => Some(*radius),
+                _ => None,
+            })
+        };
+
+        assert_eq!(
+            corners(&Divider::new().thickness(6.0).radius(3.0)),
+            Some(frus_core::BorderRadius::uniform(3.0))
+        );
+        assert_eq!(
+            corners(&Divider::new().thickness(6.0)),
+            Some(frus_core::BorderRadius::ZERO),
+            "a hairline is still square, which is what a hairline wants"
+        );
+    }
 
     fn painted(divider: &Divider, bounds: Rect) -> Option<Rect> {
         let mut scene = Scene::new();

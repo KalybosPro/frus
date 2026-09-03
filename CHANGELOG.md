@@ -8,10 +8,19 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 456 so far, each documenting the objective, the alternatives
+> record — one per step, 457 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`ListTile::selected_tile_color`, `icon_color`, `text_color` and `shape`** (J457). A
+  selected tile had no surface of its own — only its words changed colour. The shape is
+  taken by the surface **and** the ink.
+
+- **`Divider::radius`** (J457): a thick rule can round its ends. A hairline stays square
+  and keeps the fast fill path.
 
 ### Added
 

@@ -22,7 +22,7 @@
 
 use std::cell::{OnceCell, RefCell};
 
-use frus_core::{Color, Insets, Rect, Scene, TextStyle};
+use frus_core::{Color, Insets, Rect, Scene, ShapeBorder, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::constraints::ConstrainedBox;
@@ -82,6 +82,16 @@ pub struct ListTile<Msg> {
     subtitle_style: Option<TextStyle>,
     tile_color: Option<Color>,
     selected_color: Option<Color>,
+    /// The tile's surface **while it is the chosen one** — the reference's
+    /// `selectedTileColor`.
+    selected_tile_color: Option<Color>,
+    /// The colour of the two slots' icons, over what the selection would give them.
+    icon_color: Option<Color>,
+    /// The colour of the title and subtitle, over what the selection would give them.
+    text_color: Option<Color>,
+    /// What shape the tile is — the reference's `shape`. The surface and the ink both
+    /// take it, so a rounded tile in a list is rounded all the way through.
+    shape: Option<ShapeBorder>,
     /// The assembled row, as the one-element slice [`Widget::children`] hands back.
     built: OnceCell<Vec<Box<dyn Widget<Msg>>>>,
 }
@@ -114,6 +124,10 @@ impl<Msg> ListTile<Msg> {
             subtitle_style: None,
             tile_color: None,
             selected_color: None,
+            selected_tile_color: None,
+            icon_color: None,
+            text_color: None,
+            shape: None,
             built: OnceCell::new(),
         }
     }
@@ -236,6 +250,46 @@ impl<Msg> ListTile<Msg> {
     pub fn selected_color(mut self, color: Color) -> Self {
         self.selected_color = Some(color);
         self
+    }
+
+    /// **The tile's surface while it is the chosen one** — the reference's
+    /// `selectedTileColor` (`list_tile.dart`).
+    ///
+    /// A selected tile used to change nothing but the colour of its words, which is the
+    /// weakest possible way to say *this is the one you are on*: it is the difference
+    /// between a highlighted row in a navigation list and a row that merely reads
+    /// differently. Unset, the tile keeps its ordinary surface, as the reference's does.
+    pub fn selected_tile_color(mut self, color: Color) -> Self {
+        self.selected_tile_color = Some(color);
+        self
+    }
+
+    /// **The two slots' icon colour**, over what the selection would give them — the
+    /// reference's `iconColor`.
+    pub fn icon_color(mut self, color: Color) -> Self {
+        self.icon_color = Some(color);
+        self
+    }
+
+    /// **The title's and subtitle's colour**, over what the selection would give them —
+    /// the reference's `textColor`.
+    pub fn text_color(mut self, color: Color) -> Self {
+        self.text_color = Some(color);
+        self
+    }
+
+    /// **What shape the tile is** — the reference's `shape`. The surface takes it, and so
+    /// does the ink, so a rounded tile does not splash square corners over a list.
+    #[must_use]
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.shape = Some(shape);
+        self
+    }
+
+    /// **What shape the tile paints as**: the caller's, then a plain rectangle — which is
+    /// what a row in a list is unless somebody says otherwise.
+    fn shape_of(&self) -> ShapeBorder {
+        self.shape.unwrap_or(ShapeBorder::rounded(0.0))
     }
 
     /// The height this tile asks for: the reference's, by line count and density, unless
@@ -385,20 +439,21 @@ impl<Msg: Clone + 'static> Widget<Msg> for ListTile<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         // Transparent by default, as the reference has it, so a tile takes the colour of
         // whatever it sits on; a state layer over that when it can be tapped.
-        let base = self.tile_color.unwrap_or(Color::TRANSPARENT);
+        // A selected tile takes its own surface first: the reference's
+        // `selectedTileColor` outranks `tileColor` while the tile is the chosen one.
+        let base = if self.selected {
+            self.selected_tile_color.or(self.tile_color)
+        } else {
+            self.tile_color
+        }
+        .unwrap_or(Color::TRANSPARENT);
         let color = if self.enabled && self.on_tap.is_some() {
             theme.state_layer(base, theme.scheme.on_surface, &status)
         } else {
             base
         };
         if color.a > 0.0 {
-            scene.draw_rect(
-                bounds,
-                color.fade(status.opacity),
-                frus_core::BorderRadius::ZERO,
-                0.0,
-                Color::TRANSPARENT,
-            );
+            scene.draw_shape(bounds, self.shape_of(), color.fade(status.opacity));
         }
     }
 
@@ -407,13 +462,122 @@ impl<Msg: Clone + 'static> Widget<Msg> for ListTile<Msg> {
     }
 
     fn ink(&self, theme: &Theme) -> Option<crate::ink::InkStyle> {
-        (self.enabled && self.on_tap.is_some()).then(|| crate::ink::InkStyle::of(theme))
+        (self.enabled && self.on_tap.is_some()).then(|| {
+            let mut ink = crate::ink::InkStyle::of(theme);
+            // The ink is clipped to the tile, so it has to know the same shape the surface
+            // does — otherwise a rounded tile splashes square corners over the list.
+            if let Some((_, radius)) = self
+                .shape
+                .and_then(|shape| shape.as_rounded(Rect::new(0.0, 0.0, 1000.0, self.height())))
+            {
+                ink.radius = radius;
+            }
+            ink
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// **A selected tile has a surface of its own** (`list_tile.dart`'s
+    /// `selectedTileColor`), which it did not.
+    ///
+    /// Being *the one you are on* used to change nothing but the colour of the words — the
+    /// weakest possible way to say it, and the difference between a highlighted row in a
+    /// navigation list and a row that merely reads differently.
+    #[test]
+    fn a_selected_tile_has_a_surface_of_its_own() {
+        let surface = |tile: &ListTile<Msg>| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                tile,
+                Rect::new(0.0, 0.0, 300.0, 56.0),
+                Status::default(),
+                &Theme::default(),
+                &mut scene,
+            );
+            scene.primitives().iter().find_map(|p| match p {
+                frus_core::Primitive::Rect { color, radius, .. } => Some((*color, *radius)),
+                _ => None,
+            })
+        };
+
+        // Nothing said: a tile is transparent and paints no surface at all, as before.
+        assert_eq!(surface(&ListTile::<Msg>::new().selected(true)), None);
+
+        let chosen = Color::rgb(0.1, 0.2, 0.3);
+        assert_eq!(
+            surface(
+                &ListTile::<Msg>::new()
+                    .selected(true)
+                    .selected_tile_color(chosen)
+            )
+            .expect("a surface")
+            .0,
+            chosen
+        );
+        // And only while it is the chosen one.
+        assert_eq!(
+            surface(&ListTile::<Msg>::new().selected_tile_color(chosen)),
+            None
+        );
+        // It outranks the ordinary surface rather than replacing it everywhere.
+        let plain = Color::rgb(0.9, 0.9, 0.9);
+        assert_eq!(
+            surface(
+                &ListTile::<Msg>::new()
+                    .tile_color(plain)
+                    .selected_tile_color(chosen)
+            )
+            .expect("a surface")
+            .0,
+            plain,
+            "unselected"
+        );
+        assert_eq!(
+            surface(
+                &ListTile::<Msg>::new()
+                    .selected(true)
+                    .tile_color(plain)
+                    .selected_tile_color(chosen)
+            )
+            .expect("a surface")
+            .0,
+            chosen,
+            "selected"
+        );
+    }
+
+    /// **And a shape**, which the surface and the ink both take — a rounded tile that
+    /// splashed square corners would be worse than one that was never rounded.
+    #[test]
+    fn a_tile_takes_a_shape_and_the_ink_takes_it_too() {
+        let tile = ListTile::<Msg>::new()
+            .tile_color(Color::rgb(0.5, 0.5, 0.5))
+            .on_tap(Msg::Tapped)
+            .shape(frus_core::ShapeBorder::rounded(12.0));
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            &tile,
+            Rect::new(0.0, 0.0, 300.0, 56.0),
+            Status::default(),
+            &Theme::default(),
+            &mut scene,
+        );
+        let radius = scene.primitives().iter().find_map(|p| match p {
+            frus_core::Primitive::Rect { radius, .. } => Some(*radius),
+            _ => None,
+        });
+        assert_eq!(radius, Some(frus_core::BorderRadius::uniform(12.0)));
+        assert_eq!(
+            Widget::<Msg>::ink(&tile, &Theme::default())
+                .expect("a tappable tile inks")
+                .radius,
+            frus_core::BorderRadius::uniform(12.0),
+            "and the ink is clipped to the same shape"
+        );
+    }
 
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
