@@ -141,6 +141,27 @@ pub enum Brightness {
     Dark,
 }
 
+impl Brightness {
+    /// Is this the dark one?
+    pub const fn is_dark(self) -> bool {
+        matches!(self, Brightness::Dark)
+    }
+
+    /// Is this the light one?
+    pub const fn is_light(self) -> bool {
+        matches!(self, Brightness::Light)
+    }
+
+    /// **The brightness content on this surface must have to be legible** — the opposite
+    /// of this one. A dark surface takes light content, and the other way round.
+    pub const fn inverted(self) -> Brightness {
+        match self {
+            Brightness::Light => Brightness::Dark,
+            Brightness::Dark => Brightness::Light,
+        }
+    }
+}
+
 /// The **accessibility settings** the platform reports about its user.
 ///
 /// The reference carries these on `MediaQueryData` as separate booleans; they are one

@@ -136,6 +136,16 @@ pub(crate) fn type_scale(theme: Option<&Theme>) -> TextTheme {
 /// hand for light and dark; `from_seed` (HCT) comes after.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ColorScheme {
+    /// **Whether this scheme is a light one or a dark one** (`color_scheme.dart`).
+    ///
+    /// It is written down rather than worked out. The surface's luminance is *usually*
+    /// the same answer, and "usually" is the problem: a dim scheme built from a dark seed
+    /// can sit either side of the halfway line, and a widget picking its opacities from a
+    /// guess picks differently on two schemes a designer considers equally dark.
+    ///
+    /// The reference's scrollbar reads exactly this field to choose the opacity of its
+    /// thumb (`scrollbar.dart:232`); this framework's was guessing at it.
+    pub brightness: Brightness,
     pub primary: Color,
     pub on_primary: Color,
     pub primary_container: Color,
@@ -208,6 +218,7 @@ impl ColorScheme {
     /// The dark scheme.
     pub fn dark() -> Self {
         Self {
+            brightness: Brightness::Dark,
             primary: Color::rgb8(96, 200, 130),
             on_primary: Color::rgb8(16, 28, 20),
             primary_container: Color::rgb8(30, 64, 44),
@@ -261,6 +272,7 @@ impl ColorScheme {
     /// The light scheme.
     pub fn light() -> Self {
         Self {
+            brightness: Brightness::Light,
             primary: Color::rgb8(46, 160, 96),
             on_primary: Color::rgb8(255, 255, 255),
             primary_container: Color::rgb8(200, 238, 214),
@@ -344,6 +356,7 @@ impl ColorScheme {
 
         if dark {
             Self {
+                brightness: Brightness::Dark,
                 primary: p(80.0),
                 on_primary: p(20.0),
                 primary_container: p(30.0),
@@ -385,6 +398,7 @@ impl ColorScheme {
             }
         } else {
             Self {
+                brightness: Brightness::Light,
                 primary: p(40.0),
                 on_primary: p(100.0),
                 primary_container: p(90.0),
@@ -429,6 +443,10 @@ impl ColorScheme {
     pub fn lerp(&self, other: &ColorScheme, t: f32) -> ColorScheme {
         let c = |a: Color, b: Color| a.lerp(b, t);
         ColorScheme {
+            // Discrete, like the text direction: halfway between light and dark is not a
+            // third brightness, and a widget reading it mid-crossing wants the answer it
+            // will still be right about when the crossing ends.
+            brightness: other.brightness,
             primary: c(self.primary, other.primary),
             on_primary: c(self.on_primary, other.on_primary),
             primary_container: c(self.primary_container, other.primary_container),
@@ -654,6 +672,18 @@ impl Theme {
     /// arrived whole under a finger and vanished whole when it left. Reading
     /// `press_progress` is what lets it fade, and reading the flag *as well* would defeat
     /// that — the term would reach full on the first frame and the fade would never run.
+    /// **Whether this theme is a light one or a dark one** (`ThemeData.brightness`).
+    ///
+    /// The scheme is the source of truth for the colours, so it is the source of truth
+    /// for this too — a theme cannot be dark and hold a light scheme.
+    ///
+    /// Widgets that have two sets of numbers, one per brightness, ask this. They used to
+    /// compare the surface's luminance against a half, which agrees with it nearly always
+    /// and is a guess either way.
+    pub fn brightness(&self) -> crate::media::Brightness {
+        self.scheme.brightness
+    }
+
     pub fn state_layer(&self, base: Color, on: Color, status: &Status) -> Color {
         let overlay = 0.08 * status.hover_progress.clamp(0.0, 1.0)
             + 0.10 * status.focus_progress.clamp(0.0, 1.0)
@@ -717,6 +747,49 @@ mod tests {
 
     use super::*;
     use crate::disabled::DISABLED_CONTAINER_OPACITY;
+
+    /// **A scheme says what it is instead of being measured.**
+    ///
+    /// The reference carries `brightness` on both `ColorScheme` and `ThemeData`, and its
+    /// scrollbar reads it (`scrollbar.dart:232`). This framework had neither, so the one
+    /// widget that needed the answer compared the surface's luminance against a half.
+    ///
+    /// That agrees on the four schemes this crate builds — which is exactly why it
+    /// survived. It does not agree on a scheme an application writes for itself.
+    #[test]
+    fn a_scheme_says_whether_it_is_dark_rather_than_being_measured() {
+        assert!(ColorScheme::dark().brightness.is_dark());
+        assert!(ColorScheme::light().brightness.is_light());
+        let seed = Color::rgb8(0x42, 0x85, 0xF4);
+        assert!(ColorScheme::from_seed(seed, true).brightness.is_dark());
+        assert!(ColorScheme::from_seed(seed, false).brightness.is_light());
+        assert_eq!(Theme::dark().brightness(), Brightness::Dark);
+        assert_eq!(Theme::light().brightness(), Brightness::Light);
+
+        // A dimmed **light** scheme — a reading theme, a low-light one — whose surface
+        // sits below the halfway line. The guess called this dark; it is not.
+        let dim = ColorScheme {
+            surface: Color::rgb8(110, 110, 110),
+            ..ColorScheme::light()
+        };
+        assert!(
+            dim.surface.compute_luminance() < 0.5,
+            "the measurement says dark"
+        );
+        assert!(dim.brightness.is_light(), "and the scheme says light");
+    }
+
+    /// **A brightness does not interpolate.** Halfway between light and dark is not a
+    /// third brightness, and a widget reading one mid-crossing wants the answer it will
+    /// still be right about when the crossing ends — the same rule as the text
+    /// direction, and for the same reason.
+    #[test]
+    fn a_brightness_does_not_interpolate() {
+        let half = Theme::light().lerp(&Theme::dark(), 0.5);
+        assert_eq!(half.brightness(), Brightness::Dark);
+        let back = Theme::dark().lerp(&Theme::light(), 0.01);
+        assert_eq!(back.brightness(), Brightness::Light);
+    }
 
     /// The WCAG contrast between two colors (a ratio ≥ 1).
     fn contrast(a: Color, b: Color) -> f32 {

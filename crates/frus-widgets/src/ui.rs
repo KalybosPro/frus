@@ -4357,7 +4357,10 @@ impl<Msg: Clone> Builder<'_, Msg> {
         // pointer is near it (`:239`, `:245`), and at its dragged value the moment the
         // thumb is held (`:238`, `:244`) — that one does not fade in, because the hand is
         // already on it and a fade would only lag behind the grab.
-        let dark = self.theme.scheme.surface.compute_luminance() < 0.5;
+        // The scheme's own answer, which is what the reference reads here
+        // (`scrollbar.dart:232`). This used to be `surface.compute_luminance() < 0.5`:
+        // right on both built-in schemes and a guess on any other.
+        let dark = self.theme.brightness().is_dark();
         let (rest, warm, grabbed) = if dark {
             (THUMB_ON_DARK, THUMB_HOVER_ON_DARK, THUMB_DRAG_ON_DARK)
         } else {
@@ -5310,6 +5313,49 @@ mod tests {
         let runtime = Runtime::with_scrollbars(Scrollbars::Never);
         let ui = build_ui(&tall(), Size::new(200.0, 100.0), &runtime, &Theme::dark());
         assert!(ui.scrollbars().is_empty());
+    }
+
+    /// **A bar takes the scheme's word for the brightness, not the surface's luminance.**
+    ///
+    /// The opacities either side of this are three times apart at rest (`scrollbar.dart:242`,
+    /// `:248`), so getting the question wrong is not a shade — it is a bar that reads as
+    /// a smudge, or one that reads as a stripe.
+    ///
+    /// A **dimmed light** scheme is where the two answers part. The measurement it used
+    /// to make says dark; the scheme says light, and the scheme is the one that knows.
+    #[test]
+    fn a_bar_reads_the_scheme_s_brightness_and_not_its_luminance() {
+        use crate::media::Brightness;
+        let dimmed = |brightness| {
+            let mut theme = Theme::light();
+            theme.scheme.surface = Color::rgb8(110, 110, 110);
+            theme.scheme.brightness = brightness;
+            theme
+        };
+        let thumb = |theme: &Theme| {
+            let runtime = Runtime::with_scrollbars(Scrollbars::Always);
+            let ui = build_ui(
+                &tall().thumb_visibility(true),
+                Size::new(200.0, 100.0),
+                &runtime,
+                theme,
+            );
+            painted(&ui)[0].1
+        };
+
+        let light = dimmed(Brightness::Light);
+        assert!(
+            light.scheme.surface.compute_luminance() < 0.5,
+            "the luminance the old line measured says dark"
+        );
+        assert_eq!(
+            thumb(&light),
+            light.scheme.on_surface.fade(THUMB_ON_LIGHT),
+            "and the bar takes the scheme's word instead"
+        );
+
+        let dark = dimmed(Brightness::Dark);
+        assert_eq!(thumb(&dark), dark.scheme.on_surface.fade(THUMB_ON_DARK));
     }
 
     /// **And it is a thumb and nothing else** (`scrollbar.dart:281`): the reference's

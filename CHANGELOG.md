@@ -8,10 +8,27 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 452 so far, each documenting the objective, the alternatives
+> record — one per step, 453 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`ColorScheme::brightness` and `Theme::brightness()`** (J453): a theme says whether it is
+  a light one or a dark one instead of being measured. `Brightness` gains `is_dark`,
+  `is_light` and `inverted`.
+
+### Fixed
+
+- **A scrollbar's thumb reads the scheme's brightness** (J453), where it compared the
+  surface's luminance against a half. Right on the four schemes this crate builds, a guess
+  on any other — and the opacities either side are three times apart at rest.
+
+### Changed
+
+- **`ColorScheme` has one more field** (J453). Constructing one with every field listed
+  must name `brightness`; `..ColorScheme::light()` is unaffected.
 
 ### Added
 
