@@ -150,10 +150,45 @@ pub struct ColorScheme {
     pub on_primary: Color,
     pub primary_container: Color,
     pub on_primary_container: Color,
+    /// **A container that does not change when the theme does** (`color_scheme.dart:90`).
+    ///
+    /// Every other accent role is answered twice: once for a light scheme and once for a
+    /// dark one. These four are answered **once**, and both schemes give the same answer.
+    ///
+    /// That is not a shortcut, it is the whole point. A card carrying a brand colour, a
+    /// header the marketing department chose, an onboarding page whose illustration was
+    /// drawn against one particular green — anything that has to keep its colour when
+    /// the reader turns the lights off has nowhere to sit in a scheme where every role
+    /// moves. `primary_container` is the right *emphasis* for those and the wrong
+    /// *promise*. This is the same emphasis with the promise attached.
+    ///
+    /// Tone 90 of the primary palette, which is where a light scheme's
+    /// `primary_container` already sits — so in a light theme it costs nothing, and in
+    /// a dark one it is the thing that stayed put.
+    pub primary_fixed: Color,
+    /// The **stronger** of the pair, for what needs more emphasis than
+    /// [`primary_fixed`](Self::primary_fixed) without giving up the promise. Tone 80,
+    /// which is a dark scheme's `primary`.
+    pub primary_fixed_dim: Color,
+    /// What is legible on both of them — tone 10, dark enough to read on the dimmer of
+    /// the two.
+    pub on_primary_fixed: Color,
+    /// The quieter of the two things that can be written there: a subtitle where
+    /// [`on_primary_fixed`](Self::on_primary_fixed) is the title. Tone 30.
+    pub on_primary_fixed_variant: Color,
     pub secondary: Color,
     pub on_secondary: Color,
     pub secondary_container: Color,
     pub on_secondary_container: Color,
+    /// The supporting accent's fixed container {em} see
+    /// [`primary_fixed`](Self::primary_fixed) for what "fixed" promises.
+    pub secondary_fixed: Color,
+    /// The stronger of that pair.
+    pub secondary_fixed_dim: Color,
+    /// What is legible on both.
+    pub on_secondary_fixed: Color,
+    /// The quieter thing that can be written there.
+    pub on_secondary_fixed_variant: Color,
     /// A **third** accent, for what is neither the app's main colour nor its supporting
     /// one: a highlight that has to stand apart from both. Generated a sixth of the way
     /// round the wheel from the seed, which is what keeps it from reading as either.
@@ -161,6 +196,15 @@ pub struct ColorScheme {
     pub on_tertiary: Color,
     pub tertiary_container: Color,
     pub on_tertiary_container: Color,
+    /// The third accent's fixed container {em} see
+    /// [`primary_fixed`](Self::primary_fixed) for what "fixed" promises.
+    pub tertiary_fixed: Color,
+    /// The stronger of that pair.
+    pub tertiary_fixed_dim: Color,
+    /// What is legible on both.
+    pub on_tertiary_fixed: Color,
+    /// The quieter thing that can be written there.
+    pub on_tertiary_fixed_variant: Color,
     pub background: Color,
     pub surface: Color,
     pub on_surface: Color,
@@ -223,6 +267,14 @@ impl ColorScheme {
             on_primary: Color::rgb8(16, 28, 20),
             primary_container: Color::rgb8(30, 64, 44),
             on_primary_container: Color::rgb8(178, 240, 200),
+            // The four fixed roles: tones 90, 80, 10 and 30 of the primary's own hue
+            // and chroma, read off this crate's HCT. They are byte-for-byte the same
+            // in the light scheme — that is what "fixed" means, and a test holds
+            // the two together so a later touch-up of one cannot quietly break it.
+            primary_fixed: Color::rgb8(139, 249, 175),
+            primary_fixed_dim: Color::rgb8(111, 220, 149),
+            on_primary_fixed: Color::rgb8(0, 33, 14),
+            on_primary_fixed_variant: Color::rgb8(0, 82, 43),
             secondary: Color::rgb8(150, 170, 200),
             on_secondary: Color::rgb8(20, 26, 36),
             // Tone 30 of its own hue and chroma, where the reference puts a dark
@@ -232,6 +284,10 @@ impl ColorScheme {
             // resolved that fill in sRGB; before, it was 14 tones adrift.
             secondary_container: Color::rgb8(63, 71, 88),
             on_secondary_container: Color::rgb8(205, 220, 240),
+            secondary_fixed: Color::rgb8(215, 226, 255),
+            secondary_fixed_dim: Color::rgb8(178, 199, 243),
+            on_secondary_fixed: Color::rgb8(2, 27, 62),
+            on_secondary_fixed_variant: Color::rgb8(50, 71, 108),
             // The tertiary family, a sixth of the wheel from the primary at the chroma
             // the reference's tonal-spot scheme uses (24), read off this crate's own HCT
             // rather than picked by eye.
@@ -239,6 +295,10 @@ impl ColorScheme {
             on_tertiary: Color::rgb8(1, 54, 63),
             tertiary_container: Color::rgb8(32, 77, 86),
             on_tertiary_container: Color::rgb8(190, 234, 246),
+            tertiary_fixed: Color::rgb8(190, 234, 247),
+            tertiary_fixed_dim: Color::rgb8(162, 205, 218),
+            on_tertiary_fixed: Color::rgb8(1, 31, 38),
+            on_tertiary_fixed_variant: Color::rgb8(33, 76, 87),
             background: Color::rgb8(18, 20, 24),
             surface: Color::rgb8(30, 33, 40),
             on_surface: Color::rgb8(230, 232, 236),
@@ -277,14 +337,30 @@ impl ColorScheme {
             on_primary: Color::rgb8(255, 255, 255),
             primary_container: Color::rgb8(200, 238, 214),
             on_primary_container: Color::rgb8(10, 64, 36),
+            // The four fixed roles: tones 90, 80, 10 and 30 of the primary's own hue
+            // and chroma, read off this crate's HCT. They are byte-for-byte the same
+            // in the dark scheme — that is what "fixed" means, and a test holds
+            // the two together so a later touch-up of one cannot quietly break it.
+            primary_fixed: Color::rgb8(139, 249, 175),
+            primary_fixed_dim: Color::rgb8(111, 220, 149),
+            on_primary_fixed: Color::rgb8(0, 33, 14),
+            on_primary_fixed_variant: Color::rgb8(0, 82, 43),
             secondary: Color::rgb8(90, 110, 150),
             on_secondary: Color::rgb8(255, 255, 255),
             secondary_container: Color::rgb8(220, 228, 244),
             on_secondary_container: Color::rgb8(30, 42, 66),
+            secondary_fixed: Color::rgb8(215, 226, 255),
+            secondary_fixed_dim: Color::rgb8(178, 199, 243),
+            on_secondary_fixed: Color::rgb8(2, 27, 62),
+            on_secondary_fixed_variant: Color::rgb8(50, 71, 108),
             tertiary: Color::rgb8(58, 100, 111),
             on_tertiary: Color::rgb8(255, 255, 255),
             tertiary_container: Color::rgb8(190, 234, 246),
             on_tertiary_container: Color::rgb8(1, 31, 38),
+            tertiary_fixed: Color::rgb8(190, 234, 247),
+            tertiary_fixed_dim: Color::rgb8(162, 205, 218),
+            on_tertiary_fixed: Color::rgb8(1, 31, 38),
+            on_tertiary_fixed_variant: Color::rgb8(33, 76, 87),
             background: Color::rgb8(245, 246, 248),
             surface: Color::rgb8(255, 255, 255),
             on_surface: Color::rgb8(28, 32, 38),
@@ -361,14 +437,30 @@ impl ColorScheme {
                 on_primary: p(20.0),
                 primary_container: p(30.0),
                 on_primary_container: p(90.0),
+                // The fixed four. **The same tones in both branches** — they are read
+                // off the palettes, which do not know which theme is being built, so a
+                // seed gives one answer for a light scheme and a dark one and the
+                // promise holds by construction.
+                primary_fixed: p(90.0),
+                primary_fixed_dim: p(80.0),
+                on_primary_fixed: p(10.0),
+                on_primary_fixed_variant: p(30.0),
                 secondary: s(80.0),
                 on_secondary: s(20.0),
                 secondary_container: s(30.0),
                 on_secondary_container: s(90.0),
+                secondary_fixed: s(90.0),
+                secondary_fixed_dim: s(80.0),
+                on_secondary_fixed: s(10.0),
+                on_secondary_fixed_variant: s(30.0),
                 tertiary: ter(80.0),
                 on_tertiary: ter(20.0),
                 tertiary_container: ter(30.0),
                 on_tertiary_container: ter(90.0),
+                tertiary_fixed: ter(90.0),
+                tertiary_fixed_dim: ter(80.0),
+                on_tertiary_fixed: ter(10.0),
+                on_tertiary_fixed_variant: ter(30.0),
                 background: n(6.0),
                 surface: n(12.0),
                 on_surface: n(90.0),
@@ -403,14 +495,26 @@ impl ColorScheme {
                 on_primary: p(100.0),
                 primary_container: p(90.0),
                 on_primary_container: p(10.0),
+                primary_fixed: p(90.0),
+                primary_fixed_dim: p(80.0),
+                on_primary_fixed: p(10.0),
+                on_primary_fixed_variant: p(30.0),
                 secondary: s(40.0),
                 on_secondary: s(100.0),
                 secondary_container: s(90.0),
                 on_secondary_container: s(10.0),
+                secondary_fixed: s(90.0),
+                secondary_fixed_dim: s(80.0),
+                on_secondary_fixed: s(10.0),
+                on_secondary_fixed_variant: s(30.0),
                 tertiary: ter(40.0),
                 on_tertiary: ter(100.0),
                 tertiary_container: ter(90.0),
                 on_tertiary_container: ter(10.0),
+                tertiary_fixed: ter(90.0),
+                tertiary_fixed_dim: ter(80.0),
+                on_tertiary_fixed: ter(10.0),
+                on_tertiary_fixed_variant: ter(30.0),
                 background: n(98.0),
                 surface: n(100.0),
                 on_surface: n(10.0),
@@ -451,14 +555,38 @@ impl ColorScheme {
             on_primary: c(self.on_primary, other.on_primary),
             primary_container: c(self.primary_container, other.primary_container),
             on_primary_container: c(self.on_primary_container, other.on_primary_container),
+            // The fixed four take part like any other role. A light/dark crossing moves
+            // them nowhere, because both ends hold the same colour — but a **palette**
+            // crossing does, and there they have to travel with everything else.
+            primary_fixed: c(self.primary_fixed, other.primary_fixed),
+            primary_fixed_dim: c(self.primary_fixed_dim, other.primary_fixed_dim),
+            on_primary_fixed: c(self.on_primary_fixed, other.on_primary_fixed),
+            on_primary_fixed_variant: c(
+                self.on_primary_fixed_variant,
+                other.on_primary_fixed_variant,
+            ),
             secondary: c(self.secondary, other.secondary),
             on_secondary: c(self.on_secondary, other.on_secondary),
             secondary_container: c(self.secondary_container, other.secondary_container),
             on_secondary_container: c(self.on_secondary_container, other.on_secondary_container),
+            secondary_fixed: c(self.secondary_fixed, other.secondary_fixed),
+            secondary_fixed_dim: c(self.secondary_fixed_dim, other.secondary_fixed_dim),
+            on_secondary_fixed: c(self.on_secondary_fixed, other.on_secondary_fixed),
+            on_secondary_fixed_variant: c(
+                self.on_secondary_fixed_variant,
+                other.on_secondary_fixed_variant,
+            ),
             tertiary: c(self.tertiary, other.tertiary),
             on_tertiary: c(self.on_tertiary, other.on_tertiary),
             tertiary_container: c(self.tertiary_container, other.tertiary_container),
             on_tertiary_container: c(self.on_tertiary_container, other.on_tertiary_container),
+            tertiary_fixed: c(self.tertiary_fixed, other.tertiary_fixed),
+            tertiary_fixed_dim: c(self.tertiary_fixed_dim, other.tertiary_fixed_dim),
+            on_tertiary_fixed: c(self.on_tertiary_fixed, other.on_tertiary_fixed),
+            on_tertiary_fixed_variant: c(
+                self.on_tertiary_fixed_variant,
+                other.on_tertiary_fixed_variant,
+            ),
             background: c(self.background, other.background),
             surface: c(self.surface, other.surface),
             on_surface: c(self.on_surface, other.on_surface),
@@ -837,6 +965,23 @@ mod tests {
                         s.on_tertiary_container,
                     ),
                     ("error_container", s.error_container, s.on_error_container),
+                    // The fixed pair carries text as well, and it carries the **same**
+                    // text over two surfaces: whatever is written on `primary_fixed`
+                    // has to still be legible when a caller reaches for the dim one.
+                    ("primary_fixed", s.primary_fixed, s.on_primary_fixed),
+                    ("primary_fixed_dim", s.primary_fixed_dim, s.on_primary_fixed),
+                    ("secondary_fixed", s.secondary_fixed, s.on_secondary_fixed),
+                    (
+                        "secondary_fixed_dim",
+                        s.secondary_fixed_dim,
+                        s.on_secondary_fixed,
+                    ),
+                    ("tertiary_fixed", s.tertiary_fixed, s.on_tertiary_fixed),
+                    (
+                        "tertiary_fixed_dim",
+                        s.tertiary_fixed_dim,
+                        s.on_tertiary_fixed,
+                    ),
                 ] {
                     let ratio = contrast(base, on);
                     assert!(
@@ -845,6 +990,158 @@ mod tests {
                          dark={dark}"
                     );
                 }
+            }
+        }
+    }
+
+    /// The twelve roles that promise to stay put, as `(name, light, dark)`.
+    fn fixed_roles(light: &ColorScheme, dark: &ColorScheme) -> Vec<(&'static str, Color, Color)> {
+        vec![
+            ("primary_fixed", light.primary_fixed, dark.primary_fixed),
+            (
+                "primary_fixed_dim",
+                light.primary_fixed_dim,
+                dark.primary_fixed_dim,
+            ),
+            (
+                "on_primary_fixed",
+                light.on_primary_fixed,
+                dark.on_primary_fixed,
+            ),
+            (
+                "on_primary_fixed_variant",
+                light.on_primary_fixed_variant,
+                dark.on_primary_fixed_variant,
+            ),
+            (
+                "secondary_fixed",
+                light.secondary_fixed,
+                dark.secondary_fixed,
+            ),
+            (
+                "secondary_fixed_dim",
+                light.secondary_fixed_dim,
+                dark.secondary_fixed_dim,
+            ),
+            (
+                "on_secondary_fixed",
+                light.on_secondary_fixed,
+                dark.on_secondary_fixed,
+            ),
+            (
+                "on_secondary_fixed_variant",
+                light.on_secondary_fixed_variant,
+                dark.on_secondary_fixed_variant,
+            ),
+            ("tertiary_fixed", light.tertiary_fixed, dark.tertiary_fixed),
+            (
+                "tertiary_fixed_dim",
+                light.tertiary_fixed_dim,
+                dark.tertiary_fixed_dim,
+            ),
+            (
+                "on_tertiary_fixed",
+                light.on_tertiary_fixed,
+                dark.on_tertiary_fixed,
+            ),
+            (
+                "on_tertiary_fixed_variant",
+                light.on_tertiary_fixed_variant,
+                dark.on_tertiary_fixed_variant,
+            ),
+        ]
+    }
+
+    /// **A fixed role does not move when the lights go out** — the one promise the
+    /// twelve of them make (`color_scheme.dart:90`).
+    ///
+    /// Every other accent role is answered twice, once per brightness. These are
+    /// answered once. A brand colour on a card, an onboarding illustration drawn against
+    /// one particular green, a header somebody signed off in a design review: they have
+    /// nowhere to sit in a scheme where every role moves. `primary_container` is the
+    /// right emphasis for them and the wrong promise.
+    ///
+    /// This holds it for **both** ways a scheme is built — the pair written out by
+    /// hand, where the promise is two literals that have to agree, and the pair a seed
+    /// generates, where it holds by construction because the tone is read off a palette
+    /// that does not know which theme is being built.
+    #[test]
+    fn a_fixed_role_does_not_move_when_the_lights_go_out() {
+        for (name, light, dark) in fixed_roles(&ColorScheme::light(), &ColorScheme::dark()) {
+            assert_eq!(light, dark, "the written schemes disagree about {name}");
+        }
+
+        for seed in [
+            Color::rgb8(0x42, 0x85, 0xF4),
+            Color::rgb8(0x9C, 0x27, 0xB0),
+            Color::rgb8(0x80, 0x80, 0x80),
+        ] {
+            let l = ColorScheme::from_seed(seed, false);
+            let d = ColorScheme::from_seed(seed, true);
+            for (name, light, dark) in fixed_roles(&l, &d) {
+                assert_eq!(light, dark, "seed {seed:?} disagrees about {name}");
+            }
+        }
+    }
+
+    /// **The dim one is the stronger one**, and what is written on either is legible on
+    /// **both** — which is the reason `on_*_fixed` is a single role and not two.
+    ///
+    /// A caller that paints `primary_fixed` today and swaps to `primary_fixed_dim` for
+    /// emphasis tomorrow does not get to re-pick its text colour, so tone 10 has to
+    /// clear the bar against the darker of the pair as well.
+    #[test]
+    fn the_dim_half_is_the_stronger_half() {
+        for scheme in [
+            ColorScheme::light(),
+            ColorScheme::dark(),
+            ColorScheme::from_seed(Color::rgb8(0x42, 0x85, 0xF4), false),
+            ColorScheme::from_seed(Color::rgb8(0x9C, 0x27, 0xB0), true),
+        ] {
+            for (name, fixed, dim, on, variant) in [
+                (
+                    "primary",
+                    scheme.primary_fixed,
+                    scheme.primary_fixed_dim,
+                    scheme.on_primary_fixed,
+                    scheme.on_primary_fixed_variant,
+                ),
+                (
+                    "secondary",
+                    scheme.secondary_fixed,
+                    scheme.secondary_fixed_dim,
+                    scheme.on_secondary_fixed,
+                    scheme.on_secondary_fixed_variant,
+                ),
+                (
+                    "tertiary",
+                    scheme.tertiary_fixed,
+                    scheme.tertiary_fixed_dim,
+                    scheme.on_tertiary_fixed,
+                    scheme.on_tertiary_fixed_variant,
+                ),
+            ] {
+                assert!(
+                    dim.compute_luminance() < fixed.compute_luminance(),
+                    "{name}_fixed_dim is not the stronger of the pair"
+                );
+                for (surface, label) in [(fixed, "fixed"), (dim, "fixed_dim")] {
+                    let ratio = contrast(surface, on);
+                    assert!(
+                        ratio >= 4.5,
+                        "on_{name}_fixed does not read on {name}_{label} ({ratio:.2})"
+                    );
+                }
+                // The variant is the quieter of the two, so it is allowed less — but
+                // it is still text, and 3:1 is the floor for large text.
+                assert!(
+                    contrast(fixed, variant) >= 3.0,
+                    "on_{name}_fixed_variant does not read on {name}_fixed"
+                );
+                assert!(
+                    variant.compute_luminance() > on.compute_luminance(),
+                    "on_{name}_fixed_variant is not the quieter of the two"
+                );
             }
         }
     }

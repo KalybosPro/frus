@@ -8,10 +8,25 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 458 so far, each documenting the objective, the alternatives
+> record — one per step, 459 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **The Material 3 fixed accent roles on `ColorScheme`** (J459): `primary_fixed`,
+  `primary_fixed_dim`, `on_primary_fixed`, `on_primary_fixed_variant`, and the same four
+  for the secondary and the tertiary. Twelve colours that hold the **same value in a light
+  scheme and a dark one**, for a surface that must not change when the theme does — a
+  brand colour, an illustration drawn against one particular shade. They are tones 90, 80,
+  10 and 30 of the accent's palette, written identically into both built-in schemes and
+  read off the palette in both branches of `from_seed`.
+
+### Changed
+
+- **`ColorScheme` has twelve more fields** (J459), so a literal construction of one must
+  name them. Anything using `..ColorScheme::light()` is unaffected.
 
 ### Added
 
