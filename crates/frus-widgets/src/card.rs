@@ -125,6 +125,19 @@ impl<Msg> Card<Msg> {
     }
 
     /// Overrides the corner radii (uniform via `f32`, per corner via [`BorderRadius`]).
+    /// **What shape the card is** — the reference's `shape` (`card.dart`), over the
+    /// corners [`radius`](Self::radius) names. They are **one** field, and the last of the
+    /// two called is the one that counts.
+    ///
+    /// Milestone 451 gave the card the field and the resolution and — the CHANGELOG
+    /// notwithstanding — never gave it this builder, so a caller could still only ask for
+    /// a corner. This is that builder.
+    #[must_use]
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.shape = Some(shape);
+        self
+    }
+
     pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
         self.shape = Some(ShapeBorder::rounded(radius));
         self
@@ -274,6 +287,44 @@ mod tests {
 
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {}
+
+    /// **A card takes a whole shape** — which milestone 451 built the field and the
+    /// resolution for, announced in the CHANGELOG, and never gave a builder. A caller
+    /// could still only ask for a corner.
+    #[test]
+    fn a_card_takes_a_whole_shape_and_not_only_a_corner() {
+        let corners = |card: &Card<Msg>| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                card,
+                Rect::new(0.0, 0.0, 200.0, 100.0),
+                Status::default(),
+                &Theme::default(),
+                &mut scene,
+            );
+            scene.primitives().iter().find_map(|p| match p {
+                Primitive::Rect {
+                    rect, radius, blur, ..
+                } if *blur == 0.0 && rect.width == 200.0 => Some(*radius),
+                _ => None,
+            })
+        };
+
+        assert_eq!(
+            corners(&Card::<Msg>::new().shape(ShapeBorder::stadium())),
+            Some(BorderRadius::uniform(50.0)),
+            "half the short side of 200x100"
+        );
+        // One field, two builders: the last one called counts.
+        assert_eq!(
+            corners(&Card::<Msg>::new().shape(ShapeBorder::stadium()).radius(4.0)),
+            Some(BorderRadius::uniform(4.0))
+        );
+        assert_eq!(
+            corners(&Card::<Msg>::new().radius(4.0).shape(ShapeBorder::stadium())),
+            Some(BorderRadius::uniform(50.0))
+        );
+    }
 
     /// **A theme can name a card's shape**, and it outranks the plain radius beside it
     /// (`card.dart`). Until milestone 451 a card could only be given a corner.

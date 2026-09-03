@@ -25,7 +25,7 @@
 
 #[cfg(test)]
 use frus_core::FontWeight;
-use frus_core::{BorderRadius, Color, TextStyle};
+use frus_core::{BorderRadius, Color, Rect, ShapeBorder, TextStyle};
 use frus_layout::{Align, Dimension};
 
 use crate::button::Variant;
@@ -160,7 +160,7 @@ pub struct AppBar<Msg> {
     title_spacing: f32,
     foreground: Option<Color>,
     elevation: f32,
-    shape: Option<BorderRadius>,
+    shape: Option<ShapeBorder>,
     shadow_color: Option<Color>,
     surface_tint: Option<Color>,
     force_material_transparency: bool,
@@ -418,15 +418,29 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self
     }
 
-    /// The bar's **shape**: how far its corners are rounded. Square by default, as the
-    /// reference's is.
+    /// **What shape the bar is** — the reference's `shape` (`app_bar.dart:209`), and a
+    /// whole [`ShapeBorder`] since milestone 455. Square by default, as the reference's is.
     ///
     /// The bar clips to it, so a coloured surface and anything drawn on it stop at the
-    /// curve rather than squaring off the corner the shadow already rounded. The
-    /// reference's `shape` is a whole `ShapeBorder`; this is the part of it a bar
-    /// actually uses — a rounded rectangle, per corner if wanted.
-    pub fn shape(mut self, shape: impl Into<BorderRadius>) -> Self {
-        self.shape = Some(shape.into());
+    /// curve rather than squaring off the corner the shadow already rounded.
+    ///
+    /// A bar is a **rectangle**, so what a shape contributes here is the corners it
+    /// resolves to in the bar's own box — a stadium rounds to half the bar's height,
+    /// which is what a stadium means on a wide, short box. A shape with no rounded form
+    /// at all leaves the bar square rather than clipping it to something it is not.
+    ///
+    /// **Breaking**: this took a `BorderRadius` under the same name until milestone 455.
+    /// A caller passing a number says [`radius`](Self::radius) instead.
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.shape = Some(shape);
+        self
+    }
+
+    /// The corner radii — the shorthand for a rounded rectangle, writing into the same
+    /// one field [`shape`](Self::shape) does. The last of the two called is the one that
+    /// counts.
+    pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
+        self.shape = Some(ShapeBorder::rounded(radius));
         self
     }
 
@@ -997,8 +1011,14 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         }
         // The shape clips as well as rounds: a surface that stopped short of its own
         // corner would square off the one the shadow had already curved.
+        //
+        // The corners a shape *resolves to* in the bar's own box, not the shape itself:
+        // the chrome is a rectangle, and a shape that is not one has no corners to give.
         if let Some(shape) = shape.or(t.shape) {
-            chrome = chrome.radius(shape).clip();
+            let box_ = Rect::new(0.0, 0.0, width, height.unwrap_or(APP_BAR_HEIGHT));
+            if let Some((_, radius)) = shape.as_rounded(box_) {
+                chrome = chrome.radius(radius).clip();
+            }
         }
         // **Behind the toolbar, filling the bar's box.** A layer, not a slot: the bar is
         // exactly as tall as it was, however tall the widget would rather be. The bar's
@@ -1151,6 +1171,85 @@ mod tests {
         );
     }
 
+    /// **A bar takes a whole shape, not only a corner** (`app_bar.dart:209`).
+    ///
+    /// A bar is a rectangle, so what a shape contributes is the corners it resolves to in
+    /// the bar's **own** box — and a stadium's box is a wide, short one, so it rounds to
+    /// half the bar's height. That is the number the old `BorderRadius`-only property
+    /// could never have been given, because it would have had to be written out at the
+    /// call site and would then have been wrong for a bar of any other height.
+    #[test]
+    fn a_bar_takes_a_whole_shape_and_not_only_a_corner() {
+        // A background, because `surface` looks for the widest opaque rectangle and a
+        // bar the theme gives no colour paints none.
+        let corner = |bar: AppBar<Msg>| {
+            let built = bar
+                .width(400.0)
+                .background(Color::rgb(0.2, 0.2, 0.2))
+                .build();
+            surface(built.as_ref(), 400.0).map(|(_, radius)| radius)
+        };
+
+        // A stadium: half the short side of a 400x64 bar (`APP_BAR_HEIGHT`), so 32.
+        assert_eq!(
+            corner(AppBar::new("Title").shape(ShapeBorder::stadium())),
+            Some(APP_BAR_HEIGHT / 2.0)
+        );
+
+        // And half of a taller one, without the caller doing the arithmetic.
+        assert_eq!(
+            corner(
+                AppBar::new("Title")
+                    .height(80.0)
+                    .shape(ShapeBorder::stadium())
+            ),
+            Some(40.0)
+        );
+
+        // The shorthand still says what it always said.
+        assert_eq!(corner(AppBar::new("Title").radius(18.0)), Some(18.0));
+
+        // A shape with no rounded form leaves the bar square rather than clipping it to
+        // something a bar is not.
+        assert_eq!(
+            corner(AppBar::new("Title").shape(ShapeBorder::beveled(6.0))),
+            Some(0.0)
+        );
+    }
+
+    /// **And a theme can name one**, which it could not: `AppBarTheme::shape` was the last
+    /// theme field left carrying the reference's word with a corner radius behind it.
+    #[test]
+    fn a_theme_names_the_bar_s_shape() {
+        let mut theme = Theme::dark();
+        theme.widgets.app_bar.shape = Some(ShapeBorder::stadium());
+        theme.widgets.app_bar.background = Some(Color::rgb(0.2, 0.2, 0.2));
+        let built = AppBar::<Msg>::new("Title").width(400.0).build();
+        let ui = build_ui(
+            built.as_ref(),
+            Size::new(400.0, 200.0),
+            &Runtime::default(),
+            &theme,
+        );
+        fn find(primitives: &[crate::Primitive]) -> Option<f32> {
+            for p in primitives {
+                match p {
+                    crate::Primitive::Rect {
+                        rect, radius, blur, ..
+                    } if rect.width >= 399.5 && *blur == 0.0 => return Some(radius.top_left),
+                    crate::Primitive::Layer { primitives, .. } => {
+                        if let Some(found) = find(primitives) {
+                            return Some(found);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+        assert_eq!(find(ui.scene().primitives()), Some(APP_BAR_HEIGHT / 2.0));
+    }
+
     /// **The shape rounds the bar's corners**, and the caller's outranks the theme's.
     #[test]
     fn the_bar_takes_the_shape_it_was_given() {
@@ -1162,7 +1261,7 @@ mod tests {
         let rounded = AppBar::<Msg>::new("Title")
             .width(W)
             .background(Color::rgb(0.2, 0.2, 0.2))
-            .shape(frus_core::BorderRadius::uniform(18.0))
+            .radius(18.0)
             .build();
         assert_eq!(surface(square.as_ref(), W).expect("square").1, 0.0);
         assert_eq!(surface(rounded.as_ref(), W).expect("rounded").1, 18.0);

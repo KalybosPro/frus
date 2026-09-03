@@ -114,6 +114,8 @@ pub struct SnackBar<Msg> {
     kind: SnackBarKind,
     /// Where it sits; `None` follows the theme, which follows the reference's `Fixed`.
     behavior: Option<SnackBarBehavior>,
+    /// What shape it is; `None` follows the theme, then the behaviour's own corner.
+    shape: Option<ShapeBorder>,
     /// A floating bar's own width, over the room it is given. Floating only.
     width: Option<f32>,
     /// A floating bar's own margin, over `insetPadding`. Floating only.
@@ -143,6 +145,7 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
             text: text.into(),
             kind: SnackBarKind::Info,
             behavior: None,
+            shape: None,
             width: None,
             margin: None,
             content_text_style: None,
@@ -166,6 +169,18 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
     #[must_use]
     pub fn behavior(mut self, behavior: SnackBarBehavior) -> Self {
         self.behavior = Some(behavior);
+        self
+    }
+
+    /// **What shape it is** (`snack_bar.dart:798`), over the theme's.
+    ///
+    /// Milestone 446 established that a **fixed** bar has no corner at all and a floating
+    /// one rounds at 4, and milestone 451 resolved a shape for it — from the theme only.
+    /// A caller could not name one, and the resolution was reading the theme's answer in
+    /// the slot reserved for the caller's. Both are fixed here.
+    #[must_use]
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.shape = Some(shape);
         self
     }
 
@@ -446,8 +461,8 @@ impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
         // square corners — a bar flush against three edges of the page has nothing to
         // round, and rounding it would leave four slivers of page showing through.
         let shape = crate::resolve_shape(
+            self.shape,
             t.shape,
-            None,
             t.radius.map(BorderRadius::uniform),
             ShapeBorder::rounded(match self.placing(Some(theme)) {
                 SnackBarBehavior::Fixed => 0.0,

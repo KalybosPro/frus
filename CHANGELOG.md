@@ -8,10 +8,30 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 454 so far, each documenting the objective, the alternatives
+> record — one per step, 455 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`Card::shape()` and `SnackBar::shape()`** (J455): the builders milestone 451 announced
+  for the card and implied for the snack bar, and neither of which existed. The fields and
+  the resolution were already there; only the way in was missing.
+
+- **`AppBar::radius()`** (J455): the shorthand for a rounded rectangle, beside the shape.
+
+### Fixed
+
+- **A snack bar's shape resolution read the theme in the caller's slot** (J455), and
+  nothing in the theme's. Right only while no caller could name one.
+
+### Changed
+
+- **`AppBar::shape` and `AppBarTheme::shape` take a `ShapeBorder`** (J455), not a
+  `BorderRadius`. A bar is a rectangle, so a shape gives it the corners it resolves to in
+  the bar's own box — `ShapeBorder::stadium()` rounds to half the bar's height at any
+  height. **Callers passing a number** say `.radius(18.0)`.
 
 ### Added
 

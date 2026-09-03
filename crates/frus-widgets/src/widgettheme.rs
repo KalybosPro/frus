@@ -319,8 +319,11 @@ pub struct AppBarTheme {
     /// The colour laid over the surface in proportion to the elevation — Material 3's
     /// way of showing height, and the one that still reads on a dark background.
     pub surface_tint: Option<Color>,
-    /// How far the bar's corners are rounded. Unset, square.
-    pub shape: Option<BorderRadius>,
+    /// **What shape the bar is** — the reference's `AppBarTheme.shape`. Unset, square.
+    ///
+    /// It was an `Option<BorderRadius>` under this name until milestone 455: the last
+    /// theme field left carrying the reference's *word* with a corner radius behind it.
+    pub shape: Option<ShapeBorder>,
 }
 
 /// Defaults for [`TextField`](crate::TextField).
