@@ -24,12 +24,12 @@ use frus_widgets::{
     CircularProgressIndicator, ClipOval, ClipPath, ClipRRect, ColorPicker, ConstrainedBox,
     Container, ControlAffinity, CustomPaint, Divider, Expanded, ExpansionTile, FittedBox, Flex,
     FloatingActionButton, FontWeight, FractionallySizedBox, GridView, Icon, Icons, Image,
-    Intrinsic, Kbd, LinearProgressIndicator, ListView, MenuAnchor, NavigationBar, NavigationDrawer,
-    NavigationRail, Offstage, Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup,
-    RadioListTile, RichText, RotatedBox, SafeArea, SearchBar, SegmentedButton,
-    SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile,
-    TabBar, Theme, Timeline, Transform, TwoPane, UserAccountsDrawerHeader, VerticalDivider,
-    Visibility, Widget,
+    Intrinsic, Kbd, LinearProgressIndicator, ListTile, ListView, MenuAnchor, NavigationBar,
+    NavigationDrawer, NavigationRail, Offstage, Opacity, OverflowBox, OverlayPortal, Placement,
+    RadioGroup, RadioListTile, RichText, RotatedBox, SafeArea, SearchAnchor, SearchBar,
+    SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch,
+    SwitchListTile, TabBar, Theme, Timeline, Transform, TwoPane, UserAccountsDrawerHeader,
+    VerticalDivider, Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -499,6 +499,32 @@ fn the_search_bars() {
             ),
     );
     check("search_bars", 380, 230, &root);
+}
+
+/// **The view a search bar opens**, which milestone 469 left the bar without. The picture
+/// is of the floating form: a panel under the anchor, its header the same field again on
+/// the panel's own surface — flat and transparent, so the panel casts one shadow and not
+/// two — a rule, and the rows underneath.
+#[test]
+fn the_search_view() {
+    let root: Container<()> = Container::new().padding(10.0).child(
+        SearchAnchor::new(true, "lis")
+            .full_screen(false)
+            .hint("Search mail")
+            .view_min_width(340.0)
+            .view_min_height(215.0)
+            .on_close(())
+            .on_clear(())
+            .suggestion(ListTile::new().dense().title("flight to lisbon").on_tap(()))
+            .suggestion(
+                ListTile::new()
+                    .dense()
+                    .title("flights from lisbon")
+                    .on_tap(()),
+            )
+            .suggestion(ListTile::new().dense().title("lisbon weather").on_tap(())),
+    );
+    check("search_view", 380, 320, &root);
 }
 
 // ---------------------------------------------------------------------------

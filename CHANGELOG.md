@@ -8,10 +8,30 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 469 so far, each documenting the objective, the alternatives
+> record — one per step, 470 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`SearchAnchor`** (J470): the view a search bar opens — a panel under it on a
+  desktop, the whole screen on a phone. Open and shut come from the application's model,
+  not from a route or a controller.
+
+- **`SearchViewTheme`** (J470).
+
+- **`Localizations::clear_button_label`** (J470). Not *Close*: the same glyph means two
+  different things depending on what it sits in.
+
+- **`OverlayPortal::new_boxed` and `overlay_boxed`** (J470), for a widget that assembles
+  its own anchor rather than being handed one.
+
+### Fixed
+
+- **A `SearchBar` with no surface no longer lights under a pointer** (J470). A state layer
+  is a lerp from the ground toward the ink; a transparent ground gave a grey wash over
+  whatever was behind the bar.
 
 ### Added
 

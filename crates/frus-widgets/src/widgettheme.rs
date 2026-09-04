@@ -88,6 +88,7 @@ pub struct WidgetThemes {
     pub nav_rail: NavRailTheme,
     pub nav_drawer: NavDrawerTheme,
     pub search_bar: SearchBarTheme,
+    pub search_view: SearchViewTheme,
     /// Defaults for the two progress indicators.
     pub progress: ProgressTheme,
     pub radio: RadioTheme,
@@ -978,6 +979,44 @@ pub struct SearchBarTheme {
     /// reference falls back to the value's style **before** its own default, so a bar told
     /// to use one type does not say its hint in another.
     pub hint_style: Option<TextStyle>,
+}
+
+/// Defaults for the view a [`SearchAnchor`](crate::SearchAnchor) opens — the reference's
+/// `SearchViewThemeData`.
+///
+/// Kept apart from [`SearchBarTheme`] because the reference keeps them apart, and because
+/// the two disagree where it matters: the view's shape depends on whether it is the screen,
+/// its header is taller than a bar when it is, and it has a rule under that header that a
+/// bar has nothing to do with.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SearchViewTheme {
+    /// The view's fill. Unset, the scheme's `surface_container_high`
+    /// (`search_anchor.dart:1936`) — the same rung the bar takes, so one grows out of the
+    /// other rather than changing colour on the way.
+    pub background_color: Option<Color>,
+    /// How far off the page it sits. Unset, `6`.
+    pub elevation: Option<f32>,
+    /// Its shape. Unset, corners of `28` floating and square full-screen.
+    pub shape: Option<frus_core::ShapeBorder>,
+    /// Its corners, read as a rounded rectangle when no shape was named.
+    pub radius: Option<BorderRadius>,
+    /// An outline around it. Unset, none (`search_anchor.dart:1944`).
+    pub side: Option<frus_core::BorderSide>,
+    /// The rule under the header. Unset, the scheme's `outline`
+    /// (`search_anchor.dart:1967`).
+    pub divider_color: Option<Color>,
+    /// The header's height. Unset, `72` full-screen and a bar's `56` floating.
+    pub header_height: Option<f32>,
+    /// The header's type. Unset, `bodyLarge` in `on_surface`.
+    pub header_text_style: Option<TextStyle>,
+    /// The header hint's. Unset, `bodyLarge` in `on_surface_variant`.
+    pub header_hint_style: Option<TextStyle>,
+    /// The narrowest the view goes. Unset, `360`.
+    pub min_width: Option<f32>,
+    /// The shortest. Unset, `240`.
+    pub min_height: Option<f32>,
+    /// The room either side of the header's contents. Unset, `8`.
+    pub bar_padding: Option<frus_core::Insets>,
 }
 
 /// Defaults for [`NavigationDrawer`](crate::NavigationDrawer).

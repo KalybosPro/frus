@@ -434,10 +434,18 @@ impl<Msg: Clone + 'static> Widget<Msg> for SearchBar<Msg> {
             .background
             .or(t.background_color)
             .unwrap_or(theme.scheme.surface_container_high);
-        // Nothing lights on a bar that cannot be used. Otherwise the framework's one rule
-        // — a lerp from the ground toward the ink, resolved opaquely, answering hover,
-        // focus and press at once (`search_anchor.dart:1874`).
-        let fill = if self.enabled {
+        // Nothing lights on a bar that cannot be used. **Nor on one with no surface**: a
+        // state layer is a lerp *from the ground* toward the ink, and a transparent ground
+        // lerped toward `on_surface` is a grey wash over whatever is behind the bar rather
+        // than a highlight on the bar. That is the case a search **view**'s header is
+        // — a bar painted onto a surface that is already there — and it is why the
+        // reference sets that header's overlay to transparent (`search_anchor.dart:1166`)
+        // rather than leaving it to the default.
+        //
+        // Otherwise the framework's one rule: a lerp from the ground toward the ink,
+        // resolved opaquely, answering hover, focus and press at once
+        // (`search_anchor.dart:1874`).
+        let fill = if self.enabled && base.a > 0.0 {
             theme.state_layer(base, theme.scheme.on_surface, &status)
         } else {
             base

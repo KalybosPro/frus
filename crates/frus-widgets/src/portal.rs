@@ -37,9 +37,15 @@ pub struct OverlayPortal<Msg> {
     on_dismiss: Option<Msg>,
 }
 
-impl<Msg> OverlayPortal<Msg> {
+impl<Msg: 'static> OverlayPortal<Msg> {
     /// Creates a portal around an anchor, which is rendered normally.
     pub fn new(anchor: impl Widget<Msg> + 'static) -> Self {
+        Self::new_boxed(Box::new(anchor))
+    }
+
+    /// [`Self::new`], for an anchor already boxed — what a widget that *assembles* its
+    /// anchor has, rather than an `impl Widget` a caller typed out.
+    pub fn new_boxed(anchor: Box<dyn Widget<Msg>>) -> Self {
         Self {
             children: vec![Box::new(anchor)],
             placement: Placement::Below,
@@ -48,7 +54,12 @@ impl<Msg> OverlayPortal<Msg> {
     }
 
     /// Adds the floating content and its placement.
-    pub fn overlay(mut self, content: impl Widget<Msg> + 'static, placement: Placement) -> Self {
+    pub fn overlay(self, content: impl Widget<Msg> + 'static, placement: Placement) -> Self {
+        self.overlay_boxed(Box::new(content), placement)
+    }
+
+    /// [`Self::overlay`], for content already boxed.
+    pub fn overlay_boxed(mut self, content: Box<dyn Widget<Msg>>, placement: Placement) -> Self {
         self.children.truncate(1);
         self.children.push(Box::new(content));
         self.placement = placement;

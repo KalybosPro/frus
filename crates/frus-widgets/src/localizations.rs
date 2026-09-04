@@ -91,6 +91,15 @@ pub trait Localizations {
         "Hide accounts"
     }
 
+    /// **What a reader hears on the cross that empties a field** (`clearButtonTooltip`).
+    ///
+    /// Not [`close_button_label`](Self::close_button_label): the same glyph means two
+    /// different things depending on what it sits in, and *Close* on a control that empties
+    /// a search box would send a reader looking for the thing it closed.
+    fn clear_button_label(&self) -> &str {
+        "Clear"
+    }
+
     /// The word on a confirming button (`okButtonLabel`).
     fn ok_button_label(&self) -> &str {
         "OK"
