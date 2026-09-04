@@ -26,9 +26,10 @@ use frus_widgets::{
     FloatingActionButton, FontWeight, FractionallySizedBox, GridView, Icon, Icons, Image,
     Intrinsic, Kbd, LinearProgressIndicator, ListView, MenuAnchor, NavigationBar, NavigationDrawer,
     NavigationRail, Offstage, Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup,
-    RadioListTile, RichText, RotatedBox, SafeArea, SegmentedButton, SingleChildScrollView,
-    SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile, TabBar, Theme, Timeline,
-    Transform, TwoPane, UserAccountsDrawerHeader, VerticalDivider, Visibility, Widget,
+    RadioListTile, RichText, RotatedBox, SafeArea, SearchBar, SegmentedButton,
+    SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile,
+    TabBar, Theme, Timeline, Transform, TwoPane, UserAccountsDrawerHeader, VerticalDivider,
+    Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -467,6 +468,37 @@ fn a_rule_down_a_row_and_the_room_left_over() {
             .child(text("12")),
     );
     check("row_rules_and_space", 280, 64, &root);
+}
+
+/// **The search bar**, which is a field with no container of its own inside a container of
+/// the framework's. The picture is for that: the pill's corners are the pill's, and there
+/// is no second box sitting inside them. Three of them — carrying a query, empty with a
+/// hint, and disabled, which fades rather than flattening.
+#[test]
+fn the_search_bars() {
+    let root: Container<()> = Container::new().padding(12.0).child(
+        Flex::column()
+            .gap(14.0)
+            .child(
+                SearchBar::new("flight to lisbon")
+                    .min_width(340.0)
+                    .leading(Icon::new(Icons::Menu).size(20.0))
+                    .trailing(Icon::new(Icons::Close).size(20.0)),
+            )
+            .child(
+                SearchBar::new("")
+                    .min_width(340.0)
+                    .hint("Search mail")
+                    .leading(Icon::new(Icons::Star).size(20.0)),
+            )
+            .child(
+                SearchBar::new("")
+                    .min_width(340.0)
+                    .hint("Search is off")
+                    .enabled(false),
+            ),
+    );
+    check("search_bars", 380, 230, &root);
 }
 
 // ---------------------------------------------------------------------------

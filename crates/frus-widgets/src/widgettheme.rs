@@ -87,6 +87,7 @@ pub struct WidgetThemes {
     pub menu: MenuTheme,
     pub nav_rail: NavRailTheme,
     pub nav_drawer: NavDrawerTheme,
+    pub search_bar: SearchBarTheme,
     /// Defaults for the two progress indicators.
     pub progress: ProgressTheme,
     pub radio: RadioTheme,
@@ -935,6 +936,48 @@ pub struct NavRailTheme {
     /// defaults; this crate keeps one for the two, so the two surfaces are two fields
     /// rather than two structs.
     pub bar_background_color: Option<Color>,
+}
+
+/// Defaults for [`SearchBar`](crate::SearchBar) — the reference's `SearchBarThemeData`.
+///
+/// Every field there is a `WidgetStateProperty`, resolved against the bar's own state; here
+/// they are plain values, with one exception that matters and several that do not. The
+/// exception is the highlight, and this framework already answers it: a state layer is one
+/// rule applied from the ground toward the ink, so a bar does not need a colour per state
+/// to light under a pointer. The rest — a fill, a shape or a padding that changes when the
+/// bar is hovered — are things the reference *can* say and its own defaults never do.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SearchBarTheme {
+    /// The bar's fill. Unset, the scheme's `surface_container_high`
+    /// (`search_anchor.dart:1859`).
+    pub background_color: Option<Color>,
+    /// The colour its shadow is cast in. Unset, the scheme's `shadow`.
+    pub shadow_color: Option<Color>,
+    /// How far off the page it sits. Unset, `6` (`search_anchor.dart:1863`).
+    pub elevation: Option<f32>,
+    /// Its shape. Unset, a stadium (`search_anchor.dart:1892`).
+    pub shape: Option<frus_core::ShapeBorder>,
+    /// Its corners, read as a rounded rectangle when no shape was named.
+    pub radius: Option<BorderRadius>,
+    /// An outline around it. Unset, none — the reference has no default side
+    /// (`search_anchor.dart:1888`), a raised surface being told apart by its shadow.
+    pub side: Option<frus_core::BorderSide>,
+    /// The room inside it. Unset, `8` either side, applied twice (once around the row and
+    /// once around the field), which is where the sixteen between an icon and the first
+    /// letter comes from.
+    pub padding: Option<frus_core::Insets>,
+    /// The narrowest it will go. Unset, `360`.
+    pub min_width: Option<f32>,
+    /// The widest. Unset, `800`.
+    pub max_width: Option<f32>,
+    /// Its height. Unset, `56`.
+    pub height: Option<f32>,
+    /// The value's type. Unset, `bodyLarge` in `on_surface`.
+    pub text_style: Option<TextStyle>,
+    /// The hint's. Unset, the value's, then `bodyLarge` in `on_surface_variant` — the
+    /// reference falls back to the value's style **before** its own default, so a bar told
+    /// to use one type does not say its hint in another.
+    pub hint_style: Option<TextStyle>,
 }
 
 /// Defaults for [`NavigationDrawer`](crate::NavigationDrawer).

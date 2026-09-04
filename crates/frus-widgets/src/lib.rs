@@ -117,6 +117,7 @@ mod safearea;
 mod scaffold;
 mod scaffoldinfo;
 mod scroll;
+mod searchbar;
 mod segmented;
 /// Stating what a widget **is** from outside it: the [`semantics::Semantics`] wrapper.
 pub mod semantics;
@@ -289,6 +290,7 @@ pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};
 pub use scaffoldinfo::{ScaffoldGuard, ScaffoldInfo, ScaffoldScope};
 pub use scroll::{Axis, SingleChildScrollView};
+pub use searchbar::{SearchBar, SEARCH_BAR_HEIGHT, SEARCH_BAR_MAX_WIDTH, SEARCH_BAR_MIN_WIDTH};
 pub use segmented::{
     SegmentedButton, SEGMENTED_BORDER_WIDTH, SEGMENTED_HEIGHT, SEGMENTED_ICON_GAP,
     SEGMENTED_ICON_SIZE, SEGMENTED_PADDING,

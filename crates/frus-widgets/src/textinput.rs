@@ -83,6 +83,19 @@ pub enum TextFieldVariant {
     /// A tinted container with a single line under it, the label floating **inside** the
     /// box. The line carries the state; the fill carries the affordance.
     Filled,
+    /// **No container at all** — the reference's `InputBorder.none`. No fill, no box, no
+    /// line: only the value, the hint and whatever icons were asked for.
+    ///
+    /// This is the field a widget puts *inside* something that is already a container. A
+    /// [`SearchBar`](crate::SearchBar) is a raised stadium with a field in it, and a field
+    /// that drew its own box inside that would be two containers deep with the outer one's
+    /// corners cut by the inner one's. The reference reaches for it in exactly those
+    /// places (`search_anchor.dart:1810`).
+    ///
+    /// It lays out like [`Filled`](Self::Filled) — the label floats inside rather than
+    /// notching a border, there being no border to notch — and simply paints nothing
+    /// behind the content.
+    None,
 }
 
 /// Everything a [`TextField`] paints, each answer the caller's, the theme's, or the
@@ -294,6 +307,14 @@ impl<Msg> TextField<Msg> {
 
     /// **Filled**: a tinted container with a single line under it, the label floating
     /// inside the box rather than on its edge.
+    /// **No container**: no fill, no box, no line — the reference's `InputBorder.none`.
+    /// For a field inside something that is already a container. See
+    /// [`TextFieldVariant::None`].
+    pub fn borderless(mut self) -> Self {
+        self.variant = TextFieldVariant::None;
+        self
+    }
+
     pub fn filled(mut self) -> Self {
         self.variant = TextFieldVariant::Filled;
         self
@@ -332,6 +353,11 @@ impl<Msg> TextField<Msg> {
     /// Whether this field is outlined (a box) rather than filled (a container and a line).
     fn is_outlined(&self) -> bool {
         self.variant == TextFieldVariant::Outlined
+    }
+
+    /// Whether this field paints **no container** — see [`TextFieldVariant::None`].
+    fn is_borderless(&self) -> bool {
+        self.variant == TextFieldVariant::None
     }
 
     /// Padding either side of the content.
@@ -413,7 +439,7 @@ impl<Msg> TextField<Msg> {
             fill: pick(
                 self.style.fill,
                 t.fill,
-                if self.is_outlined() {
+                if self.is_outlined() || self.is_borderless() {
                     frus_core::Color::TRANSPARENT
                 } else {
                     // `input_decorator.dart:5968` — a filled field takes the most
@@ -1008,7 +1034,9 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         let border_width = rest_w + (s.focused_border_width.unwrap() - rest_w) * fp;
         let radius = s.radius.unwrap();
         let fill = s.fill.unwrap();
-        if self.is_outlined() {
+        if self.is_borderless() {
+            // **Nothing.** The container belongs to whatever this field was put inside.
+        } else if self.is_outlined() {
             scene.draw_rect(field, fill.fade(o), radius, border_width, border_color);
         } else {
             // Filled: a container with its **top** corners rounded, and a single line

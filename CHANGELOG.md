@@ -8,10 +8,22 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 468 so far, each documenting the objective, the alternatives
+> record — one per step, 469 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`SearchBar`** (J469): the raised pill an application searches from — a leading
+  slot, the words, any number of trailing actions. Twelve properties, a `SearchBarTheme`,
+  and a `read_only` bar that opens something else when pressed.
+
+- **`TextFieldVariant::None` and `TextField::borderless()`** (J469): a field with no
+  container of its own, for one that sits inside something that is already a container.
+  The reference's `InputBorder.none`.
+
+- **`SearchBarTheme`** (J469).
 
 ### Added
 
