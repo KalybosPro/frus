@@ -8,10 +8,20 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 464 so far, each documenting the objective, the alternatives
+> record — one per step, 465 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`CheckboxListTile`, `RadioListTile` and `SwitchListTile`** (J465): a row of a list
+  whose whole width works one control. `title`, `subtitle`, `secondary`,
+  `control_affinity`, `dense`, `three_line`, `selected`, `enabled`, the two surfaces, the
+  shape, the padding and the two type styles, plus each control's own colours.
+
+- **`Radio`** (J465) as a widget in its own right. It existed only as a private option a
+  `RadioGroup` built for each of its labels, so a radio could not sit anywhere else.
 
 ### Added
 

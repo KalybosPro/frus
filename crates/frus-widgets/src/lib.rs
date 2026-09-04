@@ -33,6 +33,7 @@ mod collapsible;
 mod colorpicker;
 mod constraints;
 mod container;
+mod controltile;
 mod custompaint;
 mod datatable;
 mod datepicker;
@@ -180,6 +181,7 @@ pub use constraints::{
     OverflowBox, SizedBox,
 };
 pub use container::Container;
+pub use controltile::{CheckboxListTile, RadioListTile, SwitchListTile};
 pub use custompaint::CustomPaint;
 pub use datatable::{
     compare_cells, page_count, page_range_label, page_rows, row_matches, sort_rows, DataTable,
@@ -263,7 +265,7 @@ pub use popover::MenuAnchor;
 pub use portal::{OverlayPortal, Placement};
 pub use positioned::{Positioned, Positioning};
 pub use progressbar::LinearProgressIndicator;
-pub use radio::RadioGroup;
+pub use radio::{Radio, RadioGroup};
 pub use rating::Rating;
 pub use refresh::{RefreshIndicator, RefreshPhase, RefreshPull, RefreshSpec, Refreshable};
 pub use relayout::LayoutCache;

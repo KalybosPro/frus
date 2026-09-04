@@ -10,9 +10,28 @@ use crate::widget::Widget;
 
 const DOT: f32 = 20.0;
 const GAP: f32 = 10.0;
+/// The label's size beside a radio, where nothing says otherwise.
+const LABEL_SIZE: f32 = 18.0;
 
 /// One radio option, internal to the group.
-struct RadioOption<Msg> {
+/// **One radio button.**
+///
+/// It existed before this, as a private `Radio` a [`RadioGroup`] built for each of
+/// its labels, and there was no way to have one on its own. The reference's `Radio` is a
+/// widget in its own right — which is what lets a radio sit in a list row, in a table
+/// cell, or anywhere else the group's fixed column of labels is the wrong shape.
+///
+/// ```
+/// # use frus_widgets::Radio;
+/// # #[derive(Clone)] enum Msg { Pick }
+/// Radio::new(true).label("Every day").on_select(Msg::Pick);
+/// ```
+///
+/// A radio does **not** know how to turn itself off: the reference's takes a value and a
+/// group value and reports the value it stands for, and turning one off is choosing
+/// another. So this reports one message when pressed and says nothing about what the
+/// answer becomes.
+pub struct Radio<Msg> {
     label: String,
     selected: bool,
     size: f32,
@@ -26,7 +45,85 @@ struct RadioOption<Msg> {
     on_click: Option<Msg>,
 }
 
-impl<Msg> RadioOption<Msg> {
+impl<Msg> Radio<Msg> {
+    /// A radio, chosen or not. It says nothing and answers nothing until it is given a
+    /// [`label`](Self::label) and an [`on_select`](Self::on_select).
+    pub fn new(selected: bool) -> Self {
+        Self {
+            label: String::new(),
+            selected,
+            size: LABEL_SIZE,
+            colors: RadioColors::default(),
+            enabled: true,
+            tap_target: None,
+            on_click: None,
+        }
+    }
+
+    /// The words beside it. Empty by default, which is what a radio in a row that has its
+    /// own title wants — see [`RadioListTile`](crate::RadioListTile).
+    #[must_use]
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = label.into();
+        self
+    }
+
+    /// The label's size, in pixels.
+    #[must_use]
+    pub fn label_size(mut self, size: f32) -> Self {
+        self.size = size;
+        self
+    }
+
+    /// What to say when it is pressed. A radio with no message is inert.
+    #[must_use]
+    pub fn on_select(mut self, message: Msg) -> Self {
+        self.on_click = Some(message);
+        self
+    }
+
+    /// Whether it can be pressed.
+    #[must_use]
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// The ring and the dot while it is the chosen one, over the theme's and `primary`.
+    #[must_use]
+    pub fn selected_color(mut self, color: Color) -> Self {
+        self.colors.selected = Some(color);
+        self
+    }
+
+    /// The ring while it is not, at rest.
+    #[must_use]
+    pub fn border_color(mut self, color: Color) -> Self {
+        self.colors.border = Some(color);
+        self
+    }
+
+    /// And the ring while it is not, under a finger, a pointer or focus.
+    #[must_use]
+    pub fn active_border_color(mut self, color: Color) -> Self {
+        self.colors.active_border = Some(color);
+        self
+    }
+
+    /// The label's colour.
+    #[must_use]
+    pub fn label_color(mut self, color: Color) -> Self {
+        self.colors.label = Some(color);
+        self
+    }
+
+    /// How much room it reserves for the finger that works it.
+    #[must_use]
+    pub fn tap_target(mut self, target: TapTarget) -> Self {
+        self.tap_target = Some(target);
+        self
+    }
+
     /// The label's style, **resolved once** so that the number the box is measured with is
     /// the number the glyphs are drawn at. Resolving is the single place the reader's font
     /// setting is applied (milestone 403).
@@ -44,7 +141,7 @@ impl<Msg> RadioOption<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for RadioOption<Msg> {
+impl<Msg: Clone> Widget<Msg> for Radio<Msg> {
     fn style(&self) -> Style {
         Widget::<Msg>::style_themed(self, &Theme::default())
     }
@@ -277,7 +374,7 @@ impl<Msg: Clone + 'static> RadioGroup<Msg> {
             .iter()
             .enumerate()
             .map(|(index, label)| {
-                Box::new(RadioOption {
+                Box::new(Radio {
                     label: label.clone(),
                     selected: index == self.selected,
                     size: self.size,
@@ -325,11 +422,11 @@ mod tests {
     ///
     /// The reference lays a radio out inside a 48-pixel square whatever it paints in the
     /// middle (`radio.dart:734`). Here the target is the whole option, words included,
-    /// because a `RadioOption` carries its label where the reference's radio does not.
+    /// because a `Radio` carries its label where the reference's radio does not.
     #[test]
     fn an_option_reserves_room_for_a_finger() {
         let theme = Theme::dark();
-        let option = |target: Option<TapTarget>| RadioOption::<Msg> {
+        let option = |target: Option<TapTarget>| Radio::<Msg> {
             label: "Daily".into(),
             selected: false,
             size: 18.0,
@@ -338,14 +435,13 @@ mod tests {
             tap_target: target,
             on_click: None,
         };
-        let height = |option: &RadioOption<Msg>, theme: &Theme| match Widget::<Msg>::style_themed(
-            option, theme,
-        )
-        .height
-        {
-            Dimension::Length(h) => h,
-            other => panic!("{other:?}"),
-        };
+        let height =
+            |option: &Radio<Msg>, theme: &Theme| match Widget::<Msg>::style_themed(option, theme)
+                .height
+            {
+                Dimension::Length(h) => h,
+                other => panic!("{other:?}"),
+            };
         assert_eq!(height(&option(None), &theme), MIN_TAP_TARGET);
         assert_eq!(
             height(&option(Some(TapTarget::ShrinkWrap)), &theme),
@@ -372,7 +468,7 @@ mod tests {
     #[test]
     fn the_label_is_centred_in_the_room() {
         let theme = Theme::dark();
-        let option = RadioOption::<Msg> {
+        let option = Radio::<Msg> {
             label: "Daily".into(),
             selected: false,
             size: 18.0,
@@ -413,7 +509,7 @@ mod tests {
         let ring = |selected: bool, interaction, focused| {
             let mut scene = Scene::new();
             Widget::<Msg>::paint(
-                &RadioOption {
+                &Radio {
                     label: "Daily".into(),
                     selected,
                     size: 18.0,

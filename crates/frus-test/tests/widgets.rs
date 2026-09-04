@@ -20,13 +20,14 @@ use frus_core::{
 use frus_test::render_widget;
 use frus_widgets::{
     text, Alert, Align, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar, BottomSheet,
-    Breadcrumb, Card, CarouselView, Checkbox, CircularProgressIndicator, ClipOval, ClipPath,
-    ClipRRect, ColorPicker, ConstrainedBox, Container, CustomPaint, Divider, Expanded,
-    ExpansionTile, FittedBox, Flex, FloatingActionButton, FontWeight, FractionallySizedBox,
-    GridView, Icon, Icons, Image, Intrinsic, Kbd, LinearProgressIndicator, ListView, MenuAnchor,
-    NavigationBar, NavigationRail, Offstage, Opacity, OverflowBox, OverlayPortal, Placement,
-    RadioGroup, RichText, RotatedBox, SafeArea, SegmentedButton, SingleChildScrollView, SizedBox,
-    Skeleton, Stack, Stepper, Switch, TabBar, Theme, Timeline, Transform, TwoPane, Visibility,
+    Breadcrumb, Card, CarouselView, Checkbox, CheckboxListTile, CircularProgressIndicator,
+    ClipOval, ClipPath, ClipRRect, ColorPicker, ConstrainedBox, Container, ControlAffinity,
+    CustomPaint, Divider, Expanded, ExpansionTile, FittedBox, Flex, FloatingActionButton,
+    FontWeight, FractionallySizedBox, GridView, Icon, Icons, Image, Intrinsic, Kbd,
+    LinearProgressIndicator, ListView, MenuAnchor, NavigationBar, NavigationRail, Offstage,
+    Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup, RadioListTile, RichText,
+    RotatedBox, SafeArea, SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Stack,
+    Stepper, Switch, SwitchListTile, TabBar, Theme, Timeline, Transform, TwoPane, Visibility,
     Widget,
 };
 
@@ -151,6 +152,39 @@ fn the_floating_action_buttons() {
             ),
     );
     check("floating_action_buttons", 260, 220, &root);
+}
+
+/// **The three control tiles**, none of which existed until milestone 465: a row whose
+/// whole width works one control. A settings screen is a column of these, and the point
+/// of the picture is that the label and the control read as one thing.
+#[test]
+fn the_control_list_tiles() {
+    let root: Container<()> = Container::new().padding(8.0).child(
+        Flex::column()
+            .width(280.0)
+            .child(
+                SwitchListTile::new(true, ())
+                    .title("Notifications")
+                    .subtitle("Replies and mentions"),
+            )
+            .child(CheckboxListTile::new(true, ()).title("Sounds"))
+            .child(
+                CheckboxListTile::maybe(None, ())
+                    .title("Select all")
+                    .control_affinity(ControlAffinity::Leading),
+            )
+            .child(
+                RadioListTile::new(true, ())
+                    .title("Every day")
+                    .control_affinity(ControlAffinity::Leading),
+            )
+            .child(
+                RadioListTile::new(false, ())
+                    .title("Once a week")
+                    .control_affinity(ControlAffinity::Leading),
+            ),
+    );
+    check("control_list_tiles", 300, 340, &root);
 }
 
 /// The four alert kinds together, which is the only way to see that they are four
