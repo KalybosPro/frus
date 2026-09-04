@@ -8,10 +8,29 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 465 so far, each documenting the objective, the alternatives
+> record — one per step, 466 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`BackButton`, `CloseButton`, `DrawerButton` and `EndDrawerButton`** (J466): icon
+  buttons that know their glyph and take their name from the framework's words, in both
+  places a name belongs — the semantics and a tooltip.
+
+- **`Icons::ArrowLeft`** (J466): a drawn arrow, so a back button is a path rather than the
+  character `←`.
+
+- **`Localizations::open_drawer_label`** (J466). One word for both edges, as the reference
+  has it.
+
+- **`ActionIconTheme`** (J466): the four glyphs, replaceable app-wide.
+
+### Changed
+
+- **`NavigationBar::on_back` builds a `BackButton`** (J466) rather than an icon button
+  carrying the character `←`.
 
 ### Added
 

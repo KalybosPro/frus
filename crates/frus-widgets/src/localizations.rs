@@ -49,6 +49,17 @@ pub trait Localizations {
         "Close"
     }
 
+    /// What a reader hears on the control that opens a side panel
+    /// (`openAppDrawerTooltip`).
+    ///
+    /// **One word for both edges.** The reference says the same thing for a leading
+    /// panel and a trailing one (`action_buttons.dart:331` against `:362`): a reader told
+    /// which edge a panel comes in from is being told about the layout rather than about
+    /// the action.
+    fn open_drawer_label(&self) -> &str {
+        "Open navigation menu"
+    }
+
     /// The word on a confirming button (`okButtonLabel`).
     fn ok_button_label(&self) -> &str {
         "OK"

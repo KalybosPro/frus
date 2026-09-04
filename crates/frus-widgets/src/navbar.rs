@@ -58,12 +58,14 @@ impl<Msg: Clone + 'static> NavigationBar<Msg> {
     }
 
     /// Adds a back button that emits `message`.
+    ///
+    /// It used to build `IconButton::glyph("←")` — a **character**, at the mercy of
+    /// whatever font is loaded, with no control over its weight and none over its size
+    /// beside the glyphs around it, and named by hand here rather than by the thing that
+    /// knows what it is. [`BackButton`](crate::BackButton) is that thing.
     pub fn on_back(mut self, message: Msg) -> Self {
         self.children = vec![Box::new(
-            crate::IconButton::glyph("←")
-                .label(crate::localizations::of().back_button_label())
-                .icon_size(20.0)
-                .on_press(message),
+            crate::BackButton::new().icon_size(20.0).on_press(message),
         )];
         self
     }

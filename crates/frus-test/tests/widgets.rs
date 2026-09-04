@@ -219,7 +219,7 @@ fn the_four_alert_kinds() {
 /// change to the path pipeline moved any of them.
 #[test]
 fn every_icon_and_a_divider() {
-    const NAMES: [Icons; 13] = [
+    const NAMES: [Icons; 14] = [
         Icons::Check,
         Icons::Close,
         Icons::Add,
@@ -229,6 +229,7 @@ fn every_icon_and_a_divider() {
         Icons::Circle,
         Icons::Square,
         Icons::Play,
+        Icons::ArrowLeft,
         Icons::ChevronLeft,
         Icons::ChevronRight,
         Icons::Eye,
@@ -247,7 +248,7 @@ fn every_icon_and_a_divider() {
             .child(Divider::new())
             .child(large),
     );
-    check("icon_set", 400, 110, &root);
+    check("icon_set", 430, 110, &root);
 }
 
 // ---------------------------------------------------------------------------

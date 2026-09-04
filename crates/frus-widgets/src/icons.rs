@@ -31,6 +31,9 @@ pub enum Icons {
     Square,
     /// A "play" triangle pointing right.
     Play,
+    /// **An arrow pointing left**: the back control on every platform whose own is an
+    /// arrow rather than a chevron.
+    ArrowLeft,
     /// A chevron pointing left.
     ChevronLeft,
     /// A chevron pointing right.
@@ -65,6 +68,7 @@ impl Icons {
             Icons::Circle => Path::circle(Point::new(12.0, 12.0), 9.0),
             Icons::Square => Path::rect(Rect::new(3.0, 3.0, 18.0, 18.0)),
             Icons::Play => polygon(&[(7.0, 4.0), (20.0, 12.0), (7.0, 20.0)]),
+            Icons::ArrowLeft => arrow_left(),
             Icons::ChevronLeft => polygon(&[
                 (16.0, 5.8),
                 (14.2, 4.0),
@@ -197,10 +201,35 @@ fn plus() -> Path {
     ])
 }
 
+/// An arrow pointing left: a triangular head and a bar, as two filled subpaths that
+/// overlap.
+///
+/// Two shapes rather than one traced outline, for the reason [`cross_x`] is two: the
+/// union is what is wanted and the non-zero rule gives it for free, where one outline
+/// would need eight points placed by hand and would be wrong the first time somebody
+/// changed the bar's thickness.
+fn arrow_left() -> Path {
+    Path::new()
+        // The head, tip against the left edge. Eight across and sixteen tall: a head as
+        // deep as the grid reads as a triangle with a stub attached rather than as an
+        // arrow.
+        .move_to(Point::new(3.5, 12.0))
+        .line_to(Point::new(11.5, 4.0))
+        .line_to(Point::new(11.5, 20.0))
+        .close()
+        // The bar, starting **inside** the head so the two read as one shape, and
+        // stopping short of the right edge so the arrow is centred in its box.
+        .move_to(Point::new(9.0, 10.0))
+        .line_to(Point::new(20.5, 10.0))
+        .line_to(Point::new(20.5, 14.0))
+        .line_to(Point::new(9.0, 14.0))
+        .close()
+}
+
 /// A close cross: two diagonal bars, as two filled subpaths.
 fn cross_x() -> Path {
     Path::new()
-        // Diagonale ↘
+        // The ↘ diagonal.
         .move_to(Point::new(5.0, 6.4))
         .line_to(Point::new(6.4, 5.0))
         .line_to(Point::new(19.0, 17.6))
@@ -299,6 +328,7 @@ mod tests {
             Icons::Circle,
             Icons::Square,
             Icons::Play,
+            Icons::ArrowLeft,
             Icons::ChevronLeft,
             Icons::ChevronRight,
             Icons::ChevronDown,
@@ -307,7 +337,7 @@ mod tests {
             Icons::EyeOff,
         ] {
             let path = name.path();
-            assert!(!path.is_empty(), "{name:?} devrait produire un chemin");
+            assert!(!path.is_empty(), "{name:?} should produce a path");
             assert!(
                 matches!(path.verbs().first(), Some(PathVerb::MoveTo(_))),
                 "{name:?} should start with a MoveTo"

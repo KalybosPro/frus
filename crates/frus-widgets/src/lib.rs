@@ -9,6 +9,7 @@
 //! The state retained between frames — hover and focus, scroll offsets, caret and
 //! selection — lives in a [`Runtime`], keyed by widget identity.
 
+mod actionbutton;
 mod alert;
 mod animated;
 mod appbar;
@@ -146,6 +147,7 @@ mod widget;
 mod widgetstate;
 mod widgettheme;
 
+pub use actionbutton::{BackButton, CloseButton, DrawerButton, EndDrawerButton};
 pub use alert::{Alert, AlertKind};
 pub use animated::{AnimatedContainer, AnimatedOpacity, Opacity};
 pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT, APP_BAR_MAX_TITLE_SCALE};

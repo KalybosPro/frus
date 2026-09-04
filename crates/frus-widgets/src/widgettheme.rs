@@ -55,6 +55,8 @@ pub fn resolve_shape(
 pub struct WidgetThemes {
     pub alert: AlertTheme,
     pub dialog: DialogTheme,
+    /// Which glyphs the four named buttons carry.
+    pub action_icons: ActionIconTheme,
     pub app_bar: AppBarTheme,
     pub autocomplete: AutocompleteTheme,
     pub badge: BadgeTheme,
@@ -615,6 +617,25 @@ pub struct FabTheme {
     pub extended_padding: Option<f32>,
     /// The gap between an extended button's glyph and its words. Unset, eight.
     pub extended_gap: Option<f32>,
+}
+
+/// Which glyphs the framework's four named buttons carry — the reference's
+/// `ActionIconTheme` (`action_icons_theme.dart`).
+///
+/// Unset, each takes the framework's own, and the back arrow takes the platform's: a
+/// chevron where the platform's own back control is a chevron, an arrow everywhere else.
+/// An application with its own icon set should not have to leave four of the framework's
+/// showing through.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ActionIconTheme {
+    /// The glyph on a [`BackButton`](crate::BackButton).
+    pub back: Option<crate::Icons>,
+    /// On a [`CloseButton`](crate::CloseButton).
+    pub close: Option<crate::Icons>,
+    /// On a [`DrawerButton`](crate::DrawerButton).
+    pub drawer: Option<crate::Icons>,
+    /// On an [`EndDrawerButton`](crate::EndDrawerButton).
+    pub end_drawer: Option<crate::Icons>,
 }
 
 /// Defaults for [`Divider`](crate::Divider).
