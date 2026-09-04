@@ -87,6 +87,7 @@ mod media;
 mod mediascope;
 mod menu;
 mod navbar;
+mod navdrawer;
 mod navigator;
 mod navrail;
 mod navscaffold;
@@ -249,6 +250,7 @@ pub use media::{
 pub use mediascope::MediaScope;
 pub use menu::PopupMenuButton;
 pub use navbar::NavigationBar;
+pub use navdrawer::NavigationDrawer;
 pub use navigator::Navigator;
 pub use navrail::{BottomBar, NavigationRail, RailLabels};
 pub use navscaffold::NavScaffold;

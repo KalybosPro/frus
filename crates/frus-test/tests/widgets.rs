@@ -24,8 +24,8 @@ use frus_widgets::{
     ClipOval, ClipPath, ClipRRect, ColorPicker, ConstrainedBox, Container, ControlAffinity,
     CustomPaint, Divider, Expanded, ExpansionTile, FittedBox, Flex, FloatingActionButton,
     FontWeight, FractionallySizedBox, GridView, Icon, Icons, Image, Intrinsic, Kbd,
-    LinearProgressIndicator, ListView, MenuAnchor, NavigationBar, NavigationRail, Offstage,
-    Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup, RadioListTile, RichText,
+    LinearProgressIndicator, ListView, MenuAnchor, NavigationBar, NavigationDrawer, NavigationRail,
+    Offstage, Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup, RadioListTile, RichText,
     RotatedBox, SafeArea, SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Stack,
     Stepper, Switch, SwitchListTile, TabBar, Theme, Timeline, Transform, TwoPane, Visibility,
     Widget,
@@ -385,6 +385,35 @@ fn the_navigation_chrome() {
                 ),
         );
     check("navigation_chrome", 340, 220, &root);
+}
+
+/// **The third navigation form**, which the framework had no widget for until milestone
+/// 467: a rail and a bar were the only two, and an application with eight destinations
+/// had to choose between hiding six of them and inventing its own list.
+///
+/// What the picture is for: the indicator is the **whole row** here, not a pill around
+/// the glyph, so the glyph and the label take the same colour when selected — the one
+/// visible difference from a rail, and the one a set of assertions about colours cannot
+/// show. The rule between the second group and the first is a child and not a
+/// destination, so `Trash` answers with 2.
+#[test]
+fn the_navigation_drawer() {
+    let root: NavigationDrawer<()> = NavigationDrawer::new(1, |_: usize| ())
+        .width(300.0)
+        .header(
+            Container::new()
+                .padding(16.0)
+                .child(text("Mailbox").size(16.0)),
+        )
+        .item("\u{2709}", "Inbox")
+        .badge(12)
+        .item("\u{2605}", "Starred")
+        .item("\u{2691}", "Drafts")
+        .child(Divider::new())
+        .item("\u{2717}", "Trash")
+        .item("\u{2699}", "Settings")
+        .disabled();
+    check("navigation_drawer", 300, 340, &root);
 }
 
 // ---------------------------------------------------------------------------

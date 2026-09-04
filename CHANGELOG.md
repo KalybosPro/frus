@@ -8,10 +8,36 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 466 so far, each documenting the objective, the alternatives
+> record — one per step, 467 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`NavigationDrawer`** (J467): the third presentation of the primary navigation, beside
+  the rail and the bar — a panel of full-width destinations with a header above them
+  and a footer below, for an application that has outgrown a rail. It is the content of a
+  `Drawer`, not a second one. Its children are a mixed list, so a divider between two
+  groups takes no destination index.
+
+- **`NavDrawerTheme`** (J467): thirteen fields, the drawer's own defaults.
+
+- **`NavScaffold::nav_drawer`** (J467): gives the `Expanded` band a drawer instead of an
+  extended rail. Opt-in, and silent below `Expanded`.
+
+- **`Localizations::tab_label`** (J467). "Tab 1 of 3", for a reader hearing destinations
+  one at a time.
+
+- **`NavigationDrawer::tile_color`** (J467): the whole area behind one destination, edge
+  to edge, which is not its indicator.
+
+### Fixed
+
+- **A rail's and a bar's destinations are announced** (J467). Neither had any semantics
+  at all: the primary navigation of every frus application was silent to a screen reader.
+  Each destination now gives its name, its position in the list and whether it is the
+  live one — and the name is announced whether or not it is drawn.
 
 ### Added
 

@@ -60,6 +60,16 @@ pub trait Localizations {
         "Open navigation menu"
     }
 
+    /// **Where one destination sits among the rest** (`tabLabel`), for a reader who is
+    /// hearing them one at a time and cannot see how many there are.
+    ///
+    /// `index` counts from one, as it reads: "Tab 1 of 3". It is the one entry here that
+    /// takes arguments and so returns an owned string rather than a borrowed one — the
+    /// numbers are the caller's, and a table cannot have written the sentence in advance.
+    fn tab_label(&self, index: usize, count: usize) -> String {
+        format!("Tab {index} of {count}")
+    }
+
     /// The word on a confirming button (`okButtonLabel`).
     fn ok_button_label(&self) -> &str {
         "OK"

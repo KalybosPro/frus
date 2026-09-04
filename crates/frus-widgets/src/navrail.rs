@@ -144,6 +144,10 @@ struct NavItem<Msg> {
     ground: Option<Color>,
     label_text_style: Option<TextStyle>,
     badge_text_style: Option<TextStyle>,
+    /// Which destination this is, and how many there are — for what a reader hears, and
+    /// nothing else. See [`NavItem::semantics`].
+    index: usize,
+    count: usize,
     message: Msg,
 }
 
@@ -422,6 +426,35 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
     fn focusable(&self) -> bool {
         !self.disabled
     }
+
+    /// **What a reader hears.** Until milestone 467 the answer was *nothing*: a rail and a
+    /// bar are the primary navigation of an application and neither announced a single
+    /// destination, so a screen reader walking the shell found a row of unlabelled boxes
+    /// and no way to tell which screen was showing. Every visible part of it was right.
+    ///
+    /// The name, then where it sits in the list — the reference reads out "Home, Tab 1 of
+    /// 3" (`navigation_rail.dart:533`, `navigation_bar.dart:1020`), and the second half
+    /// is the part a list cannot supply on its own: someone hearing five names in a row
+    /// has no way to know how many are left. **The label is announced whether or not it is
+    /// drawn** — [`RailLabels::None`] is a decision about width, and a reader has no width.
+    ///
+    /// *Which one is live* survives being disabled: a reader who cannot switch is still
+    /// owed where they are.
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
+        let words = crate::localizations::of();
+        let semantics = frus_core::SemanticsProperties::new(frus_core::Role::Tab)
+            .label(format!(
+                "{}, {}",
+                self.label,
+                words.tab_label(self.index + 1, self.count)
+            ))
+            .toggled(self.selected);
+        Some(if self.disabled {
+            semantics.disabled(true)
+        } else {
+            semantics.clickable()
+        })
+    }
 }
 
 /// **A declared destination**: everything the caller said about one entry in the list.
@@ -451,6 +484,15 @@ pub(crate) struct Destination {
     /// This destination's own highlight per state, over the framework's state layer
     /// (`navigation_bar.dart:232`).
     pub overlay_color: Option<WidgetStateProperty<Color>>,
+    /// The whole rectangular area behind this destination, when it was given one
+    /// (`navigation_drawer.dart:228`) — not its indicator.
+    ///
+    /// Only a [`NavigationDrawer`](crate::NavigationDrawer)'s rows read it: a rail's
+    /// destination is 80 pixels of an 80-pixel column and a bar's is a share of a row, so
+    /// there is no area behind either that is not the widget's own surface. It lives here
+    /// rather than on the drawer's own list because a shell forwards **one** declaration
+    /// to whichever form the window chose.
+    pub background: Option<Color>,
 }
 
 impl Destination {
@@ -465,7 +507,7 @@ impl Destination {
 
     /// The glyph to draw in this state: the selected one when there is one and the
     /// destination is selected, the resting one otherwise.
-    fn glyph(&self, selected: bool) -> &str {
+    pub(crate) fn glyph(&self, selected: bool) -> &str {
         match &self.selected_icon {
             Some(icon) if selected => icon,
             _ => &self.icon,
@@ -524,6 +566,8 @@ fn build_items<Msg: Clone + 'static>(
                 ground: how.ground,
                 label_text_style: how.label_text_style,
                 badge_text_style: how.badge_text_style,
+                index: i,
+                count: items.len(),
                 message: on_select(i),
             }) as Box<dyn Widget<Msg>>
         })
@@ -1675,6 +1719,8 @@ mod tests {
             ground: None,
             label_text_style: label_style,
             badge_text_style: None,
+            index: 0,
+            count: 1,
             message: Msg::Go(0),
         }
     }

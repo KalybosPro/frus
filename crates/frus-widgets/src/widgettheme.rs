@@ -86,6 +86,7 @@ pub struct WidgetThemes {
     pub kbd: KbdTheme,
     pub menu: MenuTheme,
     pub nav_rail: NavRailTheme,
+    pub nav_drawer: NavDrawerTheme,
     /// Defaults for the two progress indicators.
     pub progress: ProgressTheme,
     pub radio: RadioTheme,
@@ -934,6 +935,54 @@ pub struct NavRailTheme {
     /// defaults; this crate keeps one for the two, so the two surfaces are two fields
     /// rather than two structs.
     pub bar_background_color: Option<Color>,
+}
+
+/// Defaults for [`NavigationDrawer`](crate::NavigationDrawer).
+///
+/// The reference keeps `NavigationDrawerThemeData` apart from the rail's and the bar's
+/// (`navigation_drawer_theme.dart`) and this follows it, where [`NavRailTheme`] holds two
+/// widgets at once. The reason is the defaults: a drawer's surface, type step, indicator
+/// size and tile height all differ from a rail's, and a shared struct would have had to
+/// carry a second copy of every one of them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NavDrawerTheme {
+    /// The panel's surface. Unset, the scheme's `surface_container_low`
+    /// (`navigation_drawer.dart:740`) — a rung above a rail's `surface`, the drawer being
+    /// a sheet over the page rather than a strip beside it.
+    pub background_color: Option<Color>,
+    /// How far off the page the panel sits. Unset, `1` (`navigation_drawer.dart:729`).
+    pub elevation: Option<f32>,
+    /// The pill behind the selected destination. Unset, the scheme's
+    /// `secondary_container`.
+    pub indicator_color: Option<Color>,
+    /// That pill's shape. Unset, a stadium (`navigation_drawer.dart:731`).
+    pub indicator_shape: Option<frus_core::ShapeBorder>,
+    /// That pill's box, `(width, height)`. Unset, `336 x 56`
+    /// (`navigation_drawer.dart:732`). The width is a **ceiling**: the pill never grows
+    /// past the room its tile has, which is what keeps 336 inside a 304-wide panel.
+    pub indicator_size: Option<(f32, f32)>,
+    /// The highlight over a destination, per state — over the framework's state layer, and
+    /// under the destination's own word.
+    pub overlay_color: Option<crate::widgetstate::WidgetStateProperty<frus_core::Color>>,
+    /// A tile's height. Unset, `56` (`navigation_drawer.dart:730`).
+    pub tile_height: Option<f32>,
+    /// The room either side of a tile. Unset, `12` left and right
+    /// (`navigation_drawer.dart:69`).
+    pub tile_padding: Option<frus_core::Insets>,
+    /// The destinations' glyphs. Unset, `24`.
+    pub icon_size: Option<f32>,
+    /// The destinations' labels. Unset, `labelLarge` (`navigation_drawer.dart:768`) — a
+    /// step above a rail's, a drawer's label having a line to itself.
+    pub label_text_style: Option<TextStyle>,
+    /// The count a destination carries. Unset, `labelSmall`.
+    pub badge_text_style: Option<TextStyle>,
+    /// A selected destination's glyph **and** label. Unset, `on_secondary_container`:
+    /// here the indicator is the whole row, so both stand on it and both take its content
+    /// colour — the one place this differs from a rail, where the label sits outside the
+    /// pill.
+    pub selected_color: Option<Color>,
+    /// An unselected destination's glyph and label. Unset, `on_surface_variant`.
+    pub unselected_color: Option<Color>,
 }
 
 /// Defaults for [`Alert`](crate::Alert) — the message box, not the dialog. See
