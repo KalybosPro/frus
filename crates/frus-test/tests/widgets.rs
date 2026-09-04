@@ -23,13 +23,13 @@ use frus_widgets::{
     Breadcrumb, Card, CarouselView, Checkbox, CheckboxListTile, CircleAvatar,
     CircularProgressIndicator, ClipOval, ClipPath, ClipRRect, ColorPicker, ConstrainedBox,
     Container, ControlAffinity, CustomPaint, Divider, Expanded, ExpansionTile, FittedBox, Flex,
-    FloatingActionButton, FontWeight, FractionallySizedBox, GridView, Icon, Icons, Image,
-    Intrinsic, Kbd, LinearProgressIndicator, ListTile, ListView, MenuAnchor, NavigationBar,
-    NavigationDrawer, NavigationRail, Offstage, Opacity, OverflowBox, OverlayPortal, Placement,
-    RadioGroup, RadioListTile, RichText, RotatedBox, SafeArea, SearchAnchor, SearchBar,
+    FloatingActionButton, FontWeight, FractionallySizedBox, GridTile, GridTileBar, GridView, Icon,
+    Icons, Image, Intrinsic, Kbd, LinearProgressIndicator, ListTile, ListView, MenuAnchor,
+    NavigationBar, NavigationDrawer, NavigationRail, Offstage, Opacity, OverflowBox, OverlayPortal,
+    Placement, RadioGroup, RadioListTile, RichText, RotatedBox, SafeArea, SearchAnchor, SearchBar,
     SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch,
-    SwitchListTile, TabBar, Theme, Timeline, Transform, TwoPane, UserAccountsDrawerHeader,
-    VerticalDivider, Visibility, Widget,
+    SwitchListTile, TabBar, Theme, Timeline, ToggleButtons, Transform, TwoPane,
+    UserAccountsDrawerHeader, VerticalDivider, Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -525,6 +525,70 @@ fn the_search_view() {
             .suggestion(ListTile::new().dense().title("lisbon weather").on_tap(())),
     );
     check("search_view", 380, 320, &root);
+}
+
+/// **The toggle buttons**, whose whole point is the picture: three buttons touching have
+/// four lines and not six, because each one draws only the edge facing the button before
+/// it. The second bank rounds the bank's two ends and nothing between them, and marks the
+/// seams either side of a chosen button — the rule a row of separate buttons cannot
+/// express. The third cannot be pressed, and flattens to one grey rather than fading.
+#[test]
+fn the_toggle_buttons() {
+    let bank = |selected: Vec<bool>| {
+        ToggleButtons::new(selected, |_| ())
+            .child(text("B"))
+            .child(text("I"))
+            .child(text("U"))
+    };
+    let root: Container<()> = Container::new().padding(12.0).child(
+        Flex::column()
+            .gap(14.0)
+            .align(Align::Start)
+            .child(bank(vec![true, false, false]))
+            .child(
+                bank(vec![false, true, false])
+                    .border_radius(10.0)
+                    .selected_border_color(Color::rgb8(120, 180, 255)),
+            )
+            .child(bank(vec![true, false, false]).enabled(false)),
+    );
+    check("toggle_buttons", 240, 220, &root);
+}
+
+/// **The grid tiles**: a strip of words laid *over* a picture rather than under it, so the
+/// tile is the picture's size and the grid's rows stay even. Two of them — a footer
+/// carrying two lines over a scrim, and a header carrying one and a glyph over nothing at
+/// all — and both read light, whatever the application's theme is.
+#[test]
+fn the_grid_tiles() {
+    let photo = |color: Color| {
+        Container::<()>::new()
+            .width(124.0)
+            .height(124.0)
+            .color(color)
+            .radius(6.0)
+    };
+    let root: Container<()> = Container::new().padding(12.0).child(
+        Flex::row()
+            .gap(12.0)
+            .align(Align::Start)
+            .child(
+                GridTile::new(photo(Color::rgb8(58, 92, 138))).footer(
+                    GridTileBar::new()
+                        .background_color(Color::rgba(0.0, 0.0, 0.0, 0.45))
+                        .title(text("Cliffs"))
+                        .subtitle(text("Ada Lovelace")),
+                ),
+            )
+            .child(
+                GridTile::new(photo(Color::rgb8(138, 92, 58))).header(
+                    GridTileBar::new()
+                        .title(text("Sunset"))
+                        .trailing(Icon::new(Icons::Star).size(20.0)),
+                ),
+            ),
+    );
+    check("grid_tiles", 300, 150, &root);
 }
 
 // ---------------------------------------------------------------------------

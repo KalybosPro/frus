@@ -79,6 +79,8 @@ pub struct WidgetThemes {
     /// Defaults for [`FloatingActionButton`](crate::FloatingActionButton).
     pub fab: FabTheme,
     pub form: FormTheme,
+    /// Defaults for [`GridTileBar`](crate::GridTileBar).
+    pub grid_tile_bar: GridTileBarTheme,
     pub icon: IconTheme,
     pub icon_button: IconButtonTheme,
     pub ink: InkTheme,
@@ -103,6 +105,8 @@ pub struct WidgetThemes {
     pub text_field: TextFieldTheme,
     pub time_picker: TimePickerTheme,
     pub timeline: TimelineTheme,
+    /// Defaults for [`ToggleButtons`](crate::ToggleButtons).
+    pub toggle_buttons: ToggleButtonsTheme,
     /// Defaults for [`Tooltip`](crate::Tooltip).
     pub tooltip: TooltipTheme,
     pub tree: TreeTheme,
@@ -1242,6 +1246,72 @@ pub struct TimePickerTheme {
 pub struct KbdTheme {
     /// The cap's label.
     pub text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`ToggleButtons`](crate::ToggleButtons).
+///
+/// The three border colours are named apart although the reference defaults all three to
+/// the same value (`toggle_buttons.dart:601`, `:635`, `:651`): a bank is one object and
+/// its outline does not break up because one of its buttons is on, but an application
+/// that wants the chosen pair marked out needs somewhere to say so.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ToggleButtonsTheme {
+    /// What is drawn in a button that is off — its text, its glyph, anything under it
+    /// that reads the theme for a colour.
+    pub color: Option<Color>,
+    /// The same, for a button that is on.
+    pub selected_color: Option<Color>,
+    /// The same, when the bank cannot be pressed.
+    pub disabled_color: Option<Color>,
+    /// A button's ground, per state. A plain colour — `WidgetStateProperty::all` —
+    /// fills every button rather than only the ones that are on, as the reference's does.
+    pub fill_color: Option<crate::WidgetStateProperty<Color>>,
+    /// The hairline around and beside a button that is off.
+    pub border_color: Option<Color>,
+    /// The hairline around and beside a button that is on. A seam between an on button and
+    /// an off one takes this, from either side.
+    pub selected_border_color: Option<Color>,
+    /// The hairline when the bank cannot be pressed.
+    pub disabled_border_color: Option<Color>,
+    /// The hairline's width, around the bank and between its buttons.
+    pub border_width: Option<f32>,
+    /// The **bank's** corners: the buttons at its two ends take a pair each, and the ones
+    /// between them are square.
+    pub border_radius: Option<BorderRadius>,
+    /// The type any text in the bank takes. Its colour is ignored — that is the three
+    /// content colours' to answer, and it depends on the state.
+    pub text_style: Option<TextStyle>,
+    /// The smallest a button may be across.
+    pub min_width: Option<f32>,
+    /// And down. Untold, both are the tap target.
+    pub min_height: Option<f32>,
+    /// The largest. Untold, unbounded.
+    pub max_width: Option<f32>,
+    /// Likewise.
+    pub max_height: Option<f32>,
+}
+
+/// Defaults for [`GridTileBar`](crate::GridTileBar).
+///
+/// The two heights are two fields and not one, because it is the **content** that picks
+/// between them: a bar with a title and a subtitle is 68 and any other is 48. An
+/// application setting one has not thereby said anything about the other.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GridTileBarTheme {
+    /// What is drawn behind the words. Untold, nothing at all: the picture is the
+    /// background, which is the arrangement the widget is for.
+    pub background_color: Option<Color>,
+    /// The colour of the words and glyphs on it. Untold, white — the bar stands on a
+    /// photograph, and a photograph has no brightness the theme knows about.
+    pub foreground_color: Option<Color>,
+    /// The title's type. Untold, the scale's `title_medium`.
+    pub title_style: Option<TextStyle>,
+    /// The subtitle's. Untold, `body_small`.
+    pub subtitle_style: Option<TextStyle>,
+    /// How tall a bar carrying one line is.
+    pub height: Option<f32>,
+    /// How tall one carrying a title **and** a subtitle is.
+    pub two_line_height: Option<f32>,
 }
 
 #[cfg(test)]

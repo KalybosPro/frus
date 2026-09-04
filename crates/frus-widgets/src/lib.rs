@@ -62,6 +62,7 @@ pub mod form;
 pub use form::ErrorSummary;
 mod fractional;
 mod grid;
+mod gridtile;
 mod hero;
 mod icon;
 mod iconbutton;
@@ -142,6 +143,7 @@ mod timeline;
 mod timepicker;
 mod toast;
 mod toasthost;
+mod togglebuttons;
 mod tooltip;
 mod transform;
 pub(crate) mod transparent;
@@ -224,6 +226,7 @@ pub use focus::{
 };
 pub use fractional::FractionallySizedBox;
 pub use grid::GridView;
+pub use gridtile::{GridTile, GridTileBar, GRID_TILE_BAR_HEIGHT, GRID_TILE_BAR_TWO_LINE_HEIGHT};
 pub use hero::{lerp_rect, Hero, HeroSpot};
 pub use icon::Icon;
 pub use iconbutton::{
@@ -336,6 +339,9 @@ pub use timeline::Timeline;
 pub use timepicker::{Endpoint, TimeField, TimePicker, TimeRange};
 pub use toast::{SnackBar, SnackBarBehavior, SnackBarKind, SnackBarQueue};
 pub use toasthost::{ScaffoldMessenger, SnackBarPosition};
+pub use togglebuttons::{
+    ToggleAxis, ToggleButtons, TOGGLE_BUTTONS_BORDER_WIDTH, TOGGLE_BUTTON_MIN_SIZE,
+};
 pub use tooltip::Tooltip;
 pub use transform::Transform;
 pub use tree::Tree;
@@ -355,8 +361,9 @@ pub use widgetstate::{StateFilter, WidgetState, WidgetStateProperty, WidgetState
 pub use widgettheme::resolve_shape;
 pub use widgettheme::{
     AppBarTheme, BadgeTheme, ButtonTheme, CardTheme, CheckboxTheme, ChipTheme, DefaultTextStyle,
-    DividerTheme, DrawerTheme, IconButtonTheme, IconTheme, InkTheme, RadioTheme, SegmentedTheme,
-    SliderTheme, SwitchTheme, TabBarTheme, TextFieldTheme, WidgetThemes,
+    DividerTheme, DrawerTheme, GridTileBarTheme, IconButtonTheme, IconTheme, InkTheme, RadioTheme,
+    SegmentedTheme, SliderTheme, SwitchTheme, TabBarTheme, TextFieldTheme, ToggleButtonsTheme,
+    WidgetThemes,
 };
 
 // Convenience re-exports for callers.
@@ -366,11 +373,11 @@ pub use widgettheme::{
 pub use frus_core::{install_text_scale, TextScaleGuard};
 pub use frus_core::{
     Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Backdrop, BlendMode, Border,
-    BorderRadius, BoxDecoration, BoxFit, BoxShadow, ClipShape, Color, ColorFilter, FontWeight,
-    FractionalMask, ImageData, ImageFilter, ImageHandle, Insets, InsetsDirectional, LinearGradient,
-    Orientation, Path, PathVerb, Point, Primitive, Rect, Role, Scene, SemanticsProperties, Size,
-    SizeClass, TextAlign, TextDecoration, TextDirection, TextOverflow, TextSpan, TextStyle,
-    Toggled, WindowInsets,
+    BorderRadius, BoxDecoration, BoxFit, BoxShadow, ClipShape, Color, ColorFilter, Colors,
+    FontWeight, FractionalMask, ImageData, ImageFilter, ImageHandle, Insets, InsetsDirectional,
+    LinearGradient, MaterialColor, Orientation, Path, PathVerb, Point, Primitive, Rect, Role,
+    Scene, SemanticsProperties, Size, SizeClass, TextAlign, TextDecoration, TextDirection,
+    TextOverflow, TextSpan, TextStyle, Toggled, WindowInsets,
 };
 /// The shared animation layer — physics, curves, driver — see
 /// [`frus_core::animation`]. Re-exported here so applications can reach it through

@@ -8,10 +8,24 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 470 so far, each documenting the objective, the alternatives
+> record — one per step, 471 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`ToggleButtons`** (J471): a bank of buttons that share their edges, of which any
+  number can be on at once. Not a segmented button — that is one control with one
+  answer; this asks a separate yes or no about every button, and each button is a widget
+  the caller supplied.
+
+- **`ToggleButtonsTheme`** and **`ToggleAxis`** (J471).
+
+- **`GridTile`** and **`GridTileBar`** (J471): a cell of an image list, and the strip of
+  words laid **over** it rather than under it, so the words take no room out of the grid.
+
+- **`GridTileBarTheme`** (J471), including a `foreground_color` the reference hardcodes.
 
 ### Added
 
