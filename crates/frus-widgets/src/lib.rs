@@ -48,6 +48,7 @@ pub mod dismiss;
 mod divider;
 mod dragdrop;
 mod drawer;
+mod drawerheader;
 mod dropdown;
 mod dsl;
 mod expanded;
@@ -122,6 +123,7 @@ pub mod semantics;
 mod shortcuts;
 mod skeleton;
 mod slider;
+mod spacer;
 mod spinner;
 mod stack;
 mod stepper;
@@ -204,9 +206,10 @@ pub use dismiss::{
     DismissAxis, DismissDirection, DismissPhase, DismissSpec, DismissState, Dismissable,
     Dismissible,
 };
-pub use divider::{Divider, DIVIDER_SPACE, DIVIDER_THICKNESS};
+pub use divider::{Divider, VerticalDivider, DIVIDER_SPACE, DIVIDER_THICKNESS};
 pub use dragdrop::{DragSource, DragTarget, Draggable, DropZone};
 pub use drawer::{Drawer, DRAWER_RADIUS, DRAWER_WIDTH};
+pub use drawerheader::{DrawerHeader, UserAccountsDrawerHeader, DRAWER_HEADER_HEIGHT};
 pub use dropdown::DropdownButton;
 pub use dsl::{button, expanded, flexible, keyed, spacer, text};
 pub use expanded::{Expanded, FlexFit, Flexible};
@@ -297,6 +300,7 @@ pub use shortcuts::{
 };
 pub use skeleton::Skeleton;
 pub use slider::{RangeSlider, Slider};
+pub use spacer::Spacer;
 pub use spinner::CircularProgressIndicator;
 pub use stack::{Stack, StackFit};
 pub use stepper::Stepper;

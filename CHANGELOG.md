@@ -8,10 +8,28 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 467 so far, each documenting the objective, the alternatives
+> record — one per step, 468 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`DrawerHeader`** (J468): the block at the top of a side panel, with a rule as its own
+  last pixel. The top intrusion lands on its height **and** on its padding.
+
+- **`UserAccountsDrawerHeader`** (J468): the same block laid out for an account — a
+  picture, up to three others, a name, an address, and a control for switching. The
+  address is level with that control whether or not there is a name above it.
+
+- **`VerticalDivider`** (J468): a rule down a row, reading the same theme as the
+  horizontal one. It takes its row's full height whatever the row said about alignment.
+
+- **`Spacer`** (J468): a gap that takes what is left, and two of which place a child
+  anywhere along an axis without measuring anything.
+
+- **`Localizations::signed_in_label`, `show_accounts_label` and `hide_accounts_label`**
+  (J468). Two entries for the control, not one that flips.
 
 ### Added
 

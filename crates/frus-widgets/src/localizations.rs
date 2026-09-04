@@ -70,6 +70,27 @@ pub trait Localizations {
         format!("Tab {index} of {count}")
     }
 
+    /// **What a reader hears on an account header** (`signedInLabel`): the name, the
+    /// address and the control for switching arrive as one thing with one name, rather
+    /// than as three unrelated nodes at the top of a panel.
+    fn signed_in_label(&self) -> &str {
+        "Signed in"
+    }
+
+    /// And on the control that reveals the other accounts (`showAccountsLabel`).
+    fn show_accounts_label(&self) -> &str {
+        "Show accounts"
+    }
+
+    /// And on the same control once they are showing (`hideAccountsLabel`).
+    ///
+    /// **Two entries rather than one that flips**, as the reference has it: a control
+    /// named for what it *will do* is the only kind a reader can act on, and the two
+    /// sentences are not each other's negation in every language.
+    fn hide_accounts_label(&self) -> &str {
+        "Hide accounts"
+    }
+
     /// The word on a confirming button (`okButtonLabel`).
     fn ok_button_label(&self) -> &str {
         "OK"

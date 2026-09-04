@@ -20,15 +20,15 @@ use frus_core::{
 use frus_test::render_widget;
 use frus_widgets::{
     text, Alert, Align, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar, BottomSheet,
-    Breadcrumb, Card, CarouselView, Checkbox, CheckboxListTile, CircularProgressIndicator,
-    ClipOval, ClipPath, ClipRRect, ColorPicker, ConstrainedBox, Container, ControlAffinity,
-    CustomPaint, Divider, Expanded, ExpansionTile, FittedBox, Flex, FloatingActionButton,
-    FontWeight, FractionallySizedBox, GridView, Icon, Icons, Image, Intrinsic, Kbd,
-    LinearProgressIndicator, ListView, MenuAnchor, NavigationBar, NavigationDrawer, NavigationRail,
-    Offstage, Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup, RadioListTile, RichText,
-    RotatedBox, SafeArea, SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Stack,
-    Stepper, Switch, SwitchListTile, TabBar, Theme, Timeline, Transform, TwoPane, Visibility,
-    Widget,
+    Breadcrumb, Card, CarouselView, Checkbox, CheckboxListTile, CircleAvatar,
+    CircularProgressIndicator, ClipOval, ClipPath, ClipRRect, ColorPicker, ConstrainedBox,
+    Container, ControlAffinity, CustomPaint, Divider, Expanded, ExpansionTile, FittedBox, Flex,
+    FloatingActionButton, FontWeight, FractionallySizedBox, GridView, Icon, Icons, Image,
+    Intrinsic, Kbd, LinearProgressIndicator, ListView, MenuAnchor, NavigationBar, NavigationDrawer,
+    NavigationRail, Offstage, Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup,
+    RadioListTile, RichText, RotatedBox, SafeArea, SegmentedButton, SingleChildScrollView,
+    SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile, TabBar, Theme, Timeline,
+    Transform, TwoPane, UserAccountsDrawerHeader, VerticalDivider, Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -414,6 +414,59 @@ fn the_navigation_drawer() {
         .item("\u{2699}", "Settings")
         .disabled();
     check("navigation_drawer", 300, 340, &root);
+}
+
+/// **The block at the top of a side panel**, which milestone 467 left a slot for and
+/// nothing to put in it. The account variant is the one worth a picture: the two lines
+/// are not centred as a pair — the address sits at the middle of its 56-pixel row so that
+/// it stays level with the control beside it, and the name goes above it.
+#[test]
+fn the_drawer_account_header() {
+    let root: NavigationDrawer<()> = NavigationDrawer::new(0, |_: usize| ())
+        .width(300.0)
+        .header(
+            UserAccountsDrawerHeader::new()
+                .account_name("Ada Lovelace")
+                .account_email("ada@example.com")
+                .current_picture(
+                    CircleAvatar::new("Ada Lovelace")
+                        .size(72.0)
+                        .color(Color::rgb8(24, 60, 40)),
+                )
+                .other_picture(
+                    CircleAvatar::new("Charles Babbage")
+                        .size(40.0)
+                        .color(Color::rgb8(24, 60, 40)),
+                )
+                .other_picture(
+                    CircleAvatar::new("Grace Hopper")
+                        .size(40.0)
+                        .color(Color::rgb8(24, 60, 40)),
+                )
+                .on_details_pressed(()),
+        )
+        .item("\u{2709}", "Inbox")
+        .item("\u{2605}", "Starred");
+    check("drawer_account_header", 300, 340, &root);
+}
+
+/// **A rule down a row and a gap that takes what is left.** Neither existed before
+/// milestone 468: every separator in the framework ran across a column, and every gap was
+/// a number somebody had to guess from the parent's width.
+#[test]
+fn a_rule_down_a_row_and_the_room_left_over() {
+    let root: Container<()> = Container::new().padding(12.0).child(
+        Flex::row()
+            .width(256.0)
+            .height(40.0)
+            .align(Align::Center)
+            .child(text("Drafts"))
+            .child(VerticalDivider::new())
+            .child(text("Sent"))
+            .child(Spacer::new())
+            .child(text("12")),
+    );
+    check("row_rules_and_space", 280, 64, &root);
 }
 
 // ---------------------------------------------------------------------------
