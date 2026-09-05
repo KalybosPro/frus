@@ -5,7 +5,7 @@
 //! and ticked ([`selected`](DropdownButton::selected)), and **keyboard** navigation: the
 //! header and the options take focus (Enter opens or picks, the arrows move through).
 
-use frus_core::{Path, Point, Rect, Scene};
+use frus_core::{Path, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
@@ -19,7 +19,18 @@ use crate::widget::Widget;
 const DEFAULT_WIDTH: f32 = 240.0;
 const ROW_H: f32 = 40.0;
 const PAD_X: f32 = 12.0;
-const SIZE: f32 = 18.0;
+
+/// The style the value and the options are drawn in: what the caller said, else what the
+/// theme says, else the reference's — a dropdown is `titleMedium`.
+///
+/// **Resolved once**, so that the number the box is measured with is the number the glyphs
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403); a size that never passes through it is a size the reader cannot change.
+fn label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.dropdown.text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).title_medium)
+        .resolved()
+}
 
 /// One row: the header, or an option.
 struct Row<Msg> {
@@ -30,16 +41,31 @@ struct Row<Msg> {
     selected: bool,
     /// The list's availability, handed down to the header and to every option.
     enabled: bool,
+    text_style: Option<TextStyle>,
     on_click: Option<Msg>,
+}
+
+impl<Msg> Row<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        Style {
+            width: Dimension::Length(self.width),
+            height: Dimension::Length(frus_text::line_box(
+                ROW_H,
+                &label_style(self.text_style, theme),
+                0.0,
+            )),
+            ..Default::default()
+        }
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for Row<Msg> {
     fn style(&self) -> Style {
-        Style {
-            width: Dimension::Length(self.width),
-            height: Dimension::Length(ROW_H),
-            ..Default::default()
-        }
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -48,11 +74,14 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Selected option: a primary-tinted background; hover on top (the state layer).
+        // A menu panel is a distinct area within the surface, the `surface_container`
+        // role (`menu_anchor.dart:4035`). Selected option: a primary-tinted background;
+        // hover on top (the state layer).
+        let panel = theme.scheme.surface_container;
         let base = if self.selected && self.enabled {
-            theme.surface.lerp(theme.primary, 0.14)
+            panel.lerp(theme.primary, 0.14)
         } else {
-            theme.surface
+            panel
         };
         // No state layer while disabled: a hover tint is a promise that a press would do
         // something. The outline is the row's **container**, so it takes the container
@@ -74,18 +103,19 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         } else {
             disabled_content(theme)
         };
-        let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
+        let style = label_style(self.text_style, Some(theme));
+        let ty = bounds.y + (bounds.height - style.line_height()) * 0.5;
         scene.text(
             Point::new(bounds.x + PAD_X, ty),
             self.label.clone(),
-            SIZE,
+            &style,
             ink.fade(o),
         );
 
         if self.is_header {
             // A vector "▾" chevron (a downward-pointing triangle), on the right.
             let cx = bounds.x + self.width - PAD_X - 4.0;
-            let cy = bounds.y + ROW_H * 0.5;
+            let cy = bounds.y + bounds.height * 0.5;
             let (w, h) = (5.0, 3.0);
             let tri = Path::new()
                 .move_to(Point::new(cx - w, cy - h))
@@ -101,10 +131,9 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         } else if self.selected {
             // The selected option's tick, on the right.
             let size = 18.0;
-            let scale = size / 24.0;
             let x = bounds.x + self.width - PAD_X - size;
-            let y = bounds.y + (ROW_H - size) * 0.5;
-            let path = Icons::Check.path().scaled(scale).translated(x, y);
+            let y = bounds.y + (bounds.height - size) * 0.5;
+            let path = Icons::CHECK.placed(size, x, y, theme.direction);
             // The tick stays: which option is chosen is still owed to a reader who cannot
             // choose another.
             let check = if self.enabled {
@@ -155,6 +184,7 @@ pub struct DropdownButton<Msg> {
     open: bool,
     enabled: bool,
     labels: Vec<String>,
+    text_style: Option<TextStyle>,
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -170,11 +200,20 @@ impl<Msg: Clone + 'static> DropdownButton<Msg> {
             open: false,
             enabled: true,
             labels: Vec::new(),
+            text_style: None,
             on_select: None,
             children: Vec::new(),
         };
         dropdown.rebuild();
         dropdown
+    }
+
+    /// The value's and the options' type, over the theme's and the reference's.
+    #[must_use]
+    pub fn text_style(mut self, style: TextStyle) -> Self {
+        self.text_style = Some(style);
+        self.rebuild();
+        self
     }
 
     /// Whether the list can be opened or chosen from. Disabled it is **inert** - the
@@ -228,6 +267,7 @@ impl<Msg: Clone + 'static> DropdownButton<Msg> {
             is_header: true,
             selected: false,
             enabled: self.enabled,
+            text_style: self.text_style,
             on_click: Some(self.on_toggle.clone()),
         };
         self.children = vec![Box::new(header)];
@@ -242,6 +282,7 @@ impl<Msg: Clone + 'static> DropdownButton<Msg> {
                     is_header: false,
                     selected: self.selected == Some(index),
                     enabled: self.enabled,
+                    text_style: self.text_style,
                     on_click,
                 });
             }
@@ -339,7 +380,7 @@ mod tests {
             .any(|p| matches!(p, Primitive::Path { .. }));
         assert!(has_check, "the selected option is ticked");
         // The selected option's primary-tinted background.
-        let sel = theme.surface.lerp(theme.primary, 0.14);
+        let sel = theme.scheme.surface_container.lerp(theme.primary, 0.14);
         let has_tint = ui.scene().primitives().iter().any(|p| {
             matches!(
                 p,

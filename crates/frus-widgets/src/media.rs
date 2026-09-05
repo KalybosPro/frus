@@ -141,6 +141,27 @@ pub enum Brightness {
     Dark,
 }
 
+impl Brightness {
+    /// Is this the dark one?
+    pub const fn is_dark(self) -> bool {
+        matches!(self, Brightness::Dark)
+    }
+
+    /// Is this the light one?
+    pub const fn is_light(self) -> bool {
+        matches!(self, Brightness::Light)
+    }
+
+    /// **The brightness content on this surface must have to be legible** — the opposite
+    /// of this one. A dark surface takes light content, and the other way round.
+    pub const fn inverted(self) -> Brightness {
+        match self {
+            Brightness::Light => Brightness::Dark,
+            Brightness::Dark => Brightness::Light,
+        }
+    }
+}
+
 /// The **accessibility settings** the platform reports about its user.
 ///
 /// The reference carries these on `MediaQueryData` as separate booleans; they are one
@@ -185,6 +206,113 @@ impl Accessibility {
         accessible_navigation: false,
         always_use_24_hour_format: false,
     };
+
+    /// The platform's answer with an application's [`AccessibilityOverrides`] laid over it.
+    #[must_use]
+    pub fn with_overrides(self, over: AccessibilityOverrides) -> Self {
+        Self {
+            bold_text: over.bold_text.unwrap_or(self.bold_text),
+            high_contrast: over.high_contrast.unwrap_or(self.high_contrast),
+            disable_animations: over.disable_animations.unwrap_or(self.disable_animations),
+            invert_colors: over.invert_colors.unwrap_or(self.invert_colors),
+            accessible_navigation: over
+                .accessible_navigation
+                .unwrap_or(self.accessible_navigation),
+            always_use_24_hour_format: over
+                .always_use_24_hour_format
+                .unwrap_or(self.always_use_24_hour_format),
+        }
+    }
+}
+
+/// What an application wants to say about [`Accessibility`] **instead of the platform**,
+/// one setting at a time.
+///
+/// Every field is an `Option`, and `None` is an answer: *this application has no opinion,
+/// use what the user's system reports*. That distinction is the whole point of the type.
+/// A plain `Accessibility` cannot make it — a `false` there is indistinguishable from
+/// silence, so an application that only wanted to force *reduce motion* would also be
+/// telling the framework that its user does not use a screen reader.
+///
+/// It is the same shape, and the same reason, as
+/// [`TextStyle`](frus_core::TextStyle) against
+/// [`ResolvedTextStyle`](frus_core::ResolvedTextStyle): one type asks, the other answers.
+///
+/// ```ignore
+/// fn accessibility(&self) -> AccessibilityOverrides {
+///     // A settings screen with a "reduce motion" switch of its own. Everything else
+///     // still comes from the platform.
+///     AccessibilityOverrides::NONE.disable_animations(self.reduce_motion)
+/// }
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AccessibilityOverrides {
+    /// Override [`Accessibility::bold_text`].
+    pub bold_text: Option<bool>,
+    /// Override [`Accessibility::high_contrast`].
+    pub high_contrast: Option<bool>,
+    /// Override [`Accessibility::disable_animations`].
+    pub disable_animations: Option<bool>,
+    /// Override [`Accessibility::invert_colors`].
+    pub invert_colors: Option<bool>,
+    /// Override [`Accessibility::accessible_navigation`].
+    pub accessible_navigation: Option<bool>,
+    /// Override [`Accessibility::always_use_24_hour_format`].
+    pub always_use_24_hour_format: Option<bool>,
+}
+
+impl AccessibilityOverrides {
+    /// **Nothing said**: every setting left to the platform.
+    pub const NONE: Self = Self {
+        bold_text: None,
+        high_contrast: None,
+        disable_animations: None,
+        invert_colors: None,
+        accessible_navigation: None,
+        always_use_24_hour_format: None,
+    };
+
+    /// Speak for [`Accessibility::bold_text`].
+    #[must_use]
+    pub const fn bold_text(mut self, on: bool) -> Self {
+        self.bold_text = Some(on);
+        self
+    }
+
+    /// Speak for [`Accessibility::high_contrast`].
+    #[must_use]
+    pub const fn high_contrast(mut self, on: bool) -> Self {
+        self.high_contrast = Some(on);
+        self
+    }
+
+    /// Speak for [`Accessibility::disable_animations`].
+    #[must_use]
+    pub const fn disable_animations(mut self, on: bool) -> Self {
+        self.disable_animations = Some(on);
+        self
+    }
+
+    /// Speak for [`Accessibility::invert_colors`].
+    #[must_use]
+    pub const fn invert_colors(mut self, on: bool) -> Self {
+        self.invert_colors = Some(on);
+        self
+    }
+
+    /// Speak for [`Accessibility::accessible_navigation`].
+    #[must_use]
+    pub const fn accessible_navigation(mut self, on: bool) -> Self {
+        self.accessible_navigation = Some(on);
+        self
+    }
+
+    /// Speak for [`Accessibility::always_use_24_hour_format`].
+    #[must_use]
+    pub const fn always_use_24_hour_format(mut self, on: bool) -> Self {
+        self.always_use_24_hour_format = Some(on);
+        self
+    }
 }
 
 /// The surface an interface is being built for.
@@ -220,10 +348,15 @@ pub struct MediaQuery {
     /// *Larger Accessibility Sizes* on iOS, and a layout that ignores it is one a great
     /// many people cannot read.
     ///
-    /// **The framework does not yet scale text by it.** This carries the number so an
-    /// application can, with [`scaled`](Self::scaled); making every measurement in the
-    /// framework honour it is its own milestone, recorded on the roadmap with the two
-    /// places that have to agree.
+    /// **The framework scales text by it** since milestone 403: installing this surface
+    /// with [`MediaQuery::scope`](Self::scope) puts the factor where
+    /// [`TextStyle::resolved`](frus_core::TextStyle::resolved) reads it, and every size in
+    /// the framework passes through there. [`scaled`](Self::scaled) applies it to a number
+    /// of an application's own.
+    ///
+    /// Chrome that cannot grow caps it instead of obeying it — see
+    /// [`TextStyle::clamp_scale`](frus_core::TextStyle::clamp_scale), which is what an
+    /// app bar does with its title.
     pub text_scaler: f32,
     /// Whether the platform is currently showing a **dark** interface, independently of
     /// what this application chose.
@@ -360,6 +493,37 @@ impl MediaQuery {
     /// The same description with the selected edges' [`padding`](Self::padding)
     /// zeroed — what a widget that has just *consumed* that padding hands to its
     /// descendants, so they do not inset for the same notch a second time.
+    /// Mixes into `hasher` everything about this surface that can change a **measurement**.
+    ///
+    /// The relayout cache fingerprints the walk, and a scoped surface is part of that walk
+    /// (milestone 417): two subtrees given different descriptions must not share a
+    /// fingerprint, or the second would keep the first's geometry.
+    ///
+    /// The colours are left out on purpose — `platform_brightness` and the accessibility
+    /// flags change how a frame is *painted*, and paint is not what this cache stores.
+    pub fn measure_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        use std::hash::Hash;
+        for n in [
+            self.size.width,
+            self.size.height,
+            self.device_pixel_ratio,
+            self.density,
+            self.text_scaler,
+        ] {
+            n.to_bits().hash(hasher);
+        }
+        for insets in [
+            self.padding,
+            self.view_insets,
+            self.view_padding,
+            self.system_gesture_insets,
+        ] {
+            for n in [insets.top, insets.right, insets.bottom, insets.left] {
+                n.to_bits().hash(hasher);
+            }
+        }
+    }
+
     pub fn remove_padding(mut self, edges: Edges) -> Self {
         let consumed = edges.select(self.padding);
         // The **view** padding loses the same amount, floored at zero. Without this a
@@ -425,15 +589,58 @@ impl MediaQuery {
     /// force before — including when `f` panics, so one bad frame cannot leave a
     /// stale surface installed for every frame after it.
     ///
-    /// This is what the framework wraps `view` in, and what a widget uses to change
-    /// the description its own subtree sees.
+    /// **For a subtree**, where a closure is the right shape: a widget changing the
+    /// description its children see. A *frame* wants [`install`](Self::install) instead,
+    /// because a frame does not fit in a closure — see there for why that matters.
     pub fn scope<R>(self, f: impl FnOnce() -> R) -> R {
-        let previous = AMBIENT.with(|a| a.replace(self));
-        let guard = Restore(previous);
+        let guard = self.install();
         let out = f();
         drop(guard);
         out
     }
+
+    /// Installs `self` as the ambient description **until the returned guard is dropped**,
+    /// and restores whatever was in force before — panic or not.
+    ///
+    /// # Why this exists as well as [`scope`](Self::scope)
+    ///
+    /// A closure bounds the description to one call, and a *frame* is not one call. The
+    /// widgets are built, then measured and laid out, then painted, and **all three**
+    /// resolve sizes. The shell wrapped only the build for four milestones: the reader's
+    /// font size reached a real device and moved not one pixel, because the two steps that
+    /// decide how big text actually is ran outside the closure (milestone 407).
+    ///
+    /// The description and the reader's font size are installed **together, by this one
+    /// call**, and that is the point. They were briefly two guards that had to agree with
+    /// each other, which is the same bug with an extra step: whoever holds one and forgets
+    /// the other gets a layout measured at one size and painted at another, with nothing to
+    /// say so.
+    #[must_use = "the surface is uninstalled the moment the guard is dropped"]
+    pub fn install(self) -> SurfaceGuard {
+        let previous = AMBIENT.with(|a| a.replace(self));
+        // The reader's font size travels with the description, because it **is** part of
+        // the description and because installing it anywhere else would be one more thing
+        // to remember. It lives in `frus-core` rather than here: the only place a size
+        // becomes a number is `TextStyle::resolved`, and that is below this crate.
+        SurfaceGuard {
+            _scale: frus_core::install_text_scale(self.text_scaler),
+            _surface: Restore(previous),
+        }
+    }
+}
+
+/// Holds a surface installed — see [`MediaQuery::install`]. Dropping it puts back the
+/// description **and** the reader's font size that were in force before.
+///
+/// The two live in one guard so that they cannot be held for different lengths of time,
+/// which is exactly how they came apart in milestone 407.
+#[must_use = "the surface is uninstalled the moment the guard is dropped"]
+pub struct SurfaceGuard {
+    /// Held for its `Drop` and never read, hence the name. Declared **first**, so it is
+    /// dropped first: the reverse of the order the two were installed in.
+    _scale: frus_core::TextScaleGuard,
+    /// Held for its `Drop` and never read. See `_scale` for the ordering.
+    _surface: Restore,
 }
 
 thread_local! {
@@ -575,5 +782,120 @@ mod tests {
     fn a_square_surface_counts_as_portrait() {
         let square = MediaQuery::new(Size::new(500.0, 500.0));
         assert_eq!(square.orientation(), Orientation::Portrait);
+    }
+
+    /// **The platform answers, and the application overrides only what it spoke for.**
+    ///
+    /// The ordering is the point. These settings belong to the person using the device,
+    /// so an application that says nothing must not be able to overrule them by accident —
+    /// and before this the application was the only source, so silence and "off" were the
+    /// same sentence.
+    #[test]
+    fn an_application_that_says_nothing_leaves_the_user_alone() {
+        let user = Accessibility {
+            disable_animations: true,
+            accessible_navigation: true,
+            ..Accessibility::NONE
+        };
+        assert_eq!(
+            user.with_overrides(AccessibilityOverrides::NONE),
+            user,
+            "an application with no settings screen changes nothing"
+        );
+    }
+
+    /// And an application that speaks for **one** setting speaks for one setting.
+    ///
+    /// This is what a plain `Accessibility` could not express: forcing *reduce motion* off
+    /// used to mean also declaring that the user runs no screen reader, because a `false`
+    /// and a silence were the same value.
+    #[test]
+    fn speaking_for_one_setting_does_not_speak_for_the_others() {
+        let user = Accessibility {
+            disable_animations: true,
+            accessible_navigation: true,
+            always_use_24_hour_format: true,
+            ..Accessibility::NONE
+        };
+        let resolved = user.with_overrides(AccessibilityOverrides::NONE.disable_animations(false));
+        assert!(!resolved.disable_animations, "the application had its say");
+        assert!(
+            resolved.accessible_navigation,
+            "and said nothing about the screen reader"
+        );
+        assert!(resolved.always_use_24_hour_format, "nor about the clock");
+    }
+
+    /// A surface installed with [`MediaQuery::scope`] puts the reader's font size where
+    /// [`frus_core::TextStyle::resolved`] reads it — the whole point of carrying the
+    /// number. Without this the platform could report it and nothing would change.
+    #[test]
+    fn a_described_surface_hands_the_readers_font_size_to_the_text() {
+        let phone = MediaQuery::new(Size::new(400.0, 800.0)).with_text_scaler(1.5);
+        let plain = frus_core::TextStyle::new(16.0);
+        assert_eq!(
+            plain.resolved().size,
+            16.0,
+            "outside a surface, nothing moves"
+        );
+        phone.scope(|| {
+            assert_eq!(plain.resolved().size, 24.0);
+        });
+        assert_eq!(plain.resolved().size, 16.0, "and it is put back afterwards");
+    }
+
+    /// **The description and the reader's font size are installed by one call.**
+    ///
+    /// They were briefly two guards that had to agree with each other, which is the same
+    /// bug with an extra step: whoever holds one and forgets the other gets a layout
+    /// measured at one size and painted at another.
+    #[test]
+    fn one_guard_installs_the_whole_surface() {
+        let phone = MediaQuery::new(Size::new(360.0, 780.0)).with_text_scaler(1.5);
+        assert_eq!(frus_core::text_scale(), 1.0);
+        assert!(!MediaQuery::of().is_described());
+        {
+            let _held = phone.install();
+            assert_eq!(frus_core::text_scale(), 1.5, "the font size is in force");
+            assert!(MediaQuery::of().is_described(), "and so is the description");
+        }
+        assert_eq!(frus_core::text_scale(), 1.0, "both are put back");
+        assert!(!MediaQuery::of().is_described());
+    }
+
+    /// A guard **outlives a closure**, which is the whole reason it exists: a frame builds,
+    /// then lays out, then paints, and all three resolve sizes.
+    #[test]
+    fn a_guard_holds_past_the_call_that_made_it() {
+        let built = {
+            let held = MediaQuery::new(Size::new(400.0, 300.0))
+                .with_text_scaler(2.0)
+                .install();
+            let size = frus_core::TextStyle::new(16.0).resolved().size;
+            // The "layout" and the "paint" of this frame: after the widgets were built,
+            // and still inside the surface.
+            let laid_out = frus_core::TextStyle::new(16.0).resolved().size;
+            drop(held);
+            (size, laid_out)
+        };
+        assert_eq!(built, (32.0, 32.0));
+        assert_eq!(frus_core::TextStyle::new(16.0).resolved().size, 16.0);
+    }
+
+    /// Installing one **inside** another nests and unwinds in order, so a widget can still
+    /// change the description its own subtree sees.
+    #[test]
+    fn surfaces_nest_and_unwind_in_order() {
+        let outer = MediaQuery::new(Size::new(400.0, 800.0)).with_text_scaler(1.5);
+        let inner = MediaQuery::new(Size::new(200.0, 400.0)).with_text_scaler(3.0);
+        let _o = outer.install();
+        assert_eq!(frus_core::text_scale(), 1.5);
+        {
+            let _i = inner.install();
+            assert_eq!(frus_core::text_scale(), 3.0);
+            assert_eq!(MediaQuery::of().size.width, 200.0);
+        }
+        assert_eq!(frus_core::text_scale(), 1.5, "the outer surface is back");
+        assert_eq!(MediaQuery::of().size.width, 400.0);
     }
 }

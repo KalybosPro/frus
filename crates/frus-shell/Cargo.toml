@@ -64,6 +64,14 @@ blocking = "1"
 # ureq's default.
 ureq = { version = "2", optional = true }
 
+# The reader's preferred languages, everywhere but Android and the Web — Windows,
+# macOS, Linux and iOS each keep them somewhere different, and this is one small crate
+# over the four. It is **already in the tree**: cosmic-text pulls it, so naming it here
+# adds no dependency at all. Android has a better answer (the activity's `Configuration`,
+# read over the JNI walk that is already there) and the Web has its own.
+[target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
+sys-locale = "0.3"
+
 # Desktop only — not Android, not iOS, not the Web: clipboard, console logger and
 # accessibility. (AccessKit exposes the semantic tree to the native screen readers —
 # UIA on Windows, AT-SPI on Linux, macOS; the Android and Web providers are separate.)
@@ -89,6 +97,8 @@ console_log = "1"
 web-sys = { version = "0.3", features = [
     "Document",
     "Window",
+    # `navigator.languages`: the reader's preferred languages, in order (milestone 454).
+    "Navigator",
     "Element",
     "Response",
     "Request",

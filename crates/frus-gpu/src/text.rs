@@ -8,7 +8,10 @@ use crate::batch::{Batch, Kind};
 use frus_core::{Color, Point, Primitive, Rect, Scene, TextDecoration};
 
 /// The line-height to font-size ratio, kept consistent with `frus-text`.
-const LINE_HEIGHT_FACTOR: f32 = 1.2;
+/// The default line-height ratio, from `frus-core` — **not** a copy. The renderer and
+/// the measurement have to agree on how tall a line is, and two constants named the same
+/// thing in two crates is how they stop agreeing.
+use frus_core::DEFAULT_LINE_HEIGHT as LINE_HEIGHT_FACTOR;
 
 /// A **text decoration** quad — underline, strikethrough and so on — computed from
 /// the laid-out lines. Rendered by the rectangle pipeline, *before* the glyphs: in
@@ -199,10 +202,19 @@ impl TextPainter {
                         align,
                         decoration,
                         decoration_color,
+                        // Renamed on the way in: `height` is already the surface's, and
+                        // this one is a ratio of the font size.
+                        height: line_ratio,
+                        family,
                         clip,
                         ..
                     } => {
-                        let metrics = glyphon::Metrics::new(*size, *size * LINE_HEIGHT_FACTOR);
+                        // The height the **measurement** used, not a constant of the
+                        // renderer's own: a line laid out at one height and measured at
+                        // another puts every line after the first where nothing was
+                        // reserved for it.
+                        let line = *size * line_ratio.unwrap_or(LINE_HEIGHT_FACTOR);
+                        let metrics = glyphon::Metrics::new(*size, line);
                         let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
                         // A line that knows where its box ends but was told not to wrap
                         // still needs the width, to align inside it — so the two travel
@@ -221,7 +233,7 @@ impl TextPainter {
                         let attrs = glyphon::Attrs::new()
                             // Family by script (Arabic → Noto): Android has no
                             // cross-family fallback, so we choose at the source.
-                            .family(frus_text::family_for(text))
+                            .family(frus_text::family_for_style(text, *family))
                             .weight(glyphon::Weight(frus_text::available_weight(*weight)))
                             // Upright when no oblique face is loaded: an application
                             // that dropped `bundled-italic` gets straight text, not none.
@@ -458,7 +470,12 @@ mod tests {
     #[test]
     fn renders_text_to_non_background_pixels() {
         let mut scene = Scene::new();
-        scene.text(Point::new(4.0, 4.0), "Hello", 48.0, Color::WHITE);
+        scene.text(
+            Point::new(4.0, 4.0),
+            "Hello",
+            &frus_core::ResolvedTextStyle::exact(48.0),
+            Color::WHITE,
+        );
         match lit_pixels_for(&scene) {
             None => eprintln!("no GPU adapter available: test skipped"),
             Some(lit) => {
@@ -473,7 +490,12 @@ mod tests {
     #[test]
     fn renders_arabic_to_non_background_pixels() {
         let mut scene = Scene::new();
-        scene.text(Point::new(4.0, 40.0), "مهامي", 40.0, Color::WHITE);
+        scene.text(
+            Point::new(4.0, 40.0),
+            "مهامي",
+            &frus_core::ResolvedTextStyle::exact(40.0),
+            Color::WHITE,
+        );
         match lit_pixels_for(&scene) {
             None => eprintln!("no GPU adapter available: test skipped"),
             Some(lit) => {
@@ -520,7 +542,7 @@ mod tests {
         use frus_core::TextStyle;
         let plain = {
             let mut scene = Scene::new();
-            scene.text_styled(
+            scene.text(
                 Point::new(4.0, 4.0),
                 "Hello",
                 &TextStyle::new(40.0).resolved(),
@@ -530,7 +552,7 @@ mod tests {
         };
         let underlined = {
             let mut scene = Scene::new();
-            scene.text_styled(
+            scene.text(
                 Point::new(4.0, 4.0),
                 "Hello",
                 &TextStyle::new(40.0).underline().resolved(),

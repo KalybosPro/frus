@@ -1,11 +1,11 @@
 //! [`Checkbox`]: a **controlled** checkbox, its state coming from the application.
 
-use frus_core::{Color, Point, Rect, Scene};
+use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Dimension, Style};
 
 use crate::disabled::{disabled_content, disabled_mark};
 use crate::interaction::{Interaction, Status};
-use crate::theme::Theme;
+use crate::theme::{TapTarget, Theme};
 use crate::widget::Widget;
 
 const BOX: f32 = 20.0;
@@ -27,6 +27,7 @@ pub struct Checkbox<Msg> {
     check_color: Option<Color>,
     border_color: Option<Color>,
     active_border_color: Option<Color>,
+    tap_target: Option<TapTarget>,
     radius: Option<f32>,
     label_color: Option<Color>,
     on_toggle: Option<Box<dyn Fn(bool) -> Msg>>,
@@ -46,6 +47,7 @@ impl<Msg> Checkbox<Msg> {
             check_color: None,
             border_color: None,
             active_border_color: None,
+            tap_target: None,
             radius: None,
             label_color: None,
             on_toggle: None,
@@ -186,12 +188,52 @@ impl<Msg> Checkbox<Msg> {
     }
 }
 
+impl<Msg> Checkbox<Msg> {
+    /// **How much room it reserves for a finger** ([`TapTarget`]). Unset, the theme's
+    /// answer, which is [`Padded`](TapTarget::Padded) — at least 48 pixels either way,
+    /// whatever this control paints in the middle of it.
+    pub fn tap_target(mut self, target: TapTarget) -> Self {
+        self.tap_target = Some(target);
+        self
+    }
+
+    /// The label's style, **resolved once** so that the number the box is measured with is
+    /// the number the glyphs are drawn at. Resolving is the single place the reader's font
+    /// setting is applied (milestone 403).
+    fn label_style(&self) -> ResolvedTextStyle {
+        TextStyle::new(self.size).resolved()
+    }
+
+    /// The room this checkbox reserves, resolved as `caller ?? theme ?? framework`
+    /// (`checkbox.dart:510`).
+    fn reserved(&self, theme: &Theme) -> f32 {
+        self.tap_target
+            .or(theme.widgets.checkbox.tap_target)
+            .unwrap_or(theme.tap_target)
+            .min_side()
+    }
+}
+
 impl<Msg> Widget<Msg> for Checkbox<Msg> {
     fn style(&self) -> Style {
-        let line = frus_text::line_height(self.size).max(BOX);
+        Widget::<Msg>::style_themed(self, &Theme::default())
+    }
+
+    /// **A 20-pixel box is not something a finger can be asked to hit** — the reference
+    /// lays a checkbox out inside a 48-pixel square whatever it paints in the middle
+    /// (`checkbox.dart:516`).
+    ///
+    /// The target here is the **whole control**, label included, rather than a square
+    /// around the box: the reference's checkbox carries no label, so it reaches the same
+    /// guarantee by being a square with the words outside it. A labelled one is already
+    /// wider than the minimum, so the width floor only ever binds on a bare box — and
+    /// then the box is centred in what it was given.
+    fn style_themed(&self, theme: &Theme) -> Style {
+        let least = self.reserved(theme);
+        let line = self.label_style().line_height().max(BOX);
         Style {
-            width: Dimension::Length((BOX + self.label_width()).ceil()),
-            height: Dimension::Length(line.ceil()),
+            width: Dimension::Length((BOX + self.label_width()).max(least).ceil()),
+            height: Dimension::Length(line.max(least).ceil()),
             ..Default::default()
         }
     }
@@ -203,7 +245,16 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         let box_y = bounds.y + (bounds.height - BOX) * 0.5;
-        let box_rect = Rect::new(bounds.x, box_y, BOX, BOX);
+        // Centred across as well when there is nothing beside it, since the box is then
+        // the only thing in a square wider than itself. With a label it stays at the
+        // leading edge and the words follow it.
+        let box_x = bounds.x
+            + if self.label.is_none() {
+                (bounds.width - BOX) * 0.5
+            } else {
+                0.0
+            };
+        let box_rect = Rect::new(box_x, box_y, BOX, BOX);
 
         if self.filled() {
             // Disabled and ticked: the box flattens to `on_surface` at 38 % and the tick
@@ -230,10 +281,12 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
             );
             match self.value {
                 // Ticked.
+                // `exact`: the tick is an icon drawn as a glyph and it lives inside a
+                // `BOX` that does not move, so it must not follow the reader's type.
                 Some(_) => scene.text(
                     Point::new(box_rect.x + 3.0, box_rect.y + 1.0),
                     "✓".to_string(),
-                    self.size,
+                    &ResolvedTextStyle::exact(self.size),
                     tick.fade(o),
                 ),
                 // Partly ticked: a bar, and a **drawn** one rather than a dash of text.
@@ -294,10 +347,17 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
             } else {
                 disabled_content(theme)
             };
+            // Centred down the box's own height. It used to be drawn at the top of the
+            // bounds, which was the same sentence while the bounds *were* the line; a
+            // floor under the height makes the two different.
+            let style = self.label_style();
             scene.text(
-                Point::new(bounds.x + BOX + GAP, bounds.y),
+                Point::new(
+                    bounds.x + BOX + GAP,
+                    bounds.y + (bounds.height - style.line_height()) * 0.5,
+                ),
                 label.clone(),
-                self.size,
+                &style,
                 color.fade(o),
             );
         }
@@ -343,11 +403,100 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::{MIN_TAP_TARGET, SHRUNK_TAP_TARGET};
 
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         Set(bool),
         Maybe(Option<bool>),
+    }
+
+    /// **A 20-pixel box is not something a finger can be asked to hit** (milestone 442).
+    ///
+    /// The reference lays a checkbox out inside a 48-pixel square whatever it paints in
+    /// the middle (`checkbox.dart:516`). This asked for the box and the label's line, so
+    /// a bare checkbox was a 20-pixel target and a labelled one was as tall as its type.
+    #[test]
+    fn a_checkbox_reserves_room_for_a_finger() {
+        let theme = Theme::dark();
+        let bare: Checkbox<Msg> = Checkbox::new(false);
+        let square = Widget::<Msg>::style_themed(&bare, &theme);
+        assert_eq!(square.width, Dimension::Length(MIN_TAP_TARGET));
+        assert_eq!(square.height, Dimension::Length(MIN_TAP_TARGET));
+
+        // With a label the control is already wider than the minimum, so only the height
+        // floor binds — the target is the whole control, words included.
+        let labelled: Checkbox<Msg> = Checkbox::new(false).label("Remember me");
+        let row = Widget::<Msg>::style_themed(&labelled, &theme);
+        assert_eq!(row.height, Dimension::Length(MIN_TAP_TARGET));
+        match row.width {
+            Dimension::Length(w) => assert!(w > MIN_TAP_TARGET, "width = {w}"),
+            other => panic!("{other:?}"),
+        }
+
+        let dense: Checkbox<Msg> = Checkbox::new(false).tap_target(TapTarget::ShrinkWrap);
+        assert_eq!(
+            Widget::<Msg>::style_themed(&dense, &theme).height,
+            Dimension::Length(SHRUNK_TAP_TARGET)
+        );
+    }
+
+    /// And **the click lands in the room**, which is the whole point of reserving it: a
+    /// point below the box, inside the square, reaches the checkbox.
+    #[test]
+    fn a_click_below_the_box_still_lands() {
+        use frus_core::Size;
+        let ui = crate::ui::build_ui(
+            &Checkbox::new(false).on_toggle(Msg::Set),
+            Size::new(200.0, 200.0),
+            &crate::runtime::Runtime::default(),
+            &Theme::dark(),
+        );
+        // The box occupies 14..34 in both axes of the 48-pixel square; this is under it.
+        let below = Point::new(24.0, 42.0);
+        let landed = ui.hit(below).and_then(|id| ui.msg_for(id));
+        assert_eq!(landed, Some(Msg::Set(true)), "a finger just low of the box");
+    }
+
+    /// The box is centred in that square when nothing stands beside it, and stays at the
+    /// leading edge when a label does.
+    #[test]
+    fn a_bare_box_is_centred_in_its_room() {
+        let theme = Theme::dark();
+        let box_of = |checkbox: &Checkbox<Msg>, width: f32| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                checkbox,
+                Rect::new(0.0, 0.0, width, MIN_TAP_TARGET),
+                Status::default(),
+                &theme,
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Rect { rect, .. } => Some(*rect),
+                    _ => None,
+                })
+                .expect("a checkbox paints its box")
+        };
+
+        let bare = box_of(&Checkbox::new(true), MIN_TAP_TARGET);
+        assert!(
+            (bare.x - (MIN_TAP_TARGET - BOX) * 0.5).abs() < 0.01,
+            "centred across: {bare:?}"
+        );
+        assert!(
+            (bare.y - (MIN_TAP_TARGET - BOX) * 0.5).abs() < 0.01,
+            "and down: {bare:?}"
+        );
+
+        let labelled = box_of(&Checkbox::new(true).label("Remember me"), 200.0);
+        assert_eq!(
+            labelled.x, 0.0,
+            "the words follow the box, not the other way"
+        );
     }
 
     #[test]

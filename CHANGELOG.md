@@ -8,10 +8,1358 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 402 so far, each documenting the objective, the alternatives
+> record — one per step, 473 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`NavigationDestination`** (J473, closes #47): a navigation destination as a **value** —
+  a mark, a name, the mark it swaps to while selected, a badge, a tooltip, and the
+  decorations that belong to one entry. `BottomBar`, `NavigationRail`, `NavigationDrawer`,
+  `NavScaffold` and `Scaffold` all take `destinations`, so an application that adapts
+  across widths declares its navigation **once** instead of three times.
+
+- **`DestinationIcon`** (J473): a destination's mark is a drawn `IconData` or a text
+  glyph. `From` covers `&str`, `String`, `char` and `IconData`, so `item` takes either and
+  every existing call site kept compiling. A drawn icon is a square of its own size and a
+  glyph is whatever the font makes of it, so the selection pill is measured from the mark
+  rather than from a grid it might not be on.
+
+- **A destination's tooltip** (J473). A rail shows glyphs without labels by default, which
+  is exactly when the mark needs a word behind it. The item that has one is wrapped in
+  `Tooltip` rather than growing a second implementation of one.
+
+### Fixed
+
+- **The two goldens that were red on every run** (J473): `overflow_band` and
+  `filters_three` now state the tolerance they actually need — four pixels of one rounded
+  corner, and three counts of 255 on a blur's edge. Neither was drift in this framework:
+  both fail identically at the commit that first wrote them, 128 commits back, and both
+  render byte-for-byte the same today as they did then. The difference is the adapter's,
+  and a suite that is permanently red teaches everyone to ignore red.
+
+- **The multi-line field's scrolled preview** (J473): red for months, and not for the
+  reason the other two were. Its golden holds a scrollbar **track** that the framework
+  deliberately stopped painting, and a thumb of the old geometry — six pixels inside an
+  eight-pixel slot rather than eight pixels clear of the edge. The picture was stale, so
+  it is re-blessed. The test also seeds the scrollbar's fade now: a bar arrives when an
+  area moves and goes again, so a runtime that never saw this field move draws no bar at
+  all — correctly — and a preview of a scrolled field with nothing at its edge says
+  nothing about where the scroll is.
+
+### Added
+
+- **`Colors`** (J472): the material palette as 308 plain `Color` constants —
+  `Colors::RED`, `Colors::RED_300`, `Colors::BLUE_ACCENT_700`, `Colors::BLACK54`. Plain
+  colours and not swatch objects, so they go into any API that takes a `Color` with
+  nothing to unwrap. The neutrals carry the palette's own opacities as **alphas**, which
+  is the point of naming them.
+
+- **`MaterialColor`** (J472): a colour ramp — one hue in its numbered steps, as
+  `MaterialColor::RED`, with `shade(300)`, `steps()`, and `Colors::PRIMARIES` /
+  `Colors::ACCENTS` for the whole set. What a theme derives a scheme from, where
+  `Colors` is what a caller picks a tone from. Grey's two half-steps and the accents'
+  four are represented honestly: a ramp states which steps it has.
+
+- **The whole material icon set** (J472): 2 233 icons as `Icons` constants —
+  `Icons::ADD`, `Icons::STAR`, `Icons::ARROW_BACK` — up from sixteen hand-drawn ones.
+  The outlines ship as a 307 KiB blob whose signature and offset table are checked at
+  compile time; `Icons::by_name` resolves a name that arrives at runtime, and
+  `Icons::all` walks the set.
+
+- **The three variant styles** (J472), behind `icons-outlined`, `icons-rounded` and
+  `icons-sharp` — `Icons::ADD_OUTLINED` and its 2 192 companions, one blob apiece, none
+  on by default. An outlined icon at rest and its filled twin when selected is how a
+  navigation bar says which destination you are on. Without the feature the constants do
+  not exist and `by_name` answers `None` rather than handing back the filled drawing.
+
+- **`IconStyle`** (J472): which of the four an icon is drawn in, with `IconData::style`,
+  `IconStyle::suffix` and `Icons::of_style`.
+
+- **`IconData::custom`** (J472): an icon of the caller's own, a `const fn` over a
+  function that draws a `24 × 24` path. Not every mark an application wants is in the
+  set, and waiting for one to be added is not an answer.
+
+- **Icons turn round for a right-to-left reading order** (J472). An arrow, an indent, a
+  reply and a chevron point somewhere, and where they point follows the reading order; a
+  tick and a star do not. The set says which is which — 76 of the 2 233 —
+  `IconData::matches_text_direction` reports it, and `IconData::custom(…).mirrored()`
+  says it for a caller's own icon.
+
+- **`IconData::placed`** (J472): an icon scaled to a side, placed at a point, and
+  mirrored where it should be. The sixteen places in the crate that painted an icon by
+  hand now go through it, and the three that carried their own copy of the `24` grid
+  constant no longer do.
+
+- **`Path::mirrored_x`** (J472): a copy reflected in a vertical line. Contour winding is
+  reversed throughout, so a shape's holes stay holes.
+
+- **`Color::rgb8`, `rgba8` and `from_argb_u32` are now `const fn`** (J472), which is what
+  lets a palette be constants rather than a lazily-built table.
+
+### Changed
+
+- **Two icons recovered and one renamed** (J472). The names had been inferred by
+  stripping a style suffix, which silently dropped `insert_chart_outlined` and
+  `wifi_tethering_error_rounded` — filled icons whose names merely read like variants —
+  and spelled `class` as `CLASS_`. Names now come from the font's own manifest, which
+  states each icon and style explicitly.
+
+- **`Icons` is a namespace, not an enum** (J472). An icon is now an `IconData` value, so
+  `Icon::new`, `IconButton::new`, `FloatingActionButton::new` and every themed icon slot
+  take `IconData` where they took `Icons`. Sixteen names moved to the set's own spelling
+  in Rust's constant case: `Icons::Heart` → `Icons::FAVORITE`, `Icons::Play` →
+  `Icons::PLAY_ARROW`, `Icons::ArrowLeft` → `Icons::ARROW_BACK`, `Icons::ChevronDown` /
+  `ChevronUp` → `Icons::EXPAND_MORE` / `EXPAND_LESS`, `Icons::Eye` / `EyeOff` →
+  `Icons::VISIBILITY` / `VISIBILITY_OFF`, and the other ten to upper case.
+
+- **Thirty-five goldens** (J472) carry the set's own artwork in place of the hand-drawn
+  outlines. Nothing but the icons moved in any of them.
+
+### Added
+
+- **`ToggleButtons`** (J471): a bank of buttons that share their edges, of which any
+  number can be on at once. Not a segmented button — that is one control with one
+  answer; this asks a separate yes or no about every button, and each button is a widget
+  the caller supplied.
+
+- **`ToggleButtonsTheme`** and **`ToggleAxis`** (J471).
+
+- **`GridTile`** and **`GridTileBar`** (J471): a cell of an image list, and the strip of
+  words laid **over** it rather than under it, so the words take no room out of the grid.
+
+- **`GridTileBarTheme`** (J471), including a `foreground_color` the reference hardcodes.
+
+### Added
+
+- **`SearchAnchor`** (J470): the view a search bar opens — a panel under it on a
+  desktop, the whole screen on a phone. Open and shut come from the application's model,
+  not from a route or a controller.
+
+- **`SearchViewTheme`** (J470).
+
+- **`Localizations::clear_button_label`** (J470). Not *Close*: the same glyph means two
+  different things depending on what it sits in.
+
+- **`OverlayPortal::new_boxed` and `overlay_boxed`** (J470), for a widget that assembles
+  its own anchor rather than being handed one.
+
+### Fixed
+
+- **A `SearchBar` with no surface no longer lights under a pointer** (J470). A state layer
+  is a lerp from the ground toward the ink; a transparent ground gave a grey wash over
+  whatever was behind the bar.
+
+### Added
+
+- **`SearchBar`** (J469): the raised pill an application searches from — a leading
+  slot, the words, any number of trailing actions. Twelve properties, a `SearchBarTheme`,
+  and a `read_only` bar that opens something else when pressed.
+
+- **`TextFieldVariant::None` and `TextField::borderless()`** (J469): a field with no
+  container of its own, for one that sits inside something that is already a container.
+  The reference's `InputBorder.none`.
+
+- **`SearchBarTheme`** (J469).
+
+### Added
+
+- **`DrawerHeader`** (J468): the block at the top of a side panel, with a rule as its own
+  last pixel. The top intrusion lands on its height **and** on its padding.
+
+- **`UserAccountsDrawerHeader`** (J468): the same block laid out for an account — a
+  picture, up to three others, a name, an address, and a control for switching. The
+  address is level with that control whether or not there is a name above it.
+
+- **`VerticalDivider`** (J468): a rule down a row, reading the same theme as the
+  horizontal one. It takes its row's full height whatever the row said about alignment.
+
+- **`Spacer`** (J468): a gap that takes what is left, and two of which place a child
+  anywhere along an axis without measuring anything.
+
+- **`Localizations::signed_in_label`, `show_accounts_label` and `hide_accounts_label`**
+  (J468). Two entries for the control, not one that flips.
+
+### Added
+
+- **`NavigationDrawer`** (J467): the third presentation of the primary navigation, beside
+  the rail and the bar — a panel of full-width destinations with a header above them
+  and a footer below, for an application that has outgrown a rail. It is the content of a
+  `Drawer`, not a second one. Its children are a mixed list, so a divider between two
+  groups takes no destination index.
+
+- **`NavDrawerTheme`** (J467): thirteen fields, the drawer's own defaults.
+
+- **`NavScaffold::nav_drawer`** (J467): gives the `Expanded` band a drawer instead of an
+  extended rail. Opt-in, and silent below `Expanded`.
+
+- **`Localizations::tab_label`** (J467). "Tab 1 of 3", for a reader hearing destinations
+  one at a time.
+
+- **`NavigationDrawer::tile_color`** (J467): the whole area behind one destination, edge
+  to edge, which is not its indicator.
+
+### Fixed
+
+- **A rail's and a bar's destinations are announced** (J467). Neither had any semantics
+  at all: the primary navigation of every frus application was silent to a screen reader.
+  Each destination now gives its name, its position in the list and whether it is the
+  live one — and the name is announced whether or not it is drawn.
+
+### Added
+
+- **`BackButton`, `CloseButton`, `DrawerButton` and `EndDrawerButton`** (J466): icon
+  buttons that know their glyph and take their name from the framework's words, in both
+  places a name belongs — the semantics and a tooltip.
+
+- **`Icons::ArrowLeft`** (J466): a drawn arrow, so a back button is a path rather than the
+  character `←`.
+
+- **`Localizations::open_drawer_label`** (J466). One word for both edges, as the reference
+  has it.
+
+- **`ActionIconTheme`** (J466): the four glyphs, replaceable app-wide.
+
+### Changed
+
+- **`NavigationBar::on_back` builds a `BackButton`** (J466) rather than an icon button
+  carrying the character `←`.
+
+### Added
+
+- **`CheckboxListTile`, `RadioListTile` and `SwitchListTile`** (J465): a row of a list
+  whose whole width works one control. `title`, `subtitle`, `secondary`,
+  `control_affinity`, `dense`, `three_line`, `selected`, `enabled`, the two surfaces, the
+  shape, the padding and the two type styles, plus each control's own colours.
+
+- **`Radio`** (J465) as a widget in its own right. It existed only as a private option a
+  `RadioGroup` built for each of its labels, so a radio could not sit anywhere else.
+
+### Added
+
+- **`FloatingActionButton` and `FabSize`** (J464): the widget this framework did not have.
+  `new(icon)`, `glyph(text)`, `extended(label)`, `.small()`, `.large()`, and the surface,
+  foreground, elevation, shape, glyph size and type behind them. Four sizes, each carrying
+  its own box, corner and glyph.
+
+- **`FabTheme`** (J464): ten entries.
+
+### Changed
+
+- **A floating action button takes `primary_container` on `on_primary_container`** (J464),
+  not `primary` on `on_primary`. `fab_button` returned a filled `Button`, so a screen's
+  main action was drawn in the wrong pair of roles.
+
+- **`fab_button` returns a `FloatingActionButton`** (J464) rather than a `Button`. It is a
+  two-line shorthand for the widget now; callers that only pass it to `Scaffold::fab` need
+  no change.
+
+### Added
+
+- **`ExpansionTileTheme`** (J463): ten entries — the two surfaces, the two text colours,
+  the two icon colours, the two paddings and the two shapes. The tile had every one of
+  them as a builder and nowhere to say them once.
+
+- **`ExpansionTile::shape`, `collapsed_shape` and `radius`** (J463). It had no shape at
+  all; the row is a `ListTile`, which has taken one since J457, on its surface **and** its
+  ink. The open and shut shapes stay apart, as the reference keeps them.
+
+### Changed
+
+- **`ExpansionTile::children_padding` is an `Option` inside** (J463), so `Insets::ZERO` is
+  an answer rather than a silence and a theme can be heard under it. The builder's
+  signature is unchanged.
+
+### Added
+
+- **`Tooltip`** (J462): a short label that appears while a pointer rests on the thing it
+  describes. The overlay system has had the placement for one since it was built — above
+  the anchor, flipped below when there is no room, only while hovered — and no widget
+  used it. `Tooltip::new(message).child(widget)`; an empty message is the child and no
+  overlay, so an optional hint needs no branch.
+
+- **`TooltipTheme`** (J462): background, text style, text colour, text alignment, padding,
+  shape, radius and maximum width.
+
+### Added
+
+- **`ProgressTheme`** (J461, the reference's `ProgressIndicatorThemeData`): nine entries
+  for two widgets that read no theme at all before this.
+
+- **`LinearProgressIndicator::color`, `track_color`, `min_height`, `radius`,
+  `stop_indicator_color`, `stop_indicator_radius` and `track_gap`** (J461), and
+  **`CircularProgressIndicator::color`, `track_color` and `stroke_width`**. Between them
+  the two widgets had a width and a size.
+
+### Changed
+
+- **A progress bar is four pixels tall and its track is `secondary_container`** (J461).
+  It was eight — twice the reference's — with a track of `muted` faded to 30%, which
+  is a colour nobody chose and no theme could name.
+
+- **A bar leaves a gap before its track and puts a dot at the far end** (J461), which is
+  the reference's current appearance rather than the deprecated default it still ships.
+  `track_gap(0.0)` and `stop_indicator_radius(0.0)` write the older look back. One golden
+  moved.
+
+### Changed
+
+- **A menu is one panel** (J460), not a stack of buttons. Every row used to paint its own
+  filled, outlined, rounded rectangle with a two-pixel gutter between them; there is now a
+  single `surface_container` surface with a shadow, and rows that paint nothing at rest.
+  A row is also **a tap target tall** (it was 38 pixels) and its label is `label_large`
+  (it was `title_medium`). One golden moved.
+
+### Added
+
+- **`PopupMenuButton::background`, `shape`, `radius`, `elevation`, `menu_padding`,
+  `item_padding` and `item_height`** (J460), with `MenuTheme` growing from one field to
+  eight to match. A menu picked every one of these for itself before.
+
+### Added
+
+- **The Material 3 fixed accent roles on `ColorScheme`** (J459): `primary_fixed`,
+  `primary_fixed_dim`, `on_primary_fixed`, `on_primary_fixed_variant`, and the same four
+  for the secondary and the tertiary. Twelve colours that hold the **same value in a light
+  scheme and a dark one**, for a surface that must not change when the theme does — a
+  brand colour, an illustration drawn against one particular shade. They are tones 90, 80,
+  10 and 30 of the accent's palette, written identically into both built-in schemes and
+  read off the palette in both branches of `from_seed`.
+
+### Changed
+
+- **`ColorScheme` has twelve more fields** (J459), so a literal construction of one must
+  name them. Anything using `..ColorScheme::light()` is unaffected.
+
+### Added
+
+- **`ListTileTheme`** (J458): thirteen entries — colours, shape, padding, type, gaps,
+  height and density — so an application says once what every tile does. There was no list
+  tile theme at all before this.
+
+- **`BottomSheet::shape()`, `BottomSheetTheme::shape` and `BottomSheetTheme::radius`**
+  (J458). The sheet's corner was `theme.radius + 6.0` and nothing could change it. The
+  default is unchanged.
+
+### Added
+
+- **`ListTile::selected_tile_color`, `icon_color`, `text_color` and `shape`** (J457). A
+  selected tile had no surface of its own — only its words changed colour. The shape is
+  taken by the surface **and** the ink.
+
+- **`Divider::radius`** (J457): a thick rule can round its ends. A hairline stays square
+  and keeps the fast fill path.
+
+### Added
+
+- **`BorderRadiusDirectional`** (J456, `frus-core`): a corner radius named by the reading
+  direction — `top_start`, `top_end`, `bottom_end`, `bottom_start` — with
+  `resolve(direction)` giving the concrete `BorderRadius`. `uniform`, `start`, `end`,
+  `horizontal` and `vertical` construct one.
+
+- **`Drawer::shape()`, `DrawerTheme::shape` and `DrawerTheme::end_shape`** (J456): a panel
+  takes a whole shape where it took a single `f32`, and the two panels have separate theme
+  entries as in the reference — a trailing panel does not inherit a leading panel's shape.
+
+### Added
+
+- **`Card::shape()` and `SnackBar::shape()`** (J455): the builders milestone 451 announced
+  for the card and implied for the snack bar, and neither of which existed. The fields and
+  the resolution were already there; only the way in was missing.
+
+- **`AppBar::radius()`** (J455): the shorthand for a rounded rectangle, beside the shape.
+
+### Fixed
+
+- **A snack bar's shape resolution read the theme in the caller's slot** (J455), and
+  nothing in the theme's. Right only while no caller could name one.
+
+### Changed
+
+- **`AppBar::shape` and `AppBarTheme::shape` take a `ShapeBorder`** (J455), not a
+  `BorderRadius`. A bar is a rectangle, so a shape gives it the corners it resolves to in
+  the bar's own box — `ShapeBorder::stadium()` rounds to half the bar's height at any
+  height. **Callers passing a number** say `.radius(18.0)`.
+
+### Added
+
+- **`Locale`, `locale::resolve` and `locale::of`** (J454, `frus-widgets`): which language the
+  interface is in. `resolve` is the reference's negotiation between the reader's preferred
+  languages and the application's; `of` is the ambient answer any widget can read.
+
+- **`supported_locales`, `locale` and `resolved_locale` on `Application`** (J454). The
+  order of `supported_locales` decides ties and its first entry is the fallback; `locale` is
+  what an application's own language setting writes to, and is still resolved rather than
+  obeyed.
+
+- **The shell reads the reader's languages** (J454): `sys-locale` on Windows, macOS, Linux
+  and iOS, `Configuration.getLocales()` on Android, `navigator.languages` on the Web. It
+  installs the resolved one every frame, so a language changed while the application is
+  running is obeyed on the next.
+
+### Fixed
+
+- **The ambient scopes are installed before the theme is resolved** (J454), not beside the
+  build. The layout's direction follows the language, so a right-to-left theme was being
+  asked for one frame before the language that decides it arrived.
+
+### Added
+
+- **`ColorScheme::brightness` and `Theme::brightness()`** (J453): a theme says whether it is
+  a light one or a dark one instead of being measured. `Brightness` gains `is_dark`,
+  `is_light` and `inverted`.
+
+### Fixed
+
+- **A scrollbar's thumb reads the scheme's brightness** (J453), where it compared the
+  surface's luminance against a half. Right on the four schemes this crate builds, a guess
+  on any other — and the opacities either side are three times apart at rest.
+
+### Changed
+
+- **`ColorScheme` has one more field** (J453). Constructing one with every field listed
+  must name `brightness`; `..ColorScheme::light()` is unaffected.
+
+### Added
+
+- **`dark_theme`, `theme_mode` and the high-contrast pair on `Application`** (J452): an
+  application names its themes and the framework picks between them, following the
+  platform's brightness by default. `ThemeMode::System` is the default, so an application
+  with one theme behaves exactly as before.
+
+- **The framework crosses between themes** (J452): `theme_animation_duration` (200 ms) and
+  `theme_animation_curve` on `Application`. Applications holding an outgoing theme and a
+  progress value in their own state can delete both — this repo's demonstration did.
+
+- **`Application::resolved_theme(brightness, high_contrast)`** (J452): which of the four
+  themes is on display. The framework calls it every frame; an off-screen renderer or a
+  test calls it because there is no context here to ask instead.
+
+- **`ThemeMode`** (J452, `frus-widgets`), with `wants_dark(brightness)` — the one line the
+  whole light/dark decision comes down to, on the type an application's own settings
+  screen already holds.
+
+### Changed
+
+- **`Application::theme` defaults to the light theme** (J452), not the dark one, as in the
+  reference. An application that never overrode it and expected dark now says
+  `fn theme(&self) -> Theme { Theme::dark() }` — or better, names both and lets
+  `theme_mode` choose.
+
+### Added
+
+- **`shape()` on `Card`, `Chip`, `Dialog` and `Button`, and `shape` on their themes**
+  (J451): what shape the box is, not just what its corners are. `radius()` stays as the
+  shorthand for a rounded rectangle; the last of the two called is the one that counts.
+
+- **`resolve_shape`** (J451): the one rule all of them use — caller, theme's shape, theme's
+  radius, widget's default.
+
+### Fixed
+
+- **A button is a pill at any size** (J451). Its stadium was `height / 2`, which is the
+  wrong number for a button taller than it is wide. The FAB had the same number written
+  out.
+
+### Changed
+
+- **`Dialog::shape` and `DialogTheme::shape` take a `ShapeBorder`** (J451), not a
+  `BorderRadius`. **Callers passing a number** say `.radius(28.0)`.
+
+### Added
+
+- **`ShapeBorder` and `BorderSide`** (J450, `frus-core`): what shape a box is — a rounded
+  rectangle, a stadium, a circle, or a bevel — and the edge around it. `as_rounded` keeps
+  three of the four on the renderer's existing rectangle path; `outline` answers for all
+  four as a path.
+
+- **`Scene::draw_shape`** (J450): fills a shape and draws its edge, choosing between the
+  two paths so no call site has to.
+
+- **`NavigationRail::indicator_shape()`, `BottomBar::indicator_shape()` and
+  `NavRailTheme::indicator_shape`** (J450): the shape of a selected destination's
+  indicator (`navigation_rail.dart:1148`). A pill unless something says otherwise — which
+  is what it already drew, and now what it can be told.
+
+### Added
+
+- **`localizations::Localizations`, `English`, `of`, `install` and `scope`** (J449): the
+  words the framework says on an application's behalf, in the reader's language. Every
+  method has an English body, so a table writes down only what differs.
+
+- **`Application::localizations()`** (J449): the table the shell installs every frame, so
+  an application that changes language while running is obeyed on the next one.
+
+### Fixed
+
+- **A calendar starts its week where the reader's week starts** (J449). It always started
+  on Sunday, so in every locale whose week starts on Monday — most of Europe — **every
+  date in the month sat a column out of place**.
+
+- **The month names were written out three times** (J449), in `DatePicker`,
+  `DateTimePicker` and `DateTimeRange`. They now come from one place.
+
+### Added
+
+- **`NavRailTheme::overlay_color`** (J448): the first theme field that is a
+  `WidgetStateProperty` rather than a plain value — a destination's highlight per state,
+  for a whole application. A state it does not name falls through to the framework's own
+  state layer.
+
+### Changed
+
+- **`Theme` and `WidgetThemes` are `Clone` but no longer `Copy`** (J448). A theme measures
+  **7952 bytes**; `Copy` made every `*theme` a silent eight-kilobyte `memcpy`. **Code
+  that copied a theme implicitly** now says `theme.clone()`.
+
+### Added
+
+- **`WidgetState`, `WidgetStates`, `StateFilter` and `WidgetStateProperty<T>`** (J447): a
+  value chosen by the states a widget is in, the way the reference resolves nearly every
+  Material property. Entries are tried in order and the first match wins; a property that
+  matches nothing says nothing, leaving the widget or the theme to answer.
+
+- **`Status::states()`** (J447): the states a status honestly knows — hovered, focused,
+  pressed. Selection, disablement and the rest are the widget's own to add with
+  `WidgetStates::set`.
+
+- **`NavigationRail::overlay_color()` and `BottomBar::overlay_color()`** (J447): a
+  destination's own highlight, per state, over the framework's state layer.
+
+### Added
+
+- **`SnackBarBehavior`, `SnackBar::behavior()`, `::width()` and `::margin()`** (J446):
+  where a notification sits — fixed to the bottom of the page or floating above it — and
+  the corner, the padding and the margin that follow from it. `SnackBarTheme` answers for
+  a whole application (`behavior`, `inset_padding`, `width`).
+
+### Changed
+
+- **A snack bar is `Fixed` by default, and a fixed bar has square corners** (J446), as
+  the reference has it. **Bars that relied on the old rounded look** say
+  `.behavior(SnackBarBehavior::Floating)`.
+
+- **A fixed bar holds its text in by 24 rather than 16** (J446), and a floating one keeps
+  15/5/15/10 clear of the page on its own.
+
+- **`ScaffoldMessenger` no longer imposes a 16-pixel inset** (J446): what a notification
+  keeps clear of the page belongs to the notification. `ScaffoldMessenger::padding` still
+  takes one for a caller who wants it.
+
+### Added
+
+- **`SingleChildScrollView::thumb_visibility()`** (J445): keeps a scroll area's bar on
+  screen instead of letting it fade, for an area whose content does not look scrollable —
+  and for any frame rendered in isolation, which advances nothing and so has never moved.
+
+- **`Ui::scrollbar_near()` and `Scrollbar::opacity`/`reach`** (J445): the pointer's hit
+  test, as distinct from the drag's. A pointer finds a bar at any opacity; a drag finds
+  nothing at zero.
+
+### Changed
+
+- **A scrollbar fades** (J445): it arrives when its area moves and goes 600 ms after it
+  stops, over 300 — and an area nobody has scrolled shows none at all. Its thumb takes a
+  second colour near a pointer and a third while it is held. **A frame rendered in
+  isolation now shows no bar** unless the area asks for `thumb_visibility(true)`.
+
+- **The thumb is 8 pixels and sits 2 clear of the edge** (J445), rather than 6 pixels
+  inside an 8-pixel slot.
+
+### Added
+
+- **`Scrollbars`, `Application::scrollbars()` and `SingleChildScrollView::scrollbars()`**
+  (J444): whether a scroll area draws a bar, answered by the platform, overridable by the
+  application and by one area — beside `ScrollPhysics`, which is where the reference keeps
+  it.
+
+### Changed
+
+- **No scrollbar on a touch screen, and none on the horizontal axis anywhere** (J444), as
+  the reference has it. **Applications on Android and iOS lose the bar they had**; an
+  application that wants it back says `Scrollbars::Always`.
+
+- **Where a bar is drawn it is a thumb and no track** (J444), 8 pixels rather than 10, at
+  the reference's resting opacity rather than at twice it, and never shorter than 48.
+
+### Added
+
+- **`NavigationRail::scrollable`, `::main_axis_alignment`, `::use_indicator` and
+  `::elevation`** (J443), with `NavRailTheme::use_indicator` and `::elevation`. A rail with
+  more destinations than height can scroll them; the destinations can be spread along it;
+  the selection indicator can be turned off, and the selected destination then says so in
+  the accent, glyph and label both; and a raised rail drops its hairline.
+
+### Added
+
+- **`TapTarget`, `Theme::tap_target`, and `tap_target()` on `Switch`, `Checkbox`,
+  `RadioGroup` and `IconButton`** (J442): a small control reserves at least 48 pixels for
+  the finger that works it, as the reference does. `TapTarget::ShrinkWrap` asks for the 40
+  the specification allows. With the matching `SwitchTheme`/`CheckboxTheme`/`RadioTheme`/
+  `IconButtonTheme` field, so the per-widget rung exists between caller and theme.
+
+### Changed
+
+- **`Switch`, `Checkbox`, `Radio` and `IconButton` lay out inside their tap target** (J442)
+  and paint what they painted in the middle of it. Nothing they draw changed; the room
+  around them did, and so did the area a click may land in. **A layout that pinned a row to
+  the old sizes will need the difference** — the icon button's box is 48 where it was 40.
+
+- **`NavigationBar` has no vertical padding** (J442). Six pixels left 44 for the 48-pixel
+  back button it holds; a toolbar is 56 tall and holds that button centred, with the four
+  pixels either side coming from the difference.
+
+### Fixed
+
+- **A theme fade no longer drops the per-widget defaults it crosses** (J442). `Theme::lerp`
+  rebuilt from the interpolated scheme and started from an empty `WidgetThemes`, so every
+  override an application had written vanished for the length of a light/dark crossing.
+
+### Added
+
+- **`Status::press_progress`** (J441): a press is a progression, not a flag. Every state
+  layer in the crate used to arrive whole under a finger and leave whole with it. It fades
+  now, on its own clock — slower than hover and focus, as the reference's is.
+
+### Changed
+
+- **`Theme::state_layer` reads `press_progress` and no longer reads
+  `Interaction::Pressed`** (J441). Widgets that resolve their own state layer through the
+  theme need no change. A widget that builds a `Status` by hand — a test, a custom paint —
+  must now set `press_progress` rather than the flag to ask for the pressed layer;
+  `Interaction` stays for decisions that really are discrete.
+
+- **A held `Switch` thumb grows into its larger radius, and a `Container` crosses over to
+  its `pressed_color`** (J441) instead of snapping to either.
+
+### Added
+
+- **A `Switch` answers the pointer** (J440): a state layer over the track and under the
+  thumb, on hover, focus and press, resolved opaquely from the track's own colour. It had
+  none.
+
+- **`Switch::thumb_icon` and `::inactive_thumb_icon`** (J440): a glyph inside the thumb, for
+  a setting that has to be legible in more than colour and position. Naming either one makes
+  both thumbs the larger size, as the reference does — a switch that changed size when
+  flipped would be two switches. With `SwitchTheme::icon_color` and `::inactive_icon_color`.
+
+- **A held thumb swells** (J440) to the reference's pressed radius.
+
+### Changed
+
+- **A time picker's selected AM/PM takes the tertiary container** (J439), where it took the
+  accent the selected hour takes. Picking an hour picks the value; picking AM says which half
+  of the day it is in, and the reference gives the two different families for that reason.
+
+- **An errored field deepens under the pointer** (J439): its border and label move from
+  `error` to `on_error_container` while hovered, and back once focused. The message below the
+  field does not — it is a sentence, not a control. `TextFieldStyle::error_hover_color` and
+  the theme slot beside it replace the colour.
+
+### Added
+
+- **`SnackBar::close_icon`** (J438): the cross at the end of the bar. It takes the message a
+  click emits rather than a `bool`, because the application owns the queue here and a cross
+  with nothing to call would be a way out that is not one. With `close_icon_color` and
+  `close_icon_label`, and `SnackBarTheme::close_icon_color` beside them.
+
+### Fixed
+
+- **A navigation destination's state layer was a translucent pill** (J437) — `muted` at
+  12 %, handed to the GPU and therefore blended in linear light, where it paints like a
+  third. It is the theme's own state rule now, resolved opaquely over the ground the
+  destination stands on, with the reference's `primary` as its ink.
+
+- **A selected destination did not respond to the pointer at all** (J437): the state layer
+  lived in the `else` of "is it selected", so the one destination a pointer is most likely
+  to be over was the one that never lit. The layer goes over the indicator.
+
+- **`NavigationRail::background` and `BottomBar::background` did not invalidate their
+  destinations** (J437). Harmless until the destinations began reading the background, which
+  they must, a state layer being a lerp from the ground up.
+
+### Added
+
+- **A destination answers focus and press**, not only hover (J437) — they came with the
+  theme's state rule.
+
+### Added
+
+- **A destination can be `disabled`** (J436), on `NavigationRail`, `BottomBar`, `Scaffold`
+  and `NavScaffold`: its glyph and label take the disabled ink, nothing lights under the
+  pointer, it emits no message and the keyboard steps over it. The indicator stays — greying
+  a destination says you cannot go there now, not that you are not there.
+
+- **`selected_icon`** (J436): the glyph a destination shows while it is selected, where that
+  differs from its resting one. Unset, the resting one serves for both.
+
+- **`indicator_color` per destination** (J436), over the theme's and the scheme's.
+
+### Added
+
+- **`NavScaffold::rail` and `::nav_labels`** (J435), the door `Scaffold` got in J434: a
+  function run over the rail the shell built, and the label mode for whichever widget the
+  size class chose.
+
+### Changed
+
+- **A `NavScaffold` at `SizeClass::Expanded` shows an extended rail** (J435) — labels beside
+  the glyphs, 256 wide — where it showed the same glyph-only rail as `Medium`. Three size
+  classes had two presentations between them, so the widest window got the portrait tablet's
+  navigation. **This changes what an existing expanded window looks like**; `.rail(|rail|
+  rail.extended(false))` declines it.
+
+### Fixed
+
+- **Describing a `NavScaffold`'s navigation after its `body` was silently ignored** (J435),
+  `destination` included. `body` is what builds the navigation; the four builders that
+  describe it now assert, and name themselves in the message.
+
+### Added
+
+- **`Scaffold::rail`** (J434): a function the shell runs over the `NavigationRail` it built
+  for you — `.rail(|rail| rail.extended(true))`. One door instead of a pass-through per
+  property, so everything the rail learns later is reachable the day it learns it. It runs
+  after the destinations and after `nav_labels`, and is silent when the navigation is a bar.
+
+- **`Scaffold::nav_labels`** (J434): the label mode, applied to whichever navigation widget
+  the placement chose. Unsaid, each keeps the opposite default the reference gives it.
+
+### Fixed
+
+- **A persistent footer beside an extended rail was pushed off the screen** (J434). Its row
+  is given its width, and that width subtracted the rail's *constant* rather than the rail's
+  actual width — 176 pixels too wide once a caller extended it. The shell asks the rail now,
+  after the caller has finished with it.
+
+### Added
+
+- **`NavigationRail::extended`** (J433): 256 across instead of 80, with every label beside
+  its glyph instead of under it. The glyphs keep the column they had, so extending a rail
+  widens it and moves nothing; the row is as tall as the taller of glyph and label rather
+  than as tall as both; and every destination is labelled, whatever `RailLabels` says.
+
+- **`NavigationRail::group_alignment`** (J433): where the destinations sit between the
+  rail's two ends, `-1.0` (the default, against the top) to `1.0`, **continuously** — a
+  third of the way down is a thing you can ask for.
+
+- **`NavigationRail::leading` and `::trailing`** (J433), with `leading_boxed` and
+  `trailing_boxed` for a slot that is already built: the slots above and below the
+  destinations, where an application puts a floating action button or an account switcher.
+  `leading_at_top` and `trailing_at_bottom` say which of them travels when the group moves;
+  as the reference has it, the leading slot is pinned and the trailing one travels.
+
+### Added
+
+- **`RailLabels`** (J432): `None`, `Selected` or `All`, on both `NavigationRail::labels` and
+  `BottomBar::labels`. The reference keeps two names for the one idea and gives them
+  different defaults, which these follow.
+
+### Changed
+
+- **A `NavigationRail` shows no labels by default** (J432), as the reference's does — glyphs
+  alone until it is told `.labels(RailLabels::All)`. A `BottomBar` still shows all of them,
+  which is also the reference's default. **This changes what an existing rail looks like**;
+  the one-line fix is on the rail.
+
+- **A rail is 80 wide** (J432), the reference's `minWidth`, where it was 76.
+
+### Fixed
+
+- **The layout and the paint disagreed about a destination's label gap by two pixels**
+  (J432) after milestone 431 moved the painted one to the reference's 4 and left the
+  reserved one at 2. Hidden until now because the row's constant floor won every time.
+
+### Changed
+
+- **A navigation destination takes the roles the reference names** (J431). The selected
+  indicator is an **opaque** `secondary_container` where it was `primary` at 16 % — the
+  wrong role, and a translucent fill that never painted at the alpha it was written at. The
+  glyph and the label stop sharing a colour: the glyph is drawn on the indicator and takes
+  its content colour, the label sits below it and takes the surface's. An unselected label
+  differs between a rail and a bar, as it does in the reference.
+
+- **The rail's badge is the `Badge` widget's badge** (J431): the scheme's `error` and
+  `on_error` through `BadgeTheme`, where it carried a red of its own. Recolouring badges now
+  recolours both.
+
+### Added
+
+- **Six `NavRailTheme` slots** (J431) — the indicator, the selected and unselected glyph and
+  label colours, and the glyph's size. All six had been hard-coded.
+
+### Changed
+
+- **`SnackBar` is the reference's inverted bar** (J430): `inverse_surface` with no border,
+  `on_inverse_surface` text, an `inverse_primary` action, corner 4 and elevation 6. The
+  scheme has carried the inverted pair since it was written, documented as being for toasts
+  and snack bars, and the bar had never used it. Two of its three kinds now name a role;
+  the third keeps a colour of this crate's own, because Material 3 has `error` and nothing
+  that means "it worked".
+
+### Added
+
+- **Seven `SnackBarTheme` slots and four `SnackBar` builders** (J430) — background, text,
+  action text, accent, the success colour, radius and elevation. All of those had been
+  hard-coded, reachable by neither a caller nor a theme.
+
+### Added
+
+- **Ten colour roles the scheme was without** (J429): the `tertiary` four, `error_container`
+  and `on_error_container`, `inverse_primary`, `surface_tint`, `surface_dim` and
+  `surface_bright`. The seeded scheme generates the tertiary palette a sixth of the wheel
+  from the seed at chroma 24, as the reference does; the hand-written schemes' literals were
+  read off this crate's own HCT rather than chosen by eye. The contrast test now covers
+  tertiary and all four containers, since a container carries text too.
+
+### Changed
+
+- **`Switch` takes the reference's whole off state** (J428), which is a design of five
+  parts rather than a colour: a `surface_container_highest` track with a 2px `outline` edge
+  that only the off end has, an `outline` thumb where the on one is `on_primary`, and a
+  thumb that **grows** from radius 8 to 12 as the switch is flipped, on a 52×32 track. The
+  growing thumb is what tells the two states apart before either colour is read.
+
+- **A switch's two thumb colours are now two** (J428). `inactive_thumb_color` used to
+  default to whatever the on thumb was; it defaults to the scheme's `outline`. It is still
+  one thumb sliding — one that changes colour as it travels, the way the track under it
+  does.
+
+### Added
+
+- **A surface for `NavigationRail` and `BottomBar`** (J427). Neither painted one: they drew
+  a hairline and let whatever was behind them show through, so a bottom bar on a page was
+  the page with a line above it. The reference gives them different rungs and the difference
+  says what each is — a rail stands *beside* the page (`surface`), a bar stands *on* it
+  (`surface_container`). Both take a `background(…)`, and `NavRailTheme` carries the two
+  colours.
+
+- **`BottomSheetTheme` and `BottomSheet::background`** (J427), the sheet's surface having
+  been a hard-coded read that neither a caller nor a theme could reach. **`BottomAppBarTheme`**
+  for the same reason on the theme side.
+
+### Changed
+
+- **Five more panels take the rung the reference names them** (J427): `Drawer` and
+  `BottomSheet` to `surface_container_low`, `BottomAppBar` and the dropdown and autocomplete
+  panels to `surface_container`. All five were filled from the flat `surface`.
+
+### Added
+
+- **The scheme's full container ladder** (J426): `surface_container_lowest`,
+  `surface_container_low` and `surface_container_highest` join the two rungs that already
+  existed, so the five roles the reference names together exist here too. The two old rungs
+  keep their exact values; the new ones sit at the reference's own tonal steps measured from
+  them, because this scheme's surface deliberately sits apart from the spec's and a ladder
+  anchored elsewhere would put "more emphasis" below the page it stands on.
+
+### Changed
+
+- **Six call sites now take the rung the reference names them** (J426): an elevated card, an
+  elevated button and a banner move to `surface_container_low`; a filled card and a filled
+  text field to `surface_container_highest`; a menu to `surface_container`. Each was
+  standing on the nearest rung the scheme had, and two of them said so in a comment.
+
+### Added
+
+- **`MaterialBanner`** (J425): a message across the top of the screen with the actions that
+  answer it, staying until one is taken — the middle of the three ways of saying something,
+  between a snack bar's few seconds and a dialog's barrier. Its actions are required, as in
+  the reference: a message that stays until it is dismissed and offers no way to dismiss it
+  stays for ever. One action rides on the message's line and two take a line of their own,
+  and the rule along the bottom is drawn only where the banner is flat.
+
+- **`SimpleDialog` and `SimpleDialogOption`** (J425), on the same surface as `AlertDialog`.
+  The difference is what they are for: an alert dialog asks a question and puts the answers
+  in a row of buttons; a simple dialog lists them, and each row **is** an answer — which is
+  why an option's ink runs the full width of the dialog.
+
+- **`BannerTheme`**, so a theme can set the banner's colour, elevation, tint, shadow, rule,
+  paddings and text style.
+
+### Added
+
+- **`Dialog` and `AlertDialog`: the modal frus did not have** (J424). A rounded, elevated
+  surface over the screen — 28 corner, elevation 6, `surfaceContainerHigh`, held off the
+  window's edges, never narrower than 280, all of it the reference's numbers and all of it
+  overridable on the instance and on the theme. `AlertDialog` adds the icon / title /
+  content / actions column with the reference's conditional paddings, and an icon centres
+  the title as the reference's does. Controlled like every other overlay here: `open` is the
+  application's field, and a dialog told nothing about dismissal has an inert scrim, which is
+  `barrierDismissible: false`.
+
+- **`DialogTheme`**, so a theme can set the surface, the elevation, the shadow, the tint, the
+  corner, the inset padding, the icon's colour and the two text styles.
+
+### Changed
+
+- **`AlertDialog` was renamed `Alert`** (J424) — a breaking rename, and the reason is that it
+  was never a dialog: no actions, no barrier, and no message type. It is unchanged in every
+  other respect, and the name now means what it means in the reference.
+
+### Changed
+
+- **A `Scaffold` no longer spends the system's bottom intrusion on the body's behalf** (J423),
+  which is the reference's arrangement. With a bottom bar or a persistent footer below it,
+  nothing changes — they hold the edge off as before. With **neither**, the body now reaches
+  the screen's edge and is *told* that the gesture bar is there; a body whose content must be
+  clear of it says `SafeArea::new(…)` and is answered. A screen that declines
+  `resize_to_avoid_bottom_inset` likewise keeps the whole window, the keyboard being an
+  overlay it has asked to ignore.
+
+  This is a behaviour change for screens with no bottom slot. The one line that restores the
+  old picture is `.body(SafeArea::new(content))`; the reason not to do it everywhere is that
+  a full-bleed background, a hero image, and a list scrolling under the gesture bar were all
+  impossible while the shell decided for them.
+
+### Added
+
+- **`AppBar::automatically_imply_leading` and `AppBar::automatically_imply_actions`** (J422),
+  both `true` by default as in the reference. A bar with an empty leading slot, on a screen
+  that has a drawer, grows the button that opens it; a bar with an empty trailing end grows
+  the one for an end drawer. Neither ever adds a button beside what the caller put there.
+
+- **`ScaffoldInfo` and `ScaffoldScope`: what the shell knows and its slots do not** (J422) —
+  the third inherited thing, beside the theme and the surface, and the first to carry a
+  *message* rather than plain data. A slot is handed to a shell already built, so the shell
+  says what it is and the walk carries it down. `Widget::scaffold_override` is the hook.
+
+### Fixed
+
+- **A `SafeArea` inside a `Scaffold`'s body padded for intrusions the shell had already dealt
+  with** (J421). The body was told nothing, so a safe area in it read the ambient description
+  — the whole notch — and held its content off a second time: under an app bar, a whole
+  status bar of empty space. The slot is handed a description now, as the reference does, and
+  a body that wants the notch avoided can finally ask for it and be answered correctly.
+
+### Changed
+
+- A `Scaffold` lays its body out **full width** and tells it about the side intrusions rather
+  than padding its content for them, as the reference does. A body that says nothing reaches
+  the screen's edge — which is what a background or a hero image wants — and one that says
+  `SafeArea` is held clear. Side intrusions are zero in portrait, so this is a landscape and
+  display-cutout change.
+
+### Fixed
+
+- **A navigation rail's rule stopped at the notch** (J420). The shell padded the slot from
+  outside, so the rail was a shorter box floated inside the intrusions and everything it
+  painted — the rule down its trailing edge included — stopped with it. The rail now takes
+  the leading side, the top and the bottom into its own box, as the reference's does, and its
+  surface reaches the screen's edges while its destinations stay clear of them.
+
+### Changed
+
+- A `Scaffold`'s rail slot is handed a **description** rather than a padding, the trailing
+  side removed. Beside a rail, the persistent footer no longer pads for a leading intrusion
+  that is inside the rail's box.
+
+### Fixed
+
+- **Persistent footer buttons sat on the gesture bar when nothing was below them** (J419).
+  The shell leaves the bottom clearance to whatever is bottom-most and steps the body aside
+  when there is a footer; the footer then took nothing, because the bottom it passed its own
+  padding was a literal zero. It is a real safe area now, with the top edge freed, and the
+  shell tells the slot what there is to consume — nothing when a navigation bar below it
+  already holds the edge off, as the reference does.
+
+### Fixed
+
+- **A bottom bar's surface stopped short of the screen's edge** (J418). The shell padded the
+  slot from outside, so the bar's background ended above the gesture bar and a strip of the
+  scaffold showed through underneath it. The reference keeps the colour outside the safe area
+  and the safe area inside the bar; the shell now hands the slot a description and the bar
+  consumes it, so the background runs behind the gesture bar and only its destinations are
+  held clear.
+
+- **A notched bottom app bar cut its notch a display cutout away from its button** (J418).
+  The notch is cut in the bar's own coordinates and the bar used to start at the left
+  intrusion, so it was moved back by it; the bar starts at the window's edge now. With no
+  side intrusion the two readings agreed, which is why nothing caught it before.
+
+### Changed
+
+- A `Scaffold`'s navigation slot is handed a **description** rather than a padding, the top
+  intrusion removed and the bottom left in, as the reference does. A widget in that slot that
+  does not consume intrusions is no longer insetted for them.
+
+### Added
+
+- **`MediaScope`: a surface for one subtree** (J417), the counterpart of `Themed`. Until now
+  a description could only be narrowed where a widget was *constructed* (`SafeArea::build`),
+  which is the wrong end for a shell handed slots that are already built. Backed by a new
+  `Widget::media_override`, applied by the layout walk, the deferred build, the relayout
+  fingerprint and the paint walk alike.
+
+- **`AppBar::primary`** (J417), `true` by default as in the reference. A bar keeps its own
+  toolbar out of the status bar; its surface still runs behind it, which is what a Material
+  bar looks like.
+
+### Fixed
+
+- **An `AppBar` used outside a `Scaffold` drew under the status bar** (J417). Nothing insetted
+  it and it would not inset itself, because the shell owned that switch. The shell now says
+  what there is to consume and the bar consumes it — the reference's arrangement, and the two
+  halves can finally be told apart.
+
+- **`SafeArea` answered with the surface in force when it was built**, not the one in force
+  when it was asked (J417). Its reason for that expired at milestone 408, when the shell began
+  holding one description across the build, the layout and the paint.
+
+### Changed
+
+- A `Scaffold`'s app-bar slot is handed a **description** rather than a padding. A widget in
+  that slot that does not consume intrusions is no longer insetted for them — the reference
+  behaves the same way, and the slot is meant for a bar.
+
+### Fixed
+
+- **Nothing inside an app bar ever faded in or out** (J416). The frame counts a new tree's
+  identities with `collect_ids` *before* the layout pass has built its deferred subtrees, and
+  an `AppBar` is built on one. The count returned the root and nothing else, so the mount and
+  leave bookkeeping never saw a single widget in the bar. A widget moving from outside such a
+  subtree to inside one was also snapshotted as leaving, and a ghost faded out over a widget
+  still on the screen.
+
+  This is the same defect J415 fixed in the shell's *other* build path, found by the tripwire
+  J415 added. Both paths go through one `build_view` now.
+
+### Added
+
+- The first test that drives an `Application` through the shell's own code: an interface that
+  lives entirely inside a deferred subtree, asserted to have identities to mount and to be
+  reachable. It needs no window.
+
+### Fixed
+
+- **Typing fast into a field under an app bar stopped the caret following it** (J415). Keys
+  can arrive faster than a frame, so the shell rebuilds the tree from `view` alone and reads
+  it straight away. That tree had never been through a layout pass, and a `ThemeBuilder` —
+  which an `AppBar` is built on — has no children until one has run over it. Every traversal
+  into such a subtree returned nothing: no field found, no caret revealed, no focus resolved.
+
+  Nothing logged and nothing looked wrong, because all thirty-eight call sites are `and_then`
+  chains that shrug at `None`.
+
+### Added
+
+- `build_deferred(tree, &theme)` runs a tree's deferred builds the way the layout pass does,
+  theme scoping included, for anything that reads a tree before laying it out.
+
+- A **tripwire**: reading an unbuilt `ThemeBuilder`'s children panics in debug rather than
+  answering "no children". The rule had been a comment for three milestones.
+
+### Changed
+
+- **The last seven widgets no longer decide their own type** (J414). `Breadcrumb`,
+  `TimePicker`, `TimeRange`, `Kanban`, `ErrorSummary`, `Slider`'s value bubble, and the
+  `AppBar` / `NavigationBar` titles resolve through the same chain as the rest — what the
+  caller said, then `theme.widgets.<widget>`, then the step of `theme.text`.
+
+  **This changes how they look.** An app bar's title is regular where it was medium, a
+  navigation bar's is 22 px where it was 20, a slider's bubble is `labelLarge`, a time
+  picker's cells `bodyLarge` and its help lines `labelMedium`, a breadcrumb `bodyMedium`, a
+  board's cards `bodyLarge`, an error summary's heading a heading.
+
+- `AppBar::title_style` is stored as an `Option<TextStyle>`; the `title_style_default`
+  boolean beside it is gone.
+
+### Fixed
+
+- **A helper line's height was recomputed from its size** (J414). `TextField::sub_block`
+  called `frus_text::line_height(FIELD_SUB_SIZE)` with `sub_style()` two methods away — the
+  second survivor of J412's sweep, and written the one way that sweep could not find.
+
+- **An app bar's title was medium where the reference's is regular** (J414). The test that
+  covered it compared the title against the constant the title came from, so it would have
+  passed at any value. `NavigationBar`'s default title — 20 px medium, both halves wrong —
+  had no test at all.
+
+### Changed
+
+- **Twelve widgets no longer decide their own type** (J413). `Kbd`, `SnackBar`, `Tree`,
+  `Timeline`, `Steps`, `NavigationRail`, `DatePicker`, `Alert`, `PopupMenuButton`,
+  `DropdownButton`, `Autocomplete` and `Table` each held a private `const SIZE: f32` that no
+  theme and no caller could reach. They resolve like every other widget now — what the caller
+  said, then `theme.widgets.<widget>`, then the step of `theme.text` — and each gained the
+  matching builder.
+
+  **This changes how they look.** Read against the reference rather than against their own
+  current values, eleven of the eighteen styles were wrong: a snackbar's content is 14 px and
+  not 16, a menu and a dropdown are `titleMedium`, a data table's headings and cells are named
+  apart (`titleSmall` / `bodyMedium`), a date picker's days are `bodyLarge`, a rail's labels
+  carry a medium weight. `Kbd` is monospaced.
+
+- `TextTheme::M3` is a `const`, and `Default` returns it. The un-themed `Widget::style` path
+  reads its step from the same scale the themed one does, rather than from a fallback constant
+  beside it.
+
+### Added
+
+- `TextStyle::height` and `TextStyle::family` builders (J413). Milestones 409 and 410 added
+  both as public fields and neither as a builder, so a caller could name a font family only by
+  writing the struct out.
+
+### Fixed
+
+- **A sort arrow landed inside the word it followed** (J413). `Table` measured its header
+  label at a bare size rather than at the style it drew with, so any text scale above 1 put the
+  indicator over the text. The same cell also centred its label from a recomputed line height —
+  a survivor of J412, written against a constant instead of a style, which is the one
+  formulation that sweep could not find.
+
+- **Two paragraphs alike but for their leading shared a geometry** (J413). `Text::measure_key`
+  hashed the resolved size, weight and slant, and neither `height` (J409) nor `family` (J410),
+  both of which those milestones had put into the measurement. `AlertDialog::measure_key` had
+  the same hole from the other end, hashing its text and nothing about its styles.
+
+- **A calendar clipped its last column** (J413). `DatePicker` declared its width from the
+  cell constant while its cells sized themselves from that constant *grown by the reader's font
+  setting*. Seven cells against a box built for seven smaller ones.
+
+- **A timeline's second line sat at a fixed offset** (J413), and its dot at half the row
+  constant rather than half the row. The detail follows the title's own line box now, and a row
+  is the floor *or what its two lines need*.
+
+### Fixed
+
+- **A named line height was ignored wherever text is centred** (J412). Milestone 409
+  threaded `TextStyle::height` through the measurement and the paint but left twenty-four
+  places computing `frus_text::line_height(style.size)` — the 1.2 default — while holding a
+  style that said otherwise. A text with `height: 2.0` was measured tall, painted tall, and
+  centred as though it were short.
+
+  They ask `style.line_height()` now, which milestone 409 had already provided.
+
+  One of the twenty-four is reachable by a test — a `max_lines` cap counts lines of the
+  height that was asked for. The other twenty-three live in widgets whose text style is a
+  private constant no caller can change, so a `height` cannot be set on them to prove it is
+  honoured. That is recorded as the next step.
+
+- **`Ui::wants_animation` answered for the whole process** (J411). It folded in
+  `images_in_flight()`, a process-global count, so any tree built while an unrelated part
+  of the program was loading an image asked for the next frame. In the test suite, where
+  everything shares one process, that made a refresh area with nothing pulled flake about
+  one run in ten.
+
+  A `Ui` describes what **its own widgets** want. What the process is fetching is the
+  shell's business, and the `||` now lives there. The reasoning for asking a *count* rather
+  than reading a flag off `Image` — the fetch outlives the widget that started it, because
+  showing a placeholder takes the image out of the tree — moved with it; it justified the
+  count, never the place.
+
+### Added
+
+- **`TextStyle::family`** and `FontFamily` (J410), the reference's `fontFamily`.
+  `Text::new("fn main()").family(FontFamily::Monospace)`, or `FontFamily::Named("Inter")`
+  for a face registered with `add_font`. Fonts could already be registered globally; no
+  widget could ask for one.
+
+  `FontFamily` is `Copy` and `Named` borrows a `&'static str`, so `TextStyle` stays `Copy`
+  and travels down a subtree by value like every other field.
+
+  **A named family does not always win.** A run containing Arabic keeps the registered
+  Arabic face, because cosmic-text does not fall back across families on Android — a family
+  without Arabic coverage renders nothing at all, and text in an unexpected face is a
+  smaller failure than a blank screen. Naming the Arabic family itself still works.
+
+  Measure and paint call the same `family_for_style`, and the measurement cache is keyed on
+  the family: different faces set the same words to different widths.
+
+### Added
+
+- **`TextStyle::height`** (J409), the reference's line height: a **multiple of the font
+  size**, not a length. `Text::height(1.6)` opens a paragraph up; unset, it inherits from a
+  surrounding `DefaultTextStyle` and falls back to `DEFAULT_LINE_HEIGHT`.
+
+  A ratio because of the reader: at 1.5 a 20 px line is 30 px, and when the reader turns
+  their font size up and that 20 becomes 40, the line becomes 60. A length would have stayed
+  at 30 and closed the paragraph up exactly when it needed opening.
+
+  It reaches the measurement, the one-line box floor and the paint through the one
+  `ResolvedTextStyle::line_height()`.
+
+### Changed
+
+- **One line-height constant instead of two** (J409). `LINE_HEIGHT_FACTOR` lived in
+  `frus-text`, which measures, and again in `frus-gpu`, which paints. Both were 1.2 so
+  nothing was broken — but a measure and a paint disagreeing about how tall a line is puts
+  the second line of every paragraph where the layout reserved nothing, and that is the
+  shape two milestones have just been spent on. Both now import `DEFAULT_LINE_HEIGHT` from
+  `frus-core`.
+
+- **The measurement cache is keyed on the line height** (J409). It recorded text, size,
+  weight, italic and width; two paragraphs of the same words at different leadings would
+  have shared one answer, and the second would have been quietly wrong.
+
+### Added
+
+- **`MediaQuery::install`** and `SurfaceGuard` (J408): the surface installed until a guard
+  is dropped, rather than for a closure. It holds the description **and** the reader's font
+  size — one call, one drop, so the two can never be held for different lengths of time.
+  `scope` remains, reimplemented on top of it, for the subtree case where a closure is the
+  right shape.
+- **A tripwire against half an installed surface** (J408). `build_ui` panics in debug builds
+  when a text scale away from 1 is in force with no surface described, which means somebody
+  installed one half and not the other.
+
+  It caught its own subject's tests first: the three written in J406 to prove widgets follow
+  the reader's font size used `MediaQuery::of().with_text_scaler(…)`, and `of()` outside a
+  scope is `UNSET` — a surface of no size. They were right about their result and wrong
+  about their setup, which is the gap that let J403 ship broken.
+
+### Added
+
+- **The platform reports what its user asked for** (J407). Android answers
+  `Configuration.fontScale`, the night setting, `fontWeightAdjustment`, touch exploration,
+  the animator duration scale and the clock format; desktop answers winit's theme. Until
+  now nothing did, and milestones 403 and 406 were correct in tests and inert on a device.
+- **`AccessibilityOverrides`** (J407), every field an `Option`. BREAKING:
+  `Application::accessibility` returns it instead of `Accessibility`. The platform answers
+  and the application overrides only what it chose to speak for — these settings belong to
+  the person using the device. `None` per field is what makes "no opinion" expressible; a
+  plain `Accessibility` could not say it, a `false` in it being the same as silence.
+- **`install_text_scale`** and `TextScaleGuard` (J407): the reader's font size installed
+  for as long as a guard lives, rather than for a closure.
+
+### Fixed
+
+- **The reader's font size never reached a real application** (J407). `MediaQuery::scope`
+  wrapped `view` — the construction of the widgets — but a size becomes a number three
+  times, and the two that decide how big text actually is, measuring and painting, ran at
+  scale 1. The layout measured one size and the renderer drew another.
+
+  This had been true since J403 landed. Nothing in the suite could see it: those tests wrap
+  `build_ui_inspected` themselves, so the harness installed the condition the shell forgot.
+  A device at `font_scale` 1.30 rendered pixel-identically to 1.0.
+
+- **A crash on launch on every Android below API 31** (J407). A failed JNI call leaves the
+  Java exception *pending on the thread*; discarding the Rust `Err` does not discard it, and
+  the next JNI call aborts the runtime. `Configuration.fontWeightAdjustment` is API 31, so
+  reading it on an API 29 device threw `NoSuchFieldError` and killed the process two calls
+  later — in code that compiled perfectly, JNI resolving names at runtime.
+
+- **The framework's animations ignored a platform that asked for less motion** (J407).
+  `runtime.still` read the application's answer rather than the resolved one.
+
+### Changed
+
+- **`Scene::text` takes a resolved style; `Scene::text_styled` is gone** (J406). BREAKING.
+  The two were the same primitive with two spellings, and the shorter one took a bare
+  `f32` size — a size that never passed through `TextStyle::resolved()`, which is the one
+  place a reader's font setting is applied. Forty-seven call sites across twenty-three
+  widgets used it, so their text was the one thing on the screen a reader could not
+  enlarge. No test could tell: the measurement went through the matching raw door, so
+  paint and layout agreed with each other perfectly — on the wrong number.
+
+  Deleting the door made every one of the forty-seven a compile error, and each had to say
+  which it meant: `TextStyle::new(SIZE).resolved()` for anything a reader reads,
+  `ResolvedTextStyle::exact(SIZE)` for a glyph that is an icon — a tick, a chevron, a star,
+  the figure in a step marker — which lives in a box that does not move.
+
+- **A component's default height is a floor, not a ceiling** (J406). `frus_text::line_box`
+  is the reference's own rule written once: `max(theDefault, whatTheLineNeeds)`. `Chip` was
+  a flat 32 px and cut its glyphs at a text scale of 2, where they need 34.
+
+### Added
+
+- **`TextStyle::clamp_scale`** (J406) and `APP_BAR_MAX_TITLE_SCALE`. The reference's second
+  answer, for **chrome**: a toolbar cannot grow — it would push every screen down — so it
+  keeps its height and caps the title's scaler at 1.34 instead. Below the cap the title
+  follows the reader like anything else.
+- **`ResolvedTextStyle::exact`**, `frus_text::measure_wrapped_resolved`,
+  `frus_text::line_box` (J406).
+
+### Fixed
+
+- **`AlertDialog` measured and painted its body at different sizes** (J406), painting
+  through `resolved()` and measuring raw — so above a text scale of 1 the box and the words
+  disagreed. Introduced by J403, found by J406's sweep.
+- **`TextField` placed its caret from an unresolved size** (J406). Multi-line went through
+  `resolved()`, single-line did not, and `layout()` — which the caret, the hit-test and the
+  selection all read — used the raw number. Above a scale of 1 the cursor landed where the
+  glyphs were not. Everything in the field now goes through one `text_style()`.
+- **The layout cache ignored the reader's font size** (J406). `signature_of` hashed styles,
+  structure and measure keys but not the scale, so a reader who moved the system slider
+  would have been served the previous frame's geometry under the new frame's glyphs.
+
+### Changed
+
+- **`Widget::main_axis_fill` is now `Widget::fill_axes`, answering with `FillAxes`** (J405)
+  — BREAKING for anyone implementing `Widget` by hand, and mechanical: `Some(Row)` becomes
+  `FillAxes::WIDTH`, `None` becomes `FillAxes::NONE`.
+
+  The old hook returned one `FlexDirection`, so a widget wanting the room it is offered on
+  **both** axes had no word for it. Milestone 404 had to leave `NavScaffold`,
+  `ScaffoldMessenger` and `TwoPane` on the `width: 100%` that makes them vanish under a
+  shrink-wrapping parent — the very bug it was fixing. They answer `FillAxes::BOTH` now.
+
+  `FillAxes` is deliberately not the walk's internal `Fills`: that one is an accumulator
+  travelling up the tree, this one is a single widget's answer. Same shape, different
+  meaning.
+
+  One golden moved: the two-pane content sits 2 px higher, `height: 100%` having claimed
+  the whole column's height where a fill takes what is left.
+
+### Fixed
+
+- **A widget that fills the width now does it in a column too** (J404). Found by milestone
+  403's scaling probe and nothing to do with scaling: a `ListTile` **alone** laid out
+  correctly and **in a column** — the most ordinary thing anybody does with one — came out
+  as wide as its own padding, with its title ellipsised away.
+
+  The cause is `width: Dimension::Percent(1.0)`. A percentage resolves against the parent's
+  **resolved** width, and a parent that shrink-wraps has not got one yet — it is waiting on
+  this very child. Both readings are "full width" in English and only one can be computed
+  in time: the parent's own width is known on the way back *up*, the room being offered on
+  the way *down*. `Widget::main_axis_fill` is the second, answered by the walk.
+
+  **It was not a `ListTile` bug**: fifteen widgets declared it and a probe found every one
+  of the seven it could build collapsing. Nine impls converted — `ListTile`, `BottomAppBar`,
+  `SheetPanel`, `BottomSheet`, `Drawer`, `Steps`, `BarChart`, `LineChart`, `Bullet`,
+  `ErrorSummary`. `AspectRatio` and `ConstrainedBox`'s overflow case keep theirs, needing a
+  width taffy *knows*; that limit is now documented rather than latent.
+
+  No test caught it because a percentage against a *definite* parent is correct, and every
+  fixture gives its widgets a width. Alone is where the bug hid.
+
+  **Five goldens moved**, each read before being accepted: a steps bar and an error banner
+  now span the content box instead of stopping at the widest sibling — which is what the
+  reference gives, its `Column` handing children `maxWidth` as a loose constraint.
+
+### Added
+
+- **The reader's font size is obeyed** (J403) — the largest accessibility gap the framework
+  had. A phone's *Font size* slider goes to 1.3 on Android and past 3 with iOS's larger
+  accessibility sizes. Milestone 399 carried the number and said plainly it was not being
+  spent; milestone 402 built the one place it could be spent safely.
+
+  The hazard was never the multiplication — it was that 69 call sites read a size and the
+  renderer read another, so a scale applied in 68 of them draws text the layout never
+  measured. `TextStyle::resolved()` is now the only point where a size becomes a number, so
+  that is where the scale goes and the measurement and the paint agree **by construction
+  rather than by vigilance**.
+
+  `frus_core::with_text_scale` is **ambient, not threaded**, deliberately: passing a scaler
+  down would mean every widget remembering to apply it, and there is no diagnostic for the
+  one that forgets. `MediaQuery::scope` installs it — the reader's font size travels with
+  the description because it is part of the description.
+
+  Not scaled: a scale of zero or less (disbelieved, not obeyed), weight and slant, the
+  debug overlays, and anything outside a described surface — which is why all 91 goldens
+  are unchanged.
+
+  **Known limit, measured rather than assumed**: component *widths* follow the type, and
+  fixed *heights* do not. `BUTTON_HEIGHT` is 40 and `CHIP_HEIGHT` is 32 whatever the reader
+  asked for, so at 2.0 a chip's glyphs need 34 px in a 32 px box.
+
+### Removed
+
+- **`ResolvedTextStyle::to_style`** (J403). Unused, and with a scale inside `resolved()` it
+  became a trap: a resolved size turned back into a style and resolved again is a size
+  scaled twice.
 
 ### Changed
 

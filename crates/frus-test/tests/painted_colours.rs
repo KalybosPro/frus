@@ -158,7 +158,12 @@ fn a_glyph_is_painted_the_colour_it_asked_for() {
     // Large and heavy, so a stroke has interior pixels at full coverage. A thin glyph is
     // all antialiasing and never reaches its own colour.
     let mut scene = Scene::new();
-    scene.text(Point::new(4.0, 4.0), "MMMM", 72.0, ASKED);
+    scene.text(
+        Point::new(4.0, 4.0),
+        "MMMM",
+        &frus_core::ResolvedTextStyle::exact(72.0),
+        ASKED,
+    );
     let Some(shot) = render_scene(&scene, 260, 110, CLEAR) else {
         return;
     };

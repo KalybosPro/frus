@@ -223,6 +223,11 @@ fn signature_of<Msg>(
     theme: &crate::theme::Theme,
 ) -> (u64, bool) {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    // The **reader's font size**, once, at the root. Every measured box in the tree is
+    // resolved against it, so a reader who changes the system setting changes every
+    // geometry below — and a fingerprint blind to it would answer the new frame with the
+    // old layout and nothing would move.
+    frus_core::text_scale().to_bits().hash(&mut hasher);
     let mut volatile = false;
     hash_node(root, id, runtime, theme, &mut hasher, &mut volatile);
     (hasher.finish(), volatile)
@@ -242,6 +247,21 @@ fn hash_node<Msg, H: Hasher>(
     // store another.
     let scoped = widget.theme_override(theme);
     let theme = scoped.as_deref().unwrap_or(theme);
+    // The same for the **surface**: a scoped description changes what the subtree measures
+    // with, so it has to be in force here as well — and hashed, or two different surfaces
+    // would share one fingerprint and the cache would keep the first one's geometry.
+    let surface = widget.media_override(crate::MediaQuery::of());
+    let _surface = surface.map(crate::MediaQuery::install);
+    if let Some(mq) = surface {
+        mq.measure_hash(hasher);
+    }
+    // And the **shell** (milestone 422), hashed for the same reason: whether there is a
+    // drawer decides whether a bar composes a menu button, and a button is a different row.
+    let shell = widget.scaffold_override();
+    if let Some(info) = &shell {
+        info.shape_hash(hasher);
+    }
+    let _shell = shell.map(crate::ScaffoldInfo::install);
     // The cache exists to **skip** `build_layout`, so this walk can be the first one down
     // the tree: a deferred subtree has to be composed here too, or the fingerprint would
     // be taken of a node with no children and the cache would agree with itself forever.
@@ -315,10 +335,8 @@ fn hash_node<Msg, H: Hasher>(
     widget.measure_key(theme).hash(hasher);
     // Filling the parent is resolved during the walk rather than written into the style,
     // so the style hash alone would conflate a run that fills with one that shrink-wraps.
-    widget
-        .main_axis_fill(theme)
-        .map(|axis| axis.is_horizontal())
-        .hash(hasher);
+    let fills = widget.fill_axes(theme);
+    (fills.horizontal, fills.vertical).hash(hasher);
     widget.main_axis_floor(theme).map(f32::to_bits).hash(hasher);
     widget.tile_shape().map(f32::to_bits).hash(hasher);
     children.len().hash(hasher);

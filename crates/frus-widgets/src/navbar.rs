@@ -2,7 +2,9 @@
 //! button on the left. Placed at the head of a screen, it **slides and fades
 //! with it** during [`crate::Navigator`] transitions.
 
-use frus_core::{FontWeight, Insets, Point, Rect, Scene, TextStyle};
+#[cfg(test)]
+use frus_core::FontWeight;
+use frus_core::{Insets, Point, Rect, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::interaction::Status;
@@ -14,14 +16,18 @@ const HEIGHT: f32 = 56.0;
 /// Left margin: beyond the back-gesture zone, so the button stays clickable
 /// without triggering the swipe.
 const PAD_LEFT: f32 = 28.0;
-/// Title size.
-const TITLE_SIZE: f32 = 20.0;
+/// The title's type: what the caller said, else the step the reference gives an app bar's
+/// title — `titleLarge`. It used to be a private `20.0` at a medium weight, which had **both
+/// halves wrong**: the reference's is 22 and regular.
+fn title_style_of(over: Option<TextStyle>, theme: &Theme) -> TextStyle {
+    over.unwrap_or(theme.text.title_large)
+}
 
 /// A navigation bar: a title + an optional back button.
 pub struct NavigationBar<Msg> {
     title: String,
-    /// Title style (default: 20 px, medium weight, the theme's color).
-    title_style: TextStyle,
+    /// The caller's title style, if one was named. Unset, the theme's `titleLarge`.
+    title_style: Option<TextStyle>,
     /// Bar height (default: [`HEIGHT`]).
     height: f32,
     /// `[]` (root) or `[back button]`.
@@ -33,7 +39,7 @@ impl<Msg: Clone + 'static> NavigationBar<Msg> {
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
-            title_style: TextStyle::new(TITLE_SIZE).weight(FontWeight::Medium),
+            title_style: None,
             height: HEIGHT,
             children: Vec::new(),
         }
@@ -41,7 +47,7 @@ impl<Msg: Clone + 'static> NavigationBar<Msg> {
 
     /// Overrides the title style (size/weight/italic/color).
     pub fn title_style(mut self, style: TextStyle) -> Self {
-        self.title_style = style;
+        self.title_style = Some(style);
         self
     }
 
@@ -52,12 +58,14 @@ impl<Msg: Clone + 'static> NavigationBar<Msg> {
     }
 
     /// Adds a back button that emits `message`.
+    ///
+    /// It used to build `IconButton::glyph("←")` — a **character**, at the mercy of
+    /// whatever font is loaded, with no control over its weight and none over its size
+    /// beside the glyphs around it, and named by hand here rather than by the thing that
+    /// knows what it is. [`BackButton`](crate::BackButton) is that thing.
     pub fn on_back(mut self, message: Msg) -> Self {
         self.children = vec![Box::new(
-            crate::IconButton::glyph("←")
-                .label("Back")
-                .icon_size(20.0)
-                .on_press(message),
+            crate::BackButton::new().icon_size(20.0).on_press(message),
         )];
         self
     }
@@ -71,7 +79,13 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
             flex_direction: FlexDirection::Row,
             justify: Justify::Start,
             align: Align::Center,
-            padding: Insets::new(6.0, 16.0, 6.0, PAD_LEFT),
+            // **No vertical padding**, and that is the reference's arrangement rather than
+            // a saving: a toolbar is 56 tall and holds a 48-pixel button centred in it
+            // (`constants.dart:27`, `constants.dart:30`), with the four pixels either side
+            // coming from the difference and not from a rule. Six pixels of padding left 44
+            // for the button, which is under the target it now reserves (milestone 442) —
+            // the bar squeezed the one control in it.
+            padding: Insets::new(0.0, 16.0, 0.0, PAD_LEFT),
             ..Default::default()
         }
     }
@@ -92,11 +106,11 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
         // The title is centred horizontally in the bar, following `title_style`
         // (medium weight by default — a bar title is a "title", not body text;
         // the style's color is inherited from the theme when absent).
-        let style = self.title_style;
+        let style = title_style_of(self.title_style, theme);
         let measured = frus_text::measure_style(&self.title, style);
         let tx = bounds.x + (bounds.width - measured.width) * 0.5;
         let ty = bounds.y + (bounds.height - measured.height) * 0.5;
-        scene.text_styled(
+        scene.text(
             Point::new(tx, ty),
             self.title.clone(),
             &style.resolved(),

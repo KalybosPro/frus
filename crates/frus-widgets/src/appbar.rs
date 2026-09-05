@@ -23,7 +23,9 @@
 //!     .build()
 //! ```
 
-use frus_core::{BorderRadius, Color, FontWeight, TextStyle};
+#[cfg(test)]
+use frus_core::FontWeight;
+use frus_core::{BorderRadius, Color, Rect, ShapeBorder, TextStyle};
 use frus_layout::{Align, Dimension};
 
 use crate::button::Variant;
@@ -68,12 +70,39 @@ pub const fn platform_centers_title(actions: usize) -> bool {
 /// to be in it makes every screen a slightly different shape, and the page below it move
 /// when an action appears. [`AppBar::height`] overrides it.
 pub const APP_BAR_HEIGHT: f32 = 64.0;
-/// The title's font size — the reference's `title_large` (the default, overridden by
-/// [`AppBar::title_style`]).
-const TITLE_SIZE: f32 = 22.0;
-/// The actions' font size — the reference's `label_large`, which is what its app bar's
-/// actions are: text buttons (the default, overridden by [`AppBar::action_size`]).
-const ACTION_SIZE: f32 = 14.0;
+/// The title's type: what the caller said, else what the theme's `app_bar` says, else the
+/// step of the type scale the reference names — `titleLarge`.
+///
+/// It used to be a private `TextStyle::new(22.0).weight(Medium)`, which had the size right
+/// and **the weight wrong**: `titleLarge` is regular. A number written beside the scale is a
+/// number that can drift from it without anybody seeing, which is milestone 413's lesson and
+/// this is the same constant one file over.
+fn title_style_of(over: Option<TextStyle>, theme: &Theme) -> TextStyle {
+    over.or(theme.widgets.app_bar.title_style)
+        .unwrap_or(theme.text.title_large)
+}
+/// How far the reader's font setting may enlarge the **title**, and no further.
+///
+/// A bar is chrome: it keeps [`APP_BAR_HEIGHT`] whatever the reader asked for, because a
+/// toolbar that grew with the type would push every screen down. So the reference caps the
+/// title's scaler rather than the bar's height — the same 1.34 — "to keep the visual
+/// hierarchy the same even with larger font sizes". A caller who wants the whole scale
+/// gives the title its own [`AppBar::title_style`] and their own height.
+pub const APP_BAR_MAX_TITLE_SCALE: f32 = 1.34;
+/// The actions' size: what the caller said, else the step the reference gives them.
+///
+/// A bar's actions **are text buttons**, so they take `labelLarge` — the same step
+/// [`crate::Button`] already reads — rather than the `bodyMedium` the reference gives the
+/// toolbar's other text.
+fn action_size_of(over: Option<f32>, theme: &Theme) -> f32 {
+    over.or(theme.text.label_large.size)
+        .unwrap_or(frus_core::DEFAULT_TEXT_SIZE)
+}
+/// Whether an untold bar sits at the top of the screen. The reference's default, and the
+/// one that makes a bar used **outside** a shell behave: it consumes the status bar itself
+/// rather than waiting for something to inset it.
+const PRIMARY: bool = true;
+
 /// A button's inner horizontal padding (must follow `button::PAD_X`).
 const BTN_PAD_X: f32 = 20.0;
 /// The space between the bar's elements (the default, overridden by [`AppBar::gap`]).
@@ -108,15 +137,19 @@ enum Action<Msg> {
 /// An adaptive application bar. A fluent builder finished by [`AppBar::build`].
 pub struct AppBar<Msg> {
     title: Box<dyn Widget<Msg>>,
-    title_style: TextStyle,
+    title_style: Option<TextStyle>,
     /// Was the title's style left at the framework's default? Only then may the theme
     /// have its say — a caller who set one outranks it.
-    title_style_default: bool,
     width: f32,
     leading: Option<Box<dyn Widget<Msg>>>,
+    /// Whether a bar with no `leading` of its own may take one from the shell it stands in.
+    automatically_imply_leading: bool,
+    /// The same for the trailing end.
+    automatically_imply_actions: bool,
     overflow: Option<(bool, Msg)>,
     actions: Vec<Action<Msg>>,
-    action_size: f32,
+    action_size: Option<f32>,
+    primary: bool,
     gap: f32,
     background: Option<Color>,
     height: Option<f32>,
@@ -127,7 +160,7 @@ pub struct AppBar<Msg> {
     title_spacing: f32,
     foreground: Option<Color>,
     elevation: f32,
-    shape: Option<BorderRadius>,
+    shape: Option<ShapeBorder>,
     shadow_color: Option<Color>,
     surface_tint: Option<Color>,
     force_material_transparency: bool,
@@ -164,17 +197,19 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             // `app_bar.dart:1084` — and it is why this could not be written before
             // milestone 400.
             title: Box::new(Text::new(title)),
-            title_style: TextStyle::new(TITLE_SIZE).weight(FontWeight::Medium),
-            title_style_default: true,
+            title_style: None,
             width: if surface.is_described() {
                 surface.size.width
             } else {
                 f32::MAX
             },
             leading: None,
+            automatically_imply_leading: true,
+            automatically_imply_actions: true,
             overflow: None,
             actions: Vec::new(),
-            action_size: ACTION_SIZE,
+            action_size: None,
+            primary: PRIMARY,
             gap: GAP,
             background: None,
             height: None,
@@ -212,8 +247,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// The text title's style (size/weight/italic/color). Default: the reference's
     /// `title_large` at medium weight, in the theme's colour.
     pub fn title_style(mut self, style: TextStyle) -> Self {
-        self.title_style = style;
-        self.title_style_default = false;
+        self.title_style = Some(style);
         self
     }
 
@@ -233,6 +267,38 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// The leading element (a menu or back button…), optional.
     pub fn leading(mut self, widget: impl Widget<Msg> + 'static) -> Self {
         self.leading = Some(Box::new(widget));
+        self
+    }
+
+    /// Whether a bar with **no `leading` of its own** may take one from the shell it
+    /// stands in. `true` unless said otherwise, as in the reference.
+    ///
+    /// A bar on a screen that has a drawer then grows the button that opens it, and a bar
+    /// on a screen that has none stays as it was — the shell is what knows, and until
+    /// milestone 422 it had no way to say so to a slot handed to it already built.
+    ///
+    /// The reference's other branch has no counterpart here. There a bar also implies a
+    /// **back button** when the route it is in can be popped; frus's
+    /// [`Navigator`](crate::Navigator) is controlled — the application holds the stack — so
+    /// the framework does not know a depth to imply anything from. A screen that can be
+    /// left says so with [`AppBar::leading`].
+    ///
+    /// `false` is for a bar that wants its leading slot empty on a screen that has a
+    /// drawer: a logo where the button would be, and some other way in.
+    pub fn automatically_imply_leading(mut self, imply: bool) -> Self {
+        self.automatically_imply_leading = imply;
+        self
+    }
+
+    /// Whether a bar with **no actions of its own** may take one from the shell it stands
+    /// in. `true` unless said otherwise, as in the reference (`app_bar.dart:1113`).
+    ///
+    /// A bar with nothing at its trailing end, on a screen that has an end drawer, grows
+    /// the button that opens it. One action of its own and it does not: the reference's
+    /// test is the same — the implied button is what fills an **empty** end, never
+    /// something added beside what the caller put there.
+    pub fn automatically_imply_actions(mut self, imply: bool) -> Self {
+        self.automatically_imply_actions = imply;
         self
     }
 
@@ -262,7 +328,26 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
 
     /// The labelled actions' font size (16 px by default).
     pub fn action_size(mut self, size: f32) -> Self {
-        self.action_size = size;
+        self.action_size = Some(size);
+        self
+    }
+
+    /// Whether this bar sits at the **top of the screen**, and so has to keep its content
+    /// out of the status bar. `true` unless said otherwise, as in the reference.
+    ///
+    /// The bar pads **itself**: its surface still runs behind the status bar — that is what
+    /// a Material bar looks like — and only its toolbar and its `bottom` are held clear.
+    /// The two things this separates are the shell's job and the bar's: a
+    /// [`Scaffold`](crate::Scaffold) makes the slot tall enough, and the bar decides
+    /// whether to use the room. Until milestone 417 the shell insetted the bar from
+    /// outside, which is one switch where the reference has two — and why a bar used
+    /// *without* a shell drew under the status bar.
+    ///
+    /// Turn it off for a bar that is not at the top: one nested in a page, or a second bar
+    /// under the first.
+    #[must_use]
+    pub fn primary(mut self, primary: bool) -> Self {
+        self.primary = primary;
         self
     }
 
@@ -333,15 +418,29 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self
     }
 
-    /// The bar's **shape**: how far its corners are rounded. Square by default, as the
-    /// reference's is.
+    /// **What shape the bar is** — the reference's `shape` (`app_bar.dart:209`), and a
+    /// whole [`ShapeBorder`] since milestone 455. Square by default, as the reference's is.
     ///
     /// The bar clips to it, so a coloured surface and anything drawn on it stop at the
-    /// curve rather than squaring off the corner the shadow already rounded. The
-    /// reference's `shape` is a whole `ShapeBorder`; this is the part of it a bar
-    /// actually uses — a rounded rectangle, per corner if wanted.
-    pub fn shape(mut self, shape: impl Into<BorderRadius>) -> Self {
-        self.shape = Some(shape.into());
+    /// curve rather than squaring off the corner the shadow already rounded.
+    ///
+    /// A bar is a **rectangle**, so what a shape contributes here is the corners it
+    /// resolves to in the bar's own box — a stadium rounds to half the bar's height,
+    /// which is what a stadium means on a wide, short box. A shape with no rounded form
+    /// at all leaves the bar square rather than clipping it to something it is not.
+    ///
+    /// **Breaking**: this took a `BorderRadius` under the same name until milestone 455.
+    /// A caller passing a number says [`radius`](Self::radius) instead.
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.shape = Some(shape);
+        self
+    }
+
+    /// The corner radii — the shorthand for a rounded rectangle, writing into the same
+    /// one field [`shape`](Self::shape) does. The last of the two called is the one that
+    /// counts.
+    pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
+        self.shape = Some(ShapeBorder::rounded(radius));
         self
     }
 
@@ -522,10 +621,11 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         let t = theme.widgets.app_bar;
         let AppBar {
             title,
-            mut title_style,
-            title_style_default,
+            title_style,
             width,
             leading,
+            automatically_imply_leading,
+            automatically_imply_actions,
             overflow,
             actions,
             action_size,
@@ -545,12 +645,45 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             toolbar_opacity,
             bottom_opacity,
             actions_padding,
+            primary,
             flexible_space,
             icon_theme,
             actions_icon_theme,
             toolbar_text_style,
             exclude_header_semantics,
         } = self;
+
+        // **What the shell knows and the bar does not** (milestone 422). This bar was
+        // handed to its `Scaffold` already built, so it cannot see the screen it stands on;
+        // the shell tells it, through the ambient the walk installs on the way down, and
+        // this composition runs under that ambient because it is deferred.
+        //
+        // A bar with no `leading` of its own, on a screen with a drawer, grows the button
+        // that opens it — the reference's first branch at `app_bar.dart:1010`. The second,
+        // a back button for a route that can be popped, has no counterpart: frus's
+        // `Navigator` is controlled, so there is no stack depth for the framework to read.
+        let shell = crate::ScaffoldInfo::of();
+        let leading = leading.or_else(|| {
+            if !automatically_imply_leading {
+                return None;
+            }
+            let toggle = shell.drawer_toggle::<Msg>()?;
+            Some(
+                Box::new(crate::IconButton::new(crate::Icons::MENU).on_press(toggle))
+                    as Box<dyn Widget<Msg>>,
+            )
+        });
+        // And the trailing end, on the same terms: **an empty end**, never a button added
+        // beside what the caller put there (`app_bar.dart:1113`). An overflow toggle counts
+        // as something at that end, since it is what the bar puts there itself.
+        let mut actions = actions;
+        if actions.is_empty() && overflow.is_none() && automatically_imply_actions {
+            if let Some(toggle) = shell.end_drawer_toggle::<Msg>() {
+                actions.push(Action::Custom(Box::new(
+                    crate::IconButton::new(crate::Icons::MENU).on_press(toggle),
+                )));
+            }
+        }
 
         // `caller ?? theme ?? platform`. The platform is the last word rather than the
         // framework's own taste, because where a title sits is a system convention before
@@ -560,16 +693,18 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             .unwrap_or_else(|| platform_centers_title(actions.len()));
 
         // The title's type, likewise: the caller's style, else the theme's, else the
-        // reference's `title_large`.
-        if title_style_default {
-            if let Some(style) = t.title_style {
-                title_style = style;
-            }
-        }
+        // reference's `titleLarge`.
+        let mut title_style = title_style_of(title_style, theme);
+        let action_size = action_size_of(action_size, theme);
         let foreground = foreground
             .or(t.foreground)
             .unwrap_or(theme.scheme.on_surface);
         title_style.color = Some(foreground);
+        // The bar keeps its height, so the title is capped rather than let out. See
+        // [`APP_BAR_MAX_TITLE_SCALE`]: this is the reference's answer for chrome, and the
+        // opposite of the one its components give (there the height is a floor and the
+        // content wins).
+        let title_style = title_style.clamp_scale(APP_BAR_MAX_TITLE_SCALE);
         // The title's type as something a subtree can **hand down**, plus the two settings
         // the reference pairs with it: one line, cut with an ellipsis. A `Text` that never
         // chose a size, a wrap or an overflow takes all three; one that did keeps its own.
@@ -580,7 +715,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         };
         // The same thing as a whole theme, for asking a title how wide it naturally is.
         let dressed_title_theme = {
-            let mut dressed = *theme;
+            let mut dressed = theme.clone();
             dressed.widgets.text = dressed.widgets.text.merge(title_words);
             dressed
         };
@@ -836,6 +971,16 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             Some(bottom) => Box::new(Flex::column().child_boxed(toolbar).child_boxed(bottom)),
             None => toolbar,
         };
+        // **The padding applies to the toolbar and the bottom, not to the surface** — the
+        // reference says so in as many words (`app_bar.dart:1189`), and it is what makes a
+        // Material bar look the way it does: the colour runs behind the status bar while
+        // the title sits below it. The bottom edge is left alone; a bar has something under
+        // it by definition.
+        let content: Box<dyn Widget<Msg>> = if primary {
+            Box::new(crate::SafeArea::new(content).edges(crate::Edges::ALL.without_bottom()))
+        } else {
+            content
+        };
 
         // The bar **occupies** the width it was told about rather than hugging its
         // content. Hugging made two things quietly wrong: a background painted only
@@ -866,8 +1011,14 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         }
         // The shape clips as well as rounds: a surface that stopped short of its own
         // corner would square off the one the shadow had already curved.
+        //
+        // The corners a shape *resolves to* in the bar's own box, not the shape itself:
+        // the chrome is a rectangle, and a shape that is not one has no corners to give.
         if let Some(shape) = shape.or(t.shape) {
-            chrome = chrome.radius(shape).clip();
+            let box_ = Rect::new(0.0, 0.0, width, height.unwrap_or(APP_BAR_HEIGHT));
+            if let Some((_, radius)) = shape.as_rounded(box_) {
+                chrome = chrome.radius(radius).clip();
+            }
         }
         // **Behind the toolbar, filling the bar's box.** A layer, not a slot: the bar is
         // exactly as tall as it was, however tall the widget would rather be. The bar's
@@ -1020,6 +1171,85 @@ mod tests {
         );
     }
 
+    /// **A bar takes a whole shape, not only a corner** (`app_bar.dart:209`).
+    ///
+    /// A bar is a rectangle, so what a shape contributes is the corners it resolves to in
+    /// the bar's **own** box — and a stadium's box is a wide, short one, so it rounds to
+    /// half the bar's height. That is the number the old `BorderRadius`-only property
+    /// could never have been given, because it would have had to be written out at the
+    /// call site and would then have been wrong for a bar of any other height.
+    #[test]
+    fn a_bar_takes_a_whole_shape_and_not_only_a_corner() {
+        // A background, because `surface` looks for the widest opaque rectangle and a
+        // bar the theme gives no colour paints none.
+        let corner = |bar: AppBar<Msg>| {
+            let built = bar
+                .width(400.0)
+                .background(Color::rgb(0.2, 0.2, 0.2))
+                .build();
+            surface(built.as_ref(), 400.0).map(|(_, radius)| radius)
+        };
+
+        // A stadium: half the short side of a 400x64 bar (`APP_BAR_HEIGHT`), so 32.
+        assert_eq!(
+            corner(AppBar::new("Title").shape(ShapeBorder::stadium())),
+            Some(APP_BAR_HEIGHT / 2.0)
+        );
+
+        // And half of a taller one, without the caller doing the arithmetic.
+        assert_eq!(
+            corner(
+                AppBar::new("Title")
+                    .height(80.0)
+                    .shape(ShapeBorder::stadium())
+            ),
+            Some(40.0)
+        );
+
+        // The shorthand still says what it always said.
+        assert_eq!(corner(AppBar::new("Title").radius(18.0)), Some(18.0));
+
+        // A shape with no rounded form leaves the bar square rather than clipping it to
+        // something a bar is not.
+        assert_eq!(
+            corner(AppBar::new("Title").shape(ShapeBorder::beveled(6.0))),
+            Some(0.0)
+        );
+    }
+
+    /// **And a theme can name one**, which it could not: `AppBarTheme::shape` was the last
+    /// theme field left carrying the reference's word with a corner radius behind it.
+    #[test]
+    fn a_theme_names_the_bar_s_shape() {
+        let mut theme = Theme::dark();
+        theme.widgets.app_bar.shape = Some(ShapeBorder::stadium());
+        theme.widgets.app_bar.background = Some(Color::rgb(0.2, 0.2, 0.2));
+        let built = AppBar::<Msg>::new("Title").width(400.0).build();
+        let ui = build_ui(
+            built.as_ref(),
+            Size::new(400.0, 200.0),
+            &Runtime::default(),
+            &theme,
+        );
+        fn find(primitives: &[crate::Primitive]) -> Option<f32> {
+            for p in primitives {
+                match p {
+                    crate::Primitive::Rect {
+                        rect, radius, blur, ..
+                    } if rect.width >= 399.5 && *blur == 0.0 => return Some(radius.top_left),
+                    crate::Primitive::Layer { primitives, .. } => {
+                        if let Some(found) = find(primitives) {
+                            return Some(found);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+        assert_eq!(find(ui.scene().primitives()), Some(APP_BAR_HEIGHT / 2.0));
+    }
+
     /// **The shape rounds the bar's corners**, and the caller's outranks the theme's.
     #[test]
     fn the_bar_takes_the_shape_it_was_given() {
@@ -1031,7 +1261,7 @@ mod tests {
         let rounded = AppBar::<Msg>::new("Title")
             .width(W)
             .background(Color::rgb(0.2, 0.2, 0.2))
-            .shape(frus_core::BorderRadius::uniform(18.0))
+            .radius(18.0)
             .build();
         assert_eq!(surface(square.as_ref(), W).expect("square").1, 0.0);
         assert_eq!(surface(rounded.as_ref(), W).expect("rounded").1, 18.0);
@@ -1150,7 +1380,8 @@ mod tests {
                 .build(),
         );
         assert_eq!(
-            inherited, TITLE_SIZE,
+            inherited,
+            Theme::default().text.title_large.size.unwrap(),
             "a title that chose nothing wears the bar's type"
         );
         // And one that chose keeps its own, which is what makes the handover safe.
@@ -1199,11 +1430,11 @@ mod tests {
         let wanted = Color::rgb(0.9, 0.2, 0.4);
         let plain = AppBar::<Msg>::new("Title")
             .width(W)
-            .leading(crate::Icon::new(crate::Icons::Star))
+            .leading(crate::Icon::new(crate::Icons::STAR))
             .build();
         let themed = AppBar::<Msg>::new("Title")
             .width(W)
-            .leading(crate::Icon::new(crate::Icons::Star))
+            .leading(crate::Icon::new(crate::Icons::STAR))
             .icon_theme(crate::widgettheme::IconTheme {
                 color: Some(wanted),
                 size: None,
@@ -1295,8 +1526,8 @@ mod tests {
         let acts = Color::rgb(0.2, 0.1, 0.9);
         let bar = AppBar::<Msg>::new("Title")
             .width(W)
-            .leading(crate::Icon::new(crate::Icons::Star))
-            .action_widget(crate::Icon::new(crate::Icons::Heart))
+            .leading(crate::Icon::new(crate::Icons::STAR))
+            .action_widget(crate::Icon::new(crate::Icons::FAVORITE))
             .icon_theme(crate::widgettheme::IconTheme {
                 color: Some(lead),
                 size: None,
@@ -1537,6 +1768,57 @@ mod tests {
             max_x <= W - H_PAD + 0.5,
             "content overflowing on the right ({max_x} > {})",
             W - H_PAD
+        );
+    }
+
+    /// **A bar outside a shell keeps its own content out of the status bar.**
+    ///
+    /// It did not, and that was the recorded cost of the shell owning the switch: the
+    /// scaffold insetted the bar from outside, so a bar used on its own had nothing to
+    /// inset it and would not inset itself. Milestone 417 gives it the reference's
+    /// arrangement — the shell says what there is to consume, the bar consumes it.
+    ///
+    /// The **surface** still runs behind the status bar; only the toolbar is held clear.
+    /// That is what a Material bar looks like, and what `app_bar.dart:1189` says in words.
+    #[test]
+    fn a_bar_on_its_own_clears_the_status_bar() {
+        const TOP: f32 = 40.0;
+        let title_y = |primary: bool| {
+            let size = frus_core::Size::new(400.0, 200.0);
+            let surface = crate::MediaQuery::new(size).with_insets(frus_core::WindowInsets::bars(
+                frus_core::Insets::new(TOP, 0.0, 0.0, 0.0),
+            ));
+            // Built **and laid out** under the surface, the way a frame does it: the
+            // shell holds one description across the build, the layout and the paint
+            // (milestone 408), and a bar reads it when the walk reaches it.
+            surface.scope(|| {
+                let bar = AppBar::<Msg>::new("Inbox").primary(primary).build();
+                crate::build_ui(
+                    bar.as_ref(),
+                    size,
+                    &crate::Runtime::default(),
+                    &Theme::default(),
+                )
+                .scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Text { position, .. } => Some(position.y),
+                    _ => None,
+                })
+                .expect("the title is drawn")
+            })
+        };
+        assert!(
+            (title_y(true) - title_y(false) - TOP).abs() < 0.5,
+            "a primary bar holds its title off by exactly the intrusion: {} vs {}",
+            title_y(true),
+            title_y(false)
+        );
+        assert!(
+            title_y(true) >= TOP,
+            "and it is below the status bar, not under it: {}",
+            title_y(true)
         );
     }
 

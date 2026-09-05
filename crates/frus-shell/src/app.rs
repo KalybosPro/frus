@@ -13,11 +13,11 @@ use web_time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, collect_ids, find_by_key, find_path, find_widget, reflow_reorder_cards,
-    reflow_reorder_columns, subtree_ids, Color, Cursor as UiCursor, Edit, FocusDirection, Insets,
-    Key, KeyResponse, KeyStroke, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene,
-    ShortcutKey, Size, Theme, Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId,
-    WindowInsets,
+    build_deferred, build_ui, collect_ids, find_by_key, find_path, find_widget,
+    reflow_reorder_cards, reflow_reorder_columns, subtree_ids, Accessibility, Brightness, Color,
+    Cursor as UiCursor, Edit, FocusDirection, Insets, Key, KeyResponse, KeyStroke, MediaQuery,
+    Point, Primitive, Rect, ReorderAxis, Runtime, Scene, ShortcutKey, Size, Theme, Ui,
+    VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -28,6 +28,36 @@ use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{CursorIcon, Window, WindowId};
 
 use crate::application::{Application, Lifecycle};
+
+/// Everything the platform reports about its user, in one walk.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PlatformSettings {
+    /// The system's *Font size* slider. `1.0` is normal; Android's own slider reaches
+    /// 1.3, and the accessibility sizes go further.
+    pub text_scaler: f32,
+    /// Whether the system is currently showing a dark interface.
+    pub brightness: Brightness,
+    /// The accessibility settings, as far as they could be read.
+    pub accessibility: Accessibility,
+    /// **The reader's preferred languages**, best first, as the platform reports them.
+    ///
+    /// Empty where the platform said nothing — which is a real answer and not a failure:
+    /// the resolution treats it as *no preference* and hands back the application's own
+    /// first choice, exactly as the reference does (`app.dart:153`).
+    pub locales: Vec<frus_widgets::Locale>,
+}
+
+impl Default for PlatformSettings {
+    /// What a platform that reports nothing looks like: a user who has changed nothing.
+    fn default() -> Self {
+        Self {
+            text_scaler: 1.0,
+            brightness: Brightness::Light,
+            accessibility: Accessibility::NONE,
+            locales: Vec::new(),
+        }
+    }
+}
 use crate::gesture::{PointerEvent, PointerKind, PressRecognizer};
 
 /// The clipboard: `arboard` on the desktop platforms, a no-op **everywhere else**
@@ -315,6 +345,55 @@ enum Drag {
 }
 
 /// The driver: an `event → frame` loop around an [`Application`].
+/// Turns an application's `view` into a tree that is **ready to be read**.
+///
+/// The one way this shell builds a tree, and it exists because there were two. A
+/// `ThemeBuilder` — and everything built on one, an `AppBar` included — has no children
+/// until [`build_deferred`] has been over it, so every traversal of a tree that has not
+/// been prepared finds nothing inside such a subtree and says nothing about it.
+///
+/// Both of the shell's build sites read the tree **before** the layout pass would have
+/// prepared it: the frame's own path calls `collect_ids` on it for the mount and leave
+/// bookkeeping, and the burst path hands it straight to `find_widget`. Neither of those is
+/// a mistake to be spotted at a call site; they are why this is one function.
+///
+/// The surface must already be described — the reader's font setting reaches anything a
+/// deferred subtree measures, and a build outside a surface measures at scale 1 while the
+/// frame lays it out at whatever the reader asked for (milestone 408).
+/// **The ambient answers an application gives**, read afresh every frame.
+///
+/// Both of these are settings rather than facts: a settings screen may turn scrollbars on
+/// or change the reader's language while the application is running, and neither should
+/// wait for a restart. Reading them once at start-up is the bug this shape avoids.
+///
+/// It is one function so that a test can drive it. The frame loop needs a window and an
+/// event-loop proxy, so nothing in this repo can call the loop — which is exactly how a
+/// setting that never reached production got shipped once already (milestone 408).
+fn install_ambient<A: Application>(
+    app: &A,
+    runtime: &mut frus_widgets::Runtime,
+    preferred: &[frus_widgets::Locale],
+) {
+    runtime.scrollbars = app.scrollbars();
+    // **Which language the interface is in**, resolved from what the platform reports
+    // against what the application has. Installed before the table, because an
+    // application choosing its table by language reads it from here.
+    frus_widgets::locale::install(app.resolved_locale(preferred));
+    if let Some(table) = app.localizations() {
+        frus_widgets::localizations::install(table);
+    }
+}
+
+fn build_view<A: Application>(app: &A, theme: &Theme) -> Box<dyn Widget<A::Message>> {
+    debug_assert!(
+        frus_widgets::MediaQuery::of().is_described(),
+        "a view is being built with no surface described: install one first — milestone 416"
+    );
+    let tree = app.view(theme);
+    build_deferred(tree.as_ref(), theme);
+    tree
+}
+
 pub struct App<A: Application> {
     /// The application being driven: its state and logic.
     app: A,
@@ -342,6 +421,11 @@ pub struct App<A: Application> {
     last_size: Option<(f32, f32)>,
     /// State retained between frames: hover and focus, scroll, caret and selection.
     runtime: Runtime,
+    /// **The theme on display and the fade toward the one now asked for** — the
+    /// framework's, not the application's, since milestone 452. It resolves the
+    /// application's themes against the platform's brightness and the reader's contrast
+    /// setting once a frame, and crosses between two of them over time.
+    themes: crate::theming::ThemeFade,
     /// Live-reload watching (development, `FRUS_WATCH=1`): relaunch on recompilation.
     reload: Option<crate::reload::ReloadWatcher>,
     /// Overflowing boxes already named on the console, so that a layout that does not
@@ -430,6 +514,15 @@ pub struct App<A: Application> {
     elapsed: f32,
     /// The last window insets handed to the app — padding plus keyboard — in logical px.
     last_insets: WindowInsets,
+    /// What the **platform** last said about the person using it: the font-size slider,
+    /// the night setting, the accessibility switches.
+    ///
+    /// Cached rather than read per frame, because reading it is a walk across the JNI
+    /// boundary and the answer changes about once a year. It is refreshed when the
+    /// surface appears — which on Android is also when it *reappears*, the activity being
+    /// recreated on a font-scale or night change since no `configChanges` is declared —
+    /// and on a theme change where the platform sends one.
+    platform: PlatformSettings,
     /// The **keyboard-free** inset baseline, along with the physical size it was
     /// taken at — a rotation resets it: whatever bottom inset exceeds it is credited
     /// to the software keyboard.
@@ -473,6 +566,7 @@ impl<A: Application> App<A> {
             scale: 1.0,
             last_size: None,
             runtime: Runtime::default(),
+            themes: crate::theming::ThemeFade::default(),
             reload: crate::reload::ReloadWatcher::new(),
             reported_overflows: std::cell::RefCell::new(std::collections::HashSet::new()),
             inspector: false,
@@ -506,6 +600,7 @@ impl<A: Application> App<A> {
             occluded: false,
             elapsed: 0.0,
             last_insets: WindowInsets::ZERO,
+            platform: PlatformSettings::default(),
             inset_baseline: None,
             // The app starts out detached; `resumed` will move it to `Resumed`.
             lifecycle: Lifecycle::Detached,
@@ -782,6 +877,100 @@ impl<A: Application> App<A> {
         let _ = (phys_w, phys_h, scale);
         Insets::ZERO
     }
+
+    /// Asks the platform what it says about its user, and remembers the answer.
+    ///
+    /// Marks the build dirty when something moved: the font size reaches the layout
+    /// through [`MediaQuery::scope`], so a changed scaler is a changed geometry for every
+    /// widget on the screen, and a frame drawn from the cache would keep the old one.
+    fn refresh_platform_settings(&mut self) {
+        #[cfg(android)]
+        if let Some(app) = &self.android_app {
+            let read = crate::android_settings::read(app);
+            if read != self.platform {
+                self.platform = read;
+                self.build_dirty = true;
+            }
+            return;
+        }
+        // Desktop and web report the one thing their window system knows. A text scaler
+        // is **not** among it: winit exposes no equivalent of Windows'
+        // `UISettings.TextScaleFactor` or of GNOME's `text-scaling-factor`, so it stays
+        // at 1 there and an application that knows better says so itself. That is a
+        // missing wire and is written down rather than papered over.
+        let brightness = self
+            .window
+            .as_ref()
+            .and_then(|window| window.theme())
+            .map(|theme| match theme {
+                winit::window::Theme::Dark => frus_widgets::Brightness::Dark,
+                winit::window::Theme::Light => frus_widgets::Brightness::Light,
+            })
+            .unwrap_or_default();
+        if brightness != self.platform.brightness {
+            self.platform.brightness = brightness;
+            self.build_dirty = true;
+        }
+
+        // **The reader's languages**, read once. Changing the display language on a
+        // desktop means signing out and back in on Windows, and is a per-process
+        // environment variable on Linux — so there is nothing to watch for, and re-reading
+        // it every time the window comes back would allocate for an answer that cannot
+        // have moved. Android is the platform where it *does* change under a running
+        // application, and Android reads it on every walk.
+        if self.platform.locales.is_empty() {
+            let read = platform_locales();
+            if !read.is_empty() {
+                self.platform.locales = read;
+                self.build_dirty = true;
+            }
+        }
+    }
+}
+
+/// **The reader's preferred languages**, best first, from whatever the platform keeps
+/// them in. Empty when it says nothing, or when there is no way to ask.
+///
+/// Android does not come through here: its answer lives on the activity's
+/// `Configuration`, which [`crate::android_settings`] already walks.
+/// On **Android** there is nothing to ask here: the answer lives on the activity's
+/// `Configuration`, and the branch above returns before reaching this. A build with no
+/// activity at all has no reader to ask about.
+#[cfg(android)]
+fn platform_locales() -> Vec<frus_widgets::Locale> {
+    Vec::new()
+}
+
+#[cfg(not(android))]
+fn platform_locales() -> Vec<frus_widgets::Locale> {
+    #[cfg(not(web))]
+    {
+        sys_locale::get_locales()
+            .filter_map(|tag| frus_widgets::Locale::parse(&tag))
+            .collect()
+    }
+    #[cfg(web)]
+    {
+        // `navigator.languages` is the ordered list; `navigator.language` is its first
+        // entry and the fallback for a browser that does not offer the list.
+        let Some(navigator) = web_sys::window().map(|window| window.navigator()) else {
+            return Vec::new();
+        };
+        let listed: Vec<frus_widgets::Locale> = navigator
+            .languages()
+            .iter()
+            .filter_map(|value| value.as_string())
+            .filter_map(|tag| frus_widgets::Locale::parse(&tag))
+            .collect();
+        if listed.is_empty() {
+            return navigator
+                .language()
+                .and_then(|tag| frus_widgets::Locale::parse(&tag))
+                .into_iter()
+                .collect();
+        }
+        listed
+    }
 }
 
 impl<A: Application> ApplicationHandler<A::Message> for App<A> {
@@ -791,6 +980,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         }
         // Back in the foreground, or starting up: the surface is (re)born below.
         self.set_lifecycle(Lifecycle::Resumed);
+        // And so is what the platform says about its user — a trip to the system
+        // settings and back is exactly this event.
+        self.refresh_platform_settings();
 
         let mut attributes = Window::default_attributes()
             .with_title(self.app.title())
@@ -1612,9 +1804,58 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.elapsed += dt;
                 self.runtime.time = self.elapsed;
 
-                // The application advances its own animations: theme, navigation, gesture.
-                let app_animating = self.app.tick(dt);
-                let theme = self.app.theme();
+                // The application advances its own animations: navigation, gesture.
+                let mut app_animating = self.app.tick(dt);
+
+                // And the framework advances the **theme**, which is its own work: it
+                // resolves the application's themes against the brightness the platform
+                // reports and the contrast the reader asked for, and crosses from the one
+                // on screen to the one now wanted over `theme_animation_duration`.
+                //
+                // Both halves of that were the application's before milestone 452, and
+                // both were being done by hand in this repo's own demonstration — which
+                // is a fair sign of what every application was having to write.
+                let settings = self
+                    .platform
+                    .accessibility
+                    .with_overrides(self.app.accessibility());
+
+                // **The ambient scopes, before anything reads them** — which the theme
+                // does: the direction of the layout follows the language, so an
+                // application whose theme is right-to-left in Arabic needs the language
+                // installed before its theme is asked for. This used to sit further down,
+                // beside the build, where it was in time for the widgets and one frame
+                // late for the theme.
+                //
+                // Read every frame, all of it: these are the application's answers and
+                // they may change while it is running.
+                install_ambient(&self.app, &mut self.runtime, &self.platform.locales);
+
+                let theme_moved = self.themes.advance(
+                    &self.app,
+                    self.platform.brightness,
+                    settings.high_contrast,
+                    settings.disable_animations,
+                    dt,
+                );
+                // A theme that moved is a rebuild — the view is a pure function of
+                // `(state, theme, size)` — and a fade still running is another frame.
+                app_animating |= theme_moved | self.themes.animating();
+                let theme = self.themes.displayed(&self.app);
+
+                // **The surface, in force for the whole frame** — not just for `view`.
+                // A size becomes a number in three places: while the widgets are built,
+                // while they are measured and laid out, and while they are painted.
+                // Scoping the build alone left the last two at scale 1, so the layout
+                // measured one size and the renderer drew another, and the reader's
+                // setting reached a device without moving a single pixel (milestone 407).
+                //
+                // One guard, not two: the description and the font size are installed by
+                // the same call and released by the same drop, so they cannot be held for
+                // different lengths of time. Holding them separately is the same bug with
+                // an extra step (milestone 408). It lives to the end of this frame and
+                // puts back what was there, panic or not.
+                let _surface = self.media_query(width, height).install();
 
                 // === BUILD phase, conditional ===
                 // The `view` is rebuilt only when the app's state or the size changed
@@ -1626,12 +1867,33 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // The user's motion setting reaches the runtime before anything is
                 // advanced with it, and it is read every frame: a settings screen with a
                 // *reduce motion* switch changes it while the application is running.
-                self.runtime.still = self.app.accessibility().disable_animations;
+                self.runtime.still = settings.disable_animations;
+                // And where the pointer stands in relation to a bar, from the previous
+                // frame's registry — the only one there is at this point in the frame.
+                //
+                // Near a bar, it holds it open and warms the thumb; a bar that has faded
+                // out entirely still answers here, and comes back for the reach. On a
+                // touch platform nothing draws a bar in the first place, so the registry
+                // is empty and a lingering finger position says nothing.
+                self.runtime.scrollbar_hovered = self
+                    .ui
+                    .as_ref()
+                    .and_then(|ui| ui.scrollbar_near(self.cursor))
+                    .map(|bar| bar.id);
+                self.runtime.scrollbar_dragged = match self.drag {
+                    Some(Drag::Scrollbar { id, .. }) => Some(id),
+                    _ => None,
+                };
                 let need_build = self.build_dirty || app_animating || self.tree.is_none();
                 if need_build {
-                    let tree = self
-                        .media_query(width, height)
-                        .scope(|| self.app.view(&theme));
+                    // No scope of its own: the surface above is already installed, and
+                    // covers the layout and the paint that follow as well.
+                    //
+                    // `build_view`, not `view`: `collect_ids` below reads this tree before
+                    // the layout pass has been down it, so an unprepared tree would report
+                    // no identities at all inside a deferred subtree — and everything in an
+                    // `AppBar` would silently never mount, never fade in and never fade out.
+                    let tree = build_view(&self.app, &theme);
                     let ids = collect_ids(tree.as_ref());
                     let present: std::collections::HashSet<_> = ids.iter().copied().collect();
 
@@ -1857,8 +2119,16 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     }
                 }
 
-                // A continuously animating widget, a spinner say, forces a redraw.
-                let wants_animation = ui.wants_animation();
+                // A continuously animating widget, a spinner say, forces a redraw. So
+                // does an image still on its way: without a frame to draw it in, the
+                // frame that would show it never happens.
+                //
+                // The fetch is asked about **here** rather than inside the tree, and as a
+                // count rather than a flag on the widget: showing a placeholder means
+                // taking the image out of the tree, so a hook read off `Image` would go
+                // quiet at exactly the moment it is needed. Asking here also keeps `Ui`
+                // answering for its own widgets alone (milestone 411).
+                let wants_animation = ui.wants_animation() || frus_widgets::images_in_flight() > 0;
 
                 // Keep the interface, for hit testing. The tree is already retained.
                 self.ui = Some(ui);
@@ -1930,17 +2200,30 @@ impl<A: Application> App<A> {
     /// to lay out for, the DPI scale, the app's density, and the insets last reported
     /// by the platform. It is assembled here, in one place, rather than at each of the
     /// call sites.
+    /// The **platform** answers, and the application overrides what it chose to speak for.
+    ///
+    /// That order is the one the reference uses and the only one that stays honest: the
+    /// settings belong to the person using the device, so the framework asks them first,
+    /// and an application with a *reduce motion* switch of its own says only that. An
+    /// [`AccessibilityOverrides`] whose fields are all `None` — the default — leaves every
+    /// answer to the user, which is what an application that has no settings screen means.
     fn media_query(&self, width: f32, height: f32) -> MediaQuery {
         MediaQuery::new(Size::new(width, height))
             .with_device_pixel_ratio(self.scale)
             .with_density(self.app.density())
-            .with_accessibility(self.app.accessibility())
+            .with_text_scaler(self.platform.text_scaler)
+            .with_platform_brightness(self.platform.brightness)
+            .with_accessibility(
+                self.platform
+                    .accessibility
+                    .with_overrides(self.app.accessibility()),
+            )
             .with_insets(self.last_insets)
     }
 
     /// The current layout direction; RTL flips both the layout and the gestures.
     fn is_rtl(&self) -> bool {
-        self.app.theme().direction.is_rtl()
+        self.themes.displayed(&self.app).direction.is_rtl()
     }
 
     /// The window's **logical** width, in px, for the edge thresholds.
@@ -3721,11 +4004,14 @@ impl<A: Application> App<A> {
             // keystroke. So we refresh the tree right away; `build_dirty` stays raised
             // and the next frame redoes the full pass: mounts, leaving fades and all.
             if let Some((width, height)) = self.last_size {
-                let theme = self.app.theme();
-                self.tree = Some(
-                    self.media_query(width, height)
-                        .scope(|| self.app.view(&theme)),
-                );
+                let theme = self.themes.displayed(&self.app);
+                // A surface of its own, because this build happens between frames rather
+                // than inside one — and the same `build_view` as the frame path, because
+                // the next key in the burst reads this tree straight away.
+                let tree = self
+                    .media_query(width, height)
+                    .scope(|| build_view(&self.app, &theme));
+                self.tree = Some(tree);
             }
         }
     }
@@ -4017,10 +4303,219 @@ fn fetch_image_bytes(
 #[cfg(test)]
 mod tests {
     use super::{
-        claim_area, claim_axis, draw_ghost_card, drop_insertion_line, fling_velocity,
-        gesture_was_a_tap, resolve_focus, spring_toward, Drag, Point, Rect, Scene, Theme,
-        VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
+        build_view, claim_area, claim_axis, draw_ghost_card, drop_insertion_line, fling_velocity,
+        gesture_was_a_tap, install_ambient, resolve_focus, spring_toward, Drag, Point, Rect, Scene,
+        Theme, VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
     };
+    use super::{collect_ids, find_widget, MediaQuery};
+    use frus_widgets::Locale;
+
+    /// An application whose whole interface lives **inside a deferred subtree** — which is
+    /// what any application with an `AppBar` is, since a bar defers its own composition
+    /// until the theme is known.
+    ///
+    /// It exists because nothing else in this repo can stand in for one: the shell's own
+    /// types need a window and an event-loop proxy, so the only piece of the frame a test
+    /// can hold is the part that turns a `view` into a tree. That part is where two
+    /// milestones' worth of bugs were.
+    struct Deferred;
+
+    impl crate::Application for Deferred {
+        type Message = ();
+
+        fn update(&mut self, _message: ()) -> crate::Command<()> {
+            crate::Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn frus_widgets::Widget<()>> {
+            Box::new(frus_widgets::ThemeBuilder::new(|_: &Theme| {
+                frus_widgets::Flex::column()
+                    .width(300.0)
+                    .height(80.0)
+                    .child(
+                        frus_widgets::TextField::new("hi")
+                            .width(200.0)
+                            .on_input(|_| ()),
+                    )
+            }))
+        }
+    }
+
+    /// The surface every frame installs, so a build outside one measures the way a build
+    /// inside one does.
+    fn surfaced<R>(f: impl FnOnce() -> R) -> R {
+        MediaQuery::new(frus_widgets::Size::new(300.0, 80.0)).scope(f)
+    }
+
+    /// **A shell installs the reader's language** — the assertion that keeps milestone 454
+    /// from being a resolution nobody ever runs.
+    ///
+    /// `locale::of()` answers `en` with nothing installed, exactly as
+    /// `localizations::of()` answers English, and for the same reason: an application that
+    /// says nothing must keep working. That default is also what would hide the wiring
+    /// being missing, so this drives the shell's own reading of the trait rather than
+    /// calling `resolve` directly — milestone 408's bug, and milestone 449's guard against
+    /// it.
+    #[test]
+    fn a_shell_installs_the_reader_s_language() {
+        /// An application with three languages, and a switch of its own it may or may not
+        /// have been told to use.
+        struct Speaks(Option<Locale>);
+
+        impl crate::Application for Speaks {
+            type Message = ();
+
+            fn update(&mut self, _message: ()) -> crate::Command<()> {
+                crate::Command::none()
+            }
+
+            fn view(&self, _theme: &Theme) -> Box<dyn frus_widgets::Widget<()>> {
+                Box::new(frus_widgets::Flex::<()>::column())
+            }
+
+            fn supported_locales(&self) -> Vec<Locale> {
+                vec![
+                    Locale::new("en"),
+                    Locale::new("fr"),
+                    Locale::with_country("fr", "CA"),
+                ]
+            }
+
+            fn locale(&self) -> Option<Locale> {
+                self.0.clone()
+            }
+        }
+
+        let mut runtime = frus_widgets::Runtime::default();
+
+        // The device speaks Belgian French; the application has French, so it wins.
+        install_ambient(
+            &Speaks(None),
+            &mut runtime,
+            &[Locale::with_country("fr", "BE")],
+        );
+        assert_eq!(frus_widgets::locale::of(), Locale::new("fr"));
+
+        // A platform that reported nothing is not a failure: the application's own first
+        // choice stands.
+        install_ambient(&Speaks(None), &mut runtime, &[]);
+        assert_eq!(frus_widgets::locale::of(), Locale::new("en"));
+
+        // And an application with a language menu of its own outranks the device — still
+        // resolved, so asking for one it does not have gives the nearest thing it does.
+        install_ambient(
+            &Speaks(Some(Locale::with_country("fr", "FR"))),
+            &mut runtime,
+            &[Locale::new("en")],
+        );
+        assert_eq!(frus_widgets::locale::of(), Locale::new("fr"));
+
+        // An application that says nothing at all is where it was: English.
+        install_ambient(&Deferred, &mut runtime, &[Locale::new("fr")]);
+        assert_eq!(
+            frus_widgets::locale::of(),
+            Locale::new("en"),
+            "it supports only English, so French resolves to it"
+        );
+    }
+
+    /// **A shell installs the application's words** — which is the assertion that keeps
+    /// milestone 449 from being a table nobody ever reads.
+    ///
+    /// `localizations::of` answers English with nothing installed, so every widget test
+    /// and every golden would pass whether or not the shell ever called `install`. The
+    /// default is what makes the feature safe to add; it is also what would hide the
+    /// wiring being missing. So this drives the shell's own reading of the trait.
+    #[test]
+    fn a_shell_installs_the_application_s_words() {
+        struct Fr;
+
+        impl frus_widgets::localizations::Localizations for Fr {
+            fn back_button_label(&self) -> &str {
+                "Retour"
+            }
+
+            fn first_day_of_week_index(&self) -> usize {
+                1
+            }
+        }
+
+        struct Speaks;
+
+        impl crate::Application for Speaks {
+            type Message = ();
+
+            fn update(&mut self, _message: ()) -> crate::Command<()> {
+                crate::Command::none()
+            }
+
+            fn view(&self, _theme: &Theme) -> Box<dyn frus_widgets::Widget<()>> {
+                Box::new(frus_widgets::Flex::<()>::column())
+            }
+
+            fn localizations(&self) -> Option<std::rc::Rc<dyn frus_widgets::Localizations>> {
+                Some(std::rc::Rc::new(Fr))
+            }
+        }
+
+        let mut runtime = frus_widgets::Runtime::default();
+        install_ambient(&Speaks, &mut runtime, &[]);
+        assert_eq!(
+            frus_widgets::localizations::of().back_button_label(),
+            "Retour",
+            "the shell read the application's table and installed it"
+        );
+        assert_eq!(
+            frus_widgets::localizations::of().first_day_of_week_index(),
+            1
+        );
+
+        // And an application that says nothing leaves whatever is in force alone rather
+        // than forcing English back on top of a table installed elsewhere.
+        install_ambient(&Deferred, &mut runtime, &[]);
+        assert_eq!(
+            frus_widgets::localizations::of().back_button_label(),
+            "Retour",
+            "saying nothing is not the same as saying English"
+        );
+    }
+
+    /// A tree the shell hands to a traversal is **ready to be traversed**.
+    ///
+    /// Milestones 415 and 416 were the same bug found twice, in the two places this shell
+    /// turns a `view` into a tree. A deferred subtree has no children until something has
+    /// built it, so an unprepared tree reports **one** identity — its root — and every
+    /// widget in the application is invisible to `collect_ids`, to `find_widget`, and to
+    /// everything downstream of them: the mount and leave fades, the focus, the caret.
+    ///
+    /// The failure was silence in both places, which is why it went unnoticed twice. This
+    /// is the assertion that would have caught it, and it needs no window.
+    #[test]
+    fn a_view_is_built_ready_to_be_read() {
+        let theme = Theme::default();
+        let prepared = surfaced(|| build_view(&Deferred, &theme));
+        let ids = collect_ids(prepared.as_ref());
+        assert!(
+            ids.len() > 1,
+            "an application inside a deferred subtree has identities to mount: {ids:?}"
+        );
+        // And every one of them is reachable, which is what the burst path needs.
+        for id in &ids {
+            assert!(
+                find_widget(prepared.as_ref(), *id).is_some(),
+                "{id:?} was counted but cannot be found"
+            );
+        }
+    }
+
+    /// The same view, unprepared, is the state both call sites used to read.
+    #[test]
+    #[should_panic(expected = "before it was built")]
+    fn an_unprepared_view_is_the_state_that_broke() {
+        let theme = Theme::default();
+        let raw = surfaced(|| crate::Application::view(&Deferred, &theme));
+        let _ = collect_ids(raw.as_ref());
+    }
 
     /// A press on a **dismissible** row that never moved is a tap, and the widget under
     /// the finger owes it a click (reported on a device: a task row's avatar opened

@@ -180,13 +180,31 @@ pub fn notched_outline(host: Rect, centre_x: f32, radius: f32, guest_dy: f32) ->
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for BottomAppBar<Msg> {
+    /// It asks to **fill the width it is offered** rather than declaring one — see
+    /// [`Widget::fill_axes`]. A `width: 100%` resolves against the parent's *resolved*
+    /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
+        // The intrusions it was **told** about, consumed here rather than applied from
+        // outside (milestone 418). The reference puts the safe area inside the shape
+        // that carries the colour (`bottom_app_bar.dart:230`), so the bar's surface runs
+        // behind the gesture bar and only its actions are held clear — which is exactly
+        // what `paint` does with `bounds` below.
+        let safe = crate::MediaQuery::of().padding;
         Style {
-            width: Dimension::Percent(1.0),
-            height: Dimension::Length(self.height),
-            padding: frus_core::Insets::new(self.padding, self.padding, self.padding, self.padding),
+            height: Dimension::Length(self.height + safe.bottom),
+            padding: frus_core::Insets::new(
+                self.padding,
+                self.padding + safe.right,
+                self.padding + safe.bottom,
+                self.padding + safe.left,
+            ),
             ..Default::default()
         }
+    }
+
+    /// The width it was **offered**, not the width its parent came out at.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::WIDTH
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -194,7 +212,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for BottomAppBar<Msg> {
     }
 
     fn paint(&self, bounds: Rect, _status: Status, theme: &Theme, scene: &mut Scene) {
-        let color = self.color.unwrap_or(theme.surface);
+        // `bottom_app_bar.dart:327` — a distinct area within the surface.
+        let color = self
+            .color
+            .or(theme.widgets.bottom_app_bar.color)
+            .unwrap_or(theme.scheme.surface_container);
         match self.notch {
             Some((centre_x, radius)) => {
                 let path =

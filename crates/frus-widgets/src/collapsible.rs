@@ -8,7 +8,7 @@
 
 use std::cell::{OnceCell, RefCell};
 
-use frus_core::{Color, Insets, Rect, Scene};
+use frus_core::{BorderRadius, Color, Insets, Rect, Scene, ShapeBorder};
 use frus_layout::{FlexDirection, Style};
 
 use crate::icons::Icons;
@@ -30,6 +30,9 @@ pub enum ControlAffinity {
 
 /// The chevron's side, matching the reference's `expand_more`.
 const CHEVRON: f32 = 24.0;
+/// The room kept round what a tile hides while it is showing. Nothing above it, so the
+/// body sits against the row; sixteen on the other three sides.
+const CHILDREN_PADDING: Insets = Insets::new(0.0, 16.0, 16.0, 16.0);
 
 /// A tile that opens to show more.
 ///
@@ -57,13 +60,18 @@ pub struct ExpansionTile<Msg> {
     affinity: ControlAffinity,
     dense: bool,
     tile_padding: Option<Insets>,
-    children_padding: Insets,
+    /// **An `Option`, not an `Insets`.** A bare `Insets` cannot tell *nothing was said*
+    /// from *zero on every side*, so a theme rung under it could never fire {em} the same
+    /// trap `AccessibilityOverrides` was built to avoid in milestone 407.
+    children_padding: Option<Insets>,
     background: Option<Color>,
     collapsed_background: Option<Color>,
     text_color: Option<Color>,
     collapsed_text_color: Option<Color>,
     icon_color: Option<Color>,
     collapsed_icon_color: Option<Color>,
+    shape: Option<ShapeBorder>,
+    collapsed_shape: Option<ShapeBorder>,
     /// `[tile]`, or `[tile, body]` when it is open and has one. Assembled on the first
     /// walk, as [`crate::ListTile`] assembles its row, so that the order the builders
     /// were called in cannot change what comes out.
@@ -85,13 +93,15 @@ impl<Msg: Clone + 'static> ExpansionTile<Msg> {
             affinity: ControlAffinity::default(),
             dense: false,
             tile_padding: None,
-            children_padding: Insets::new(0.0, 16.0, 16.0, 16.0),
+            children_padding: None,
             background: None,
             collapsed_background: None,
             text_color: None,
             collapsed_text_color: None,
             icon_color: None,
             collapsed_icon_color: None,
+            shape: None,
+            collapsed_shape: None,
             built: OnceCell::new(),
         }
     }
@@ -156,7 +166,7 @@ impl<Msg: Clone + 'static> ExpansionTile<Msg> {
 
     /// The room around the body, inside the tile's width.
     pub fn children_padding(mut self, padding: Insets) -> Self {
-        self.children_padding = padding;
+        self.children_padding = Some(padding);
         self
     }
 
@@ -196,22 +206,51 @@ impl<Msg: Clone + 'static> ExpansionTile<Msg> {
         self
     }
 
+    /// **What shape the row is while the tile is open**, over the theme's and the
+    /// framework's. The row is a [`ListTile`](crate::ListTile), which has taken a shape
+    /// since milestone 457 — its surface **and** its ink, so a rounded tile does not
+    /// splash square corners.
+    #[must_use]
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.shape = Some(shape);
+        self
+    }
+
+    /// And while it is shut. A tile that says nothing here is **not** given
+    /// [`shape`](Self::shape): the reference keeps the two apart
+    /// (`expansion_tile_theme.dart:55`), and square-when-shut, rounded-when-open is a
+    /// design rather than an oversight.
+    #[must_use]
+    pub fn collapsed_shape(mut self, shape: ShapeBorder) -> Self {
+        self.collapsed_shape = Some(shape);
+        self
+    }
+
+    /// The shorthand for a rounded rectangle on **both** states, which is what an
+    /// application usually means.
+    #[must_use]
+    pub fn radius(self, radius: impl Into<BorderRadius>) -> Self {
+        let shape = ShapeBorder::rounded(radius.into());
+        self.shape(shape).collapsed_shape(shape)
+    }
+
     /// The chevron, pointing down when the tile is open and along the reading direction
     /// when it is shut — the same pair the section header drew before this was a tile.
     fn chevron(&self, theme: &Theme) -> Option<Box<dyn Widget<Msg>>> {
         if !self.show_trailing_icon {
             return None;
         }
+        let t = &theme.widgets.expansion_tile;
         let color = if self.open {
-            self.icon_color
+            self.icon_color.or(t.icon_color)
         } else {
-            self.collapsed_icon_color
+            self.collapsed_icon_color.or(t.collapsed_icon_color)
         }
         .unwrap_or(theme.scheme.on_surface_variant);
         let name = if self.open {
-            Icons::ChevronDown
+            Icons::EXPAND_MORE
         } else {
-            Icons::ChevronRight
+            Icons::CHEVRON_RIGHT
         };
         Some(Box::new(Icon::new(name).size(CHEVRON).color(color)) as Box<dyn Widget<Msg>>)
     }
@@ -245,30 +284,44 @@ impl<Msg: Clone + 'static> ExpansionTile<Msg> {
         if self.dense {
             tile = tile.dense();
         }
-        if let Some(padding) = self.tile_padding {
+        let t = &theme.widgets.expansion_tile;
+        if let Some(padding) = self.tile_padding.or(t.tile_padding) {
             tile = tile.padding(padding);
         }
         if let Some(color) = if self.open {
-            self.background
+            self.background.or(t.background)
         } else {
-            self.collapsed_background
+            self.collapsed_background.or(t.collapsed_background)
         } {
             tile = tile.tile_color(color);
         }
         if let Some(color) = if self.open {
-            self.text_color
+            self.text_color.or(t.text_color)
         } else {
-            self.collapsed_text_color
+            self.collapsed_text_color.or(t.collapsed_text_color)
         } {
             let mut style = theme.text.body_large;
             style.color = Some(color);
             tile = tile.title_style(style);
         }
+        // The two shapes stay apart on the way down as they do in the theme: a tile that
+        // named only one of them gets that one in that state and the framework's in the
+        // other.
+        if let Some(shape) = if self.open {
+            self.shape.or(t.shape)
+        } else {
+            self.collapsed_shape.or(t.collapsed_shape)
+        } {
+            tile = tile.shape(shape);
+        }
 
         let mut out: Vec<Box<dyn Widget<Msg>>> = vec![Box::new(tile)];
         if self.open {
             if let Some(content) = self.content.borrow_mut().take() {
-                let pad = self.children_padding;
+                let pad = self
+                    .children_padding
+                    .or(t.children_padding)
+                    .unwrap_or(CHILDREN_PADDING);
                 out.push(Box::new(
                     Container::new()
                         .padding_each(pad.top, pad.right, pad.bottom, pad.left)
@@ -326,6 +379,137 @@ mod tests {
     fn assembled(tile: &ExpansionTile<Msg>) -> &[Box<dyn Widget<Msg>>] {
         Widget::build_themed(tile, &Theme::default());
         Widget::children(tile)
+    }
+
+    /// The row's surface and its corners, as the tile actually paints them.
+    fn row_of(tile: &ExpansionTile<Msg>, theme: &Theme) -> (Color, frus_core::BorderRadius) {
+        let ui = build_ui(tile, Size::new(300.0, 300.0), &Runtime::default(), theme);
+        fn find(primitives: &[frus_core::Primitive]) -> Option<(Color, frus_core::BorderRadius)> {
+            for p in primitives {
+                match p {
+                    frus_core::Primitive::Rect {
+                        color,
+                        radius,
+                        border_width,
+                        ..
+                    } if *border_width == 0.0 && color.a > 0.0 => return Some((*color, *radius)),
+                    frus_core::Primitive::Layer { primitives, .. } => {
+                        if let Some(found) = find(primitives) {
+                            return Some(found);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+        find(ui.scene().primitives()).expect("the row paints a surface")
+    }
+
+    /// **Every property was a builder and none of them was a theme.** A settings screen
+    /// is a column of these, so an application that wants its open sections tinted said
+    /// so on each of them — the same gap `ListTile` had until milestone 458, on the
+    /// widget that is usually built *out of* list tiles.
+    #[test]
+    fn a_theme_answers_for_every_expansion_tile() {
+        let mut theme = Theme::default();
+        theme.widgets.expansion_tile.background = Some(Color::rgb(0.2, 0.4, 0.6));
+        theme.widgets.expansion_tile.collapsed_background = Some(Color::rgb(0.6, 0.4, 0.2));
+        theme.widgets.expansion_tile.shape = Some(ShapeBorder::rounded(7.0));
+        theme.widgets.expansion_tile.collapsed_shape = Some(ShapeBorder::rounded(3.0));
+
+        let open = ExpansionTile::new("Delivery", true, Msg::Toggle);
+        assert_eq!(
+            row_of(&open, &theme),
+            (
+                Color::rgb(0.2, 0.4, 0.6),
+                frus_core::BorderRadius::uniform(7.0)
+            ),
+            "the open answers"
+        );
+        let shut = ExpansionTile::new("Delivery", false, Msg::Toggle);
+        assert_eq!(
+            row_of(&shut, &theme),
+            (
+                Color::rgb(0.6, 0.4, 0.2),
+                frus_core::BorderRadius::uniform(3.0)
+            ),
+            "and the shut ones, which are a different set and not a fallback"
+        );
+
+        // The tile outranks it.
+        let told = ExpansionTile::new("Delivery", true, Msg::Toggle)
+            .background_color(Color::rgb(0.9, 0.9, 0.9))
+            .shape(ShapeBorder::rounded(1.0));
+        assert_eq!(
+            row_of(&told, &theme),
+            (
+                Color::rgb(0.9, 0.9, 0.9),
+                frus_core::BorderRadius::uniform(1.0)
+            )
+        );
+    }
+
+    /// **A shut tile does not borrow the open one's shape.** The reference keeps `shape`
+    /// and `collapsedShape` apart (`expansion_tile_theme.dart:55`), and square-when-shut,
+    /// rounded-when-open is a design rather than an oversight — the same reasoning as
+    /// the drawer's `end_shape` in milestone 456.
+    #[test]
+    fn a_shut_tile_does_not_borrow_the_open_one_s_shape() {
+        let mut theme = Theme::default();
+        theme.widgets.expansion_tile.shape = Some(ShapeBorder::rounded(9.0));
+        theme.widgets.expansion_tile.collapsed_background = Some(Color::rgb(0.5, 0.5, 0.5));
+
+        let shut = ExpansionTile::new("Delivery", false, Msg::Toggle);
+        assert_eq!(
+            row_of(&shut, &theme).1,
+            frus_core::BorderRadius::ZERO,
+            "an open tile's shape is not a shut one's"
+        );
+
+        // And `radius` is the shorthand that says both.
+        let both = ExpansionTile::new("Delivery", false, Msg::Toggle)
+            .collapsed_background_color(Color::rgb(0.5, 0.5, 0.5))
+            .radius(5.0);
+        assert_eq!(
+            row_of(&both, &Theme::default()).1,
+            frus_core::BorderRadius::uniform(5.0)
+        );
+    }
+
+    /// **`children_padding` could not be told to be zero.** It was a bare `Insets` with a
+    /// value baked in, so *nothing was said* and *zero on every side* were the same
+    /// answer, and a theme rung under it could never have fired. An `Option` is the fix,
+    /// and it is the trap `AccessibilityOverrides` was built to avoid in milestone 407.
+    #[test]
+    fn the_room_round_the_body_can_be_told_to_be_nothing() {
+        let theme = Theme::default();
+        let body_padding = |tile: &ExpansionTile<Msg>, theme: &Theme| {
+            // The children exist only once the tile has been walked under a theme, and a
+            // `OnceCell` means once: each case below builds its own tile.
+            Widget::<Msg>::build_themed(tile, theme);
+            let children = Widget::<Msg>::children(tile);
+            assert_eq!(children.len(), 2, "an open tile with a body");
+            children[1].style_themed(theme).padding
+        };
+
+        let plain = ExpansionTile::new("Delivery", true, Msg::Toggle).content(Text::new("Two"));
+        assert_eq!(body_padding(&plain, &theme), CHILDREN_PADDING);
+
+        let mut themed = Theme::default();
+        themed.widgets.expansion_tile.children_padding = Some(Insets::uniform(4.0));
+        let from_theme =
+            ExpansionTile::new("Delivery", true, Msg::Toggle).content(Text::new("Two"));
+        assert_eq!(body_padding(&from_theme, &themed), Insets::uniform(4.0));
+
+        let none = ExpansionTile::new("Delivery", true, Msg::Toggle)
+            .content(Text::new("Two"))
+            .children_padding(Insets::ZERO);
+        assert_eq!(
+            body_padding(&none, &themed),
+            Insets::ZERO,
+            "zero is an answer, not a silence"
+        );
     }
 
     /// Shut, only the row is built — the body is not a subtree kept alive out of sight.

@@ -9,7 +9,7 @@
 
 use std::rc::Rc;
 
-use frus_core::{Point, Rect, Scene};
+use frus_core::{Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::flex::Flex;
@@ -23,9 +23,26 @@ use crate::widget::Widget;
 const DEFAULT_WIDTH: f32 = 260.0;
 const ROW_H: f32 = 32.0;
 const PAD_X: f32 = 10.0;
-const SIZE: f32 = 16.0;
 /// The vertical gap between suggestions.
 const ROW_GAP: f32 = 2.0;
+
+/// The style the suggestions are drawn in: what the caller said, else what the theme says,
+/// else the reference's — the reference's own suggestion list is built out of list tiles,
+/// whose title is `bodyLarge`.
+///
+/// **Resolved once**, so that the number the box is measured with is the number the glyphs
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403); a size that never passes through it is a size the reader cannot change.
+fn label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.autocomplete.text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_large)
+        .resolved()
+}
+
+/// The height of one suggestion — the floor, or the line if the type asks for more.
+fn row_height(style: &ResolvedTextStyle) -> f32 {
+    frus_text::line_box(ROW_H, style, 0.0)
+}
 
 /// The portion of the label (in **character** indices) matching the query
 /// (a case-insensitive search). `None` if the query is empty or absent.
@@ -52,16 +69,27 @@ struct Suggestion<Msg> {
     width: f32,
     /// The **active** suggestion (the one that would be picked): a tinted background.
     active: bool,
+    text_style: Option<TextStyle>,
     message: Msg,
+}
+
+impl<Msg> Suggestion<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        Style {
+            width: Dimension::Length(self.width),
+            height: Dimension::Length(row_height(&label_style(self.text_style, theme))),
+            ..Default::default()
+        }
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
     fn style(&self) -> Style {
-        Style {
-            width: Dimension::Length(self.width),
-            height: Dimension::Length(ROW_H),
-            ..Default::default()
-        }
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -70,16 +98,20 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // The active suggestion: a `primary`-tinted background; hover on top.
+        // A menu panel is a distinct area within the surface, the `surface_container`
+        // role (`menu_anchor.dart:4240`). The active suggestion: a `primary`-tinted
+        // background; hover on top.
+        let panel = theme.scheme.surface_container;
         let base = if self.active {
-            theme.surface.lerp(theme.primary, 0.14)
+            panel.lerp(theme.primary, 0.14)
         } else {
-            theme.surface
+            panel
         };
         let bg = theme.state_layer(base, theme.on_surface, &status);
         scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.border.fade(o));
 
-        let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
+        let style = label_style(self.text_style, Some(theme));
+        let ty = bounds.y + (bounds.height - style.line_height()) * 0.5;
         let chars: Vec<char> = self.label.chars().collect();
         let normal = theme.on_surface.fade(o);
         let hilite = theme.primary.fade(o);
@@ -95,8 +127,8 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
                 continue;
             }
             let text: String = chars[range].iter().collect();
-            let width = frus_text::measure(&text, SIZE).width;
-            scene.text(Point::new(x, ty), text, SIZE, color);
+            let width = frus_text::measure_resolved(&text, &style).width;
+            scene.text(Point::new(x, ty), text, &style, color);
             x += width;
         }
     }
@@ -121,6 +153,7 @@ pub struct Autocomplete<Msg> {
     on_input: Rc<dyn Fn(String) -> Msg>,
     on_pick: Rc<dyn Fn(String) -> Msg>,
     labels: Vec<String>,
+    text_style: Option<TextStyle>,
     /// `[field]` or `[field, list]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -141,10 +174,19 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
             on_input: Rc::new(on_input),
             on_pick: Rc::new(on_pick),
             labels: Vec::new(),
+            text_style: None,
             children: Vec::new(),
         };
         ac.rebuild();
         ac
+    }
+
+    /// The suggestions' type, over the theme's and the reference's.
+    #[must_use]
+    pub fn text_style(mut self, style: TextStyle) -> Self {
+        self.text_style = Some(style);
+        self.rebuild();
+        self
     }
 
     /// The width of the field and the suggestions, in logical pixels (260 by default).
@@ -194,13 +236,25 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
                     query: self.value.clone(),
                     width: self.width,
                     active: self.active == Some(index),
+                    text_style: self.text_style,
                     message: (self.on_pick)(label.clone()),
                 });
             }
             // Past the threshold, the list scrolls in a viewport bounded to `n` rows.
             match self.max_visible {
                 Some(n) if self.labels.len() > n => {
-                    let viewport = n as f32 * ROW_H + (n as f32 - 1.0) * ROW_GAP;
+                    // The rows' own height, not the floor: a viewport counted at `ROW_H`
+                    // while the rows are taller shows `n` rows minus a sliver of each —
+                    // which is what the reader's font setting does to them, and it is
+                    // applied here because `resolved()` applies it.
+                    //
+                    // `None` for the theme, and it is the one thing a builder cannot have:
+                    // this list is built before any theme exists. So an application that
+                    // retypesets suggestions through `widgets.autocomplete` and *also*
+                    // caps them with `max_visible` should say it on the widget instead,
+                    // where the same number reaches both the rows and their viewport.
+                    let row = row_height(&label_style(self.text_style, None));
+                    let viewport = n as f32 * row + (n as f32 - 1.0) * ROW_GAP;
                     self.children.push(Box::new(
                         SingleChildScrollView::new()
                             .width(self.width)
@@ -324,7 +378,7 @@ mod tests {
             &Theme::default(),
         );
         let theme = Theme::default();
-        let tint = theme.surface.lerp(theme.primary, 0.14);
+        let tint = theme.scheme.surface_container.lerp(theme.primary, 0.14);
         let has_tint = ui.scene().primitives().iter().any(|p| {
             matches!(
                 p,

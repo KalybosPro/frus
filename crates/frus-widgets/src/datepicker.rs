@@ -1,7 +1,7 @@
 //! [`DatePicker`]: a **controlled** month calendar, built on [`crate::GridView`].
 //! Date arithmetic is **home-grown**, with no time dependency.
 
-use frus_core::{Color, Point, Rect, Scene};
+use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
 use crate::flex::Flex;
@@ -12,7 +12,33 @@ use crate::theme::Theme;
 use crate::widget::Widget;
 
 const CELL: f32 = 34.0;
-const SIZE: f32 = 15.0;
+
+/// A day's style: what the calendar was told, else what the theme says, else the
+/// reference's — a Material 3 date picker sets its days in `bodyLarge`.
+///
+/// **Resolved once** so that the number the cell is measured with is the number the figures
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403).
+fn day_style(theme: Option<&Theme>) -> ResolvedTextStyle {
+    theme
+        .and_then(|t| t.widgets.date_picker.day_text_style)
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_large)
+        .resolved()
+}
+
+/// The weekday initial's style — the reference says `bodyLarge` for these too. See
+/// [`day_style`].
+fn weekday_style(theme: Option<&Theme>) -> ResolvedTextStyle {
+    theme
+        .and_then(|t| t.widgets.date_picker.weekday_text_style)
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_large)
+        .resolved()
+}
+
+/// A cell's side: the constant, unless the reader asked for figures that do not fit in it.
+fn cell(theme: Option<&Theme>) -> f32 {
+    frus_text::line_box(CELL, &day_style(theme), 0.0)
+}
 /// The gap between the two months of a dual calendar.
 const DUAL_GAP: f32 = 24.0;
 
@@ -85,13 +111,24 @@ struct Day<Msg> {
     message: Option<Msg>,
 }
 
-impl<Msg: Clone> Widget<Msg> for Day<Msg> {
-    fn style(&self) -> Style {
+impl<Msg> Day<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        let side = cell(theme);
         Style {
-            width: Dimension::Length(CELL),
-            height: Dimension::Length(CELL),
+            width: Dimension::Length(side),
+            height: Dimension::Length(side),
             ..Default::default()
         }
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for Day<Msg> {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -100,20 +137,21 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         if self.day == 0 {
-            return; // case de remplissage
+            return; // a filler cell
         }
         let o = status.opacity;
         // A disabled day (outside the bounds): a dimmed figure, no background, no band.
         if self.disabled {
             let label = self.day.to_string();
-            let w = frus_text::measure(&label, SIZE).width;
+            let style = day_style(Some(theme));
+            let w = frus_text::measure_resolved(&label, &style).width;
             scene.text(
                 Point::new(
-                    bounds.x + (CELL - w) * 0.5,
-                    bounds.y + (CELL - frus_text::line_height(SIZE)) * 0.5,
+                    bounds.x + (bounds.width - w) * 0.5,
+                    bounds.y + (bounds.height - style.line_height()) * 0.5,
                 ),
                 label,
-                SIZE,
+                &style,
                 theme.muted.fade(o * 0.4),
             );
             return;
@@ -146,14 +184,15 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
             scene.draw_rect(bounds, bg.fade(o), CELL * 0.5, 0.0, Color::TRANSPARENT);
         }
         let label = self.day.to_string();
-        let w = frus_text::measure(&label, SIZE).width;
+        let style = day_style(Some(theme));
+        let w = frus_text::measure_resolved(&label, &style).width;
         scene.text(
             Point::new(
-                bounds.x + (CELL - w) * 0.5,
-                bounds.y + (CELL - frus_text::line_height(SIZE)) * 0.5,
+                bounds.x + (bounds.width - w) * 0.5,
+                bounds.y + (bounds.height - style.line_height()) * 0.5,
             ),
             label,
-            SIZE,
+            &style,
             fg.fade(o),
         );
     }
@@ -172,23 +211,46 @@ pub struct DatePicker<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
     /// Two months side by side, which doubles its width.
     dual: bool,
+    day_text_style: Option<TextStyle>,
+    weekday_text_style: Option<TextStyle>,
 }
 
-const WEEKDAYS: [&str; 7] = ["S", "M", "T", "W", "T", "F", "S"];
-const MONTHS: [&str; 12] = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-];
+impl<Msg> DatePicker<Msg> {
+    /// The days' type, over the theme's and the reference's.
+    ///
+    /// It reaches the cells through [`Widget::theme_override`] rather than through the
+    /// cells' fields: a calendar is assembled by five different constructors, and a value
+    /// carried down the theme arrives at every one of them without any of them being
+    /// taught to pass it on.
+    #[must_use]
+    pub fn day_text_style(mut self, style: TextStyle) -> Self {
+        self.day_text_style = Some(style);
+        self
+    }
+
+    /// The weekday initials' type, over the theme's and the reference's. See
+    /// [`day_text_style`](Self::day_text_style).
+    #[must_use]
+    pub fn weekday_text_style(mut self, style: TextStyle) -> Self {
+        self.weekday_text_style = Some(style);
+        self
+    }
+}
+
+/// **How far into the week the 1st of the month falls**, counting from whichever day
+/// the week starts on where the reader is (`date.dart:356`).
+///
+/// [`first_weekday`] answers Sunday-based, and so does
+/// [`Localizations::first_day_of_week_index`](crate::Localizations::first_day_of_week_index)
+/// — so the difference between them is the number of blank cells, and it is taken
+/// **Euclidean** because the difference goes negative for every locale that does not
+/// start on Sunday.
+///
+/// This used to be `first_weekday` alone, which is the same number only in a country
+/// whose week starts on Sunday. Everywhere else the days were in the wrong columns.
+fn lead_cells(year: i32, month: u32, first_day_of_week: usize) -> usize {
+    (first_weekday(year, month) as isize - first_day_of_week as isize).rem_euclid(7) as usize
+}
 
 impl<Msg: Clone + 'static> DatePicker<Msg> {
     /// Creates a calendar for `year`/`month` (1..=12), with an optional `selected`
@@ -376,6 +438,8 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         Self {
             children: vec![Box::new(row)],
             dual: true,
+            day_text_style: None,
+            weekday_text_style: None,
         }
     }
 
@@ -396,31 +460,43 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
             .align(Align::Center)
             .gap(8.0)
             .child(
-                crate::IconButton::new(crate::icons::Icons::ChevronLeft)
+                crate::IconButton::new(crate::icons::Icons::CHEVRON_LEFT)
                     .label("Previous month")
                     .icon_size(18.0)
                     .on_press(on_nav(-1)),
             )
             .child(Flex::row().flex(1.0))
-            .child(Text::new(format!("{} {}", MONTHS[(month - 1) as usize], year)).size(16.0))
+            .child(
+                Text::new(format!(
+                    "{} {}",
+                    crate::localizations::of().months()[(month - 1) as usize],
+                    year
+                ))
+                .size(16.0),
+            )
             .child(Flex::row().flex(1.0))
             .child(
-                crate::IconButton::new(crate::icons::Icons::ChevronRight)
+                crate::IconButton::new(crate::icons::Icons::CHEVRON_RIGHT)
                     .label("Next month")
                     .icon_size(18.0)
                     .on_press(on_nav(1)),
             );
 
-        // The weekday row.
+        // The weekday row, **rotated to start where the reader's week does**
+        // (`calendar_date_picker.dart:1100`). The initials themselves are always listed
+        // Sunday-first, which is what lets the index be an index into them.
+        let l10n = crate::localizations::of();
+        let first = l10n.first_day_of_week_index() % 7;
+        let initials = l10n.narrow_weekdays();
         let mut weekdays = GridView::new(7).gap(2.0);
-        for wd in WEEKDAYS {
+        for column in 0..7 {
             weekdays = weekdays.cell(WeekdayCell {
-                label: wd.to_string(),
+                label: initials[(first + column) % 7].to_string(),
             });
         }
 
         // The day grid (empty cells before the 1st).
-        let lead = first_weekday(year, month);
+        let lead = lead_cells(year, month, first);
         let total = days_in_month(year, month);
         let mut grid = GridView::new(7).gap(2.0);
         for _ in 0..lead {
@@ -444,21 +520,37 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         Self {
             children: vec![Box::new(header), Box::new(weekdays), Box::new(grid)],
             dual: false,
+            day_text_style: None,
+            weekday_text_style: None,
         }
     }
 }
+
+/// The floor of the weekday header's height.
+const WEEKDAY_H: f32 = 22.0;
 
 /// A weekday header cell (not clickable).
 struct WeekdayCell {
     label: String,
 }
 
-impl<Msg> Widget<Msg> for WeekdayCell {
-    fn style(&self) -> Style {
+impl WeekdayCell {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        // The floor, or the line the initials actually need.
         Style {
-            height: Dimension::Length(22.0),
+            height: Dimension::Length(frus_text::line_box(WEEKDAY_H, &weekday_style(theme), 0.0)),
             ..Default::default()
         }
+    }
+}
+
+impl<Msg> Widget<Msg> for WeekdayCell {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -466,11 +558,12 @@ impl<Msg> Widget<Msg> for WeekdayCell {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        let w = frus_text::measure(&self.label, 13.0).width;
+        let style = weekday_style(Some(theme));
+        let w = frus_text::measure_resolved(&self.label, &style).width;
         scene.text(
-            Point::new(bounds.x + (CELL - w) * 0.5, bounds.y),
+            Point::new(bounds.x + (bounds.width - w) * 0.5, bounds.y),
             self.label.clone(),
-            13.0,
+            &style,
             theme.muted.fade(status.opacity),
         );
     }
@@ -480,9 +573,12 @@ impl<Msg> Widget<Msg> for WeekdayCell {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for DatePicker<Msg> {
-    fn style(&self) -> Style {
-        let month_w = 7.0 * (CELL + 2.0);
+impl<Msg> DatePicker<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        // Seven cells and their gaps — the cells' **own** side, not the constant: a
+        // calendar whose cells grew with the reader while its box did not would clip its
+        // last column.
+        let month_w = 7.0 * (cell(theme) + 2.0);
         let width = if self.dual {
             2.0 * month_w + DUAL_GAP
         } else {
@@ -495,6 +591,16 @@ impl<Msg: Clone> Widget<Msg> for DatePicker<Msg> {
             ..Default::default()
         }
     }
+}
+
+impl<Msg: Clone> Widget<Msg> for DatePicker<Msg> {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
+    }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         &self.children
@@ -504,6 +610,23 @@ impl<Msg: Clone> Widget<Msg> for DatePicker<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+
+    /// Carries what this calendar was told down to its cells, over what the subtree
+    /// inherited. `None` when it was told nothing, so a calendar that says nothing costs
+    /// nothing and the theme's own answer stands.
+    fn theme_override(&self, inherited: &Theme) -> Option<Box<Theme>> {
+        if self.day_text_style.is_none() && self.weekday_text_style.is_none() {
+            return None;
+        }
+        let mut theme = inherited.clone();
+        if let Some(style) = self.day_text_style {
+            theme.widgets.date_picker.day_text_style = Some(style);
+        }
+        if let Some(style) = self.weekday_text_style {
+            theme.widgets.date_picker.weekday_text_style = Some(style);
+        }
+        Some(Box::new(theme))
     }
 }
 
@@ -515,6 +638,110 @@ mod tests {
     enum Msg {
         Pick(u32),
         Nav(i32),
+    }
+
+    /// A table whose weeks start on Monday, and whose columns say so.
+    struct Fr;
+
+    impl crate::Localizations for Fr {
+        fn first_day_of_week_index(&self) -> usize {
+            1
+        }
+
+        fn narrow_weekdays(&self) -> [&str; 7] {
+            ["D", "L", "M", "M", "J", "V", "S"]
+        }
+
+        fn months(&self) -> [&str; 12] {
+            [
+                "janvier",
+                "f\u{e9}vrier",
+                "mars",
+                "avril",
+                "mai",
+                "juin",
+                "juillet",
+                "ao\u{fb}t",
+                "septembre",
+                "octobre",
+                "novembre",
+                "d\u{e9}cembre",
+            ]
+        }
+    }
+
+    /// **A calendar starts its week where the reader's week starts**
+    /// (`calendar_date_picker.dart:1100`, `date.dart:356`).
+    ///
+    /// This is not a translation: it is which column a day sits in. The grid always began
+    /// on Sunday, so in every country whose week starts on Monday — most of Europe — every
+    /// date in the month was one column out.
+    #[test]
+    fn a_week_starts_where_the_reader_s_week_starts() {
+        // 1 July 2026 is a Wednesday. Sunday-first: three blanks (Sun, Mon, Tue).
+        assert_eq!(lead_cells(2026, 7, 0), 3);
+        // Monday-first: two (Mon, Tue).
+        assert_eq!(lead_cells(2026, 7, 1), 2);
+        // And 1 March 2026 is a Sunday: no blanks at all Sunday-first, six Monday-first.
+        assert_eq!(first_weekday(2026, 3), 0);
+        assert_eq!(lead_cells(2026, 3, 0), 0);
+        assert_eq!(
+            lead_cells(2026, 3, 1),
+            6,
+            "the difference goes negative here, which is why it is taken Euclidean"
+        );
+
+        // And the grid really has that many cells.
+        let cells = |l10n: Option<std::rc::Rc<dyn crate::Localizations>>| {
+            let build = || {
+                let dp = DatePicker::new(2026, 7, Some(11), Msg::Pick, Msg::Nav);
+                Widget::<Msg>::children(&dp)[2].children().len()
+            };
+            match l10n {
+                Some(table) => crate::localizations::scope(table, build),
+                None => build(),
+            }
+        };
+        assert_eq!(cells(None), 3 + 31, "Sunday-first");
+        assert_eq!(cells(Some(std::rc::Rc::new(Fr))), 2 + 31, "Monday-first");
+    }
+
+    /// And the **column headings rotate with it**, out of a list that is always written
+    /// Sunday-first (`date.dart:353`) — which is what lets one index serve both.
+    #[test]
+    fn the_column_headings_rotate_and_the_month_is_named() {
+        let heading = |i: usize, table: Option<std::rc::Rc<dyn crate::Localizations>>| {
+            let build = || {
+                let dp = DatePicker::new(2026, 7, None, Msg::Pick, Msg::Nav);
+                let row = &Widget::<Msg>::children(&dp)[1];
+                let mut scene = Scene::new();
+                row.children()[i].paint(
+                    Rect::new(0.0, 0.0, 32.0, 32.0),
+                    Status::default(),
+                    &Theme::dark(),
+                    &mut scene,
+                );
+                scene.primitives().iter().find_map(|p| match p {
+                    frus_core::Primitive::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+            };
+            match table {
+                Some(table) => crate::localizations::scope(table, build),
+                None => build(),
+            }
+        };
+        assert_eq!(heading(0, None).as_deref(), Some("S"), "Sunday first");
+        assert_eq!(
+            heading(0, Some(std::rc::Rc::new(Fr))).as_deref(),
+            Some("L"),
+            "Monday first, and in the reader's letters"
+        );
+        assert_eq!(
+            heading(6, Some(std::rc::Rc::new(Fr))).as_deref(),
+            Some("D"),
+            "and Sunday has moved to the end"
+        );
     }
 
     #[test]

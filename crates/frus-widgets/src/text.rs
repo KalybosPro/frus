@@ -284,6 +284,35 @@ impl Text {
         self
     }
 
+    /// Sets the **font family** — the reference's
+    /// [`fontFamily`](frus_core::TextStyle::family).
+    ///
+    /// `Text::new("fn main()").family(FontFamily::Monospace)` for code;
+    /// `FontFamily::Named("Inter")` for a face registered with `frus_text::add_font`.
+    /// Unset, the application's default.
+    ///
+    /// **A run containing Arabic keeps the registered Arabic face** whatever is named
+    /// here, because a family without Arabic coverage renders nothing at all on Android
+    /// rather than falling back — see [`frus_core::TextStyle::family`].
+    pub fn family(mut self, family: frus_core::FontFamily) -> Self {
+        self.style.family = Some(family);
+        self
+    }
+
+    /// Sets the line height as a **multiple of the font size** — the reference's
+    /// [`TextStyle::height`](frus_core::TextStyle::height).
+    ///
+    /// `1.0` packs the lines to exactly the type's size, `1.6` opens a paragraph up.
+    /// Unset, the line height is whatever a surrounding [`crate::DefaultTextStyle`] said,
+    /// or [`DEFAULT_LINE_HEIGHT`](frus_core::DEFAULT_LINE_HEIGHT) at the end of the chain.
+    ///
+    /// A ratio and not a length, so the leading grows with the letters when a reader turns
+    /// the type up instead of staying where it was set.
+    pub fn height(mut self, height: f32) -> Self {
+        self.style.height = Some(height);
+        self
+    }
+
     /// Sets the text color (otherwise the theme's).
     pub fn color(mut self, color: Color) -> Self {
         self.style.color = Some(color);
@@ -408,7 +437,7 @@ impl Text {
     /// broke, and the ones past the limit are not drawn.
     fn capped(height: f32, r: &Resolved) -> f32 {
         match r.max_lines {
-            Some(max) => height.min(frus_text::line_height(r.style.size) * max as f32),
+            Some(max) => height.min(r.style.line_height() * max as f32),
             None => height,
         }
     }
@@ -424,7 +453,7 @@ impl Text {
         } else {
             bounds.height
         };
-        let run = (extent * 0.2).min(frus_text::line_height(r.style.size) * 3.0);
+        let run = (extent * 0.2).min(r.style.line_height() * 3.0);
         let (from, to) = if horizontal {
             (
                 Point::new(bounds.x + bounds.width - run, bounds.y),
@@ -558,9 +587,7 @@ impl<Msg> Widget<Msg> for Text {
                 if wrap { max_width } else { None },
             );
             if let Some(max) = max_lines {
-                size.height = size
-                    .height
-                    .min(frus_text::line_height(style.size) * max as f32);
+                size.height = size.height.min(style.line_height() * max as f32);
             }
             size
         }))
@@ -580,6 +607,11 @@ impl<Msg> Widget<Msg> for Text {
         r.style.size.to_bits().hash(&mut hasher);
         r.style.weight.to_u16().hash(&mut hasher);
         r.style.italic.hash(&mut hasher);
+        // The leading and the face, which milestones 409 and 410 put into the measurement
+        // and *not* into this key: two paragraphs alike but for their line height wrapped
+        // to the same box, and the second kept the first's geometry.
+        r.style.height.map(f32::to_bits).hash(&mut hasher);
+        r.style.family.hash(&mut hasher);
         r.max_lines.hash(&mut hasher);
         r.wrap.hash(&mut hasher);
         Some(hasher.finish())
@@ -592,8 +624,12 @@ impl<Msg> Widget<Msg> for Text {
     /// An aligned text takes the width its parent offers: a box exactly as wide as its
     /// text has nowhere to align it to. It is the same request a [`crate::Row`] makes,
     /// and it is answered by the same walk.
-    fn main_axis_fill(&self, theme: &Theme) -> Option<frus_layout::FlexDirection> {
-        Self::fills(&self.resolved(Some(theme))).then_some(frus_layout::FlexDirection::Row)
+    fn fill_axes(&self, theme: &Theme) -> crate::widget::FillAxes {
+        if Self::fills(&self.resolved(Some(theme))) {
+            crate::widget::FillAxes::WIDTH
+        } else {
+            crate::widget::FillAxes::NONE
+        }
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
@@ -853,6 +889,30 @@ mod tests {
         );
     }
 
+    /// **A line limit counts the lines the style asked for**, not lines of a default
+    /// height.
+    ///
+    /// Milestone 409 gave a style a `height` and threaded it through the measurement and
+    /// the paint; it left twenty-four places computing `line_height(style.size)` — the
+    /// 1.2 default — while holding a style that said otherwise. A cap is one of them, and
+    /// it is the one a test can see: two lines of a doubled leading is twice the box, and
+    /// before this it was capped as though the leading had never been named (milestone
+    /// 412).
+    #[test]
+    fn a_limit_counts_lines_of_the_height_that_was_asked_for() {
+        let long = "one two three four five six seven eight nine ten eleven twelve";
+        let plain = Text::new(long).size(14.0).wrap().max_lines(2);
+        let open = Text::new(long).size(14.0).height(2.4).wrap().max_lines(2);
+        let at = |t: &Text| {
+            Widget::<()>::measure(t, &Theme::default()).expect("measure")(Some(90.0), None).height
+        };
+        let ratio = at(&open) / at(&plain);
+        assert!(
+            (ratio - 2.0).abs() < 0.02,
+            "a doubled leading doubles the two-line cap: {ratio}"
+        );
+    }
+
     /// `Visible` draws past the box; `Clip` puts the box in the primitive's clip so the
     /// renderer stops at the edge. Both draw the whole string — the difference is the
     /// clip, not the text.
@@ -1031,7 +1091,7 @@ mod tests {
     ///
     /// Alignment is the one style setting that is also a *request*: a box exactly as wide
     /// as its own text has nowhere to centre it in, so a text told to centre asks to fill
-    /// the line first. That request is made by `main_axis_fill`, which is why that hook
+    /// the line first. That request is made by `fill_axes`, which is why that hook
     /// had to see the theme too — without it, the one setting that arrives by inheritance
     /// would resolve correctly everywhere except where it takes effect, and centring a
     /// subtree's texts would silently do nothing.
@@ -1041,13 +1101,13 @@ mod tests {
         theme.widgets.text.align = Some(TextAlign::Center);
         let text = Text::new("Centred").no_wrap();
         assert_eq!(
-            Widget::<()>::main_axis_fill(&text, &Theme::default()),
-            None,
+            Widget::<()>::fill_axes(&text, &Theme::default()),
+            crate::widget::FillAxes::NONE,
             "left alone it hugs its words"
         );
         assert_eq!(
-            Widget::<()>::main_axis_fill(&text, &theme),
-            Some(frus_layout::FlexDirection::Row),
+            Widget::<()>::fill_axes(&text, &theme),
+            crate::widget::FillAxes::WIDTH,
             "handed a centring, it asks for the line"
         );
         let mut scene = Scene::new();
@@ -1137,6 +1197,67 @@ mod tests {
             ),
             other => panic!("a known width, not {other:?}"),
         }
+    }
+
+    /// **The box grows with the reader's font size, and the glyphs agree with the box.**
+    ///
+    /// The second half is the whole risk of this feature and the reason it is resolved at
+    /// one place rather than applied by each widget. Text measured at 16 and drawn at 24
+    /// leaves every row on the screen the wrong height at once, and nothing in the picture
+    /// says which of the two numbers was the mistake. So this asserts the pair, not the
+    /// paint: what the layout reserved is what the renderer was asked to draw.
+    #[test]
+    fn a_reader_who_asked_for_larger_text_gets_a_larger_box_too() {
+        use crate::{build_ui, MediaQuery, Runtime, Size};
+        let drawn = |scaler: f32| {
+            MediaQuery::new(Size::new(400.0, 200.0))
+                .with_text_scaler(scaler)
+                .scope(|| {
+                    let text: Box<dyn Widget<()>> = Box::new(Text::new("Readable").no_wrap());
+                    let ui = build_ui(
+                        text.as_ref(),
+                        Size::new(400.0, 200.0),
+                        &Runtime::default(),
+                        &Theme::default(),
+                    );
+                    let rect = ui.scene().primitives().iter().find_map(|p| match p {
+                        Primitive::Text { size, bounds, .. } => Some((*size, *bounds)),
+                        _ => None,
+                    });
+                    rect.expect("the text is drawn")
+                })
+        };
+        let (plain_size, plain_box) = drawn(1.0);
+        let (big_size, big_box) = drawn(1.5);
+
+        assert_eq!(plain_size, 16.0, "the framework's own, unscaled");
+        assert_eq!(big_size, 24.0, "and the reader's 1.5 of it");
+        assert!(
+            big_box.width > plain_box.width * 1.4,
+            "the box grew with the glyphs: {} → {}",
+            plain_box.width,
+            big_box.width
+        );
+        // The pair, which is the thing that must never come apart: the box the layout gave
+        // this text is the box its own drawn size measures to.
+        let measured = frus_text::measure_styled("Readable", big_size, FontWeight::Regular, false);
+        assert!(
+            (big_box.width - measured.width.ceil()).abs() < 0.51,
+            "reserved {} for glyphs measuring {}",
+            big_box.width,
+            measured.width
+        );
+    }
+
+    /// Outside a described surface **nothing scales**, which is what every test in this
+    /// file and every golden depends on: they build widgets with no `MediaQuery` around
+    /// them, and a framework that scaled by default would move all of them at once.
+    #[test]
+    fn with_no_surface_described_nothing_is_scaled() {
+        assert_eq!(
+            Text::new("x").resolved(None).style.size,
+            frus_core::DEFAULT_TEXT_SIZE
+        );
     }
 
     /// A text that fits is never clipped, whatever it asked for: a clip on every text
@@ -1267,6 +1388,8 @@ mod tests {
                 align: TextAlign::Start,
                 decoration: frus_core::TextDecoration::NONE,
                 decoration_color: None,
+                height: None,
+                family: None,
                 clip: Rect::UNBOUNDED,
                 // Painted directly rather than through the widget walk, so no box was
                 // declared: unknown, which the renderer reads as "covers everything".
@@ -1383,5 +1506,187 @@ mod tests {
         );
         assert!(tall.height > 20.0, "so it wrapped: {}", tall.height);
         assert!(wide.width > 120.0, "the row did not: {}", wide.width);
+    }
+}
+
+#[cfg(test)]
+mod reader_font_size {
+    use frus_core::{Primitive, Size};
+
+    use crate::theme::Theme;
+    use crate::{build_ui_inspected, MediaQuery, Runtime, Widget};
+
+    type W = Box<dyn Widget<()>>;
+    type Case = (&'static str, fn() -> W);
+
+    /// Every glyph a widget paints, and the size it was drawn at.
+    fn glyphs(make: fn() -> W, scale: f32) -> Vec<(String, f32)> {
+        let root = make();
+        MediaQuery::new(Size::new(400.0, 300.0))
+            .with_text_scaler(scale)
+            .scope(|| {
+                let (ui, _) = build_ui_inspected(
+                    root.as_ref(),
+                    Size::new(400.0, 300.0),
+                    &Runtime::default(),
+                    &Theme::default(),
+                );
+                ui.scene()
+                    .primitives()
+                    .iter()
+                    .filter_map(|p| match p {
+                        Primitive::Text { text, size, .. } => Some((text.clone(), *size)),
+                        _ => None,
+                    })
+                    .collect()
+            })
+    }
+
+    fn cases() -> Vec<Case> {
+        vec![
+            ("Chip", || Box::new(crate::Chip::<()>::new("Filter"))),
+            ("Button", || Box::new(crate::Button::<()>::new("Save"))),
+            ("ListTile", || {
+                Box::new(crate::ListTile::<()>::new().title("A row"))
+            }),
+            ("SnackBar", || Box::new(crate::SnackBar::<()>::new("Saved"))),
+            ("Kbd", || Box::new(crate::Kbd::new("Ctrl"))),
+            ("DropdownButton", || {
+                Box::new(crate::DropdownButton::new("Pick", ()))
+            }),
+            ("Text", || Box::new(crate::Text::new("A line"))),
+            ("TextField", || {
+                Box::new(crate::TextField::<()>::new("typed"))
+            }),
+            ("Table", || {
+                Box::new(crate::Table::<()>::new(2).row(&["one", "two"]))
+            }),
+            ("Tree", || {
+                Box::new(crate::Tree::new(|_| ()).node(1, 0, "a branch", false, false))
+            }),
+        ]
+    }
+
+    /// **The reader's font size reaches the text a widget paints itself.**
+    ///
+    /// `TextStyle::resolved` is the single place the setting is applied (milestone 403),
+    /// and forty-seven paint sites went around it: they named an `f32` and handed it
+    /// straight to the scene, so their text was the one size a reader could not change.
+    /// Nothing failed and nothing was reported — the widget simply ignored the request.
+    ///
+    /// The door is shut now: [`frus_core::Scene::text`] takes a
+    /// [`frus_core::ResolvedTextStyle`], so a bare number does not compile. This test is
+    /// what keeps it shut, because a new widget can still reach for
+    /// [`frus_core::ResolvedTextStyle::exact`] — which is right for an icon and wrong for
+    /// a word.
+    #[test]
+    fn the_text_a_widget_paints_follows_the_readers_font_size() {
+        for (name, make) in cases() {
+            let plain = glyphs(make, 1.0);
+            let doubled = glyphs(make, 2.0);
+            assert!(!plain.is_empty(), "{name} paints no text at all");
+            assert_eq!(
+                plain.len(),
+                doubled.len(),
+                "{name}: a different number of runs at twice the size"
+            );
+            let grew = plain
+                .iter()
+                .zip(&doubled)
+                .any(|((_, a), (_, b))| *b > *a + 0.01);
+            assert!(
+                grew,
+                "{name}: not one glyph followed the reader — sizes {plain:?}"
+            );
+        }
+    }
+
+    /// **And the box grows to hold it.** A default height is a *floor*, as it is in the
+    /// reference — `max(_targetTileHeight, contentHeight)` — not a ceiling. A chip whose
+    /// height was a constant needed 34 px of glyphs inside 32 px and cut them.
+    #[test]
+    fn a_box_that_holds_text_grows_with_it() {
+        for (name, make) in cases() {
+            let root = make();
+            MediaQuery::new(Size::new(400.0, 300.0))
+                .with_text_scaler(2.0)
+                .scope(|| {
+                    let (ui, _) = build_ui_inspected(
+                        root.as_ref(),
+                        Size::new(400.0, 300.0),
+                        &Runtime::default(),
+                        &Theme::default(),
+                    );
+                    let mut checked = 0;
+                    for p in ui.scene().primitives() {
+                        if let Primitive::Text {
+                            text, size, bounds, ..
+                        } = p
+                        {
+                            // The box the text was **laid out in**, not the widget's outermost
+                            // rect: a table's outer box is enormous and would pass whatever its
+                            // rows did. Checking the emitting box is what caught the table.
+                            if bounds.height <= 0.0 {
+                                continue;
+                            }
+                            // What the **shaper** gives back, not the nominal `line_height`:
+                            // a face's real line box can be a fraction under the metric, and a
+                            // box sized to the smaller number clips nothing.
+                            let style = frus_core::ResolvedTextStyle::exact(*size);
+                            let needed = frus_text::measure_resolved(text, &style).height;
+                            checked += 1;
+                            assert!(
+                                needed <= bounds.height + 0.51,
+                                "{name}: {text:?} needs {needed:.1} px in a box of {:.1}",
+                                bounds.height
+                            );
+                        }
+                    }
+                    assert!(checked > 0, "{name}: no text was checked at all");
+                });
+        }
+    }
+
+    /// **Chrome caps the type instead of growing**, which is the reference's other answer
+    /// and the reason both exist. An app bar keeps its height — a toolbar that grew would
+    /// push every screen down — so it clamps the title's scaler to 1.34 rather than let
+    /// the reader out. Below that cap it follows like anything else.
+    #[test]
+    fn an_app_bar_caps_its_title_rather_than_growing() {
+        let title_size = |scale: f32| {
+            let bar = crate::AppBar::<()>::new("A title");
+            MediaQuery::new(Size::new(400.0, 300.0))
+                .with_text_scaler(scale)
+                .scope(|| {
+                    let root = bar.build();
+                    let (ui, _) = build_ui_inspected(
+                        root.as_ref(),
+                        Size::new(400.0, 300.0),
+                        &Runtime::default(),
+                        &Theme::default(),
+                    );
+                    ui.scene()
+                        .primitives()
+                        .iter()
+                        .find_map(|p| match p {
+                            Primitive::Text { text, size, .. } if text == "A title" => Some(*size),
+                            _ => None,
+                        })
+                        .expect("the bar paints its title")
+                })
+        };
+        let plain = title_size(1.0);
+        assert!(
+            (title_size(1.2) - plain * 1.2).abs() < 0.1,
+            "under the cap the title follows the reader"
+        );
+        let capped = plain * crate::APP_BAR_MAX_TITLE_SCALE;
+        for scale in [1.5, 2.0, 4.0] {
+            assert!(
+                (title_size(scale) - capped).abs() < 0.1,
+                "at x{scale} the title is {} rather than the capped {capped}",
+                title_size(scale)
+            );
+        }
     }
 }

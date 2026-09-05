@@ -9,7 +9,10 @@ pub(crate) fn journal_screen(app: &TodoApp, theme: &Theme) -> Container<Msg> {
     // The window this screen fills, read from the surface description in force:
     // nothing hands it down any more.
     let Size { width, height } = surface();
-    let t = *theme; // Theme is Copy — captured by the item factory.
+    // Owned, because the item factory outlives this call. Eight kilobytes, once per
+    // build of this screen — `Theme` stopped being `Copy` in milestone 448, which is
+    // what makes that visible here rather than silent.
+    let t = theme.clone();
     let mut list = ListView::new(5000, 44.0, move |i| {
         Container::<Msg>::new()
             .height(44.0)

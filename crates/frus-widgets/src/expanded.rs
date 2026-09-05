@@ -16,7 +16,7 @@
 //! row![
 //!     Checkbox::new(done),
 //!     Expanded::new(text(&task.title).ellipsis()),   // ← takes the rest
-//!     IconButton::new(Icons::Close),              // ← keeps its 40 px
+//!     IconButton::new(Icons::CLOSE),              // ← keeps its 40 px
 //! ]
 //! ```
 //!
@@ -227,6 +227,14 @@ crate::transparent::forward_transparent!(Flexible {
     ) -> Option<Box<crate::theme::Theme>> {
         self.inner.theme_override(inherited)
     }
+
+    /// Forwarded: a wrapper is its child, and a scoped surface is the child's to impose.
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        self.inner.media_override(inherited)
+    }
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        self.inner.scaffold_override()
+    }
 });
 
 crate::transparent::forward_transparent!(Expanded {
@@ -248,6 +256,11 @@ crate::transparent::forward_transparent!(Expanded {
         inherited: &crate::theme::Theme,
     ) -> Option<Box<crate::theme::Theme>> {
         self.inner.theme_override(inherited)
+    }
+
+    /// Forwarded: a wrapper is its child, and a scoped surface is the child's to impose.
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        self.inner.media_override(inherited)
     }
 });
 

@@ -66,6 +66,45 @@ pub const MIN_FLING_VELOCITY: f32 = 50.0;
 /// The cap applied to a release speed, in px/s.
 pub const MAX_FLING_VELOCITY: f32 = 8000.0;
 
+/// **When a scroll area draws a scrollbar** (`app.dart:857`).
+///
+/// The reference asks this question per platform and answers it *no* on every touch
+/// screen: a finger already knows where it is on the page, and a permanent bar over the
+/// content is a desktop affordance for a pointer that cannot feel the edges. Along the
+/// **horizontal** axis the answer is no everywhere, on every platform.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum Scrollbars {
+    /// Never — what a touch screen gets (`app.dart:870`).
+    Never,
+    /// One bar down the inner edge (`app.dart:865`), for the platforms whose own scroll
+    /// views have one.
+    Always,
+}
+
+impl Default for Scrollbars {
+    fn default() -> Self {
+        Self::platform_default()
+    }
+}
+
+impl Scrollbars {
+    /// What the running platform expects: nothing on a touch screen, a bar on a desktop.
+    ///
+    /// Resolved at **compile time** from the target, like
+    /// [`ScrollPhysics::platform_default`] beside it — a build is for one platform, and a
+    /// constant keeps the choice out of the frame loop.
+    pub const fn platform_default() -> Self {
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            Scrollbars::Never
+        }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            Scrollbars::Always
+        }
+    }
+}
+
 /// The behaviour of a scrollable at its edges and after a fling.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ScrollPhysics {

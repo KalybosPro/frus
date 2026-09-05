@@ -25,7 +25,7 @@
 //!
 //! ```ignore
 //! Drawer::new(open)
-//!     .background_color(theme.scheme.surface_container)
+//!     .background_color(theme.scheme.surface_container_low)
 //!     .border_width(0.0)          // told apart by colour, not by a rule
 //!     .elevation(2.0)             // …or by a shadow along its inner edge
 //!     .radius(0.0)                // …or squared off entirely
@@ -38,7 +38,9 @@
 
 use std::cell::{Cell, OnceCell};
 
-use frus_core::{BorderRadius, Color, Rect, Scene, TextDirection};
+use frus_core::{
+    BorderRadius, BorderRadiusDirectional, Color, Rect, Scene, ShapeBorder, TextDirection,
+};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::flex::Flex;
@@ -85,6 +87,8 @@ struct PanelStyle {
     border_color: Option<Color>,
     border_width: Option<f32>,
     radius: Option<f32>,
+    /// What shape the panel is, over the theme's; `None` falls to the radius below it.
+    shape: Option<ShapeBorder>,
     elevation: Option<f32>,
 }
 
@@ -104,17 +108,50 @@ impl<Msg> DrawerPanel<Msg> {
         self.end != (theme.direction == TextDirection::Rtl)
     }
 
-    /// The rounding, on the two corners of the inner edge only.
+    /// **The panel's inner edge, rounded by `r`** — the edge facing the page.
+    ///
+    /// Written the reference's way (`drawer.dart:801`, `:810`): a leading panel rounds its
+    /// **end** corners and a trailing one its **start** corners, and which wall that is
+    /// gets decided by [`BorderRadiusDirectional::resolve`]. The two questions — which
+    /// side the panel is docked on, and which way the text runs — used to be folded into
+    /// one `docked_right` and answered with a hand-picked `left` or `right`. They are the
+    /// same answer, said in the reference's words rather than worked out again here.
+    fn inner_edge(&self, r: f32, theme: &Theme) -> BorderRadius {
+        let directional = match self.end {
+            true => BorderRadiusDirectional::start(r),
+            false => BorderRadiusDirectional::end(r),
+        };
+        directional.resolve(theme.direction)
+    }
+
+    /// **What shape the panel is**: its own word, then the theme's — the trailing panel's
+    /// own entry, never the leading one's — then the theme's plain radius on the inner
+    /// edge, then the framework's.
+    fn shape(&self, theme: &Theme) -> ShapeBorder {
+        let t = &theme.widgets.drawer;
+        let themed = match self.end {
+            true => t.end_shape,
+            false => t.shape,
+        };
+        crate::resolve_shape(
+            self.style.shape,
+            themed,
+            self.style
+                .radius
+                .or(t.radius)
+                .map(|r| self.inner_edge(r, theme)),
+            ShapeBorder::rounded(self.inner_edge(DRAWER_RADIUS, theme)),
+        )
+    }
+
+    /// The corners that shape resolves to — what the fill, the shadow and the hairline's
+    /// inset are all worked out from. A shape with no rounded form leaves the panel
+    /// square, as it does everywhere else since milestone 451.
     fn radius(&self, theme: &Theme) -> BorderRadius {
-        let r = self
-            .style
-            .radius
-            .or(theme.widgets.drawer.radius)
-            .unwrap_or(DRAWER_RADIUS);
-        match self.docked_right(theme) {
-            true => BorderRadius::left(r),
-            false => BorderRadius::right(r),
-        }
+        self.shape(theme)
+            .as_rounded(Rect::new(0.0, 0.0, self.resolved_width(None), 1000.0))
+            .map(|(_, radius)| radius)
+            .unwrap_or(BorderRadius::ZERO)
     }
 }
 
@@ -178,8 +215,9 @@ impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
         let fill = self
             .style
             .background_color
+            // `navigation_drawer.dart:740` — a panel off the page, on the low rung.
             .or(theme.widgets.drawer.background_color)
-            .unwrap_or(theme.surface);
+            .unwrap_or(theme.scheme.surface_container_low);
         scene.draw_rect(bounds, fill.fade(o), radius, 0.0, Color::TRANSPARENT);
 
         // The hairline on the inner edge, drawn as its own sliver rather than as a border
@@ -305,6 +343,20 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
         self
     }
 
+    /// **What shape the panel is** — the reference's `shape` (`drawer.dart:266`), over
+    /// the inner edge [`radius`](Self::radius) rounds.
+    ///
+    /// A shape is **concrete**: it says *left* and *right*, not *start* and *end*, so a
+    /// caller naming one has taken the direction question on themselves.
+    /// [`BorderRadiusDirectional`](frus_core::BorderRadiusDirectional) is how to answer it
+    /// — `ShapeBorder::rounded(BorderRadiusDirectional::end(16.0).resolve(theme.direction))`
+    /// is exactly what the framework's own default is.
+    #[must_use]
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.style.shape = Some(shape);
+        self
+    }
+
     /// How far off the surface the panel sits. `0.0` — the default — casts no shadow.
     ///
     /// The drop is sideways, along the inner edge: a shadow cast below a panel as tall as
@@ -405,9 +457,11 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for Drawer<Msg> {
+    /// It asks to **fill the width it is offered** rather than declaring one — see
+    /// [`Widget::fill_axes`]. A `width: 100%` resolves against the parent's *resolved*
+    /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
             height: Dimension::Percent(1.0),
             // Permanent: a row (panel + body side by side). Modal: the body fills
             // on its own (the panel floats as an overlay).
@@ -418,6 +472,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for Drawer<Msg> {
             },
             ..Default::default()
         }
+    }
+
+    /// The width it was **offered**, not the width its parent came out at.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::WIDTH
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -682,6 +741,69 @@ mod tests {
             .expect("the panel is a full-height rounded rectangle")
     }
 
+    /// **A panel takes a whole shape**, which it could not: it had a single `f32` where the
+    /// reference has a `ShapeBorder`, and a theme could say nothing else at all.
+    ///
+    /// A shape is **concrete** — left and right, not start and end — so a caller naming
+    /// one has taken the mirroring on themselves, and
+    /// [`BorderRadiusDirectional`](frus_core::BorderRadiusDirectional) is how they answer
+    /// it. That is exactly how the framework's own default is now written.
+    #[test]
+    fn a_panel_takes_a_whole_shape() {
+        let theme = Theme::default();
+        let corners = |drawer: &dyn Widget<Msg>, theme: &Theme| {
+            let frus_core::Primitive::Rect { radius, .. } = panel_rect(drawer, theme) else {
+                panic!("a rectangle");
+            };
+            radius
+        };
+
+        // A caller's own shape, whatever side the panel is on.
+        let told = Drawer::new(false)
+            .permanent(true)
+            .shape(frus_core::ShapeBorder::rounded(
+                frus_core::BorderRadius::top(9.0),
+            ))
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        assert_eq!(corners(&told, &theme), frus_core::BorderRadius::top(9.0));
+
+        // A theme's, on the panel it names — and **not** on the other one, which has an
+        // entry of its own and falls back to the framework rather than to a shape rounded
+        // on the wrong edge.
+        let mut themed = Theme::default();
+        themed.widgets.drawer.shape = Some(frus_core::ShapeBorder::rounded(
+            frus_core::BorderRadius::uniform(3.0),
+        ));
+        let leading = Drawer::new(false)
+            .permanent(true)
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        assert_eq!(
+            corners(&leading, &themed),
+            frus_core::BorderRadius::uniform(3.0)
+        );
+
+        let trailing = Drawer::new(false)
+            .permanent(true)
+            .right()
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        assert_eq!(
+            corners(&trailing, &themed),
+            frus_core::BorderRadius::left(DRAWER_RADIUS),
+            "a leading panel's shape says nothing about a trailing one"
+        );
+
+        themed.widgets.drawer.end_shape = Some(frus_core::ShapeBorder::rounded(
+            frus_core::BorderRadius::uniform(5.0),
+        ));
+        assert_eq!(
+            corners(&trailing, &themed),
+            frus_core::BorderRadius::uniform(5.0)
+        );
+    }
+
     /// The inner edge is rounded and the outer one is square. A panel docked against the
     /// window rounds the corners that face the content; rounding the pair against the
     /// window edge would cut two notches out of the screen.
@@ -765,7 +887,11 @@ mod tests {
                 .panel(Text::new("menu"))
                 .body(Container::<Msg>::new())
         };
-        assert_eq!(fill(&plain(), &theme), theme.surface, "the theme's surface");
+        assert_eq!(
+            fill(&plain(), &theme),
+            theme.scheme.surface_container_low,
+            "the ladder's low rung"
+        );
 
         theme.widgets.drawer.background_color = Some(Color::rgb(0.0, 1.0, 0.0));
         assert_eq!(

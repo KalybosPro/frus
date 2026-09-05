@@ -9,6 +9,7 @@
 //! The state retained between frames — hover and focus, scroll offsets, caret and
 //! selection — lives in a [`Runtime`], keyed by widget identity.
 
+mod actionbutton;
 mod alert;
 mod animated;
 mod appbar;
@@ -16,6 +17,7 @@ mod aspectratio;
 mod autocomplete;
 mod avatar;
 mod badge;
+mod banner;
 mod barrier;
 mod baseline;
 mod bottomappbar;
@@ -32,11 +34,13 @@ mod collapsible;
 mod colorpicker;
 mod constraints;
 mod container;
+mod controltile;
 mod custompaint;
 mod datatable;
 mod datepicker;
 mod datetimepicker;
 mod datetimerange;
+mod dialog;
 /// The **disabled state** every control shares: two colours and a four-part contract.
 pub mod disabled;
 /// Swipe-to-dismiss: the [`dismiss::Dismissible`] widget and its retained state.
@@ -44,9 +48,11 @@ pub mod dismiss;
 mod divider;
 mod dragdrop;
 mod drawer;
+mod drawerheader;
 mod dropdown;
 mod dsl;
 mod expanded;
+mod fab;
 mod filters;
 mod fittedbox;
 mod flex;
@@ -56,6 +62,7 @@ pub mod form;
 pub use form::ErrorSummary;
 mod fractional;
 mod grid;
+mod gridtile;
 mod hero;
 mod icon;
 mod iconbutton;
@@ -73,9 +80,16 @@ mod keyed;
 mod layoutbuilder;
 mod list;
 mod listtile;
+/// Which language the interface is in: [`locale::Locale`], [`locale::resolve`] and
+/// [`locale::of`].
+pub mod locale;
+/// The words the framework itself says: [`localizations::Localizations`] and [`localizations::of`].
+pub mod localizations;
 mod media;
+mod mediascope;
 mod menu;
 mod navbar;
+mod navdrawer;
 mod navigator;
 mod navrail;
 mod navscaffold;
@@ -102,13 +116,17 @@ mod rowcolumn;
 mod runtime;
 mod safearea;
 mod scaffold;
+mod scaffoldinfo;
 mod scroll;
+mod searchbar;
+mod searchview;
 mod segmented;
 /// Stating what a widget **is** from outside it: the [`semantics::Semantics`] wrapper.
 pub mod semantics;
 mod shortcuts;
 mod skeleton;
 mod slider;
+mod spacer;
 mod spinner;
 mod stack;
 mod stepper;
@@ -125,21 +143,26 @@ mod timeline;
 mod timepicker;
 mod toast;
 mod toasthost;
+mod togglebuttons;
+mod tooltip;
 mod transform;
 pub(crate) mod transparent;
 mod tree;
 mod twopane;
 mod ui;
 mod widget;
+mod widgetstate;
 mod widgettheme;
 
-pub use alert::{AlertDialog, AlertKind};
+pub use actionbutton::{BackButton, CloseButton, DrawerButton, EndDrawerButton};
+pub use alert::{Alert, AlertKind};
 pub use animated::{AnimatedContainer, AnimatedOpacity, Opacity};
-pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT};
+pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT, APP_BAR_MAX_TITLE_SCALE};
 pub use aspectratio::AspectRatio;
 pub use autocomplete::Autocomplete;
 pub use avatar::CircleAvatar;
 pub use badge::Badge;
+pub use banner::{MaterialBanner, BANNER_ELEVATION, BANNER_MIN_ACTION_BAR_HEIGHT};
 pub use barrier::{
     AbsorbPointer, ExcludeSemantics, IgnorePointer, ModalBarrier, Offstage, Visibility,
 };
@@ -167,6 +190,7 @@ pub use constraints::{
     OverflowBox, SizedBox,
 };
 pub use container::Container;
+pub use controltile::{CheckboxListTile, RadioListTile, SwitchListTile};
 pub use custompaint::CustomPaint;
 pub use datatable::{
     compare_cells, page_count, page_range_label, page_rows, row_matches, sort_rows, DataTable,
@@ -174,6 +198,10 @@ pub use datatable::{
 pub use datepicker::DatePicker;
 pub use datetimepicker::DateTimePicker;
 pub use datetimerange::DateTimeRange;
+pub use dialog::{
+    ActionsAlignment, AlertDialog, Dialog, SimpleDialog, SimpleDialogOption, DIALOG_ELEVATION,
+    DIALOG_INSET_PADDING, DIALOG_MIN_WIDTH, DIALOG_RADIUS,
+};
 pub use disabled::{
     disabled_container, disabled_content, disabled_mark, over_surface, DISABLED_CONTAINER_OPACITY,
     DISABLED_CONTENT_OPACITY,
@@ -182,12 +210,14 @@ pub use dismiss::{
     DismissAxis, DismissDirection, DismissPhase, DismissSpec, DismissState, Dismissable,
     Dismissible,
 };
-pub use divider::{Divider, DIVIDER_SPACE, DIVIDER_THICKNESS};
+pub use divider::{Divider, VerticalDivider, DIVIDER_SPACE, DIVIDER_THICKNESS};
 pub use dragdrop::{DragSource, DragTarget, Draggable, DropZone};
 pub use drawer::{Drawer, DRAWER_RADIUS, DRAWER_WIDTH};
+pub use drawerheader::{DrawerHeader, UserAccountsDrawerHeader, DRAWER_HEADER_HEIGHT};
 pub use dropdown::DropdownButton;
 pub use dsl::{button, expanded, flexible, keyed, spacer, text};
 pub use expanded::{Expanded, FlexFit, Flexible};
+pub use fab::{FabSize, FloatingActionButton};
 pub use filters::{BackdropFilter, BackdropGroup, ColorFiltered, ImageFiltered, ShaderMask};
 pub use fittedbox::FittedBox;
 pub use flex::{Flex, Wrap};
@@ -196,13 +226,14 @@ pub use focus::{
 };
 pub use fractional::FractionallySizedBox;
 pub use grid::GridView;
+pub use gridtile::{GridTile, GridTileBar, GRID_TILE_BAR_HEIGHT, GRID_TILE_BAR_TWO_LINE_HEIGHT};
 pub use hero::{lerp_rect, Hero, HeroSpot};
 pub use icon::Icon;
 pub use iconbutton::{
     IconButton, IconButtonVariant, ICON_BUTTON_BORDER_WIDTH, ICON_BUTTON_ICON_SIZE,
     ICON_BUTTON_SIZE,
 };
-pub use icons::Icons;
+pub use icons::{IconData, IconStyle, Icons};
 pub use image::{Image, State as ImageState};
 pub use ime::{Capitalization, Ime, KeyboardType, TextInputAction};
 pub use ink::{InkStyle, InkWell, Ripples};
@@ -219,11 +250,17 @@ pub use listtile::{
     LIST_TILE_MIN_VERTICAL_PADDING, LIST_TILE_PADDING_END, LIST_TILE_PADDING_START,
     LIST_TILE_TITLE_GAP,
 };
-pub use media::{Accessibility, Brightness, Edges, MediaQuery};
+pub use locale::Locale;
+pub use localizations::{English, Localizations};
+pub use media::{
+    Accessibility, AccessibilityOverrides, Brightness, Edges, MediaQuery, SurfaceGuard,
+};
+pub use mediascope::MediaScope;
 pub use menu::PopupMenuButton;
 pub use navbar::NavigationBar;
+pub use navdrawer::NavigationDrawer;
 pub use navigator::Navigator;
-pub use navrail::{BottomBar, NavigationRail};
+pub use navrail::{BottomBar, DestinationIcon, NavigationDestination, NavigationRail, RailLabels};
 pub use navscaffold::NavScaffold;
 pub use overscroll::{
     cross_axis as glow_cross_axis, edge_for, GlowEdge, OverscrollGlow, ScrollGlows,
@@ -232,7 +269,7 @@ pub use pageview::{PageSnap, PageView, PagedView};
 pub use pagination::Pagination;
 pub use paintcache::PaintCache;
 pub use physics::{
-    page_of, page_target, Ballistic, ScrollMetrics, ScrollPhysics, MAX_FLING_VELOCITY,
+    page_of, page_target, Ballistic, ScrollMetrics, ScrollPhysics, Scrollbars, MAX_FLING_VELOCITY,
     MIN_FLING_VELOCITY,
 };
 pub use placeholder::{Placeholder, PLACEHOLDER_COLOR, PLACEHOLDER_FALLBACK, PLACEHOLDER_STROKE};
@@ -240,7 +277,7 @@ pub use popover::MenuAnchor;
 pub use portal::{OverlayPortal, Placement};
 pub use positioned::{Positioned, Positioning};
 pub use progressbar::LinearProgressIndicator;
-pub use radio::RadioGroup;
+pub use radio::{Radio, RadioGroup};
 pub use rating::Rating;
 pub use refresh::{RefreshIndicator, RefreshPhase, RefreshPull, RefreshSpec, Refreshable};
 pub use relayout::LayoutCache;
@@ -250,11 +287,18 @@ pub use richtext::RichText;
 pub use rotatedbox::RotatedBox;
 pub use rowcolumn::{Column, MainAxisSize, Row, VerticalDirection};
 pub use runtime::{
-    spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState, ValueAnim,
+    spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState, ScrollbarFade,
+    ValueAnim,
 };
 pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};
+pub use scaffoldinfo::{ScaffoldGuard, ScaffoldInfo, ScaffoldScope};
 pub use scroll::{Axis, SingleChildScrollView};
+pub use searchbar::{SearchBar, SEARCH_BAR_HEIGHT, SEARCH_BAR_MAX_WIDTH, SEARCH_BAR_MIN_WIDTH};
+pub use searchview::{
+    SearchAnchor, SEARCH_VIEW_FULL_SCREEN_HEADER, SEARCH_VIEW_MIN_HEIGHT, SEARCH_VIEW_MIN_WIDTH,
+    SEARCH_VIEW_RADIUS,
+};
 pub use segmented::{
     SegmentedButton, SEGMENTED_BORDER_WIDTH, SEGMENTED_HEIGHT, SEGMENTED_ICON_GAP,
     SEGMENTED_ICON_SIZE, SEGMENTED_PADDING,
@@ -266,6 +310,7 @@ pub use shortcuts::{
 };
 pub use skeleton::Skeleton;
 pub use slider::{RangeSlider, Slider};
+pub use spacer::Spacer;
 pub use spinner::CircularProgressIndicator;
 pub use stack::{Stack, StackFit};
 pub use stepper::Stepper;
@@ -285,41 +330,54 @@ pub use textinput::{
     FIELD_LABEL_SCALE, FIELD_NOTCH_GAP, FIELD_OUTLINED_PADDING_BOTTOM, FIELD_OUTLINED_PADDING_TOP,
     FIELD_PADDING_X, FIELD_PADDING_Y, FIELD_RADIUS, FIELD_SUB_SIZE, FIELD_TEXT_SIZE,
 };
-pub use theme::{ColorScheme, TextTheme, Theme};
+pub use theme::{
+    ColorScheme, TapTarget, TextTheme, Theme, ThemeMode, MIN_TAP_TARGET, SHRUNK_TAP_TARGET,
+};
 pub use themebuilder::ThemeBuilder;
 pub use themed::Themed;
 pub use timeline::Timeline;
 pub use timepicker::{Endpoint, TimeField, TimePicker, TimeRange};
-pub use toast::{SnackBar, SnackBarKind, SnackBarQueue};
+pub use toast::{SnackBar, SnackBarBehavior, SnackBarKind, SnackBarQueue};
 pub use toasthost::{ScaffoldMessenger, SnackBarPosition};
+pub use togglebuttons::{
+    ToggleAxis, ToggleButtons, TOGGLE_BUTTONS_BORDER_WIDTH, TOGGLE_BUTTON_MIN_SIZE,
+};
+pub use tooltip::Tooltip;
 pub use transform::Transform;
 pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use ui::{
-    build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget, subtree_ids,
-    FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
+    build_deferred, build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget,
+    subtree_ids, FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
 };
-pub use widget::{CellFn, FilterContext, ReorderAxis, Widget};
+pub use widget::{CellFn, FillAxes, FilterContext, ReorderAxis, Widget};
+pub use widgetstate::{StateFilter, WidgetState, WidgetStateProperty, WidgetStates};
 // **Every** one of them, and not only the ones a doc link happened to need. A theme
 // struct that is `pub` inside a private module is public and unreachable: callers can
 // still set `theme.widgets.button.background`, because the field's type is inferred, but
 // they cannot name the type — so `AppBar::icon_theme` took an `IconTheme` no caller
 // could build from milestone 396 until now. A property that ships unusable is a property
 // that did not ship.
+pub use widgettheme::resolve_shape;
 pub use widgettheme::{
     AppBarTheme, BadgeTheme, ButtonTheme, CardTheme, CheckboxTheme, ChipTheme, DefaultTextStyle,
-    DividerTheme, DrawerTheme, IconButtonTheme, IconTheme, InkTheme, RadioTheme, SegmentedTheme,
-    SliderTheme, SwitchTheme, TabBarTheme, TextFieldTheme, WidgetThemes,
+    DividerTheme, DrawerTheme, GridTileBarTheme, IconButtonTheme, IconTheme, InkTheme, RadioTheme,
+    SegmentedTheme, SliderTheme, SwitchTheme, TabBarTheme, TextFieldTheme, ToggleButtonsTheme,
+    WidgetThemes,
 };
 
 // Convenience re-exports for callers.
+/// Installing the reader's font size for a whole frame — see
+/// [`frus_core::install_text_scale`]. Re-exported for the shell, which has to hold it
+/// across the build, the layout **and** the paint.
+pub use frus_core::{install_text_scale, TextScaleGuard};
 pub use frus_core::{
     Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Backdrop, BlendMode, Border,
-    BorderRadius, BoxDecoration, BoxFit, BoxShadow, ClipShape, Color, ColorFilter, FontWeight,
-    FractionalMask, ImageData, ImageFilter, ImageHandle, Insets, InsetsDirectional, LinearGradient,
-    Orientation, Path, PathVerb, Point, Primitive, Rect, Role, Scene, SemanticsProperties, Size,
-    SizeClass, TextAlign, TextDecoration, TextDirection, TextOverflow, TextSpan, TextStyle,
-    Toggled, WindowInsets,
+    BorderRadius, BoxDecoration, BoxFit, BoxShadow, ClipShape, Color, ColorFilter, Colors,
+    FontWeight, FractionalMask, ImageData, ImageFilter, ImageHandle, Insets, InsetsDirectional,
+    LinearGradient, MaterialColor, Orientation, Path, PathVerb, Point, Primitive, Rect, Role,
+    Scene, SemanticsProperties, Size, SizeClass, TextAlign, TextDecoration, TextDirection,
+    TextOverflow, TextSpan, TextStyle, Toggled, WindowInsets,
 };
 /// The shared animation layer — physics, curves, driver — see
 /// [`frus_core::animation`]. Re-exported here so applications can reach it through

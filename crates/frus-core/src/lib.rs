@@ -7,6 +7,7 @@
 
 pub mod animation;
 mod color;
+mod colors;
 mod decoration;
 mod filter;
 mod geometry;
@@ -16,6 +17,7 @@ mod path;
 mod responsive;
 mod scene;
 mod semantics;
+mod shape;
 mod text_style;
 
 pub use animation::{
@@ -26,7 +28,10 @@ pub use animation::{
     CLAMPING_FRICTION, DESKTOP_FLING_WEIGHTS, MAX_SPRING_TRANSFER_VELOCITY,
 };
 pub use color::{surface_tint_opacity, Color};
-pub use decoration::{Border, BorderRadius, BoxDecoration, BoxShadow, LinearGradient};
+pub use colors::{Colors, MaterialColor};
+pub use decoration::{
+    Border, BorderRadius, BorderRadiusDirectional, BoxDecoration, BoxShadow, LinearGradient,
+};
 pub use filter::{
     Backdrop, BlendMode, ColorFilter, FractionalMask, ImageFilter, LayerFilter, MaskShader,
     ShaderMask,
@@ -45,7 +50,9 @@ pub use path::{Path, PathVerb, Stroke};
 pub use responsive::{Orientation, SizeClass};
 pub use scene::{ClipShape, LayerTransform, PathGradient, Primitive, Scene, TextBlock};
 pub use semantics::{Role, SemanticsProperties, Toggled};
+pub use shape::{BorderSide, ShapeBorder};
 pub use text_style::{
-    FontWeight, ResolvedTextStyle, TextAlign, TextDecoration, TextOverflow, TextRun, TextSpan,
-    TextStyle, DEFAULT_TEXT_SIZE,
+    install_text_scale, text_scale, with_text_scale, FontFamily, FontWeight, ResolvedTextStyle,
+    TextAlign, TextDecoration, TextOverflow, TextRun, TextScaleGuard, TextSpan, TextStyle,
+    DEFAULT_LINE_HEIGHT, DEFAULT_TEXT_SIZE,
 };

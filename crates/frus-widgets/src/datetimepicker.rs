@@ -15,21 +15,6 @@ use crate::theme::Theme;
 use crate::timepicker::TimePicker;
 use crate::widget::Widget;
 
-const MONTHS: [&str; 12] = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-];
-
 /// A date-and-time picker.
 pub struct DateTimePicker<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -63,7 +48,7 @@ impl<Msg: Clone + 'static> DateTimePicker<Msg> {
         if let Some(day) = day {
             let summary = format!(
                 "{} {day}, {year}  {hour:02}:{minute:02}",
-                MONTHS[(month - 1) as usize]
+                crate::localizations::of().months()[(month - 1) as usize]
             );
             children.push(Box::new(Text::new(summary).size(16.0)));
         }

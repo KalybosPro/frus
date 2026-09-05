@@ -8,7 +8,7 @@
 //! Both are purely **self-painted** (no children) and not generic over `Msg` (like
 //! [`crate::Icon`]): they are data views, not controls.
 
-use frus_core::{Color, Path, Point, Rect, Scene};
+use frus_core::{Color, Path, Point, Rect, ResolvedTextStyle, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
@@ -30,6 +30,12 @@ const BAR_FILL: f32 = 0.6;
 const Y_AXIS_W: f32 = 34.0;
 /// Font size of the y-axis ticks.
 const AXIS_SIZE: f32 = 11.0;
+
+// A chart's marks — axis ticks, value labels, the legend, the tooltip — are drawn with
+// [`ResolvedTextStyle::exact`] and so do **not** follow the reader's font size. They are
+// annotations pinned to a plot area of a height the caller fixed: type that grew would run
+// out of the plot rather than move it. Making the plot itself answer to the reader is a
+// chart-layout change and is recorded in milestone 406 rather than smuggled in here.
 
 /// A bar chart.
 ///
@@ -303,7 +309,7 @@ fn draw_grid(
         scene.text(
             Point::new(plot_left - 6.0 - lw, y - AXIS_SIZE * 0.5),
             label,
-            AXIS_SIZE,
+            &ResolvedTextStyle::exact(AXIS_SIZE),
             theme.muted.fade(opacity),
         );
     }
@@ -333,7 +339,7 @@ fn draw_legend(
         scene.text(
             Point::new(x, top + (LEGEND_H - LEGEND_SIZE) * 0.5),
             (*name).to_string(),
-            LEGEND_SIZE,
+            &ResolvedTextStyle::exact(LEGEND_SIZE),
             theme.muted.fade(o),
         );
         x += frus_text::measure(name, LEGEND_SIZE).width + 16.0;
@@ -417,7 +423,7 @@ fn draw_tooltip(
         scene.text(
             Point::new(tx, ty),
             t.clone(),
-            TOOLTIP_SIZE,
+            &ResolvedTextStyle::exact(TOOLTIP_SIZE),
             theme.on_surface.fade(o),
         );
         ty += line_h;
@@ -444,12 +450,19 @@ fn chart_plot_hit(
 }
 
 impl<Msg> Widget<Msg> for BarChart<Msg> {
+    /// It asks to **fill the width it is offered** rather than declaring one — see
+    /// [`Widget::fill_axes`]. A `width: 100%` resolves against the parent's *resolved*
+    /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
             height: Dimension::Length(self.height),
             ..Default::default()
         }
+    }
+
+    /// The width it was **offered**, not the width its parent came out at.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::WIDTH
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -555,7 +568,7 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
                                 (y_top + y_bottom) * 0.5 - STRATA_LABEL_SIZE * 0.5,
                             ),
                             label,
-                            STRATA_LABEL_SIZE,
+                            &ResolvedTextStyle::exact(STRATA_LABEL_SIZE),
                             theme.on_primary.fade(o * 0.95),
                         );
                     }
@@ -570,7 +583,7 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
                     scene.text(
                         Point::new(cx - vw * 0.5, top_y - VALUE_SIZE - 2.0),
                         vs,
-                        VALUE_SIZE,
+                        &ResolvedTextStyle::exact(VALUE_SIZE),
                         theme.on_surface.fade(o),
                     );
                 }
@@ -596,7 +609,7 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
                         scene.text(
                             Point::new(cx - vw * 0.5, baseline_y - h - VALUE_SIZE - 2.0),
                             vs,
-                            VALUE_SIZE,
+                            &ResolvedTextStyle::exact(VALUE_SIZE),
                             theme.on_surface.fade(o),
                         );
                     }
@@ -608,7 +621,7 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
             scene.text(
                 Point::new(cx - lw * 0.5, baseline_y + 4.0),
                 label.clone(),
-                LABEL_SIZE,
+                &ResolvedTextStyle::exact(LABEL_SIZE),
                 theme.muted.fade(o),
             );
         }
@@ -1036,12 +1049,19 @@ impl<Msg> LineChart<Msg> {
 }
 
 impl<Msg> Widget<Msg> for LineChart<Msg> {
+    /// It asks to **fill the width it is offered** rather than declaring one — see
+    /// [`Widget::fill_axes`]. A `width: 100%` resolves against the parent's *resolved*
+    /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
             height: Dimension::Length(self.height),
             ..Default::default()
         }
+    }
+
+    /// The width it was **offered**, not the width its parent came out at.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::WIDTH
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -1176,7 +1196,7 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                         scene.text(
                             Point::new(lx, (y_lo + y_hi) * 0.5 - STRATA_LABEL_SIZE * 0.5),
                             label,
-                            STRATA_LABEL_SIZE,
+                            &ResolvedTextStyle::exact(STRATA_LABEL_SIZE),
                             theme.on_primary.fade(o * 0.95),
                         );
                     }
@@ -1215,7 +1235,7 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                         scene.text(
                             Point::new(p.x - vw * 0.5, p.y - MARKER_R - VALUE_SIZE - 2.0),
                             vs,
-                            VALUE_SIZE,
+                            &ResolvedTextStyle::exact(VALUE_SIZE),
                             theme.on_surface.fade(o),
                         );
                     }
@@ -1245,7 +1265,7 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                     baseline_y + 4.0,
                 ),
                 label.clone(),
-                LABEL_SIZE,
+                &ResolvedTextStyle::exact(LABEL_SIZE),
                 theme.muted.fade(o),
             );
         }

@@ -1448,7 +1448,12 @@ impl Painters {
         scene.fill_path(&Path::rect(Rect::new(0.0, 0.0, 2.0, 2.0)), Color::WHITE);
         let img = ImageData::from_rgba(1, 1, vec![255, 255, 255, 255]).into_handle();
         scene.image(&img, Rect::new(0.0, 0.0, 2.0, 2.0), BoxFit::Fill);
-        scene.text(Point::new(0.0, 0.0), "x", 8.0, Color::WHITE);
+        scene.text(
+            Point::new(0.0, 0.0),
+            "x",
+            &frus_core::ResolvedTextStyle::exact(8.0),
+            Color::WHITE,
+        );
         scene.layer(0.5, |inner| {
             inner.fill_rect(Rect::new(0.0, 0.0, 2.0, 2.0), Color::WHITE)
         });

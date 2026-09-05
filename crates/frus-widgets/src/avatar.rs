@@ -1,7 +1,7 @@
 //! [`CircleAvatar`]: a round pill of initials, or of colour, in the accent colours — for
 //! lists, headers and the like.
 
-use frus_core::{Color, Point, Rect, Scene};
+use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
@@ -77,14 +77,18 @@ impl<Msg> Widget<Msg> for CircleAvatar {
             Color::TRANSPARENT,
         );
         let fsize = self.size * 0.4;
-        let measured = frus_text::measure(&self.initials, fsize);
+        // `exact`: the initials are two fifths of the circle's diameter, which is
+        // geometry and not type. A reader who doubles the system font would have them
+        // spill out of a disc that did not move.
+        let style = ResolvedTextStyle::exact(fsize);
+        let measured = frus_text::measure_resolved(&self.initials, &style);
         scene.text(
             Point::new(
                 bounds.x + (bounds.width - measured.width) * 0.5,
                 bounds.y + (bounds.height - measured.height) * 0.5,
             ),
             self.initials.clone(),
-            fsize,
+            &style,
             theme.on_primary.fade(o),
         );
     }

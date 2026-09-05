@@ -361,6 +361,14 @@ macro_rules! forward_transparent {
                 self.inner.scroll_axis()
             }
 
+            fn scrollbars(&self) -> Option<$crate::physics::Scrollbars> {
+                self.inner.scrollbars()
+            }
+
+            fn thumb_visibility(&self) -> Option<bool> {
+                self.inner.thumb_visibility()
+            }
+
             fn scroll_physics(&self) -> Option<$crate::physics::ScrollPhysics> {
                 self.inner.scroll_physics()
             }
@@ -469,11 +477,8 @@ macro_rules! forward_transparent {
                 self.inner.baseline_target()
             }
 
-            fn main_axis_fill(
-                &self,
-                theme: &$crate::theme::Theme,
-            ) -> Option<frus_layout::FlexDirection> {
-                self.inner.main_axis_fill(theme)
+            fn fill_axes(&self, theme: &$crate::theme::Theme) -> $crate::widget::FillAxes {
+                self.inner.fill_axes(theme)
             }
 
             fn main_axis_floor(&self, theme: &$crate::theme::Theme) -> Option<f32> {
@@ -601,7 +606,12 @@ mod tests {
                 .collect()
         };
         // The two the macro deliberately leaves to its callers; each wrapper states both.
-        let claimable = ["key", "theme_override"];
+        let claimable = [
+            "key",
+            "theme_override",
+            "media_override",
+            "scaffold_override",
+        ];
         let missing: Vec<String> = names(trait_body)
             .into_iter()
             .filter(|n| !claimable.contains(&n.as_str()))
@@ -675,7 +685,10 @@ mod tests {
                 .expect("a name")
                 .to_string_lossy()
                 .to_string();
-            if file == "transparent.rs" {
+            // `src` holds directories too (a module with children); only a `.rs` file
+            // can carry a wrapper, and reading a directory is an error, not an empty
+            // string.
+            if file == "transparent.rs" || path.extension().is_none_or(|e| e != "rs") {
                 continue;
             }
             let src = std::fs::read_to_string(&path).expect("the wrapper's source");
@@ -686,6 +699,8 @@ mod tests {
             for hook in [
                 "fn key(",
                 "fn theme_override(",
+                "fn media_override(",
+                "fn scaffold_override(",
                 "fn restyle(",
                 "fn positioned(",
             ] {

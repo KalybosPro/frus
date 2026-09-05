@@ -41,26 +41,30 @@ pub(crate) fn seed_label(app: &TodoApp) -> String {
     }
 }
 
-/// The "target" theme for the current state (before the fade): the hand-written scheme by
-/// default, or one generated from a seed (`from_seed`, HCT).
-pub(crate) fn theme_of(app: &TodoApp) -> Theme {
+/// The theme at a given **brightness**: the hand-written scheme by default, or one
+/// generated from a seed (`from_seed`, HCT).
+///
+/// It takes the brightness rather than reading `app.light`, because since milestone 452
+/// the application no longer chooses between the two: it supplies both — as `theme()` and
+/// `dark_theme()` — and the framework picks and crosses between them.
+pub(crate) fn theme_of(app: &TodoApp, dark: bool) -> Theme {
     let theme = match app
         .seed_index
         .checked_sub(1)
         .and_then(|i| THEME_SEEDS.get(i))
     {
-        Some((_, seed)) => Theme::from_seed(*seed, !app.light),
+        Some((_, seed)) => Theme::from_seed(*seed, dark),
         None => {
-            if app.light {
-                Theme::light()
-            } else {
+            if dark {
                 Theme::dark()
+            } else {
+                Theme::light()
             }
         }
     };
     // The ambient direction: RTL if the user asked for it OR if the current language is
     // written right to left (Arabic). The whole layout mirrors.
-    if app.rtl || lang_is_rtl(app.lang) {
+    if app.rtl || lang_is_rtl(lang_of(app)) {
         theme.rtl()
     } else {
         theme

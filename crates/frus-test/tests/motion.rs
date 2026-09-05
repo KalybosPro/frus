@@ -16,9 +16,9 @@
 use frus_core::{Color, Size, SizeClass};
 use frus_test::{Snapshot, Stage};
 use frus_widgets::{
-    text, Align, Container, Dismissible, DragTarget, Draggable, Flex, GlowEdge, Hero, Keyed,
-    LayoutBuilder, NavScaffold, Navigator, PageView, RefreshIndicator, Responsive,
-    SingleChildScrollView,
+    text, Align, Button, Container, Dismissible, DragTarget, Draggable, Flex, GlowEdge, Hero,
+    Keyed, LayoutBuilder, NavScaffold, Navigator, PageView, Point, RefreshIndicator, Responsive,
+    SingleChildScrollView, Tooltip,
 };
 
 fn golden(name: &str) -> String {
@@ -33,6 +33,37 @@ fn accept(name: &str, snapshot: Option<Snapshot>) {
     };
     assert!(snapshot.lit_pixels(48) > 40, "{name}: the frame is empty");
     snapshot.assert_golden(golden(name));
+}
+
+/// **A tooltip, caught while the pointer is on it.** Its picture is not a function of
+/// its arguments either: the bubble exists only while the thing it describes is
+/// hovered, which is a fact about the `Runtime` and not about the widget. So it
+/// belongs here rather than beside the settled widgets.
+#[test]
+fn a_tooltip_while_the_pointer_rests_on_it() {
+    // The gap is wide on purpose. A bubble floats over whatever is above the thing it
+    // describes, which is right in an application and makes a poor picture of one; and
+    // with the button too near the top the overlay flips the bubble **below** it, which
+    // is the placement working and not the one worth photographing.
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(40.0)
+            .child(text("Hover the button"))
+            .child(Tooltip::new("Delete this row").child(Button::new("Delete").on_press(()))),
+    );
+
+    let mut stage = Stage::new(240, 170);
+    stage.settle(&root);
+    // The button is the tooltip's own child 0, which is exactly the identity the
+    // overlay checks against the hovered one — so hitting it in the frame is how the
+    // test names it, rather than counting nodes.
+    let button = stage
+        .build(&root)
+        .hit(Point::new(60.0, 105.0))
+        .expect("the button is in the frame");
+    stage.runtime.input.hovered = Some(button);
+    stage.advance(&root, 1.0 / 60.0);
+    accept("tooltip_hovered", stage.render(&root));
 }
 
 /// A coloured box that fills its row, the filler these screens are made of.
@@ -393,10 +424,14 @@ fn a_layout_builder_reads_its_box() {
     accept("layout_builder_box", stage.render(&root));
 }
 
-/// The navigation scaffold at both presentations: a bar across the bottom when the
-/// window is compact, a rail down the side when it is not.
+/// The navigation scaffold at **all three** of its presentations (milestone 435): a bar
+/// across the bottom when the window is compact, a rail down the side at medium, and an
+/// extended rail — labels beside the glyphs — when the window is expanded.
+///
+/// It showed two of them until milestone 435, because the shell had two answers for three
+/// size classes and handed the widest window the tablet's rail.
 #[test]
-fn the_nav_scaffold_both_ways() {
+fn the_nav_scaffold_three_ways() {
     let scaffold = |class: SizeClass| -> NavScaffold<()> {
         NavScaffold::new(class, 1, |_: usize| ())
             .destination("★", "Home")
@@ -412,24 +447,23 @@ fn the_nav_scaffold_both_ways() {
     // 198, not 190: a rail of three destinations is 198 tall, and it used to be squeezed
     // into 190. Nothing is squeezed now (milestone 349) — a rail taller than its window
     // overflows, wears a band and says so, which is what the reference does too.
+    let pane = |width: f32, class: SizeClass| {
+        Container::new()
+            .width(width)
+            .height(198.0)
+            .child(scaffold(class))
+    };
     let root: Flex<()> = Flex::row()
         .gap(10.0)
-        .child(
-            Container::new()
-                .width(150.0)
-                .height(198.0)
-                .child(scaffold(SizeClass::Compact)),
-        )
-        .child(
-            Container::new()
-                .width(180.0)
-                .height(198.0)
-                .child(scaffold(SizeClass::Expanded)),
-        );
+        .child(pane(150.0, SizeClass::Compact))
+        .child(pane(180.0, SizeClass::Medium))
+        // Wide enough for the extended rail's 256 and a strip of body beside it, which is
+        // the whole point of the third pane.
+        .child(pane(340.0, SizeClass::Expanded));
 
-    let mut stage = Stage::new(350, 208);
+    let mut stage = Stage::new(700, 208);
     stage.settle(&root);
-    accept("nav_scaffold_both_ways", stage.render(&root));
+    accept("nav_scaffold_three_ways", stage.render(&root));
 }
 
 /// The stage steps the frame loop rather than jumping to the end: a glow pulled and

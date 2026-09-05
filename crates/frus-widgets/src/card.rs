@@ -1,6 +1,6 @@
 //! [`Card`]: a themed surface — background, radius, shadow or outline — with one child.
 
-use frus_core::{BorderRadius, Color, Insets, Rect, Scene};
+use frus_core::{BorderRadius, Color, Insets, Rect, Scene, ShapeBorder};
 use frus_layout::Style;
 
 use crate::interaction::Status;
@@ -61,8 +61,8 @@ pub struct Card<Msg> {
     elevation: Option<f32>,
     /// `None` = the theme's surface for this variant.
     color: Option<Color>,
-    /// `None` = the theme's radius.
-    radius: Option<BorderRadius>,
+    /// `None` = the theme's shape, then its radius, then the framework's corner.
+    shape: Option<ShapeBorder>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -75,7 +75,7 @@ impl<Msg> Card<Msg> {
             margin: None,
             elevation: None,
             color: None,
-            radius: None,
+            shape: None,
             children: Vec::new(),
         }
     }
@@ -125,8 +125,21 @@ impl<Msg> Card<Msg> {
     }
 
     /// Overrides the corner radii (uniform via `f32`, per corner via [`BorderRadius`]).
+    /// **What shape the card is** — the reference's `shape` (`card.dart`), over the
+    /// corners [`radius`](Self::radius) names. They are **one** field, and the last of the
+    /// two called is the one that counts.
+    ///
+    /// Milestone 451 gave the card the field and the resolution and — the CHANGELOG
+    /// notwithstanding — never gave it this builder, so a caller could still only ask for
+    /// a corner. This is that builder.
+    #[must_use]
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.shape = Some(shape);
+        self
+    }
+
     pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
-        self.radius = Some(radius.into());
+        self.shape = Some(ShapeBorder::rounded(radius));
         self
     }
 
@@ -160,11 +173,11 @@ impl<Msg> Card<Msg> {
         self.color
             .or(theme.widgets.card.color)
             .unwrap_or(match self.kind(Some(theme)) {
-                // The reference reaches for a *lower* container tone than this scheme
-                // carries; `surface_container` is the nearest it has, and the one an
-                // elevated card wants to sit slightly above the page in.
-                CardVariant::Elevated => theme.scheme.surface_container,
-                CardVariant::Filled => theme.scheme.surface_container_high,
+                // The two ends of the ladder the reference puts them on
+                // (`card.dart:313` and `:348`): a card off the page takes the least
+                // emphasis a container has, a filled one the most.
+                CardVariant::Elevated => theme.scheme.surface_container_low,
+                CardVariant::Filled => theme.scheme.surface_container_highest,
                 CardVariant::Outlined => theme.scheme.surface,
             })
     }
@@ -216,10 +229,18 @@ impl<Msg> Widget<Msg> for Card<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let radius = self
-            .radius
-            .or(theme.widgets.card.radius)
-            .unwrap_or_else(|| theme.radius.into());
+        let shape = crate::resolve_shape(
+            self.shape,
+            theme.widgets.card.shape,
+            theme.widgets.card.radius,
+            ShapeBorder::rounded(theme.radius),
+        );
+        // The shadow is a rectangle whatever the card is, so it takes the corners the
+        // shape resolves to and none from one with no rounded form.
+        let radius = shape
+            .as_rounded(bounds)
+            .map(|(_, radius)| radius)
+            .unwrap_or(BorderRadius::ZERO);
         let depth = self.depth(theme);
 
         // The shadow, when the card is off the surface at all. The blur grows with the
@@ -247,12 +268,10 @@ impl<Msg> Widget<Msg> for Card<Msg> {
         } else {
             (0.0, Color::TRANSPARENT)
         };
-        scene.draw_rect(
+        scene.draw_shape(
             bounds,
+            shape.with_side(frus_core::BorderSide::new(border.1, border.0)),
             self.background(theme).fade(o),
-            radius,
-            border.0,
-            border.1,
         );
     }
 
@@ -268,6 +287,88 @@ mod tests {
 
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {}
+
+    /// **A card takes a whole shape** — which milestone 451 built the field and the
+    /// resolution for, announced in the CHANGELOG, and never gave a builder. A caller
+    /// could still only ask for a corner.
+    #[test]
+    fn a_card_takes_a_whole_shape_and_not_only_a_corner() {
+        let corners = |card: &Card<Msg>| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                card,
+                Rect::new(0.0, 0.0, 200.0, 100.0),
+                Status::default(),
+                &Theme::default(),
+                &mut scene,
+            );
+            scene.primitives().iter().find_map(|p| match p {
+                Primitive::Rect {
+                    rect, radius, blur, ..
+                } if *blur == 0.0 && rect.width == 200.0 => Some(*radius),
+                _ => None,
+            })
+        };
+
+        assert_eq!(
+            corners(&Card::<Msg>::new().shape(ShapeBorder::stadium())),
+            Some(BorderRadius::uniform(50.0)),
+            "half the short side of 200x100"
+        );
+        // One field, two builders: the last one called counts.
+        assert_eq!(
+            corners(&Card::<Msg>::new().shape(ShapeBorder::stadium()).radius(4.0)),
+            Some(BorderRadius::uniform(4.0))
+        );
+        assert_eq!(
+            corners(&Card::<Msg>::new().radius(4.0).shape(ShapeBorder::stadium())),
+            Some(BorderRadius::uniform(50.0))
+        );
+    }
+
+    /// **A theme can name a card's shape**, and it outranks the plain radius beside it
+    /// (`card.dart`). Until milestone 451 a card could only be given a corner.
+    #[test]
+    fn a_theme_shapes_a_card_over_its_radius() {
+        let corners = |card: &Card<Msg>, theme: &Theme| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                card,
+                Rect::new(0.0, 0.0, 200.0, 100.0),
+                Status::default(),
+                theme,
+                &mut scene,
+            );
+            scene.primitives().iter().find_map(|p| match p {
+                Primitive::Rect {
+                    rect, radius, blur, ..
+                } if *blur == 0.0 && rect.width == 200.0 => Some(*radius),
+                _ => None,
+            })
+        };
+
+        let mut theme = Theme::default();
+        theme.widgets.card.radius = Some(BorderRadius::uniform(2.0));
+        let card = Card::<Msg>::new();
+        assert_eq!(
+            corners(&card, &theme),
+            Some(BorderRadius::uniform(2.0)),
+            "a plain radius still speaks"
+        );
+
+        theme.widgets.card.shape = Some(frus_core::ShapeBorder::stadium());
+        assert_eq!(
+            corners(&card, &theme),
+            Some(BorderRadius::uniform(50.0)),
+            "and a shape beside it outranks it: half the short side of 200x100"
+        );
+
+        assert_eq!(
+            corners(&Card::<Msg>::new().radius(6.0), &theme),
+            Some(BorderRadius::uniform(6.0)),
+            "and the card's own word outranks the theme"
+        );
+    }
 
     fn primitives(card: &Card<Msg>) -> Vec<Primitive> {
         let mut scene = Scene::new();
@@ -329,12 +430,12 @@ mod tests {
         };
         assert_eq!(
             fill(&Card::new()),
-            Some(theme.scheme.surface_container),
+            Some(theme.scheme.surface_container_low),
             "elevated"
         );
         assert_eq!(
             fill(&Card::new().filled()),
-            Some(theme.scheme.surface_container_high),
+            Some(theme.scheme.surface_container_highest),
             "filled"
         );
         assert_eq!(fill(&Card::new().outlined()), Some(theme.scheme.surface));

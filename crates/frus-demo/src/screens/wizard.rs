@@ -84,7 +84,11 @@ pub(crate) fn wizard_input(
         .on_input(move |s| Msg::WizardInput(field, s));
     // `eye = Some(revealed)`: an eye icon **inside the field** toggles the masking (milestone 198).
     if let Some(revealed) = eye {
-        let icon = if revealed { Icons::EyeOff } else { Icons::Eye };
+        let icon = if revealed {
+            Icons::VISIBILITY_OFF
+        } else {
+            Icons::VISIBILITY
+        };
         input = input.suffix_icon(icon).on_suffix(Msg::WizardToggleReveal);
     }
     if submitted {

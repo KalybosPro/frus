@@ -31,10 +31,42 @@ use crate::widget::Widget;
 /// exactly). It is what gives a native navigation its depth.
 const NAV_PARALLAX: f32 = 0.3;
 
-/// Thickness of a scrollbar, in pixels.
-const BAR_SIZE: f32 = 10.0;
-/// Minimum length of a thumb.
-const MIN_THUMB: f32 = 28.0;
+/// Thickness of a scrollbar, in pixels (`scrollbar.dart:12`).
+const BAR_SIZE: f32 = 8.0;
+/// Minimum length of a thumb (`scrollbar.dart:15`). It is the tap target: a thumb has to
+/// be catchable by a pointer, whatever fraction of the content the viewport shows.
+const MIN_THUMB: f32 = 48.0;
+/// The thumb's opacity at rest, over `on_surface` (`scrollbar.dart:248`, `:242`). The two
+/// numbers are the reference's, and which one applies follows the surface's own
+/// brightness — this crate's scheme carries no brightness flag, so it is read off the
+/// surface rather than declared.
+/// The gap between the thumb and the edge of the viewport (`scrollbar.dart:14`).
+const BAR_MARGIN: f32 = 2.0;
+const THUMB_ON_DARK: f32 = 0.30;
+const THUMB_ON_LIGHT: f32 = 0.10;
+/// And under a pointer (`scrollbar.dart:245`, `:239`) — a five-fold change on a light
+/// surface, which is what makes a bar you can barely see worth reaching for.
+const THUMB_HOVER_ON_DARK: f32 = 0.65;
+const THUMB_HOVER_ON_LIGHT: f32 = 0.50;
+/// And while it is being dragged (`scrollbar.dart:244`, `:238`), which arrives at once:
+/// the hand is already on it, and a fade would only lag behind the grab.
+const THUMB_DRAG_ON_DARK: f32 = 0.75;
+const THUMB_DRAG_ON_LIGHT: f32 = 0.60;
+
+/// One **axis** of a scroll area, as a scrollbar needs to see it: which way it runs, where
+/// it has got to, how far it may go, whether its numbers run backwards, and what the area
+/// itself said about whether it wants a bar at all.
+#[derive(Copy, Clone)]
+struct Bar {
+    vertical: bool,
+    offset: f32,
+    max: f32,
+    reverse: bool,
+    /// The area's own answer, over the application's. See [`crate::Scrollbars`].
+    asked: Option<crate::physics::Scrollbars>,
+    /// Whether the area asked for its bar to stay put instead of fading.
+    visible: Option<bool>,
+}
 
 /// A scrollbar thumb (for hit-testing a drag).
 #[derive(Copy, Clone, Debug)]
@@ -52,6 +84,15 @@ pub struct Scrollbar {
     /// is the far end, so the thumb rests there and a drag towards the start raises the
     /// number. See [`Scrollable::reverse_y`].
     pub reverse: bool,
+    /// **How present the bar is**, `0.0..=1.0`. A bar at zero is painted by nothing and
+    /// cannot be grabbed — but it is still here, because a mouse that comes near it
+    /// brings it back.
+    pub opacity: f32,
+    /// The rectangle a **mouse** has to be inside for the bar to notice it: the track,
+    /// widened to take in a tap target's worth of room around the thumb. The reference
+    /// reaches out like this on purpose (`scrollbar.dart:762`) — a bar 8 pixels wide,
+    /// resting at a tenth of an opacity, is not something a hand aims at precisely.
+    pub reach: Rect,
 }
 
 /// A scrollable area of the frame: where it is, how far it may scroll, and how it
@@ -472,6 +513,7 @@ fn hash_status<H: Hasher>(s: &Status, h: &mut H) {
     s.composing.hash(h);
     quant(s.hover_progress).hash(h);
     quant(s.focus_progress).hash(h);
+    quant(s.press_progress).hash(h);
     quant(s.opacity).hash(h);
     quant(s.value).hash(h);
     // Sub-region hover (milestone 208): a change of position repaints the highlight.
@@ -584,6 +626,12 @@ impl<Msg: Clone> Ui<Msg> {
         &self.overflows
     }
 
+    /// The scrollbars this frame drew, and therefore the ones a pointer may drag. Empty
+    /// where the platform draws none — see [`crate::Scrollbars`].
+    pub fn scrollbars(&self) -> &[Scrollbar] {
+        &self.scrollbars
+    }
+
     pub fn scene(&self) -> &Scene {
         &self.scene
     }
@@ -596,6 +644,16 @@ impl<Msg: Clone> Ui<Msg> {
     }
 
     /// `true` when a widget animates continuously (the framework must redraw).
+    /// Whether **this tree's widgets** want the next frame: a spinner turning, an ink
+    /// ripple spreading, a pull being held.
+    ///
+    /// It answers for the widgets and nothing else. A fetch still in flight also owes the
+    /// screen a frame — see [`frus_core::images_in_flight`] — and that is the *process's*
+    /// business, asked by whoever drives the loop. It used to be folded in here, which
+    /// made this method's answer depend on what an unrelated part of the program happened
+    /// to be doing: in the test suite, where everything shares one process, a refresh area
+    /// with nothing pulled asked for frames whenever another test was loading an image
+    /// (milestone 411).
     pub fn wants_animation(&self) -> bool {
         self.wants_animation
     }
@@ -979,7 +1037,22 @@ impl<Msg: Clone> Ui<Msg> {
         self.scrollbars
             .iter()
             .rev()
-            .find(|bar| bar.thumb.contains(point))
+            .find(|bar| bar.opacity > 0.0 && bar.thumb.contains(point))
+            .copied()
+    }
+
+    /// The scrollbar a **pointer is near enough to wake**: inside its track, or within a
+    /// tap target's reach of its thumb.
+    ///
+    /// Wider than [`Ui::scrollbar_at`], and — unlike it — it answers for a bar that has
+    /// faded out entirely, which is the whole point. A bar nobody can see is a bar nobody
+    /// can grab, so the reference lets a mouse coming near one bring it back first
+    /// (`scrollbar.dart:766`); only then is it something to take hold of.
+    pub fn scrollbar_near(&self, point: Point) -> Option<Scrollbar> {
+        self.scrollbars
+            .iter()
+            .rev()
+            .find(|bar| bar.reach.contains(point))
             .copied()
     }
 
@@ -1166,7 +1239,7 @@ fn paint_overflow_label(scene: &mut Scene, band: Rect, over: &Overflowing) {
     if angle == 0.0 {
         let at = Point::new(anchor.x - size.width / 2.0, anchor.y);
         scene.fill_rect(Rect::from_point_size(at, size), Color::WHITE);
-        scene.text_styled(at, text, &style.resolved(), INK);
+        scene.text(at, text, &style.resolved(), INK);
         return;
     }
     // A rotation of a group, not of a glyph: the plate and the sentence turn together and
@@ -1184,7 +1257,7 @@ fn paint_overflow_label(scene: &mut Scene, band: Rect, over: &Overflowing) {
         .then(Affine::translation(anchor.x, anchor.y));
     scene.transformed(LayerTransform::new(matrix), move |scene: &mut Scene| {
         scene.fill_rect(flat, Color::WHITE);
-        scene.text_styled(flat.origin(), text, &style.resolved(), INK);
+        scene.text(flat.origin(), text, &style.resolved(), INK);
     });
 }
 
@@ -1300,17 +1373,15 @@ pub(crate) struct Fills {
 
 impl Fills {
     /// What a widget asks for on its own account.
+    ///
+    /// A straight copy since milestone 405: the widget's answer already has a flag per
+    /// axis, where it used to be one direction and a container that wanted both had no way
+    /// to say so.
     fn own<Msg>(widget: &dyn Widget<Msg>, theme: &Theme) -> Self {
-        match widget.main_axis_fill(theme) {
-            Some(axis) if axis.is_horizontal() => Fills {
-                horizontal: true,
-                vertical: false,
-            },
-            Some(_) => Fills {
-                horizontal: false,
-                vertical: true,
-            },
-            None => Fills::default(),
+        let asked = widget.fill_axes(theme);
+        Fills {
+            horizontal: asked.horizontal,
+            vertical: asked.vertical,
         }
     }
 
@@ -1386,6 +1457,16 @@ fn build_layout_scoped<'a, Msg>(
     // the same swap — the two staying in step is what keeps the cache honest.
     let scoped = widget.theme_override(theme);
     let theme = scoped.as_deref().unwrap_or(theme);
+    // And a **scoped surface**, the same idea one milestone later: a shell that hands a slot
+    // a narrowed description narrows it for everything the slot builds, the deferred build
+    // below included. Held for this subtree and put back on the way out.
+    let _surface = widget
+        .media_override(crate::MediaQuery::of())
+        .map(crate::MediaQuery::install);
+    // And the **shell**, the third inherited thing (milestone 422): a slot told what shell
+    // it stands in composes differently — a bar grows a menu button — so it has to be in
+    // force before `build_themed` below, exactly as the surface is.
+    let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
     // A subtree that could not be composed until the theme was known (`ThemeBuilder`).
     // It has to happen **before** anything reads `children()`, and under the subtree's
     // own theme, which is why it sits after the swap above rather than at the call site.
@@ -1489,11 +1570,15 @@ fn build_layout_scoped<'a, Msg>(
     // knows, so `LayoutBuilder::height(200.0)` behaves exactly as it did.
     if let Some(build) = widget.layout_builder() {
         let style = effective_style(widget, id, runtime, theme);
-        // `Theme` is `Copy`, and it has to be **owned**: a themed subtree's theme is a
-        // local in this function, so it cannot be borrowed for as long as the closure
-        // lives. The runtime and the widget are borrowed, which is the whole reason
-        // `Layout` carries a lifetime.
-        let theme = *theme;
+        // The closure needs an **owned** theme: a themed subtree's theme is a local in
+        // this function, so it cannot be borrowed for as long as the closure lives. The
+        // runtime and the widget are borrowed, which is the whole reason `Layout` carries
+        // a lifetime.
+        //
+        // This is a clone of eight kilobytes, and it used to be a silent one — `Theme`
+        // was `Copy` until milestone 448, so `*theme` read like a pointer copy and was
+        // not. It happens once per `LayoutBuilder`, not once per node.
+        let owned = theme.clone();
         let cid = id.child(0);
         let measure: frus_layout::MeasureFn<'a> = Box::new(move |w, h| {
             // What taffy offers. `None` is an *intrinsic* question — how big would you
@@ -1506,7 +1591,7 @@ fn build_layout_scoped<'a, Msg>(
             let offered = Size::new(w.unwrap_or(0.0), h.unwrap_or(0.0));
             let child = build(offered);
             let mut inner: Layout<BaselineData> = Layout::new();
-            let node = build_layout(child.as_ref(), cid, runtime, &theme, &mut inner);
+            let node = build_layout(child.as_ref(), cid, runtime, &owned, &mut inner);
             // The content is **handed** the offered box, not asked what it would like:
             // it was built from that box. An axis that was not offered is the one being
             // asked about, and stays free so the content's own size comes back.
@@ -1524,7 +1609,7 @@ fn build_layout_scoped<'a, Msg>(
         });
         return (
             layout.measured_leaf(style, own_baseline, measure),
-            Fills::own(widget, &theme),
+            Fills::own(widget, theme),
         );
     }
     // Scrollables, interactive viewports, fitters (`FittedBox`), navigators, virtualised
@@ -2690,6 +2775,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         let outer = widget
             .theme_override(&self.theme)
             .map(|theme| std::mem::replace(&mut self.theme, *theme));
+        // The scoped surface, held for this subtree exactly as the layout walk holds it —
+        // a widget that paints from `MediaQuery::of()` must see the same description it
+        // was measured against, or the two disagree by whatever the scope removed.
+        let _surface = widget
+            .media_override(crate::MediaQuery::of())
+            .map(crate::MediaQuery::install);
+        let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
         self.walk_node_themed(widget, id, translation, clip, rects, index);
         // Over its own children: the reference's `foregroundDecoration`, and the only
         // point in the walk where a widget paints after its subtree. Still under this
@@ -2864,7 +2956,18 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                             .map(|s| s.1)
                             .unwrap_or(0.0)
                             .clamp(0.0, max_y);
-                        self.add_scrollbar(id, vp, true, offset_y, max_y, false);
+                        self.add_scrollbar(
+                            id,
+                            vp,
+                            Bar {
+                                vertical: true,
+                                offset: offset_y,
+                                max: max_y,
+                                reverse: false,
+                                asked: widget.scrollbars(),
+                                visible: widget.thumb_visibility(),
+                            },
+                        );
                     }
                 }
             }
@@ -3189,10 +3292,32 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.scene.set_clip(clip);
             self.add_overscroll_glow(id, viewport);
             if max_y > 0.0 {
-                self.add_scrollbar(id, viewport, true, offset_y, max_y, reverse.1);
+                self.add_scrollbar(
+                    id,
+                    viewport,
+                    Bar {
+                        vertical: true,
+                        offset: offset_y,
+                        max: max_y,
+                        reverse: reverse.1,
+                        asked: widget.scrollbars(),
+                        visible: widget.thumb_visibility(),
+                    },
+                );
             }
             if max_x > 0.0 {
-                self.add_scrollbar(id, viewport, false, offset_x, max_x, reverse.0);
+                self.add_scrollbar(
+                    id,
+                    viewport,
+                    Bar {
+                        vertical: false,
+                        offset: offset_x,
+                        max: max_x,
+                        reverse: reverse.0,
+                        asked: widget.scrollbars(),
+                        visible: widget.thumb_visibility(),
+                    },
+                );
             }
         } else if let Some(vlist) =
             widget.virtual_list(Size::new(draw_rect.width, draw_rect.height))
@@ -3301,7 +3426,18 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.scene.set_clip(clip);
             self.add_overscroll_glow(id, viewport);
             if max > 0.0 {
-                self.add_scrollbar(id, viewport, !across, offset, max, reverse);
+                self.add_scrollbar(
+                    id,
+                    viewport,
+                    Bar {
+                        vertical: !across,
+                        offset,
+                        max,
+                        reverse,
+                        asked: widget.scrollbars(),
+                        visible: widget.thumb_visibility(),
+                    },
+                );
             }
         } else if let Some(pages) = widget.page_view() {
             // A paged view: like a virtualised list turned on its side, and with the
@@ -3656,7 +3792,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     progress,
                     widget.overlay_traps_focus(),
                     widget.overlay_scrim(&self.theme),
-                    self.theme,
+                    self.theme.clone(),
                 ));
             }
         } else {
@@ -3756,6 +3892,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         let mut status = self.runtime.input.status_for(id);
         status.hover_progress = self.runtime.hover_progress(id);
         status.focus_progress = self.runtime.focus_progress(id);
+        // A press is a progression now, and where the runtime has never heard of this
+        // widget the flag is adopted whole — the rule `value` follows just below. Without
+        // it a frame built outside the loop would draw a held widget as untouched.
+        status.press_progress = self.runtime.press_progress_or(
+            id,
+            if status.interaction == crate::interaction::Interaction::Pressed {
+                1.0
+            } else {
+                0.0
+            },
+        );
         status.opacity = self.runtime.opacity(id);
         // A widget's own animated value, or **its target** where the runtime has never
         // heard of it: the same rule the runtime applies on mount (adopt, do not animate
@@ -4113,15 +4260,28 @@ impl<Msg: Clone> Builder<'_, Msg> {
         }
     }
 
-    fn add_scrollbar(
-        &mut self,
-        id: WidgetId,
-        viewport: Rect,
-        vertical: bool,
-        offset: f32,
-        max: f32,
-        reverse: bool,
-    ) {
+    fn add_scrollbar(&mut self, id: WidgetId, viewport: Rect, axis: Bar) {
+        let Bar {
+            vertical,
+            offset,
+            max,
+            reverse,
+            asked,
+            visible,
+        } = axis;
+        // **Along the horizontal axis, never** (`app.dart:861`) — on any platform, under
+        // any setting. A sideways strip is scrolled by the thing that made it sideways,
+        // and a bar under it takes room from content that is short of it already.
+        if !vertical {
+            return;
+        }
+        // And down the vertical one, only where the platform's own scroll views have a
+        // bar (`app.dart:865` against `:870`). A finger already knows where it is on the
+        // page; a permanent bar over the content is an affordance for a pointer that
+        // cannot feel the edges. This drew one everywhere, on both axes, always.
+        if asked.unwrap_or(self.runtime.scrollbars) == crate::physics::Scrollbars::Never {
+            return;
+        }
         let (track_start, track_len, content_len) = if vertical {
             (viewport.y, viewport.height, viewport.height + max)
         } else {
@@ -4137,31 +4297,94 @@ impl<Msg: Clone> Builder<'_, Msg> {
         let fraction = if reverse { 1.0 - fraction } else { fraction };
         let thumb_pos = track_start + fraction * travel;
 
+        // The track's rectangle is still worked out — it is the room a pointer has to be
+        // in, and the geometry the thumb sits in — but nothing is painted for it.
+        //
+        // `BAR_SIZE` is the **thumb's** thickness, not a slot's: the reference keeps the
+        // thumb clear of the edge with `crossAxisMargin` (`scrollbar.dart:357`) rather
+        // than shrinking it to fit. This drew a 6-pixel thumb inside an 8-pixel slot,
+        // which is the same arithmetic with the wrong number left over.
         let (track, thumb) = if vertical {
-            let x = viewport.x + viewport.width - BAR_SIZE;
+            let x = viewport.x + viewport.width - BAR_MARGIN - BAR_SIZE;
             (
-                Rect::new(x, viewport.y, BAR_SIZE, viewport.height),
-                Rect::new(x + 1.0, thumb_pos, BAR_SIZE - 2.0, thumb_len),
+                Rect::new(
+                    x - BAR_MARGIN,
+                    viewport.y,
+                    BAR_SIZE + BAR_MARGIN * 2.0,
+                    viewport.height,
+                ),
+                Rect::new(x, thumb_pos, BAR_SIZE, thumb_len),
             )
         } else {
-            let y = viewport.y + viewport.height - BAR_SIZE;
+            let y = viewport.y + viewport.height - BAR_MARGIN - BAR_SIZE;
             (
-                Rect::new(viewport.x, y, viewport.width, BAR_SIZE),
-                Rect::new(thumb_pos, y + 1.0, thumb_len, BAR_SIZE - 2.0),
+                Rect::new(
+                    viewport.x,
+                    y - BAR_MARGIN,
+                    viewport.width,
+                    BAR_SIZE + BAR_MARGIN * 2.0,
+                ),
+                Rect::new(thumb_pos, y, thumb_len, BAR_SIZE),
             )
         };
+        // What a mouse has to be inside for the bar to notice it: the track, widened to
+        // take in a tap target's worth of room around the thumb (`scrollbar.dart:762`).
+        let reach = {
+            let (cx, cy) = (thumb.x + thumb.width * 0.5, thumb.y + thumb.height * 0.5);
+            let r = crate::theme::MIN_TAP_TARGET * 0.5;
+            let x0 = track.x.min(cx - r);
+            let y0 = track.y.min(cy - r);
+            let x1 = (track.x + track.width).max(cx + r);
+            let y1 = (track.y + track.height).max(cy + r);
+            Rect::new(x0, y0, x1 - x0, y1 - y0)
+        };
 
-        let track_color = self.theme.muted.fade(0.18);
-        let thumb_color = self.theme.muted.fade(0.55);
-        self.scene
-            .draw_rect(track, track_color, BAR_SIZE * 0.5, 0.0, Color::TRANSPARENT);
-        self.scene.draw_rect(
-            thumb,
-            thumb_color,
-            (BAR_SIZE - 2.0) * 0.5,
-            0.0,
-            Color::TRANSPARENT,
-        );
+        // **How present the bar is**, this frame. It arrives when the area moves and goes
+        // again once the area has been still long enough; an area nobody has scrolled has
+        // none at all. Unless it was asked to stay (`scrollbar.dart:214`).
+        let fade = self.runtime.scrollbar_fade_of(id);
+        let opacity = if visible.unwrap_or(false) {
+            1.0
+        } else {
+            fade.opacity.clamp(0.0, 1.0)
+        };
+
+        // **No track.** The reference's is transparent unless a caller asks for one
+        // (`scrollbar.dart:281`), and even then it is 3 to 5 %.
+        //
+        // The thumb takes the reference's opacity for the surface's brightness: at rest
+        // (`scrollbar.dart:242`, `:248`), warmed towards its hovered value while a
+        // pointer is near it (`:239`, `:245`), and at its dragged value the moment the
+        // thumb is held (`:238`, `:244`) — that one does not fade in, because the hand is
+        // already on it and a fade would only lag behind the grab.
+        // The scheme's own answer, which is what the reference reads here
+        // (`scrollbar.dart:232`). This used to be `surface.compute_luminance() < 0.5`:
+        // right on both built-in schemes and a guess on any other.
+        let dark = self.theme.brightness().is_dark();
+        let (rest, warm, grabbed) = if dark {
+            (THUMB_ON_DARK, THUMB_HOVER_ON_DARK, THUMB_DRAG_ON_DARK)
+        } else {
+            (THUMB_ON_LIGHT, THUMB_HOVER_ON_LIGHT, THUMB_DRAG_ON_LIGHT)
+        };
+        let level = if self.runtime.scrollbar_dragged == Some(id) {
+            grabbed
+        } else {
+            rest + (warm - rest) * fade.hover.clamp(0.0, 1.0)
+        };
+        if opacity > 0.0 {
+            self.scene.draw_rect(
+                thumb,
+                self.theme.scheme.on_surface.fade(level * opacity),
+                BAR_SIZE * 0.5,
+                0.0,
+                Color::TRANSPARENT,
+            );
+        }
+        // Registered even when nothing was painted for it — unlike a bar the platform
+        // does not draw at all, which is not registered because it is not there. A mouse
+        // coming near a faded bar is what brings it back (`scrollbar.dart:2132`), so
+        // something has to be here for the mouse to find. What a bar at zero cannot be is
+        // **grabbed**; see `Ui::scrollbar_at`.
         self.scrollbars.push(Scrollbar {
             id,
             vertical,
@@ -4171,6 +4394,8 @@ impl<Msg: Clone> Builder<'_, Msg> {
             thumb_len,
             reverse,
             max,
+            opacity,
+            reach,
         });
     }
 }
@@ -4198,6 +4423,31 @@ pub fn build_ui_inspected<'a, Msg: Clone + 'static>(
     (ui, nodes.unwrap_or_default())
 }
 
+/// Panics, **in debug builds only**, when the reader's font size is installed and the
+/// surface it belongs to is not.
+///
+/// The two travel together — [`MediaQuery::install`] sets both — so a scale away from 1
+/// with no description means somebody installed half a surface, and the half they left out
+/// is about to be missing for the layout that follows. That is not a theory: for four
+/// milestones the shell scoped only the build, the scale was 1 while text was measured and
+/// painted, and the reader's setting reached a device without moving a pixel. Nothing said
+/// a word — not the 91 goldens, not clippy, not the strict rustdoc.
+///
+/// Debug only, because it is a wiring mistake rather than a state a running application can
+/// reach: it should stop a test, not a user's frame. A scale of exactly 1 is the neutral
+/// value and says nothing either way, so it is never a failure.
+#[cfg(debug_assertions)]
+fn assert_surface_is_whole() {
+    let scale = frus_core::text_scale();
+    if (scale - 1.0).abs() > f32::EPSILON && !crate::MediaQuery::of().is_described() {
+        panic!(
+            "a text scale of {scale} is installed with no surface described: something \
+             installed half a surface. Use `MediaQuery::install` (or `scope`), which sets \
+             the description and the reader's font size together \u{2014} see milestone 408."
+        );
+    }
+}
+
 fn build_ui_impl<'a, Msg: Clone + 'static>(
     root: &'a dyn Widget<Msg>,
     available: Size,
@@ -4205,6 +4455,9 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
     theme: &'a Theme,
     inspect: bool,
 ) -> (Ui<Msg>, Option<Vec<crate::inspector::InspectorNode>>) {
+    #[cfg(debug_assertions)]
+    assert_surface_is_whole();
+
     let (mut rects, overflows) = runtime.layout_cache.borrow_mut().rects(
         WidgetId::ROOT,
         root,
@@ -4232,7 +4485,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         wants_animation: false,
         available,
         runtime,
-        theme: *theme,
+        theme: theme.clone(),
         inspector: inspect.then(Vec::new),
         depth: 0,
         refresh_host: None,
@@ -4303,14 +4556,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         interactives: builder.interactives,
         refreshes: builder.refreshes,
         dismissables: builder.dismissables,
-        // An image is still on its way: keep drawing, or the frame that would show it
-        // never happens.
-        //
-        // A **count**, asked once here, and not a flag on the widget. Showing a
-        // placeholder means taking the image out of the tree, and the fetch is still
-        // going on when the widget that started it is gone -- so a hook the walk reads
-        // off `Image` would go quiet at exactly the moment it is needed.
-        wants_animation: builder.wants_animation || frus_core::images_in_flight() > 0,
+        wants_animation: builder.wants_animation,
         semantics: builder.semantics,
         overflows: builder.overflows.into_inner(),
         scopes: builder.scopes,
@@ -4403,6 +4649,40 @@ pub fn find_path<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Vec<&dyn Widg
     path
 }
 
+/// Runs the **deferred builds** over a tree, the way the layout pass does on its way down.
+///
+/// A [`ThemeBuilder`](crate::ThemeBuilder) — and everything built on one, an
+/// [`AppBar`](crate::AppBar) included — has no children at all until something calls
+/// [`Widget::build_themed`] on it. The layout pass does that first thing, so within a frame
+/// nothing ever meets an unbuilt subtree.
+///
+/// **A tree built outside a frame does.** The shell rebuilds from `view` alone on a burst of
+/// keystrokes, faster than a frame, so the next key sees the current value rather than the
+/// retained tree's — and then reads that tree straight away. Every traversal that arrives
+/// there ([`find_widget`], focus resolution, a caret being revealed) walks a tree whose
+/// deferred subtrees are empty, and silently finds nothing.
+///
+/// This is that half of the walk and nothing else: the theme swap
+/// ([`Widget::theme_override`]) then the build, top-down. The swap is not optional — a
+/// builder inside a [`Themed`](crate::Themed) has to see its own subtree's theme, and a
+/// preparation that is *nearly* the walk is worse than none, because what it builds is wrong
+/// rather than absent.
+pub fn build_deferred<Msg>(root: &dyn Widget<Msg>, theme: &Theme) {
+    fn walk<Msg>(widget: &dyn Widget<Msg>, theme: &Theme) {
+        let scoped = widget.theme_override(theme);
+        let theme = scoped.as_deref().unwrap_or(theme);
+        let _surface = widget
+            .media_override(crate::MediaQuery::of())
+            .map(crate::MediaQuery::install);
+        let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
+        widget.build_themed(theme);
+        for child in widget.children() {
+            walk(child.as_ref(), theme);
+        }
+    }
+    walk(root, theme);
+}
+
 pub fn find_widget<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Option<&dyn Widget<Msg>> {
     fn walk<Msg>(
         widget: &dyn Widget<Msg>,
@@ -4470,6 +4750,7 @@ fn fold_filter(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::physics::Scrollbars;
     use crate::runtime::Edit;
     use crate::{
         Button, Container, Flex, Key, Keyed, OverlayPortal, Placement, SingleChildScrollView,
@@ -4974,6 +5255,253 @@ mod tests {
         assert_eq!(ui.msg_for(id_a), Some(Msg::A));
         assert_eq!(ui.msg_for(id_b), Some(Msg::B));
         assert_eq!(ui.hit(Point::new(3.0, 3.0)), None);
+    }
+
+    /// Every rectangle a frame paints down the right-hand edge of a 200-wide viewport.
+    /// The bar is drawn last, over the content, and it is the only thing over there.
+    fn painted(ui: &Ui<()>) -> Vec<(Rect, Color)> {
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, color, .. }
+                    if rect.x >= 200.0 - BAR_SIZE - BAR_MARGIN * 2.0 =>
+                {
+                    Some((*rect, *color))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A tall page in a short window, its bar **pinned**: whether a bar fades is the
+    /// business of the tests below, and these are about whether there is one to fade.
+    fn bars(area: SingleChildScrollView<()>, how: Scrollbars) -> Vec<(Rect, Color)> {
+        let runtime = Runtime::with_scrollbars(how);
+        let ui = build_ui(
+            &area.thumb_visibility(true),
+            Size::new(200.0, 100.0),
+            &runtime,
+            &Theme::dark(),
+        );
+        painted(&ui)
+    }
+
+    /// A tall column in a short viewport: something to scroll.
+    fn tall() -> SingleChildScrollView<()> {
+        SingleChildScrollView::new()
+            .width(200.0)
+            .height(100.0)
+            .child(Container::<()>::new().width(200.0).height(1000.0))
+    }
+
+    /// **A touch screen gets no scrollbar** (`app.dart:870`).
+    ///
+    /// This drew one on every platform, on both axes, always — a permanent bar over the
+    /// content of every scrolling page on a phone, where the reference draws nothing at
+    /// all. A finger already knows where it is on the page.
+    #[test]
+    fn a_touch_screen_gets_no_scrollbar() {
+        assert_eq!(bars(tall(), Scrollbars::Never), vec![]);
+        assert_eq!(
+            bars(tall(), Scrollbars::Always).len(),
+            1,
+            "and a desktop gets one"
+        );
+
+        // Nothing to drag, either: a bar that is not drawn is not a target.
+        let runtime = Runtime::with_scrollbars(Scrollbars::Never);
+        let ui = build_ui(&tall(), Size::new(200.0, 100.0), &runtime, &Theme::dark());
+        assert!(ui.scrollbars().is_empty());
+    }
+
+    /// **A bar takes the scheme's word for the brightness, not the surface's luminance.**
+    ///
+    /// The opacities either side of this are three times apart at rest (`scrollbar.dart:242`,
+    /// `:248`), so getting the question wrong is not a shade — it is a bar that reads as
+    /// a smudge, or one that reads as a stripe.
+    ///
+    /// A **dimmed light** scheme is where the two answers part. The measurement it used
+    /// to make says dark; the scheme says light, and the scheme is the one that knows.
+    #[test]
+    fn a_bar_reads_the_scheme_s_brightness_and_not_its_luminance() {
+        use crate::media::Brightness;
+        let dimmed = |brightness| {
+            let mut theme = Theme::light();
+            theme.scheme.surface = Color::rgb8(110, 110, 110);
+            theme.scheme.brightness = brightness;
+            theme
+        };
+        let thumb = |theme: &Theme| {
+            let runtime = Runtime::with_scrollbars(Scrollbars::Always);
+            let ui = build_ui(
+                &tall().thumb_visibility(true),
+                Size::new(200.0, 100.0),
+                &runtime,
+                theme,
+            );
+            painted(&ui)[0].1
+        };
+
+        let light = dimmed(Brightness::Light);
+        assert!(
+            light.scheme.surface.compute_luminance() < 0.5,
+            "the luminance the old line measured says dark"
+        );
+        assert_eq!(
+            thumb(&light),
+            light.scheme.on_surface.fade(THUMB_ON_LIGHT),
+            "and the bar takes the scheme's word instead"
+        );
+
+        let dark = dimmed(Brightness::Dark);
+        assert_eq!(thumb(&dark), dark.scheme.on_surface.fade(THUMB_ON_DARK));
+    }
+
+    /// **And it is a thumb and nothing else** (`scrollbar.dart:281`): the reference's
+    /// track is transparent unless a caller asks for one, and even then it is 3 to 5 %.
+    /// This painted an 18 % stripe down every scrolling page, under a 55 % thumb.
+    #[test]
+    fn a_bar_is_a_thumb_and_no_track() {
+        let painted = bars(tall(), Scrollbars::Always);
+        assert_eq!(painted.len(), 1, "one rectangle: the thumb");
+        let (thumb, color) = painted[0];
+        assert!(
+            (thumb.width - BAR_SIZE).abs() < 0.01,
+            "at the reference's thickness: {thumb:?}"
+        );
+        assert!(
+            ((thumb.x + thumb.width) - (200.0 - BAR_MARGIN)).abs() < 0.01,
+            "and clear of the edge by `crossAxisMargin`, not shrunk to fit: {thumb:?}"
+        );
+        assert!(
+            thumb.height >= MIN_THUMB,
+            "and never shorter than a pointer can catch: {thumb:?}"
+        );
+        let theme = Theme::dark();
+        assert_eq!(color, theme.scheme.on_surface.fade(THUMB_ON_DARK));
+    }
+
+    /// **Along the horizontal axis, never** (`app.dart:861`) — on any platform, under any
+    /// setting. A sideways strip is scrolled by whatever made it sideways, and a bar
+    /// under it takes room from content that is short of it already.
+    #[test]
+    fn a_sideways_strip_never_gets_one() {
+        let strip = SingleChildScrollView::new()
+            .axis(crate::scroll::Axis::Horizontal)
+            .width(200.0)
+            .height(100.0)
+            .child(Container::<()>::new().width(1000.0).height(100.0));
+        let runtime = Runtime::with_scrollbars(Scrollbars::Always);
+        let ui = build_ui(&strip, Size::new(200.0, 100.0), &runtime, &Theme::dark());
+        assert!(
+            ui.scrollbars().is_empty(),
+            "a desktop draws none across, either"
+        );
+    }
+
+    /// And **one area may answer for itself**, over the application's answer — the
+    /// per-area say the physics beside it already had.
+    #[test]
+    fn an_area_may_ask_for_its_own_answer() {
+        assert_eq!(
+            bars(tall().scrollbars(Scrollbars::Always), Scrollbars::Never).len(),
+            1,
+            "asked for one where the platform gives none"
+        );
+        assert_eq!(
+            bars(tall().scrollbars(Scrollbars::Never), Scrollbars::Always),
+            vec![],
+            "and refused one where it does"
+        );
+    }
+
+    /// **A bar nobody has scrolled is not there at all.** The reference's fade starts
+    /// closed and is opened only by movement (`scrollbar.dart:1960`); a list that has
+    /// just appeared shows its content, not its furniture.
+    ///
+    /// It is **registered** even so, which a bar the platform does not draw is not. The
+    /// difference is real: that one is not there, and this one is here and invisible —
+    /// and a mouse coming near it is the only thing that can bring it back.
+    #[test]
+    fn an_untouched_area_shows_no_bar_but_can_still_be_reached_for() {
+        let runtime = Runtime::with_scrollbars(Scrollbars::Always);
+        let ui = build_ui(&tall(), Size::new(200.0, 100.0), &runtime, &Theme::dark());
+        assert_eq!(painted(&ui), vec![], "nothing is painted for it");
+
+        let bar = *ui.scrollbars().first().expect("registered all the same");
+        assert_eq!(bar.opacity, 0.0);
+        let on_it = Point::new(194.0, 20.0);
+        assert!(
+            ui.scrollbar_at(on_it).is_none(),
+            "and a bar at zero cannot be grabbed"
+        );
+        assert!(
+            ui.scrollbar_near(on_it).is_some(),
+            "but it can be reached for, which is what brings it back"
+        );
+        // The reach is wider than the bar: 8 pixels at a tenth of an opacity is not
+        // something a hand aims at precisely.
+        assert!(
+            ui.scrollbar_near(Point::new(178.0, 20.0)).is_some(),
+            "the reach takes in a tap target's room around the thumb: {:?}",
+            bar.reach
+        );
+    }
+
+    /// **A pinned bar does not fade** (`scrollbar.dart:214`) — for an area whose content
+    /// does not look scrollable, or one a reader should be able to aim at without
+    /// scrolling first to make the bar appear.
+    #[test]
+    fn a_pinned_bar_does_not_fade() {
+        let runtime = Runtime::with_scrollbars(Scrollbars::Always);
+        let ui = build_ui(
+            &tall().thumb_visibility(true),
+            Size::new(200.0, 100.0),
+            &runtime,
+            &Theme::dark(),
+        );
+        assert_eq!(painted(&ui).len(), 1, "there without being scrolled to");
+        assert_eq!(ui.scrollbars()[0].opacity, 1.0);
+    }
+
+    /// **A thumb under a pointer, and a thumb in a hand**, are two different colours
+    /// (`scrollbar.dart:245`, `:244`) — and neither is the resting one. The dragged
+    /// value arrives at once: the hand is already on it.
+    #[test]
+    fn a_thumb_answers_the_pointer() {
+        use crate::runtime::ScrollbarFade;
+        let build = |prime: &dyn Fn(&mut Runtime)| {
+            let mut runtime = Runtime::with_scrollbars(Scrollbars::Always);
+            prime(&mut runtime);
+            let ui = build_ui(
+                &tall().thumb_visibility(true),
+                Size::new(200.0, 100.0),
+                &runtime,
+                &Theme::dark(),
+            );
+            let id = ui.scrollbars()[0].id;
+            (id, painted(&ui)[0].1)
+        };
+
+        let theme = Theme::dark();
+        let (id, resting) = build(&|_| {});
+        assert_eq!(resting, theme.scheme.on_surface.fade(THUMB_ON_DARK));
+
+        let (_, warmed) = build(&|rt| {
+            rt.scrollbar_fade.insert(
+                id,
+                ScrollbarFade {
+                    opacity: 1.0,
+                    hover: 1.0,
+                    ..ScrollbarFade::default()
+                },
+            );
+        });
+        assert_eq!(warmed, theme.scheme.on_surface.fade(THUMB_HOVER_ON_DARK));
+
+        let (_, grabbed) = build(&|rt| rt.scrollbar_dragged = Some(id));
+        assert_eq!(grabbed, theme.scheme.on_surface.fade(THUMB_DRAG_ON_DARK));
     }
 
     #[test]
@@ -5545,6 +6073,88 @@ mod tests {
     }
 
     #[test]
+    fn a_traversal_can_arrive_before_the_layout_pass() {
+        // Milestone 415. A `ThemeBuilder`'s subtree does not exist until something has
+        // called `build_themed` on it, and `children()` says so in its own doc: "a
+        // traversal that arrives first should call `build_themed`, not this".
+        //
+        // The shell has such a traversal. On a **burst of keystrokes** — a software
+        // keyboard, `adb input text`, auto-repeat — it rebuilds the tree from `view` alone
+        // and reads it immediately, with no layout pass in between, so every deferred
+        // subtree in it is empty and every widget inside one is unreachable.
+        let deferred = |value: &str| {
+            let value = value.to_string();
+            crate::ThemeBuilder::new(move |_: &Theme| {
+                TextField::new(value.clone())
+                    .width(200.0)
+                    .on_input(Msg::Edited)
+            })
+        };
+        let laid_out = Flex::column()
+            .width(300.0)
+            .height(80.0)
+            .child(deferred("hi"));
+        let rt = Runtime::default();
+        let ui = build_ui(&laid_out, Size::new(300.0, 80.0), &rt, &Theme::default());
+        let (id, _) = ui.focus_hit(Point::new(10.0, 10.0)).expect("the field");
+        assert!(
+            find_widget(&laid_out, id).is_some(),
+            "after a layout pass the field is where the hit-test said it was"
+        );
+
+        // The same tree, freshly built and not yet laid out. `build_deferred` is what the
+        // layout pass does on its way down, and nothing else.
+        let fresh = Flex::column()
+            .width(300.0)
+            .height(80.0)
+            .child(deferred("hi"));
+        build_deferred(&fresh, &Theme::default());
+        assert!(
+            find_widget(&fresh, id).is_some(),
+            "prepared the same way, the same traversal reaches the same widget"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "before it was built")]
+    fn reading_an_unbuilt_deferred_subtree_trips_the_wire() {
+        // Without the preparation the traversal used to return `None` and the caller
+        // shrugged: no field found, no caret revealed, nothing said. The failure mode was
+        // **silence**, so the guard is a panic in debug rather than a comment.
+        let fresh =
+            Flex::<Msg>::column()
+                .width(300.0)
+                .height(80.0)
+                .child(crate::ThemeBuilder::new(|_: &Theme| {
+                    Container::<Msg>::new().width(10.0).height(10.0)
+                }));
+        let _ = find_widget(&fresh, WidgetId::ROOT.child(9));
+    }
+
+    #[test]
+    fn a_deferred_subtree_is_built_under_its_own_theme() {
+        // The layout pass swaps the theme before it builds (`theme_override`), so a
+        // builder inside a `Themed` sees the subtree's theme and not the frame's.
+        // `build_deferred` has to make the same swap or it would build the wrong subtree
+        // — and being *nearly* the walk is worse than not being it at all.
+        let seen = std::rc::Rc::new(std::cell::Cell::new(0.0f32));
+        let recorder = {
+            let seen = seen.clone();
+            crate::ThemeBuilder::new(move |theme: &Theme| {
+                seen.set(theme.radius);
+                Container::<Msg>::new().width(10.0).height(10.0)
+            })
+        };
+        let inner = Theme {
+            radius: 99.0,
+            ..Theme::default()
+        };
+        let tree = Flex::<Msg>::column().child(crate::Themed::new(inner, recorder));
+        build_deferred(&tree, &Theme::default());
+        assert_eq!(seen.get(), 99.0, "the subtree's theme, not the frame's");
+    }
+
+    #[test]
     fn find_by_key_resolves_a_keyed_field_to_its_focus_id() {
         // Two named fields: `find_by_key` finds each one's focus identity (the one the
         // hit-test would assign), and it tells the keys apart.
@@ -6021,8 +6631,7 @@ mod tests {
             WidgetId::ROOT,
             crate::Anim {
                 hover: 0.5,
-                focus: 0.0,
-                opacity: 1.0,
+                ..Default::default()
             },
         );
         build_ui(&tree, size, &rt, &theme); // frame 2

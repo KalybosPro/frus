@@ -10,7 +10,9 @@
 //! that change the current step). Since the name `Stepper` is already taken by the
 //! −/value/+ numeric picker, this indicator is called `Steps`.
 
-use frus_core::{Color, Point, Rect, Role, Scene, SemanticsProperties};
+use frus_core::{
+    Color, Point, Rect, ResolvedTextStyle, Role, Scene, SemanticsProperties, TextStyle,
+};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::flex::Flex;
@@ -25,12 +27,46 @@ const MARKER_D: f32 = 28.0;
 const R: f32 = MARKER_D / 2.0;
 /// The marker → label gap.
 const LABEL_GAP: f32 = 8.0;
-/// Font size of a step label.
-const LABEL_SIZE: f32 = 12.0;
-/// Font size of the number inside a marker.
-const NUM_SIZE: f32 = 14.0;
+/// The figure inside a marker. The reference writes this one out too — a step's index is
+/// 12 px there, with the step's own style as the way to change it.
+const NUM_SIZE: f32 = 12.0;
 /// Total height of the indicator (marker + label).
 const HEIGHT: f32 = 56.0;
+
+/// A step's label: what the caller said, else what the theme says, else the reference's —
+/// a step is titled in `bodyLarge`.
+///
+/// The reference sets that title *beside* the marker and this one sits *under* it: the
+/// placement is ours, the role is read rather than invented, and an application that wants
+/// a caption under its markers says so on the widget or in the theme.
+///
+/// **Resolved once** so that the number the bar is measured with is the number the glyphs
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403).
+fn label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.steps.label_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_large)
+        .resolved()
+}
+
+/// The figure inside a marker.
+///
+/// Untold it is [`ResolvedTextStyle::exact`] — **geometry, not type**: it sits inside a
+/// circle of a fixed `MARKER_D`, and a figure that grew with the reader's setting would
+/// leave it. A style that *is* told is resolved like any other, because a caller who names
+/// this one has taken that decision back.
+fn index_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    match over.or(theme.and_then(|t| t.widgets.steps.index_text_style)) {
+        Some(style) => style.resolved(),
+        None => ResolvedTextStyle::exact(NUM_SIZE),
+    }
+}
+
+/// The bar's height: the constant, unless the labels the reader asked to enlarge no longer
+/// fit under the markers.
+fn bar_height(label: &ResolvedTextStyle) -> f32 {
+    HEIGHT.max(MARKER_D + LABEL_GAP + label.line_height() + 4.0)
+}
 
 /// The step indicator of a multi-step form.
 ///
@@ -47,6 +83,8 @@ pub struct Steps<Msg> {
     /// An **explicit** per-step "done" mask (validity). Empty → the default rule
     /// (`i < current`, see [`completed`](Self::completed)).
     completed: Vec<bool>,
+    label_text_style: Option<TextStyle>,
+    index_text_style: Option<TextStyle>,
     /// Empty, or **one** row of clickable hotspots laid over the markers when
     /// [`on_tap`](Self::on_tap) is supplied.
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -60,8 +98,29 @@ impl<Msg: Clone + 'static> Steps<Msg> {
             current: 0,
             color: None,
             completed: Vec::new(),
+            label_text_style: None,
+            index_text_style: None,
             children: Vec::new(),
         }
+    }
+
+    /// The captions under the markers, over the theme's and the reference's.
+    #[must_use]
+    pub fn label_text_style(mut self, style: TextStyle) -> Self {
+        self.label_text_style = Some(style);
+        self
+    }
+
+    /// The figures inside the markers, over the theme's and the framework's.
+    ///
+    /// Naming one also puts it back **under the reader's font setting**. Untold, the figure
+    /// is geometry rather than type — it sits inside a circle of a fixed diameter, and one
+    /// that grew with the reader's setting would leave it. A caller who names this style has
+    /// taken that decision back.
+    #[must_use]
+    pub fn index_text_style(mut self, style: TextStyle) -> Self {
+        self.index_text_style = Some(style);
+        self
     }
 
     /// Explicitly marks the **done** steps (a tick) with one flag per step — typically each
@@ -103,6 +162,17 @@ impl<Msg: Clone + 'static> Steps<Msg> {
 }
 
 impl<Msg> Steps<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        let label = label_style(self.label_text_style, theme);
+        Style {
+            height: Dimension::Length(bar_height(&label)),
+            // Any row of hotspots occupies the top, the markers' band.
+            flex_direction: FlexDirection::Column,
+            align: Align::Stretch,
+            ..Default::default()
+        }
+    }
+
     /// Is step `i` **done**? The explicit mask if one is supplied, otherwise `i < current`.
     fn is_done(&self, i: usize) -> bool {
         if self.completed.is_empty() {
@@ -124,15 +194,20 @@ impl<Msg> Steps<Msg> {
 }
 
 impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
+    /// It asks to **fill the width it is offered** rather than declaring one — see
+    /// [`Widget::fill_axes`]. A `width: 100%` resolves against the parent's *resolved*
+    /// width, which a parent that shrink-wraps does not have yet.
     fn style(&self) -> Style {
-        Style {
-            width: Dimension::Percent(1.0),
-            height: Dimension::Length(HEIGHT),
-            // Any row of hotspots occupies the top, the markers' band.
-            flex_direction: FlexDirection::Column,
-            align: Align::Stretch,
-            ..Default::default()
-        }
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
+    }
+
+    /// The width it was **offered**, not the width its parent came out at.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::WIDTH
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -179,29 +254,34 @@ impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
 
             if completed {
                 // A tick (a centred 16 px icon) on an accent background.
-                let path = Icons::Check
-                    .path()
-                    .scaled(16.0 / 24.0)
-                    .translated(cx - 8.0, cy - 8.0);
+                let path = Icons::CHECK.placed(16.0, cx - 8.0, cy - 8.0, theme.direction);
                 scene.fill_path(&path, theme.on_primary.fade(o));
             } else {
                 let num = (i + 1).to_string();
-                let m = frus_text::measure(&num, NUM_SIZE);
+                let num_style = index_style(self.index_text_style, Some(theme));
+                let m = frus_text::measure_resolved(&num, &num_style);
                 let color = if current {
                     theme.on_primary
                 } else {
                     theme.on_surface
                 };
                 let p = Point::new(cx - m.width * 0.5, cy - m.height * 0.5);
-                scene.text(p, num, NUM_SIZE, color.fade(o));
+                scene.text(p, num, &num_style, color.fade(o));
             }
 
             // The label under the marker, centred; dimmed away from the current step.
             let label = &self.labels[i];
-            let lm = frus_text::measure(label, LABEL_SIZE);
+            let label_s = label_style(self.label_text_style, Some(theme));
+            let lm = frus_text::measure_resolved(label, &label_s);
             let alpha = if current { o } else { 0.6 * o };
-            let p = Point::new(cx - lm.width * 0.5, bounds.y + MARKER_D + LABEL_GAP);
-            scene.text(p, label.clone(), LABEL_SIZE, theme.on_surface.fade(alpha));
+            // Centred on the marker, **kept inside the bar**. The first and last markers
+            // sit one radius from the edges, so a label wider than `MARKER_D` hangs off
+            // the end of the widget — which it always could, and which a label read at
+            // the reference's `bodyLarge` rather than at a private 12 px makes ordinary.
+            let lx = (cx - lm.width * 0.5)
+                .clamp(bounds.x, (bounds.x + bounds.width - lm.width).max(bounds.x));
+            let p = Point::new(lx, bounds.y + MARKER_D + LABEL_GAP);
+            scene.text(p, label.clone(), &label_s, theme.on_surface.fade(alpha));
         }
     }
 

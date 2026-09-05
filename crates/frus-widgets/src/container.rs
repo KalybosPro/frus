@@ -7,7 +7,7 @@ use frus_core::{
 };
 use frus_layout::{Align, Dimension, Justify, Style};
 
-use crate::interaction::{Interaction, Status};
+use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -436,17 +436,26 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, _theme: &Theme, scene: &mut Scene) {
         // A background with an **animated color**: the color the runtime interpolates
-        // wins (the hover/press interpolation does not apply to an animated
-        // background). Pressed: instant. Otherwise, an animated rest → hover
-        // transition.
+        // wins (the hover/press interpolation does not apply to an animated background).
+        // Otherwise two progressions in a row — rest → hover, then that → held. The press
+        // used to be the one step here that was instant; it is a progression since
+        // milestone 441, and crossing over from wherever the hover had got to is what
+        // keeps a pointer that presses mid-fade from jumping backwards first.
         let color = if self.color_anim.is_some() {
             status.anim_color.or(self.color)
-        } else if status.interaction == Interaction::Pressed {
-            self.pressed_color.or(self.hover_color).or(self.color)
-        } else if let (Some(base), Some(hover)) = (self.color, self.hover_color) {
-            Some(base.lerp(hover, ease(status.hover_progress)))
         } else {
-            self.color
+            let settled = match (self.color, self.hover_color) {
+                (Some(base), Some(hover)) => Some(base.lerp(hover, ease(status.hover_progress))),
+                _ => self.color,
+            };
+            let press = ease(status.press_progress.clamp(0.0, 1.0));
+            match (settled, self.pressed_color.or(self.hover_color)) {
+                (Some(from), Some(held)) => Some(from.lerp(held, press)),
+                // Nothing to cross over *from*: a container with a held colour and no
+                // resting one at all has no fill to fade, so it appears with the press.
+                (None, held) if press > 0.0 => held,
+                (settled, _) => settled,
+            }
         };
 
         // Compose the decoration (background/gradient/border/shadow) and lower it into
@@ -606,6 +615,53 @@ mod tests {
             .child(Container::<()>::new().width(80.0).height(20.0).shrink(1.0))
             .child(Container::<()>::new().width(40.0).height(20.0));
         assert_eq!(widths(&giving_way), vec![60.0, 40.0]);
+    }
+
+    /// **A held box crosses over to its pressed colour** (milestone 441) instead of
+    /// snapping to it. The line that chose it read `Interaction::Pressed` and the comment
+    /// beside it said "Pressed: instant" — the one step of the rest → hover → held path
+    /// that was not a progression.
+    #[test]
+    fn a_held_box_crosses_over_to_its_pressed_colour() {
+        use frus_core::Primitive;
+
+        let rest = Color::rgb(0.2, 0.2, 0.2);
+        let held = Color::rgb(0.8, 0.8, 0.8);
+        let box_: Container<()> = Container::new()
+            .width(20.0)
+            .height(20.0)
+            .color(rest)
+            .pressed_color(held);
+
+        let fill = |press: f32| {
+            let mut scene = Scene::new();
+            Widget::<()>::paint(
+                &box_,
+                Rect::new(0.0, 0.0, 20.0, 20.0),
+                Status {
+                    press_progress: press,
+                    ..Default::default()
+                },
+                &crate::Theme::dark(),
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect { color, .. } => Some(*color),
+                    _ => None,
+                })
+                .expect("a box paints its background")
+        };
+
+        assert_eq!(fill(0.0), rest, "untouched");
+        assert_eq!(fill(1.0), held, "held");
+        let half = fill(0.5).r;
+        assert!(
+            half > rest.r && half < held.r,
+            "half way through the press: {half}"
+        );
     }
 
     /// A `Container` with a group opacity < 1 has its painted subtree wrapped in a

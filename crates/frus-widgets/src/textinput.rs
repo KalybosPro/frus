@@ -4,12 +4,12 @@
 //! The value is controlled; the **caret / selection** are edit state retained at
 //! runtime ([`Edit`]), keyed by widget identity.
 
-use frus_core::{FontWeight, Point, Rect, Scene, TextAlign, TextStyle};
+use frus_core::{Point, Rect, ResolvedTextStyle, Scene, TextAlign, TextStyle};
 use frus_layout::{Dimension, Style};
 use frus_text::TextLayout;
 
 use crate::disabled::DISABLED_CONTENT_OPACITY;
-use crate::icons::Icons;
+use crate::icons::IconData;
 use crate::ime::{Capitalization, Ime, KeyboardType, TextInputAction};
 use crate::interaction::{Key, Status};
 use crate::runtime::Edit;
@@ -83,6 +83,19 @@ pub enum TextFieldVariant {
     /// A tinted container with a single line under it, the label floating **inside** the
     /// box. The line carries the state; the fill carries the affordance.
     Filled,
+    /// **No container at all** — the reference's `InputBorder.none`. No fill, no box, no
+    /// line: only the value, the hint and whatever icons were asked for.
+    ///
+    /// This is the field a widget puts *inside* something that is already a container. A
+    /// [`SearchBar`](crate::SearchBar) is a raised stadium with a field in it, and a field
+    /// that drew its own box inside that would be two containers deep with the outer one's
+    /// corners cut by the inner one's. The reference reaches for it in exactly those
+    /// places (`search_anchor.dart:1810`).
+    ///
+    /// It lays out like [`Filled`](Self::Filled) — the label floats inside rather than
+    /// notching a border, there being no border to notch — and simply paints nothing
+    /// behind the content.
+    None,
 }
 
 /// Everything a [`TextField`] paints, each answer the caller's, the theme's, or the
@@ -98,6 +111,9 @@ pub struct TextFieldStyle {
     pub focused_border_color: Option<frus_core::Color>,
     /// Border, label and helper colour while an error is showing.
     pub error_color: Option<frus_core::Color>,
+    /// The same, **under the pointer**: an errored field deepens on hover
+    /// (`input_decorator.dart:5981`). Unset, the scheme's `on_error_container`.
+    pub error_hover_color: Option<frus_core::Color>,
     /// The value's colour.
     pub text_color: Option<frus_core::Color>,
     /// The label and the hint, at rest.
@@ -152,9 +168,9 @@ pub struct TextField<Msg> {
     /// What its action key does; `None` = likewise.
     action: Option<TextInputAction>,
     /// Decorative icon on the left inside the box.
-    prefix: Option<Icons>,
+    prefix: Option<IconData>,
     /// Decorative icon on the right inside the box.
-    suffix: Option<Icons>,
+    suffix: Option<IconData>,
     /// Message emitted on a **click on the suffix icon** (a clear / reveal button…). Makes
     /// the suffix clickable: a click there emits this message instead of placing the caret.
     suffix_action: Option<Msg>,
@@ -291,6 +307,14 @@ impl<Msg> TextField<Msg> {
 
     /// **Filled**: a tinted container with a single line under it, the label floating
     /// inside the box rather than on its edge.
+    /// **No container**: no fill, no box, no line — the reference's `InputBorder.none`.
+    /// For a field inside something that is already a container. See
+    /// [`TextFieldVariant::None`].
+    pub fn borderless(mut self) -> Self {
+        self.variant = TextFieldVariant::None;
+        self
+    }
+
     pub fn filled(mut self) -> Self {
         self.variant = TextFieldVariant::Filled;
         self
@@ -331,6 +355,11 @@ impl<Msg> TextField<Msg> {
         self.variant == TextFieldVariant::Outlined
     }
 
+    /// Whether this field paints **no container** — see [`TextFieldVariant::None`].
+    fn is_borderless(&self) -> bool {
+        self.variant == TextFieldVariant::None
+    }
+
     /// Padding either side of the content.
     fn pad_x(&self) -> f32 {
         self.style.padding_x.unwrap_or(FIELD_PADDING_X)
@@ -357,10 +386,25 @@ impl<Msg> TextField<Msg> {
         }
     }
 
+    /// The field's type, **resolved once**: the reader's font setting applied.
+    ///
+    /// Everything that measures, shapes, hit-tests, places a caret or paints the field's
+    /// text goes through this one number. A caret placed from an unresolved size and
+    /// glyphs drawn from a resolved one land in different places, and the field is then
+    /// wrong for exactly the readers who most needed it to be right.
+    fn text_style(&self) -> ResolvedTextStyle {
+        TextStyle::new(self.size).resolved()
+    }
+
+    /// The helper line under the field — helper text, error, counter. See [`Self::text_style`].
+    fn sub_style(&self) -> ResolvedTextStyle {
+        TextStyle::new(FIELD_SUB_SIZE).resolved()
+    }
+
     /// Size the label shrinks to once it floats — a proportion of the field's own type,
     /// not a second number, so a field given larger text keeps the relationship.
     fn label_size(&self) -> f32 {
-        self.size * FIELD_LABEL_SCALE
+        self.text_style().size * FIELD_LABEL_SCALE
     }
 
     /// Side of the prefix/suffix icons.
@@ -395,10 +439,12 @@ impl<Msg> TextField<Msg> {
             fill: pick(
                 self.style.fill,
                 t.fill,
-                if self.is_outlined() {
+                if self.is_outlined() || self.is_borderless() {
                     frus_core::Color::TRANSPARENT
                 } else {
-                    theme.scheme.surface_container_high
+                    // `input_decorator.dart:5968` — a filled field takes the most
+                    // emphasis a container has.
+                    theme.scheme.surface_container_highest
                 },
             ),
             border_color: pick(
@@ -416,6 +462,11 @@ impl<Msg> TextField<Msg> {
                 theme.scheme.primary,
             ),
             error_color: pick(self.style.error_color, t.error_color, theme.scheme.error),
+            error_hover_color: pick(
+                self.style.error_hover_color,
+                t.error_hover_color,
+                theme.scheme.on_error_container,
+            ),
             text_color: pick(self.style.text_color, t.text_color, theme.scheme.on_surface),
             label_color: pick(
                 self.style.label_color,
@@ -584,13 +635,13 @@ impl<Msg> TextField<Msg> {
     }
 
     /// Decorative icon on the left inside the field.
-    pub fn prefix_icon(mut self, icon: Icons) -> Self {
+    pub fn prefix_icon(mut self, icon: IconData) -> Self {
         self.prefix = Some(icon);
         self
     }
 
     /// Decorative icon on the right inside the field.
-    pub fn suffix_icon(mut self, icon: Icons) -> Self {
+    pub fn suffix_icon(mut self, icon: IconData) -> Self {
         self.suffix = Some(icon);
         self
     }
@@ -761,11 +812,12 @@ impl<Msg> TextField<Msg> {
     /// consistent geometry (kerning). `wrap_width` = the soft-wrap width (multi-line) or
     /// `None` (single-line: only explicit `\n` break).
     fn layout(&self, wrap_width: Option<f32>) -> TextLayout {
+        let style = self.text_style();
         TextLayout::wrapped(
             &self.display(),
-            self.size,
-            FontWeight::Regular,
-            false,
+            style.size,
+            style.weight,
+            style.italic,
             wrap_width,
         )
     }
@@ -817,7 +869,10 @@ impl<Msg> TextField<Msg> {
     /// Height reserved for the helper/error line below the box (0 if there is none).
     fn sub_block(&self) -> f32 {
         if self.error.is_some() || self.helper.is_some() || self.max_length.is_some() {
-            frus_text::line_height(FIELD_SUB_SIZE) + FIELD_GAP
+            // The helper style's **own** line, not one recomputed from its size: another
+            // of milestone 412's survivors, written against a bare constant rather than a
+            // style, which is the one formulation that sweep could not find.
+            self.sub_style().line_height() + FIELD_GAP
         } else {
             0.0
         }
@@ -831,7 +886,7 @@ impl<Msg> TextField<Msg> {
         } else {
             1.0
         };
-        (frus_text::line_height(self.size) * lines + self.text_top() + self.pad_bottom()).ceil()
+        (self.text_style().line_height() * lines + self.text_top() + self.pad_bottom()).ceil()
     }
 }
 
@@ -865,6 +920,21 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         } else {
             0.0
         };
+        // **An errored field deepens under the pointer** (`input_decorator.dart:5981`,
+        // `:6004`, `:6053`): `error` at rest, `on_error_container` while hovered — and
+        // back to `error` once focused, because the reference tests focus **before**
+        // hover and a focused field is already saying everything it can.
+        //
+        // Continuous where the reference is discrete, which is this framework's habit
+        // with the pointer: `hover_progress` is a progression, not a flag.
+        let error_ink = s.error_color.unwrap().lerp(s.error_hover_color.unwrap(), {
+            let hover = if self.enabled {
+                status.hover_progress.clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            hover * (1.0 - fp)
+        });
 
         // Decoration: label above, input box in the middle, helper/error below. The
         // box is the sub-rectangle where all the editing lives.
@@ -901,9 +971,10 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
             };
             let x = rest.x + (fx - rest.x) * float_t;
             let y = rest.y + (fy - rest.y) * float_t;
-            let size = self.size + (self.label_size() - self.size) * float_t;
+            let resolved = self.text_style().size;
+            let size = resolved + (self.label_size() - resolved) * float_t;
             let color = if has_error {
-                s.error_color.unwrap()
+                error_ink
             } else {
                 s.label_color
                     .unwrap()
@@ -914,6 +985,10 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         // Helper/error line below the box (the error takes precedence over the helper).
         let sub = self.error.as_ref().or(self.helper.as_ref());
         if let Some(sub) = sub {
+            // The message itself does **not** deepen: `errorStyle` is `error` in every
+            // state (`input_decorator.dart:6100`). It is a sentence, not a control, and
+            // a sentence that changed colour under the pointer would be claiming to be
+            // one.
             let color = if has_error {
                 s.error_color.unwrap()
             } else {
@@ -922,7 +997,7 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
             scene.text(
                 Point::new(bounds.x, field.y + field.height + FIELD_GAP),
                 sub.clone(),
-                FIELD_SUB_SIZE,
+                &self.sub_style(),
                 color.fade(o),
             );
         }
@@ -931,14 +1006,14 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         // colour rather than the error's even while an error is showing: it is a fact
         // about length, not a second complaint.
         if let Some(counter) = self.counter() {
-            let width = frus_text::measure(&counter, FIELD_SUB_SIZE).width;
+            let width = frus_text::measure_resolved(&counter, &self.sub_style()).width;
             scene.text(
                 Point::new(
                     bounds.x + bounds.width - width,
                     field.y + field.height + FIELD_GAP,
                 ),
                 counter,
-                FIELD_SUB_SIZE,
+                &self.sub_style(),
                 s.helper_color.unwrap().fade(o),
             );
         }
@@ -948,7 +1023,7 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         // both together is what makes a focused field unmistakable without relying on
         // colour, which not every reader has.
         let border_color = if has_error {
-            s.error_color.unwrap()
+            error_ink
         } else {
             s.border_color
                 .unwrap()
@@ -959,7 +1034,9 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         let border_width = rest_w + (s.focused_border_width.unwrap() - rest_w) * fp;
         let radius = s.radius.unwrap();
         let fill = s.fill.unwrap();
-        if self.is_outlined() {
+        if self.is_borderless() {
+            // **Nothing.** The container belongs to whatever this field was put inside.
+        } else if self.is_outlined() {
             scene.draw_rect(field, fill.fade(o), radius, border_width, border_color);
         } else {
             // Filled: a container with its **top** corners rounded, and a single line
@@ -994,7 +1071,10 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         // stopped doing in milestone 295, and the golden went blank.
         if !self.is_outlined() {
             if let Some((label, x, y, size, color)) = &label_geom {
-                scene.text(Point::new(*x, *y), label.clone(), *size, color.fade(o));
+                // `exact`: `size` is already an interpolation between two **resolved**
+                // numbers, so resolving it again would apply the reader's setting twice.
+                let style = ResolvedTextStyle::exact(*size);
+                scene.text(Point::new(*x, *y), label.clone(), &style, color.fade(o));
             }
         }
 
@@ -1013,19 +1093,25 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
                     );
                     scene.fill_rect(notch, theme.surface.fade(o * float_t));
                 }
-                scene.text(Point::new(*x, *y), label.clone(), *size, color.fade(o));
+                scene.text(
+                    Point::new(*x, *y),
+                    label.clone(),
+                    &ResolvedTextStyle::exact(*size),
+                    color.fade(o),
+                );
             }
         }
 
         // Decorative icons, vertically centred in the box (a discreet colour).
         let icon_color = s.icon_color.unwrap().fade(o);
         let icon_y = field.y + (field.height - self.icon_size()) * 0.5;
-        let icon_scale = self.icon_size() / 24.0;
         if let Some(prefix) = self.prefix {
-            let path = prefix
-                .path()
-                .scaled(icon_scale)
-                .translated(field.x + ICON_PAD, icon_y);
+            let path = prefix.placed(
+                self.icon_size(),
+                field.x + ICON_PAD,
+                icon_y,
+                theme.direction,
+            );
             scene.fill_path(&path, icon_color);
         }
         if let Some(suffix) = self.suffix {
@@ -1052,7 +1138,7 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
                     }
                 }
             }
-            let path = suffix.path().scaled(icon_scale).translated(x, icon_y);
+            let path = suffix.placed(self.icon_size(), x, icon_y, theme.direction);
             scene.fill_path(&path, icon_color);
         }
 
@@ -1084,12 +1170,13 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
                 if ph_alpha > 0.01 {
                     // The placeholder sits where the text will: a centred field whose
                     // hint hugs the left edge jumps the moment the first key lands.
-                    let hint_w = frus_text::measure(placeholder, self.size).width;
+                    let style = self.text_style();
+                    let hint_w = frus_text::measure_resolved(placeholder, &style).width;
                     let hint_align = self.align_offset(content_w, hint_w);
                     scene.text(
                         Point::new(content_x + hint_align, text_y),
                         placeholder.clone(),
-                        self.size,
+                        &style,
                         theme.muted.fade(ph_alpha),
                     );
                 }
@@ -1150,14 +1237,10 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
             let color = theme.on_surface.fade(o);
             match wrap {
                 // Multi-line: the render wraps just as the measure did.
-                Some(max_w) => scene.text_wrapped(
-                    pos,
-                    self.display(),
-                    &TextStyle::new(self.size).resolved(),
-                    color,
-                    max_w,
-                ),
-                None => scene.text(pos, self.display(), self.size, color),
+                Some(max_w) => {
+                    scene.text_wrapped(pos, self.display(), &self.text_style(), color, max_w)
+                }
+                None => scene.text(pos, self.display(), &self.text_style(), color),
             }
         }
 
@@ -1544,6 +1627,7 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::icons::Icons;
 
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
@@ -1579,7 +1663,7 @@ mod tests {
     /// anything else drawn to the same specification.
     #[test]
     fn a_field_is_the_references_size() {
-        let line = frus_text::line_height(FIELD_TEXT_SIZE);
+        let line = input("x").text_style().line_height();
         let outlined = input("x");
         assert_eq!(
             outlined.field_height(),
@@ -1604,7 +1688,7 @@ mod tests {
     /// the shape, the label or the border.
     #[test]
     fn a_dense_field_gives_back_its_padding() {
-        let line = frus_text::line_height(FIELD_TEXT_SIZE);
+        let line = input("x").text_style().line_height();
         assert_eq!(
             input("x").dense(true).field_height(),
             (line + FIELD_DENSE_OUTLINED_PADDING_TOP + FIELD_DENSE_OUTLINED_PADDING_BOTTOM).ceil()
@@ -2436,7 +2520,7 @@ mod tests {
         // A prefix icon draws a path and offsets the content to the right: the same
         // click lands on a smaller index than it would without one.
         let theme = Theme::default();
-        let with_icon = input("hello world").prefix_icon(Icons::Star);
+        let with_icon = input("hello world").prefix_icon(Icons::STAR);
         let mut scene = Scene::new();
         Widget::<Msg>::paint(
             &with_icon,
@@ -2500,7 +2584,7 @@ mod tests {
             .on_input(Msg::Changed)
             .rows(4)
             .width(160.0);
-        let line_h = frus_text::line_height(inp.size);
+        let line_h = inp.text_style().line_height();
         let top = Widget::<Msg>::cursor_at(
             &inp,
             FIELD_PADDING_X + 2.0,
@@ -2673,7 +2757,7 @@ mod tests {
         let inp = TextField::<Msg>::new("ab\ncd")
             .on_input(Msg::Changed)
             .rows(3);
-        let line_h = frus_text::line_height(inp.size);
+        let line_h = inp.text_style().line_height();
         // A top-left click → the 1st line (index ≤ 2).
         let top = Widget::<Msg>::cursor_at(
             &inp,
@@ -2739,6 +2823,97 @@ mod tests {
             float_y < rest_y,
             "once focused the label rises ({rest_y} → {float_y})"
         );
+    }
+
+    /// **An errored field deepens under the pointer** (milestone 439).
+    ///
+    /// `error` at rest, `on_error_container` while hovered, and `error` again once
+    /// focused — the reference tests focus **before** hover
+    /// (`input_decorator.dart:5977`), because a focused field is already saying
+    /// everything it can. The message below it does not move: `errorStyle` is `error` in
+    /// every state (`:6100`), it being a sentence rather than a control.
+    ///
+    /// It is the first thing here to ask the scheme for `on_error_container`, which
+    /// arrived in milestone 429 with nothing wanting it.
+    #[test]
+    fn an_errored_field_deepens_under_the_pointer() {
+        let theme = Theme::default();
+        let field = input("x").label("Name").error("Required").outlined();
+        let painted = |status: Status| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                &field,
+                Rect::new(0.0, 0.0, 220.0, 90.0),
+                status,
+                &theme,
+                &mut scene,
+            );
+            scene
+        };
+        // The border is the only stroked rectangle a field paints.
+        let border = |status: Status| {
+            painted(status)
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Rect {
+                        border_color,
+                        border_width,
+                        ..
+                    } if *border_width > 0.0 => Some(*border_color),
+                    _ => None,
+                })
+                .expect("an outlined field draws a border")
+        };
+        let message = |status: Status| {
+            painted(status)
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Text { text, color, .. } if text == "Required" => {
+                        Some(*color)
+                    }
+                    _ => None,
+                })
+                .expect("the message is painted")
+        };
+        let rest = Status {
+            opacity: 1.0,
+            ..Default::default()
+        };
+        let hovered = Status {
+            hover_progress: 1.0,
+            ..rest
+        };
+        let both = Status {
+            focused: true,
+            focus_progress: 1.0,
+            ..hovered
+        };
+
+        assert_eq!(border(rest), theme.scheme.error);
+        assert_eq!(
+            border(hovered),
+            theme.scheme.on_error_container,
+            "it deepens under the pointer"
+        );
+        assert_eq!(
+            border(both),
+            theme.scheme.error,
+            "and comes back once focused, which the reference tests first"
+        );
+        assert_ne!(
+            theme.scheme.error, theme.scheme.on_error_container,
+            "the two have to differ for any of the above to mean anything"
+        );
+
+        for status in [rest, hovered, both] {
+            assert_eq!(
+                message(status),
+                theme.scheme.error,
+                "the message is a sentence, not a control"
+            );
+        }
     }
 
     #[test]
@@ -2812,7 +2987,7 @@ mod tests {
     #[test]
     fn clickable_suffix_emits_and_blocks_caret() {
         let field = TextField::new("hello")
-            .suffix_icon(Icons::Close)
+            .suffix_icon(Icons::CLOSE)
             .on_suffix(Msg::Submitted)
             .width(220.0);
         let (w, y) = (220.0, 12.0);
@@ -2832,7 +3007,7 @@ mod tests {
         assert!(Widget::<Msg>::cursor_at(&field, 20.0, y, w, 0).is_some());
         // Without `on_suffix` the icon stays decorative (no positional click).
         let deco = TextField::<Msg>::new("hello")
-            .suffix_icon(Icons::Close)
+            .suffix_icon(Icons::CLOSE)
             .width(220.0);
         assert_eq!(
             Widget::<Msg>::positional_click(&deco, x_suffix, y, w, 40.0),
@@ -2843,7 +3018,7 @@ mod tests {
     #[test]
     fn hovering_active_suffix_paints_a_halo() {
         let field = TextField::new("hello")
-            .suffix_icon(Icons::Close)
+            .suffix_icon(Icons::CLOSE)
             .on_suffix(Msg::Submitted)
             .width(220.0);
         let bounds = Rect::new(0.0, 0.0, 220.0, 40.0);
@@ -2881,7 +3056,7 @@ mod tests {
     fn cursor_icon_is_pointer_over_active_suffix() {
         use crate::interaction::Cursor;
         let field = TextField::new("hello")
-            .suffix_icon(Icons::Close)
+            .suffix_icon(Icons::CLOSE)
             .on_suffix(Msg::Submitted)
             .width(220.0);
         let (w, h, y) = (220.0, 40.0, 12.0);
@@ -2893,7 +3068,7 @@ mod tests {
         assert_eq!(Widget::<Msg>::cursor_icon(&field, 20.0, y, w, h), None);
         // A decorative suffix (no on_suffix): no hand.
         let deco = TextField::<Msg>::new("hello")
-            .suffix_icon(Icons::Close)
+            .suffix_icon(Icons::CLOSE)
             .width(220.0);
         assert_eq!(Widget::<Msg>::cursor_icon(&deco, w - 8.0, y, w, h), None);
     }
