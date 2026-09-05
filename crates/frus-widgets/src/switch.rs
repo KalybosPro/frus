@@ -5,7 +5,7 @@ use frus_layout::{Dimension, Style};
 
 use crate::disabled::DISABLED_CONTAINER_OPACITY;
 use crate::disabled::{disabled_container, disabled_content, disabled_mark, over_surface};
-use crate::icons::Icons;
+use crate::icons::IconData;
 use crate::interaction::Status;
 use crate::theme::{TapTarget, Theme};
 use crate::widget::Widget;
@@ -29,8 +29,6 @@ const THUMB_PRESSED: f32 = 14.0;
 const THUMB_WITH_ICON: f32 = 12.0;
 /// The glyph inside the thumb (`switch.dart:2314`).
 const ICON_SIZE: f32 = 16.0;
-/// The grid the icon paths are drawn on.
-const ICON_GRID: f32 = 24.0;
 /// The rule round an **off** track (`switch.dart:2298`).
 const TRACK_OUTLINE: f32 = 2.0;
 
@@ -42,8 +40,8 @@ pub struct Switch<Msg> {
     inactive_track_color: Option<Color>,
     thumb_color: Option<Color>,
     inactive_thumb_color: Option<Color>,
-    thumb_icon: Option<Icons>,
-    inactive_thumb_icon: Option<Icons>,
+    thumb_icon: Option<IconData>,
+    inactive_thumb_icon: Option<IconData>,
     tap_target: Option<TapTarget>,
     on_toggle: Option<Box<dyn Fn(bool) -> Msg>>,
 }
@@ -105,14 +103,14 @@ impl<Msg> Switch<Msg> {
     /// Giving either end an icon makes **both** thumbs the on-thumb's size
     /// (`switch.dart:2369`), because a switch whose thumb changed size only when it had
     /// something to show would be two different switches.
-    pub fn thumb_icon(mut self, icon: Icons) -> Self {
+    pub fn thumb_icon(mut self, icon: IconData) -> Self {
         self.thumb_icon = Some(icon);
         self
     }
 
     /// The same while the switch is **off** — a cross beside the tick. See
     /// [`Self::thumb_icon`].
-    pub fn inactive_thumb_icon(mut self, icon: Icons) -> Self {
+    pub fn inactive_thumb_icon(mut self, icon: IconData) -> Self {
         self.inactive_thumb_icon = Some(icon);
         self
     }
@@ -338,10 +336,12 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
                     .inactive_icon_color
                     .unwrap_or(theme.scheme.surface_container_highest)
             };
-            let path = icon
-                .path()
-                .scaled(ICON_SIZE / ICON_GRID)
-                .translated(cx - ICON_SIZE * 0.5, cy - ICON_SIZE * 0.5);
+            let path = icon.placed(
+                ICON_SIZE,
+                cx - ICON_SIZE * 0.5,
+                cy - ICON_SIZE * 0.5,
+                theme.direction,
+            );
             scene.fill_path(&path, ink.fade(o));
         }
     }
@@ -384,6 +384,7 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
 mod tests {
     use super::*;
     use crate::disabled::{disabled_container, disabled_content, disabled_mark};
+    use crate::icons::Icons;
     use crate::theme::{MIN_TAP_TARGET, SHRUNK_TAP_TARGET};
     use crate::widget::Widget;
 
@@ -565,7 +566,7 @@ mod tests {
 
         let ticked = Switch::<Msg>::new(false)
             .on_toggle(Msg::Set)
-            .thumb_icon(Icons::Check);
+            .thumb_icon(Icons::CHECK);
         assert_eq!(
             thumb_radius(&ticked, state(false), &theme),
             THUMB_WITH_ICON,
@@ -598,7 +599,7 @@ mod tests {
         };
         let ticked = Switch::<Msg>::new(true)
             .on_toggle(Msg::Set)
-            .thumb_icon(Icons::Check);
+            .thumb_icon(Icons::CHECK);
         assert_eq!(
             glyph(&ticked, true),
             Some(theme.scheme.on_primary_container)
@@ -608,13 +609,13 @@ mod tests {
         // that is off and names no off icon carries none.
         let unticked = Switch::<Msg>::new(false)
             .on_toggle(Msg::Set)
-            .thumb_icon(Icons::Check);
+            .thumb_icon(Icons::CHECK);
         assert_eq!(glyph(&unticked, false), None, "nothing at the other end");
 
         let crossed = Switch::<Msg>::new(false)
             .on_toggle(Msg::Set)
-            .thumb_icon(Icons::Check)
-            .inactive_thumb_icon(Icons::Close);
+            .thumb_icon(Icons::CHECK)
+            .inactive_thumb_icon(Icons::CLOSE);
         assert_eq!(
             glyph(&crossed, false),
             Some(theme.scheme.surface_container_highest),

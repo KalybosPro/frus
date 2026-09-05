@@ -363,7 +363,7 @@ mod tests {
                     Checkbox::new(i % 2 == 0),
                     text(format!("Task number {i}")).size(15.0),
                     Container::new().flex(1.0),
-                    Icon::new(Icons::Close).size(16.0),
+                    Icon::new(Icons::CLOSE).size(16.0),
                     button("Open", ()),
                 ]
                 .gap(12.0)

@@ -48,7 +48,7 @@ pub(crate) fn grid_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
             Box::new(
                 Container::<Msg>::new()
                     .padding(6.0)
-                    .child(Icon::new(Icons::Close).size(16.0).color(muted))
+                    .child(Icon::new(Icons::CLOSE).size(16.0).color(muted))
                     .on_click(Msg::GridDeleteRow(r)),
             ) as Box<dyn Widget<Msg>>
         }));

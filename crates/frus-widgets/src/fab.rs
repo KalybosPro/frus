@@ -4,13 +4,10 @@ use frus_core::{BorderRadius, Color, Point, Rect, Scene, ShapeBorder, TextStyle}
 use frus_layout::{Dimension, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
-use crate::icons::Icons;
+use crate::icons::IconData;
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
-
-/// The grid an icon's path is drawn on, so a glyph can be scaled to any size.
-const ICON_GRID: f32 = 24.0;
 
 /// The four sizes the reference draws (`floating_action_button.dart:783`), each with its
 /// own box, its own corner and its own icon.
@@ -79,8 +76,8 @@ const HOVER_ELEVATION: f32 = 8.0;
 /// ```
 /// # use frus_widgets::{FloatingActionButton, Icons};
 /// # #[derive(Clone)] enum Msg { Add }
-/// FloatingActionButton::new(Icons::Add).on_press(Msg::Add);
-/// FloatingActionButton::extended("New list").icon(Icons::Add).on_press(Msg::Add);
+/// FloatingActionButton::new(Icons::ADD).on_press(Msg::Add);
+/// FloatingActionButton::extended("New list").icon(Icons::ADD).on_press(Msg::Add);
 /// ```
 ///
 /// This framework had no such widget. It had `fab_button`, a **helper returning a
@@ -90,7 +87,7 @@ const HOVER_ELEVATION: f32 = 8.0;
 /// (`floating_action_button.dart:809`). Two roles out, on the most prominent control on
 /// the screen.
 pub struct FloatingActionButton<Msg> {
-    icon: Option<Icons>,
+    icon: Option<IconData>,
     label: Option<String>,
     size: FabSize,
     enabled: bool,
@@ -105,7 +102,7 @@ pub struct FloatingActionButton<Msg> {
 
 impl<Msg: Clone> FloatingActionButton<Msg> {
     /// A button carrying a glyph.
-    pub fn new(icon: Icons) -> Self {
+    pub fn new(icon: IconData) -> Self {
         Self {
             icon: Some(icon),
             label: None,
@@ -124,7 +121,7 @@ impl<Msg: Clone> FloatingActionButton<Msg> {
     /// A button carrying **one character** rather than a drawn icon — a plus, a tick, an
     /// arrow. The same escape hatch [`IconButton::glyph`](crate::IconButton::glyph)
     /// offers, and for the same reason: not every mark an application wants is in
-    /// [`Icons`], and waiting for one to be added is not an answer.
+    /// [`crate::Icons`], and waiting for one to be added is not an answer.
     ///
     /// It is a **regular** button, not an extended one: the character is centred in the
     /// square the way a glyph would be, and the box does not grow to fit it.
@@ -157,7 +154,7 @@ impl<Msg: Clone> FloatingActionButton<Msg> {
     /// The glyph, over whatever was there. On an extended button it goes before the
     /// words.
     #[must_use]
-    pub fn icon(mut self, icon: Icons) -> Self {
+    pub fn icon(mut self, icon: IconData) -> Self {
         self.icon = Some(icon);
         self
     }
@@ -402,7 +399,7 @@ impl<Msg: Clone> Widget<Msg> for FloatingActionButton<Msg> {
             (Some(label), icon) if self.size == FabSize::Extended => {
                 let mut x = bounds.x + self.lead_pad(theme);
                 if let Some(name) = icon {
-                    let path = name.path().scaled(glyph / ICON_GRID).translated(x, cy);
+                    let path = name.placed(glyph, x, cy, theme.direction);
                     scene.fill_path(&path, ink.fade(o));
                     x += glyph + theme.widgets.fab.extended_gap.unwrap_or(EXTENDED_GAP);
                 }
@@ -418,10 +415,12 @@ impl<Msg: Clone> Widget<Msg> for FloatingActionButton<Msg> {
             // Otherwise: whatever it carries, centred in the square. An icon wins over a
             // character, since a caller who gave both meant the drawn one.
             (_, Some(name)) => {
-                let path = name
-                    .path()
-                    .scaled(glyph / ICON_GRID)
-                    .translated(bounds.x + (bounds.width - glyph) * 0.5, cy);
+                let path = name.placed(
+                    glyph,
+                    bounds.x + (bounds.width - glyph) * 0.5,
+                    cy,
+                    theme.direction,
+                );
                 scene.fill_path(&path, ink.fade(o));
             }
             (Some(text), None) => {
@@ -485,6 +484,7 @@ impl<Msg: Clone> Widget<Msg> for FloatingActionButton<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::icons::Icons;
     use frus_core::Primitive;
 
     #[derive(Clone, Debug, PartialEq)]
@@ -532,7 +532,7 @@ mod tests {
     #[test]
     fn a_button_takes_the_container_roles_and_not_the_accent() {
         let theme = Theme::default();
-        let fab = FloatingActionButton::new(Icons::Add).on_press(Msg::Add);
+        let fab = FloatingActionButton::new(Icons::ADD).on_press(Msg::Add);
         let (rects, paths) = painted(&fab, &theme, Status::default());
         assert_eq!(
             rects.last().expect("a surface").1,
@@ -562,7 +562,7 @@ mod tests {
             assert_eq!(size.radius(), radius);
             assert_eq!(size.icon_size(), icon);
 
-            let fab = FloatingActionButton::<Msg>::new(Icons::Add).size(size);
+            let fab = FloatingActionButton::<Msg>::new(Icons::ADD).size(size);
             let style = Widget::<Msg>::style_themed(&fab, &theme);
             assert_eq!(style.width, Dimension::Length(extent));
             assert_eq!(style.height, Dimension::Length(extent));
@@ -583,7 +583,7 @@ mod tests {
     #[test]
     fn it_is_a_rounded_square_and_a_stadium_when_asked() {
         let theme = Theme::default();
-        let plain = FloatingActionButton::<Msg>::new(Icons::Add);
+        let plain = FloatingActionButton::<Msg>::new(Icons::ADD);
         assert_eq!(
             painted(&plain, &theme, Status::default())
                 .0
@@ -592,7 +592,7 @@ mod tests {
                 .2,
             BorderRadius::uniform(16.0)
         );
-        let docked = FloatingActionButton::<Msg>::new(Icons::Add).shape(ShapeBorder::stadium());
+        let docked = FloatingActionButton::<Msg>::new(Icons::ADD).shape(ShapeBorder::stadium());
         assert_eq!(
             painted(&docked, &theme, Status::default())
                 .0
@@ -611,7 +611,7 @@ mod tests {
     fn an_extended_button_is_as_wide_as_what_it_carries() {
         let theme = Theme::default();
         let words = FloatingActionButton::<Msg>::extended("New list");
-        let with_icon = FloatingActionButton::<Msg>::extended("New list").icon(Icons::Add);
+        let with_icon = FloatingActionButton::<Msg>::extended("New list").icon(Icons::ADD);
 
         let width = |fab: &FloatingActionButton<Msg>| match Widget::<Msg>::style_themed(fab, &theme)
             .width
@@ -645,11 +645,11 @@ mod tests {
     #[test]
     fn a_disabled_button_stops_floating() {
         let theme = Theme::default();
-        let live = FloatingActionButton::new(Icons::Add).on_press(Msg::Add);
+        let live = FloatingActionButton::new(Icons::ADD).on_press(Msg::Add);
         let (rects, _) = painted(&live, &theme, Status::default());
         assert_eq!(rects.len(), 2, "a shadow under the surface: {rects:#?}");
 
-        let dead = FloatingActionButton::new(Icons::Add)
+        let dead = FloatingActionButton::new(Icons::ADD)
             .on_press(Msg::Add)
             .enabled(false);
         let (rects, _) = painted(&dead, &theme, Status::default());
@@ -661,7 +661,7 @@ mod tests {
 
         // And one with nothing to say does not float either: it is inert, not disabled,
         // so it keeps its live colours and loses its shadow.
-        let inert = FloatingActionButton::<Msg>::new(Icons::Add);
+        let inert = FloatingActionButton::<Msg>::new(Icons::ADD);
         let (rects, _) = painted(&inert, &theme, Status::default());
         assert_eq!(rects.len(), 1);
         assert_eq!(rects[0].1, theme.scheme.primary_container);
@@ -672,7 +672,7 @@ mod tests {
     #[test]
     fn it_rises_under_a_pointer() {
         let theme = Theme::default();
-        let fab = FloatingActionButton::new(Icons::Add).on_press(Msg::Add);
+        let fab = FloatingActionButton::new(Icons::ADD).on_press(Msg::Add);
         let shadow_of = |hover: f32| {
             let status = Status {
                 hover_progress: hover,
@@ -695,13 +695,13 @@ mod tests {
         theme.widgets.fab.radius = Some(3.0);
         theme.widgets.fab.icon_size = Some(11.0);
 
-        let fab = FloatingActionButton::new(Icons::Add).on_press(Msg::Add);
+        let fab = FloatingActionButton::new(Icons::ADD).on_press(Msg::Add);
         let (rects, _) = painted(&fab, &theme, Status::default());
         let surface = rects.last().unwrap();
         assert_eq!(surface.1, Color::rgb(0.2, 0.4, 0.6));
         assert_eq!(surface.2, BorderRadius::uniform(3.0));
 
-        let told = FloatingActionButton::new(Icons::Add)
+        let told = FloatingActionButton::new(Icons::ADD)
             .on_press(Msg::Add)
             .background(Color::rgb(0.1, 0.1, 0.1))
             .radius(9.0);
@@ -755,7 +755,7 @@ mod tests {
         assert_eq!(semantics.label.as_deref(), Some("New list"));
         assert!(semantics.clickable);
 
-        let glyph = FloatingActionButton::new(Icons::Add).on_press(Msg::Add);
+        let glyph = FloatingActionButton::new(Icons::ADD).on_press(Msg::Add);
         assert_eq!(Widget::<Msg>::semantics(&glyph).unwrap().label, None);
     }
 }

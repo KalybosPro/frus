@@ -254,10 +254,7 @@ impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
 
             if completed {
                 // A tick (a centred 16 px icon) on an accent background.
-                let path = Icons::Check
-                    .path()
-                    .scaled(16.0 / 24.0)
-                    .translated(cx - 8.0, cy - 8.0);
+                let path = Icons::CHECK.placed(16.0, cx - 8.0, cy - 8.0, theme.direction);
                 scene.fill_path(&path, theme.on_primary.fade(o));
             } else {
                 let num = (i + 1).to_string();

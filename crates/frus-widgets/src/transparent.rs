@@ -685,7 +685,10 @@ mod tests {
                 .expect("a name")
                 .to_string_lossy()
                 .to_string();
-            if file == "transparent.rs" {
+            // `src` holds directories too (a module with children); only a `.rs` file
+            // can carry a wrapper, and reading a directory is an error, not an empty
+            // string.
+            if file == "transparent.rs" || path.extension().is_none_or(|e| e != "rs") {
                 continue;
             }
             let src = std::fs::read_to_string(&path).expect("the wrapper's source");

@@ -476,7 +476,7 @@ impl<Msg: Clone + 'static> SearchAnchor<Msg> {
             if !self.query.is_empty() {
                 if let Some(message) = &self.on_clear {
                     header = header.trailing(
-                        crate::IconButton::new(crate::Icons::Close)
+                        crate::IconButton::new(crate::Icons::CLOSE)
                             .icon_size(20.0)
                             .label(words.clear_button_label())
                             .on_press(message.clone()),

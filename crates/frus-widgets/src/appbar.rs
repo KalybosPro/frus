@@ -669,7 +669,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             }
             let toggle = shell.drawer_toggle::<Msg>()?;
             Some(
-                Box::new(crate::IconButton::new(crate::Icons::Menu).on_press(toggle))
+                Box::new(crate::IconButton::new(crate::Icons::MENU).on_press(toggle))
                     as Box<dyn Widget<Msg>>,
             )
         });
@@ -680,7 +680,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         if actions.is_empty() && overflow.is_none() && automatically_imply_actions {
             if let Some(toggle) = shell.end_drawer_toggle::<Msg>() {
                 actions.push(Action::Custom(Box::new(
-                    crate::IconButton::new(crate::Icons::Menu).on_press(toggle),
+                    crate::IconButton::new(crate::Icons::MENU).on_press(toggle),
                 )));
             }
         }
@@ -1430,11 +1430,11 @@ mod tests {
         let wanted = Color::rgb(0.9, 0.2, 0.4);
         let plain = AppBar::<Msg>::new("Title")
             .width(W)
-            .leading(crate::Icon::new(crate::Icons::Star))
+            .leading(crate::Icon::new(crate::Icons::STAR))
             .build();
         let themed = AppBar::<Msg>::new("Title")
             .width(W)
-            .leading(crate::Icon::new(crate::Icons::Star))
+            .leading(crate::Icon::new(crate::Icons::STAR))
             .icon_theme(crate::widgettheme::IconTheme {
                 color: Some(wanted),
                 size: None,
@@ -1526,8 +1526,8 @@ mod tests {
         let acts = Color::rgb(0.2, 0.1, 0.9);
         let bar = AppBar::<Msg>::new("Title")
             .width(W)
-            .leading(crate::Icon::new(crate::Icons::Star))
-            .action_widget(crate::Icon::new(crate::Icons::Heart))
+            .leading(crate::Icon::new(crate::Icons::STAR))
+            .action_widget(crate::Icon::new(crate::Icons::FAVORITE))
             .icon_theme(crate::widgettheme::IconTheme {
                 color: Some(lead),
                 size: None,

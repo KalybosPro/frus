@@ -7,10 +7,10 @@
 //!
 //! ```ignore
 //! ListTile::new()
-//!     .leading(Icon::new(Icons::Star))
+//!     .leading(Icon::new(Icons::STAR))
 //!     .title("Starred")
 //!     .subtitle("Everything you kept")
-//!     .trailing(Icon::new(Icons::ChevronRight))
+//!     .trailing(Icon::new(Icons::CHEVRON_RIGHT))
 //!     .on_tap(Msg::OpenStarred)
 //! ```
 //!
@@ -708,10 +708,10 @@ mod tests {
         assert_eq!(row.children().len(), 1, "just the text column");
 
         let full: ListTile<Msg> = ListTile::new()
-            .leading(crate::Icon::new(crate::Icons::Star))
+            .leading(crate::Icon::new(crate::Icons::STAR))
             .title("title")
             .subtitle("subtitle")
-            .trailing(crate::Icon::new(crate::Icons::ChevronRight));
+            .trailing(crate::Icon::new(crate::Icons::CHEVRON_RIGHT));
         Widget::<Msg>::build_themed(&full, &theme);
         let row = &Widget::<Msg>::children(&full)[0];
         assert_eq!(row.children().len(), 3, "leading, text, trailing");

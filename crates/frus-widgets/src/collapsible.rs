@@ -248,9 +248,9 @@ impl<Msg: Clone + 'static> ExpansionTile<Msg> {
         }
         .unwrap_or(theme.scheme.on_surface_variant);
         let name = if self.open {
-            Icons::ChevronDown
+            Icons::EXPAND_MORE
         } else {
-            Icons::ChevronRight
+            Icons::CHEVRON_RIGHT
         };
         Some(Box::new(Icon::new(name).size(CHEVRON).color(color)) as Box<dyn Widget<Msg>>)
     }

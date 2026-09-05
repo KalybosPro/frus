@@ -43,6 +43,24 @@ impl PathVerb {
         }
     }
 
+    fn mirrored_x(self, axis: f32) -> PathVerb {
+        let m = |p: Point| Point::new(2.0 * axis - p.x, p.y);
+        match self {
+            PathVerb::MoveTo(p) => PathVerb::MoveTo(m(p)),
+            PathVerb::LineTo(p) => PathVerb::LineTo(m(p)),
+            PathVerb::QuadTo { ctrl, to } => PathVerb::QuadTo {
+                ctrl: m(ctrl),
+                to: m(to),
+            },
+            PathVerb::CubicTo { c1, c2, to } => PathVerb::CubicTo {
+                c1: m(c1),
+                c2: m(c2),
+                to: m(to),
+            },
+            PathVerb::Close => PathVerb::Close,
+        }
+    }
+
     fn translated(self, dx: f32, dy: f32) -> PathVerb {
         let t = |p: Point| Point::new(p.x + dx, p.y + dy);
         match self {
@@ -265,11 +283,61 @@ impl Path {
             verbs: self.verbs.iter().map(|v| v.translated(dx, dy)).collect(),
         }
     }
+
+    /// A copy reflected in the **vertical line** `x = axis` — how an icon that carries a
+    /// direction (an arrow, an indent, a reply) is turned round for a right-to-left
+    /// reading order.
+    ///
+    /// The reflection reverses each contour's winding, and reverses **every** contour, so
+    /// a shape's holes stay holes: the non-zero rule cares about the relative direction
+    /// of the contours, not about their absolute one.
+    pub fn mirrored_x(&self, axis: f32) -> Path {
+        Path {
+            verbs: self.verbs.iter().map(|v| v.mirrored_x(axis)).collect(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A reflection is its own inverse, moves nothing on the axis, and leaves y alone.
+    /// Those three together are the whole definition, and each one is a mistake somebody
+    /// makes: reflecting about the origin instead of the axis, or about the wrong one.
+    #[test]
+    fn mirroring_reflects_x_about_the_axis_and_nothing_else() {
+        let path = Path::new()
+            .move_to(Point::new(2.0, 5.0))
+            .line_to(Point::new(8.0, 5.0))
+            .quad_to(Point::new(10.0, 7.0), Point::new(6.0, 9.0))
+            .cubic_to(
+                Point::new(4.0, 9.0),
+                Point::new(3.0, 8.0),
+                Point::new(2.0, 5.0),
+            )
+            .close();
+        let flipped = path.mirrored_x(6.0);
+        assert_eq!(
+            flipped.verbs(),
+            &[
+                PathVerb::MoveTo(Point::new(10.0, 5.0)),
+                PathVerb::LineTo(Point::new(4.0, 5.0)),
+                PathVerb::QuadTo {
+                    ctrl: Point::new(2.0, 7.0),
+                    to: Point::new(6.0, 9.0),
+                },
+                PathVerb::CubicTo {
+                    c1: Point::new(8.0, 9.0),
+                    c2: Point::new(9.0, 8.0),
+                    to: Point::new(10.0, 5.0),
+                },
+                PathVerb::Close,
+            ]
+        );
+        // A point on the axis does not move, and mirroring twice is the identity.
+        assert_eq!(path.mirrored_x(6.0).mirrored_x(6.0).verbs(), path.verbs());
+    }
 
     #[test]
     fn builder_records_verbs_in_order() {

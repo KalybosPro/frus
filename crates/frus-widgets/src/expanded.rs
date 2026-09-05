@@ -16,7 +16,7 @@
 //! row![
 //!     Checkbox::new(done),
 //!     Expanded::new(text(&task.title).ellipsis()),   // ← takes the rest
-//!     IconButton::new(Icons::Close),              // ← keeps its 40 px
+//!     IconButton::new(Icons::CLOSE),              // ← keeps its 40 px
 //! ]
 //! ```
 //!

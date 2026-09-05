@@ -233,7 +233,7 @@ pub use iconbutton::{
     IconButton, IconButtonVariant, ICON_BUTTON_BORDER_WIDTH, ICON_BUTTON_ICON_SIZE,
     ICON_BUTTON_SIZE,
 };
-pub use icons::Icons;
+pub use icons::{IconData, IconStyle, Icons};
 pub use image::{Image, State as ImageState};
 pub use ime::{Capitalization, Ime, KeyboardType, TextInputAction};
 pub use ink::{InkStyle, InkWell, Ripples};

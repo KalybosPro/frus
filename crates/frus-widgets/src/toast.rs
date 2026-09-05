@@ -15,9 +15,6 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// The grid the icon paths are drawn on, and therefore what a glyph is scaled from.
-const ICON_GRID: f32 = 24.0;
-
 /// A snack bar's corner and how far off the page it sits (`snack_bar.dart:983`, `:980`).
 pub const SNACK_BAR_RADIUS: f32 = 4.0;
 pub const SNACK_BAR_ELEVATION: f32 = 6.0;
@@ -664,13 +661,12 @@ impl<Msg: Clone> Widget<Msg> for CloseButton<Msg> {
             Color::TRANSPARENT,
         );
         let size = ICON_BUTTON_ICON_SIZE;
-        let path = crate::Icons::Close
-            .path()
-            .scaled(size / ICON_GRID)
-            .translated(
-                bounds.x + (bounds.width - size) * 0.5,
-                bounds.y + (bounds.height - size) * 0.5,
-            );
+        let path = crate::Icons::CLOSE.placed(
+            size,
+            bounds.x + (bounds.width - size) * 0.5,
+            bounds.y + (bounds.height - size) * 0.5,
+            theme.direction,
+        );
         scene.fill_path(&path, ink.fade(o));
     }
 

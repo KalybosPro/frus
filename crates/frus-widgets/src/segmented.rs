@@ -39,9 +39,6 @@ pub const SEGMENTED_ICON_SIZE: f32 = 18.0;
 /// Between that checkmark and the label.
 pub const SEGMENTED_ICON_GAP: f32 = 8.0;
 
-/// The icon grid the vector icons are drawn on; see [`crate::icons`].
-const ICON_GRID: f32 = 24.0;
-
 /// Everything about the control's appearance, each part `None` until someone says
 /// otherwise. Shared by the control and its segments, so that the outline the one draws and
 /// the fills the others draw agree about where the edges are.
@@ -270,10 +267,12 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
             };
         let mut x = bounds.x + (bounds.width - group) / 2.0;
         if shows_icon {
-            let path = Icons::Check
-                .path()
-                .scaled(icon / ICON_GRID)
-                .translated(x, bounds.y + (bounds.height - icon) / 2.0);
+            let path = Icons::CHECK.placed(
+                icon,
+                x,
+                bounds.y + (bounds.height - icon) / 2.0,
+                theme.direction,
+            );
             scene.fill_path(&path, color.fade(o));
             x += icon + SEGMENTED_ICON_GAP;
         }

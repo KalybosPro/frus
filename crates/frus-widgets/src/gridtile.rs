@@ -589,7 +589,7 @@ mod tests {
         assert_eq!((plain.left, plain.right), (LOOSE_PADDING, LOOSE_PADDING));
         let dressed = padding(
             GridTileBar::new()
-                .leading(Icon::new(Icons::Check))
+                .leading(Icon::new(Icons::CHECK))
                 .title(Text::new("A")),
         );
         assert_eq!(

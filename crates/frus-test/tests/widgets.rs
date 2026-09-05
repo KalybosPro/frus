@@ -24,12 +24,12 @@ use frus_widgets::{
     CircularProgressIndicator, ClipOval, ClipPath, ClipRRect, ColorPicker, ConstrainedBox,
     Container, ControlAffinity, CustomPaint, Divider, Expanded, ExpansionTile, FittedBox, Flex,
     FloatingActionButton, FontWeight, FractionallySizedBox, GridTile, GridTileBar, GridView, Icon,
-    Icons, Image, Intrinsic, Kbd, LinearProgressIndicator, ListTile, ListView, MenuAnchor,
-    NavigationBar, NavigationDrawer, NavigationRail, Offstage, Opacity, OverflowBox, OverlayPortal,
-    Placement, RadioGroup, RadioListTile, RichText, RotatedBox, SafeArea, SearchAnchor, SearchBar,
-    SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch,
-    SwitchListTile, TabBar, Theme, Timeline, ToggleButtons, Transform, TwoPane,
-    UserAccountsDrawerHeader, VerticalDivider, Visibility, Widget,
+    IconData, Icons, Image, Intrinsic, Kbd, LinearProgressIndicator, ListTile, ListView,
+    MenuAnchor, NavigationBar, NavigationDrawer, NavigationRail, Offstage, Opacity, OverflowBox,
+    OverlayPortal, Placement, RadioGroup, RadioListTile, RichText, RotatedBox, SafeArea,
+    SearchAnchor, SearchBar, SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Spacer,
+    Stack, Stepper, Switch, SwitchListTile, TabBar, Theme, Timeline, ToggleButtons, Transform,
+    TwoPane, UserAccountsDrawerHeader, VerticalDivider, Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -142,13 +142,13 @@ fn the_floating_action_buttons() {
                 Flex::row()
                     .gap(12.0)
                     .align(Align::Center)
-                    .child(FloatingActionButton::new(Icons::Add).small().on_press(()))
-                    .child(FloatingActionButton::new(Icons::Add).on_press(()))
-                    .child(FloatingActionButton::new(Icons::Add).large().on_press(())),
+                    .child(FloatingActionButton::new(Icons::ADD).small().on_press(()))
+                    .child(FloatingActionButton::new(Icons::ADD).on_press(()))
+                    .child(FloatingActionButton::new(Icons::ADD).large().on_press(())),
             )
             .child(
                 FloatingActionButton::extended("New list")
-                    .icon(Icons::Add)
+                    .icon(Icons::ADD)
                     .on_press(()),
             ),
     );
@@ -215,26 +215,27 @@ fn the_four_alert_kinds() {
     check("alert_kinds", 320, 340, &root);
 }
 
-/// Every icon the framework ships, at two sizes and two colours, with a divider
-/// between the rows. Icons are paths, and this is the frame that says whether a
-/// change to the path pipeline moved any of them.
+/// Fourteen icons the framework's own widgets lean on, at two sizes and two colours,
+/// with a divider between the rows. Icons are paths, and this is the frame that says
+/// whether a change to the path pipeline moved any of them. The whole set is walked by
+/// `frus_widgets`'s own unit tests; a golden is for the pipeline, not for the artwork.
 #[test]
 fn every_icon_and_a_divider() {
-    const NAMES: [Icons; 14] = [
-        Icons::Check,
-        Icons::Close,
-        Icons::Add,
-        Icons::Menu,
-        Icons::Star,
-        Icons::Heart,
-        Icons::Circle,
-        Icons::Square,
-        Icons::Play,
-        Icons::ArrowLeft,
-        Icons::ChevronLeft,
-        Icons::ChevronRight,
-        Icons::Eye,
-        Icons::EyeOff,
+    const NAMES: [IconData; 14] = [
+        Icons::CHECK,
+        Icons::CLOSE,
+        Icons::ADD,
+        Icons::MENU,
+        Icons::STAR,
+        Icons::FAVORITE,
+        Icons::CIRCLE,
+        Icons::SQUARE,
+        Icons::PLAY_ARROW,
+        Icons::ARROW_BACK,
+        Icons::CHEVRON_LEFT,
+        Icons::CHEVRON_RIGHT,
+        Icons::VISIBILITY,
+        Icons::VISIBILITY_OFF,
     ];
     let mut small = Flex::row().gap(8.0).align(Align::Center);
     let mut large = Flex::row().gap(8.0).align(Align::Center);
@@ -332,7 +333,7 @@ fn a_stepper_and_a_timeline() {
 fn the_app_bar() {
     let bar: Box<dyn Widget<()>> = AppBar::new("Inbox")
         .width(360.0)
-        .leading(Icon::new(Icons::Menu).size(20.0))
+        .leading(Icon::new(Icons::MENU).size(20.0))
         .action("Save", ())
         .action("Edit", ())
         .build();
@@ -349,10 +350,10 @@ fn the_bottom_app_bar() {
                 .width(304.0)
                 .gap(16.0)
                 .align(Align::Center)
-                .child(Icon::new(Icons::Menu).size(20.0))
-                .child(Icon::new(Icons::Star).size(20.0))
+                .child(Icon::new(Icons::MENU).size(20.0))
+                .child(Icon::new(Icons::STAR).size(20.0))
                 .child(Container::new().flex(1.0))
-                .child(Icon::new(Icons::Close).size(20.0)),
+                .child(Icon::new(Icons::CLOSE).size(20.0)),
         ),
     );
     check("bottom_app_bar", 320, 90, &root);
@@ -482,14 +483,14 @@ fn the_search_bars() {
             .child(
                 SearchBar::new("flight to lisbon")
                     .min_width(340.0)
-                    .leading(Icon::new(Icons::Menu).size(20.0))
-                    .trailing(Icon::new(Icons::Close).size(20.0)),
+                    .leading(Icon::new(Icons::MENU).size(20.0))
+                    .trailing(Icon::new(Icons::CLOSE).size(20.0)),
             )
             .child(
                 SearchBar::new("")
                     .min_width(340.0)
                     .hint("Search mail")
-                    .leading(Icon::new(Icons::Star).size(20.0)),
+                    .leading(Icon::new(Icons::STAR).size(20.0)),
             )
             .child(
                 SearchBar::new("")
@@ -584,7 +585,7 @@ fn the_grid_tiles() {
                 GridTile::new(photo(Color::rgb8(138, 92, 58))).header(
                     GridTileBar::new()
                         .title(text("Sunset"))
-                        .trailing(Icon::new(Icons::Star).size(20.0)),
+                        .trailing(Icon::new(Icons::STAR).size(20.0)),
                 ),
             ),
     );

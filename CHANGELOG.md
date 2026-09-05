@@ -8,10 +8,79 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 471 so far, each documenting the objective, the alternatives
+> record — one per step, 472 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`Colors`** (J472): the material palette as 308 plain `Color` constants —
+  `Colors::RED`, `Colors::RED_300`, `Colors::BLUE_ACCENT_700`, `Colors::BLACK54`. Plain
+  colours and not swatch objects, so they go into any API that takes a `Color` with
+  nothing to unwrap. The neutrals carry the palette's own opacities as **alphas**, which
+  is the point of naming them.
+
+- **`MaterialColor`** (J472): a colour ramp — one hue in its numbered steps, as
+  `MaterialColor::RED`, with `shade(300)`, `steps()`, and `Colors::PRIMARIES` /
+  `Colors::ACCENTS` for the whole set. What a theme derives a scheme from, where
+  `Colors` is what a caller picks a tone from. Grey's two half-steps and the accents'
+  four are represented honestly: a ramp states which steps it has.
+
+- **The whole material icon set** (J472): 2 233 icons as `Icons` constants —
+  `Icons::ADD`, `Icons::STAR`, `Icons::ARROW_BACK` — up from sixteen hand-drawn ones.
+  The outlines ship as a 307 KiB blob whose signature and offset table are checked at
+  compile time; `Icons::by_name` resolves a name that arrives at runtime, and
+  `Icons::all` walks the set.
+
+- **The three variant styles** (J472), behind `icons-outlined`, `icons-rounded` and
+  `icons-sharp` — `Icons::ADD_OUTLINED` and its 2 192 companions, one blob apiece, none
+  on by default. An outlined icon at rest and its filled twin when selected is how a
+  navigation bar says which destination you are on. Without the feature the constants do
+  not exist and `by_name` answers `None` rather than handing back the filled drawing.
+
+- **`IconStyle`** (J472): which of the four an icon is drawn in, with `IconData::style`,
+  `IconStyle::suffix` and `Icons::of_style`.
+
+- **`IconData::custom`** (J472): an icon of the caller's own, a `const fn` over a
+  function that draws a `24 × 24` path. Not every mark an application wants is in the
+  set, and waiting for one to be added is not an answer.
+
+- **Icons turn round for a right-to-left reading order** (J472). An arrow, an indent, a
+  reply and a chevron point somewhere, and where they point follows the reading order; a
+  tick and a star do not. The set says which is which — 76 of the 2 233 —
+  `IconData::matches_text_direction` reports it, and `IconData::custom(…).mirrored()`
+  says it for a caller's own icon.
+
+- **`IconData::placed`** (J472): an icon scaled to a side, placed at a point, and
+  mirrored where it should be. The sixteen places in the crate that painted an icon by
+  hand now go through it, and the three that carried their own copy of the `24` grid
+  constant no longer do.
+
+- **`Path::mirrored_x`** (J472): a copy reflected in a vertical line. Contour winding is
+  reversed throughout, so a shape's holes stay holes.
+
+- **`Color::rgb8`, `rgba8` and `from_argb_u32` are now `const fn`** (J472), which is what
+  lets a palette be constants rather than a lazily-built table.
+
+### Changed
+
+- **Two icons recovered and one renamed** (J472). The names had been inferred by
+  stripping a style suffix, which silently dropped `insert_chart_outlined` and
+  `wifi_tethering_error_rounded` — filled icons whose names merely read like variants —
+  and spelled `class` as `CLASS_`. Names now come from the font's own manifest, which
+  states each icon and style explicitly.
+
+- **`Icons` is a namespace, not an enum** (J472). An icon is now an `IconData` value, so
+  `Icon::new`, `IconButton::new`, `FloatingActionButton::new` and every themed icon slot
+  take `IconData` where they took `Icons`. Sixteen names moved to the set's own spelling
+  in Rust's constant case: `Icons::Heart` → `Icons::FAVORITE`, `Icons::Play` →
+  `Icons::PLAY_ARROW`, `Icons::ArrowLeft` → `Icons::ARROW_BACK`, `Icons::ChevronDown` /
+  `ChevronUp` → `Icons::EXPAND_MORE` / `EXPAND_LESS`, `Icons::Eye` / `EyeOff` →
+  `Icons::VISIBILITY` / `VISIBILITY_OFF`, and the other ten to upper case.
+
+- **Thirty-five goldens** (J472) carry the set's own artwork in place of the hand-drawn
+  outlines. Nothing but the icons moved in any of them.
 
 ### Added
 

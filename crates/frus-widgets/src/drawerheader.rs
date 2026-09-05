@@ -465,9 +465,9 @@ impl<Msg: Clone + 'static> UserAccountsDrawerHeader<Msg> {
             // The reference rotates one triangle through half a turn; two chevrons are
             // the two ends of that turn, and this framework has both drawn on the grid.
             let (glyph, label) = if self.open {
-                (crate::Icons::ChevronUp, words.hide_accounts_label())
+                (crate::Icons::EXPAND_LESS, words.hide_accounts_label())
             } else {
-                (crate::Icons::ChevronDown, words.show_accounts_label())
+                (crate::Icons::EXPAND_MORE, words.show_accounts_label())
             };
             row = row.child(
                 crate::Semantics::new(

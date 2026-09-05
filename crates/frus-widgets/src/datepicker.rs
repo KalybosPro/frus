@@ -460,7 +460,7 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
             .align(Align::Center)
             .gap(8.0)
             .child(
-                crate::IconButton::new(crate::icons::Icons::ChevronLeft)
+                crate::IconButton::new(crate::icons::Icons::CHEVRON_LEFT)
                     .label("Previous month")
                     .icon_size(18.0)
                     .on_press(on_nav(-1)),
@@ -476,7 +476,7 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
             )
             .child(Flex::row().flex(1.0))
             .child(
-                crate::IconButton::new(crate::icons::Icons::ChevronRight)
+                crate::IconButton::new(crate::icons::Icons::CHEVRON_RIGHT)
                     .label("Next month")
                     .icon_size(18.0)
                     .on_press(on_nav(1)),

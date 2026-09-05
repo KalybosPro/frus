@@ -10,7 +10,7 @@
 use frus_core::{Color, Rect, Scene};
 use frus_layout::Style;
 
-use crate::icons::Icons;
+use crate::icons::{IconData, Icons};
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -28,13 +28,13 @@ enum Kind {
 
 impl Kind {
     /// The glyph, with the theme's override ahead of the framework's own.
-    fn icon(self, theme: &Theme) -> Icons {
+    fn icon(self, theme: &Theme) -> IconData {
         let t = &theme.widgets.action_icons;
         match self {
             Kind::Back => t.back.unwrap_or(default_back_icon()),
-            Kind::Close => t.close.unwrap_or(Icons::Close),
-            Kind::Drawer => t.drawer.unwrap_or(Icons::Menu),
-            Kind::EndDrawer => t.end_drawer.unwrap_or(Icons::Menu),
+            Kind::Close => t.close.unwrap_or(Icons::CLOSE),
+            Kind::Drawer => t.drawer.unwrap_or(Icons::MENU),
+            Kind::EndDrawer => t.end_drawer.unwrap_or(Icons::MENU),
         }
     }
 
@@ -59,14 +59,14 @@ impl Kind {
 /// Resolved at compile time, like [`ScrollPhysics::platform_default`](crate::ScrollPhysics::platform_default):
 /// a binary runs on one platform and the branch it does not take is not a decision it
 /// needs to carry.
-const fn default_back_icon() -> Icons {
+const fn default_back_icon() -> IconData {
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     {
-        Icons::ChevronLeft
+        Icons::CHEVRON_LEFT
     }
     #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
-        Icons::ArrowLeft
+        Icons::ARROW_BACK
     }
 }
 
@@ -488,8 +488,8 @@ mod tests {
     #[test]
     fn a_theme_can_replace_the_glyphs() {
         let mut theme = Theme::default();
-        theme.widgets.action_icons.back = Some(Icons::ChevronLeft);
-        assert_eq!(Kind::Back.icon(&theme), Icons::ChevronLeft);
+        theme.widgets.action_icons.back = Some(Icons::CHEVRON_LEFT);
+        assert_eq!(Kind::Back.icon(&theme), Icons::CHEVRON_LEFT);
         assert_eq!(
             Kind::Back.icon(&Theme::default()),
             default_back_icon(),

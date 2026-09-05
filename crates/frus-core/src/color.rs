@@ -33,12 +33,12 @@ impl Color {
     }
 
     /// Builds an opaque colour from 8-bit components (0..=255).
-    pub fn rgb8(r: u8, g: u8, b: u8) -> Self {
+    pub const fn rgb8(r: u8, g: u8, b: u8) -> Self {
         Self::rgba8(r, g, b, 255)
     }
 
     /// Builds a colour from 8-bit components (0..=255).
-    pub fn rgba8(r: u8, g: u8, b: u8, a: u8) -> Self {
+    pub const fn rgba8(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self {
             r: r as f32 / 255.0,
             g: g as f32 / 255.0,
@@ -94,7 +94,7 @@ impl Color {
     }
 
     /// Builds a colour from an `0xAARRGGBB` integer (alpha first).
-    pub fn from_argb_u32(argb: u32) -> Color {
+    pub const fn from_argb_u32(argb: u32) -> Color {
         let a = (argb >> 24) & 0xFF;
         let r = (argb >> 16) & 0xFF;
         let g = (argb >> 8) & 0xFF;

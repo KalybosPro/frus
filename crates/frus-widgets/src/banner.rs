@@ -17,7 +17,7 @@
 //!
 //! ```ignore
 //! MaterialBanner::new("You have unsaved changes.")
-//!     .leading(Icon::new(Icons::Warning))
+//!     .leading(Icon::new(Icons::WARNING))
 //!     .action(button("Discard", Msg::Discard))
 //!     .action(button("Save", Msg::Save))
 //! ```

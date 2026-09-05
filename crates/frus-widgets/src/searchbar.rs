@@ -9,8 +9,8 @@
 //! ```ignore
 //! SearchBar::new(&app.query)
 //!     .hint("Search mail")
-//!     .leading(Icon::new(Icons::Menu))
-//!     .trailing(IconButton::new(Icons::Close).on_press(Msg::Clear))
+//!     .leading(Icon::new(Icons::MENU))
+//!     .trailing(IconButton::new(Icons::CLOSE).on_press(Msg::Clear))
 //!     .on_input(Msg::Query)
 //!     .on_submit(Msg::Search)
 //! ```

@@ -7,9 +7,9 @@
 //! had the answer all along: 40 × 40, circular, no fill, the icon in `on_surface_variant`.
 //!
 //! ```ignore
-//! IconButton::new(Icons::Close).label("Remove").on_press(Msg::Delete)
+//! IconButton::new(Icons::CLOSE).label("Remove").on_press(Msg::Delete)
 //! IconButton::glyph("\u{2190}").label("Back").on_press(Msg::Pop)
-//! IconButton::new(Icons::Star).selected(starred).on_press(Msg::Star)
+//! IconButton::new(Icons::STAR).selected(starred).on_press(Msg::Star)
 //! ```
 //!
 //! It takes either an icon from the bundled set or a **glyph**, because the set does not
@@ -24,7 +24,7 @@ use frus_core::{BorderRadius, Color, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
-use crate::icons::Icons;
+use crate::icons::IconData;
 use crate::interaction::Status;
 use crate::theme::{TapTarget, Theme};
 use crate::widget::Widget;
@@ -35,9 +35,6 @@ pub const ICON_BUTTON_SIZE: f32 = 40.0;
 pub const ICON_BUTTON_ICON_SIZE: f32 = 24.0;
 /// An outlined icon button's outline.
 pub const ICON_BUTTON_BORDER_WIDTH: f32 = 1.0;
-
-/// The icon grid the vector icons are drawn on; see [`crate::icons`].
-const ICON_GRID: f32 = 24.0;
 
 /// How much of a surface an icon button brings with it.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
@@ -55,7 +52,7 @@ pub enum IconButtonVariant {
 
 /// What the button draws: one of the bundled icons, or a glyph of your own.
 enum Content {
-    Icon(Icons),
+    Icon(IconData),
     Glyph(String),
 }
 
@@ -79,7 +76,7 @@ pub struct IconButton<Msg> {
 
 impl<Msg> IconButton<Msg> {
     /// A button showing one of the bundled icons.
-    pub fn new(icon: Icons) -> Self {
+    pub fn new(icon: IconData) -> Self {
         Self::of(Content::Icon(icon))
     }
 
@@ -341,9 +338,11 @@ impl<Msg: Clone> Widget<Msg> for IconButton<Msg> {
         let size = self.glyph_size(theme);
         match &self.content {
             Content::Icon(name) => {
-                let path = name.path().scaled(size / ICON_GRID).translated(
+                let path = name.placed(
+                    size,
                     bounds.x + (bounds.width - size) / 2.0,
                     bounds.y + (bounds.height - size) / 2.0,
+                    theme.direction,
                 );
                 scene.fill_path(&path, glyph.fade(o));
             }
@@ -415,6 +414,7 @@ impl<Msg: Clone> Widget<Msg> for IconButton<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::icons::Icons;
     use crate::theme::{MIN_TAP_TARGET, SHRUNK_TAP_TARGET};
     use frus_core::Primitive;
 
@@ -449,10 +449,10 @@ mod tests {
             Dimension::Length(w) => w,
             other => panic!("{other:?}"),
         };
-        assert_eq!(side(&IconButton::new(Icons::Close), &theme), MIN_TAP_TARGET);
+        assert_eq!(side(&IconButton::new(Icons::CLOSE), &theme), MIN_TAP_TARGET);
         assert_eq!(
             side(
-                &IconButton::new(Icons::Close).tap_target(TapTarget::ShrinkWrap),
+                &IconButton::new(Icons::CLOSE).tap_target(TapTarget::ShrinkWrap),
                 &theme
             ),
             SHRUNK_TAP_TARGET
@@ -460,7 +460,7 @@ mod tests {
         // A button asked for a face **larger** than the target keeps its own size: the
         // target is a floor, not a size.
         assert_eq!(
-            side(&IconButton::new(Icons::Close).size(64.0), &theme),
+            side(&IconButton::new(Icons::CLOSE).size(64.0), &theme),
             64.0
         );
     }
@@ -472,7 +472,7 @@ mod tests {
         let theme = Theme::dark();
         let mut scene = Scene::new();
         Widget::<()>::paint(
-            &IconButton::new(Icons::Close),
+            &IconButton::new(Icons::CLOSE),
             Rect::new(0.0, 0.0, MIN_TAP_TARGET, MIN_TAP_TARGET),
             Status::default(),
             &theme,
@@ -500,10 +500,10 @@ mod tests {
         let theme = Theme::default();
         // The **box** is square at the tap target since milestone 442; the face it paints
         // inside that box is square at its own side.
-        let style = Widget::<Msg>::style_themed(&IconButton::new(Icons::Close), &theme);
+        let style = Widget::<Msg>::style_themed(&IconButton::new(Icons::CLOSE), &theme);
         assert_eq!(style.width, Dimension::Length(MIN_TAP_TARGET));
         assert_eq!(style.height, Dimension::Length(MIN_TAP_TARGET));
-        let radius = painted(&IconButton::new(Icons::Close))
+        let radius = painted(&IconButton::new(Icons::CLOSE))
             .iter()
             .find_map(|p| match p {
                 Primitive::Rect { radius, .. } => Some(*radius),
@@ -516,7 +516,7 @@ mod tests {
     #[test]
     fn a_standard_one_is_a_glyph_and_nothing_else() {
         let theme = Theme::default();
-        let painted = painted(&IconButton::new(Icons::Close));
+        let painted = painted(&IconButton::new(Icons::CLOSE));
         let (color, border) = painted
             .iter()
             .find_map(|p| match p {
@@ -557,7 +557,7 @@ mod tests {
     fn selected_takes_the_accent() {
         let theme = Theme::default();
         let glyph = |selected: bool| {
-            painted(&IconButton::<Msg>::new(Icons::Star).selected(selected))
+            painted(&IconButton::<Msg>::new(Icons::STAR).selected(selected))
                 .iter()
                 .find_map(|p| match p {
                     Primitive::Path { fill, .. } => *fill,
@@ -573,7 +573,7 @@ mod tests {
     fn the_variants_are_told_apart_by_their_surface() {
         let theme = Theme::default();
         let surface = |variant: IconButtonVariant| {
-            painted(&IconButton::<Msg>::new(Icons::Close).variant(variant))
+            painted(&IconButton::<Msg>::new(Icons::CLOSE).variant(variant))
                 .iter()
                 .find_map(|p| match p {
                     Primitive::Rect {
@@ -597,7 +597,7 @@ mod tests {
 
     #[test]
     fn disabled_is_inert_and_says_so() {
-        let button = IconButton::new(Icons::Close)
+        let button = IconButton::new(Icons::CLOSE)
             .on_press(Msg::Pressed)
             .enabled(false);
         assert_eq!(Widget::on_click(&button), None);
@@ -611,7 +611,7 @@ mod tests {
     #[test]
     fn an_icon_button_can_be_named() {
         // An icon says nothing to a screen reader; the label is what it is announced by.
-        let named = IconButton::<Msg>::new(Icons::Close).label("Remove");
+        let named = IconButton::<Msg>::new(Icons::CLOSE).label("Remove");
         assert_eq!(
             Widget::<Msg>::semantics(&named).unwrap().label.as_deref(),
             Some("Remove")
@@ -651,24 +651,24 @@ mod tests {
                 .expect("a box")
         };
         assert_eq!(
-            side(IconButton::new(Icons::Close), &Theme::default()),
+            side(IconButton::new(Icons::CLOSE), &Theme::default()),
             ICON_BUTTON_SIZE,
             "the framework's"
         );
         assert_eq!(
-            side(IconButton::new(Icons::Close), &theme),
+            side(IconButton::new(Icons::CLOSE), &theme),
             56.0,
             "the theme's"
         );
         assert_eq!(
-            side(IconButton::new(Icons::Close).size(32.0), &theme),
+            side(IconButton::new(Icons::CLOSE).size(32.0), &theme),
             32.0,
             "the caller's, over the theme's"
         );
         // And a face smaller than the target still gets the target's room around it: the
         // control shrinks, the area a finger may land in does not.
         assert_eq!(
-            match Widget::<Msg>::style_themed(&IconButton::new(Icons::Close).size(32.0), &theme)
+            match Widget::<Msg>::style_themed(&IconButton::new(Icons::CLOSE).size(32.0), &theme)
                 .width
             {
                 Dimension::Length(w) => w,

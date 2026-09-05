@@ -14,7 +14,7 @@ use frus_core::{BorderRadius, Color, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::disabled::disabled_content;
-use crate::icons::Icons;
+use crate::icons::IconData;
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -123,7 +123,7 @@ pub(crate) struct TabSpec {
     /// either way.
     pub label: String,
     /// The icon above the label, if any.
-    pub icon: Option<Icons>,
+    pub icon: Option<IconData>,
     /// Whether the label is **drawn**. False for an icon-only tab, whose label is still
     /// its name as far as anything that cannot see is concerned. The reference leaves an
     /// icon-only tab nameless and expects the caller to wrap it; asking for the word up
@@ -434,9 +434,12 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
         let top = bounds.y + (height - block) / 2.0;
         if let Some(icon) = self.spec.icon {
             // The 24x24 grid, unscaled, centred across the tab.
-            let path = icon
-                .path()
-                .translated(bounds.x + (bounds.width - TAB_ICON_SIZE) / 2.0, top);
+            let path = icon.placed(
+                TAB_ICON_SIZE,
+                bounds.x + (bounds.width - TAB_ICON_SIZE) / 2.0,
+                top,
+                theme.direction,
+            );
             scene.fill_path(&path, color.fade(o));
         }
         if shows_label {
@@ -695,7 +698,7 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
     /// tabs of two heights in one bar would put their labels on two different lines.
     pub fn icon_tab(
         mut self,
-        icon: Icons,
+        icon: IconData,
         label: impl Into<String>,
         content: impl Widget<Msg> + 'static,
     ) -> Self {
@@ -718,7 +721,7 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
     /// it; asking for the word here costs nothing and cannot be forgotten.
     pub fn icon_only_tab(
         mut self,
-        icon: Icons,
+        icon: IconData,
         label: impl Into<String>,
         content: impl Widget<Msg> + 'static,
     ) -> Self {
@@ -1122,8 +1125,8 @@ mod tests {
     #[test]
     fn an_icon_tab_draws_its_icon_and_its_label() {
         let tabs = TabBar::new(0, Msg::Select)
-            .icon_tab(Icons::Star, "Home", Text::new("panel"))
-            .icon_tab(Icons::Heart, "Search", Text::new("panel"));
+            .icon_tab(Icons::STAR, "Home", Text::new("panel"))
+            .icon_tab(Icons::FAVORITE, "Search", Text::new("panel"));
         let (paths, texts) = drawn(tabs);
         assert_eq!(paths, 2, "one icon per tab");
         assert!(texts.contains(&"Home".to_string()));
@@ -1139,7 +1142,7 @@ mod tests {
             .tab("Two", Text::new("panel"));
         let mixed = TabBar::new(0, Msg::Select)
             .tab("One", Text::new("panel"))
-            .icon_tab(Icons::Heart, "Two", Text::new("panel"));
+            .icon_tab(Icons::FAVORITE, "Two", Text::new("panel"));
         let short = drawn_bar_height(plain);
         let tall = drawn_bar_height(mixed);
         assert!(
@@ -1157,14 +1160,14 @@ mod tests {
     #[test]
     fn an_icon_only_tab_is_short_and_still_named() {
         let tabs = TabBar::new(0, Msg::Select)
-            .icon_only_tab(Icons::Star, "Home", Text::new("panel"))
-            .icon_only_tab(Icons::Heart, "Search", Text::new("panel"));
+            .icon_only_tab(Icons::STAR, "Home", Text::new("panel"))
+            .icon_only_tab(Icons::FAVORITE, "Search", Text::new("panel"));
         let (paths, texts) = drawn(tabs);
         assert_eq!(paths, 2, "the icons");
         assert!(!texts.contains(&"Home".to_string()), "no label is drawn");
 
         let short = drawn_bar_height(TabBar::new(0, Msg::Select).icon_only_tab(
-            Icons::Star,
+            Icons::STAR,
             "Home",
             Text::new("panel"),
         ));
@@ -1178,7 +1181,7 @@ mod tests {
             .width(400.0)
             .height(300.0)
             .child(TabBar::new(0, Msg::Select).icon_only_tab(
-                Icons::Star,
+                Icons::STAR,
                 "Home",
                 Text::new("panel"),
             ));
@@ -1204,7 +1207,7 @@ mod tests {
         let theme = Theme::default();
         let narrow = TabSpec {
             label: "Hi".into(),
-            icon: Some(Icons::Star),
+            icon: Some(Icons::STAR),
             show_label: true,
         };
         // "Hi" is narrower than a 24 px icon, so the icon decides.
@@ -1215,7 +1218,7 @@ mod tests {
         // A long label decides instead.
         let wide = TabSpec {
             label: "Notifications".into(),
-            icon: Some(Icons::Star),
+            icon: Some(Icons::STAR),
             show_label: true,
         };
         assert!(

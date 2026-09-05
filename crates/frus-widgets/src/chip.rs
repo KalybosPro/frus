@@ -10,7 +10,7 @@
 //! ```ignore
 //! Chip::new("Draft")                                   // an attribute
 //! Chip::new("Unread").selected(on).on_press(Msg::Toggle)   // a filter
-//! Chip::new(name).leading(Icons::Star).on_remove(Msg::Drop(id))  // an entry
+//! Chip::new(name).leading(Icons::STAR).on_remove(Msg::Drop(id))  // an entry
 //! ```
 //!
 //! Every measurement and colour is overridable, per call or through
@@ -20,7 +20,7 @@ use frus_core::{BorderRadius, Color, Insets, Point, Rect, Scene, ShapeBorder, Te
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
-use crate::icons::Icons;
+use crate::icons::{IconData, Icons};
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -37,9 +37,6 @@ pub const CHIP_LABEL_PADDING: f32 = 8.0;
 pub const CHIP_ICON_SIZE: f32 = 18.0;
 /// The outline's thickness.
 pub const CHIP_BORDER_WIDTH: f32 = 1.0;
-
-/// The icon grid the vector icons are drawn on; see [`crate::icons`].
-const ICON_GRID: f32 = 24.0;
 
 /// Everything about a chip's appearance, each part `None` until someone says otherwise.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -203,10 +200,12 @@ impl<Msg: Clone> Widget<Msg> for Remove<Msg> {
             disabled_content(theme)
         }
         .fade(status.opacity);
-        let path = Icons::Close
-            .path()
-            .scaled(size / ICON_GRID)
-            .translated(bounds.x, bounds.y + (bounds.height - size) * 0.5);
+        let path = Icons::CLOSE.placed(
+            size,
+            bounds.x,
+            bounds.y + (bounds.height - size) * 0.5,
+            theme.direction,
+        );
         scene.fill_path(&path, color);
     }
 
@@ -240,7 +239,7 @@ impl<Msg: Clone> Widget<Msg> for Remove<Msg> {
 pub struct Chip<Msg> {
     label: String,
     selected: bool,
-    leading: Option<Icons>,
+    leading: Option<IconData>,
     on_press: Option<Msg>,
     on_remove: Option<Msg>,
     /// A chip that is shown but cannot be acted on: greyed out and inert, its label still
@@ -295,7 +294,7 @@ impl<Msg: Clone + 'static> Chip<Msg> {
     }
 
     /// A leading icon — the avatar or glyph an entry chip carries.
-    pub fn leading(mut self, icon: Icons) -> Self {
+    pub fn leading(mut self, icon: IconData) -> Self {
         self.leading = Some(icon);
         self.rebuild()
     }
@@ -409,9 +408,9 @@ impl<Msg: Clone + 'static> Chip<Msg> {
 
     /// Whether anything is drawn in the leading slot, and what: an icon if there is one,
     /// otherwise the checkmark of a selected chip.
-    fn leading_glyph(&self, theme: &Theme) -> Option<Icons> {
+    fn leading_glyph(&self, theme: &Theme) -> Option<IconData> {
         self.leading
-            .or_else(|| (self.selected && self.style.show_checkmark(theme)).then_some(Icons::Check))
+            .or_else(|| (self.selected && self.style.show_checkmark(theme)).then_some(Icons::CHECK))
     }
 
     /// Where the label starts, measured from the chip's left edge.
@@ -530,9 +529,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for Chip<Msg> {
             } else {
                 theme.scheme.primary
             };
-            let path = name.path().scaled(icon_size / ICON_GRID).translated(
+            let path = name.placed(
+                icon_size,
                 bounds.x + self.style.padding(theme),
                 bounds.y + (bounds.height - icon_size) * 0.5,
+                theme.direction,
             );
             scene.fill_path(&path, color.fade(o));
         }
@@ -811,9 +812,9 @@ mod tests {
                 .filter(|p| matches!(p, Primitive::Path { .. }))
                 .count()
         };
-        assert_eq!(paths(Chip::new("Ada").leading(Icons::Star)), 1);
+        assert_eq!(paths(Chip::new("Ada").leading(Icons::STAR)), 1);
         assert_eq!(
-            paths(Chip::new("Ada").leading(Icons::Star).selected(true)),
+            paths(Chip::new("Ada").leading(Icons::STAR).selected(true)),
             1,
             "the icon, not the icon and a checkmark"
         );

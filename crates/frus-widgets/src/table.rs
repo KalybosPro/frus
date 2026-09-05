@@ -13,7 +13,7 @@ use frus_core::{Color, Insets, Path, Point, Rect, ResolvedTextStyle, Scene, Text
 use frus_layout::{Align, Dimension, Justify, Style};
 
 use crate::flex::Flex;
-use crate::icons::Icons;
+use crate::icons::{IconData, Icons};
 use crate::interaction::{Key, KeyResponse, Status};
 use crate::list::ListView;
 use crate::scroll::{Axis, SingleChildScrollView};
@@ -138,7 +138,7 @@ struct Cell<Msg> {
     /// reader. `None` on a header.
     row: Option<usize>,
     /// **Leading** icon (headers only): painted before the label (icon + text).
-    icon: Option<Icons>,
+    icon: Option<IconData>,
     /// The header's sort indicator: `Some(true)` = ▲, `Some(false)` = ▼.
     sort: Option<bool>,
     message: Option<Msg>,
@@ -206,7 +206,7 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
         let mut text_x = bounds.x + PAD_X;
         if let Some(icon) = self.icon {
             let iy = bounds.y + (bounds.height - ICON) * 0.5;
-            let path = icon.path().scaled(ICON / 24.0).translated(text_x, iy);
+            let path = icon.placed(ICON, text_x, iy, theme.direction);
             scene.fill_path(&path, color.fade(o));
             text_x += ICON + ICON_GAP;
         }
@@ -355,12 +355,9 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
                 Color::TRANSPARENT,
             );
             // The tick: the filled Check icon, centred in the box.
-            let scale = (BOX - 4.0) / 24.0;
-            let inset = (BOX - 24.0 * scale) * 0.5;
-            let path = Icons::Check
-                .path()
-                .scaled(scale)
-                .translated(bx + inset, by + inset);
+            let tick = BOX - 4.0;
+            let inset = (BOX - tick) * 0.5;
+            let path = Icons::CHECK.placed(tick, bx + inset, by + inset, theme.direction);
             scene.fill_path(&path, theme.on_primary.fade(o));
         } else if self.indeterminate {
             // Indeterminate: a filled box crossed by a dash.
@@ -640,7 +637,7 @@ pub struct Table<Msg> {
     columns: usize,
     headers: Vec<String>,
     /// Leading icon per header column (icon + label). Missing = none.
-    header_icons: Vec<Option<Icons>>,
+    header_icons: Vec<Option<IconData>>,
     /// A **fully widget** header (per column): it replaces the text header row. Empty = the
     /// ordinary text header. Automatic sorting/reordering does not apply to these headers —
     /// the application wires the behaviour into its own widgets.
@@ -757,7 +754,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// Gives header columns a **leading icon** (icon + label): `None` leaves the column
     /// without one. The header stays **sortable** and **reorderable** just like a text
     /// header (the icon is purely decorative).
-    pub fn header_icons(mut self, icons: &[Option<Icons>]) -> Self {
+    pub fn header_icons(mut self, icons: &[Option<IconData>]) -> Self {
         self.header_icons = icons.to_vec();
         self.rebuild();
         self
@@ -1744,7 +1741,7 @@ mod tests {
         let name_x = |icons: bool| {
             let mut t = Table::<Msg>::new(2).width(240.0).header(&["Name", "Score"]);
             if icons {
-                t = t.header_icons(&[Some(Icons::Star), None]);
+                t = t.header_icons(&[Some(Icons::STAR), None]);
             }
             let ui = build_ui(
                 &t,

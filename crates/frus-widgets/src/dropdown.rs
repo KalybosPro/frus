@@ -131,10 +131,9 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         } else if self.selected {
             // The selected option's tick, on the right.
             let size = 18.0;
-            let scale = size / 24.0;
             let x = bounds.x + self.width - PAD_X - size;
             let y = bounds.y + (bounds.height - size) * 0.5;
-            let path = Icons::Check.path().scaled(scale).translated(x, y);
+            let path = Icons::CHECK.placed(size, x, y, theme.direction);
             // The tick stays: which option is chosen is still owed to a reader who cannot
             // choose another.
             let check = if self.enabled {

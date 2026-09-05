@@ -7,6 +7,7 @@
 
 pub mod animation;
 mod color;
+mod colors;
 mod decoration;
 mod filter;
 mod geometry;
@@ -27,6 +28,7 @@ pub use animation::{
     CLAMPING_FRICTION, DESKTOP_FLING_WEIGHTS, MAX_SPRING_TRANSFER_VELOCITY,
 };
 pub use color::{surface_tint_opacity, Color};
+pub use colors::{Colors, MaterialColor};
 pub use decoration::{
     Border, BorderRadius, BorderRadiusDirectional, BoxDecoration, BoxShadow, LinearGradient,
 };

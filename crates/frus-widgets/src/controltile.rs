@@ -618,10 +618,10 @@ mod tests {
 
         let trailing = CheckboxListTile::new(true, Msg::Toggle)
             .title("Notify me")
-            .secondary(Icon::new(Icons::Add));
+            .secondary(Icon::new(Icons::ADD));
         let leading = CheckboxListTile::new(true, Msg::Toggle)
             .title("Notify me")
-            .secondary(Icon::new(Icons::Add))
+            .secondary(Icon::new(Icons::ADD))
             .control_affinity(ControlAffinity::Leading);
 
         let (right, left) = (ends(&trailing), ends(&leading));

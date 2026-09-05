@@ -233,7 +233,8 @@ impl Application for TodoApp {
     }
 
     fn theme(&self) -> Theme {
-        theme_of(self, false)
+        let dark = MediaQuery::of().platform_brightness == Brightness::Dark;
+        theme_of(self, dark)
     }
 
     fn dark_theme(&self) -> Option<Theme> {

@@ -636,13 +636,13 @@ pub struct FabTheme {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ActionIconTheme {
     /// The glyph on a [`BackButton`](crate::BackButton).
-    pub back: Option<crate::Icons>,
+    pub back: Option<crate::IconData>,
     /// On a [`CloseButton`](crate::CloseButton).
-    pub close: Option<crate::Icons>,
+    pub close: Option<crate::IconData>,
     /// On a [`DrawerButton`](crate::DrawerButton).
-    pub drawer: Option<crate::Icons>,
+    pub drawer: Option<crate::IconData>,
     /// On an [`EndDrawerButton`](crate::EndDrawerButton).
-    pub end_drawer: Option<crate::Icons>,
+    pub end_drawer: Option<crate::IconData>,
 }
 
 /// Defaults for [`Divider`](crate::Divider).
