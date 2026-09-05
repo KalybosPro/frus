@@ -8,10 +8,46 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 472 so far, each documenting the objective, the alternatives
+> record — one per step, 473 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`NavigationDestination`** (J473, closes #47): a navigation destination as a **value** —
+  a mark, a name, the mark it swaps to while selected, a badge, a tooltip, and the
+  decorations that belong to one entry. `BottomBar`, `NavigationRail`, `NavigationDrawer`,
+  `NavScaffold` and `Scaffold` all take `destinations`, so an application that adapts
+  across widths declares its navigation **once** instead of three times.
+
+- **`DestinationIcon`** (J473): a destination's mark is a drawn `IconData` or a text
+  glyph. `From` covers `&str`, `String`, `char` and `IconData`, so `item` takes either and
+  every existing call site kept compiling. A drawn icon is a square of its own size and a
+  glyph is whatever the font makes of it, so the selection pill is measured from the mark
+  rather than from a grid it might not be on.
+
+- **A destination's tooltip** (J473). A rail shows glyphs without labels by default, which
+  is exactly when the mark needs a word behind it. The item that has one is wrapped in
+  `Tooltip` rather than growing a second implementation of one.
+
+### Fixed
+
+- **The two goldens that were red on every run** (J473): `overflow_band` and
+  `filters_three` now state the tolerance they actually need — four pixels of one rounded
+  corner, and three counts of 255 on a blur's edge. Neither was drift in this framework:
+  both fail identically at the commit that first wrote them, 128 commits back, and both
+  render byte-for-byte the same today as they did then. The difference is the adapter's,
+  and a suite that is permanently red teaches everyone to ignore red.
+
+- **The multi-line field's scrolled preview** (J473): red for months, and not for the
+  reason the other two were. Its golden holds a scrollbar **track** that the framework
+  deliberately stopped painting, and a thumb of the old geometry — six pixels inside an
+  eight-pixel slot rather than eight pixels clear of the edge. The picture was stale, so
+  it is re-blessed. The test also seeds the scrollbar's fade now: a bar arrives when an
+  area moves and goes again, so a runtime that never saw this field move draws no bar at
+  all — correctly — and a preview of a scrolled field with nothing at its edge says
+  nothing about where the scroll is.
 
 ### Added
 

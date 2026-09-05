@@ -22,7 +22,9 @@ use frus_layout::{FlexDirection, Style};
 use crate::flex::Flex;
 use crate::interaction::Status;
 use crate::navdrawer::NavigationDrawer;
-use crate::navrail::{BottomBar, Destination, NavigationRail, RailLabels};
+use crate::navrail::{
+    BottomBar, DestinationIcon, NavigationDestination, NavigationRail, RailLabels,
+};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -38,7 +40,7 @@ pub struct NavScaffold<Msg> {
     class: SizeClass,
     selected: usize,
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,
-    destinations: Vec<Destination>,
+    destinations: Vec<NavigationDestination>,
     labels: Option<RailLabels>,
     rail: Option<RailConfig<Msg>>,
     /// Whether the widest band gets a drawer rather than an extended rail. See
@@ -78,10 +80,55 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
     /// Adds a destination, a glyph plus a label. Call this **before** [`body`].
     ///
     /// [`body`]: NavScaffold::body
-    pub fn destination(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
+    pub fn destination(
+        mut self,
+        icon: impl Into<DestinationIcon>,
+        label: impl Into<String>,
+    ) -> Self {
         self.describing("destination");
-        self.destinations.push(Destination::new(icon, label));
+        self.destinations
+            .push(NavigationDestination::new(icon, label));
         self
+    }
+
+    /// Adds a whole list of destinations **declared elsewhere**. Call this **before**
+    /// [`body`].
+    ///
+    /// This is the shape the scaffold was waiting for: it already picks the bar, the rail
+    /// or the drawer by width, and now the caller writes the navigation once and lets it.
+    ///
+    /// ```
+    /// use frus_core::SizeClass;
+    /// use frus_widgets::{Icons, NavScaffold, NavigationDestination};
+    ///
+    /// let places = vec![
+    ///     NavigationDestination::new(Icons::FAVORITE_BORDER, "Saved")
+    ///         .selected_icon(Icons::FAVORITE),
+    ///     NavigationDestination::new(Icons::MAIL_OUTLINE, "Inbox").badge(3),
+    /// ];
+    /// let _shell = NavScaffold::new(SizeClass::Compact, 0, |i| i)
+    ///     .destinations(places)
+    ///     .body(frus_widgets::text("…"));
+    /// ```
+    ///
+    /// [`body`]: NavScaffold::body
+    #[must_use]
+    pub fn destinations(
+        mut self,
+        destinations: impl IntoIterator<Item = NavigationDestination>,
+    ) -> Self {
+        self.describing("destinations");
+        self.destinations.extend(destinations);
+        self
+    }
+
+    /// What a pointer resting on the **last** destination is told. See
+    /// [`NavigationRail::tooltip`].
+    #[must_use]
+    pub fn tooltip(self, message: impl Into<String>) -> Self {
+        self.describing("tooltip");
+        let message = message.into();
+        self.decorate(move |last| last.tooltip = Some(message))
     }
 
     /// Adds a notification count to the **last** destination.
@@ -92,7 +139,7 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
 
     /// The glyph the **last** destination shows while it is selected, where that differs
     /// from its resting one. See [`NavigationRail::selected_icon`].
-    pub fn selected_icon(self, icon: impl Into<String>) -> Self {
+    pub fn selected_icon(self, icon: impl Into<DestinationIcon>) -> Self {
         self.describing("selected_icon");
         let icon = icon.into();
         self.decorate(move |last| last.selected_icon = Some(icon))
@@ -112,7 +159,7 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
     }
 
     /// Applies `f` to the destination just added. Silent when there is none.
-    fn decorate(mut self, f: impl FnOnce(&mut Destination)) -> Self {
+    fn decorate(mut self, f: impl FnOnce(&mut NavigationDestination)) -> Self {
         if let Some(last) = self.destinations.last_mut() {
             f(last);
         }

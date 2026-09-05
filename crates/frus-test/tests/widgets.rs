@@ -25,11 +25,12 @@ use frus_widgets::{
     Container, ControlAffinity, CustomPaint, Divider, Expanded, ExpansionTile, FittedBox, Flex,
     FloatingActionButton, FontWeight, FractionallySizedBox, GridTile, GridTileBar, GridView, Icon,
     IconData, Icons, Image, Intrinsic, Kbd, LinearProgressIndicator, ListTile, ListView,
-    MenuAnchor, NavigationBar, NavigationDrawer, NavigationRail, Offstage, Opacity, OverflowBox,
-    OverlayPortal, Placement, RadioGroup, RadioListTile, RichText, RotatedBox, SafeArea,
-    SearchAnchor, SearchBar, SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Spacer,
-    Stack, Stepper, Switch, SwitchListTile, TabBar, Theme, Timeline, ToggleButtons, Transform,
-    TwoPane, UserAccountsDrawerHeader, VerticalDivider, Visibility, Widget,
+    MenuAnchor, NavigationBar, NavigationDestination, NavigationDrawer, NavigationRail, Offstage,
+    Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup, RadioListTile, RailLabels,
+    RichText, RotatedBox, SafeArea, SearchAnchor, SearchBar, SegmentedButton,
+    SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile,
+    TabBar, Theme, Timeline, ToggleButtons, Transform, TwoPane, UserAccountsDrawerHeader,
+    VerticalDivider, Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -387,6 +388,42 @@ fn the_navigation_chrome() {
                 ),
         );
     check("navigation_chrome", 340, 220, &root);
+}
+
+/// **One declaration, two chromes.** The same `Vec<NavigationDestination>` builds the
+/// rail down the side and the bar across the bottom, so the picture shows what the type
+/// is for: an application that adapts across widths writes its navigation once.
+///
+/// It also shows the two things a positional `(glyph, label)` could not say — the second
+/// destination is selected and wears its **solid** icon where the others wear outlines,
+/// and the third carries a **badge**.
+#[test]
+fn one_navigation_two_chromes() {
+    let places = || {
+        vec![
+            NavigationDestination::new(Icons::HOME, "Home"),
+            NavigationDestination::new(Icons::FAVORITE_BORDER, "Saved")
+                .selected_icon(Icons::FAVORITE),
+            NavigationDestination::new(Icons::MAIL_OUTLINE, "Inbox")
+                .selected_icon(Icons::MAIL)
+                .badge(7)
+                .tooltip("Unread messages"),
+        ]
+    };
+    let root: Flex<()> = Flex::row()
+        .child(
+            NavigationRail::new(1, |_: usize| ())
+                .labels(RailLabels::All)
+                .destinations(places()),
+        )
+        .child(
+            Flex::column()
+                .width(260.0)
+                .flex(1.0)
+                .child(Container::new().flex(1.0))
+                .child(BottomBar::new(1, |_: usize| ()).destinations(places())),
+        );
+    check("one_navigation_two_chromes", 340, 200, &root);
 }
 
 /// **The third navigation form**, which the framework had no widget for until milestone

@@ -2919,7 +2919,15 @@ fn the_three_filters_match_their_golden() {
         eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    snapshot.assert_golden(golden("filters_three"));
+    // **A blur is the one golden that cannot be byte-exact across adapters.** Its edge
+    // pixels are a weighted sum of a dozen samples, and where that sum lands between two
+    // integers is the adapter's business, not ours: twelve pixels on the blur's two
+    // vertical edges come out three counts of 255 darker here than on the machine that
+    // wrote these bytes, and nowhere else in the picture differs at all. Three counts is
+    // invisible; a filter that stopped blurring, greyed the wrong subtree or spread the
+    // wrong way would move hundreds of pixels by hundreds of counts, which this still
+    // catches. Measured, not guessed — see milestone 473.
+    snapshot.assert_golden_with(golden("filters_three"), 3, 0);
 }
 
 /// The colour used by the filter golden, kept beside it so the expected greyscale
@@ -3152,7 +3160,15 @@ fn an_overflow_band_matches_its_golden() {
         eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    snapshot.assert_golden(golden("overflow_band"));
+    // **Four pixels of one rounded corner.** The label plate's top-right arc resolves a
+    // row earlier on this machine's adapter than on the one that wrote these bytes — a
+    // 1×4 sliver at the corner, and the only difference in 48 000 pixels. It is not drift
+    // in this framework: the same four pixels differ at the commit that first wrote the
+    // golden, 128 commits back, and the rendering has been byte-identical the whole way.
+    // So the allowance is for the arc, and nothing in this picture that could actually go
+    // wrong — the band on the wrong edge, the label unturned, the stripes the wrong way —
+    // fits inside four pixels.
+    snapshot.assert_golden_with(golden("overflow_band"), 2, 4);
 }
 
 /// Rich text answering the three questions milestone 343 gave plain text: centred,

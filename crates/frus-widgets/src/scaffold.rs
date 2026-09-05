@@ -70,7 +70,7 @@ use crate::bottomappbar::BottomAppBar;
 use crate::container::Container;
 use crate::flex::Flex;
 use crate::media::MediaQuery;
-use crate::navrail::{BottomBar, Destination, NavigationRail, RailLabels, BAR_HEIGHT};
+use crate::navrail::{BottomBar, NavigationDestination, NavigationRail, RailLabels, BAR_HEIGHT};
 use crate::stack::Stack;
 use crate::widget::Widget;
 
@@ -171,7 +171,7 @@ pub struct Scaffold<Msg> {
     body: Option<Box<dyn Widget<Msg>>>,
     selected: usize,
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,
-    destinations: Vec<Destination>,
+    destinations: Vec<NavigationDestination>,
     nav_placement: NavPlacement,
     nav_labels: Option<RailLabels>,
     /// What the caller wants done to the rail once the shell has built it. `None` leaves
@@ -421,10 +421,50 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         self
     }
 
-    /// Adds a navigation destination (glyph + label).
-    pub fn destination(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
-        self.destinations.push(Destination::new(icon, label));
+    /// Adds a navigation destination (mark + label).
+    pub fn destination(
+        mut self,
+        icon: impl Into<crate::navrail::DestinationIcon>,
+        label: impl Into<String>,
+    ) -> Self {
+        self.destinations
+            .push(NavigationDestination::new(icon, label));
         self
+    }
+
+    /// Adds a whole list of destinations **declared elsewhere** — the same list a rail, a
+    /// drawer or a [`NavScaffold`](crate::NavScaffold) would take, so an application
+    /// describes its navigation once.
+    ///
+    /// ```
+    /// use frus_widgets::{Icons, NavigationDestination, Scaffold};
+    ///
+    /// let places = vec![
+    ///     NavigationDestination::new(Icons::FAVORITE_BORDER, "Saved")
+    ///         .selected_icon(Icons::FAVORITE),
+    ///     NavigationDestination::new(Icons::MAIL_OUTLINE, "Inbox").badge(3),
+    /// ];
+    /// let _shell = Scaffold::new()
+    ///     .body(frus_widgets::text("…"))
+    ///     .nav(0, |i| i)
+    ///     .destinations(places)
+    ///     .build();
+    /// ```
+    #[must_use]
+    pub fn destinations(
+        mut self,
+        destinations: impl IntoIterator<Item = NavigationDestination>,
+    ) -> Self {
+        self.destinations.extend(destinations);
+        self
+    }
+
+    /// What a pointer resting on the **last** destination is told. See
+    /// [`NavigationRail::tooltip`].
+    #[must_use]
+    pub fn tooltip(self, message: impl Into<String>) -> Self {
+        let message = message.into();
+        self.decorate(move |last| last.tooltip = Some(message))
     }
 
     /// A notification count on the **last** destination.
@@ -434,7 +474,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
 
     /// The glyph the **last** destination shows while it is selected, where that differs
     /// from its resting one. See [`NavigationRail::selected_icon`].
-    pub fn selected_icon(self, icon: impl Into<String>) -> Self {
+    pub fn selected_icon(self, icon: impl Into<crate::navrail::DestinationIcon>) -> Self {
         let icon = icon.into();
         self.decorate(move |last| last.selected_icon = Some(icon))
     }
@@ -451,7 +491,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     }
 
     /// Applies `f` to the destination just added. Silent when there is none.
-    fn decorate(mut self, f: impl FnOnce(&mut Destination)) -> Self {
+    fn decorate(mut self, f: impl FnOnce(&mut NavigationDestination)) -> Self {
         if let Some(last) = self.destinations.last_mut() {
             f(last);
         }

@@ -44,7 +44,7 @@ use frus_layout::{Dimension, FlexDirection, Style};
 use crate::disabled::disabled_content;
 use crate::flex::Flex;
 use crate::interaction::Status;
-use crate::navrail::Destination;
+use crate::navrail::{DestinationIcon, NavigationDestination};
 use crate::scroll::SingleChildScrollView;
 use crate::theme::Theme;
 use crate::widget::{FillAxes, Widget};
@@ -91,8 +91,11 @@ fn badge_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextSt
 /// one list rather than two is what makes a divider land where it was written instead of
 /// after the last destination.
 enum Entry<Msg> {
-    /// A destination, which takes the next index.
-    Stop(Destination),
+    /// A destination, which takes the next index. Boxed: a declared destination is a
+    /// wide value — two marks, three optional colours, a shape and two strings — and the
+    /// other arm is one pointer, so the list would otherwise pay a destination's width
+    /// for every divider in it.
+    Stop(Box<NavigationDestination>),
     /// Anything else — a heading, a rule, a spacer. It takes no index.
     Other(Box<dyn Widget<Msg>>),
 }
@@ -106,7 +109,7 @@ enum Entry<Msg> {
 /// stands on it and takes the indicator's content colour like the glyph does
 /// (`navigation_drawer.dart:773` against `navigation_rail.dart:1251`).
 struct DrawerTile<Msg> {
-    icon: String,
+    icon: DestinationIcon,
     label: String,
     badge: Option<u32>,
     selected: bool,
@@ -279,9 +282,8 @@ impl<Msg: Clone> Widget<Msg> for DrawerTile<Msg> {
         };
 
         let size = self.glyph_size(Some(theme));
-        let icon_style = ResolvedTextStyle::exact(size);
         let label_s = label_style(self.label_text_style, Some(theme));
-        let icon_m = frus_text::measure_resolved(&self.icon, &icon_style);
+        let icon_m = self.icon.measure(size);
         let label_m = frus_text::measure_resolved(&self.label, &label_s);
 
         // The row starts at the tile's leading edge, not the indicator's: in a drawer wide
@@ -290,11 +292,13 @@ impl<Msg: Clone> Widget<Msg> for DrawerTile<Msg> {
         // happened to put in it — otherwise a column of destinations has its labels at as
         // many different offsets as it has glyph widths.
         let x = inner.x + ICON_LEAD;
-        scene.text(
-            Point::new(x, inner.y + (inner.height - icon_m.height) * 0.5),
-            self.icon.clone(),
-            &icon_style,
+        self.icon.paint(
+            size,
+            x,
+            inner.y + (inner.height - icon_m.height) * 0.5,
             ink.fade(o),
+            theme,
+            scene,
         );
         scene.text(
             Point::new(
@@ -413,14 +417,16 @@ impl<Msg: Clone + 'static> NavigationDrawer<Msg> {
     }
 
     /// Adds a destination: a glyph and a name.
-    pub fn item(self, icon: impl Into<String>, label: impl Into<String>) -> Self {
-        self.destination(Destination::new(icon, label))
+    pub fn item(self, icon: impl Into<DestinationIcon>, label: impl Into<String>) -> Self {
+        self.destination(NavigationDestination::new(icon, label))
     }
 
     /// Adds a destination declared elsewhere — what [`crate::NavScaffold`] forwards, so
     /// that one list feeds all three forms.
-    pub(crate) fn destination(mut self, destination: Destination) -> Self {
-        self.entries.borrow_mut().push(Entry::Stop(destination));
+    pub(crate) fn destination(mut self, destination: NavigationDestination) -> Self {
+        self.entries
+            .borrow_mut()
+            .push(Entry::Stop(Box::new(destination)));
         self.rebuild();
         self
     }
@@ -441,14 +447,53 @@ impl<Msg: Clone + 'static> NavigationDrawer<Msg> {
         self
     }
 
+    /// Adds a whole list of destinations **declared elsewhere** — one navigation, handed
+    /// to whichever chrome the width called for.
+    ///
+    /// This is the reason [`NavigationDestination`] is a value. An application that shows
+    /// a bar when narrow and a rail when wide used to declare its destinations twice, and
+    /// the two drifted; now it declares them once.
+    ///
+    /// ```
+    /// use frus_widgets::{Icons, NavigationDestination, NavigationDrawer};
+    ///
+    /// let places = vec![
+    ///     NavigationDestination::new(Icons::FAVORITE_BORDER, "Saved")
+    ///         .selected_icon(Icons::FAVORITE),
+    ///     NavigationDestination::new(Icons::MAIL_OUTLINE, "Inbox").badge(3),
+    /// ];
+    /// let _drawer = NavigationDrawer::new(0, |i| i).destinations(places);
+    /// ```
+    #[must_use]
+    pub fn destinations(
+        mut self,
+        destinations: impl IntoIterator<Item = NavigationDestination>,
+    ) -> Self {
+        self.entries
+            .borrow_mut()
+            .extend(destinations.into_iter().map(|d| Entry::Stop(Box::new(d))));
+        self.rebuild();
+        self
+    }
+
     /// A notification count on the **last** destination.
     pub fn badge(self, count: u32) -> Self {
         self.decorate(|last| last.badge = Some(count))
     }
+    /// What a pointer resting on the **last** destination is told
+    /// (`navigation_rail.dart:1155`).
+    ///
+    /// The case this exists for is a rail: it shows glyphs without labels by default, so
+    /// the mark is all a destination says about itself, and a mark is not always enough.
+    #[must_use]
+    pub fn tooltip(self, message: impl Into<String>) -> Self {
+        let message = message.into();
+        self.decorate(move |last| last.tooltip = Some(message))
+    }
 
     /// The glyph the **last** destination shows while it is selected
     /// (`navigation_drawer.dart:248`).
-    pub fn selected_icon(self, icon: impl Into<String>) -> Self {
+    pub fn selected_icon(self, icon: impl Into<DestinationIcon>) -> Self {
         let icon = icon.into();
         self.decorate(move |last| last.selected_icon = Some(icon))
     }
@@ -481,7 +526,7 @@ impl<Msg: Clone + 'static> NavigationDrawer<Msg> {
     }
 
     /// Applies `f` to the destination most recently added; silent when there is none.
-    fn decorate(mut self, f: impl FnOnce(&mut Destination)) -> Self {
+    fn decorate(mut self, f: impl FnOnce(&mut NavigationDestination)) -> Self {
         {
             let mut entries = self.entries.borrow_mut();
             if let Some(Entry::Stop(last)) = entries
@@ -629,8 +674,9 @@ impl<Msg: Clone + 'static> NavigationDrawer<Msg> {
                 Entry::Other(child) => list = list.child_boxed(child),
                 Entry::Stop(stop) => {
                     let selected = index == self.selected;
-                    list = list.child(DrawerTile {
-                        icon: stop.glyph(selected).to_string(),
+                    let tooltip = stop.tooltip.clone();
+                    let tile = DrawerTile {
+                        icon: stop.glyph(selected).clone(),
                         label: stop.label.clone(),
                         badge: stop.badge,
                         selected,
@@ -649,7 +695,13 @@ impl<Msg: Clone + 'static> NavigationDrawer<Msg> {
                         label_text_style: self.label_text_style,
                         badge_text_style: self.badge_text_style,
                         message: (self.on_select)(index),
-                    });
+                    };
+                    // A row that was given a hint is wrapped in the widget that shows
+                    // hints, rather than growing a second one inside the tile.
+                    list = match tooltip {
+                        Some(message) => list.child(crate::Tooltip::new(message).child(tile)),
+                        None => list.child(tile),
+                    };
                     index += 1;
                 }
             }

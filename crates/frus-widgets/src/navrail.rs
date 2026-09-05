@@ -1,7 +1,15 @@
 //! [`NavigationRail`] and [`BottomBar`]: the two presentations of a single-selection
 //! **main navigation**. Same API (`new(selected, on_select).item(icon, label)`);
-//! [`crate::NavScaffold`] picks one or the other by size. The "icon" is a text
-//! glyph (the framework has no icon font): an emoji, or a Unicode character.
+//! [`crate::NavScaffold`] picks one or the other by size.
+//!
+//! A destination's icon is an [`IconData`] — one of the bundled set, or a caller's own —
+//! or a **text glyph**, an emoji or a Unicode character, which is all there was before
+//! milestone 472 brought an icon set. Both go through the same builder: `item` takes
+//! anything a [`DestinationIcon`] can be made from.
+//!
+//! A whole destination is also a value, [`NavigationDestination`], so that an application
+//! that adapts across widths declares its navigation **once** and hands the same list to
+//! whichever chrome the size class called for.
 //!
 //! The rail has three things a column of its own height can have and a single row
 //! cannot: an [extended](NavigationRail::extended) form, a slot
@@ -11,11 +19,12 @@
 
 use std::cell::{OnceCell, RefCell};
 
-use frus_core::{Color, Insets, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
+use frus_core::{Color, Insets, Point, Rect, ResolvedTextStyle, Scene, Size, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use frus_core::ShapeBorder;
 
+use crate::icons::IconData;
 use crate::widgetstate::WidgetStateProperty;
 
 use crate::disabled::disabled_content;
@@ -115,7 +124,7 @@ fn item_height(floor: f32, label: Option<&ResolvedTextStyle>, beside: bool) -> f
 
 /// One navigation destination (glyph + label), painted according to its state.
 struct NavItem<Msg> {
-    icon: String,
+    icon: DestinationIcon,
     label: String,
     selected: bool,
     /// Notification count (a dot on the icon). `0`/`None` = nothing.
@@ -192,12 +201,12 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // The icon is a glyph standing in for an icon: `exact`, so that it stays on its
-        // own grid while the label beside it follows the reader.
+        // A drawn icon is a square of its own size; a glyph is measured at `exact`, so
+        // that it stays on its own grid while the label beside it follows the reader.
         let t = &theme.widgets.nav_rail;
-        let icon_style = ResolvedTextStyle::exact(t.icon_size.unwrap_or(ICON_SIZE));
+        let icon_size = t.icon_size.unwrap_or(ICON_SIZE);
         let label_s = label_style(self.label_text_style, Some(theme));
-        let icon_m = frus_text::measure_resolved(&self.icon, &icon_style);
+        let icon_m = self.icon.measure(icon_size);
         let label_m = self
             .show_label
             .then(|| frus_text::measure_resolved(&self.label, &label_s));
@@ -353,11 +362,13 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
                 theme.scheme.on_surface_variant
             })
         };
-        scene.text(
-            Point::new(bounds.x + (col - icon_m.width) * 0.5, top),
-            self.icon.clone(),
-            &icon_style,
+        self.icon.paint(
+            icon_size,
+            bounds.x + (col - icon_m.width) * 0.5,
+            top,
             icon_color.fade(o),
+            theme,
+            scene,
         );
         if let Some(label_m) = &label_m {
             // Beside the glyph's column on an extended rail, centred under it otherwise.
@@ -457,33 +468,151 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
     }
 }
 
-/// **A declared destination**: everything the caller said about one entry in the list.
+/// **What a destination shows** above or beside its label: a drawn icon, or a text glyph.
 ///
-/// It was a `(glyph, label, badge)` tuple until milestone 436, which is exactly as far as a
-/// tuple goes. The two shells declare their destinations with this too, so a property added
-/// here is a property they can both forward.
-#[derive(Clone, Default)]
-pub(crate) struct Destination {
-    /// The glyph standing in for an icon.
-    pub icon: String,
+/// Both, because both are real. An [`IconData`] is what an application reaches for now
+/// that there is an icon set — it scales, it takes the theme's colour, and it is the same
+/// mark at every size. A glyph is an emoji or a Unicode character, which is what a
+/// destination could carry before there was a set, and is still the shortest way to put a
+/// flag or a rocket in a bar.
+///
+/// Nothing has to name this type: [`From`] covers `&str`, `String`, `char` and
+/// [`IconData`], so `item(Icons::HOME, "Home")` and `item("🏠", "Home")` are both just
+/// calls to `item`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DestinationIcon {
+    /// A drawn icon — one of the bundled set, or one of the caller's own.
+    Icon(IconData),
+    /// A text glyph: an emoji, or a Unicode character.
+    Glyph(String),
+}
+
+impl Default for DestinationIcon {
+    /// An empty glyph — a destination whose icon nobody named draws nothing, rather than
+    /// standing in a placeholder mark of the framework's choosing.
+    fn default() -> Self {
+        DestinationIcon::Glyph(String::new())
+    }
+}
+
+impl From<IconData> for DestinationIcon {
+    fn from(icon: IconData) -> Self {
+        DestinationIcon::Icon(icon)
+    }
+}
+
+impl From<String> for DestinationIcon {
+    fn from(glyph: String) -> Self {
+        DestinationIcon::Glyph(glyph)
+    }
+}
+
+impl From<&str> for DestinationIcon {
+    fn from(glyph: &str) -> Self {
+        DestinationIcon::Glyph(glyph.to_string())
+    }
+}
+
+impl From<&String> for DestinationIcon {
+    fn from(glyph: &String) -> Self {
+        DestinationIcon::Glyph(glyph.clone())
+    }
+}
+
+impl From<char> for DestinationIcon {
+    fn from(glyph: char) -> Self {
+        DestinationIcon::Glyph(glyph.to_string())
+    }
+}
+
+impl DestinationIcon {
+    /// The box this mark occupies when drawn at `size`.
+    ///
+    /// A drawn icon is a square of its own size, by definition. A glyph is whatever the
+    /// font makes of it, which is why the two cannot share one number: an emoji is wider
+    /// than it is tall in some faces and narrower in others, and a bar whose pill was
+    /// sized from the icon grid rather than from the glyph would clip it.
+    pub(crate) fn measure(&self, size: f32) -> Size {
+        match self {
+            DestinationIcon::Icon(_) => Size::new(size, size),
+            DestinationIcon::Glyph(glyph) => {
+                frus_text::measure_resolved(glyph, &ResolvedTextStyle::exact(size))
+            }
+        }
+    }
+
+    /// Paints the mark with its top-left corner at `(x, y)`, in `color`.
+    pub(crate) fn paint(
+        &self,
+        size: f32,
+        x: f32,
+        y: f32,
+        color: Color,
+        theme: &Theme,
+        scene: &mut Scene,
+    ) {
+        match self {
+            DestinationIcon::Icon(icon) => {
+                scene.fill_path(&icon.placed(size, x, y, theme.direction), color);
+            }
+            DestinationIcon::Glyph(glyph) => {
+                if !glyph.is_empty() {
+                    scene.text(
+                        Point::new(x, y),
+                        glyph.clone(),
+                        &ResolvedTextStyle::exact(size),
+                        color,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// **A declared destination**: everything the caller said about one entry in the list —
+/// its mark, its name, the mark it swaps to while selected, a badge, a tooltip, and the
+/// decorations that belong to this entry rather than to the list.
+///
+/// It exists as a **value** because an application that adapts across widths has three
+/// chromes to feed and one navigation to describe. [`NavigationRail`], [`BottomBar`],
+/// [`NavigationDrawer`](crate::NavigationDrawer) and
+/// [`NavScaffold`](crate::NavScaffold) all take `destinations`, so the list is written
+/// once and cannot drift between the forms.
+///
+/// ```
+/// use frus_widgets::{Icons, NavigationDestination};
+///
+/// let inbox = NavigationDestination::new(Icons::MAIL_OUTLINE, "Inbox")
+///     .selected_icon(Icons::MAIL)
+///     .badge(3)
+///     .tooltip("Unread messages");
+/// assert_eq!(inbox.label(), "Inbox");
+/// ```
+#[derive(Clone, Default, Debug)]
+pub struct NavigationDestination {
+    /// The mark standing above or beside the label.
+    pub(crate) icon: DestinationIcon,
     /// What the destination is called.
-    pub label: String,
-    /// The glyph shown **while selected**, when it differs from the resting one
+    pub(crate) label: String,
+    /// The mark shown **while selected**, when it differs from the resting one
     /// (`navigation_rail.dart:1132`).
-    pub selected_icon: Option<String>,
+    pub(crate) selected_icon: Option<DestinationIcon>,
     /// Notification count. `None` or `0` = nothing.
-    pub badge: Option<u32>,
+    pub(crate) badge: Option<u32>,
+    /// What a pointer resting on this destination is told. A rail showing glyphs without
+    /// labels is the case this exists for (`navigation_rail.dart:1155`).
+    pub(crate) tooltip: Option<String>,
     /// This destination cannot be reached (`navigation_rail.dart:1161`).
-    pub disabled: bool,
+    pub(crate) disabled: bool,
     /// This destination's own indicator colour, over the theme's
     /// (`navigation_rail.dart:1144`).
-    pub indicator_color: Option<Color>,
+    pub(crate) indicator_color: Option<Color>,
     /// This destination's own indicator shape, over the theme's
     /// (`navigation_rail.dart:1148`).
-    pub indicator_shape: Option<ShapeBorder>,
+    pub(crate) indicator_shape: Option<ShapeBorder>,
     /// This destination's own highlight per state, over the framework's state layer
     /// (`navigation_bar.dart:232`).
-    pub overlay_color: Option<WidgetStateProperty<Color>>,
+    pub(crate) overlay_color: Option<WidgetStateProperty<Color>>,
     /// The whole rectangular area behind this destination, when it was given one
     /// (`navigation_drawer.dart:228`) — not its indicator.
     ///
@@ -492,12 +621,12 @@ pub(crate) struct Destination {
     /// there is no area behind either that is not the widget's own surface. It lives here
     /// rather than on the drawer's own list because a shell forwards **one** declaration
     /// to whichever form the window chose.
-    pub background: Option<Color>,
+    pub(crate) background: Option<Color>,
 }
 
-impl Destination {
-    /// A destination with nothing said about it but its glyph and its name.
-    pub(crate) fn new(icon: impl Into<String>, label: impl Into<String>) -> Self {
+impl NavigationDestination {
+    /// A destination with nothing said about it but its mark and its name.
+    pub fn new(icon: impl Into<DestinationIcon>, label: impl Into<String>) -> Self {
         Self {
             icon: icon.into(),
             label: label.into(),
@@ -505,9 +634,88 @@ impl Destination {
         }
     }
 
-    /// The glyph to draw in this state: the selected one when there is one and the
+    /// The mark shown **while this destination is selected**, where it differs from the
+    /// resting one (`navigation_rail.dart:1132`).
+    ///
+    /// The convention the icon set is drawn for: an outline at rest, the filled twin when
+    /// selected — `Icons::FAVORITE_BORDER` and `Icons::FAVORITE`, or an outlined style
+    /// against the filled one. It is how a destination reads as selected without leaning
+    /// on colour alone, which is the difference between navigation a colour-blind reader
+    /// can use and navigation they cannot.
+    #[must_use]
+    pub fn selected_icon(mut self, icon: impl Into<DestinationIcon>) -> Self {
+        self.selected_icon = Some(icon.into());
+        self
+    }
+
+    /// A notification count on this destination. `0` shows nothing, so a count straight
+    /// out of a model needs no `if` around it.
+    #[must_use]
+    pub fn badge(mut self, count: u32) -> Self {
+        self.badge = Some(count);
+        self
+    }
+
+    /// What a pointer resting here is told (`navigation_rail.dart:1155`).
+    ///
+    /// A rail shows glyphs without labels by default, which is the case this is for: the
+    /// mark is all a destination says about itself, and a mark is not always enough.
+    #[must_use]
+    pub fn tooltip(mut self, message: impl Into<String>) -> Self {
+        self.tooltip = Some(message.into());
+        self
+    }
+
+    /// Marks this destination unreachable (`navigation_rail.dart:1161`): it takes the
+    /// disabled ink, nothing lights under the pointer, it emits no message, and the
+    /// keyboard steps over it.
+    #[must_use]
+    pub fn disabled(mut self) -> Self {
+        self.disabled = true;
+        self
+    }
+
+    /// This destination's own indicator colour, over the theme's
+    /// (`navigation_rail.dart:1144`).
+    #[must_use]
+    pub fn indicator_color(mut self, color: Color) -> Self {
+        self.indicator_color = Some(color);
+        self
+    }
+
+    /// This destination's own indicator shape, over the theme's
+    /// (`navigation_rail.dart:1148`).
+    #[must_use]
+    pub fn indicator_shape(mut self, shape: ShapeBorder) -> Self {
+        self.indicator_shape = Some(shape);
+        self
+    }
+
+    /// This destination's own highlight per state, over the framework's state layer
+    /// (`navigation_bar.dart:232`).
+    #[must_use]
+    pub fn overlay_color(mut self, overlay: WidgetStateProperty<Color>) -> Self {
+        self.overlay_color = Some(overlay);
+        self
+    }
+
+    /// The whole area behind this destination, edge to edge — read by a
+    /// [`NavigationDrawer`](crate::NavigationDrawer)'s rows and by nothing else
+    /// (`navigation_drawer.dart:228`).
+    #[must_use]
+    pub fn tile_color(mut self, color: Color) -> Self {
+        self.background = Some(color);
+        self
+    }
+
+    /// What this destination is called.
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    /// The mark to draw in this state: the selected one when there is one and the
     /// destination is selected, the resting one otherwise.
-    pub(crate) fn glyph(&self, selected: bool) -> &str {
+    pub(crate) fn glyph(&self, selected: bool) -> &DestinationIcon {
         match &self.selected_icon {
             Some(icon) if selected => icon,
             _ => &self.icon,
@@ -537,7 +745,7 @@ struct Presentation {
 
 /// Builds the navigation items from the declared destinations.
 fn build_items<Msg: Clone + 'static>(
-    items: &[Destination],
+    items: &[NavigationDestination],
     selected: usize,
     on_select: &dyn Fn(usize) -> Msg,
     how: Presentation,
@@ -547,8 +755,8 @@ fn build_items<Msg: Clone + 'static>(
         .enumerate()
         .map(|(i, item)| {
             let is_selected = i == selected;
-            Box::new(NavItem {
-                icon: item.glyph(is_selected).to_string(),
+            let nav = NavItem {
+                icon: item.glyph(is_selected).clone(),
                 label: item.label.clone(),
                 selected: is_selected,
                 badge: item.badge,
@@ -569,7 +777,15 @@ fn build_items<Msg: Clone + 'static>(
                 index: i,
                 count: items.len(),
                 message: on_select(i),
-            }) as Box<dyn Widget<Msg>>
+            };
+            // A destination with a hint is wrapped in the widget that shows hints, rather
+            // than growing a second implementation of one inside the item. The wrapper
+            // forwards the item's own structure, so a bar's destinations still share the
+            // row whether or not they were given a tooltip.
+            match &item.tooltip {
+                Some(message) => Box::new(crate::Tooltip::new(message.clone()).child(nav)),
+                None => Box::new(nav) as Box<dyn Widget<Msg>>,
+            }
         })
         .collect()
 }
@@ -578,7 +794,7 @@ fn build_items<Msg: Clone + 'static>(
 pub struct NavigationRail<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
-    items: Vec<Destination>,
+    items: Vec<NavigationDestination>,
     label_text_style: Option<TextStyle>,
     badge_text_style: Option<TextStyle>,
     background: Option<Color>,
@@ -797,15 +1013,42 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
     }
 
     /// Adds a destination (glyph + label).
-    pub fn item(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
-        self.items.push(Destination::new(icon, label));
+    pub fn item(mut self, icon: impl Into<DestinationIcon>, label: impl Into<String>) -> Self {
+        self.items.push(NavigationDestination::new(icon, label));
+        self.rebuild();
+        self
+    }
+
+    /// Adds a whole list of destinations **declared elsewhere** — one navigation, handed
+    /// to whichever chrome the width called for.
+    ///
+    /// This is the reason [`NavigationDestination`] is a value. An application that shows
+    /// a bar when narrow and a rail when wide used to declare its destinations twice, and
+    /// the two drifted; now it declares them once.
+    ///
+    /// ```
+    /// use frus_widgets::{Icons, NavigationDestination, NavigationRail};
+    ///
+    /// let places = vec![
+    ///     NavigationDestination::new(Icons::FAVORITE_BORDER, "Saved")
+    ///         .selected_icon(Icons::FAVORITE),
+    ///     NavigationDestination::new(Icons::MAIL_OUTLINE, "Inbox").badge(3),
+    /// ];
+    /// let _rail = NavigationRail::new(0, |i| i).destinations(places);
+    /// ```
+    #[must_use]
+    pub fn destinations(
+        mut self,
+        destinations: impl IntoIterator<Item = NavigationDestination>,
+    ) -> Self {
+        self.items.extend(destinations);
         self.rebuild();
         self
     }
 
     /// Adds a destination declared **in full** — what a shell hands over, having taken
     /// the caller's decorations itself.
-    pub(crate) fn destination(mut self, destination: Destination) -> Self {
+    pub(crate) fn destination(mut self, destination: NavigationDestination) -> Self {
         self.items.push(destination);
         self.rebuild();
         self
@@ -815,6 +1058,16 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
     pub fn badge(self, count: u32) -> Self {
         self.decorate(|last| last.badge = Some(count))
     }
+    /// What a pointer resting on the **last** destination is told
+    /// (`navigation_rail.dart:1155`).
+    ///
+    /// The case this exists for is a rail: it shows glyphs without labels by default, so
+    /// the mark is all a destination says about itself, and a mark is not always enough.
+    #[must_use]
+    pub fn tooltip(self, message: impl Into<String>) -> Self {
+        let message = message.into();
+        self.decorate(move |last| last.tooltip = Some(message))
+    }
 
     /// The glyph the **last** destination shows while it is selected, where that differs
     /// from its resting one (`navigation_rail.dart:1132`).
@@ -822,7 +1075,7 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
     /// The reference pairs a stroked icon with its filled version, which is how a
     /// selected destination reads as selected without leaning on colour alone.
     #[must_use]
-    pub fn selected_icon(self, icon: impl Into<String>) -> Self {
+    pub fn selected_icon(self, icon: impl Into<DestinationIcon>) -> Self {
         let icon = icon.into();
         self.decorate(move |last| last.selected_icon = Some(icon))
     }
@@ -868,7 +1121,7 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
 
     /// Applies `f` to the destination just added. Silent when there is none, which is the
     /// shape `badge` has always had.
-    fn decorate(mut self, f: impl FnOnce(&mut Destination)) -> Self {
+    fn decorate(mut self, f: impl FnOnce(&mut NavigationDestination)) -> Self {
         if let Some(last) = self.items.last_mut() {
             f(last);
             self.rebuild();
@@ -1095,7 +1348,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for NavigationRail<Msg> {
 pub struct BottomBar<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
-    items: Vec<Destination>,
+    items: Vec<NavigationDestination>,
     label_text_style: Option<TextStyle>,
     badge_text_style: Option<TextStyle>,
     background: Option<Color>,
@@ -1130,16 +1383,43 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
         self
     }
 
-    /// Adds a destination (glyph + label).
-    pub fn item(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
-        self.items.push(Destination::new(icon, label));
+    /// Adds a destination (mark + label).
+    pub fn item(mut self, icon: impl Into<DestinationIcon>, label: impl Into<String>) -> Self {
+        self.items.push(NavigationDestination::new(icon, label));
+        self.rebuild();
+        self
+    }
+
+    /// Adds a whole list of destinations **declared elsewhere** — one navigation, handed
+    /// to whichever chrome the width called for.
+    ///
+    /// This is the reason [`NavigationDestination`] is a value. An application that shows
+    /// a bar when narrow and a rail when wide used to declare its destinations twice, and
+    /// the two drifted; now it declares them once.
+    ///
+    /// ```
+    /// use frus_widgets::{Icons, NavigationDestination, NavigationRail};
+    ///
+    /// let places = vec![
+    ///     NavigationDestination::new(Icons::FAVORITE_BORDER, "Saved")
+    ///         .selected_icon(Icons::FAVORITE),
+    ///     NavigationDestination::new(Icons::MAIL_OUTLINE, "Inbox").badge(3),
+    /// ];
+    /// let _rail = NavigationRail::new(0, |i| i).destinations(places);
+    /// ```
+    #[must_use]
+    pub fn destinations(
+        mut self,
+        destinations: impl IntoIterator<Item = NavigationDestination>,
+    ) -> Self {
+        self.items.extend(destinations);
         self.rebuild();
         self
     }
 
     /// Adds a destination declared **in full** — what a shell hands over, having taken
     /// the caller's decorations itself.
-    pub(crate) fn destination(mut self, destination: Destination) -> Self {
+    pub(crate) fn destination(mut self, destination: NavigationDestination) -> Self {
         self.items.push(destination);
         self.rebuild();
         self
@@ -1149,6 +1429,16 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
     pub fn badge(self, count: u32) -> Self {
         self.decorate(|last| last.badge = Some(count))
     }
+    /// What a pointer resting on the **last** destination is told
+    /// (`navigation_rail.dart:1155`).
+    ///
+    /// The case this exists for is a rail: it shows glyphs without labels by default, so
+    /// the mark is all a destination says about itself, and a mark is not always enough.
+    #[must_use]
+    pub fn tooltip(self, message: impl Into<String>) -> Self {
+        let message = message.into();
+        self.decorate(move |last| last.tooltip = Some(message))
+    }
 
     /// The glyph the **last** destination shows while it is selected, where that differs
     /// from its resting one (`navigation_rail.dart:1132`).
@@ -1156,7 +1446,7 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
     /// The reference pairs a stroked icon with its filled version, which is how a
     /// selected destination reads as selected without leaning on colour alone.
     #[must_use]
-    pub fn selected_icon(self, icon: impl Into<String>) -> Self {
+    pub fn selected_icon(self, icon: impl Into<DestinationIcon>) -> Self {
         let icon = icon.into();
         self.decorate(move |last| last.selected_icon = Some(icon))
     }
@@ -1202,7 +1492,7 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
 
     /// Applies `f` to the destination just added. Silent when there is none, which is the
     /// shape `badge` has always had.
-    fn decorate(mut self, f: impl FnOnce(&mut Destination)) -> Self {
+    fn decorate(mut self, f: impl FnOnce(&mut NavigationDestination)) -> Self {
         if let Some(last) = self.items.last_mut() {
             f(last);
             self.rebuild();
@@ -2143,6 +2433,215 @@ mod tests {
             .filter(|(text, _)| text == "H" || text == "S")
             .map(|(_, y)| y)
             .collect()
+    }
+
+    /// Everything one chrome painted, for a scene a test can ask questions of.
+    fn scene_of(widget: impl Widget<Msg> + 'static, w: f32, h: f32) -> Vec<frus_core::Primitive> {
+        let root = crate::Flex::row().width(w).height(h).child(widget);
+        crate::build_ui(
+            &root as &dyn Widget<Msg>,
+            crate::Size::new(w, h),
+            &crate::Runtime::default(),
+            &Theme::default(),
+        )
+        .scene()
+        .primitives()
+        .to_vec()
+    }
+
+    /// How many filled paths a scene holds — a drawn icon is one, and a glyph is none.
+    fn drawn_icons(prims: &[frus_core::Primitive]) -> usize {
+        prims
+            .iter()
+            .filter(|p| matches!(p, frus_core::Primitive::Path { fill: Some(_), .. }))
+            .count()
+    }
+
+    /// A destination is a **value**, and says what it was told.
+    #[test]
+    fn a_destination_carries_what_it_was_given() {
+        let inbox = NavigationDestination::new(crate::Icons::MAIL_OUTLINE, "Inbox")
+            .selected_icon(crate::Icons::MAIL)
+            .badge(3)
+            .tooltip("Unread messages")
+            .disabled();
+        assert_eq!(inbox.label(), "Inbox");
+        assert_eq!(inbox.badge, Some(3));
+        assert_eq!(inbox.tooltip.as_deref(), Some("Unread messages"));
+        assert!(inbox.disabled);
+        // The resting mark and the selected one are different marks, which is the whole
+        // point of having both.
+        assert_eq!(
+            inbox.glyph(false),
+            &DestinationIcon::Icon(crate::Icons::MAIL_OUTLINE)
+        );
+        assert_eq!(
+            inbox.glyph(true),
+            &DestinationIcon::Icon(crate::Icons::MAIL)
+        );
+        // With no selected mark, both states are the resting one.
+        let plain = NavigationDestination::new("H", "Home");
+        assert_eq!(plain.glyph(true), plain.glyph(false));
+    }
+
+    /// A mark is an icon **or** a glyph, and neither has to be named at the call site.
+    #[test]
+    fn a_mark_is_an_icon_or_a_glyph() {
+        assert_eq!(
+            DestinationIcon::from(crate::Icons::HOME),
+            DestinationIcon::Icon(crate::Icons::HOME)
+        );
+        assert_eq!(
+            DestinationIcon::from("🏠"),
+            DestinationIcon::Glyph("🏠".to_string())
+        );
+        assert_eq!(
+            DestinationIcon::from('★'),
+            DestinationIcon::Glyph("★".to_string())
+        );
+        assert_eq!(
+            DestinationIcon::from("H".to_string()),
+            DestinationIcon::Glyph("H".to_string())
+        );
+        // A drawn icon is a square of its own size; a glyph is whatever the font makes of
+        // it. The two cannot share one number, which is why `measure` asks the mark.
+        let square = DestinationIcon::from(crate::Icons::HOME).measure(24.0);
+        assert_eq!((square.width, square.height), (24.0, 24.0));
+        // An unnamed mark draws nothing rather than a placeholder of our choosing.
+        let nothing = DestinationIcon::default().measure(24.0);
+        assert_eq!(nothing.width, 0.0);
+    }
+
+    /// The destinations reach the scene as **paths** when they are drawn icons, and as
+    /// text when they are glyphs. This is the test that says an icon set arrived: before
+    /// it, a destination could only be a character.
+    #[test]
+    fn a_drawn_icon_is_painted_as_a_path_and_a_glyph_as_text() {
+        let drawn = scene_of(
+            BottomBar::new(0, Msg::Go)
+                .item(crate::Icons::HOME, "Home")
+                .item(crate::Icons::SEARCH, "Search"),
+            320.0,
+            BAR_HEIGHT,
+        );
+        assert_eq!(drawn_icons(&drawn), 2, "two destinations, two drawn icons");
+
+        let glyphs = scene_of(
+            BottomBar::new(0, Msg::Go)
+                .item("H", "Home")
+                .item("S", "Search"),
+            320.0,
+            BAR_HEIGHT,
+        );
+        assert_eq!(drawn_icons(&glyphs), 0, "a glyph is text, not a path");
+    }
+
+    /// **The convention the icon set is drawn for**: an outline at rest, the filled twin
+    /// when selected. Selecting a different destination changes which mark is painted,
+    /// which is what makes navigation readable without leaning on colour alone.
+    #[test]
+    fn a_selected_destination_shows_its_selected_mark() {
+        let bar = |selected: usize| {
+            BottomBar::new(selected, Msg::Go)
+                .item("h", "Home")
+                .selected_icon("H")
+                .item("s", "Search")
+                .selected_icon("S")
+        };
+        let marks = |selected: usize| {
+            scene_of(bar(selected), 320.0, BAR_HEIGHT)
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Text { text, .. } if text.len() == 1 => {
+                        Some(text.clone())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(marks(0), vec!["H".to_string(), "s".to_string()]);
+        assert_eq!(marks(1), vec!["h".to_string(), "S".to_string()]);
+    }
+
+    /// **One list, three chromes.** The reason a destination is a value at all: an
+    /// application that shows a bar when narrow and a rail when wide declares its
+    /// navigation once, and the two cannot drift.
+    #[test]
+    fn one_list_drives_a_bar_and_a_rail_alike() {
+        let places = || {
+            vec![
+                NavigationDestination::new(crate::Icons::HOME, "Home"),
+                NavigationDestination::new(crate::Icons::SEARCH, "Search").badge(2),
+            ]
+        };
+        let bar = scene_of(
+            BottomBar::new(1, Msg::Go).destinations(places()),
+            320.0,
+            BAR_HEIGHT,
+        );
+        let rail = scene_of(
+            NavigationRail::new(1, Msg::Go)
+                .labels(RailLabels::All)
+                .destinations(places()),
+            RAIL_WIDTH,
+            600.0,
+        );
+        // Both drew both marks…
+        assert_eq!(drawn_icons(&bar), 2);
+        assert_eq!(drawn_icons(&rail), 2);
+        // …both names, and both the same badge.
+        let words = |prims: &[frus_core::Primitive]| {
+            prims
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(words(&bar), words(&rail));
+        assert!(
+            words(&bar).contains(&"2".to_string()),
+            "the badge travelled"
+        );
+    }
+
+    /// A tooltip is a wrapper, and a wrapper must not change the shape of what it wraps:
+    /// a bar's destinations share the row whether or not they were given one.
+    #[test]
+    fn a_tooltip_does_not_move_the_destination_it_describes() {
+        let without = scene_of(
+            BottomBar::new(0, Msg::Go)
+                .item("H", "Home")
+                .item("S", "Search"),
+            320.0,
+            BAR_HEIGHT,
+        );
+        let with = scene_of(
+            BottomBar::new(0, Msg::Go)
+                .item("H", "Home")
+                .tooltip("Go home")
+                .item("S", "Search")
+                .tooltip("Find something"),
+            320.0,
+            BAR_HEIGHT,
+        );
+        let marks = |prims: &[frus_core::Primitive]| {
+            prims
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Text { text, position, .. } if text.len() == 1 => {
+                        Some((text.clone(), position.x, position.y))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            marks(&without),
+            marks(&with),
+            "a hint moved the destinations it was meant to describe"
+        );
     }
 
     /// Every glyph the rail painted, top to bottom, as `(text, y)`.

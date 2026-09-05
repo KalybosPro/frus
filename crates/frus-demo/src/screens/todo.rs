@@ -423,10 +423,10 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
         // `.nav_placement(NavPlacement::Rail)` pins a rail instead; navigation that
         // follows the size class is `NavScaffold`, which is a different widget.
         .nav(app.section, Msg::SetSection)
-        .destination("✔", "Tasks")
-        .badge(active as u32)
-        .destination("▦", "Stats")
-        .destination("★", "About")
+        // **One list.** The bar here, the drawer below and — in an application that used
+        // `NavScaffold` — the rail at a wider size all read the same declaration, so
+        // there is nowhere for the three to drift apart. Milestone 473.
+        .destinations(sections(active))
         .end_drawer(
             drawer_menu(app, theme, active),
             app.drawer_open,
@@ -489,6 +489,27 @@ pub(crate) fn quick_actions_sheet(theme: &Theme) -> Container<Msg> {
     )
 }
 
+/// **The application's three sections, declared once.**
+///
+/// Each is a drawn icon at rest and its solid twin when selected — the convention the
+/// icon set is drawn for, and the thing a colour alone cannot say. `active` is the number
+/// of tasks still to do, which the first destination wears as a badge; `0` shows nothing,
+/// so the count goes straight in with no `if` around it.
+pub(crate) fn sections(active: usize) -> Vec<NavigationDestination> {
+    vec![
+        NavigationDestination::new(Icons::CHECK_CIRCLE_OUTLINE, "Tasks")
+            .selected_icon(Icons::CHECK_CIRCLE)
+            .badge(active as u32)
+            .tooltip("What is still to do"),
+        NavigationDestination::new(Icons::BAR_CHART, "Stats")
+            .selected_icon(Icons::INSERT_CHART)
+            .tooltip("How the week went"),
+        NavigationDestination::new(Icons::STAR_BORDER, "About")
+            .selected_icon(Icons::STAR)
+            .tooltip("What this is"),
+    ]
+}
+
 /// The navigation drawer's content: a header + the destinations + settings.
 ///
 /// Wrapped in a `SafeArea`: a drawer is an **overlay**, so it is placed against the window
@@ -497,25 +518,28 @@ pub(crate) fn quick_actions_sheet(theme: &Theme) -> Container<Msg> {
 /// same shape of answer: its drawer runs the full height and the header adds the status
 /// bar's own height to its padding.
 pub(crate) fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> SafeArea<Msg> {
-    let entry = |icon: &str, label: &str, index: usize| {
+    let entry = |label: &str, index: usize| {
         let variant = if app.section == index {
             Variant::Filled
         } else {
             Variant::Outlined
         };
-        button(format!("{icon}  {label}"), Msg::SetSection(index))
+        button(label.to_string(), Msg::SetSection(index))
             .variant(variant)
             .size(16.0)
     };
+    // The same declaration the bottom bar reads, so the menu cannot name a section the
+    // bar has not got, or call it something else.
+    let sections = sections(active);
     SafeArea::new(
         Container::new().padding(16.0).child(
             column![
                 text("frus").size(22.0),
                 text("Navigation").size(13.0).color(theme.muted),
                 Divider::new(),
-                entry("✔", "Tasks", 0),
-                entry("▦", "Stats", 1),
-                entry("★", "About", 2),
+                entry(sections[0].label(), 0),
+                entry(sections[1].label(), 1),
+                entry(sections[2].label(), 2),
                 Divider::new(),
                 text(format!("{active} task(s) pending"))
                     .size(14.0)
