@@ -1440,6 +1440,17 @@ impl Fills {
 /// copy of this one waiting to drift out of step.
 pub(crate) type BaselineData = Option<f32>;
 
+/// An owned copy of a theme, **made in a frame of its own**.
+///
+/// `#[inline(never)]` is the whole point: inlined, the eleven-kilobyte temporary is built
+/// in the caller's frame, and the caller here is the recursive walk that pays for its
+/// frame once per level of the tree. Behind the call it is built, copied into the
+/// allocation, and gone before the walk recurses.
+#[inline(never)]
+fn owned_theme(theme: &Theme) -> std::rc::Rc<Theme> {
+    std::rc::Rc::new(theme.clone())
+}
+
 /// The body of [`build_layout`], carrying whether baselines are still being collected.
 /// An [`crate::IgnoreBaseline`] turns them off for its subtree — the widgets inside still
 /// have baselines, and the point is that nothing above may see them.
@@ -1575,10 +1586,18 @@ fn build_layout_scoped<'a, Msg>(
         // runtime and the widget are borrowed, which is the whole reason `Layout` carries
         // a lifetime.
         //
-        // This is a clone of eight kilobytes, and it used to be a silent one — `Theme`
+        // This is a clone of eleven kilobytes, and it used to be a silent one — `Theme`
         // was `Copy` until milestone 448, so `*theme` read like a pointer copy and was
         // not. It happens once per `LayoutBuilder`, not once per node.
-        let owned = theme.clone();
+        //
+        // **Behind an `Rc`, and made somewhere else**, because the cost that mattered was
+        // not the copy. A `Theme` local here and a closure that captures one are two
+        // slots of eleven kilobytes in *this* function's frame, and a frame is charged to
+        // every level of the walk whether or not the branch is taken: 24 736 bytes a
+        // level, which overflowed a Windows main thread's megabyte at about forty. The
+        // `Rc` makes the capture a pointer, and `owned_theme` keeps the copy in a frame
+        // that pops before the recursion goes any deeper.
+        let owned = owned_theme(theme);
         let cid = id.child(0);
         let measure: frus_layout::MeasureFn<'a> = Box::new(move |w, h| {
             // What taffy offers. `None` is an *intrinsic* question — how big would you
@@ -1858,7 +1877,7 @@ type Overlay<'a, Msg> = (
     f32,
     bool,
     Option<frus_core::Color>,
-    Theme,
+    std::rc::Rc<Theme>,
 );
 
 struct Builder<'a, Msg> {
@@ -1907,7 +1926,14 @@ struct Builder<'a, Msg> {
     /// The theme **in force at this point of the walk** — the root's, unless a
     /// [`crate::Themed`] ancestor replaced it. Owned rather than borrowed because a
     /// subtree's theme is derived from the one above it and outlives nothing.
-    theme: Theme,
+    ///
+    /// Owned **behind an `Rc`**: a `Theme` is eleven kilobytes, and this field is swapped
+    /// on the way into a themed subtree and swapped back on the way out. By value that is
+    /// two copies of eleven kilobytes standing in the walk's frame — one being moved in,
+    /// one held across the recursion waiting to be put back — on every level of the tree,
+    /// taken or not. Behind a pointer the swap is a pointer's width, and the walk's frame
+    /// went from 28 144 bytes a level to 5 264.
+    theme: std::rc::Rc<Theme>,
     /// The inspector's collection (`Some` only while it is on): one node per painted widget,
     /// in paint order.
     inspector: Option<Vec<crate::inspector::InspectorNode>>,
@@ -2774,7 +2800,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             .map(|r| r.translate(translation.0, translation.1));
         let outer = widget
             .theme_override(&self.theme)
-            .map(|theme| std::mem::replace(&mut self.theme, *theme));
+            .map(|theme| std::mem::replace(&mut self.theme, std::rc::Rc::from(theme)));
         // The scoped surface, held for this subtree exactly as the layout walk holds it —
         // a widget that paints from `MediaQuery::of()` must see the same description it
         // was measured against, or the two disagree by whatever the scope removed.
@@ -4485,7 +4511,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         wants_animation: false,
         available,
         runtime,
-        theme: theme.clone(),
+        theme: std::rc::Rc::new(theme.clone()),
         inspector: inspect.then(Vec::new),
         depth: 0,
         refresh_host: None,
@@ -4757,6 +4783,43 @@ mod tests {
         TextField,
     };
     use frus_core::{Color, Point, Primitive, Rect, Size};
+
+    /// **A deep tree on the smallest stack any platform gives a frame.**
+    ///
+    /// Building a tree recurses twice over it — the layout walk and the scene walk — and
+    /// what each level costs is a property of those two functions, not of the widgets.
+    /// Two `Theme` copies in each frame made that cost 53 kilobytes a level, so a tree
+    /// forty deep exhausted the megabyte a Windows main thread gets and the process died
+    /// with no panic and no message. A real screen nests further than forty.
+    ///
+    /// One megabyte and 64 levels is what this holds to: the platform's smallest stack,
+    /// against a tree deeper than a screen builds and half again the depth that used to
+    /// die. It is deliberately not the deepest that fits — around 128 now, at about seven
+    /// kilobytes a level — because a tripwire wants margin over the number it guards. An
+    /// overflow aborts rather than fails, so this one kills the run outright, which is the
+    /// right noise for what it watches.
+    #[test]
+    fn a_deep_tree_builds_on_a_platform_s_smallest_stack() {
+        let built = std::thread::Builder::new()
+            .stack_size(1024 * 1024)
+            .spawn(|| {
+                let mut node: Box<dyn Widget<Msg>> = Box::new(crate::Text::new("the bottom"));
+                for _ in 0..64 {
+                    node = Box::new(Container::new().padding(1.0).child(node));
+                }
+                let ui = build_ui(
+                    node.as_ref(),
+                    Size::new(800.0, 600.0),
+                    &Runtime::default(),
+                    &Theme::default(),
+                );
+                ui.scene().primitives().len()
+            })
+            .expect("spawning the deep-tree thread")
+            .join()
+            .expect("the deep tree was built");
+        assert!(built > 0, "and it painted something");
+    }
 
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
