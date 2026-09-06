@@ -463,7 +463,15 @@ mod tests {
     /// GPU is available.
     fn lit_pixels_for(scene: &Scene) -> Option<usize> {
         let frame = crate::offscreen::render_offscreen(scene, 128, 128, Color::BLACK)?;
-        Some(frame.rgba.chunks_exact(4).filter(|px| px[0] > 16).count())
+        Some(
+            frame
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|px| px[0] > 16)
+                .count(),
+        )
     }
 
     /// Proof of rasterisation: white text produces non-black pixels.

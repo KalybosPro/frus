@@ -182,7 +182,7 @@ impl<'a, T> Layout<'a, T> {
         // tight one, keeps it: the point is to stop a child inventing a width, not to
         // overrule one it was handed.
         if matches!(style.min_size.width, taffy::Dimension::Auto) {
-            style.min_size.width = taffy::style_helpers::length(0.0);
+            style.min_size.width = taffy::style_helpers::length(0.0_f32);
             changed = true;
         }
         if changed {

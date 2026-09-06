@@ -201,7 +201,9 @@ impl Snapshot {
     /// "something is drawn here".
     pub fn lit_pixels(&self, threshold: u8) -> usize {
         self.rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|px| px[0] > threshold || px[1] > threshold || px[2] > threshold)
             .count()
     }
@@ -215,8 +217,10 @@ impl Snapshot {
             "the snapshots have different sizes"
         );
         self.rgba
-            .chunks_exact(4)
-            .zip(other.rgba.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(other.rgba.as_chunks::<4>().0.iter())
             .filter(|(a, b)| {
                 a.iter()
                     .zip(b.iter())
