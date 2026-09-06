@@ -140,6 +140,12 @@ impl<Msg> Container<Msg> {
         self
     }
 
+    /// Sets the width as a **fraction of the space the parent offers** — `1.0` fills it.
+    pub fn width_fraction(mut self, fraction: f32) -> Self {
+        self.width = Dimension::Percent(fraction);
+        self
+    }
+
     /// Flex growth factor along the parent's main axis.
     pub fn flex(mut self, grow: f32) -> Self {
         self.flex_grow = grow;

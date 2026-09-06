@@ -68,6 +68,17 @@ impl<Msg> Flex<Msg> {
         self
     }
 
+    /// Sets the width as a **fraction of the space the parent offers** — `1.0` fills it.
+    ///
+    /// The answer for a row that must occupy its parent rather than hug its children,
+    /// when the number is the layout's to know and not the caller's. A row that hugs
+    /// leaves a spring inside it nothing to share, so a centred child is not centred;
+    /// naming a width the caller only guessed at is the other way to get that wrong.
+    pub fn width_fraction(mut self, fraction: f32) -> Self {
+        self.width = Dimension::Percent(fraction);
+        self
+    }
+
     /// The flex grow factor along the parent's main axis.
     pub fn flex(mut self, grow: f32) -> Self {
         self.flex_grow = grow;

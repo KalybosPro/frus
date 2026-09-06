@@ -653,6 +653,16 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             exclude_header_semantics,
         } = self;
 
+        // **Is that width a measurement or a sentinel?** `AppBar::new` takes the surface's
+        // width from the ambient description, and falls back to `f32::MAX` when nothing
+        // described it — a bar built outside a frame, which is every bar a test builds by
+        // hand. `f32::MAX` is finite, so every arithmetic below happily produced a number:
+        // a row `f32::MAX` wide, a title ceiling just under it, and a leading spring that
+        // pushed a centred title to `x = 1.7e38`, off any screen there will ever be. The
+        // sentinel is asked about once, here, and the two places that need a real width
+        // fill the space they are offered instead.
+        let known_width = width.is_finite() && width < f32::MAX;
+
         // **What the shell knows and the bar does not** (milestone 422). This bar was
         // handed to its `Scaffold` already built, so it cannot see the screen it stands on;
         // the shell tells it, through the ambient the walk installs on the way down, and
@@ -792,8 +802,14 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             (kept, used)
         };
 
-        // What is left for the title, once the actions have taken theirs.
-        let title_room = (width - fixed - actions_w).max(TITLE_MIN.min(natural_title));
+        // What is left for the title, once the actions have taken theirs. Unknown when
+        // the width is: a ceiling computed from the sentinel is `f32::MAX` less a few
+        // pixels, which is not a ceiling.
+        let title_room = if known_width {
+            (width - fixed - actions_w).max(TITLE_MIN.min(natural_title))
+        } else {
+            f32::INFINITY
+        };
 
         // An icon theme is delivered as a **theme for the subtree**, not as an argument
         // to each widget: that is the only way it reaches a glyph nested inside a button
@@ -940,10 +956,14 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         // The row is given the bar's width less its margins, so that the springs
         // inside it have something to share: a row that hugged its content would leave
         // a centred title with no space to be centred in.
-        let row = if width.is_finite() {
+        let row = if known_width {
             row.width((width - H_PAD * 2.0).max(0.0))
         } else {
-            row
+            // Nobody described the surface, so `width` is the sentinel rather than a
+            // number. Fill what the parent offers instead of laying the row out across
+            // `f32::MAX`: a spring in a row that wide puts a centred title at infinity,
+            // which is where every Apple-platform title went until milestone 474.
+            row.width_fraction(1.0)
         };
         // The bar is a **fixed** height, the caller's or the reference's. It used to hug
         // its content, which made the chrome a different shape on every screen and moved
@@ -987,8 +1007,10 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         // behind the text instead of across the bar, and a centred title with no free
         // space to be centred in.
         let mut chrome = Container::new();
-        if width.is_finite() {
+        if known_width {
             chrome = chrome.width(width);
+        } else {
+            chrome = chrome.width_fraction(1.0);
         }
         // **Transparency wins outright.** A caller asking for a bar over an image has
         // already decided; arguing with the background and the elevation it inherited
@@ -1940,6 +1962,43 @@ mod tests {
         {
             assert!(!bare && !crowded, "everywhere else the title stays flush");
         }
+    }
+
+    /// **A width nobody gave is not a width of `f32::MAX`.** `AppBar::new` reads the
+    /// surface from the ambient description and falls back to that sentinel when nothing
+    /// described one — a bar built outside a frame, which is every bar built by hand.
+    /// The sentinel is finite, so the bar laid a row out `f32::MAX` wide, and the spring
+    /// before a centred title pushed it to `x = 1.7e38` with an ellipsis where the words
+    /// had been. Nothing caught it for as long as the platforms CI ran on all put their
+    /// titles flush: only Apple's centre one by default, and the leading spring is the
+    /// half of the arrangement that only a centred title has.
+    #[test]
+    fn a_centred_title_with_no_described_surface_stays_on_the_screen() {
+        const W: f32 = 800.0;
+        let bar = AppBar::<Msg>::new("Title").center_title(true).build();
+        let ui = build_ui(
+            bar.as_ref(),
+            Size::new(W, 80.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let title = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Text { text, position, .. } if text.starts_with("Title") => {
+                    Some((text.clone(), position.x))
+                }
+                _ => None,
+            })
+            .expect("the bar paints its title");
+        assert_eq!(title.0, "Title", "and paints all of it, un-ellipsised");
+        assert!(
+            title.1.is_finite() && (0.0..W).contains(&title.1),
+            "on the surface rather than at infinity: x = {}",
+            title.1
+        );
     }
 
     #[test]
