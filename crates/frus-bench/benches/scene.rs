@@ -5,7 +5,7 @@
 //! been deferred with "it has not been a bottleneck yet". This is the bench that lets
 //! that sentence be checked rather than repeated.
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, BenchmarkId, Criterion};
 use frus_bench::{build, nested, task_list, task_list_wordless};
 
 fn scene(c: &mut Criterion) {
@@ -43,4 +43,24 @@ fn scene(c: &mut Criterion) {
 }
 
 criterion_group!(benches, scene);
-criterion_main!(benches);
+
+/// **On a thread of its own, with a stack that fits the deepest tree here.**
+///
+/// The nested case goes 256 levels down on purpose, and building a tree costs stack per
+/// level: about seven kilobytes across the layout walk and the scene walk once milestone
+/// 474 took two eleven-kilobyte `Theme` copies out of each of them. 256 levels is around
+/// 1.8 MB, and a Windows main thread gets one megabyte by default — so this bench, and
+/// only this bench, overflowed there while passing everywhere else. A thread says what it
+/// needs; the numbers are the same on any stack.
+fn main() {
+    std::thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| {
+            let mut criterion = Criterion::default().configure_from_args();
+            scene(&mut criterion);
+            criterion.final_summary();
+        })
+        .expect("spawning the bench thread")
+        .join()
+        .expect("the bench thread");
+}
