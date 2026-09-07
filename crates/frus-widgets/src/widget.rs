@@ -643,6 +643,18 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// **Target transform** of an animated one (`Transform::animated`): the runtime
+    /// tweens the scales and the turn through `anim_duration`/`anim_curve` and hands the
+    /// interpolated value back through `Runtime::anim_transform`, which the paint walk
+    /// reads in place of the static `transform_scale`/`transform_rotate`. `None` = the
+    /// transform does not move.
+    ///
+    /// The **pivot** is not part of it: see
+    /// [`TransformValues`](crate::runtime::TransformValues).
+    fn anim_transform(&self) -> Option<crate::runtime::TransformValues> {
+        None
+    }
+
     /// Duration (seconds) of the animated value's transition (`anim_target`).
     /// Default: the framework's standard duration.
     fn anim_duration(&self) -> f32 {
@@ -1402,6 +1414,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn anim_target(&self) -> Option<f32> {
         (**self).anim_target()
+    }
+    fn anim_transform(&self) -> Option<crate::runtime::TransformValues> {
+        (**self).anim_transform()
     }
     fn anim_duration(&self) -> f32 {
         (**self).anim_duration()

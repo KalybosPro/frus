@@ -524,14 +524,24 @@ pub(crate) fn sections(active: usize) -> Vec<NavigationDestination> {
 /// bar's own height to its padding.
 pub(crate) fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> SafeArea<Msg> {
     let entry = |label: &str, index: usize| {
-        let variant = if app.section == index {
+        let here = app.section == index;
+        let variant = if here {
             Variant::Filled
         } else {
             Variant::Outlined
         };
-        button(label.to_string(), Msg::SetSection(index))
-            .variant(variant)
-            .size(16.0)
+        // **The section you are on makes room for itself.** An inset that jumps when the
+        // selection moves reads as a relayout; one that slides reads as the selection
+        // moving, which is what actually happened. `AnimatedPadding` is layout, not
+        // paint, so the entries below really do move aside — milestone 477.
+        AnimatedPadding::new(
+            if here { 6.0 } else { 0.0 },
+            0.18,
+            Curve::ease_out(),
+            button(label.to_string(), Msg::SetSection(index))
+                .variant(variant)
+                .size(16.0),
+        )
     };
     // The same declaration the bottom bar reads, so the menu cannot name a section the
     // bar has not got, or call it something else.

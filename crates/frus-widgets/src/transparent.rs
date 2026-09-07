@@ -430,6 +430,10 @@ macro_rules! forward_transparent {
                 self.inner.anim_padding()
             }
 
+            fn anim_transform(&self) -> Option<$crate::runtime::TransformValues> {
+                self.inner.anim_transform()
+            }
+
             fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
                 self.inner.alignment_geometry()
             }

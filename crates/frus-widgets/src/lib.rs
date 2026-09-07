@@ -156,7 +156,9 @@ mod widgettheme;
 
 pub use actionbutton::{BackButton, CloseButton, DrawerButton, EndDrawerButton};
 pub use alert::{Alert, AlertKind};
-pub use animated::{AnimatedContainer, AnimatedOpacity, Opacity};
+pub use animated::{
+    AnimatedContainer, AnimatedOpacity, AnimatedPadding, AnimatedRotation, AnimatedScale, Opacity,
+};
 pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT, APP_BAR_MAX_TITLE_SCALE};
 pub use aspectratio::AspectRatio;
 pub use autocomplete::Autocomplete;
@@ -288,7 +290,7 @@ pub use rotatedbox::RotatedBox;
 pub use rowcolumn::{Column, MainAxisSize, Row, VerticalDirection};
 pub use runtime::{
     spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState, ScrollbarFade,
-    ValueAnim,
+    TransformValues, ValueAnim,
 };
 pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};

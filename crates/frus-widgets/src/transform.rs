@@ -1,6 +1,6 @@
 //! [`Transform`]: offsets its child at **paint** time, without touching layout.
 
-use frus_core::{Alignment, Rect, Scene};
+use frus_core::{Alignment, Curve, Rect, Scene};
 use frus_layout::Style;
 
 use crate::interaction::Status;
@@ -35,6 +35,9 @@ pub struct Transform<Msg> {
     scale: Option<(f32, f32, Alignment)>,
     /// `(angle_radians, pivot)` — `None` = no rotation.
     rotate: Option<(f32, Alignment)>,
+    /// `(duration, curve)` — `None` = the transform jumps to whatever it is told, which
+    /// is what every `Transform` did before this and still does unless asked otherwise.
+    anim: Option<(f32, Curve)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -47,6 +50,7 @@ impl<Msg> Transform<Msg> {
             dy,
             scale: None,
             rotate: None,
+            anim: None,
             children: Vec::new(),
         }
     }
@@ -77,6 +81,7 @@ impl<Msg> Transform<Msg> {
             dy: 0.0,
             scale: Some((sx, sy, pivot)),
             rotate: None,
+            anim: None,
             children: Vec::new(),
         }
     }
@@ -94,6 +99,7 @@ impl<Msg> Transform<Msg> {
             dy: 0.0,
             scale: None,
             rotate: Some((radians, pivot)),
+            anim: None,
             children: Vec::new(),
         }
     }
@@ -122,6 +128,32 @@ impl<Msg> Transform<Msg> {
     /// `Transform::scale(1.5).and_rotate(0.2)` enlarges *and* rotates.
     pub fn and_rotate(mut self, radians: f32) -> Self {
         self.rotate = Some((radians, Alignment::CENTER));
+        self
+    }
+
+    /// **Moves to this transform rather than jumping to it**, over `duration` seconds
+    /// along `curve`.
+    ///
+    /// The widget does not time anything: it declares where it is going and the runtime
+    /// drives the scales and the turn there, which is how every implicit animation in
+    /// this framework works and why they all share one clock.
+    ///
+    /// The **pivot** does not animate. It is a choice of origin rather than a quantity,
+    /// and interpolating it would slide a shape across the screen while every number
+    /// describing the shape stood still.
+    ///
+    /// ```
+    /// use frus_core::Curve;
+    /// use frus_widgets::{Text, Transform};
+    ///
+    /// let pressed = true;
+    /// let _button: Transform<()> = Transform::scale(if pressed { 0.95 } else { 1.0 })
+    ///     .animated(0.12, Curve::ease_out())
+    ///     .child(Text::new("Tap"));
+    /// ```
+    #[must_use]
+    pub fn animated(mut self, duration: f32, curve: Curve) -> Self {
+        self.anim = Some((duration, curve));
         self
     }
 
@@ -162,6 +194,29 @@ impl<Msg: Clone> Widget<Msg> for Transform<Msg> {
 
     fn transform_rotate(&self) -> Option<(f32, Alignment)> {
         self.rotate
+    }
+
+    /// Where the transform is heading, when it was told to animate. The **target** and
+    /// not the current value: `transform_scale` and `transform_rotate` above still
+    /// answer with it too, which is what an isolated frame — a test, a golden, the frame
+    /// before the loop has advanced anything — draws.
+    fn anim_transform(&self) -> Option<crate::runtime::TransformValues> {
+        self.anim.as_ref().map(|_| {
+            let (scale_x, scale_y) = self.scale.map_or((1.0, 1.0), |(x, y, _)| (x, y));
+            crate::runtime::TransformValues {
+                scale_x,
+                scale_y,
+                rotation: self.rotate.map_or(0.0, |(a, _)| a),
+            }
+        })
+    }
+
+    fn anim_duration(&self) -> f32 {
+        self.anim.as_ref().map_or(0.0, |(d, _)| *d)
+    }
+
+    fn anim_curve(&self) -> Curve {
+        self.anim.as_ref().map_or(Curve::Linear, |(_, c)| c.clone())
     }
 }
 

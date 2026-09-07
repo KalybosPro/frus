@@ -8,10 +8,32 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 476 so far, each documenting the objective, the alternatives
+> record — one per step, 477 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`AnimatedScale`, `AnimatedRotation` and `AnimatedPadding`** (J477, part of #30): three
+  of the eleven implicit animations the framework was missing. The first two are one
+  mechanism — a scale and a turn are the same affine matrix to the paint walk, so they
+  share one timeline and a widget that does both arrives on both at once — reached through
+  the new `Transform::animated(duration, curve)`. The third is **layout**: the interpolated
+  padding is injected while the tree is measured, so everything beside and below really
+  moves aside.
+
+  The pivot deliberately does not animate: it is a choice of origin rather than a quantity,
+  and interpolating it would slide a shape across the screen with nothing describing the
+  shape having changed.
+
+### Fixed
+
+- **`forward_to_container!` never forwarded `anim_padding`** (J477). Every widget in
+  `animated.rs` is built on that macro, and an animated padding set on one of them was
+  invisible to the runtime: it walked the tree, looked through the wrapper, found no target
+  and drove nothing. Nothing had noticed because no wrapper had ever set a padding until
+  `AnimatedPadding` did.
 
 ### Added
 

@@ -375,6 +375,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.anim_padding())
     }
 
+    fn anim_transform(&self) -> Option<crate::runtime::TransformValues> {
+        self.inner.as_ref().and_then(|w| w.anim_transform())
+    }
+
     fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
         self.inner.as_ref().and_then(|w| w.alignment_geometry())
     }

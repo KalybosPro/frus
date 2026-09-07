@@ -2654,10 +2654,24 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // affine matrix** `M`, the subtree is painted **flat**, then wrapped in a composited
         // layer transformed by `M`. The hit-test applies `M⁻¹` to the point. The translation,
         // applied upstream through `child_offset`, is the innermost one.
+        //
+        // A transform that was told to **animate** hands over its numbers, and only its
+        // numbers: the pivots stay the widget's, because a pivot is a choice of origin
+        // rather than a quantity and interpolating it would slide the subtree across the
+        // screen with nothing describing it having changed. Where the runtime has never
+        // heard of this widget the static value stands, which is the same rule every
+        // other animated property follows on mount.
+        let moving = self.runtime.anim_transform(id);
         let scale = widget
             .transform_scale()
+            .map(|(sx, sy, pivot)| {
+                moving.map_or((sx, sy, pivot), |m| (m.scale_x, m.scale_y, pivot))
+            })
             .filter(|(sx, sy, _)| (sx - 1.0).abs() > 1e-4 || (sy - 1.0).abs() > 1e-4);
-        let rotate = widget.transform_rotate().filter(|(a, _)| a.abs() > 1e-4);
+        let rotate = widget
+            .transform_rotate()
+            .map(|(angle, pivot)| moving.map_or((angle, pivot), |m| (m.rotation, pivot)))
+            .filter(|(a, _)| a.abs() > 1e-4);
         if scale.is_some() || rotate.is_some() {
             // The pivots are taken on the **child's** box (the next node in prefix order): it
             // is the child that gets transformed, and its box hugs the content even when the

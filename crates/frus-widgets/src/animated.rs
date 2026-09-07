@@ -52,6 +52,9 @@ macro_rules! forward_to_container {
             fn anim_target(&self) -> Option<f32> {
                 Widget::anim_target(&self.inner)
             }
+            fn anim_transform(&self) -> Option<$crate::runtime::TransformValues> {
+                Widget::anim_transform(&self.inner)
+            }
             fn anim_color(&self) -> Option<Color> {
                 Widget::anim_color(&self.inner)
             }
@@ -60,6 +63,12 @@ macro_rules! forward_to_container {
             }
             fn anim_radius(&self) -> Option<BorderRadius> {
                 Widget::anim_radius(&self.inner)
+            }
+            // Absent until milestone 477, and silently so: no wrapper set a padding, so
+            // nothing missed it. `AnimatedPadding` is the first, and the runtime looked
+            // straight through the wrapper and found nothing to drive.
+            fn anim_padding(&self) -> Option<frus_core::Insets> {
+                Widget::anim_padding(&self.inner)
             }
             fn anim_duration(&self) -> f32 {
                 Widget::anim_duration(&self.inner)
@@ -267,5 +276,353 @@ mod tests {
         assert_eq!(Widget::<()>::anim_duration(&w), 0.2);
         // Its own name for the inspector (not delegated to the Container).
         assert_eq!(Widget::<()>::debug_name(&w), "AnimatedOpacity");
+    }
+}
+
+/// **Grows and shrinks its child** rather than letting it jump between sizes — a
+/// paint-time scale, so nothing around it moves.
+///
+/// The reference's `AnimatedScale`. It wraps a [`Transform`](crate::Transform) that was
+/// told to animate: the widget declares the scale it is heading for and the runtime
+/// drives it there, on the same clock as every other implicit animation here.
+///
+/// ```
+/// use frus_core::Curve;
+/// use frus_widgets::{AnimatedScale, Text};
+///
+/// let pressed = true;
+/// let _sunken: AnimatedScale<()> = AnimatedScale::new(
+///     if pressed { 0.95 } else { 1.0 },
+///     0.12,
+///     Curve::ease_out(),
+///     Text::new("Tap"),
+/// );
+/// ```
+pub struct AnimatedScale<Msg> {
+    inner: Box<dyn Widget<Msg>>,
+}
+
+impl<Msg: Clone + 'static> AnimatedScale<Msg> {
+    /// Scales `child` towards `scale`, about its **centre**.
+    pub fn new(scale: f32, duration: f32, curve: Curve, child: impl Widget<Msg> + 'static) -> Self {
+        Self::about(scale, frus_core::Alignment::CENTER, duration, curve, child)
+    }
+
+    /// The same, about a `pivot` of the caller's choosing — the corner or edge that
+    /// stays put while the rest grows away from it.
+    ///
+    /// The pivot itself does not animate, whatever it is set to: it is a choice of
+    /// origin, not a quantity, and moving it would slide the child across the screen
+    /// with nothing describing the child having changed.
+    pub fn about(
+        scale: f32,
+        pivot: frus_core::Alignment,
+        duration: f32,
+        curve: Curve,
+        child: impl Widget<Msg> + 'static,
+    ) -> Self {
+        Self {
+            inner: Box::new(
+                crate::Transform::scale_xy_from(scale, scale, pivot)
+                    .animated(duration, curve)
+                    .child(child),
+            ),
+        }
+    }
+}
+
+impl<Msg> AnimatedScale<Msg> {
+    /// A transparent wrapper: the box is the child's. In an impl with no bounds,
+    /// because the forwarding macro's own impl has none — a `restyle` declared beside
+    /// the constructors could not be reached from it.
+    fn restyle(&self, base: Style) -> Style {
+        base
+    }
+}
+
+crate::transparent::forward_transparent!(AnimatedScale {
+    /// Every one of these is **forwarded**: an animated transform is not an identity,
+    /// not a place, not a theme and not a surface. It is its child, moving.
+    fn key(&self) -> Option<u64> {
+        self.inner.key()
+    }
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        self.inner.positioned()
+    }
+    fn theme_override(
+        &self,
+        inherited: &crate::theme::Theme,
+    ) -> Option<Box<crate::theme::Theme>> {
+        self.inner.theme_override(inherited)
+    }
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        self.inner.media_override(inherited)
+    }
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        self.inner.scaffold_override()
+    }
+});
+
+/// **Turns its child** rather than letting it snap between angles — a paint-time
+/// rotation, so nothing around it moves. The reference's `AnimatedRotation`.
+///
+/// Its unit is **radians**, clockwise, like every other angle in this framework, and not
+/// the reference's turns: a turn is a nice number to type and a bad one to mix with the
+/// `Path` and `Transform` calls beside it, which are all radians.
+///
+/// ```
+/// use frus_core::Curve;
+/// use frus_widgets::{AnimatedRotation, Icon, Icons};
+///
+/// let open = true;
+/// let _chevron: AnimatedRotation<()> = AnimatedRotation::new(
+///     if open { std::f32::consts::PI } else { 0.0 },
+///     0.2,
+///     Curve::ease_in_out(),
+///     Icon::new(Icons::EXPAND_MORE),
+/// );
+/// ```
+pub struct AnimatedRotation<Msg> {
+    inner: Box<dyn Widget<Msg>>,
+}
+
+impl<Msg: Clone + 'static> AnimatedRotation<Msg> {
+    /// Turns `child` towards `radians`, about its **centre**.
+    pub fn new(
+        radians: f32,
+        duration: f32,
+        curve: Curve,
+        child: impl Widget<Msg> + 'static,
+    ) -> Self {
+        Self::about(
+            radians,
+            frus_core::Alignment::CENTER,
+            duration,
+            curve,
+            child,
+        )
+    }
+
+    /// The same, about a `pivot` — the point the child turns around.
+    pub fn about(
+        radians: f32,
+        pivot: frus_core::Alignment,
+        duration: f32,
+        curve: Curve,
+        child: impl Widget<Msg> + 'static,
+    ) -> Self {
+        Self {
+            inner: Box::new(
+                crate::Transform::rotate_from(radians, pivot)
+                    .animated(duration, curve)
+                    .child(child),
+            ),
+        }
+    }
+}
+
+impl<Msg> AnimatedRotation<Msg> {
+    /// A transparent wrapper: the box is the child's. In an impl with no bounds,
+    /// because the forwarding macro's own impl has none — a `restyle` declared beside
+    /// the constructors could not be reached from it.
+    fn restyle(&self, base: Style) -> Style {
+        base
+    }
+}
+
+crate::transparent::forward_transparent!(AnimatedRotation {
+    /// Every one of these is **forwarded**: an animated transform is not an identity,
+    /// not a place, not a theme and not a surface. It is its child, moving.
+    fn key(&self) -> Option<u64> {
+        self.inner.key()
+    }
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        self.inner.positioned()
+    }
+    fn theme_override(
+        &self,
+        inherited: &crate::theme::Theme,
+    ) -> Option<Box<crate::theme::Theme>> {
+        self.inner.theme_override(inherited)
+    }
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        self.inner.media_override(inherited)
+    }
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        self.inner.scaffold_override()
+    }
+});
+
+/// **Moves its child's inset** rather than letting the space around it jump. The
+/// reference's `AnimatedPadding`.
+///
+/// Unlike the two above, this one is **layout**: the interpolated padding is injected
+/// while the tree is being measured, so everything beside and below the child follows it
+/// as it moves. That is the point of padding animating at all — a paint-time offset
+/// would slide the child over its neighbours instead of making room.
+///
+/// ```
+/// use frus_core::Curve;
+/// use frus_widgets::{AnimatedPadding, Text};
+///
+/// let selected = true;
+/// let _row: AnimatedPadding<()> = AnimatedPadding::new(
+///     if selected { 24.0 } else { 8.0 },
+///     0.2,
+///     Curve::ease_in_out(),
+///     Text::new("Inbox"),
+/// );
+/// ```
+pub struct AnimatedPadding<Msg> {
+    inner: Container<Msg>,
+}
+
+impl<Msg: Clone + 'static> AnimatedPadding<Msg> {
+    /// Insets `child` by `padding` on all four sides, moving there over `duration`.
+    pub fn new(
+        padding: f32,
+        duration: f32,
+        curve: Curve,
+        child: impl Widget<Msg> + 'static,
+    ) -> Self {
+        Self {
+            inner: Container::new()
+                .animated_padding(padding, duration, curve)
+                .child(child),
+        }
+    }
+}
+
+forward_to_container!(AnimatedPadding);
+
+#[cfg(test)]
+mod implicit_tests {
+    use super::*;
+    use crate::interaction::WidgetId;
+    use crate::{build_ui, Runtime, Text};
+    use frus_core::{Insets, Primitive};
+
+    /// A tree with one animated scale on it, so the runtime has a target to drive.
+    fn scaled(to: f32) -> AnimatedScale<()> {
+        AnimatedScale::new(to, 0.10, Curve::Linear, Text::new("x"))
+    }
+
+    /// **Mounted, mid-flight, at rest** — the three the issue asks each of these to pin.
+    ///
+    /// The first is the one worth stating: a widget that appears already scaled **adopts**
+    /// its target rather than growing into it from nothing. Without that rule every
+    /// implicit animation in the framework would play once on the frame it was born, and
+    /// a page would breathe when it opened.
+    #[test]
+    fn a_scale_mounts_settled_moves_and_arrives() {
+        let mut rt = Runtime::default();
+        assert!(
+            !rt.advance_transforms(&scaled(2.0), 1.0),
+            "a mount is not a transition"
+        );
+        let id = WidgetId::ROOT;
+        assert_eq!(
+            rt.anim_transform(id).map(|t| t.scale_x),
+            Some(2.0),
+            "and it adopts the target whole"
+        );
+
+        // Halfway along a linear curve of 0.10 s: halfway between 2 and 1.
+        assert!(rt.advance_transforms(&scaled(1.0), 0.05));
+        let mid = rt.anim_transform(id).expect("in flight");
+        assert!(
+            (mid.scale_x - 1.5).abs() < 1e-3 && (mid.scale_y - 1.5).abs() < 1e-3,
+            "halfway between the two: {mid:?}"
+        );
+        assert_eq!(mid.rotation, 0.0, "and it turned nothing on the way");
+
+        rt.advance_transforms(&scaled(1.0), 1.0);
+        assert_eq!(rt.anim_transform(id).map(|t| t.scale_x), Some(1.0));
+        assert!(
+            !rt.advance_transforms(&scaled(1.0), 0.05),
+            "and stops asking for frames once it is there"
+        );
+    }
+
+    /// The same three for a rotation, and that the two do not leak into one another: a
+    /// widget that only turns keeps its scale at **one**, not at nought — which is the
+    /// difference between a turning child and a child that vanished.
+    #[test]
+    fn a_rotation_mounts_settled_moves_and_arrives() {
+        let turned = |to: f32| -> AnimatedRotation<()> {
+            AnimatedRotation::new(to, 0.10, Curve::Linear, Text::new("x"))
+        };
+        let mut rt = Runtime::default();
+        assert!(!rt.advance_transforms(&turned(0.0), 1.0));
+        let id = WidgetId::ROOT;
+        let mounted = rt.anim_transform(id).expect("mounted");
+        assert_eq!((mounted.scale_x, mounted.scale_y), (1.0, 1.0), "identity");
+
+        assert!(rt.advance_transforms(&turned(1.0), 0.05));
+        let mid = rt.anim_transform(id).expect("in flight");
+        assert!((mid.rotation - 0.5).abs() < 1e-3, "halfway: {mid:?}");
+        assert_eq!(
+            (mid.scale_x, mid.scale_y),
+            (1.0, 1.0),
+            "and the scale stayed the identity, not nought"
+        );
+
+        rt.advance_transforms(&turned(1.0), 1.0);
+        assert_eq!(rt.anim_transform(id).map(|t| t.rotation), Some(1.0));
+    }
+
+    /// And the padding, which is the one that is **layout** rather than paint: the
+    /// interpolated value is injected while the tree is measured.
+    #[test]
+    fn a_padding_mounts_settled_moves_and_arrives() {
+        let padded = |to: f32| -> AnimatedPadding<()> {
+            AnimatedPadding::new(to, 0.10, Curve::Linear, Text::new("x"))
+        };
+        let mut rt = Runtime::default();
+        assert!(!rt.advance_paddings(&padded(0.0), 1.0));
+        let id = WidgetId::ROOT;
+        assert_eq!(rt.anim_padding(id), Some(Insets::uniform(0.0)));
+
+        assert!(rt.advance_paddings(&padded(20.0), 0.05));
+        let mid = rt.anim_padding(id).expect("in flight");
+        assert!((mid.left - 10.0).abs() < 1e-3, "halfway: {mid:?}");
+
+        rt.advance_paddings(&padded(20.0), 1.0);
+        assert_eq!(rt.anim_padding(id), Some(Insets::uniform(20.0)));
+    }
+
+    /// **And the paint reads it**, which is a separate question from whether the runtime
+    /// computes it. A tween the walk never asks for is a number that moves correctly and
+    /// changes nothing on the screen, and this framework has shipped that bug before.
+    #[test]
+    fn the_paint_uses_the_tweened_transform_and_not_the_target() {
+        let matrix_of = |rt: &Runtime, widget: &AnimatedScale<()>| {
+            let ui = build_ui(widget, Size::new(100.0, 100.0), rt, &Theme::default());
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Layer {
+                        transform: Some(t), ..
+                    } => Some(t.affine),
+                    _ => None,
+                })
+                .map(|m| m.m[0])
+        };
+        let mut rt = Runtime::default();
+        rt.advance_transforms(&scaled(3.0), 1.0);
+        // Now heading back to 1, half way along.
+        rt.advance_transforms(&scaled(1.0), 0.05);
+        let painted = matrix_of(&rt, &scaled(1.0)).expect("a transformed layer");
+        assert!(
+            (painted - 2.0).abs() < 1e-2,
+            "the paint took the tweened scale (2), not the target (1): {painted}"
+        );
+
+        // A runtime that has never heard of it draws the target, which is what an
+        // isolated frame — a test, a golden — has to show.
+        let fresh = Runtime::default();
+        let painted = matrix_of(&fresh, &scaled(3.0)).expect("a transformed layer");
+        assert!((painted - 3.0).abs() < 1e-2, "the target: {painted}");
     }
 }
