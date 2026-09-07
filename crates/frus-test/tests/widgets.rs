@@ -216,6 +216,21 @@ fn the_four_alert_kinds() {
     check("alert_kinds", 320, 340, &root);
 }
 
+/// **A navigation bar handed no width of its own.** Its parent is a row, which gives each
+/// child exactly the width it hugs — and the bar used to hug its back button, so the title,
+/// centred in the box it was handed, was painted underneath the button.
+///
+/// Every screen in the demo happens to give the bar a width, which is why this lived
+/// through 296 milestones without being seen. The picture is the whole bug: the title
+/// belongs in the middle of the frame, not on top of the arrow.
+#[test]
+fn a_navigation_bar_spans_the_width_it_is_offered() {
+    let root: Flex<()> = Flex::row()
+        .width(340.0)
+        .child(NavigationBar::new("Settings").on_back(()));
+    check("nav_bar_no_width", 340, 56, &root);
+}
+
 /// **The four pairs, five positions each.** What a morph looks like on the way across,
 /// which is the half of it that no amount of testing the two ends can say anything about.
 #[test]

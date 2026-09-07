@@ -74,7 +74,17 @@ impl<Msg: Clone + 'static> NavigationBar<Msg> {
 impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Auto,
+            // **The bar fills the width it is offered.** It used to say `Auto`, which in a
+            // row means *hug your children*: given no width by its parent it came out the
+            // size of the back button, and `paint` — which centres the title in the box it
+            // is given, the only thing it can do — put the title underneath the button.
+            //
+            // Every screen in the demo happens to hand it a width, so this never showed in
+            // the application; it showed the first time the widget was rendered on its own
+            // (milestone 296). A chrome that spans the head of a screen has no other
+            // sensible answer to "how wide would you like to be", and an app bar gives the
+            // same one.
+            width: Dimension::Percent(1.0),
             height: Dimension::Length(self.height),
             flex_direction: FlexDirection::Row,
             justify: Justify::Start,
@@ -178,6 +188,50 @@ mod tests {
         // The back button is on the left; a click there returns the back message.
         let id = ui.hit(Point::new(40.0, 28.0)).expect("back button");
         assert_eq!(ui.msg_for(id), Some(Msg::Back));
+    }
+
+    /// **A bar given no width used to hug its back button**, and `paint` — which centres
+    /// the title in the box it is handed, the only thing it can do — put the title
+    /// underneath the button.
+    ///
+    /// A row is the arrangement that shows it: a row hands each child the width it asks
+    /// for, and `Auto` asks for the width of its contents. Every screen in the demo
+    /// happens to give the bar a width, which is why this survived 296 milestones without
+    /// being seen and then showed the first time the widget was rendered on its own.
+    #[test]
+    fn a_bar_given_no_width_still_spans_what_it_is_offered() {
+        const FRAME: f32 = 400.0;
+        let bar: NavigationBar<Msg> = NavigationBar::new("Settings").on_back(Msg::Back);
+        // A row of a known width whose child is asked for its own: the row spans the
+        // frame, and a child saying `Auto` there is handed exactly what it hugs. The
+        // width has to be definite for the bar's own answer to mean anything — a
+        // percentage of an undecided width is undecided too.
+        let root = crate::Flex::row().width(FRAME).child(bar);
+        let theme = Theme::default();
+        let ui = build_ui(&root, Size::new(FRAME, HEIGHT), &Runtime::default(), &theme);
+        let at = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Text { text, position, .. } if text == "Settings" => Some(*position),
+                _ => None,
+            })
+            .expect("the title is painted");
+        let measured = frus_text::measure_style("Settings", title_style_of(None, &theme));
+        let centred = (FRAME - measured.width) * 0.5;
+        assert!(
+            (at.x - centred).abs() < 1.0,
+            "the title is centred in the frame: {} against {centred}",
+            at.x
+        );
+        // And the thing the bug actually looked like: the title sat on the button.
+        assert!(
+            at.x > PAD_LEFT + crate::ICON_BUTTON_SIZE,
+            "the title is clear of the back button: {} against {}",
+            at.x,
+            PAD_LEFT + crate::ICON_BUTTON_SIZE
+        );
     }
 
     #[test]

@@ -8,10 +8,20 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 474 so far, each documenting the objective, the alternatives
+> record — one per step, 475 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **`NavigationBar` collapsed around its back button when given no width** (J475, closes
+  #12): it asked for `Dimension::Auto`, which in a row means *hug your children*, so the
+  bar came out the width of its arrow and the title — centred in the box it was handed —
+  was painted underneath it. It now fills the width it is offered, which is the only
+  sensible answer for a chrome that spans the head of a screen. A percentage rather than
+  `flex_grow`, because grow acts along the parent's main axis and this widget's ordinary
+  home is a column, where it would have grown the bar taller instead.
 
 ### Added
 
