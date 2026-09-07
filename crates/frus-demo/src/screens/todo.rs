@@ -356,6 +356,11 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
             .child(Icon::new(Icons::FAVORITE))
             .child(Icon::new(Icons::MENU))
             .child(Icon::new(Icons::CHEVRON_RIGHT))
+            // **The same logo, twice over** (milestone 481): once as a picture at the size
+            // it was given, and once as an *icon* — where it answers the ambient icon size
+            // and stands level with the five paths to its left without being told what
+            // they are.
+            .child(ImageIcon::new(demo_logo()))
             .child(demo_logo().size(72.0, 48.0).fit(BoxFit::Cover))
             // A group-opacity layer (milestone 92): two overlapping squares, composited as one →
             // the overlap does not darken (no double-blending of the alpha).

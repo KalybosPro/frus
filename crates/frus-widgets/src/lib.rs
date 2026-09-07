@@ -239,7 +239,7 @@ pub use iconbutton::{
     ICON_BUTTON_SIZE,
 };
 pub use icons::{AnimatedIconData, AnimatedIcons, IconData, IconStyle, Icons};
-pub use image::{Image, State as ImageState};
+pub use image::{Image, ImageIcon, ImagePlaceholder, State as ImageState, IMAGE_FADE};
 pub use ime::{Capitalization, Ime, KeyboardType, TextInputAction};
 pub use ink::{InkStyle, InkWell, Ripples};
 pub use inspector::{dump_tree, node_at, paint_overlay as paint_inspector_overlay, InspectorNode};

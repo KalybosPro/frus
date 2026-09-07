@@ -12,10 +12,11 @@
 //! | one of the two | the other from the image's own ratio |
 //! | neither | the image's own size |
 
-use frus_core::{Alignment, AlignmentGeometry, BoxFit, Color, ImageHandle, Rect, Scene};
+use frus_core::{Alignment, AlignmentGeometry, BoxFit, Color, Curve, ImageHandle, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
+use crate::skeleton::Skeleton;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -55,6 +56,69 @@ enum Source {
     Failed(String),
 }
 
+/// How long an image takes to cross over its placeholder — the reference's own figure
+/// for `FadeInImage` (`fade_in_image.dart:37`).
+pub const IMAGE_FADE: f32 = 0.7;
+
+/// **What stands in for an image while it is on its way.**
+///
+/// Not [`crate::Placeholder`], which is the design tool's crossed box: this one is the
+/// slot [`Image::placeholder`] fills.
+///
+/// Three, because they are the three things anybody puts there: a flat colour, the
+/// shimmering block a list of thumbnails wants, or a smaller picture — a blurred
+/// thumbnail, a low-resolution copy, the one already in the cache.
+///
+/// It is **not a widget slot**, and that is deliberate: [`Image`] carries no message type
+/// (`impl<Msg> Widget<Msg> for Image`), which is what lets one be built once and dropped
+/// into any tree. Taking an arbitrary child would make it `Image<Msg>` and cost that
+/// everywhere, to buy a fourth case nobody has asked for.
+pub enum ImagePlaceholder {
+    /// A flat colour.
+    Color(Color),
+    /// The shimmering block, at whatever shape it was built with.
+    Skeleton(Skeleton),
+    /// Another picture: a blur, a thumbnail, the cached copy.
+    Image(Box<Image>),
+}
+
+impl From<Color> for ImagePlaceholder {
+    fn from(color: Color) -> Self {
+        ImagePlaceholder::Color(color)
+    }
+}
+
+impl From<Skeleton> for ImagePlaceholder {
+    fn from(skeleton: Skeleton) -> Self {
+        ImagePlaceholder::Skeleton(skeleton)
+    }
+}
+
+impl From<Image> for ImagePlaceholder {
+    fn from(image: Image) -> Self {
+        ImagePlaceholder::Image(Box::new(image))
+    }
+}
+
+impl ImagePlaceholder {
+    /// Draws the stand-in into `bounds` at `opacity`.
+    fn paint(&self, bounds: Rect, status: &Status, theme: &Theme, scene: &mut Scene) {
+        match self {
+            ImagePlaceholder::Color(color) => scene.fill_rect(bounds, color.fade(status.opacity)),
+            // Both of these are widgets already, and both are free of a message type, so
+            // they are painted where they stand rather than mounted as children. A child
+            // would have to be laid out, and the whole of what a placeholder wants is the
+            // box the image was going to have.
+            ImagePlaceholder::Skeleton(skeleton) => {
+                Widget::<()>::paint(skeleton, bounds, *status, theme, scene)
+            }
+            ImagePlaceholder::Image(image) => {
+                Widget::<()>::paint(image.as_ref(), bounds, *status, theme, scene)
+            }
+        }
+    }
+}
+
 /// An image, fitted by `fit` into whatever box it ends up with.
 pub struct Image {
     /// The pixels, why there are none, or that they are still on their way.
@@ -71,6 +135,12 @@ pub struct Image {
     exclude_from_semantics: bool,
     /// Whether the picture is **mirrored** in a right-to-left reading direction.
     match_text_direction: bool,
+    /// What stands in while the pixels are on their way; `None` leaves the box empty,
+    /// which is what an image has always done.
+    placeholder: Option<ImagePlaceholder>,
+    /// How long the picture takes to cross over the placeholder.
+    fade: f32,
+    fade_curve: Curve,
 }
 
 impl Image {
@@ -187,6 +257,9 @@ impl Image {
             semantic_label: None,
             exclude_from_semantics: false,
             match_text_direction: false,
+            placeholder: None,
+            fade: IMAGE_FADE,
+            fade_curve: Curve::ease_out(),
         }
     }
 
@@ -281,6 +354,43 @@ impl Image {
         self
     }
 
+    /// **What stands in while the pixels are on their way**, and what the picture crosses
+    /// over when they arrive.
+    ///
+    /// Takes a colour, a [`Skeleton`], or another [`Image`] — see [`ImagePlaceholder`]. Without
+    /// one the box stays empty and the picture appears in a single frame, which is what an
+    /// image has always done here and what a list of thumbnails should not do.
+    ///
+    /// ```ignore
+    /// Image::network(url).width(120.0).placeholder(Skeleton::new().height(90.0))
+    /// ```
+    #[must_use]
+    pub fn placeholder(mut self, placeholder: impl Into<ImagePlaceholder>) -> Self {
+        self.placeholder = Some(placeholder.into());
+        self
+    }
+
+    /// How long the crossing takes, in seconds. [`IMAGE_FADE`] — the reference's 700 ms —
+    /// unless a caller says otherwise. `0.0` is a hard cut with a placeholder before it.
+    #[must_use]
+    pub fn fade_duration(mut self, seconds: f32) -> Self {
+        self.fade = seconds.max(0.0);
+        self
+    }
+
+    /// The crossing's curve; [`Curve::ease_out`](Curve::ease_out) by
+    /// default, so the picture arrives quickly and settles.
+    #[must_use]
+    pub fn fade_curve(mut self, curve: Curve) -> Self {
+        self.fade_curve = curve;
+        self
+    }
+
+    /// Whether the picture is here.
+    fn ready(&self) -> bool {
+        matches!(self.source, Source::Ready(_))
+    }
+
     /// The box this asks for, given the bitmap's own size.
     fn box_style(&self) -> Style {
         // Nothing decoded: there is no natural size to fall back on, so an image given
@@ -338,6 +448,90 @@ impl<Msg> Widget<Msg> for Image {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        self.paint_tinted(bounds, status, theme, scene, None);
+    }
+
+    /// **Where the crossing is going**: all the way over once the pixels are here, and
+    /// nowhere at all until then.
+    ///
+    /// Only claimed when there is a placeholder, so an image without one costs the runtime
+    /// nothing and keeps the behaviour it has always had.
+    fn anim_target(&self) -> Option<f32> {
+        self.placeholder
+            .as_ref()
+            .map(|_| if self.ready() { 1.0 } else { 0.0 })
+    }
+
+    /// **The crossing has a duration in one direction only.**
+    ///
+    /// Coming in it takes its time: that is the whole point. Going back — a source
+    /// replaced at the same place in the tree, so the widget is loading again — it is
+    /// instant, because there is nothing left to cross *from*. The pixels of the picture
+    /// that was there are already gone by the time this is asked; tweening down would fade
+    /// the placeholder **in** over three quarters of a second while nothing else was
+    /// drawn, which reads as a stall rather than as a change.
+    ///
+    /// This is also what answers *do not restart on a rebuild*. The value lives against
+    /// the widget's place in the tree and survives every rebuild, so nothing restarts
+    /// while the source stands still; and a source that changes passes through *not
+    /// ready*, which resets it to nought in one frame and lets the next arrival cross
+    /// properly. No record of which image this timeline is about is needed, because the
+    /// journey through the middle is the record.
+    fn anim_duration(&self) -> f32 {
+        match self.ready() {
+            true => self.fade,
+            false => 0.0,
+        }
+    }
+
+    fn anim_curve(&self) -> Curve {
+        self.fade_curve.clone()
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
+        if self.exclude_from_semantics {
+            return None;
+        }
+        let mut semantics = frus_core::SemanticsProperties::new(frus_core::Role::Image);
+        if let Some(label) = self.semantic_label.as_deref() {
+            semantics = semantics.label(label);
+        }
+        Some(semantics)
+    }
+}
+
+impl Image {
+    /// The paint, with a **tint the caller supplies** rather than the one on the widget —
+    /// what [`ImageIcon`] needs, since it holds an `Image` by reference and cannot rebuild
+    /// one to colour it.
+    pub(crate) fn paint_tinted(
+        &self,
+        bounds: Rect,
+        status: Status,
+        theme: &Theme,
+        scene: &mut Scene,
+        over: Option<Color>,
+    ) {
+        // **How far across the crossing is**, and it is only asked for when there is
+        // something to cross over from. Without a placeholder the picture is drawn at its
+        // own opacity as it always was, so nothing already written changes.
+        let across = match self.placeholder {
+            Some(_) => status.value.clamp(0.0, 1.0),
+            None => 1.0,
+        };
+        if let Some(placeholder) = &self.placeholder {
+            if across < 1.0 {
+                let under = Status {
+                    opacity: status.opacity * (1.0 - across),
+                    ..status
+                };
+                placeholder.paint(bounds, &under, theme, scene);
+            }
+        }
         // The **alignment** stays physical whatever the direction. An image is a
         // picture rather than a run of text: a portrait aligned to the top of its
         // crop wants the top of its crop in every language. Mirroring is the separate,
@@ -357,36 +551,360 @@ impl<Msg> Widget<Msg> for Image {
         if self.match_text_direction && theme.direction == frus_core::TextDirection::Rtl {
             uv = Rect::new(uv.x + uv.width, uv.y, -uv.width, uv.height);
         }
-        let tint = self
-            .tint
+        let tint = over
+            .or(self.tint)
             .unwrap_or(Color::WHITE)
-            .fade(status.opacity * self.opacity);
+            .fade(status.opacity * self.opacity * across);
         scene.draw_image(image, dst, uv, tint);
     }
+}
 
-    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
-        if self.exclude_from_semantics {
-            return None;
+/// **A picture used where an icon would go**: a brand mark, a flag, a custom glyph that is
+/// artwork rather than a path.
+///
+/// It is an icon in every way that matters to the layout and the theme — the ambient size
+/// from [`IconTheme`](crate::IconTheme), the same square box, the same place in a row of
+/// them — and a picture in the one way that matters to the painter. So it sits in an
+/// [`IconButton`](crate::IconButton), a list tile's leading slot or an app bar action
+/// without any of them knowing.
+///
+/// **Untinted by default**, which is the one place it parts from [`crate::Icon`]. An icon
+/// is a silhouette and takes the foreground colour; a picture usually has colours of its
+/// own, and a brand mark flattened to `on_surface` the first time an application themes its
+/// icons is a brand mark nobody recognises. [`ImageIcon::color`] is for the case that wants
+/// it — a monochrome glyph shipped as a bitmap, which is why the reference's own honours
+/// `IconTheme.color` at all.
+///
+/// ```ignore
+/// ImageIcon::new(Image::memory(include_bytes!("../assets/mark.png")))
+/// ```
+pub struct ImageIcon {
+    image: Image,
+    size: Option<f32>,
+    color: Option<Color>,
+}
+
+impl ImageIcon {
+    /// A picture at the ambient icon size, in its own colours.
+    pub fn new(image: Image) -> Self {
+        Self {
+            image,
+            size: None,
+            color: None,
         }
-        let mut semantics = frus_core::SemanticsProperties::new(frus_core::Role::Image);
-        if let Some(label) = self.semantic_label.as_deref() {
-            semantics = semantics.label(label);
+    }
+
+    /// The square's side, in logical pixels. Outranks the theme.
+    #[must_use]
+    pub fn size(mut self, size: f32) -> Self {
+        self.size = Some(size);
+        self
+    }
+
+    /// **Tints** the picture, the way an icon is coloured.
+    ///
+    /// Multiplied into the pixels, so it is only a colour for artwork that is white or
+    /// grey to begin with — which is what a bitmap glyph is. A photograph tinted red comes
+    /// out a red photograph.
+    ///
+    /// Say it with [`crate::Icon`]'s own default and the picture follows the icon theme:
+    /// `image_icon.color(theme.widgets.icon.color.unwrap_or(theme.on_surface))`. It is not
+    /// done for you, for the reason in the type's own documentation.
+    #[must_use]
+    pub fn color(mut self, color: Color) -> Self {
+        self.color = Some(color);
+        self
+    }
+
+    /// The side actually drawn: `caller ?? theme ?? the grid`. The same chain
+    /// [`crate::Icon`] answers, so a picture and a path line up in one row.
+    fn resolved_size(&self, theme: Option<&Theme>) -> f32 {
+        self.size
+            .or_else(|| theme.and_then(|t| t.widgets.icon.size))
+            .unwrap_or(crate::icons::GRID)
+    }
+
+    fn sized(&self, side: f32) -> Style {
+        Style {
+            width: Dimension::Length(side),
+            height: Dimension::Length(side),
+            ..Default::default()
         }
-        Some(semantics)
+    }
+
+    /// Draws the picture into a square somebody else chose — what
+    /// [`IconButton`](crate::IconButton) needs, since a button sizes its own mark and a
+    /// picture must be the same size as the path beside it.
+    pub(crate) fn paint_at(&self, square: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        self.image
+            .paint_tinted(square, status, theme, scene, self.color);
+    }
+}
+
+impl<Msg> Widget<Msg> for ImageIcon {
+    fn style(&self) -> Style {
+        self.sized(self.resolved_size(None))
+    }
+
+    /// The theme has a say in the **size**, not only the colour, exactly as it does for a
+    /// path icon — so an app bar that makes its glyphs smaller makes this smaller too.
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sized(self.resolved_size(Some(theme)))
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &[]
+    }
+
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        // The square the icon would have had, centred in whatever box the layout gave —
+        // the same two lines `Icon` uses, which is what keeps a picture and a path level
+        // in one row.
+        let side = self.resolved_size(Some(theme));
+        let square = Rect::new(
+            bounds.x + (bounds.width - side) * 0.5,
+            bounds.y + (bounds.height - side) * 0.5,
+            side,
+            side,
+        );
+        self.paint_at(square, status, theme, scene);
     }
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+
+    /// The crossing is the picture's, forwarded — a brand mark fetched over the network
+    /// fades in behind an icon button exactly as it would anywhere else.
+    fn anim_target(&self) -> Option<f32> {
+        Widget::<()>::anim_target(&self.image)
+    }
+
+    fn anim_duration(&self) -> f32 {
+        Widget::<()>::anim_duration(&self.image)
+    }
+
+    fn anim_curve(&self) -> Curve {
+        Widget::<()>::anim_curve(&self.image)
+    }
+
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
+        Widget::<()>::semantics(&self.image)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Runtime;
     use frus_core::{ImageData, Primitive};
 
     fn handle(w: u32, h: u32) -> ImageHandle {
         ImageData::from_rgba(w, h, vec![255u8; (w * h * 4) as usize]).into_handle()
+    }
+
+    /// Renders one image on its own and returns `(the image tints, the flat fills)`.
+    fn painted(image: Image, value: f32) -> (Vec<Color>, Vec<Color>) {
+        let mut runtime = Runtime::default();
+        runtime.set_value(crate::interaction::WidgetId::ROOT, value);
+        let ui: crate::Ui<()> = crate::ui::build_ui(
+            &image,
+            frus_core::Size::new(100.0, 100.0),
+            &runtime,
+            &Theme::default(),
+        );
+        let mut images = Vec::new();
+        let mut fills = Vec::new();
+        fn walk(primitives: &[Primitive], images: &mut Vec<Color>, fills: &mut Vec<Color>) {
+            for p in primitives {
+                match p {
+                    Primitive::Image { tint, .. } => images.push(*tint),
+                    Primitive::Rect { color, .. } => fills.push(*color),
+                    Primitive::Layer { primitives, .. } => walk(primitives, images, fills),
+                    _ => {}
+                }
+            }
+        }
+        walk(ui.scene().primitives(), &mut images, &mut fills);
+        (images, fills)
+    }
+
+    /// **An image with no placeholder is drawn exactly as it always was.** The crossing is
+    /// only asked for when there is something to cross over from, so nothing already
+    /// written acquired an animation or a frame of transparency.
+    #[test]
+    fn an_image_with_no_placeholder_is_untouched() {
+        let image = Image::new(handle(8, 8)).size(50.0, 50.0);
+        assert_eq!(Widget::<()>::anim_target(&image), None);
+        // Even asked at nought — which is what a runtime that had never seen it would
+        // answer — the picture is opaque.
+        let (images, _) = painted(image, 0.0);
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].a, 1.0);
+    }
+
+    /// **Half way across, both are drawn and neither is whole.** That is the crossing: the
+    /// placeholder is on its way out at the same rate the picture is on its way in, so the
+    /// box is never empty and never shows two solid things at once.
+    #[test]
+    fn half_way_across_both_are_drawn() {
+        let stand_in = Color::rgb(0.9, 0.1, 0.1);
+        let image = Image::new(handle(8, 8))
+            .size(50.0, 50.0)
+            .placeholder(stand_in);
+        let (images, fills) = painted(image, 0.5);
+        assert_eq!(images.len(), 1, "the picture");
+        assert!(
+            (images[0].a - 0.5).abs() < 1e-3,
+            "half faded in: {:?}",
+            images[0].a
+        );
+        let under = fills
+            .iter()
+            .find(|c| (c.r, c.g, c.b) == (stand_in.r, stand_in.g, stand_in.b))
+            .expect("the placeholder");
+        assert!(
+            (under.a - 0.5).abs() < 1e-3,
+            "half faded out: {:?}",
+            under.a
+        );
+    }
+
+    /// **At rest the placeholder is not drawn at all** — not drawn at nought opacity,
+    /// which would still be a primitive per image on every frame of a list of thumbnails.
+    #[test]
+    fn at_rest_only_the_picture_is_drawn() {
+        let stand_in = Color::rgb(0.9, 0.1, 0.1);
+        let image = Image::new(handle(8, 8))
+            .size(50.0, 50.0)
+            .placeholder(stand_in);
+        let (images, fills) = painted(image, 1.0);
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].a, 1.0);
+        assert!(
+            !fills
+                .iter()
+                .any(|c| (c.r, c.g, c.b) == (stand_in.r, stand_in.g, stand_in.b)),
+            "no placeholder once it is over"
+        );
+    }
+
+    /// **The crossing has a duration in one direction only.**
+    ///
+    /// Coming in it takes its time. Going back it is instant, because there is nothing
+    /// left to cross *from*: the pixels of the picture that was there are gone by then, so
+    /// a tween down would fade the placeholder **in** over three quarters of a second with
+    /// nothing else on screen — a stall rather than a change.
+    ///
+    /// It is also what makes a source swapped at one place in the tree do the right thing
+    /// without anyone recording which picture the timeline was about: the swap passes
+    /// through *not ready*, which resets it in one frame, and the next arrival crosses
+    /// properly.
+    #[test]
+    fn the_crossing_runs_one_way() {
+        let ready = Image::new(handle(8, 8)).placeholder(Color::WHITE);
+        assert_eq!(Widget::<()>::anim_target(&ready), Some(1.0));
+        assert_eq!(Widget::<()>::anim_duration(&ready), IMAGE_FADE);
+
+        let waiting = Image::network("https://example.invalid/x.png").placeholder(Color::WHITE);
+        assert_eq!(Widget::<()>::anim_target(&waiting), Some(0.0));
+        assert_eq!(
+            Widget::<()>::anim_duration(&waiting),
+            0.0,
+            "back to the placeholder in one frame"
+        );
+    }
+
+    /// **A rebuild does not restart it.** A view is rebuilt every frame here, so a
+    /// crossing that began again each time would never finish — the picture would sit at
+    /// its first step for ever.
+    ///
+    /// Nothing in the widget arranges that: the value lives against the widget's place in
+    /// the tree and the target does not move while the source stands still, so the runtime
+    /// carries it. Worth a test because it is the property the whole design turns on.
+    #[test]
+    fn a_rebuild_does_not_restart_the_crossing() {
+        let image = || {
+            Image::new(handle(8, 8))
+                .size(50.0, 50.0)
+                .placeholder(Color::WHITE)
+        };
+        let mut runtime = Runtime::default();
+        // Mount: adopts, since there was no placeholder shown before the widget existed.
+        runtime.advance_values::<()>(&image(), 0.0);
+        let mounted = runtime.value(crate::interaction::WidgetId::ROOT);
+        assert_eq!(mounted, 1.0, "an image already here does not fade in");
+
+        // Ten rebuilds of the same view, a frame apart.
+        for _ in 0..10 {
+            runtime.advance_values::<()>(&image(), 1.0 / 60.0);
+        }
+        assert_eq!(
+            runtime.value(crate::interaction::WidgetId::ROOT),
+            1.0,
+            "and it has not gone back to the beginning"
+        );
+    }
+
+    /// **A picture takes the ambient icon size**, the same chain a path icon answers, so
+    /// the two are interchangeable in a row of actions.
+    #[test]
+    fn an_image_icon_takes_the_ambient_icon_size() {
+        let icon = ImageIcon::new(Image::new(handle(64, 64)));
+        assert_eq!(
+            Widget::<()>::style(&icon).width,
+            frus_layout::Dimension::Length(crate::icons::GRID)
+        );
+        let mut theme = Theme::default();
+        theme.widgets.icon.size = Some(18.0);
+        assert_eq!(
+            Widget::<()>::style_themed(&icon, &theme).width,
+            frus_layout::Dimension::Length(18.0),
+            "the theme has a say in the size, not only the colour"
+        );
+        assert_eq!(
+            Widget::<()>::style_themed(&icon.size(30.0), &theme).width,
+            frus_layout::Dimension::Length(30.0),
+            "and the caller outranks it"
+        );
+    }
+
+    /// **A picture is not tinted unless the caller asks.** That is the one place this
+    /// parts from a path icon, and it is deliberate: an icon is a silhouette and takes the
+    /// foreground colour, where a brand mark flattened to one grey the first time an
+    /// application themes its icons is a brand mark nobody recognises.
+    #[test]
+    fn a_picture_is_not_tinted_unless_it_is_asked() {
+        let mut theme = Theme::default();
+        theme.widgets.icon.color = Some(Color::rgb(0.9, 0.1, 0.1));
+        let paint = |icon: ImageIcon| {
+            let mut scene = frus_core::Scene::new();
+            let status = Status::default();
+            Widget::<()>::paint(
+                &icon,
+                Rect::new(0.0, 0.0, 24.0, 24.0),
+                status,
+                &theme,
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Image { tint, .. } => Some(*tint),
+                    _ => None,
+                })
+                .expect("a picture")
+        };
+        let plain = paint(ImageIcon::new(Image::new(handle(8, 8))));
+        assert_eq!(
+            (plain.r, plain.g, plain.b),
+            (1.0, 1.0, 1.0),
+            "its own colours, whatever the icon theme says"
+        );
+        let tinted =
+            paint(ImageIcon::new(Image::new(handle(8, 8))).color(Color::rgb(0.0, 1.0, 0.0)));
+        assert_eq!((tinted.r, tinted.g, tinted.b), (0.0, 1.0, 0.0));
     }
 
     /// The box an image asks for, down a column 400 wide.

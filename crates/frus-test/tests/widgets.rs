@@ -24,14 +24,14 @@ use frus_widgets::{
     CircularProgressIndicator, ClipOval, ClipPath, ClipRRect, ColorPicker, ConstrainedBox,
     Container, ControlAffinity, CustomPaint, Divider, DropdownButton, DropdownMenu, DropdownOption,
     Expanded, ExpansionTile, FittedBox, Flex, FloatingActionButton, FontWeight,
-    FractionallySizedBox, GridTile, GridTileBar, GridView, Icon, IconData, Icons, Image, Intrinsic,
-    Kbd, LinearProgressIndicator, ListTile, ListView, MenuAnchor, MenuItem, NavigationBar,
-    NavigationDestination, NavigationDrawer, NavigationRail, Offstage, Opacity, OverflowBox,
-    OverlayPortal, Placement, PopupMenuButton, RadioGroup, RadioListTile, RailLabels, RichText,
-    RotatedBox, SafeArea, SearchAnchor, SearchBar, SegmentedButton, SingleChildScrollView,
-    SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile, TabBar, TabItem,
-    TabPageSelector, Theme, Timeline, ToggleButtons, Transform, TwoPane, UserAccountsDrawerHeader,
-    VerticalDivider, Visibility, Widget,
+    FractionallySizedBox, GridTile, GridTileBar, GridView, Icon, IconButton, IconData, Icons,
+    Image, ImageIcon, Intrinsic, Kbd, LinearProgressIndicator, ListTile, ListView, MenuAnchor,
+    MenuItem, NavigationBar, NavigationDestination, NavigationDrawer, NavigationRail, Offstage,
+    Opacity, OverflowBox, OverlayPortal, Placement, PopupMenuButton, RadioGroup, RadioListTile,
+    RailLabels, RichText, RotatedBox, SafeArea, SearchAnchor, SearchBar, SegmentedButton,
+    SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile,
+    TabBar, TabItem, TabPageSelector, Theme, Timeline, ToggleButtons, Transform, TwoPane,
+    UserAccountsDrawerHeader, VerticalDivider, Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -1359,4 +1359,55 @@ fn tabs_carrying_more_than_a_label() {
                 .child(TabPageSelector::<()>::new(4, 0)),
         );
     check("tabs_widget_labels", 460, 200, &root);
+}
+
+/// **A picture where an icon goes.** A brand mark shipped as a bitmap, in an icon button
+/// beside two ordinary ones — the point of the picture being that all three marks are the
+/// same size without any of them being told, because a picture answers the same
+/// `caller ?? theme ?? the grid` chain a path does.
+///
+/// The mark on the right is **tinted**, which is the case that wants it: a monochrome glyph
+/// shipped as a bitmap. The one in the middle is not, and that is the default — a picture
+/// keeps its own colours, because a brand mark flattened to one grey the first time an
+/// application themes its icons is a brand mark nobody recognises.
+#[test]
+fn an_image_where_an_icon_goes() {
+    let root: Container<()> = Container::new()
+        .width(220.0)
+        .height(80.0)
+        .color(Color::rgb8(20, 22, 28))
+        .padding(12.0)
+        .child(
+            Flex::row()
+                .align(Align::Center)
+                .gap(8.0)
+                .child(IconButton::new(Icons::STAR).label("Starred").on_press(()))
+                .child(
+                    IconButton::image(ImageIcon::new(Image::new(mark_image())))
+                        .label("Brand")
+                        .on_press(()),
+                )
+                .child(
+                    IconButton::image(ImageIcon::new(Image::new(mark_image())).color(TEAL))
+                        .label("Tinted")
+                        .on_press(()),
+                )
+                .child(Icon::new(Icons::STAR)),
+        );
+    check("image_icon_in_a_button", 220, 80, &root);
+}
+
+/// A 16×16 mark: a white diamond on nothing, which is what a glyph shipped as a bitmap
+/// looks like — square, so it fills an icon's box, and monochrome, so a tint shows.
+fn mark_image() -> ImageHandle {
+    const N: i32 = 16;
+    let mut rgba = Vec::with_capacity((N * N * 4) as usize);
+    for y in 0..N {
+        for x in 0..N {
+            let inside = (x - N / 2).abs() + (y - N / 2).abs() < N / 2;
+            let a = if inside { 255 } else { 0 };
+            rgba.extend_from_slice(&[255, 255, 255, a]);
+        }
+    }
+    ImageData::from_rgba(N as u32, N as u32, rgba).into_handle()
 }

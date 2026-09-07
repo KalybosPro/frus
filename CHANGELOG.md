@@ -8,10 +8,25 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 480 so far, each documenting the objective, the alternatives
+> record — one per step, 481 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **A picture arrives instead of appearing** (J481, closes #42): `Image::placeholder` takes
+  a colour, a `Skeleton` or another `Image`, and the picture **crosses over** it in the
+  reference's 700 ms. The crossing has a duration in **one direction only** — instant on
+  the way back, because by then there is nothing left to cross from — and that one asymmetry
+  is what makes a rebuild not restart it while a source swapped at the same place in the
+  tree does. An image with no placeholder claims no animated value at all, so nothing
+  already written changed.
+
+- **`ImageIcon`** and **`IconButton::image`**: a picture where an icon goes, answering the
+  same `caller ?? theme ?? the grid` size chain a path icon answers. **Untinted by
+  default** — the one place it parts from `Icon`, because a brand mark flattened to one grey
+  the first time an application themes its icons is a brand mark nobody recognises.
 
 ### Added
 
