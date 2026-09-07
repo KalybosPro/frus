@@ -4,7 +4,7 @@
 
 #[cfg(test)]
 use frus_core::FontWeight;
-use frus_core::{Insets, Point, Rect, Scene, TextStyle};
+use frus_core::{Color, Insets, Point, Rect, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::interaction::Status;
@@ -16,11 +16,22 @@ const HEIGHT: f32 = 56.0;
 /// Left margin: beyond the back-gesture zone, so the button stays clickable
 /// without triggering the swipe.
 const PAD_LEFT: f32 = 28.0;
+/// The bar's own padding: nothing above or below (see [`NavigationBar::style`]), 16 at
+/// the trailing edge, and the gesture-clearing inset at the leading one.
+const PADDING: Insets = Insets {
+    top: 0.0,
+    right: 16.0,
+    bottom: 0.0,
+    left: PAD_LEFT,
+};
+/// The hairline along the bottom edge.
+const DIVIDER_THICKNESS: f32 = 1.0;
 /// The title's type: what the caller said, else the step the reference gives an app bar's
 /// title — `titleLarge`. It used to be a private `20.0` at a medium weight, which had **both
 /// halves wrong**: the reference's is 22 and regular.
 fn title_style_of(over: Option<TextStyle>, theme: &Theme) -> TextStyle {
-    over.unwrap_or(theme.text.title_large)
+    over.or(theme.widgets.nav_bar.title_style)
+        .unwrap_or(theme.text.title_large)
 }
 
 /// A navigation bar: a title + an optional back button.
@@ -28,8 +39,8 @@ pub struct NavigationBar<Msg> {
     title: String,
     /// The caller's title style, if one was named. Unset, the theme's `titleLarge`.
     title_style: Option<TextStyle>,
-    /// Bar height (default: [`HEIGHT`]).
-    height: f32,
+    /// The caller's height, if one was named. Unset, the theme's, then [`HEIGHT`].
+    height: Option<f32>,
     /// `[]` (root) or `[back button]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -40,7 +51,7 @@ impl<Msg: Clone + 'static> NavigationBar<Msg> {
         Self {
             title: title.into(),
             title_style: None,
-            height: HEIGHT,
+            height: None,
             children: Vec::new(),
         }
     }
@@ -51,9 +62,9 @@ impl<Msg: Clone + 'static> NavigationBar<Msg> {
         self
     }
 
-    /// Overrides the bar height (56 px by default).
+    /// Overrides the bar height (the theme's, else 56 px).
     pub fn height(mut self, height: f32) -> Self {
-        self.height = height;
+        self.height = Some(height);
         self
     }
 
@@ -71,6 +82,29 @@ impl<Msg: Clone + 'static> NavigationBar<Msg> {
     }
 }
 
+/// The resolvers, in an impl of their own: the builders above ask for `Msg: Clone +
+/// 'static` because they hold a message, and the `Widget` impl does not — a resolver
+/// declared beside the builders could not be called from the paint.
+impl<Msg> NavigationBar<Msg> {
+    /// `what the caller said ?? what the theme says ?? what the framework ships` — the
+    /// order every property here resolves in, and the one an added theme must not
+    /// disturb: a bar told to be 72 tall is 72 tall in an application whose theme says
+    /// 64.
+    fn bar_height(&self, theme: Option<&Theme>) -> f32 {
+        self.height
+            .or_else(|| theme.and_then(|t| t.widgets.nav_bar.height))
+            .unwrap_or(HEIGHT)
+    }
+
+    /// The bar's padding. There is no per-call override for it, so this is the theme's
+    /// answer or the framework's.
+    fn padding_of(theme: Option<&Theme>) -> Insets {
+        theme
+            .and_then(|t| t.widgets.nav_bar.padding)
+            .unwrap_or(PADDING)
+    }
+}
+
 impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
     fn style(&self) -> Style {
         Style {
@@ -85,7 +119,7 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
             // sensible answer to "how wide would you like to be", and an app bar gives the
             // same one.
             width: Dimension::Percent(1.0),
-            height: Dimension::Length(self.height),
+            height: Dimension::Length(self.bar_height(None)),
             flex_direction: FlexDirection::Row,
             justify: Justify::Start,
             align: Align::Center,
@@ -95,8 +129,20 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
             // coming from the difference and not from a rule. Six pixels of padding left 44
             // for the button, which is under the target it now reserves (milestone 442) —
             // the bar squeezed the one control in it.
-            padding: Insets::new(0.0, 16.0, 0.0, PAD_LEFT),
+            padding: Self::padding_of(None),
             ..Default::default()
+        }
+    }
+
+    /// The theme has a say in the **height and the padding**, not only the colours: a bar
+    /// that took its colours from the theme and its size from a constant would be themed
+    /// in the half that is easy to see and unthemed in the half that decides where
+    /// everything under it starts.
+    fn style_themed(&self, theme: &Theme) -> Style {
+        Style {
+            height: Dimension::Length(self.bar_height(Some(theme))),
+            padding: Self::padding_of(Some(theme)),
+            ..Widget::<Msg>::style(self)
         }
     }
 
@@ -106,11 +152,25 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
+        let t = &theme.widgets.nav_bar;
         // Background + a thin bottom separator.
-        scene.fill_rect(bounds, theme.background.fade(o));
+        let background: Color = t.background.unwrap_or(theme.background);
+        scene.fill_rect(bounds, background.fade(o));
+        // The hairline never draws thicker than the bar it sits in, the way a divider's
+        // never outgrows its own box.
+        let thickness = t
+            .divider_thickness
+            .unwrap_or(DIVIDER_THICKNESS)
+            .min(bounds.height);
+        let rule: Color = t.divider_color.unwrap_or(theme.scheme.outline_variant);
         scene.fill_rect(
-            Rect::new(bounds.x, bounds.y + bounds.height - 1.0, bounds.width, 1.0),
-            theme.scheme.outline_variant.fade(o),
+            Rect::new(
+                bounds.x,
+                bounds.y + bounds.height - thickness,
+                bounds.width,
+                thickness,
+            ),
+            rule.fade(o),
         );
 
         // The title is centred horizontally in the bar, following `title_style`
@@ -137,6 +197,7 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
 mod tests {
     use super::*;
     use crate::{build_ui, Runtime, Size};
+    use frus_core::Color;
     use frus_core::Primitive;
 
     #[derive(Clone, Debug, PartialEq)]
@@ -232,6 +293,106 @@ mod tests {
             at.x,
             PAD_LEFT + crate::ICON_BUTTON_SIZE
         );
+    }
+
+    /// Every rectangle the bar paints, in order: the background first, the hairline on
+    /// top of it.
+    fn rects(bar: &NavigationBar<Msg>, theme: &Theme, frame: Size) -> Vec<(Rect, Color)> {
+        let ui = build_ui(bar, frame, &Runtime::default(), theme);
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, color, .. } => Some((*rect, *color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// **Every field of the theme reaches the painting** — and the two that are not
+    /// colours are the ones worth naming, because a bar themed in its colours and sized
+    /// from a constant is themed in the half that shows and unthemed in the half that
+    /// decides where everything under it starts.
+    ///
+    /// The colours are asserted on the scene rather than on a rendered pixel: this widget
+    /// hands an opaque colour straight to `fill_rect` and does no blending arithmetic of
+    /// its own, and that a colour asked for is the colour painted is pinned once for the
+    /// quad path in `frus-test`'s `painted_colours`, not once per widget.
+    #[test]
+    fn a_theme_reaches_every_property_the_bar_paints() {
+        const BACKGROUND: Color = Color::rgb(0.10, 0.20, 0.30);
+        const RULE: Color = Color::rgb(0.90, 0.10, 0.40);
+        let mut theme = Theme::default();
+        theme.widgets.nav_bar.height = Some(64.0);
+        theme.widgets.nav_bar.padding = Insets::new(0.0, 4.0, 0.0, 40.0).into();
+        theme.widgets.nav_bar.background = Some(BACKGROUND);
+        theme.widgets.nav_bar.divider_color = Some(RULE);
+        theme.widgets.nav_bar.divider_thickness = Some(3.0);
+        theme.widgets.nav_bar.title_style = Some(TextStyle::new(18.0).weight(FontWeight::Bold));
+
+        let bar: NavigationBar<Msg> = NavigationBar::new("Title").on_back(Msg::Back);
+        // The height and the padding are layout, so they have to come back through the
+        // themed style — the unthemed one is what a parent asks before a theme exists.
+        match Widget::<Msg>::style_themed(&bar, &theme).height {
+            Dimension::Length(h) => assert_eq!(h, 64.0, "the theme's height"),
+            other => panic!("a definite height was expected, got {other:?}"),
+        }
+        assert_eq!(
+            Widget::<Msg>::style_themed(&bar, &theme).padding,
+            Insets::new(0.0, 4.0, 0.0, 40.0),
+            "the theme's padding"
+        );
+
+        let painted = rects(&bar, &theme, Size::new(400.0, 64.0));
+        let (bg_rect, bg) = painted[0];
+        assert_eq!(bg, BACKGROUND, "the theme's background");
+        assert_eq!(bg_rect.height, 64.0, "and it fills the themed height");
+        let (rule_rect, rule) = painted[1];
+        assert_eq!(rule, RULE, "the theme's hairline colour");
+        assert_eq!(rule_rect.height, 3.0, "and its thickness");
+        assert_eq!(
+            rule_rect.y + rule_rect.height,
+            bg_rect.y + bg_rect.height,
+            "the hairline sits on the bottom edge whatever it weighs"
+        );
+
+        let ui = build_ui(&bar, Size::new(400.0, 64.0), &Runtime::default(), &theme);
+        let styled = ui.scene().primitives().iter().any(|p| {
+            matches!(p, Primitive::Text { text, size, weight, .. }
+                if text == "Title" && *size == 18.0 && *weight == FontWeight::Bold)
+        });
+        assert!(styled, "the theme's title style");
+    }
+
+    /// **What the caller said outranks what the theme says.** The middle term of
+    /// `caller ?? theme ?? framework` is the one an added theme can quietly promote, and
+    /// a bar told to be 72 tall in an application whose theme says 64 is 72 tall.
+    #[test]
+    fn a_call_sites_own_values_beat_the_theme() {
+        let mut theme = Theme::default();
+        theme.widgets.nav_bar.height = Some(64.0);
+        theme.widgets.nav_bar.title_style = Some(TextStyle::new(18.0));
+
+        let bar: NavigationBar<Msg> = NavigationBar::new("Title")
+            .height(72.0)
+            .title_style(TextStyle::new(30.0));
+        match Widget::<Msg>::style_themed(&bar, &theme).height {
+            Dimension::Length(h) => assert_eq!(h, 72.0, "the caller's height, not the theme's"),
+            other => panic!("a definite height was expected, got {other:?}"),
+        }
+        let ui = build_ui(&bar, Size::new(400.0, 72.0), &Runtime::default(), &theme);
+        let sized = ui.scene().primitives().iter().any(
+            |p| matches!(p, Primitive::Text { text, size, .. } if text == "Title" && *size == 30.0),
+        );
+        assert!(sized, "the caller's title style, not the theme's");
+
+        // And with nothing said at the call site, the theme is what answers — otherwise
+        // the test above would pass on a bar that ignores the theme entirely.
+        let plain: NavigationBar<Msg> = NavigationBar::new("Title");
+        match Widget::<Msg>::style_themed(&plain, &theme).height {
+            Dimension::Length(h) => assert_eq!(h, 64.0, "the theme's height"),
+            other => panic!("a definite height was expected, got {other:?}"),
+        }
     }
 
     #[test]

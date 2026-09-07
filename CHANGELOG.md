@@ -8,10 +8,24 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 475 so far, each documenting the objective, the alternatives
+> record — one per step, 476 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`NavBarTheme` and `ScrollbarTheme`** (J476, closes #51): the last two widgets with no
+  theme entry. `NavigationBar` takes its height, padding, background, title style and
+  hairline from the theme; the scrollbars take their thickness, margin, minimum thumb
+  length, radius, colour and three opacities. Both keep the chain
+  `caller ?? theme ?? framework`, and every field defaults to `None`, so an application
+  that says nothing gets exactly what it got before.
+
+  Sixteen of the twenty widgets the issue named had acquired an entry in the milestones
+  since it was written, and two of the remaining four needed none: `CarouselView` paints
+  nothing at all, and the text-selection colour was already `Theme::selection`. An empty
+  `CarouselTheme` would have satisfied the issue and made the framework worse.
 
 ### Fixed
 

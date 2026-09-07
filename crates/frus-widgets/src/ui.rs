@@ -4313,8 +4313,14 @@ impl<Msg: Clone> Builder<'_, Msg> {
         } else {
             (viewport.x, viewport.width, viewport.width + max)
         };
+        // Every metric below is `theme ?? framework`. There is no per-call override for a
+        // scrollbar — it is drawn by the walk, not by a widget a caller configured — so
+        // the chain is two terms here rather than three.
+        let bar = &self.theme.widgets.scrollbar;
+        let bar_size = bar.thickness.unwrap_or(BAR_SIZE);
+        let bar_margin = bar.margin.unwrap_or(BAR_MARGIN);
         let thumb_len = (track_len * track_len / content_len)
-            .max(MIN_THUMB)
+            .max(bar.min_thumb_length.unwrap_or(MIN_THUMB))
             .min(track_len);
         let travel = track_len - thumb_len;
         // Along a reversed axis the numbers run the other way, so the thumb does too:
@@ -4331,26 +4337,26 @@ impl<Msg: Clone> Builder<'_, Msg> {
         // than shrinking it to fit. This drew a 6-pixel thumb inside an 8-pixel slot,
         // which is the same arithmetic with the wrong number left over.
         let (track, thumb) = if vertical {
-            let x = viewport.x + viewport.width - BAR_MARGIN - BAR_SIZE;
+            let x = viewport.x + viewport.width - bar_margin - bar_size;
             (
                 Rect::new(
-                    x - BAR_MARGIN,
+                    x - bar_margin,
                     viewport.y,
-                    BAR_SIZE + BAR_MARGIN * 2.0,
+                    bar_size + bar_margin * 2.0,
                     viewport.height,
                 ),
-                Rect::new(x, thumb_pos, BAR_SIZE, thumb_len),
+                Rect::new(x, thumb_pos, bar_size, thumb_len),
             )
         } else {
-            let y = viewport.y + viewport.height - BAR_MARGIN - BAR_SIZE;
+            let y = viewport.y + viewport.height - bar_margin - bar_size;
             (
                 Rect::new(
                     viewport.x,
-                    y - BAR_MARGIN,
+                    y - bar_margin,
                     viewport.width,
-                    BAR_SIZE + BAR_MARGIN * 2.0,
+                    bar_size + bar_margin * 2.0,
                 ),
-                Rect::new(thumb_pos, y, thumb_len, BAR_SIZE),
+                Rect::new(thumb_pos, y, thumb_len, bar_size),
             )
         };
         // What a mouse has to be inside for the bar to notice it: the track, widened to
@@ -4392,16 +4398,22 @@ impl<Msg: Clone> Builder<'_, Msg> {
         } else {
             (THUMB_ON_LIGHT, THUMB_HOVER_ON_LIGHT, THUMB_DRAG_ON_LIGHT)
         };
+        // A theme's levels replace the scheme's, one at a time: naming the resting
+        // opacity says nothing about the held one.
+        let rest = bar.opacity.unwrap_or(rest);
+        let warm = bar.hover_opacity.unwrap_or(warm);
+        let grabbed = bar.drag_opacity.unwrap_or(grabbed);
         let level = if self.runtime.scrollbar_dragged == Some(id) {
             grabbed
         } else {
             rest + (warm - rest) * fade.hover.clamp(0.0, 1.0)
         };
         if opacity > 0.0 {
+            let base = bar.thumb_color.unwrap_or(self.theme.scheme.on_surface);
             self.scene.draw_rect(
                 thumb,
-                self.theme.scheme.on_surface.fade(level * opacity),
-                BAR_SIZE * 0.5,
+                base.fade(level * opacity),
+                bar.radius.unwrap_or(bar_size * 0.5),
                 0.0,
                 Color::TRANSPARENT,
             );
@@ -5419,6 +5431,81 @@ mod tests {
 
         let dark = dimmed(Brightness::Dark);
         assert_eq!(thumb(&dark), dark.scheme.on_surface.fade(THUMB_ON_DARK));
+    }
+
+    /// **A theme reaches every number the bar is made of**, not only its colour. A
+    /// scrollbar themed in its colour and sized from a constant is themed in the half
+    /// that shows and unthemed in the half a pointer has to hit.
+    ///
+    /// There is no per-call override to outrank here — nobody configures a scrollbar at a
+    /// call site, the walk draws it — so the chain is `theme ?? framework`, and the second
+    /// half of this test is that the framework still answers where the theme says nothing.
+    #[test]
+    fn a_theme_reaches_every_number_the_scrollbar_is_made_of() {
+        const THUMB: Color = Color::rgb(0.2, 0.7, 0.9);
+        let mut theme = Theme::dark();
+        theme.widgets.scrollbar.thickness = Some(14.0);
+        theme.widgets.scrollbar.margin = Some(5.0);
+        theme.widgets.scrollbar.min_thumb_length = Some(90.0);
+        theme.widgets.scrollbar.radius = Some(2.0);
+        theme.widgets.scrollbar.thumb_color = Some(THUMB);
+        theme.widgets.scrollbar.opacity = Some(0.8);
+
+        let runtime = Runtime::with_scrollbars(Scrollbars::Always);
+        let ui = build_ui(
+            &tall().thumb_visibility(true),
+            Size::new(200.0, 100.0),
+            &runtime,
+            &theme,
+        );
+        // `painted` filters on the strip a bar of the **default** thickness occupies, so
+        // it cannot see a themed one — which is the point of the theme. This asks for the
+        // strip the themed bar is in.
+        let over_there: Vec<(Rect, Color)> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if rect.x >= 200.0 - 14.0 - 5.0 * 2.0 => {
+                    Some((*rect, *color))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(over_there.len(), 1, "still one rectangle: the thumb");
+        let (thumb, color) = over_there[0];
+        assert!(
+            (thumb.width - 14.0).abs() < 0.01,
+            "the theme's thickness: {thumb:?}"
+        );
+        assert!(
+            ((thumb.x + thumb.width) - (200.0 - 5.0)).abs() < 0.01,
+            "held clear by the theme's margin, not shrunk to fit: {thumb:?}"
+        );
+        assert!(
+            thumb.height >= 90.0,
+            "and never shorter than the theme's floor: {thumb:?}"
+        );
+        assert_eq!(
+            color,
+            THUMB.fade(0.8),
+            "the theme's colour, faded to the theme's resting level"
+        );
+
+        // The radius is not in `painted`, which reads the rectangles' colours; take it
+        // from the primitive itself. A pill is what an unthemed bar is, and this one is
+        // not a pill.
+        let radius = ui.scene().primitives().iter().find_map(|p| match p {
+            Primitive::Rect { radius, .. } if radius.top_left > 0.0 => Some(radius.top_left),
+            _ => None,
+        });
+        assert_eq!(radius, Some(2.0), "the theme's corner radius");
+
+        // And with a theme that says nothing, the framework still answers.
+        let plain = bars(tall(), Scrollbars::Always);
+        let (thumb, color) = plain[0];
+        assert!((thumb.width - BAR_SIZE).abs() < 0.01);
+        assert_eq!(color, Theme::dark().scheme.on_surface.fade(THUMB_ON_DARK));
     }
 
     /// **And it is a thumb and nothing else** (`scrollbar.dart:281`): the reference's
