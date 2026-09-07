@@ -159,6 +159,26 @@ pub trait Widget<Msg> {
     /// Message to emit on click (`None` = not clickable).
     fn on_click(&self) -> Option<Msg>;
 
+    /// Whether a press that lands on this widget and on **nothing inside it** stops
+    /// here.
+    ///
+    /// An ordinary widget is transparent to a press it has no message for: the press
+    /// carries on to whatever is behind. That is right for a label on a card and wrong
+    /// for a **surface** — a floating panel, a sheet, a bar — where the thing behind is
+    /// the page and the press reaching it means the panel is dismissed by a click on its
+    /// own padding, or on a row that said it was unavailable.
+    ///
+    /// It is registered **before** the widget's children, so anything inside still wins;
+    /// all this catches is what nothing inside claimed. `false` by default, because a
+    /// widget that stops presses it does not use is the surprising one.
+    ///
+    /// This is not [`crate::AbsorbPointer`], which discards the whole subtree's targets.
+    /// Here the subtree keeps every one of them and only the gaps between them are
+    /// closed.
+    fn opaque(&self) -> bool {
+        false
+    }
+
     /// **Stable** identity key (independent of the position among siblings).
     /// `None` = positional identity. See [`crate::Keyed`].
     fn key(&self) -> Option<u64> {
@@ -640,6 +660,18 @@ pub trait Widget<Msg> {
     /// `0.0` for off). The runtime drives the retained value towards this target and
     /// hands it back through `Status::value`. `None` = no animated value.
     fn anim_target(&self) -> Option<f32> {
+        None
+    }
+
+    /// **Target transform** of an animated one (`Transform::animated`): the runtime
+    /// tweens the scales and the turn through `anim_duration`/`anim_curve` and hands the
+    /// interpolated value back through `Runtime::anim_transform`, which the paint walk
+    /// reads in place of the static `transform_scale`/`transform_rotate`. `None` = the
+    /// transform does not move.
+    ///
+    /// The **pivot** is not part of it: see
+    /// [`TransformValues`](crate::runtime::TransformValues).
+    fn anim_transform(&self) -> Option<crate::runtime::TransformValues> {
         None
     }
 
@@ -1202,6 +1234,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn on_click(&self) -> Option<Msg> {
         (**self).on_click()
     }
+    fn opaque(&self) -> bool {
+        (**self).opaque()
+    }
     fn positional_click(&self, local_x: f32, local_y: f32, width: f32, height: f32) -> Option<Msg> {
         (**self).positional_click(local_x, local_y, width, height)
     }
@@ -1402,6 +1437,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn anim_target(&self) -> Option<f32> {
         (**self).anim_target()
+    }
+    fn anim_transform(&self) -> Option<crate::runtime::TransformValues> {
+        (**self).anim_transform()
     }
     fn anim_duration(&self) -> f32 {
         (**self).anim_duration()

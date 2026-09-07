@@ -156,6 +156,25 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.menu_open = false;
             Command::none()
         }
+        Msg::ToggleCity => {
+            app.city_open = !app.city_open;
+            // The query is cleared on the way **in**, not on the way out: a list that opens
+            // already filtered by what was typed last time is a list that looks broken.
+            app.city_query.clear();
+            Command::none()
+        }
+        Msg::CityQuery(text) => {
+            app.city_query = text;
+            // Typing keeps the menu open. The field only shows the query while it is, so a
+            // query arriving at all means the reader is in the middle of choosing.
+            app.city_open = true;
+            Command::none()
+        }
+        Msg::SetCity(i) => {
+            app.city_choice = Some(i);
+            app.city_open = false;
+            Command::none()
+        }
         Msg::Push(route) => {
             app.drawer_open = false;
             app.menu_open = false;

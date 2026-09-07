@@ -116,6 +116,9 @@ macro_rules! forward_transparent {
             fn on_click(&self) -> Option<Msg> {
                 self.inner.on_click()
             }
+            fn opaque(&self) -> bool {
+                self.inner.opaque()
+            }
 
             fn positional_click(
                 &self,
@@ -430,6 +433,10 @@ macro_rules! forward_transparent {
                 self.inner.anim_padding()
             }
 
+            fn anim_transform(&self) -> Option<$crate::runtime::TransformValues> {
+                self.inner.anim_transform()
+            }
+
             fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
                 self.inner.alignment_geometry()
             }
@@ -574,6 +581,57 @@ macro_rules! forward_transparent {
 }
 
 pub(crate) use forward_transparent;
+
+/// A widget held by a **shared pointer**, so that a builder which rebuilds its subtree can
+/// hand the same caller-supplied child to each build.
+///
+/// The framework's children are `Box<dyn Widget<Msg>>`, which cannot be cloned. That is
+/// the right default — a widget tree is built once and consumed — and it collides with the
+/// one shape several controls here have: a builder that **rebuilds** on every setting, so
+/// that the order the settings are written in does not matter. `PopupMenuButton` and
+/// `DropdownButton` are both that shape, and both let a caller supply a whole widget as one
+/// of their rows.
+///
+/// It is a transparent wrapper and nothing else: the sharing is the whole of it, and
+/// [`Widget::opaque`](crate::Widget::opaque) and every other hook come straight from the
+/// child.
+pub(crate) struct Shared<Msg> {
+    inner: std::rc::Rc<dyn crate::widget::Widget<Msg>>,
+}
+
+impl<Msg> Shared<Msg> {
+    pub(crate) fn new(inner: std::rc::Rc<dyn crate::widget::Widget<Msg>>) -> Self {
+        Self { inner }
+    }
+
+    /// It changes nothing about the box: it *is* its child.
+    fn restyle(&self, base: frus_layout::Style) -> frus_layout::Style {
+        base
+    }
+}
+
+forward_transparent!(Shared {
+    /// Every one of these is **forwarded**: holding a widget by a shared pointer is not an
+    /// identity, not a place, not a theme and not a surface.
+    fn key(&self) -> Option<u64> {
+        self.inner.key()
+    }
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        self.inner.positioned()
+    }
+    fn theme_override(
+        &self,
+        inherited: &crate::theme::Theme,
+    ) -> Option<Box<crate::theme::Theme>> {
+        self.inner.theme_override(inherited)
+    }
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        self.inner.media_override(inherited)
+    }
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        self.inner.scaffold_override()
+    }
+});
 
 #[cfg(test)]
 mod tests {

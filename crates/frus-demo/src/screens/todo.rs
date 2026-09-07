@@ -171,7 +171,12 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     };
     let header = AppBar::new(section_title)
         .leading(
-            IconButton::glyph("☰")
+            // **The mark crosses as the drawer does.** Three bars while it is shut, a
+            // cross while it is open, and the way between driven by the same `0 ↔ 1` the
+            // drawer's own slide is driven by — the button is not running an animation of
+            // its own, it is reading the same flag through the same machinery.
+            // It was a text character (`☰`) until milestone 474.
+            IconButton::animated(AnimatedIcons::MENU_CLOSE, app.drawer_open)
                 .label("Menu")
                 .icon_size(20.0)
                 .on_press(Msg::ToggleDrawer),
@@ -519,14 +524,24 @@ pub(crate) fn sections(active: usize) -> Vec<NavigationDestination> {
 /// bar's own height to its padding.
 pub(crate) fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> SafeArea<Msg> {
     let entry = |label: &str, index: usize| {
-        let variant = if app.section == index {
+        let here = app.section == index;
+        let variant = if here {
             Variant::Filled
         } else {
             Variant::Outlined
         };
-        button(label.to_string(), Msg::SetSection(index))
-            .variant(variant)
-            .size(16.0)
+        // **The section you are on makes room for itself.** An inset that jumps when the
+        // selection moves reads as a relayout; one that slides reads as the selection
+        // moving, which is what actually happened. `AnimatedPadding` is layout, not
+        // paint, so the entries below really do move aside — milestone 477.
+        AnimatedPadding::new(
+            if here { 6.0 } else { 0.0 },
+            0.18,
+            Curve::ease_out(),
+            button(label.to_string(), Msg::SetSection(index))
+                .variant(variant)
+                .size(16.0),
+        )
     };
     // The same declaration the bottom bar reads, so the menu cannot name a section the
     // bar has not got, or call it something else.

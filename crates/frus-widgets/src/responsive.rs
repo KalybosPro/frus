@@ -113,6 +113,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_click())
     }
 
+    fn opaque(&self) -> bool {
+        self.inner.as_ref().is_some_and(|w| w.opaque())
+    }
+
     fn positional_click(&self, local_x: f32, local_y: f32, width: f32, height: f32) -> Option<Msg> {
         self.inner
             .as_ref()
@@ -373,6 +377,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
 
     fn anim_padding(&self) -> Option<frus_core::Insets> {
         self.inner.as_ref().and_then(|w| w.anim_padding())
+    }
+
+    fn anim_transform(&self) -> Option<crate::runtime::TransformValues> {
+        self.inner.as_ref().and_then(|w| w.anim_transform())
     }
 
     fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {

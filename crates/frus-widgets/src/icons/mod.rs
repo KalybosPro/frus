@@ -66,7 +66,10 @@
 
 use frus_core::{Path, Point, TextDirection};
 
+mod animated;
 mod names;
+
+pub use animated::{AnimatedIconData, AnimatedIcons};
 
 const MAGIC: &[u8; 8] = b"FRUSICO1";
 
@@ -248,6 +251,11 @@ enum Source {
     Bundled(IconStyle, u16),
     /// A function that draws the outline on the `24 × 24` grid.
     Custom(fn() -> Path),
+    /// A function that draws the outline **at a point in an animation**, and where in it.
+    /// Reached through [`AnimatedIconData::at`](crate::AnimatedIconData::at) — an icon
+    /// caught at one `t` is an ordinary icon, which is what lets a morph be painted by
+    /// every widget that paints an icon without any of them being told about morphs.
+    Morph(fn(f32) -> Path, f32),
 }
 
 /// Equality is hand-written because one of the two cases is a function pointer, and the
@@ -261,6 +269,12 @@ impl PartialEq for Source {
         match (self, other) {
             (Source::Bundled(sa, a), Source::Bundled(sb, b)) => sa == sb && a == b,
             (Source::Custom(a), Source::Custom(b)) => std::ptr::fn_addr_eq(*a, *b),
+            // The position is compared by **bits**, so that it agrees with `Hash` and so
+            // that `Eq` holds: a NaN would otherwise make an icon unequal to itself.
+            // `AnimatedIconData::at` never produces one, and this is the reason.
+            (Source::Morph(a, ta), Source::Morph(b, tb)) => {
+                std::ptr::fn_addr_eq(*a, *b) && ta.to_bits() == tb.to_bits()
+            }
             _ => false,
         }
     }
@@ -274,6 +288,7 @@ impl std::hash::Hash for Source {
             Source::Bundled(style, index) => (0u8, *style, *index as usize).hash(state),
             // Equal pointers hash alike, which is what `Hash` and `Eq` have to agree on.
             Source::Custom(draw) => (1u8, *draw as usize).hash(state),
+            Source::Morph(draw, t) => (2u8, *draw as usize, t.to_bits()).hash(state),
         }
     }
 }
@@ -298,6 +313,16 @@ impl IconData {
         Self {
             source: Source::Custom(draw),
             directional: false,
+        }
+    }
+
+    /// One frame of an animated pair. Not public: a caller reaches it through
+    /// [`AnimatedIconData::at`](crate::AnimatedIconData::at), which is what clamps the
+    /// position and so what makes the equality above total.
+    pub(crate) const fn morphing(draw: fn(f32) -> Path, t: f32, directional: bool) -> Self {
+        Self {
+            source: Source::Morph(draw, t),
+            directional,
         }
     }
 
@@ -333,6 +358,7 @@ impl IconData {
         match self.source {
             Source::Bundled(style, index) => decode(style, index as usize),
             Source::Custom(draw) => draw(),
+            Source::Morph(draw, t) => draw(t),
         }
     }
 
@@ -341,7 +367,7 @@ impl IconData {
     pub fn style(self) -> Option<IconStyle> {
         match self.source {
             Source::Bundled(style, _) => Some(style),
-            Source::Custom(_) => None,
+            Source::Custom(_) | Source::Morph(..) => None,
         }
     }
 

@@ -87,8 +87,12 @@ pub struct WidgetThemes {
     pub kanban: KanbanTheme,
     pub kbd: KbdTheme,
     pub menu: MenuTheme,
+    /// Defaults for [`NavigationBar`](crate::NavigationBar).
+    pub nav_bar: NavBarTheme,
     pub nav_rail: NavRailTheme,
     pub nav_drawer: NavDrawerTheme,
+    /// Defaults for the **scrollbars** the framework draws over a scrollable.
+    pub scrollbar: ScrollbarTheme,
     pub search_bar: SearchBarTheme,
     pub search_view: SearchViewTheme,
     /// Defaults for the two progress indicators.
@@ -887,6 +891,67 @@ pub struct DatePickerTheme {
     pub day_text_style: Option<TextStyle>,
     /// The weekday initials above them.
     pub weekday_text_style: Option<TextStyle>,
+}
+
+/// Defaults for the **scrollbars** the framework draws over a scrollable.
+///
+/// The thumb is a **fade of one colour**, not three colours: at rest, warmed towards its
+/// hovered value under a pointer, and at its held value the moment it is grabbed. A theme
+/// substitutes the colour being faded and may move the three levels; it does not hand
+/// over three finished colours, because interpolating between those means interpolating
+/// colours and this framework has been bitten by doing that in the wrong space more than
+/// once. Fading one colour is the arithmetic that was already right.
+///
+/// There is no field for a **track**. The framework paints none — the reference's is
+/// transparent unless a caller asks for one — and a field that painted nothing whatever
+/// it was set to would be worse than no field.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScrollbarTheme {
+    /// The thumb's thickness. Unset, 8 — and it is the **thumb's**, not a slot's: the
+    /// margin holds it clear of the edge rather than shrinking it to fit.
+    pub thickness: Option<f32>,
+    /// How far the thumb is held clear of the edge it runs along. Unset, 2.
+    pub margin: Option<f32>,
+    /// How short the thumb is allowed to get on a very long page. Unset, 48 — below
+    /// which it stops reading as a handle and stops being one to grab.
+    pub min_thumb_length: Option<f32>,
+    /// The thumb's corner radius. Unset, half its thickness, which is a pill.
+    pub radius: Option<f32>,
+    /// The colour the thumb is a fade of. Unset, the scheme's `on_surface`.
+    pub thumb_color: Option<Color>,
+    /// Its opacity at rest. Unset, 0.30 on a dark surface and 0.10 on a light one.
+    pub opacity: Option<f32>,
+    /// Its opacity with a pointer near it, which it warms towards. Unset, 0.65 and 0.50.
+    pub hover_opacity: Option<f32>,
+    /// Its opacity while it is held. Unset, 0.75 and 0.60. This one does not fade in —
+    /// the hand is already on it, and a fade would only lag behind the grab.
+    pub drag_opacity: Option<f32>,
+}
+
+/// Defaults for [`NavigationBar`](crate::NavigationBar) — the bar at the **head** of a
+/// screen, not the one along the bottom, which is `NavRailTheme`.
+///
+/// There is no field for the back button's size. The bar names one explicitly when it
+/// builds the button, and an explicit argument outranks a theme — a field here would be
+/// one that the widget never reads, which is worse than an absent one. A theme that wants
+/// a different back button sets [`IconButtonTheme`] and drops the bar's own override.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct NavBarTheme {
+    /// The room the bar takes. Unset, 56 — the reference's toolbar height.
+    pub height: Option<f32>,
+    /// The bar's own padding. Unset, nothing above or below and a leading inset that
+    /// clears the back-gesture zone, so the button stays clickable without starting a
+    /// swipe.
+    pub padding: Option<Insets>,
+    /// What it is painted on. Unset, the theme's background.
+    pub background: Option<Color>,
+    /// The title's type. Unset, the theme's `title_large` — a bar title is a *title*, not
+    /// body text. Its `color`, when set, is the title's colour.
+    pub title_style: Option<TextStyle>,
+    /// The hairline along the bottom edge. Unset, the scheme's `outline_variant`.
+    pub divider_color: Option<Color>,
+    /// How thick that hairline is. Unset, one pixel.
+    pub divider_thickness: Option<f32>,
 }
 
 /// Defaults for [`NavigationRail`](crate::NavigationRail) and [`BottomBar`](crate::BottomBar).

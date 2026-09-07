@@ -102,6 +102,13 @@ pub(crate) struct TodoApp {
     pub(crate) radio: usize,
     pub(crate) menu_open: bool,
     pub(crate) menu_choice: usize,
+    /// The filtering dropdown's own open flag, query and choice. Three pieces of state
+    /// rather than one, because the query is **only** what the field shows while the menu
+    /// is open: shut, the widget derives the display from `city_choice`, so there is
+    /// nothing here to reset when it closes.
+    pub(crate) city_open: bool,
+    pub(crate) city_query: String,
+    pub(crate) city_choice: Option<usize>,
     // --- Stopwatch (the timer subscription) ---
     /// Is the stopwatch running? (it drives the `every` subscription).
     pub(crate) running: bool,

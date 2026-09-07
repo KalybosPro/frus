@@ -8,10 +8,129 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 473 so far, each documenting the objective, the alternatives
+> record — one per step, 479 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **A dropdown's choices can be more than a word** (J479, part of #35): `DropdownOption`
+  and `DropdownButton::options_widgets`, beside the unchanged `options`. A choice can be a
+  swatch, a flag, two lines with a subtitle, or say that it is **there and cannot be
+  picked** — drawn greyed and still ticked if it is the one selected, because a list that
+  hides what it cannot offer cannot show what was already chosen.
+
+- **`DropdownMenu`** (J479, closes #35): the Material 3 control that looks like a text
+  field, filters as it is typed into, and drops its choices underneath. One rule shapes it:
+  **a shut field shows the selected choice and the query is displayed only while the menu is
+  open**, so a reader who types and then clicks away is looking at their real choice again
+  with nothing sent and nothing for an application to restore. The filter is a
+  case-insensitive substring rather than a prefix, and `on_select` is given the index into
+  the caller's own list — never into what the filter left showing, which is the bug this
+  control is famous for.
+
+### Added
+
+- **A menu's rows can be more than a word** (J478, closes #34): `MenuItem` and
+  `PopupMenuButton::entry`, with `icon_item`, `checked_item`, `item_widget` and `divider`
+  beside the unchanged `item`. A row can carry a picture, a tick, the keys that work it, a
+  caller's own widget, or say that it is unavailable while the rest of the menu is not.
+
+  The **leading column is the menu's, not the row's**: if any row has a mark, every row
+  keeps the room for one, so the marks line up and a tick that is off holds its place
+  instead of sliding its own label across.
+
+  The menu's width was a flat 220 for every menu; it is now a **floor**, with the panel
+  measuring its rows and taking the widest. A floor rather than a fit, so no menu already
+  drawn moved.
+
+- **`Widget::opaque`**: a press that lands on a widget and on nothing inside it stops
+  there. Registered before the widget's children, so everything inside still wins and only
+  the gaps between them are closed — unlike `AbsorbPointer`, which discards the subtree's
+  targets wholesale.
+
+### Fixed
+
+- **A press on an open menu's own surface closed it** (J478). `Panel::on_click` returned
+  `None` under a comment claiming it trapped the press; a widget with no message is not a
+  target at all, so a press on the panel's padding fell through to the region whose press
+  dismisses the overlay. Invisible until a row could say it was unavailable, because until
+  then every row in an open menu had a message.
+
+- **An overlay's dismissal barrier borrowed the overlay root's identity** (J478), so a root
+  that registered a target of its own left two different regions under one name — and
+  `Ui::hit` → `Ui::msg_for` is a round trip through that name. The barrier derives its own
+  now; it is not a widget.
+
+### Added
+
+- **`AnimatedScale`, `AnimatedRotation` and `AnimatedPadding`** (J477, part of #30): three
+  of the eleven implicit animations the framework was missing. The first two are one
+  mechanism — a scale and a turn are the same affine matrix to the paint walk, so they
+  share one timeline and a widget that does both arrives on both at once — reached through
+  the new `Transform::animated(duration, curve)`. The third is **layout**: the interpolated
+  padding is injected while the tree is measured, so everything beside and below really
+  moves aside.
+
+  The pivot deliberately does not animate: it is a choice of origin rather than a quantity,
+  and interpolating it would slide a shape across the screen with nothing describing the
+  shape having changed.
+
+### Fixed
+
+- **`forward_to_container!` never forwarded `anim_padding`** (J477). Every widget in
+  `animated.rs` is built on that macro, and an animated padding set on one of them was
+  invisible to the runtime: it walked the tree, looked through the wrapper, found no target
+  and drove nothing. Nothing had noticed because no wrapper had ever set a padding until
+  `AnimatedPadding` did.
+
+### Added
+
+- **`NavBarTheme` and `ScrollbarTheme`** (J476, closes #51): the last two widgets with no
+  theme entry. `NavigationBar` takes its height, padding, background, title style and
+  hairline from the theme; the scrollbars take their thickness, margin, minimum thumb
+  length, radius, colour and three opacities. Both keep the chain
+  `caller ?? theme ?? framework`, and every field defaults to `None`, so an application
+  that says nothing gets exactly what it got before.
+
+  Sixteen of the twenty widgets the issue named had acquired an entry in the milestones
+  since it was written, and two of the remaining four needed none: `CarouselView` paints
+  nothing at all, and the text-selection colour was already `Theme::selection`. An empty
+  `CarouselTheme` would have satisfied the issue and made the framework worse.
+
+### Fixed
+
+- **`NavigationBar` collapsed around its back button when given no width** (J475, closes
+  #12): it asked for `Dimension::Auto`, which in a row means *hug your children*, so the
+  bar came out the width of its arrow and the title — centred in the box it was handed —
+  was painted underneath it. It now fills the width it is offered, which is the only
+  sensible answer for a chrome that spans the head of a screen. A percentage rather than
+  `flex_grow`, because grow acts along the parent's main axis and this widget's ordinary
+  home is a column, where it would have grown the bar taller instead.
+
+### Added
+
+- **`AnimatedIconData` and `AnimatedIcons`** (J474, closes #49): marks that **turn into
+  one another** rather than being swapped — `MENU_CLOSE`, `PLAY_PAUSE`, `ADD_CLOSE`,
+  `EXPAND_COLLAPSE`. A pair is a `fn(f32) -> Path` authored by hand, because interpolating
+  two arbitrary outlines is a general path-morphing problem with no good answer for
+  drawings that were never made to correspond. `AnimatedIconData::custom` opens the same
+  door for an application's own pairs that `IconData::custom` opens for a static mark.
+
+- **`AnimatedIconData::at(t)` returns an ordinary `IconData`** (J474), so a morph is
+  painted by every widget that already paints an icon — `Icon`, `IconButton`, a floating
+  action button, a chip, a navigation destination — without one of them being told that
+  morphs exist.
+
+- **`Icon::animated` and `IconButton::animated`** (J474): the widget declares the end it
+  is heading for and the **runtime** drives the value there, on the same machinery a
+  switch's knob and a drawer's slide are on. A button and the panel it opens read one flag
+  under one rule, so they are at the same place on the same frame.
+
+- **`Path::rotated`** (J474) in `frus-core`: a turn about a point. Keeps each contour's
+  winding — unlike a reflection — so holes stay holes, and turns control points with their
+  curves.
 
 ### Added
 

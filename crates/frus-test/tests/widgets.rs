@@ -19,18 +19,19 @@ use frus_core::{
 };
 use frus_test::render_widget;
 use frus_widgets::{
-    text, Alert, Align, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar, BottomSheet,
-    Breadcrumb, Card, CarouselView, Checkbox, CheckboxListTile, CircleAvatar,
+    text, Alert, Align, AnimatedIcons, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar,
+    BottomSheet, Breadcrumb, Card, CarouselView, Checkbox, CheckboxListTile, CircleAvatar,
     CircularProgressIndicator, ClipOval, ClipPath, ClipRRect, ColorPicker, ConstrainedBox,
-    Container, ControlAffinity, CustomPaint, Divider, Expanded, ExpansionTile, FittedBox, Flex,
-    FloatingActionButton, FontWeight, FractionallySizedBox, GridTile, GridTileBar, GridView, Icon,
-    IconData, Icons, Image, Intrinsic, Kbd, LinearProgressIndicator, ListTile, ListView,
-    MenuAnchor, NavigationBar, NavigationDestination, NavigationDrawer, NavigationRail, Offstage,
-    Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup, RadioListTile, RailLabels,
-    RichText, RotatedBox, SafeArea, SearchAnchor, SearchBar, SegmentedButton,
-    SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile,
-    TabBar, Theme, Timeline, ToggleButtons, Transform, TwoPane, UserAccountsDrawerHeader,
-    VerticalDivider, Visibility, Widget,
+    Container, ControlAffinity, CustomPaint, Divider, DropdownButton, DropdownMenu, DropdownOption,
+    Expanded, ExpansionTile, FittedBox, Flex, FloatingActionButton, FontWeight,
+    FractionallySizedBox, GridTile, GridTileBar, GridView, Icon, IconData, Icons, Image, Intrinsic,
+    Kbd, LinearProgressIndicator, ListTile, ListView, MenuAnchor, MenuItem, NavigationBar,
+    NavigationDestination, NavigationDrawer, NavigationRail, Offstage, Opacity, OverflowBox,
+    OverlayPortal, Placement, PopupMenuButton, RadioGroup, RadioListTile, RailLabels, RichText,
+    RotatedBox, SafeArea, SearchAnchor, SearchBar, SegmentedButton, SingleChildScrollView,
+    SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile, TabBar, Theme, Timeline,
+    ToggleButtons, Transform, TwoPane, UserAccountsDrawerHeader, VerticalDivider, Visibility,
+    Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -214,6 +215,45 @@ fn the_four_alert_kinds() {
             ),
     );
     check("alert_kinds", 320, 340, &root);
+}
+
+/// **A navigation bar handed no width of its own.** Its parent is a row, which gives each
+/// child exactly the width it hugs — and the bar used to hug its back button, so the title,
+/// centred in the box it was handed, was painted underneath the button.
+///
+/// Every screen in the demo happens to give the bar a width, which is why this lived
+/// through 296 milestones without being seen. The picture is the whole bug: the title
+/// belongs in the middle of the frame, not on top of the arrow.
+#[test]
+fn a_navigation_bar_spans_the_width_it_is_offered() {
+    let root: Flex<()> = Flex::row()
+        .width(340.0)
+        .child(NavigationBar::new("Settings").on_back(()));
+    check("nav_bar_no_width", 340, 56, &root);
+}
+
+/// **The four pairs, five positions each.** What a morph looks like on the way across,
+/// which is the half of it that no amount of testing the two ends can say anything about.
+#[test]
+fn the_four_pairs_crossing() {
+    // Five positions of each pair, left to right. The middle three are what a swap can
+    // never show, and the only way to judge them is to look: a morph that pinches, turns
+    // inside out or passes through nothing at all is obvious in a picture and invisible
+    // in a number.
+    let mut grid = Flex::column().gap(10.0);
+    for (_, pair) in AnimatedIcons::all() {
+        let mut row = Flex::row().gap(10.0).align(Align::Center);
+        for step in 0..5 {
+            let t = step as f32 / 4.0;
+            // `Icon::new` of one frame rather than `Icon::animated`, because a golden is
+            // rendered with a runtime that has not advanced anything: an animated icon
+            // would draw its target five times.
+            row = row.child(Icon::new(pair.at(t)).size(24.0).color(AMBER));
+        }
+        grid = grid.child(row);
+    }
+    let root: Container<()> = Container::new().padding(12.0).child(grid);
+    check("animated_icons", 184, 160, &root);
 }
 
 /// Fourteen icons the framework's own widgets lean on, at two sizes and two colours,
@@ -1132,4 +1172,130 @@ fn a_safe_area_with_a_minimum() {
             .minimum(Insets::uniform(16.0)),
         );
     check("safe_area_minimum", 200, 120, &root);
+}
+
+/// **A menu whose rows are not all labels.** A leading column of pictures and ticks, the
+/// keys that work each action on the right, a row that is not available, two rules, and a
+/// row of two lines the caller drew — every one of which the list could not hold before.
+///
+/// The three middle columns of it are the point: the marks line up down **one** column,
+/// which is decided for the menu rather than per row, and the row with nothing to put
+/// there keeps the room all the same. That is the part a test about the tree states and
+/// only a picture shows.
+#[test]
+fn a_menu_of_more_than_labels() {
+    let anchor: Container<()> = Container::new()
+        .width(40.0)
+        .height(24.0)
+        .color(Color::rgb8(60, 66, 80))
+        .radius(4.0);
+    let two_lines: Flex<()> = Flex::column()
+        .child(text("Paste special").size(14.0))
+        .child(
+            text("as plain text")
+                .size(11.0)
+                .color(Color::rgb8(150, 156, 170)),
+        );
+    // The button is held at the top left rather than stretched across the frame: an
+    // anchor the size of the window would put `Placement::Below` under the bottom edge.
+    let root: Container<()> = Container::new()
+        .width(320.0)
+        .height(400.0)
+        .color(Color::rgb8(20, 22, 28))
+        .padding(12.0)
+        .child(
+            Flex::column().align(Align::Start).child(
+                PopupMenuButton::new(anchor, true, ())
+                    .entry(MenuItem::icon(Icons::CONTENT_CUT, "Cut", ()).shortcut("Ctrl+X"))
+                    .entry(MenuItem::icon(Icons::CONTENT_COPY, "Copy", ()).shortcut("Ctrl+C"))
+                    .entry(
+                        MenuItem::icon(Icons::CONTENT_PASTE, "Paste", ())
+                            .shortcut("Ctrl+V")
+                            .enabled(false),
+                    )
+                    .divider()
+                    .checked_item("Word wrap", true, ())
+                    .checked_item("Show whitespace", false, ())
+                    .divider()
+                    .item_widget(two_lines, ()),
+            ),
+        );
+    check("popup_menu_rich", 320, 400, &root);
+}
+
+/// **A dropdown whose choices are not words.** A colour swatch, a two-line entry with a
+/// subtitle, and a choice that is there and cannot be picked — none of which a `&str` can
+/// say, and all of which a list of choices is routinely asked for.
+///
+/// The tick's column is kept clear on every row rather than on the ticked one, so a choice
+/// the caller drew does not change width when it becomes the selected one; the greyed row
+/// is the third.
+#[test]
+fn a_dropdown_of_more_than_words() {
+    let swatch = |c: Color| {
+        Flex::<()>::row()
+            .align(Align::Center)
+            .gap(10.0)
+            .child(
+                Container::new()
+                    .width(16.0)
+                    .height(16.0)
+                    .color(c)
+                    .radius(3.0),
+            )
+            .child(text("Amber").size(15.0))
+    };
+    let two_lines: Flex<()> = Flex::column().child(text("Deep purple").size(15.0)).child(
+        text("out of the ordinary")
+            .size(11.0)
+            .color(Color::rgb8(150, 156, 170)),
+    );
+    let root: Container<()> = Container::new()
+        .width(300.0)
+        .height(280.0)
+        .color(Color::rgb8(20, 22, 28))
+        .padding(12.0)
+        .child(
+            Flex::column().align(Align::Start).child(
+                DropdownButton::<()>::new("Amber", ())
+                    .width(240.0)
+                    .selected(0)
+                    .options_widgets(
+                        true,
+                        vec![
+                            DropdownOption::widget(swatch(Color::rgb8(255, 193, 7))),
+                            DropdownOption::widget(two_lines),
+                            DropdownOption::new("Out of stock").enabled(false),
+                            DropdownOption::new("Blue"),
+                        ],
+                        |_| (),
+                    ),
+            ),
+        );
+    check("dropdown_widget_options", 300, 280, &root);
+}
+
+/// **A dropdown that looks like a field and filters as it is typed into.** Open, with
+/// `gre` in it: two of the four colours have `green` inside them and neither starts with
+/// it, so the picture is also what says the rule is a substring rather than a prefix.
+///
+/// The chevron is turned over, because on a shut field it is the only thing saying there
+/// is more of it.
+#[test]
+fn a_dropdown_menu_filtering() {
+    let root: Container<()> = Container::new()
+        .width(300.0)
+        .height(260.0)
+        .color(Color::rgb8(20, 22, 28))
+        .padding(12.0)
+        .child(
+            Flex::column().align(Align::Start).child(
+                DropdownMenu::<()>::new("gre", true, |_| (), ())
+                    .label("Colour")
+                    .width(240.0)
+                    .selected(Some(1))
+                    .options(&["Red", "Dark green", "Light green", "Blue"], |_| ()),
+            ),
+        );
+    check("dropdown_menu_filtering", 300, 260, &root);
 }

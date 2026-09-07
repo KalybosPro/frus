@@ -50,6 +50,7 @@ mod dragdrop;
 mod drawer;
 mod drawerheader;
 mod dropdown;
+mod dropdownmenu;
 mod dsl;
 mod expanded;
 mod fab;
@@ -156,7 +157,9 @@ mod widgettheme;
 
 pub use actionbutton::{BackButton, CloseButton, DrawerButton, EndDrawerButton};
 pub use alert::{Alert, AlertKind};
-pub use animated::{AnimatedContainer, AnimatedOpacity, Opacity};
+pub use animated::{
+    AnimatedContainer, AnimatedOpacity, AnimatedPadding, AnimatedRotation, AnimatedScale, Opacity,
+};
 pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT, APP_BAR_MAX_TITLE_SCALE};
 pub use aspectratio::AspectRatio;
 pub use autocomplete::Autocomplete;
@@ -214,7 +217,8 @@ pub use divider::{Divider, VerticalDivider, DIVIDER_SPACE, DIVIDER_THICKNESS};
 pub use dragdrop::{DragSource, DragTarget, Draggable, DropZone};
 pub use drawer::{Drawer, DRAWER_RADIUS, DRAWER_WIDTH};
 pub use drawerheader::{DrawerHeader, UserAccountsDrawerHeader, DRAWER_HEADER_HEIGHT};
-pub use dropdown::DropdownButton;
+pub use dropdown::{DropdownButton, DropdownOption};
+pub use dropdownmenu::DropdownMenu;
 pub use dsl::{button, expanded, flexible, keyed, spacer, text};
 pub use expanded::{Expanded, FlexFit, Flexible};
 pub use fab::{FabSize, FloatingActionButton};
@@ -233,7 +237,7 @@ pub use iconbutton::{
     IconButton, IconButtonVariant, ICON_BUTTON_BORDER_WIDTH, ICON_BUTTON_ICON_SIZE,
     ICON_BUTTON_SIZE,
 };
-pub use icons::{IconData, IconStyle, Icons};
+pub use icons::{AnimatedIconData, AnimatedIcons, IconData, IconStyle, Icons};
 pub use image::{Image, State as ImageState};
 pub use ime::{Capitalization, Ime, KeyboardType, TextInputAction};
 pub use ink::{InkStyle, InkWell, Ripples};
@@ -256,7 +260,7 @@ pub use media::{
     Accessibility, AccessibilityOverrides, Brightness, Edges, MediaQuery, SurfaceGuard,
 };
 pub use mediascope::MediaScope;
-pub use menu::PopupMenuButton;
+pub use menu::{MenuItem, PopupMenuButton};
 pub use navbar::NavigationBar;
 pub use navdrawer::NavigationDrawer;
 pub use navigator::Navigator;
@@ -288,7 +292,7 @@ pub use rotatedbox::RotatedBox;
 pub use rowcolumn::{Column, MainAxisSize, Row, VerticalDirection};
 pub use runtime::{
     spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState, ScrollbarFade,
-    ValueAnim,
+    TransformValues, ValueAnim,
 };
 pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};

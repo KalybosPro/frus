@@ -281,6 +281,73 @@ impl PaddingAnim {
     }
 }
 
+/// **The numbers a paint-time transform is made of** that can sensibly be interpolated:
+/// a scale on each axis and a turn.
+///
+/// The **pivot** is not here, and that is the decision worth stating: it is a choice of
+/// origin, not a quantity. Interpolating it would move a shape across the screen while
+/// every number describing the shape stayed still, which is a thing no caller ever asks
+/// for and a thing nobody would be able to debug. A widget that wants the pivot to change
+/// has changed what it is doing, not how much of it.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct TransformValues {
+    /// Horizontal scale; `1.0` is neutral.
+    pub scale_x: f32,
+    /// Vertical scale; `1.0` is neutral.
+    pub scale_y: f32,
+    /// Clockwise turn, in radians.
+    pub rotation: f32,
+}
+
+impl Default for TransformValues {
+    /// The identity — **not** zeroes. A scale of nought is a shape with no area, so a
+    /// transform mounting at `Default` would flash the subtree out of existence.
+    fn default() -> Self {
+        Self {
+            scale_x: 1.0,
+            scale_y: 1.0,
+            rotation: 0.0,
+        }
+    }
+}
+
+/// Timeline of an animated **transform** (`Transform::animated`): interpolates
+/// `from → to` on both scales and the turn at once, so a widget that scales and rotates
+/// together arrives on both at the same moment.
+#[derive(Copy, Clone, Debug, PartialEq)]
+struct TransformAnim {
+    current: TransformValues,
+    from: TransformValues,
+    to: TransformValues,
+    elapsed: f32,
+}
+
+impl TransformAnim {
+    fn settled(v: TransformValues) -> Self {
+        Self {
+            current: v,
+            from: v,
+            to: v,
+            elapsed: 0.0,
+        }
+    }
+}
+
+/// Linear interpolation of two transforms.
+///
+/// A scale is interpolated **linearly**, not geometrically. Halfway between 1× and 4× is
+/// 2.5× here rather than 2×, which is what the reference's own `Tween<double>` gives and
+/// what a caller reading the two numbers expects; a geometric mean would be defensible
+/// and would disagree with every other implicit animation in the framework.
+fn lerp_transform(a: TransformValues, b: TransformValues, t: f32) -> TransformValues {
+    let mix = |x: f32, y: f32| x + (y - x) * t;
+    TransformValues {
+        scale_x: mix(a.scale_x, b.scale_x),
+        scale_y: mix(a.scale_y, b.scale_y),
+        rotation: mix(a.rotation, b.rotation),
+    }
+}
+
 /// Linear interpolation of two insets (per side).
 fn lerp_insets(a: Insets, b: Insets, t: f32) -> Insets {
     let mix = |x: f32, y: f32| x + (y - x) * t;
@@ -453,6 +520,8 @@ pub struct Runtime {
     radii: HashMap<WidgetId, RadiusAnim>,
     /// Animated paddings (`Container::animated_padding`), per widget — injected at layout.
     paddings: HashMap<WidgetId, PaddingAnim>,
+    /// Animated transforms (`Transform::animated`), per widget — read at paint.
+    transforms: HashMap<WidgetId, TransformAnim>,
     /// Widgets present at the previous frame (to detect mounts).
     pub mounted: std::collections::HashSet<WidgetId>,
     /// Snapshots of outgoing subtrees, fading out: event key → (captured
@@ -835,6 +904,88 @@ impl Runtime {
                 }
                 std::collections::hash_map::Entry::Vacant(e) => {
                     e.insert(RadiusAnim::settled(target));
+                }
+            }
+        }
+        animating
+    }
+
+    /// A widget's animated transform, if in transition (`None` otherwise).
+    pub fn anim_transform(&self, id: WidgetId) -> Option<TransformValues> {
+        self.transforms.get(&id).map(|t| t.current)
+    }
+
+    /// Drives every animated transform towards the target its widget declares
+    /// (`Widget::anim_transform`), following its duration/curve. On mount: adopts the
+    /// target with no transition — a widget that appears already scaled does not scale
+    /// in from nothing. Returns `true` if a transform is still moving. The output is
+    /// consumed **at paint**, unlike the size and the padding.
+    pub fn advance_transforms<Msg>(
+        &mut self,
+        root: &dyn crate::widget::Widget<Msg>,
+        dt: f32,
+    ) -> bool {
+        fn collect<Msg>(
+            widget: &dyn crate::widget::Widget<Msg>,
+            id: WidgetId,
+            still: bool,
+            out: &mut Vec<(WidgetId, TransformValues, f32, Curve)>,
+        ) {
+            if let Some(target) = widget.anim_transform() {
+                out.push((
+                    id,
+                    target,
+                    if still {
+                        0.0
+                    } else {
+                        widget.anim_duration().max(0.0)
+                    },
+                    widget.anim_curve(),
+                ));
+            }
+            for (index, child) in widget.children().iter().enumerate() {
+                collect(
+                    child.as_ref(),
+                    crate::ui::child_id(id, index, child.as_ref()),
+                    still,
+                    out,
+                );
+            }
+        }
+        let mut targets: Vec<(WidgetId, TransformValues, f32, Curve)> = Vec::new();
+        collect(root, WidgetId::ROOT, self.still, &mut targets);
+
+        let present: std::collections::HashSet<WidgetId> =
+            targets.iter().map(|(id, ..)| *id).collect();
+        self.transforms.retain(|id, _| present.contains(id));
+
+        let mut animating = false;
+        for (id, target, duration, curve) in targets {
+            match self.transforms.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    let v = e.get_mut();
+                    if v.to != target {
+                        v.from = v.current;
+                        v.to = target;
+                        v.elapsed = 0.0;
+                    }
+                    if v.from == v.to {
+                        v.current = v.to;
+                    } else {
+                        v.elapsed += dt;
+                        let t = if duration > 0.0 {
+                            (v.elapsed / duration).clamp(0.0, 1.0)
+                        } else {
+                            1.0
+                        };
+                        v.current = lerp_transform(v.from, v.to, curve.transform(t));
+                        if t < 1.0 {
+                            animating = true;
+                        }
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(TransformAnim::settled(target));
                 }
             }
         }

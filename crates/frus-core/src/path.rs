@@ -43,6 +43,30 @@ impl PathVerb {
         }
     }
 
+    fn rotated(self, center: Point, sin: f32, cos: f32) -> PathVerb {
+        let r = |p: Point| {
+            let (dx, dy) = (p.x - center.x, p.y - center.y);
+            Point::new(
+                center.x + dx * cos - dy * sin,
+                center.y + dx * sin + dy * cos,
+            )
+        };
+        match self {
+            PathVerb::MoveTo(p) => PathVerb::MoveTo(r(p)),
+            PathVerb::LineTo(p) => PathVerb::LineTo(r(p)),
+            PathVerb::QuadTo { ctrl, to } => PathVerb::QuadTo {
+                ctrl: r(ctrl),
+                to: r(to),
+            },
+            PathVerb::CubicTo { c1, c2, to } => PathVerb::CubicTo {
+                c1: r(c1),
+                c2: r(c2),
+                to: r(to),
+            },
+            PathVerb::Close => PathVerb::Close,
+        }
+    }
+
     fn mirrored_x(self, axis: f32) -> PathVerb {
         let m = |p: Point| Point::new(2.0 * axis - p.x, p.y);
         match self {
@@ -296,6 +320,26 @@ impl Path {
             verbs: self.verbs.iter().map(|v| v.mirrored_x(axis)).collect(),
         }
     }
+
+    /// A copy turned by `radians` about `center`, clockwise — y points down here, so a
+    /// positive angle turns the way a clock's hand does.
+    ///
+    /// Unlike a reflection, a rotation **keeps** each contour's winding, so a shape's
+    /// holes stay holes without anything else being done about it. Bézier control points
+    /// turn with their curve, which is exact: an affine map of a Bézier's control polygon
+    /// is the same Bézier mapped.
+    ///
+    /// The sine and cosine are taken once for the whole path rather than per point.
+    pub fn rotated(&self, center: Point, radians: f32) -> Path {
+        let (sin, cos) = radians.sin_cos();
+        Path {
+            verbs: self
+                .verbs
+                .iter()
+                .map(|v| v.rotated(center, sin, cos))
+                .collect(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -337,6 +381,95 @@ mod tests {
         );
         // A point on the axis does not move, and mirroring twice is the identity.
         assert_eq!(path.mirrored_x(6.0).mirrored_x(6.0).verbs(), path.verbs());
+    }
+
+    /// A quarter turn, in the direction the screen reads it. Y points **down** here, so
+    /// a positive angle has to turn clockwise on screen — the opposite of the convention
+    /// in a maths textbook, and the thing that is silently backwards if the sign is taken
+    /// from one.
+    ///
+    /// A point at the centre stays put, and four quarter turns come back where they
+    /// started. Those two together rule out rotating about the origin instead of the
+    /// centre, which looks like a translation and is the mistake worth catching.
+    #[test]
+    fn rotating_turns_clockwise_about_the_centre() {
+        let centre = Point::new(10.0, 10.0);
+        let quarter = std::f32::consts::FRAC_PI_2;
+        // Directly above the centre. A clockwise quarter turn puts it to the right.
+        let up = Path::new()
+            .move_to(centre)
+            .line_to(Point::new(10.0, 4.0))
+            .close();
+        let turned = up.rotated(centre, quarter);
+        let PathVerb::LineTo(tip) = turned.verbs()[1] else {
+            panic!("the second verb is still a line");
+        };
+        assert!(
+            (tip.x - 16.0).abs() < 1e-4 && (tip.y - 10.0).abs() < 1e-4,
+            "a quarter turn puts the tip to the right of the centre: {tip:?}"
+        );
+        let PathVerb::MoveTo(fixed) = turned.verbs()[0] else {
+            panic!("the first verb is still a move");
+        };
+        assert_eq!(fixed, centre, "the centre does not move");
+
+        // Four quarter turns are the identity, up to the arithmetic.
+        let round_trip = up
+            .rotated(centre, quarter)
+            .rotated(centre, quarter)
+            .rotated(centre, quarter)
+            .rotated(centre, quarter);
+        for (a, b) in round_trip.verbs().iter().zip(up.verbs()) {
+            match (a, b) {
+                (PathVerb::MoveTo(a), PathVerb::MoveTo(b))
+                | (PathVerb::LineTo(a), PathVerb::LineTo(b)) => {
+                    assert!(
+                        (a.x - b.x).abs() < 1e-3 && (a.y - b.y).abs() < 1e-3,
+                        "{a:?}"
+                    );
+                }
+                (PathVerb::Close, PathVerb::Close) => {}
+                _ => panic!("the verbs changed kind"),
+            }
+        }
+    }
+
+    /// A curve's control points turn **with** it. An affine map of a Bézier's control
+    /// polygon is the same Bézier mapped, so a rotation that moved only the on-curve
+    /// points would bend every curve in the icon and pass any test that looked at
+    /// endpoints alone.
+    #[test]
+    fn rotating_carries_the_control_points() {
+        let centre = Point::new(0.0, 0.0);
+        let half = std::f32::consts::PI;
+        let curved = Path::new()
+            .move_to(Point::new(1.0, 0.0))
+            .quad_to(Point::new(2.0, 3.0), Point::new(4.0, 0.0))
+            .cubic_to(
+                Point::new(5.0, 1.0),
+                Point::new(6.0, 2.0),
+                Point::new(7.0, 0.0),
+            );
+        let turned = curved.rotated(centre, half);
+        // A half turn about the origin is a negation of both coordinates.
+        let near = |a: Point, x: f32, y: f32| (a.x - x).abs() < 1e-4 && (a.y - y).abs() < 1e-4;
+        match turned.verbs()[1] {
+            PathVerb::QuadTo { ctrl, to } => {
+                assert!(near(ctrl, -2.0, -3.0), "the control point turned: {ctrl:?}");
+                assert!(near(to, -4.0, 0.0), "and so did the end: {to:?}");
+            }
+            ref other => panic!("expected a quad, got {other:?}"),
+        }
+        match turned.verbs()[2] {
+            PathVerb::CubicTo { c1, c2, to } => {
+                assert!(
+                    near(c1, -5.0, -1.0) && near(c2, -6.0, -2.0),
+                    "both controls"
+                );
+                assert!(near(to, -7.0, 0.0), "and the end: {to:?}");
+            }
+            ref other => panic!("expected a cubic, got {other:?}"),
+        }
     }
 
     #[test]
