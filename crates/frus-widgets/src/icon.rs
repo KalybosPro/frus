@@ -5,7 +5,7 @@
 use frus_core::{Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
-use crate::icons::{IconData, GRID};
+use crate::icons::{AnimatedIconData, IconData, GRID};
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -14,6 +14,9 @@ use crate::widget::Widget;
 /// and the theme's foreground colour (`on_surface`).
 pub struct Icon {
     icon: IconData,
+    /// A pair being crossed, and the end it is heading for. `None` for the ordinary
+    /// case: an icon that is one mark and stays it.
+    morph: Option<(AnimatedIconData, f32)>,
     /// `None` = whatever the theme says, else the 24 px grid the paths are drawn on.
     size: Option<f32>,
     color: Option<Color>,
@@ -25,6 +28,34 @@ impl Icon {
     pub fn new(icon: IconData) -> Self {
         Self {
             icon,
+            morph: None,
+            size: None,
+            color: None,
+        }
+    }
+
+    /// **An icon that crosses between two marks**, at the end `on` names: `false` is the
+    /// pair's `0.0` and `true` its `1.0`.
+    ///
+    /// The way across is not this widget's to time. It declares the end it wants and the
+    /// runtime drives the value there — the same machinery a switch's knob and a drawer's
+    /// slide are on, with the same duration and the same curve — so an icon and the panel
+    /// it opens move together because they are being driven by the same rule, not because
+    /// two timers were set to the same number.
+    ///
+    /// ```
+    /// use frus_widgets::{AnimatedIcons, Icon};
+    ///
+    /// let open = true;
+    /// let _button_mark = Icon::animated(AnimatedIcons::MENU_CLOSE, open);
+    /// ```
+    pub fn animated(icon: AnimatedIconData, on: bool) -> Self {
+        let target = if on { 1.0 } else { 0.0 };
+        Self {
+            // The end of the animation, which is what an isolated frame — a test, a
+            // golden, the first frame after a mount — should draw.
+            icon: icon.at(target),
+            morph: Some((icon, target)),
             size: None,
             color: None,
         }
@@ -86,12 +117,23 @@ impl<Msg> Widget<Msg> for Icon {
         // round, if the icon carries a direction and the reading order is right to left.
         let ox = bounds.x + (bounds.width - size) * 0.5;
         let oy = bounds.y + (bounds.height - size) * 0.5;
-        let path = self.icon.placed(size, ox, oy, theme.direction);
+        // Where the animation has got to, or the one mark this icon is.
+        let drawn = match self.morph {
+            Some((pair, _)) => pair.at(status.value),
+            None => self.icon,
+        };
+        let path = drawn.placed(size, ox, oy, theme.direction);
         scene.fill_path(&path, color);
     }
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+
+    /// Only a morphing icon has an animated value. A plain one answers `None`, so nothing
+    /// that was here before this existed acquired an animation.
+    fn anim_target(&self) -> Option<f32> {
+        self.morph.map(|(_, target)| target)
     }
 }
 
@@ -137,6 +179,51 @@ mod tests {
             }
             _ => panic!("expected a filled path"),
         }
+    }
+
+    /// **The drawing follows the animated value, not the flag.** A morphing icon painted
+    /// at half its animation is neither of its ends — which is the whole difference
+    /// between this and swapping one icon for another.
+    #[test]
+    fn a_morphing_icon_is_painted_where_the_animation_has_got_to() {
+        let paint_at = |value: f32| {
+            let mut scene = Scene::new();
+            let status = Status {
+                value,
+                ..Status::default()
+            };
+            Widget::<()>::paint(
+                &Icon::animated(crate::AnimatedIcons::MENU_CLOSE, true),
+                Rect::new(0.0, 0.0, 24.0, 24.0),
+                status,
+                &Theme::default(),
+                &mut scene,
+            );
+            match scene.primitives().first() {
+                Some(Primitive::Path { path, .. }) => path.clone(),
+                other => panic!("expected a filled path, got {other:?}"),
+            }
+        };
+        let (shut, half, open) = (paint_at(0.0), paint_at(0.5), paint_at(1.0));
+        assert_ne!(shut.verbs(), half.verbs(), "half way is not the start");
+        assert_ne!(half.verbs(), open.verbs(), "and it is not the end either");
+        assert_eq!(
+            shut.verbs().len(),
+            half.verbs().len(),
+            "the same shape all the way across"
+        );
+    }
+
+    /// The end it is heading for is what the runtime is told, and what an isolated frame
+    /// draws. A plain icon says nothing, so nothing that existed before morphs did
+    /// acquired an animation.
+    #[test]
+    fn only_a_morphing_icon_asks_the_runtime_for_a_value() {
+        let open = Icon::animated(crate::AnimatedIcons::MENU_CLOSE, true);
+        let shut = Icon::animated(crate::AnimatedIcons::MENU_CLOSE, false);
+        assert_eq!(Widget::<()>::anim_target(&open), Some(1.0));
+        assert_eq!(Widget::<()>::anim_target(&shut), Some(0.0));
+        assert_eq!(Widget::<()>::anim_target(&Icon::new(Icons::STAR)), None);
     }
 
     #[test]

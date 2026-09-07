@@ -54,6 +54,9 @@ pub enum IconButtonVariant {
 enum Content {
     Icon(IconData),
     Glyph(String),
+    /// A pair being crossed, and the end it is heading for — see
+    /// [`IconButton::animated`].
+    Morph(crate::icons::AnimatedIconData, f32),
 }
 
 /// A button holding one glyph.
@@ -84,6 +87,26 @@ impl<Msg> IconButton<Msg> {
     /// the bundled set does not carry.
     pub fn glyph(glyph: impl Into<String>) -> Self {
         Self::of(Content::Glyph(glyph.into()))
+    }
+
+    /// **A button whose mark crosses between two**, at the end `on` names — a drawer's
+    /// hamburger becoming a cross as the drawer opens, a play becoming a pause.
+    ///
+    /// The button does not time the crossing: it declares the end and the runtime drives
+    /// the value there, the way a drawer's own slide is driven. Two controls reading the
+    /// same flag are therefore at the same place on the same frame, because it is the
+    /// same rule moving both and not two timers that happen to agree.
+    ///
+    /// ```
+    /// use frus_widgets::{AnimatedIcons, IconButton};
+    ///
+    /// let drawer_open = false;
+    /// let _button = IconButton::animated(AnimatedIcons::MENU_CLOSE, drawer_open)
+    ///     .label("Menu")
+    ///     .on_press(());
+    /// ```
+    pub fn animated(icon: crate::icons::AnimatedIconData, on: bool) -> Self {
+        Self::of(Content::Morph(icon, if on { 1.0 } else { 0.0 }))
     }
 
     fn of(content: Content) -> Self {
@@ -337,6 +360,18 @@ impl<Msg: Clone> Widget<Msg> for IconButton<Msg> {
 
         let size = self.glyph_size(theme);
         match &self.content {
+            // The end of the animation is what an isolated frame draws — a test, a
+            // golden, the frame before the loop has advanced anything — which is the
+            // same rule `Status::value` already applies on mount.
+            Content::Morph(pair, _) => {
+                let path = pair.at(status.value).placed(
+                    size,
+                    bounds.x + (bounds.width - size) / 2.0,
+                    bounds.y + (bounds.height - size) / 2.0,
+                    theme.direction,
+                );
+                scene.fill_path(&path, glyph.fade(o));
+            }
             Content::Icon(name) => {
                 let path = name.placed(
                     size,
@@ -364,6 +399,15 @@ impl<Msg: Clone> Widget<Msg> for IconButton<Msg> {
                     glyph.fade(o),
                 );
             }
+        }
+    }
+
+    /// Only a morphing button has an animated value; every other one answers `None` and
+    /// keeps the behaviour it had before this existed.
+    fn anim_target(&self) -> Option<f32> {
+        match self.content {
+            Content::Morph(_, target) => Some(target),
+            _ => None,
         }
     }
 
@@ -400,7 +444,7 @@ impl<Msg: Clone> Widget<Msg> for IconButton<Msg> {
             // least something, an unnamed icon is silence.
             None => match &self.content {
                 Content::Glyph(text) => semantics.label(text.clone()),
-                Content::Icon(_) => semantics,
+                Content::Icon(_) | Content::Morph(..) => semantics,
             },
         };
         Some(if self.enabled {
@@ -433,6 +477,49 @@ mod tests {
             &mut scene,
         );
         scene.primitives().to_vec()
+    }
+
+    /// **A morphing button is a path, and it follows the animated value.** The mark it
+    /// draws at half the crossing is neither end, and the button still says what it is
+    /// for through its label rather than through the mark — a shape that is halfway
+    /// between two things names neither of them.
+    #[test]
+    fn a_morphing_button_draws_the_crossing_and_still_says_what_it_does() {
+        let paint_at = |value: f32| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                &IconButton::animated(crate::AnimatedIcons::MENU_CLOSE, true)
+                    .label("Menu")
+                    .on_press(Msg::Pressed),
+                Rect::new(0.0, 0.0, ICON_BUTTON_SIZE, ICON_BUTTON_SIZE),
+                Status {
+                    value,
+                    ..Status::default()
+                },
+                &Theme::default(),
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Path { path, .. } => Some(path.clone()),
+                    _ => None,
+                })
+                .expect("a morphing button paints a path")
+        };
+        assert_ne!(paint_at(0.0).verbs(), paint_at(0.5).verbs());
+        assert_ne!(paint_at(0.5).verbs(), paint_at(1.0).verbs());
+
+        let button = IconButton::animated(crate::AnimatedIcons::MENU_CLOSE, false)
+            .label("Menu")
+            .on_press(Msg::Pressed);
+        assert_eq!(Widget::<Msg>::anim_target(&button), Some(0.0));
+        assert_eq!(
+            Widget::<Msg>::anim_target(&IconButton::<Msg>::new(Icons::CLOSE)),
+            None,
+            "a button that is one mark has no animated value"
+        );
     }
 
     /// **An icon button paints 40 pixels and the reference reserves 48** (milestone 442,

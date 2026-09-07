@@ -8,10 +8,33 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 473 so far, each documenting the objective, the alternatives
+> record — one per step, 474 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`AnimatedIconData` and `AnimatedIcons`** (J474, closes #49): marks that **turn into
+  one another** rather than being swapped — `MENU_CLOSE`, `PLAY_PAUSE`, `ADD_CLOSE`,
+  `EXPAND_COLLAPSE`. A pair is a `fn(f32) -> Path` authored by hand, because interpolating
+  two arbitrary outlines is a general path-morphing problem with no good answer for
+  drawings that were never made to correspond. `AnimatedIconData::custom` opens the same
+  door for an application's own pairs that `IconData::custom` opens for a static mark.
+
+- **`AnimatedIconData::at(t)` returns an ordinary `IconData`** (J474), so a morph is
+  painted by every widget that already paints an icon — `Icon`, `IconButton`, a floating
+  action button, a chip, a navigation destination — without one of them being told that
+  morphs exist.
+
+- **`Icon::animated` and `IconButton::animated`** (J474): the widget declares the end it
+  is heading for and the **runtime** drives the value there, on the same machinery a
+  switch's knob and a drawer's slide are on. A button and the panel it opens read one flag
+  under one rule, so they are at the same place on the same frame.
+
+- **`Path::rotated`** (J474) in `frus-core`: a turn about a point. Keeps each contour's
+  winding — unlike a reflection — so holes stay holes, and turns control points with their
+  curves.
 
 ### Added
 

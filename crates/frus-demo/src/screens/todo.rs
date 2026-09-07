@@ -171,7 +171,12 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     };
     let header = AppBar::new(section_title)
         .leading(
-            IconButton::glyph("☰")
+            // **The mark crosses as the drawer does.** Three bars while it is shut, a
+            // cross while it is open, and the way between driven by the same `0 ↔ 1` the
+            // drawer's own slide is driven by — the button is not running an animation of
+            // its own, it is reading the same flag through the same machinery.
+            // It was a text character (`☰`) until milestone 474.
+            IconButton::animated(AnimatedIcons::MENU_CLOSE, app.drawer_open)
                 .label("Menu")
                 .icon_size(20.0)
                 .on_press(Msg::ToggleDrawer),

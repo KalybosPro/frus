@@ -19,8 +19,8 @@ use frus_core::{
 };
 use frus_test::render_widget;
 use frus_widgets::{
-    text, Alert, Align, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar, BottomSheet,
-    Breadcrumb, Card, CarouselView, Checkbox, CheckboxListTile, CircleAvatar,
+    text, Alert, Align, AnimatedIcons, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar,
+    BottomSheet, Breadcrumb, Card, CarouselView, Checkbox, CheckboxListTile, CircleAvatar,
     CircularProgressIndicator, ClipOval, ClipPath, ClipRRect, ColorPicker, ConstrainedBox,
     Container, ControlAffinity, CustomPaint, Divider, Expanded, ExpansionTile, FittedBox, Flex,
     FloatingActionButton, FontWeight, FractionallySizedBox, GridTile, GridTileBar, GridView, Icon,
@@ -214,6 +214,30 @@ fn the_four_alert_kinds() {
             ),
     );
     check("alert_kinds", 320, 340, &root);
+}
+
+/// **The four pairs, five positions each.** What a morph looks like on the way across,
+/// which is the half of it that no amount of testing the two ends can say anything about.
+#[test]
+fn the_four_pairs_crossing() {
+    // Five positions of each pair, left to right. The middle three are what a swap can
+    // never show, and the only way to judge them is to look: a morph that pinches, turns
+    // inside out or passes through nothing at all is obvious in a picture and invisible
+    // in a number.
+    let mut grid = Flex::column().gap(10.0);
+    for (_, pair) in AnimatedIcons::all() {
+        let mut row = Flex::row().gap(10.0).align(Align::Center);
+        for step in 0..5 {
+            let t = step as f32 / 4.0;
+            // `Icon::new` of one frame rather than `Icon::animated`, because a golden is
+            // rendered with a runtime that has not advanced anything: an animated icon
+            // would draw its target five times.
+            row = row.child(Icon::new(pair.at(t)).size(24.0).color(AMBER));
+        }
+        grid = grid.child(row);
+    }
+    let root: Container<()> = Container::new().padding(12.0).child(grid);
+    check("animated_icons", 184, 160, &root);
 }
 
 /// Fourteen icons the framework's own widgets lean on, at two sizes and two colours,
