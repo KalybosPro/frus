@@ -72,12 +72,10 @@ pub(crate) struct TodoApp {
     pub(crate) next_id: u64,
     /// Is the "clear completed" confirmation modal open?
     pub(crate) confirm_clear: bool,
-    /// A light theme (otherwise dark).
+    /// A light theme (otherwise dark) — read by `theme_mode`, and nothing else. The
+    /// **fade** between the two used to live here as well, as an outgoing theme and a
+    /// progress value; milestone 452 moved it into the framework, where it belongs.
     pub(crate) light: bool,
-    /// The outgoing theme during a switch fade (`None` = no transition).
-    pub(crate) theme_from: Option<Theme>,
-    /// Progress of the theme fade (`0 → 1`).
-    pub(crate) theme_progress: f32,
     /// Does the log list bounce at its ends rather than stop dead? `false` leaves
     /// it on the platform's own behaviour.
     pub(crate) journal_bounces: bool,
@@ -167,8 +165,13 @@ pub(crate) struct TodoApp {
     pub(crate) seed_index: usize,
     /// A right-to-left layout (Arabic/Hebrew)?
     pub(crate) rtl: bool,
-    /// The current language (an index into `LANGS`).
-    pub(crate) lang: usize,
+    /// The language **the reader picked in this application** (an index into `LANGS`).
+    ///
+    /// `None` — the default — follows the device, which is what an application should do
+    /// until it is told otherwise. The framework resolves the platform's languages against
+    /// [`Application::supported_locales`](frus_shell::Application::supported_locales) and
+    /// installs the answer; `lang_of` reads it.
+    pub(crate) lang: Option<usize>,
     /// The state came from a live-reload snapshot: `init` does not reload the tasks from disk
     /// (the snapshot is the authority).
     pub(crate) restored: bool,

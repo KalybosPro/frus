@@ -7,10 +7,10 @@
 //!
 //! ```ignore
 //! ListTile::new()
-//!     .leading(Icon::new(Icons::Star))
+//!     .leading(Icon::new(Icons::STAR))
 //!     .title("Starred")
 //!     .subtitle("Everything you kept")
-//!     .trailing(Icon::new(Icons::ChevronRight))
+//!     .trailing(Icon::new(Icons::CHEVRON_RIGHT))
 //!     .on_tap(Msg::OpenStarred)
 //! ```
 //!
@@ -22,7 +22,7 @@
 
 use std::cell::{OnceCell, RefCell};
 
-use frus_core::{Color, Insets, Rect, Scene, TextStyle};
+use frus_core::{Color, Insets, Rect, Scene, ShapeBorder, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::constraints::ConstrainedBox;
@@ -82,6 +82,16 @@ pub struct ListTile<Msg> {
     subtitle_style: Option<TextStyle>,
     tile_color: Option<Color>,
     selected_color: Option<Color>,
+    /// The tile's surface **while it is the chosen one** — the reference's
+    /// `selectedTileColor`.
+    selected_tile_color: Option<Color>,
+    /// The colour of the two slots' icons, over what the selection would give them.
+    icon_color: Option<Color>,
+    /// The colour of the title and subtitle, over what the selection would give them.
+    text_color: Option<Color>,
+    /// What shape the tile is — the reference's `shape`. The surface and the ink both
+    /// take it, so a rounded tile in a list is rounded all the way through.
+    shape: Option<ShapeBorder>,
     /// The assembled row, as the one-element slice [`Widget::children`] hands back.
     built: OnceCell<Vec<Box<dyn Widget<Msg>>>>,
 }
@@ -114,6 +124,10 @@ impl<Msg> ListTile<Msg> {
             subtitle_style: None,
             tile_color: None,
             selected_color: None,
+            selected_tile_color: None,
+            icon_color: None,
+            text_color: None,
+            shape: None,
             built: OnceCell::new(),
         }
     }
@@ -238,10 +252,62 @@ impl<Msg> ListTile<Msg> {
         self
     }
 
+    /// **The tile's surface while it is the chosen one** — the reference's
+    /// `selectedTileColor` (`list_tile.dart`).
+    ///
+    /// A selected tile used to change nothing but the colour of its words, which is the
+    /// weakest possible way to say *this is the one you are on*: it is the difference
+    /// between a highlighted row in a navigation list and a row that merely reads
+    /// differently. Unset, the tile keeps its ordinary surface, as the reference's does.
+    pub fn selected_tile_color(mut self, color: Color) -> Self {
+        self.selected_tile_color = Some(color);
+        self
+    }
+
+    /// **The two slots' icon colour**, over what the selection would give them — the
+    /// reference's `iconColor`.
+    pub fn icon_color(mut self, color: Color) -> Self {
+        self.icon_color = Some(color);
+        self
+    }
+
+    /// **The title's and subtitle's colour**, over what the selection would give them —
+    /// the reference's `textColor`.
+    pub fn text_color(mut self, color: Color) -> Self {
+        self.text_color = Some(color);
+        self
+    }
+
+    /// **What shape the tile is** — the reference's `shape`. The surface takes it, and so
+    /// does the ink, so a rounded tile does not splash square corners over a list.
+    #[must_use]
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.shape = Some(shape);
+        self
+    }
+
+    /// **What shape the tile paints as**: the caller's, then a plain rectangle — which is
+    /// what a row in a list is unless somebody says otherwise.
+    fn shape_of(&self, theme: &Theme) -> ShapeBorder {
+        self.shape
+            .or(theme.widgets.list_tile.shape)
+            .unwrap_or(ShapeBorder::rounded(0.0))
+    }
+
     /// The height this tile asks for: the reference's, by line count and density, unless
     /// the caller named one.
     pub fn height(&self) -> f32 {
-        if let Some(height) = self.min_height {
+        self.height_for(&Theme::default())
+    }
+
+    /// The same, against a theme that may have an opinion — the shape [`style`] and
+    /// [`height`] already have between them, one file over.
+    ///
+    /// [`style`]: crate::Widget::style
+    /// [`height`]: Self::height
+    fn height_for(&self, theme: &Theme) -> f32 {
+        let t = &theme.widgets.list_tile;
+        if let Some(height) = self.min_height.or(t.min_height) {
             return height;
         }
         let row = if self.three_line {
@@ -251,7 +317,7 @@ impl<Msg> ListTile<Msg> {
         } else {
             0
         };
-        if self.dense {
+        if self.dense || t.dense.unwrap_or(false) {
             LIST_TILE_DENSE_HEIGHTS[row]
         } else {
             LIST_TILE_HEIGHTS[row]
@@ -261,10 +327,15 @@ impl<Msg> ListTile<Msg> {
     /// The colour a line of text resolves to. Disabled wins over chosen, as everywhere
     /// else: a tile that cannot be picked does not advertise that it was.
     fn content_color(&self, theme: &Theme, subtitle: bool) -> Color {
+        let t = &theme.widgets.list_tile;
         if !self.enabled {
             disabled_content(theme)
         } else if self.selected {
-            self.selected_color.unwrap_or(theme.primary)
+            self.selected_color
+                .or(t.selected_color)
+                .unwrap_or(theme.primary)
+        } else if let Some(color) = self.text_color.or(t.text_color) {
+            color
         } else if subtitle {
             theme.scheme.on_surface_variant
         } else {
@@ -281,12 +352,17 @@ impl<Msg: Clone + 'static> ListTile<Msg> {
     /// in the wrong palette.
     fn row(&self, theme: &Theme) -> &[Box<dyn Widget<Msg>>] {
         self.built.get_or_init(|| {
-            let gap = self.title_gap.unwrap_or(LIST_TILE_TITLE_GAP);
+            let t = &theme.widgets.list_tile;
+            let gap = self
+                .title_gap
+                .or(t.title_gap)
+                .unwrap_or(LIST_TILE_TITLE_GAP);
             let mut row = Flex::row().align(Align::Center).gap(gap);
 
             if let Some(leading) = self.leading.borrow_mut().take() {
                 let min = self
                     .min_leading_width
+                    .or(t.min_leading_width)
                     .unwrap_or(LIST_TILE_MIN_LEADING_WIDTH);
                 row = row.child(ConstrainedBox::new_boxed(leading).min_width(min));
             }
@@ -300,9 +376,13 @@ impl<Msg: Clone + 'static> ListTile<Msg> {
                     Some(Slot::Child(child)) => column = column.child_boxed(child),
                     Some(Slot::Text(content)) => {
                         let base = if subtitle {
-                            self.subtitle_style.unwrap_or(theme.text.body_medium)
+                            self.subtitle_style
+                                .or(t.subtitle_style)
+                                .unwrap_or(theme.text.body_medium)
                         } else {
-                            self.title_style.unwrap_or(theme.text.body_large)
+                            self.title_style
+                                .or(t.title_style)
+                                .unwrap_or(theme.text.body_large)
                         };
                         let mut text =
                             Text::styled(content, base).color(self.content_color(theme, subtitle));
@@ -347,20 +427,34 @@ impl<Msg: Clone + 'static> Widget<Msg> for ListTile<Msg> {
         Widget::<Msg>::style_themed(self, &Theme::default())
     }
 
-    fn style_themed(&self, _theme: &Theme) -> Style {
+    /// It asks to **fill the width it is offered** rather than declaring one.
+    ///
+    /// See [`Widget::fill_axes`]. A `width: 100%` resolves against the parent's
+    /// *resolved* width, which a parent that shrink-wraps does not have yet — so a tile in
+    /// a plain column, the most ordinary thing anybody does with one, came out as wide as
+    /// its own padding and ellipsised its title to nothing.
+    fn style_themed(&self, theme: &Theme) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
-            min_height: Dimension::Length(self.height()),
+            min_height: Dimension::Length(self.height_for(theme)),
             flex_direction: FlexDirection::Row,
             align: Align::Center,
-            padding: self.padding.unwrap_or(Insets::new(
-                LIST_TILE_MIN_VERTICAL_PADDING,
-                LIST_TILE_PADDING_END,
-                LIST_TILE_MIN_VERTICAL_PADDING,
-                LIST_TILE_PADDING_START,
-            )),
+            padding: self
+                .padding
+                .or(theme.widgets.list_tile.content_padding)
+                .unwrap_or(Insets::new(
+                    LIST_TILE_MIN_VERTICAL_PADDING,
+                    LIST_TILE_PADDING_END,
+                    LIST_TILE_MIN_VERTICAL_PADDING,
+                    LIST_TILE_PADDING_START,
+                )),
             ..Default::default()
         }
+    }
+
+    /// The width it was offered, not the width its parent came out at — the difference
+    /// between a number known on the way **down** and one only known on the way back up.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::WIDTH
     }
 
     fn build_themed(&self, theme: &Theme) {
@@ -374,20 +468,25 @@ impl<Msg: Clone + 'static> Widget<Msg> for ListTile<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         // Transparent by default, as the reference has it, so a tile takes the colour of
         // whatever it sits on; a state layer over that when it can be tapped.
-        let base = self.tile_color.unwrap_or(Color::TRANSPARENT);
+        // A selected tile takes its own surface first: the reference's
+        // `selectedTileColor` outranks `tileColor` while the tile is the chosen one.
+        let t = &theme.widgets.list_tile;
+        let base = if self.selected {
+            self.selected_tile_color
+                .or(t.selected_tile_color)
+                .or(self.tile_color)
+                .or(t.tile_color)
+        } else {
+            self.tile_color.or(t.tile_color)
+        }
+        .unwrap_or(Color::TRANSPARENT);
         let color = if self.enabled && self.on_tap.is_some() {
             theme.state_layer(base, theme.scheme.on_surface, &status)
         } else {
             base
         };
         if color.a > 0.0 {
-            scene.draw_rect(
-                bounds,
-                color.fade(status.opacity),
-                frus_core::BorderRadius::ZERO,
-                0.0,
-                Color::TRANSPARENT,
-            );
+            scene.draw_shape(bounds, self.shape_of(theme), color.fade(status.opacity));
         }
     }
 
@@ -396,13 +495,188 @@ impl<Msg: Clone + 'static> Widget<Msg> for ListTile<Msg> {
     }
 
     fn ink(&self, theme: &Theme) -> Option<crate::ink::InkStyle> {
-        (self.enabled && self.on_tap.is_some()).then(|| crate::ink::InkStyle::of(theme))
+        (self.enabled && self.on_tap.is_some()).then(|| {
+            let mut ink = crate::ink::InkStyle::of(theme);
+            // The ink is clipped to the tile, so it has to know the same shape the surface
+            // does — otherwise a rounded tile splashes square corners over the list.
+            if let Some((_, radius)) =
+                self.shape_of(theme)
+                    .as_rounded(Rect::new(0.0, 0.0, 1000.0, self.height_for(theme)))
+            {
+                ink.radius = radius;
+            }
+            ink
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// **An application can say it once** — the reference's `ListTileThemeData`, which
+    /// this had none of at all. Every property a tile has was the caller's alone, so an
+    /// application wanting all its tiles rounded said so on every tile it ever built.
+    ///
+    /// The rungs are the usual ones: the tile's own word, then the theme's, then the
+    /// framework's. This walks the ones that show up in a painted frame.
+    #[test]
+    fn a_theme_answers_for_every_tile() {
+        let mut theme = Theme::default();
+        theme.widgets.list_tile.tile_color = Some(Color::rgb(0.2, 0.4, 0.6));
+        theme.widgets.list_tile.selected_tile_color = Some(Color::rgb(0.6, 0.4, 0.2));
+        theme.widgets.list_tile.shape = Some(frus_core::ShapeBorder::rounded(7.0));
+        theme.widgets.list_tile.min_height = Some(99.0);
+        theme.widgets.list_tile.content_padding = Some(Insets::uniform(3.0));
+
+        let painted = |tile: &ListTile<Msg>, theme: &Theme| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                tile,
+                Rect::new(0.0, 0.0, 300.0, 56.0),
+                Status::default(),
+                theme,
+                &mut scene,
+            );
+            scene.primitives().iter().find_map(|p| match p {
+                frus_core::Primitive::Rect { color, radius, .. } => Some((*color, *radius)),
+                _ => None,
+            })
+        };
+
+        let plain = ListTile::<Msg>::new();
+        assert_eq!(
+            painted(&plain, &theme),
+            Some((
+                Color::rgb(0.2, 0.4, 0.6),
+                frus_core::BorderRadius::uniform(7.0)
+            )),
+            "the theme's surface and the theme's shape"
+        );
+        assert_eq!(
+            painted(&ListTile::<Msg>::new().selected(true), &theme)
+                .expect("a surface")
+                .0,
+            Color::rgb(0.6, 0.4, 0.2),
+            "and its selected surface while the tile is the chosen one"
+        );
+
+        // The tile still outranks it.
+        let told = ListTile::<Msg>::new().tile_color(Color::rgb(0.9, 0.9, 0.9));
+        assert_eq!(
+            painted(&told, &theme).expect("a surface").0,
+            Color::rgb(0.9, 0.9, 0.9)
+        );
+
+        // The box, too: the height and the room inside it.
+        let style = Widget::<Msg>::style_themed(&plain, &theme);
+        assert_eq!(style.min_height, Dimension::Length(99.0));
+        assert_eq!(style.padding, Insets::uniform(3.0));
+
+        // And the height with nothing said is what it always was.
+        assert_eq!(
+            Widget::<Msg>::style_themed(&plain, &Theme::default()).min_height,
+            Dimension::Length(LIST_TILE_HEIGHTS[0])
+        );
+    }
+
+    /// **A selected tile has a surface of its own** (`list_tile.dart`'s
+    /// `selectedTileColor`), which it did not.
+    ///
+    /// Being *the one you are on* used to change nothing but the colour of the words — the
+    /// weakest possible way to say it, and the difference between a highlighted row in a
+    /// navigation list and a row that merely reads differently.
+    #[test]
+    fn a_selected_tile_has_a_surface_of_its_own() {
+        let surface = |tile: &ListTile<Msg>| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                tile,
+                Rect::new(0.0, 0.0, 300.0, 56.0),
+                Status::default(),
+                &Theme::default(),
+                &mut scene,
+            );
+            scene.primitives().iter().find_map(|p| match p {
+                frus_core::Primitive::Rect { color, radius, .. } => Some((*color, *radius)),
+                _ => None,
+            })
+        };
+
+        // Nothing said: a tile is transparent and paints no surface at all, as before.
+        assert_eq!(surface(&ListTile::<Msg>::new().selected(true)), None);
+
+        let chosen = Color::rgb(0.1, 0.2, 0.3);
+        assert_eq!(
+            surface(
+                &ListTile::<Msg>::new()
+                    .selected(true)
+                    .selected_tile_color(chosen)
+            )
+            .expect("a surface")
+            .0,
+            chosen
+        );
+        // And only while it is the chosen one.
+        assert_eq!(
+            surface(&ListTile::<Msg>::new().selected_tile_color(chosen)),
+            None
+        );
+        // It outranks the ordinary surface rather than replacing it everywhere.
+        let plain = Color::rgb(0.9, 0.9, 0.9);
+        assert_eq!(
+            surface(
+                &ListTile::<Msg>::new()
+                    .tile_color(plain)
+                    .selected_tile_color(chosen)
+            )
+            .expect("a surface")
+            .0,
+            plain,
+            "unselected"
+        );
+        assert_eq!(
+            surface(
+                &ListTile::<Msg>::new()
+                    .selected(true)
+                    .tile_color(plain)
+                    .selected_tile_color(chosen)
+            )
+            .expect("a surface")
+            .0,
+            chosen,
+            "selected"
+        );
+    }
+
+    /// **And a shape**, which the surface and the ink both take — a rounded tile that
+    /// splashed square corners would be worse than one that was never rounded.
+    #[test]
+    fn a_tile_takes_a_shape_and_the_ink_takes_it_too() {
+        let tile = ListTile::<Msg>::new()
+            .tile_color(Color::rgb(0.5, 0.5, 0.5))
+            .on_tap(Msg::Tapped)
+            .shape(frus_core::ShapeBorder::rounded(12.0));
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            &tile,
+            Rect::new(0.0, 0.0, 300.0, 56.0),
+            Status::default(),
+            &Theme::default(),
+            &mut scene,
+        );
+        let radius = scene.primitives().iter().find_map(|p| match p {
+            frus_core::Primitive::Rect { radius, .. } => Some(*radius),
+            _ => None,
+        });
+        assert_eq!(radius, Some(frus_core::BorderRadius::uniform(12.0)));
+        assert_eq!(
+            Widget::<Msg>::ink(&tile, &Theme::default())
+                .expect("a tappable tile inks")
+                .radius,
+            frus_core::BorderRadius::uniform(12.0),
+            "and the ink is clipped to the same shape"
+        );
+    }
 
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
@@ -434,10 +708,10 @@ mod tests {
         assert_eq!(row.children().len(), 1, "just the text column");
 
         let full: ListTile<Msg> = ListTile::new()
-            .leading(crate::Icon::new(crate::Icons::Star))
+            .leading(crate::Icon::new(crate::Icons::STAR))
             .title("title")
             .subtitle("subtitle")
-            .trailing(crate::Icon::new(crate::Icons::ChevronRight));
+            .trailing(crate::Icon::new(crate::Icons::CHEVRON_RIGHT));
         Widget::<Msg>::build_themed(&full, &theme);
         let row = &Widget::<Msg>::children(&full)[0];
         assert_eq!(row.children().len(), 3, "leading, text, trailing");
@@ -558,6 +832,75 @@ mod fill_tests {
                 rect.x + rect.width,
                 width - LIST_TILE_PADDING_END
             );
+        }
+    }
+    /// **A widget that fills the width does it in a column too**, which is where the
+    /// framework's own idiom for it was wrong in fifteen places at once.
+    ///
+    /// `width: 100%` resolves against the parent's **resolved** width. A parent that
+    /// shrink-wraps has not got one yet — it is waiting on this very child — so the
+    /// percentage resolves against nothing and the box comes out empty. A list tile in a
+    /// plain column, the most ordinary thing anybody does with one, was as wide as its own
+    /// padding and ellipsised its title away.
+    ///
+    /// The fix is to *ask* rather than declare: `fill_axes` is answered by the walk,
+    /// which knows the room being offered on the way **down**, where a parent's own width
+    /// is only known on the way back up. Both readings are "full width" in English and only
+    /// one of them can be computed in time.
+    ///
+    /// Each widget is checked **alone and in a column** because alone is where the bug
+    /// hides: a percentage against a definite parent is right, so every fixture that gave
+    /// a width passed and no golden ever caught this.
+    #[test]
+    fn widgets_that_fill_the_width_do_it_in_a_column_too() {
+        use crate::{build_ui_inspected, Runtime};
+        use frus_core::Size;
+        type W = Box<dyn Widget<()>>;
+        type Case = (&'static str, fn() -> W);
+        let cases: Vec<Case> = vec![
+            ("ListTile", || Box::new(ListTile::new().title("A row"))),
+            ("BottomAppBar", || Box::new(crate::BottomAppBar::new())),
+            ("BottomSheet", || Box::new(crate::BottomSheet::new(true))),
+            ("Drawer", || Box::new(crate::Drawer::new(true))),
+            ("Steps", || Box::new(crate::steps::Steps::new(["a", "b"]))),
+            // Milestone 405: shells that want **both** axes. They could not say so while
+            // the hook answered with one direction, so they kept the percentage that made
+            // them vanish.
+            ("NavScaffold", || {
+                Box::new(crate::NavScaffold::new(
+                    frus_core::SizeClass::Expanded,
+                    0,
+                    |_| (),
+                ))
+            }),
+            ("TwoPane", || {
+                Box::new(crate::TwoPane::new(frus_core::SizeClass::Expanded))
+            }),
+        ];
+        for (name, make) in cases {
+            for (what, root) in [
+                ("alone", make()),
+                (
+                    "in a column",
+                    Box::new(crate::Flex::column().child_boxed(make())) as W,
+                ),
+            ] {
+                let (_, nodes) = build_ui_inspected(
+                    root.as_ref(),
+                    Size::new(400.0, 300.0),
+                    &Runtime::default(),
+                    &Theme::default(),
+                );
+                let width = nodes
+                    .iter()
+                    .find(|n| n.name == name)
+                    .map(|n| n.rect.width)
+                    .unwrap_or_else(|| panic!("{name} is not in the tree"));
+                assert_eq!(
+                    width, 400.0,
+                    "{name} {what}: {width} of the 400 it was offered"
+                );
+            }
         }
     }
 }

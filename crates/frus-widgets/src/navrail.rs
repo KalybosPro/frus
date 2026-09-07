@@ -1,55 +1,198 @@
 //! [`NavigationRail`] and [`BottomBar`]: the two presentations of a single-selection
 //! **main navigation**. Same API (`new(selected, on_select).item(icon, label)`);
-//! [`crate::NavScaffold`] picks one or the other by size. The "icon" is a text
-//! glyph (the framework has no icon font): an emoji, or a Unicode character.
+//! [`crate::NavScaffold`] picks one or the other by size.
+//!
+//! A destination's icon is an [`IconData`] — one of the bundled set, or a caller's own —
+//! or a **text glyph**, an emoji or a Unicode character, which is all there was before
+//! milestone 472 brought an icon set. Both go through the same builder: `item` takes
+//! anything a [`DestinationIcon`] can be made from.
+//!
+//! A whole destination is also a value, [`NavigationDestination`], so that an application
+//! that adapts across widths declares its navigation **once** and hands the same list to
+//! whichever chrome the size class called for.
+//!
+//! The rail has three things a column of its own height can have and a single row
+//! cannot: an [extended](NavigationRail::extended) form, a slot
+//! [above](NavigationRail::leading) and [below](NavigationRail::trailing) the
+//! destinations, and a say in [where those destinations
+//! sit](NavigationRail::group_alignment) between its two ends.
 
-use frus_core::{Color, Insets, Point, Rect, Scene};
+use std::cell::{OnceCell, RefCell};
+
+use frus_core::{Color, Insets, Point, Rect, ResolvedTextStyle, Scene, Size, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
+use frus_core::ShapeBorder;
+
+use crate::icons::IconData;
+use crate::widgetstate::WidgetStateProperty;
+
+use crate::disabled::disabled_content;
+use crate::flex::Flex;
 use crate::interaction::Status;
+use crate::scroll::SingleChildScrollView;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
+/// **When a navigation widget shows its destinations' labels.**
+///
+/// The reference keeps two names for one idea — `NavigationRailLabelType`
+/// (`navigation_rail.dart:1238`) and `NavigationDestinationLabelBehavior`
+/// (`navigation_bar.dart:342`) — and gives them **different defaults**, which is the part
+/// worth knowing: a rail shows no labels until asked, a bar shows all of them.
+///
+/// The reason is what each is for. A rail stands beside a page it does not own, and glyphs
+/// alone keep it narrow; a bar owns the bottom of the screen and has the room to say what
+/// its destinations are.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RailLabels {
+    /// Never — glyphs alone. A rail's default.
+    None,
+    /// On the selected destination only, so the one that matters names itself.
+    Selected,
+    /// On every destination. A bar's default.
+    All,
+}
+
+impl RailLabels {
+    /// Whether destination `index` shows its label, `selected` being the live one.
+    fn shows(self, index: usize, selected: usize) -> bool {
+        match self {
+            RailLabels::None => false,
+            RailLabels::Selected => index == selected,
+            RailLabels::All => true,
+        }
+    }
+}
+
 /// Width of a vertical rail, in logical pixels.
-pub(crate) const RAIL_WIDTH: f32 = 76.0;
+pub(crate) const RAIL_WIDTH: f32 = 80.0;
+/// Width of an **extended** rail (`navigation_rail.dart:1241`), where the labels stand
+/// beside the glyphs instead of under them.
+pub(crate) const EXTENDED_RAIL_WIDTH: f32 = 256.0;
 /// Height of a bottom navigation bar, in logical pixels.
 pub(crate) const BAR_HEIGHT: f32 = 60.0;
 const ITEM_HEIGHT: f32 = 58.0;
-const ICON_SIZE: f32 = 22.0;
-const LABEL_SIZE: f32 = 12.0;
-const BADGE_SIZE: f32 = 10.0;
-/// Notification red (a constant: an alert dot reads as red whatever the
-/// theme).
-const BADGE_COLOR: Color = Color::rgb(0.90, 0.24, 0.24);
+/// The destinations' glyphs, at the reference's size (`navigation_bar.dart:1452`).
+const ICON_SIZE: f32 = 24.0;
+/// The air between a glyph and its label (`navigation_bar.dart:1483`).
+const LABEL_GAP: f32 = 4.0;
+/// The air between two destinations.
+const DESTINATION_GAP: f32 = 4.0;
+/// The air a slot keeps from the destinations (`navigation_rail.dart:1179`).
+const SLOT_GAP: f32 = 8.0;
+
+/// The item's label: what the caller said, else what the theme says, else the reference's
+/// — a Material 3 rail labels its destinations in `labelMedium`.
+///
+/// **Resolved once** so that the number the bar is measured with is the number the glyphs
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403).
+fn label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.nav_rail.label_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).label_medium)
+        .resolved()
+}
+
+/// The notification count — `labelSmall`, the step [`crate::Badge`] already reads. See
+/// [`label_style`].
+fn badge_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.nav_rail.badge_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).label_small)
+        .resolved()
+}
+
+/// The height an item needs: the constant, unless the icon and a label the reader asked to
+/// enlarge no longer fit inside it.
+///
+/// A destination with **no** label still keeps the floor: a rail whose rows shrank when the
+/// labels went away would move every destination the first time one was selected under
+/// [`RailLabels::Selected`].
+///
+/// `beside` is an [extended](NavigationRail::extended) rail's row, where the label stands
+/// next to the glyph rather than under it: the row is then as tall as the taller of the
+/// two, not as tall as both.
+fn item_height(floor: f32, label: Option<&ResolvedTextStyle>, beside: bool) -> f32 {
+    let icon = frus_text::line_height(ICON_SIZE);
+    let content = match label {
+        Some(label) if beside => icon.max(label.line_height()),
+        Some(label) => icon + LABEL_GAP + label.line_height(),
+        None => icon,
+    } + 8.0;
+    floor.max(content)
+}
 
 /// One navigation destination (glyph + label), painted according to its state.
 struct NavItem<Msg> {
-    icon: String,
+    icon: DestinationIcon,
     label: String,
     selected: bool,
     /// Notification count (a dot on the icon). `0`/`None` = nothing.
     badge: Option<u32>,
     /// `true` = a rail item (fixed width); `false` = a bar item (flex).
     rail: bool,
+    /// Whether this destination says what it is. See [`RailLabels`].
+    show_label: bool,
+    /// Whether the label stands **beside** the glyph rather than under it. See
+    /// [`NavigationRail::extended`].
+    extended: bool,
+    /// This destination cannot be reached. See [`NavigationRail::disabled`].
+    disabled: bool,
+    /// This destination's own indicator colour, over the theme's.
+    indicator_color: Option<Color>,
+    /// This destination's own indicator shape, over the theme's.
+    indicator_shape: Option<ShapeBorder>,
+    /// This destination's own highlight, per state, over the framework's state layer.
+    overlay_color: Option<WidgetStateProperty<Color>>,
+    /// Whether a selected destination gets an indicator behind its glyph at all. See
+    /// [`NavigationRail::use_indicator`].
+    use_indicator: bool,
+    /// The surface the destination **stands on**, when the widget carrying it was told
+    /// one. A state layer is a lerp from the ground toward the ink, so it has to be the
+    /// ground the caller actually painted.
+    ground: Option<Color>,
+    label_text_style: Option<TextStyle>,
+    badge_text_style: Option<TextStyle>,
+    /// Which destination this is, and how many there are — for what a reader hears, and
+    /// nothing else. See [`NavItem::semantics`].
+    index: usize,
+    count: usize,
     message: Msg,
 }
 
-impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
-    fn style(&self) -> Style {
+impl<Msg> NavItem<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        let label = self
+            .show_label
+            .then(|| label_style(self.label_text_style, theme));
         if self.rail {
             Style {
-                width: Dimension::Length(RAIL_WIDTH),
-                height: Dimension::Length(ITEM_HEIGHT),
+                width: Dimension::Length(if self.extended {
+                    EXTENDED_RAIL_WIDTH
+                } else {
+                    RAIL_WIDTH
+                }),
+                height: Dimension::Length(item_height(ITEM_HEIGHT, label.as_ref(), self.extended)),
                 ..Default::default()
             }
         } else {
             // In a bar, the items share the width equally.
             Style {
                 flex_grow: 1.0,
-                height: Dimension::Length(BAR_HEIGHT),
+                height: Dimension::Length(item_height(BAR_HEIGHT, label.as_ref(), false)),
                 ..Default::default()
             }
         }
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -58,60 +201,190 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let icon_m = frus_text::measure(&self.icon, ICON_SIZE);
-        let label_m = frus_text::measure(&self.label, LABEL_SIZE);
-        let gap = 2.0;
-        let total_h = icon_m.height + gap + label_m.height;
-        let top = bounds.y + ((bounds.height - total_h) * 0.5).max(0.0);
+        // A drawn icon is a square of its own size; a glyph is measured at `exact`, so
+        // that it stays on its own grid while the label beside it follows the reader.
+        let t = &theme.widgets.nav_rail;
+        let icon_size = t.icon_size.unwrap_or(ICON_SIZE);
+        let label_s = label_style(self.label_text_style, Some(theme));
+        let icon_m = self.icon.measure(icon_size);
+        let label_m = self
+            .show_label
+            .then(|| frus_text::measure_resolved(&self.label, &label_s));
+        let gap = LABEL_GAP;
+        // **The column the glyph lives in**, which is not the row on an extended rail.
+        // There the label stands beside the glyph (`navigation_rail.dart:796`) and the
+        // glyph keeps the column it would have had unextended (`:753`) — so extending a
+        // rail does not move its destinations sideways, and the indicator stays around
+        // the glyph alone (`:756`) rather than growing to swallow the label.
+        let col = if self.extended {
+            RAIL_WIDTH.min(bounds.width)
+        } else {
+            bounds.width
+        };
+        // With no label the glyph centres on its own, rather than staying where it sat
+        // when there was one below it.
+        let stacked_h = icon_m.height + label_m.as_ref().map_or(0.0, |m| gap + m.height);
+        let top = bounds.y
+            + ((bounds.height
+                - if self.extended {
+                    icon_m.height
+                } else {
+                    stacked_h
+                })
+                * 0.5)
+                .max(0.0);
 
         // Background pill: solid when selected, discreet on hover.
         let pill_w = icon_m.width + 28.0;
         let pill_h = icon_m.height + 8.0;
-        let pill = Rect::new(
-            bounds.x + (bounds.width - pill_w) * 0.5,
-            top - 4.0,
-            pill_w,
-            pill_h,
-        );
-        if self.selected {
-            scene.draw_rect(
-                pill,
-                theme.primary.fade(0.16 * o),
-                pill_h * 0.5,
-                0.0,
-                Color::TRANSPARENT,
-            );
-        } else if status.hover_progress > 0.0 {
-            let a = 0.12 * status.hover_progress * o;
-            scene.draw_rect(
-                pill,
-                theme.muted.fade(a),
-                pill_h * 0.5,
-                0.0,
-                Color::TRANSPARENT,
-            );
+        let pill = Rect::new(bounds.x + (col - pill_w) * 0.5, top - 4.0, pill_w, pill_h);
+        // **The ground this destination stands on**, which is what a state layer is
+        // measured from: the indicator when it has one, else the surface the rail or the
+        // bar painted under it — the caller's, the theme's, or the rung each of the two
+        // takes by default (milestone 427).
+        let ground = self.ground.or(if self.rail {
+            theme.widgets.nav_rail.background_color
+        } else {
+            theme.widgets.nav_rail.bar_background_color
+        });
+        let ground = ground.unwrap_or(if self.rail {
+            theme.scheme.surface
+        } else {
+            theme.scheme.surface_container
+        });
+        // The indicator is a **container**, not a wash: the reference fills it with an
+        // opaque `secondaryContainer` (`navigation_bar.dart:1463`,
+        // `navigation_rail.dart:1272`) where this painted `primary` at 16 %. A tint was
+        // the wrong role and the wrong kind of colour at once — a translucent fill blends
+        // in linear light here, so 16 % does not paint at 16 %, which is the trap
+        // milestone 329 resolved for the disabled tokens.
+        //
+        // The destination's own colour outranks the theme's (`navigation_rail.dart:1144`),
+        // which is how one entry in a list marks itself out from the rest.
+        let indicator = self
+            .indicator_color
+            .or(t.indicator_color)
+            .unwrap_or(theme.scheme.secondary_container);
+        // **And whether there is an indicator at all** (`navigation_rail.dart:310`).
+        // Turned off, the selected destination has no container behind it, so its ground
+        // is the rail's surface like everyone else's — which is what the state layer is
+        // then measured from.
+        let lit = self.selected && self.use_indicator;
+        let base = if lit { indicator } else { ground };
+        // **And the state layer over it, resolved opaquely.** This used to be `muted` at
+        // 12 % handed to the GPU as an alpha, which is three mistakes in one line: the
+        // wrong kind of colour (a translucent overlay blends in linear light here, so
+        // 12 % paints like a third), the wrong role (the reference's ink for this widget
+        // is `primary`, `navigation_rail.dart:946`), and the wrong number (12 % is the
+        // *splash*'s, `:943`; the hover's is smaller). [`Theme::state_layer`] is the one
+        // rule the rest of the framework already asks — a lerp from the ground toward the
+        // ink, in the space the tokens were written in — and it answers hover, focus and
+        // press at once, where this answered only hover.
+        //
+        // Nothing lights on a destination that cannot be reached: a state layer is the
+        // promise of an interaction, and there is none here (milestone 436).
+        //
+        // Unless the destination was given a colour of its own for the state it is in
+        // (`navigation_bar.dart:232`). The reference's overlay is a translucent colour
+        // painted over the ground, so resolved opaquely here its **alpha is how far** the
+        // ground moves and its colour is **where** it moves to — the same arithmetic
+        // `state_layer` does, with the caller's numbers instead of Material's.
+        let states = status
+            .states()
+            .set(crate::WidgetState::Selected, self.selected)
+            .set(crate::WidgetState::Disabled, self.disabled);
+        // The destination's own word, then the theme's, then nothing — and *nothing* is
+        // the state layer below. Three rungs, as everywhere else here; a property that
+        // matches no entry falls through to the next rung rather than answering with a
+        // default, which is what makes naming one state safe.
+        let told = self
+            .overlay_color
+            .as_ref()
+            .and_then(|own| own.resolve(states))
+            .or_else(|| t.overlay_color.as_ref().and_then(|w| w.resolve(states)));
+        let fill = if self.disabled {
+            base
+        } else if let Some(overlay) = told {
+            base.lerp(overlay.fade(1.0), overlay.a)
+        } else {
+            theme.state_layer(base, theme.scheme.primary, &status)
+        };
+        if lit || fill != base {
+            // **A pill, and it can say so** (`navigation_rail.dart:1148`). Until
+            // milestone 450 this was `pill_h * 0.5` — the arithmetic a stadium does, but
+            // written out here, so a caller who wanted a rounded box or a circle had
+            // nowhere to say it and the shape had to be inferred from a number.
+            let shape = self
+                .indicator_shape
+                .or(t.indicator_shape)
+                .unwrap_or_else(ShapeBorder::stadium);
+            scene.draw_shape(pill, shape, fill.fade(o));
         }
 
-        let color = if self.selected {
-            theme.primary
+        // The glyph is drawn **on** the indicator and the label below it, so the two do
+        // not take the same colour when selected: the glyph is the indicator's content
+        // (`navigation_bar.dart:1456`) and the label is the surface's (`:1476`).
+        let icon_color = if self.disabled {
+            // **One rule for both halves** (`navigation_rail.dart:717`, `:723`):
+            // `on_surface` at 38 %, which this framework resolves opaque rather than
+            // handing the GPU an alpha — see [`crate::disabled_content`].
+            disabled_content(theme)
+        } else if self.selected {
+            t.selected_icon_color.unwrap_or(if self.use_indicator {
+                theme.scheme.on_secondary_container
+            } else {
+                // With no indicator behind it the glyph stands on the rail's own surface,
+                // and the indicator's content colour would be a colour for a ground that
+                // is not there. The reference's arrangement without one paints both the
+                // glyph and the label the **accent** (`navigation_rail.dart:1221`,
+                // `:1211`) — with nothing behind it, the destination has to say *this
+                // one* by itself.
+                theme.primary
+            })
         } else {
-            theme.muted
+            t.unselected_icon_color
+                .unwrap_or(theme.scheme.on_surface_variant)
         };
-        scene.text(
-            Point::new(bounds.x + (bounds.width - icon_m.width) * 0.5, top),
-            self.icon.clone(),
-            ICON_SIZE,
-            color.fade(o),
+        let label_color = if self.disabled {
+            disabled_content(theme)
+        } else if self.selected {
+            t.selected_label_color.unwrap_or(if self.use_indicator {
+                theme.scheme.on_surface
+            } else {
+                theme.primary
+            })
+        } else {
+            t.unselected_label_color.unwrap_or(if self.rail {
+                // The one place the reference answers differently for the two:
+                // `navigation_rail.dart:1251` against `navigation_bar.dart:1477`.
+                theme.scheme.on_surface
+            } else {
+                theme.scheme.on_surface_variant
+            })
+        };
+        self.icon.paint(
+            icon_size,
+            bounds.x + (col - icon_m.width) * 0.5,
+            top,
+            icon_color.fade(o),
+            theme,
+            scene,
         );
-        scene.text(
-            Point::new(
-                bounds.x + (bounds.width - label_m.width) * 0.5,
-                top + icon_m.height + gap,
-            ),
-            self.label.clone(),
-            LABEL_SIZE,
-            color.fade(o),
-        );
+        if let Some(label_m) = &label_m {
+            // Beside the glyph's column on an extended rail, centred under it otherwise.
+            let position = if self.extended {
+                Point::new(
+                    bounds.x + col,
+                    bounds.y + ((bounds.height - label_m.height) * 0.5).max(0.0),
+                )
+            } else {
+                Point::new(
+                    bounds.x + (col - label_m.width) * 0.5,
+                    top + icon_m.height + gap,
+                )
+            };
+            scene.text(position, self.label.clone(), &label_s, label_color.fade(o));
+        }
 
         // Notification dot, anchored to the top-right corner of the icon glyph.
         if let Some(count) = self.badge.filter(|&n| n > 0) {
@@ -120,64 +393,431 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             } else {
                 count.to_string()
             };
-            let m = frus_text::measure(&text, BADGE_SIZE);
+            let badge_s = badge_style(self.badge_text_style, Some(theme));
+            let m = frus_text::measure_resolved(&text, &badge_s);
             let bw = (m.width + 8.0).max(m.height + 4.0);
             let bh = m.height + 4.0;
-            let icon_right = bounds.x + (bounds.width + icon_m.width) * 0.5;
+            let icon_right = bounds.x + (col + icon_m.width) * 0.5;
             let bx = (icon_right - bw * 0.4).min(bounds.x + bounds.width - bw);
             let by = top - bh * 0.35;
             let rect = Rect::new(bx, by, bw, bh);
-            scene.draw_rect(rect, BADGE_COLOR.fade(o), bh * 0.5, 0.0, Color::TRANSPARENT);
+            // A badge is a badge. This one used to carry a red of its own, on the
+            // reasoning that an alert dot reads as red whatever the theme — but the
+            // [`Badge`](crate::Badge) widget beside it already answers the same question
+            // from the scheme's `error`, and two badges in one framework painting
+            // different reds is the part that is actually wrong. Same roles, same theme,
+            // so recolouring one recolours both.
+            let fill = theme
+                .widgets
+                .badge
+                .background_color
+                .unwrap_or(theme.scheme.error);
+            let ink = theme
+                .widgets
+                .badge
+                .text_color
+                .unwrap_or(theme.scheme.on_error);
+            scene.draw_rect(rect, fill.fade(o), bh * 0.5, 0.0, Color::TRANSPARENT);
             scene.text(
                 Point::new(bx + (bw - m.width) * 0.5, by + 2.0),
                 text,
-                BADGE_SIZE,
-                Color::WHITE.fade(o),
+                &badge_s,
+                ink.fade(o),
             );
         }
     }
 
+    /// A destination that cannot be reached emits nothing (`navigation_rail.dart:957`,
+    /// where the reference passes the ink well a null `onTap`).
     fn on_click(&self) -> Option<Msg> {
-        Some(self.message.clone())
+        (!self.disabled).then(|| self.message.clone())
     }
 
+    /// And the keyboard skips it, as it skips a disabled button.
     fn focusable(&self) -> bool {
-        true
+        !self.disabled
+    }
+
+    /// **What a reader hears.** Until milestone 467 the answer was *nothing*: a rail and a
+    /// bar are the primary navigation of an application and neither announced a single
+    /// destination, so a screen reader walking the shell found a row of unlabelled boxes
+    /// and no way to tell which screen was showing. Every visible part of it was right.
+    ///
+    /// The name, then where it sits in the list — the reference reads out "Home, Tab 1 of
+    /// 3" (`navigation_rail.dart:533`, `navigation_bar.dart:1020`), and the second half
+    /// is the part a list cannot supply on its own: someone hearing five names in a row
+    /// has no way to know how many are left. **The label is announced whether or not it is
+    /// drawn** — [`RailLabels::None`] is a decision about width, and a reader has no width.
+    ///
+    /// *Which one is live* survives being disabled: a reader who cannot switch is still
+    /// owed where they are.
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
+        let words = crate::localizations::of();
+        let semantics = frus_core::SemanticsProperties::new(frus_core::Role::Tab)
+            .label(format!(
+                "{}, {}",
+                self.label,
+                words.tab_label(self.index + 1, self.count)
+            ))
+            .toggled(self.selected);
+        Some(if self.disabled {
+            semantics.disabled(true)
+        } else {
+            semantics.clickable()
+        })
     }
 }
 
-/// A declared destination: glyph, label, and an optional badge count.
-type Destination = (String, String, Option<u32>);
+/// **What a destination shows** above or beside its label: a drawn icon, or a text glyph.
+///
+/// Both, because both are real. An [`IconData`] is what an application reaches for now
+/// that there is an icon set — it scales, it takes the theme's colour, and it is the same
+/// mark at every size. A glyph is an emoji or a Unicode character, which is what a
+/// destination could carry before there was a set, and is still the shortest way to put a
+/// flag or a rocket in a bar.
+///
+/// Nothing has to name this type: [`From`] covers `&str`, `String`, `char` and
+/// [`IconData`], so `item(Icons::HOME, "Home")` and `item("🏠", "Home")` are both just
+/// calls to `item`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DestinationIcon {
+    /// A drawn icon — one of the bundled set, or one of the caller's own.
+    Icon(IconData),
+    /// A text glyph: an emoji, or a Unicode character.
+    Glyph(String),
+}
+
+impl Default for DestinationIcon {
+    /// An empty glyph — a destination whose icon nobody named draws nothing, rather than
+    /// standing in a placeholder mark of the framework's choosing.
+    fn default() -> Self {
+        DestinationIcon::Glyph(String::new())
+    }
+}
+
+impl From<IconData> for DestinationIcon {
+    fn from(icon: IconData) -> Self {
+        DestinationIcon::Icon(icon)
+    }
+}
+
+impl From<String> for DestinationIcon {
+    fn from(glyph: String) -> Self {
+        DestinationIcon::Glyph(glyph)
+    }
+}
+
+impl From<&str> for DestinationIcon {
+    fn from(glyph: &str) -> Self {
+        DestinationIcon::Glyph(glyph.to_string())
+    }
+}
+
+impl From<&String> for DestinationIcon {
+    fn from(glyph: &String) -> Self {
+        DestinationIcon::Glyph(glyph.clone())
+    }
+}
+
+impl From<char> for DestinationIcon {
+    fn from(glyph: char) -> Self {
+        DestinationIcon::Glyph(glyph.to_string())
+    }
+}
+
+impl DestinationIcon {
+    /// The box this mark occupies when drawn at `size`.
+    ///
+    /// A drawn icon is a square of its own size, by definition. A glyph is whatever the
+    /// font makes of it, which is why the two cannot share one number: an emoji is wider
+    /// than it is tall in some faces and narrower in others, and a bar whose pill was
+    /// sized from the icon grid rather than from the glyph would clip it.
+    pub(crate) fn measure(&self, size: f32) -> Size {
+        match self {
+            DestinationIcon::Icon(_) => Size::new(size, size),
+            DestinationIcon::Glyph(glyph) => {
+                frus_text::measure_resolved(glyph, &ResolvedTextStyle::exact(size))
+            }
+        }
+    }
+
+    /// Paints the mark with its top-left corner at `(x, y)`, in `color`.
+    pub(crate) fn paint(
+        &self,
+        size: f32,
+        x: f32,
+        y: f32,
+        color: Color,
+        theme: &Theme,
+        scene: &mut Scene,
+    ) {
+        match self {
+            DestinationIcon::Icon(icon) => {
+                scene.fill_path(&icon.placed(size, x, y, theme.direction), color);
+            }
+            DestinationIcon::Glyph(glyph) => {
+                if !glyph.is_empty() {
+                    scene.text(
+                        Point::new(x, y),
+                        glyph.clone(),
+                        &ResolvedTextStyle::exact(size),
+                        color,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// **A declared destination**: everything the caller said about one entry in the list —
+/// its mark, its name, the mark it swaps to while selected, a badge, a tooltip, and the
+/// decorations that belong to this entry rather than to the list.
+///
+/// It exists as a **value** because an application that adapts across widths has three
+/// chromes to feed and one navigation to describe. [`NavigationRail`], [`BottomBar`],
+/// [`NavigationDrawer`](crate::NavigationDrawer) and
+/// [`NavScaffold`](crate::NavScaffold) all take `destinations`, so the list is written
+/// once and cannot drift between the forms.
+///
+/// ```
+/// use frus_widgets::{Icons, NavigationDestination};
+///
+/// let inbox = NavigationDestination::new(Icons::MAIL_OUTLINE, "Inbox")
+///     .selected_icon(Icons::MAIL)
+///     .badge(3)
+///     .tooltip("Unread messages");
+/// assert_eq!(inbox.label(), "Inbox");
+/// ```
+#[derive(Clone, Default, Debug)]
+pub struct NavigationDestination {
+    /// The mark standing above or beside the label.
+    pub(crate) icon: DestinationIcon,
+    /// What the destination is called.
+    pub(crate) label: String,
+    /// The mark shown **while selected**, when it differs from the resting one
+    /// (`navigation_rail.dart:1132`).
+    pub(crate) selected_icon: Option<DestinationIcon>,
+    /// Notification count. `None` or `0` = nothing.
+    pub(crate) badge: Option<u32>,
+    /// What a pointer resting on this destination is told. A rail showing glyphs without
+    /// labels is the case this exists for (`navigation_rail.dart:1155`).
+    pub(crate) tooltip: Option<String>,
+    /// This destination cannot be reached (`navigation_rail.dart:1161`).
+    pub(crate) disabled: bool,
+    /// This destination's own indicator colour, over the theme's
+    /// (`navigation_rail.dart:1144`).
+    pub(crate) indicator_color: Option<Color>,
+    /// This destination's own indicator shape, over the theme's
+    /// (`navigation_rail.dart:1148`).
+    pub(crate) indicator_shape: Option<ShapeBorder>,
+    /// This destination's own highlight per state, over the framework's state layer
+    /// (`navigation_bar.dart:232`).
+    pub(crate) overlay_color: Option<WidgetStateProperty<Color>>,
+    /// The whole rectangular area behind this destination, when it was given one
+    /// (`navigation_drawer.dart:228`) — not its indicator.
+    ///
+    /// Only a [`NavigationDrawer`](crate::NavigationDrawer)'s rows read it: a rail's
+    /// destination is 80 pixels of an 80-pixel column and a bar's is a share of a row, so
+    /// there is no area behind either that is not the widget's own surface. It lives here
+    /// rather than on the drawer's own list because a shell forwards **one** declaration
+    /// to whichever form the window chose.
+    pub(crate) background: Option<Color>,
+}
+
+impl NavigationDestination {
+    /// A destination with nothing said about it but its mark and its name.
+    pub fn new(icon: impl Into<DestinationIcon>, label: impl Into<String>) -> Self {
+        Self {
+            icon: icon.into(),
+            label: label.into(),
+            ..Default::default()
+        }
+    }
+
+    /// The mark shown **while this destination is selected**, where it differs from the
+    /// resting one (`navigation_rail.dart:1132`).
+    ///
+    /// The convention the icon set is drawn for: an outline at rest, the filled twin when
+    /// selected — `Icons::FAVORITE_BORDER` and `Icons::FAVORITE`, or an outlined style
+    /// against the filled one. It is how a destination reads as selected without leaning
+    /// on colour alone, which is the difference between navigation a colour-blind reader
+    /// can use and navigation they cannot.
+    #[must_use]
+    pub fn selected_icon(mut self, icon: impl Into<DestinationIcon>) -> Self {
+        self.selected_icon = Some(icon.into());
+        self
+    }
+
+    /// A notification count on this destination. `0` shows nothing, so a count straight
+    /// out of a model needs no `if` around it.
+    #[must_use]
+    pub fn badge(mut self, count: u32) -> Self {
+        self.badge = Some(count);
+        self
+    }
+
+    /// What a pointer resting here is told (`navigation_rail.dart:1155`).
+    ///
+    /// A rail shows glyphs without labels by default, which is the case this is for: the
+    /// mark is all a destination says about itself, and a mark is not always enough.
+    #[must_use]
+    pub fn tooltip(mut self, message: impl Into<String>) -> Self {
+        self.tooltip = Some(message.into());
+        self
+    }
+
+    /// Marks this destination unreachable (`navigation_rail.dart:1161`): it takes the
+    /// disabled ink, nothing lights under the pointer, it emits no message, and the
+    /// keyboard steps over it.
+    #[must_use]
+    pub fn disabled(mut self) -> Self {
+        self.disabled = true;
+        self
+    }
+
+    /// This destination's own indicator colour, over the theme's
+    /// (`navigation_rail.dart:1144`).
+    #[must_use]
+    pub fn indicator_color(mut self, color: Color) -> Self {
+        self.indicator_color = Some(color);
+        self
+    }
+
+    /// This destination's own indicator shape, over the theme's
+    /// (`navigation_rail.dart:1148`).
+    #[must_use]
+    pub fn indicator_shape(mut self, shape: ShapeBorder) -> Self {
+        self.indicator_shape = Some(shape);
+        self
+    }
+
+    /// This destination's own highlight per state, over the framework's state layer
+    /// (`navigation_bar.dart:232`).
+    #[must_use]
+    pub fn overlay_color(mut self, overlay: WidgetStateProperty<Color>) -> Self {
+        self.overlay_color = Some(overlay);
+        self
+    }
+
+    /// The whole area behind this destination, edge to edge — read by a
+    /// [`NavigationDrawer`](crate::NavigationDrawer)'s rows and by nothing else
+    /// (`navigation_drawer.dart:228`).
+    #[must_use]
+    pub fn tile_color(mut self, color: Color) -> Self {
+        self.background = Some(color);
+        self
+    }
+
+    /// What this destination is called.
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    /// The mark to draw in this state: the selected one when there is one and the
+    /// destination is selected, the resting one otherwise.
+    pub(crate) fn glyph(&self, selected: bool) -> &DestinationIcon {
+        match &self.selected_icon {
+            Some(icon) if selected => icon,
+            _ => &self.icon,
+        }
+    }
+}
+
+/// **How a list of destinations is being presented** — everything an item needs that is
+/// the same for every item in the list.
+///
+/// One argument rather than six: the two widgets pass the same thing, and a function taking
+/// four booleans and two colours in a row is a function whose call sites are read by
+/// counting commas.
+#[derive(Copy, Clone)]
+struct Presentation {
+    /// `true` = a rail's items (fixed width); `false` = a bar's (they share the row).
+    rail: bool,
+    labels: RailLabels,
+    extended: bool,
+    /// The surface the destinations stand on, when the widget carrying them was told one.
+    ground: Option<Color>,
+    /// Whether a selected destination gets an indicator at all.
+    use_indicator: bool,
+    label_text_style: Option<TextStyle>,
+    badge_text_style: Option<TextStyle>,
+}
 
 /// Builds the navigation items from the declared destinations.
 fn build_items<Msg: Clone + 'static>(
-    items: &[Destination],
+    items: &[NavigationDestination],
     selected: usize,
     on_select: &dyn Fn(usize) -> Msg,
-    rail: bool,
+    how: Presentation,
 ) -> Vec<Box<dyn Widget<Msg>>> {
     items
         .iter()
         .enumerate()
-        .map(|(i, (icon, label, badge))| {
-            Box::new(NavItem {
-                icon: icon.clone(),
-                label: label.clone(),
-                selected: i == selected,
-                badge: *badge,
-                rail,
+        .map(|(i, item)| {
+            let is_selected = i == selected;
+            let nav = NavItem {
+                icon: item.glyph(is_selected).clone(),
+                label: item.label.clone(),
+                selected: is_selected,
+                badge: item.badge,
+                rail: how.rail,
+                // An extended rail labels **every** destination
+                // (`navigation_rail.dart:219`): the label has its own room there, so
+                // there is nothing for a mode to trade away.
+                show_label: how.extended || how.labels.shows(i, selected),
+                extended: how.extended,
+                disabled: item.disabled,
+                indicator_color: item.indicator_color,
+                indicator_shape: item.indicator_shape,
+                overlay_color: item.overlay_color.clone(),
+                use_indicator: how.use_indicator,
+                ground: how.ground,
+                label_text_style: how.label_text_style,
+                badge_text_style: how.badge_text_style,
+                index: i,
+                count: items.len(),
                 message: on_select(i),
-            }) as Box<dyn Widget<Msg>>
+            };
+            // A destination with a hint is wrapped in the widget that shows hints, rather
+            // than growing a second implementation of one inside the item. The wrapper
+            // forwards the item's own structure, so a bar's destinations still share the
+            // row whether or not they were given a tooltip.
+            match &item.tooltip {
+                Some(message) => Box::new(crate::Tooltip::new(message.clone()).child(nav)),
+                None => Box::new(nav) as Box<dyn Widget<Msg>>,
+            }
         })
         .collect()
 }
 
-/// Rail de navigation **vertical** (tablette / bureau).
+/// A **vertical** navigation rail (tablet / desktop).
 pub struct NavigationRail<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
-    items: Vec<Destination>,
-    children: Vec<Box<dyn Widget<Msg>>>,
+    items: Vec<NavigationDestination>,
+    label_text_style: Option<TextStyle>,
+    badge_text_style: Option<TextStyle>,
+    background: Option<Color>,
+    labels: RailLabels,
+    extended: bool,
+    group_alignment: f32,
+    /// See [`Self::main_axis_alignment`]. `Some` fills the group, which is what makes it
+    /// override `group_alignment`.
+    main_axis_alignment: Option<Justify>,
+    /// See [`Self::scrollable`].
+    scrollable: bool,
+    /// See [`Self::use_indicator`]; `None` = the theme's, then the framework's `true`.
+    use_indicator: Option<bool>,
+    /// See [`Self::elevation`]; `None` = the theme's, then the reference's `0`.
+    elevation: Option<f32>,
+    leading: RefCell<Option<Box<dyn Widget<Msg>>>>,
+    trailing: RefCell<Option<Box<dyn Widget<Msg>>>>,
+    leading_at_top: bool,
+    trailing_at_bottom: bool,
+    /// The assembled subtree — see [`Self::assemble`]. Built on the **first read**
+    /// rather than as the builders run, because assembling it consumes the slots and a
+    /// builder can still arrive after the one that set them.
+    built: OnceCell<Vec<Box<dyn Widget<Msg>>>>,
 }
 
 impl<Msg: Clone + 'static> NavigationRail<Msg> {
@@ -187,50 +827,516 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
             selected,
             on_select: Box::new(on_select),
             items: Vec::new(),
-            children: Vec::new(),
+            label_text_style: None,
+            badge_text_style: None,
+            background: None,
+            // The reference's default for a **rail** (`navigation_rail.dart:1238`), which
+            // is not the one it gives a bar. A rail stands beside a page it does not own
+            // and glyphs alone keep it narrow.
+            labels: RailLabels::None,
+            extended: false,
+            // Against the top (`navigation_rail.dart:1237`).
+            group_alignment: -1.0,
+            main_axis_alignment: None,
+            scrollable: false,
+            use_indicator: None,
+            elevation: None,
+            leading: RefCell::new(None),
+            trailing: RefCell::new(None),
+            // **The reference's asymmetry** (`navigation_rail.dart:112`, `:113`): the
+            // leading slot is chrome at the top of the rail, the trailing one is the tail
+            // of the list of destinations and travels with it.
+            leading_at_top: true,
+            trailing_at_bottom: false,
+            built: OnceCell::new(),
         }
     }
 
+    /// When the destinations say what they are. [`RailLabels::None`] by default, as the
+    /// reference's rail does.
+    ///
+    /// Silent on an [extended](Self::extended) rail, which labels every destination. The
+    /// two are different label **layouts** rather than modes of one another, and the
+    /// reference forbids the combination outright (`navigation_rail.dart:121`).
+    #[must_use]
+    pub fn labels(mut self, labels: RailLabels) -> Self {
+        self.labels = labels;
+        self.rebuild();
+        self
+    }
+
+    /// **The wide form**: 256 across instead of 80, with every label beside its glyph
+    /// instead of under it (`navigation_rail.dart:131`).
+    ///
+    /// The glyphs keep the 80-pixel column they had, so extending a rail widens it and
+    /// moves nothing: the destinations stay on the line they were on and the label opens
+    /// out to the side of them. A rail with room for words is what a desktop window has
+    /// and a tablet in portrait does not, which is why this is a property and not a size
+    /// class — the caller knows which it is building.
+    #[must_use]
+    pub fn extended(mut self, extended: bool) -> Self {
+        self.extended = extended;
+        self.rebuild();
+        self
+    }
+
+    /// **Where the destinations sit** between the rail's top and bottom: `-1.0` against
+    /// the top (the default), `0.0` centred, `1.0` against the bottom — and every value
+    /// in between (`navigation_rail.dart:205`).
+    ///
+    /// Continuous rather than three names, as the reference's is: a rail whose
+    /// destinations sit a third of the way down is a thing an application asks for, and a
+    /// three-valued enum would have to be replaced the first time one did.
+    ///
+    /// It moves the **group**, which is the destinations plus whichever slot is not
+    /// pinned. See [`Self::leading_at_top`].
+    #[must_use]
+    pub fn group_alignment(mut self, alignment: f32) -> Self {
+        self.group_alignment = alignment.clamp(-1.0, 1.0);
+        self.rebuild();
+        self
+    }
+
+    /// The slot **above** the destinations, where an application puts a floating action
+    /// button or a menu button (`navigation_rail.dart:145`).
+    #[must_use]
+    pub fn leading(self, widget: impl Widget<Msg> + 'static) -> Self {
+        self.leading_boxed(Box::new(widget))
+    }
+
+    /// [`Self::leading`], for a slot that is already boxed.
+    #[must_use]
+    pub fn leading_boxed(mut self, widget: Box<dyn Widget<Msg>>) -> Self {
+        *self.leading.borrow_mut() = Some(widget);
+        self.rebuild();
+        self
+    }
+
+    /// The slot **below** the destinations (`navigation_rail.dart:156`) — an account
+    /// switcher, a settings button, the end of the list rather than chrome above it.
+    #[must_use]
+    pub fn trailing(self, widget: impl Widget<Msg> + 'static) -> Self {
+        self.trailing_boxed(Box::new(widget))
+    }
+
+    /// [`Self::trailing`], for a slot that is already boxed.
+    #[must_use]
+    pub fn trailing_boxed(mut self, widget: Box<dyn Widget<Msg>>) -> Self {
+        *self.trailing.borrow_mut() = Some(widget);
+        self.rebuild();
+        self
+    }
+
+    /// **How the destinations are placed along the rail**, when there is room to spare
+    /// (`navigation_rail.dart:371`).
+    ///
+    /// It is the flexbox question — start, centre, end, or one of the three ways of
+    /// spreading the spare room between them — asked of the group rather than of the rail
+    /// around it, so `SpaceEvenly` puts equal room between every destination and at both
+    /// ends.
+    ///
+    /// Saying this **overrides [`Self::group_alignment`]**, and not by a rule: the group
+    /// fills the rail to distribute the room, so there is no room left outside it for an
+    /// alignment to work in. The reference reaches the same place the same way
+    /// (`navigation_rail.dart:501`).
+    #[must_use]
+    pub fn main_axis_alignment(mut self, alignment: Justify) -> Self {
+        self.main_axis_alignment = Some(alignment);
+        self.rebuild();
+        self
+    }
+
+    /// **A rail too short for its destinations scrolls them** (`navigation_rail.dart:353`)
+    /// rather than running them off the bottom of the screen.
+    ///
+    /// The pinned slots stay put — that is what pinning them is for — and what scrolls is
+    /// the group: the destinations, plus whichever of [`Self::leading`] and
+    /// [`Self::trailing`] was left in it.
+    ///
+    /// Like [`Self::main_axis_alignment`], this leaves [`Self::group_alignment`] with
+    /// nothing to do: a viewport that fills the rail has no spare room to place a group
+    /// in. A rail scrolls because it has less room than it needs, which is the case where
+    /// an alignment had no room to work in either.
+    #[must_use]
+    pub fn scrollable(mut self) -> Self {
+        self.scrollable = true;
+        self.rebuild();
+        self
+    }
+
+    /// **Whether the selected destination gets an indicator behind its glyph**
+    /// (`navigation_rail.dart:310`). On unless said otherwise, as it is over there.
+    ///
+    /// Turning it off is not just removing a shape. With nothing behind it the glyph
+    /// stands on the rail's own surface, so the indicator's content colour would be a
+    /// colour for a ground that is not there — the selected destination takes the
+    /// **accent** instead, glyph and label both, which is the arrangement the reference
+    /// keeps for exactly this case (`navigation_rail.dart:1221`, `:1211`).
+    #[must_use]
+    pub fn use_indicator(mut self, use_indicator: bool) -> Self {
+        self.use_indicator = Some(use_indicator);
+        self.rebuild();
+        self
+    }
+
+    /// **How far off the page the rail sits** (`navigation_rail.dart:192`). Flat by
+    /// default, as the reference's is (`:1236`).
+    ///
+    /// A raised rail drops its hairline: a shadow and a rule are two ways of saying the
+    /// same thing, and a widget that draws both says it twice — the lesson
+    /// [`Card`](crate::Card) already carries.
+    #[must_use]
+    pub fn elevation(mut self, elevation: f32) -> Self {
+        self.elevation = Some(elevation);
+        self
+    }
+
+    /// Whether the leading slot is **pinned to the top** instead of travelling with the
+    /// destinations. `true` by default (`navigation_rail.dart:112`), which is why
+    /// [`Self::group_alignment`] leaves it where it is.
+    #[must_use]
+    pub fn leading_at_top(mut self, pinned: bool) -> Self {
+        self.leading_at_top = pinned;
+        self.rebuild();
+        self
+    }
+
+    /// Whether the trailing slot is **pinned to the bottom**. `false` by default
+    /// (`navigation_rail.dart:113`), the other half of the reference's asymmetry: a
+    /// leading slot is chrome at the top of the rail, a trailing one is the tail of the
+    /// list of destinations and moves when the list does.
+    #[must_use]
+    pub fn trailing_at_bottom(mut self, pinned: bool) -> Self {
+        self.trailing_at_bottom = pinned;
+        self.rebuild();
+        self
+    }
+
     /// Adds a destination (glyph + label).
-    pub fn item(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
-        self.items.push((icon.into(), label.into(), None));
-        self.children = build_items(&self.items, self.selected, &*self.on_select, true);
+    pub fn item(mut self, icon: impl Into<DestinationIcon>, label: impl Into<String>) -> Self {
+        self.items.push(NavigationDestination::new(icon, label));
+        self.rebuild();
+        self
+    }
+
+    /// Adds a whole list of destinations **declared elsewhere** — one navigation, handed
+    /// to whichever chrome the width called for.
+    ///
+    /// This is the reason [`NavigationDestination`] is a value. An application that shows
+    /// a bar when narrow and a rail when wide used to declare its destinations twice, and
+    /// the two drifted; now it declares them once.
+    ///
+    /// ```
+    /// use frus_widgets::{Icons, NavigationDestination, NavigationRail};
+    ///
+    /// let places = vec![
+    ///     NavigationDestination::new(Icons::FAVORITE_BORDER, "Saved")
+    ///         .selected_icon(Icons::FAVORITE),
+    ///     NavigationDestination::new(Icons::MAIL_OUTLINE, "Inbox").badge(3),
+    /// ];
+    /// let _rail = NavigationRail::new(0, |i| i).destinations(places);
+    /// ```
+    #[must_use]
+    pub fn destinations(
+        mut self,
+        destinations: impl IntoIterator<Item = NavigationDestination>,
+    ) -> Self {
+        self.items.extend(destinations);
+        self.rebuild();
+        self
+    }
+
+    /// Adds a destination declared **in full** — what a shell hands over, having taken
+    /// the caller's decorations itself.
+    pub(crate) fn destination(mut self, destination: NavigationDestination) -> Self {
+        self.items.push(destination);
+        self.rebuild();
         self
     }
 
     /// Adds a notification count to the **last** destination.
-    pub fn badge(mut self, count: u32) -> Self {
+    pub fn badge(self, count: u32) -> Self {
+        self.decorate(|last| last.badge = Some(count))
+    }
+    /// What a pointer resting on the **last** destination is told
+    /// (`navigation_rail.dart:1155`).
+    ///
+    /// The case this exists for is a rail: it shows glyphs without labels by default, so
+    /// the mark is all a destination says about itself, and a mark is not always enough.
+    #[must_use]
+    pub fn tooltip(self, message: impl Into<String>) -> Self {
+        let message = message.into();
+        self.decorate(move |last| last.tooltip = Some(message))
+    }
+
+    /// The glyph the **last** destination shows while it is selected, where that differs
+    /// from its resting one (`navigation_rail.dart:1132`).
+    ///
+    /// The reference pairs a stroked icon with its filled version, which is how a
+    /// selected destination reads as selected without leaning on colour alone.
+    #[must_use]
+    pub fn selected_icon(self, icon: impl Into<DestinationIcon>) -> Self {
+        let icon = icon.into();
+        self.decorate(move |last| last.selected_icon = Some(icon))
+    }
+
+    /// Marks the **last** destination inaccessible (`navigation_rail.dart:1161`): its
+    /// glyph and its label take the disabled ink, nothing lights under the pointer, it
+    /// emits no message, and the keyboard steps over it.
+    #[must_use]
+    pub fn disabled(self) -> Self {
+        self.decorate(|last| last.disabled = true)
+    }
+
+    /// The **last** destination's own indicator colour, over the theme's
+    /// (`navigation_rail.dart:1144`) — how one entry marks itself out from the rest.
+    #[must_use]
+    pub fn indicator_color(self, color: Color) -> Self {
+        self.decorate(move |last| last.indicator_color = Some(color))
+    }
+
+    /// The **last** destination's own indicator shape, over the theme's
+    /// (`navigation_rail.dart:1148`).
+    ///
+    /// A pill unless something says otherwise, which is what the reference's default
+    /// `StadiumBorder` is — and what this painted, as a radius worked out from the
+    /// height, until it could say the word.
+    #[must_use]
+    pub fn indicator_shape(self, shape: ShapeBorder) -> Self {
+        self.decorate(move |last| last.indicator_shape = Some(shape))
+    }
+
+    /// The **last** destination's own highlight, per state
+    /// (`navigation_bar.dart:232`): the colour that marks it as focused, hovered or
+    /// pressed, instead of the framework's own state layer.
+    ///
+    /// The resolved colour is an **overlay** as the reference means it: its alpha is how
+    /// far the ground moves towards it, and its colour is where the ground moves to. A
+    /// state the property says nothing about falls back to the state layer, so naming one
+    /// state does not silence the rest.
+    #[must_use]
+    pub fn overlay_color(self, overlay: WidgetStateProperty<Color>) -> Self {
+        self.decorate(move |last| last.overlay_color = Some(overlay))
+    }
+
+    /// Applies `f` to the destination just added. Silent when there is none, which is the
+    /// shape `badge` has always had.
+    fn decorate(mut self, f: impl FnOnce(&mut NavigationDestination)) -> Self {
         if let Some(last) = self.items.last_mut() {
-            last.2 = Some(count);
-            self.children = build_items(&self.items, self.selected, &*self.on_select, true);
+            f(last);
+            self.rebuild();
         }
         self
     }
+
+    /// The destinations' labels, over the theme's and the reference's.
+    #[must_use]
+    pub fn label_text_style(mut self, style: TextStyle) -> Self {
+        self.label_text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// The notification counts, over the theme's and the reference's.
+    #[must_use]
+    pub fn badge_text_style(mut self, style: TextStyle) -> Self {
+        self.badge_text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// The rail's surface. Unset, the theme's, then the scheme's `surface` — where the
+    /// reference puts a rail (`navigation_rail.dart:1202`), a rung below the bottom bar.
+    #[must_use]
+    pub fn background(mut self, color: Color) -> Self {
+        self.background = Some(color);
+        // The destinations read it too, since milestone 437: a state layer is a lerp from
+        // the ground toward the ink, and this is the ground.
+        self.rebuild();
+        self
+    }
+
+    /// Throws the assembled subtree away, so that the next read of it is built from
+    /// everything the builders have said by then and they stay order-independent.
+    fn rebuild(&mut self) {
+        self.built.take();
+    }
+
+    /// **How wide the rail asks to be**: [`RAIL_WIDTH`], or [`EXTENDED_RAIL_WIDTH`] when
+    /// the labels have moved out beside the glyphs. Without the leading intrusion, which
+    /// the rail adds on top of this and consumes on its parent's behalf.
+    ///
+    /// A shell that puts something else beside a rail has to know how much of the window
+    /// the rail took. Asking the rail is the only answer that stays right: reading the
+    /// constant is right until the caller extends it, and then it is 176 pixels wrong.
+    pub(crate) fn declared_width(&self) -> f32 {
+        if self.extended {
+            EXTENDED_RAIL_WIDTH
+        } else {
+            RAIL_WIDTH
+        }
+    }
+
+    /// The rail's subtree, in the reference's shape (`navigation_rail.dart:559`):
+    ///
+    /// ```text
+    /// leading      if it is pinned to the top
+    /// spacer       (1 + alignment) / 2
+    /// group        an unpinned leading slot, the destinations, an unpinned trailing one
+    /// spacer       (1 - alignment) / 2
+    /// trailing     if it is pinned to the bottom
+    /// ```
+    ///
+    /// **The two spacers are what makes the alignment continuous.** A `justify` offers
+    /// three positions; two flexible boxes whose grow factors add up to one offer every
+    /// position between them, and the ends of the range are the same three. The
+    /// destinations' own spacing belongs to the group they are in rather than to the
+    /// rail, because a gap on the rail would also push the spacers away from the group
+    /// and move the top-aligned default four pixels down.
+    fn assemble(&self) -> Vec<Box<dyn Widget<Msg>>> {
+        // Taking the slots is why this runs once: a `Box<dyn Widget>` cannot be cloned,
+        // so assembling **consumes** them. A widget tree is rebuilt from `view` rather
+        // than mutated, so once per instance and once per frame are the same thing — the
+        // reasoning [`Widget::build_themed`] is written on.
+        let leading = self.leading.borrow_mut().take();
+        let trailing = self.trailing.borrow_mut().take();
+
+        let mut out: Vec<Box<dyn Widget<Msg>>> = Vec::new();
+        let mut group = Flex::<Msg>::column()
+            .align(Align::Center)
+            .gap(DESTINATION_GAP);
+        // `main_axis_alignment` distributes the spare room **between** the destinations,
+        // so the group has to have that room: it fills, where otherwise it is as tall as
+        // what is in it (`navigation_rail.dart:501`).
+        if let Some(alignment) = self.main_axis_alignment {
+            group = group.justify(alignment).flex(1.0);
+        }
+
+        if let Some(leading) = leading {
+            let slot = Flex::<Msg>::column()
+                .align(Align::Center)
+                .padding_each(0.0, 0.0, SLOT_GAP, 0.0)
+                .child_boxed(leading);
+            if self.leading_at_top {
+                out.push(Box::new(slot));
+            } else {
+                group = group.child(slot);
+            }
+        }
+        for item in build_items(
+            &self.items,
+            self.selected,
+            &*self.on_select,
+            Presentation {
+                rail: true,
+                labels: self.labels,
+                extended: self.extended,
+                ground: self.background,
+                use_indicator: self.use_indicator.unwrap_or(true),
+                label_text_style: self.label_text_style,
+                badge_text_style: self.badge_text_style,
+            },
+        ) {
+            group = group.child_boxed(item);
+        }
+        let mut pinned = None;
+        match trailing {
+            Some(trailing) if self.trailing_at_bottom => pinned = Some(trailing),
+            Some(trailing) => group = group.child_boxed(trailing),
+            None => {}
+        }
+
+        // A group that **fills** — because it was told to scroll, or told to spread its
+        // destinations — leaves no room outside itself, so the two spacers that place it
+        // would have nothing to place and would take room from it if they tried.
+        if self.scrollable {
+            out.push(Box::new(
+                SingleChildScrollView::<Msg>::new().flex(1.0).child(group),
+            ));
+        } else if self.main_axis_alignment.is_some() {
+            out.push(Box::new(group));
+        } else {
+            let a = self.group_alignment;
+            out.push(Box::new(Flex::<Msg>::column().flex((1.0 + a) * 0.5)));
+            out.push(Box::new(group));
+            out.push(Box::new(Flex::<Msg>::column().flex((1.0 - a) * 0.5)));
+        }
+        if let Some(trailing) = pinned {
+            out.push(trailing);
+        }
+        out
+    }
 }
 
-impl<Msg: Clone> Widget<Msg> for NavigationRail<Msg> {
+impl<Msg: Clone + 'static> Widget<Msg> for NavigationRail<Msg> {
+    /// The rail's box: its column of destinations, plus the intrusions it was **told**
+    /// about.
+    ///
+    /// The rail consumes them; its parent does not (milestone 420). The reference keeps
+    /// its safe area inside the `Material` (`navigation_rail.dart:553`) and takes the
+    /// **leading** side, the top and the bottom — never the trailing one, which is where
+    /// the body is. So the rail's surface, and the rule down its edge, run the full
+    /// height of the screen while the destinations stay clear of the notch and the
+    /// gesture bar.
     fn style(&self) -> Style {
+        let safe = crate::MediaQuery::of().padding;
         Style {
-            width: Dimension::Length(RAIL_WIDTH),
+            width: Dimension::Length(self.declared_width() + safe.left),
             flex_direction: FlexDirection::Column,
             align: Align::Center,
-            padding: Insets::new(8.0, 0.0, 8.0, 0.0),
-            gap: 4.0,
+            padding: Insets::new(8.0 + safe.top, 0.0, 8.0 + safe.bottom, safe.left),
+            // No gap: see [`Self::assemble`]. The destinations are spaced inside the
+            // group, so that the boxes placing that group are not spaced away from it.
             ..Default::default()
         }
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        &self.children
+        self.built.get_or_init(|| self.assemble())
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        // Vertical separator on the right edge.
-        let x = bounds.x + bounds.width - 1.0;
-        scene.fill_rect(
-            Rect::new(x, bounds.y, 1.0, bounds.height),
-            theme.scheme.outline_variant.fade(status.opacity),
-        );
+        let o = status.opacity;
+        // The rail's own surface. It had none until milestone 427 and showed whatever was
+        // behind it; the reference gives it `surface` (`navigation_rail.dart:1202`).
+        let fill = self
+            .background
+            .or(theme.widgets.nav_rail.background_color)
+            .unwrap_or(theme.scheme.surface);
+
+        // **How far off the page it sits** (`navigation_rail.dart:192`), flat unless
+        // asked, as the reference's default is (`:1236`). The shadow reads on the inner
+        // side — the rail runs the height of the screen, so the top and bottom of it are
+        // off it.
+        let depth = self.elevation.or(theme.widgets.nav_rail.elevation);
+        let depth = depth.unwrap_or(0.0);
+        if depth > 0.0 {
+            let blur = depth * 4.0 + 8.0;
+            scene.shadow(
+                Rect::new(
+                    bounds.x - blur,
+                    bounds.y + depth * 2.0 - blur,
+                    bounds.width + 2.0 * blur,
+                    bounds.height + 2.0 * blur,
+                ),
+                theme.scheme.shadow.with_alpha(0.30).fade(o),
+                frus_core::BorderRadius::uniform(blur),
+                blur,
+            );
+        }
+
+        scene.fill_rect(bounds, fill.fade(o));
+
+        // The rule down the inner edge — **and only when there is no shadow**. A raised
+        // surface and a hairline are two ways of saying the same thing, and drawing both
+        // says it twice: the mash-up [`Card`](crate::Card) was taken apart for.
+        if depth <= 0.0 {
+            let x = bounds.x + bounds.width - 1.0;
+            scene.fill_rect(
+                Rect::new(x, bounds.y, 1.0, bounds.height),
+                theme.scheme.outline_variant.fade(o),
+            );
+        }
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -242,7 +1348,11 @@ impl<Msg: Clone> Widget<Msg> for NavigationRail<Msg> {
 pub struct BottomBar<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
-    items: Vec<Destination>,
+    items: Vec<NavigationDestination>,
+    label_text_style: Option<TextStyle>,
+    badge_text_style: Option<TextStyle>,
+    background: Option<Color>,
+    labels: RailLabels,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -253,36 +1363,233 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
             selected,
             on_select: Box::new(on_select),
             items: Vec::new(),
+            label_text_style: None,
+            badge_text_style: None,
+            background: None,
+            // A **bar** shows them all (`navigation_bar.dart:1388`), which is the other
+            // half of the reference's answer: a bar owns the bottom of the screen and has
+            // the room to say what its destinations are.
+            labels: RailLabels::All,
             children: Vec::new(),
         }
     }
 
-    /// Adds a destination (glyph + label).
-    pub fn item(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
-        self.items.push((icon.into(), label.into(), None));
-        self.children = build_items(&self.items, self.selected, &*self.on_select, false);
+    /// When the destinations say what they are. [`RailLabels::All`] by default, as the
+    /// reference's bar does.
+    #[must_use]
+    pub fn labels(mut self, labels: RailLabels) -> Self {
+        self.labels = labels;
+        self.rebuild();
+        self
+    }
+
+    /// Adds a destination (mark + label).
+    pub fn item(mut self, icon: impl Into<DestinationIcon>, label: impl Into<String>) -> Self {
+        self.items.push(NavigationDestination::new(icon, label));
+        self.rebuild();
+        self
+    }
+
+    /// Adds a whole list of destinations **declared elsewhere** — one navigation, handed
+    /// to whichever chrome the width called for.
+    ///
+    /// This is the reason [`NavigationDestination`] is a value. An application that shows
+    /// a bar when narrow and a rail when wide used to declare its destinations twice, and
+    /// the two drifted; now it declares them once.
+    ///
+    /// ```
+    /// use frus_widgets::{Icons, NavigationDestination, NavigationRail};
+    ///
+    /// let places = vec![
+    ///     NavigationDestination::new(Icons::FAVORITE_BORDER, "Saved")
+    ///         .selected_icon(Icons::FAVORITE),
+    ///     NavigationDestination::new(Icons::MAIL_OUTLINE, "Inbox").badge(3),
+    /// ];
+    /// let _rail = NavigationRail::new(0, |i| i).destinations(places);
+    /// ```
+    #[must_use]
+    pub fn destinations(
+        mut self,
+        destinations: impl IntoIterator<Item = NavigationDestination>,
+    ) -> Self {
+        self.items.extend(destinations);
+        self.rebuild();
+        self
+    }
+
+    /// Adds a destination declared **in full** — what a shell hands over, having taken
+    /// the caller's decorations itself.
+    pub(crate) fn destination(mut self, destination: NavigationDestination) -> Self {
+        self.items.push(destination);
+        self.rebuild();
         self
     }
 
     /// Adds a notification count to the **last** destination.
-    pub fn badge(mut self, count: u32) -> Self {
+    pub fn badge(self, count: u32) -> Self {
+        self.decorate(|last| last.badge = Some(count))
+    }
+    /// What a pointer resting on the **last** destination is told
+    /// (`navigation_rail.dart:1155`).
+    ///
+    /// The case this exists for is a rail: it shows glyphs without labels by default, so
+    /// the mark is all a destination says about itself, and a mark is not always enough.
+    #[must_use]
+    pub fn tooltip(self, message: impl Into<String>) -> Self {
+        let message = message.into();
+        self.decorate(move |last| last.tooltip = Some(message))
+    }
+
+    /// The glyph the **last** destination shows while it is selected, where that differs
+    /// from its resting one (`navigation_rail.dart:1132`).
+    ///
+    /// The reference pairs a stroked icon with its filled version, which is how a
+    /// selected destination reads as selected without leaning on colour alone.
+    #[must_use]
+    pub fn selected_icon(self, icon: impl Into<DestinationIcon>) -> Self {
+        let icon = icon.into();
+        self.decorate(move |last| last.selected_icon = Some(icon))
+    }
+
+    /// Marks the **last** destination inaccessible (`navigation_rail.dart:1161`): its
+    /// glyph and its label take the disabled ink, nothing lights under the pointer, it
+    /// emits no message, and the keyboard steps over it.
+    #[must_use]
+    pub fn disabled(self) -> Self {
+        self.decorate(|last| last.disabled = true)
+    }
+
+    /// The **last** destination's own indicator colour, over the theme's
+    /// (`navigation_rail.dart:1144`) — how one entry marks itself out from the rest.
+    #[must_use]
+    pub fn indicator_color(self, color: Color) -> Self {
+        self.decorate(move |last| last.indicator_color = Some(color))
+    }
+
+    /// The **last** destination's own indicator shape, over the theme's
+    /// (`navigation_rail.dart:1148`).
+    ///
+    /// A pill unless something says otherwise, which is what the reference's default
+    /// `StadiumBorder` is — and what this painted, as a radius worked out from the
+    /// height, until it could say the word.
+    #[must_use]
+    pub fn indicator_shape(self, shape: ShapeBorder) -> Self {
+        self.decorate(move |last| last.indicator_shape = Some(shape))
+    }
+
+    /// The **last** destination's own highlight, per state
+    /// (`navigation_bar.dart:232`): the colour that marks it as focused, hovered or
+    /// pressed, instead of the framework's own state layer.
+    ///
+    /// The resolved colour is an **overlay** as the reference means it: its alpha is how
+    /// far the ground moves towards it, and its colour is where the ground moves to. A
+    /// state the property says nothing about falls back to the state layer, so naming one
+    /// state does not silence the rest.
+    #[must_use]
+    pub fn overlay_color(self, overlay: WidgetStateProperty<Color>) -> Self {
+        self.decorate(move |last| last.overlay_color = Some(overlay))
+    }
+
+    /// Applies `f` to the destination just added. Silent when there is none, which is the
+    /// shape `badge` has always had.
+    fn decorate(mut self, f: impl FnOnce(&mut NavigationDestination)) -> Self {
         if let Some(last) = self.items.last_mut() {
-            last.2 = Some(count);
-            self.children = build_items(&self.items, self.selected, &*self.on_select, false);
+            f(last);
+            self.rebuild();
         }
         self
     }
+
+    /// The destinations' labels, over the theme's and the reference's.
+    #[must_use]
+    pub fn label_text_style(mut self, style: TextStyle) -> Self {
+        self.label_text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// The notification counts, over the theme's and the reference's.
+    #[must_use]
+    pub fn badge_text_style(mut self, style: TextStyle) -> Self {
+        self.badge_text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// The bar's surface. Unset, the theme's, then the scheme's `surface_container` —
+    /// where the reference puts a navigation bar (`navigation_bar.dart:1440`), a rung
+    /// above the rail.
+    #[must_use]
+    pub fn background(mut self, color: Color) -> Self {
+        self.background = Some(color);
+        // The destinations read it too, since milestone 437: a state layer is a lerp from
+        // the ground toward the ink, and this is the ground.
+        self.rebuild();
+        self
+    }
+
+    /// Carries the current destinations *and* styles into the items, so that the builders
+    /// are order-independent.
+    fn rebuild(&mut self) {
+        self.children = build_items(
+            &self.items,
+            self.selected,
+            &*self.on_select,
+            Presentation {
+                rail: false,
+                labels: self.labels,
+                // A bar is one row: it has no extended form, and no room for one.
+                extended: false,
+                ground: self.background,
+                // A bar's indicator is not optional: the reference gives `useIndicator`
+                // to the rail alone (`navigation_rail.dart:310`), a bar's destinations
+                // sitting side by side with nothing else to tell them apart.
+                use_indicator: true,
+                label_text_style: self.label_text_style,
+                badge_text_style: self.badge_text_style,
+            },
+        );
+    }
 }
 
-impl<Msg: Clone> Widget<Msg> for BottomBar<Msg> {
-    fn style(&self) -> Style {
+impl<Msg> BottomBar<Msg> {
+    /// The bar's box: a row of destinations, plus the intrusions it was **told** about.
+    ///
+    /// The bar consumes them; its parent does not (milestone 418). The reference wraps
+    /// the row in a safe area and leaves the `Material` **outside** it
+    /// (`navigation_bar.dart:285`), so the background runs behind the gesture bar and
+    /// only the destinations are held clear of it. Padding the whole bar from outside
+    /// gives the opposite picture: a bar that stops short of the edge with a strip of
+    /// the screen behind it showing through.
+    ///
+    /// The top intrusion is never consumed here. A shell removes it before handing the
+    /// slot over (`scaffold.dart:3169`), and a bar along the bottom of a screen has
+    /// nothing above it to keep clear of anyway.
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        // The bar keeps the height a labelled destination needs as soon as **any** of
+        // them is labelled: under [`RailLabels::Selected`] only one is at a time, and a
+        // bar that resized as the selection moved would shift the page under it.
+        let label =
+            (self.labels != RailLabels::None).then(|| label_style(self.label_text_style, theme));
+        let safe = crate::MediaQuery::of().padding;
         Style {
-            height: Dimension::Length(BAR_HEIGHT),
+            height: Dimension::Length(item_height(BAR_HEIGHT, label.as_ref(), false) + safe.bottom),
+            padding: Insets::new(0.0, safe.right, safe.bottom, safe.left),
             flex_direction: FlexDirection::Row,
             justify: Justify::SpaceAround,
             align: Align::Stretch,
             ..Default::default()
         }
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for BottomBar<Msg> {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -290,6 +1597,14 @@ impl<Msg: Clone> Widget<Msg> for BottomBar<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        // The bar's own surface, a rung above the rail's: it stands on the page rather
+        // than beside it (`navigation_bar.dart:1440`).
+        let fill = self
+            .background
+            .or(theme.widgets.nav_rail.bar_background_color)
+            .unwrap_or(theme.scheme.surface_container);
+        scene.fill_rect(bounds, fill.fade(status.opacity));
+
         // Horizontal separator on the top edge.
         scene.fill_rect(
             Rect::new(bounds.x, bounds.y, bounds.width, 1.0),
@@ -311,13 +1626,1481 @@ mod tests {
         Go(usize),
     }
 
+    /// The **surface each of the two navigation widgets stands on**.
+    ///
+    /// Neither painted one until milestone 427: they drew a hairline and let whatever was
+    /// behind them show through, so a bar sitting on a page was the page with a line above
+    /// it. The reference gives the rail `surface` (`navigation_rail.dart:1202`) and the bar
+    /// `surface_container` (`navigation_bar.dart:1440`) — a rung apart, because a bar
+    /// stands *on* the page and a rail stands beside it.
+    #[test]
+    fn a_bar_and_a_rail_each_paint_the_rung_they_stand_on() {
+        let theme = Theme::default();
+        let bar = BottomBar::new(0, Msg::Go).item("H", "Home");
+        let rail = NavigationRail::new(0, Msg::Go).item("H", "Home");
+        let bar_box = Rect::new(0.0, 0.0, 320.0, BAR_HEIGHT);
+        let rail_box = Rect::new(0.0, 0.0, RAIL_WIDTH, 600.0);
+
+        assert_eq!(
+            surface_of(&bar, bar_box, &theme),
+            Some(theme.scheme.surface_container),
+            "a bar stands on the page"
+        );
+        assert_eq!(
+            surface_of(&rail, rail_box, &theme),
+            Some(theme.scheme.surface),
+            "a rail stands beside it"
+        );
+        assert_ne!(
+            theme.scheme.surface_container, theme.scheme.surface,
+            "the two rungs have to be tellable apart for the assertions above to mean \
+             anything"
+        );
+    }
+
+    /// The caller outranks the theme and the theme outranks the rung — both surfaces.
+    #[test]
+    fn the_caller_and_the_theme_outrank_the_rung() {
+        let mut theme = Theme::default();
+        theme.widgets.nav_rail.background_color = Some(Color::rgb8(1, 2, 3));
+        theme.widgets.nav_rail.bar_background_color = Some(Color::rgb8(4, 5, 6));
+        let bar_box = Rect::new(0.0, 0.0, 320.0, BAR_HEIGHT);
+        let rail_box = Rect::new(0.0, 0.0, RAIL_WIDTH, 600.0);
+
+        let bar = BottomBar::new(0, Msg::Go).item("H", "Home");
+        let rail = NavigationRail::new(0, Msg::Go).item("H", "Home");
+        assert_eq!(
+            surface_of(&bar, bar_box, &theme),
+            Some(Color::rgb8(4, 5, 6))
+        );
+        assert_eq!(
+            surface_of(&rail, rail_box, &theme),
+            Some(Color::rgb8(1, 2, 3))
+        );
+
+        let told = Color::rgb8(7, 8, 9);
+        let bar = BottomBar::new(0, Msg::Go)
+            .item("H", "Home")
+            .background(told);
+        let rail = NavigationRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .background(told);
+        assert_eq!(surface_of(&bar, bar_box, &theme), Some(told));
+        assert_eq!(surface_of(&rail, rail_box, &theme), Some(told));
+    }
+
+    /// The colour of the first rect covering the whole box — the widget's own surface,
+    /// drawn before the hairline that sits on one edge of it.
+    fn surface_of(widget: &dyn Widget<Msg>, bounds: Rect, theme: &Theme) -> Option<Color> {
+        let mut scene = Scene::new();
+        widget.paint(bounds, Status::default(), theme, &mut scene);
+        scene.primitives().iter().find_map(|p| match p {
+            frus_core::Primitive::Rect { rect, color, .. }
+                if rect.width == bounds.width && rect.height == bounds.height =>
+            {
+                Some(*color)
+            }
+            _ => None,
+        })
+    }
+
+    /// One destination, painted.
+    fn destination(rail: bool, selected: bool, badge: Option<u32>, theme: &Theme) -> Scene {
+        labelled(rail, selected, badge, true, theme)
+    }
+
+    /// The same, saying whether the destination shows its label.
+    fn labelled(
+        rail: bool,
+        selected: bool,
+        badge: Option<u32>,
+        show_label: bool,
+        theme: &Theme,
+    ) -> Scene {
+        painted(rail, selected, badge, show_label, false, theme)
+    }
+
+    /// The same again, saying whether the rail it stands in is **extended** — which
+    /// widens its box and moves its label beside the glyph.
+    fn painted(
+        rail: bool,
+        selected: bool,
+        badge: Option<u32>,
+        show_label: bool,
+        extended: bool,
+        theme: &Theme,
+    ) -> Scene {
+        let item = row(rail, show_label, extended, None);
+        let width = if extended {
+            EXTENDED_RAIL_WIDTH
+        } else {
+            RAIL_WIDTH
+        };
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            &NavItem {
+                selected,
+                badge,
+                ..item
+            },
+            Rect::new(0.0, 0.0, width, ITEM_HEIGHT),
+            Status {
+                opacity: 1.0,
+                ..Default::default()
+            },
+            theme,
+            &mut scene,
+        );
+        scene
+    }
+
+    use crate::interaction::Interaction;
+
+    /// **A destination can carry a colour per state** (`navigation_bar.dart:232`), which
+    /// nothing here could say until milestone 447: the framework's rule was one lerp
+    /// towards `primary` at three fixed opacities, right for a state layer and no answer
+    /// at all for a caller who wants a particular colour in a particular state.
+    ///
+    /// The resolved colour is an overlay as the reference means it: its alpha is how far
+    /// the ground moves, its colour is where it moves to.
+    #[test]
+    fn a_destination_may_carry_a_colour_per_state() {
+        let theme = Theme::dark();
+        let told = Color::rgb8(10, 200, 90).fade(0.5);
+        let item = NavItem::<Msg> {
+            overlay_color: Some(WidgetStateProperty::new().when(crate::WidgetState::Hovered, told)),
+            ..row(true, true, false, None)
+        };
+        let ground = theme.scheme.surface;
+
+        let hovered = pill_of(&item, Interaction::Hovered, &theme);
+        assert_eq!(
+            hovered,
+            Some(ground.lerp(told.fade(1.0), told.a)),
+            "the caller's colour, at the caller's strength"
+        );
+        assert_ne!(
+            hovered,
+            Some(theme.state_layer(
+                ground,
+                theme.scheme.primary,
+                &Status {
+                    interaction: Interaction::Hovered,
+                    hover_progress: 1.0,
+                    ..Default::default()
+                }
+            )),
+            "and not the framework's own"
+        );
+    }
+
+    /// And **a state the property says nothing about falls back** to the state layer.
+    /// Naming one state is not a way of silencing the rest — a property that answers
+    /// `None` means *say nothing*, as the reference's nullable properties do.
+    #[test]
+    fn an_unnamed_state_still_gets_the_framework_s_layer() {
+        let theme = Theme::dark();
+        let item = NavItem::<Msg> {
+            overlay_color: Some(WidgetStateProperty::new().when(
+                crate::WidgetState::Pressed,
+                Color::rgb8(10, 200, 90).fade(0.5),
+            )),
+            ..row(true, true, false, None)
+        };
+        let plain = NavItem::<Msg> {
+            overlay_color: None,
+            ..row(true, true, false, None)
+        };
+        assert_eq!(
+            pill_of(&item, Interaction::Hovered, &theme),
+            pill_of(&plain, Interaction::Hovered, &theme),
+            "hovered was never named, so the state layer answers"
+        );
+        assert_ne!(
+            pill_of(&item, Interaction::Pressed, &theme),
+            pill_of(&plain, Interaction::Pressed, &theme),
+            "and held, which was named, does not"
+        );
+    }
+
+    /// **And a theme can hold one**, which is where the reference keeps most of them
+    /// (`NavigationBarThemeData.overlayColor`, and every button theme). It could not
+    /// until milestone 448: `WidgetThemes` derived `Copy`, and a property owns a `Vec`.
+    ///
+    /// Three rungs, as everywhere else here — the destination's word, then the theme's,
+    /// then the framework's state layer.
+    #[test]
+    fn a_theme_answers_for_every_destination_and_one_may_still_answer_for_itself() {
+        let told = Color::rgb8(10, 200, 90).fade(0.5);
+        let mine = Color::rgb8(200, 10, 90).fade(0.25);
+        let mut theme = Theme::dark();
+        theme.widgets.nav_rail.overlay_color =
+            Some(WidgetStateProperty::new().when(crate::WidgetState::Hovered, told));
+        let ground = theme.scheme.surface;
+
+        let plain = row(true, true, false, None);
+        assert_eq!(
+            pill_of(&plain, Interaction::Hovered, &theme),
+            Some(ground.lerp(told.fade(1.0), told.a)),
+            "a destination that said nothing takes the theme's word"
+        );
+
+        let own = NavItem::<Msg> {
+            overlay_color: Some(WidgetStateProperty::new().when(crate::WidgetState::Hovered, mine)),
+            ..row(true, true, false, None)
+        };
+        assert_eq!(
+            pill_of(&own, Interaction::Hovered, &theme),
+            Some(ground.lerp(mine.fade(1.0), mine.a)),
+            "and one that said something outranks it"
+        );
+    }
+
+    /// A state **neither of them named** still falls through to the state layer: a
+    /// property that matches no entry says nothing, and saying nothing is not an answer.
+    #[test]
+    fn a_state_neither_rung_names_falls_through() {
+        let mut theme = Theme::dark();
+        theme.widgets.nav_rail.overlay_color = Some(WidgetStateProperty::new().when(
+            crate::WidgetState::Pressed,
+            Color::rgb8(10, 200, 90).fade(0.5),
+        ));
+        let bare = Theme::dark();
+        let item = row(true, true, false, None);
+        assert_eq!(
+            pill_of(&item, Interaction::Hovered, &theme),
+            pill_of(&item, Interaction::Hovered, &bare),
+            "hovered was never named by either rung"
+        );
+    }
+
+    /// **A selected destination's indicator is a pill, and now it can say so**
+    /// (`navigation_rail.dart:1148`).
+    ///
+    /// It painted one before — as `pill_h * 0.5`, the arithmetic a stadium does written
+    /// out at the call site. A caller who wanted a rounded box, or a circle, had nowhere
+    /// to put the word, and the shape had to be read back out of a number.
+    #[test]
+    fn an_indicator_is_a_pill_unless_it_is_told_otherwise() {
+        let theme = Theme::dark();
+        let pill = indicator(&row_selected(None), &theme).expect("a selected destination");
+        assert!(
+            (pill.1.top_left - pill.0.height * 0.5).abs() < 0.01,
+            "a stadium's radius is half its short side: {pill:?}"
+        );
+
+        // A caller's own shape, over it.
+        let boxed = indicator(&row_selected(Some(ShapeBorder::rounded(4.0))), &theme)
+            .expect("still painted");
+        assert_eq!(boxed.1, frus_core::BorderRadius::uniform(4.0));
+
+        // And a circle takes a square out of the middle rather than filling the box.
+        let round =
+            indicator(&row_selected(Some(ShapeBorder::circle())), &theme).expect("still painted");
+        assert_eq!(
+            round.0.width, round.0.height,
+            "a circle is square: {round:?}"
+        );
+        assert!(
+            round.0.width < pill.0.width,
+            "and narrower than the pill it replaced"
+        );
+    }
+
+    /// And the **theme** answers for every destination at once, under each one's own word
+    /// — the three rungs this framework resolves everything on.
+    #[test]
+    fn a_theme_shapes_every_indicator_and_one_may_still_differ() {
+        let mut theme = Theme::dark();
+        theme.widgets.nav_rail.indicator_shape = Some(ShapeBorder::rounded(2.0));
+        assert_eq!(
+            indicator(&row_selected(None), &theme).unwrap().1,
+            frus_core::BorderRadius::uniform(2.0),
+            "the theme's word"
+        );
+        assert_eq!(
+            indicator(&row_selected(Some(ShapeBorder::rounded(9.0))), &theme)
+                .unwrap()
+                .1,
+            frus_core::BorderRadius::uniform(9.0),
+            "and one destination still answers for itself"
+        );
+    }
+
+    /// A selected destination, with an indicator shape or without one.
+    fn row_selected(shape: Option<ShapeBorder>) -> NavItem<Msg> {
+        NavItem::<Msg> {
+            selected: true,
+            indicator_shape: shape,
+            ..row(true, true, false, None)
+        }
+    }
+
+    /// The box and the corners the indicator was actually painted with.
+    fn indicator(item: &NavItem<Msg>, theme: &Theme) -> Option<(Rect, frus_core::BorderRadius)> {
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            item,
+            Rect::new(0.0, 0.0, RAIL_WIDTH, ITEM_HEIGHT),
+            Status {
+                opacity: 1.0,
+                ..Default::default()
+            },
+            theme,
+            &mut scene,
+        );
+        scene.primitives().iter().find_map(|p| match p {
+            frus_core::Primitive::Rect { rect, radius, .. } if rect.height < ITEM_HEIGHT => {
+                Some((*rect, *radius))
+            }
+            _ => None,
+        })
+    }
+
+    /// The pill this destination paints under its glyph, in a given interaction — or
+    /// `None` when it paints none at all, which is what a resting unselected one does.
+    fn pill_of(item: &NavItem<Msg>, interaction: Interaction, theme: &Theme) -> Option<Color> {
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            item,
+            Rect::new(0.0, 0.0, RAIL_WIDTH, ITEM_HEIGHT),
+            Status {
+                opacity: 1.0,
+                interaction,
+                hover_progress: 1.0,
+                press_progress: if interaction == Interaction::Pressed {
+                    1.0
+                } else {
+                    0.0
+                },
+                ..Default::default()
+            },
+            theme,
+            &mut scene,
+        );
+        scene.primitives().iter().find_map(|p| match p {
+            frus_core::Primitive::Rect { rect, color, .. } if rect.height < ITEM_HEIGHT => {
+                Some(*color)
+            }
+            _ => None,
+        })
+    }
+
+    /// One destination, unpainted — the thing whose style the layout reads.
+    fn row(
+        rail: bool,
+        show_label: bool,
+        extended: bool,
+        label_style: Option<TextStyle>,
+    ) -> NavItem<Msg> {
+        NavItem::<Msg> {
+            icon: "H".into(),
+            label: "Home".into(),
+            selected: false,
+            badge: None,
+            rail,
+            show_label,
+            extended,
+            disabled: false,
+            indicator_color: None,
+            indicator_shape: None,
+            overlay_color: None,
+            use_indicator: true,
+            ground: None,
+            label_text_style: label_style,
+            badge_text_style: None,
+            index: 0,
+            count: 1,
+            message: Msg::Go(0),
+        }
+    }
+
+    /// Every text primitive in a scene, with where it was drawn.
+    fn placed(scene: &Scene) -> Vec<(String, Point)> {
+        scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Text { text, position, .. } => {
+                    Some((text.clone(), *position))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn rects(scene: &Scene) -> Vec<Color> {
+        scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Rect { color, .. } => Some(*color),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn texts(scene: &Scene) -> Vec<Color> {
+        scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Text { color, .. } => Some(*color),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A destination's colours, each against the role the reference names.
+    ///
+    /// The indicator is the one that mattered most: it was `primary` at 16 %, which was
+    /// the wrong **role** and the wrong **kind** of colour at once — a translucent fill
+    /// blends in linear light here, so 16 % never painted at 16 %.
+    #[test]
+    fn a_destination_takes_the_roles_the_reference_names() {
+        let theme = Theme::default();
+
+        let on = destination(false, true, None, &theme);
+        assert_eq!(
+            rects(&on).first().copied(),
+            Some(theme.scheme.secondary_container),
+            "the indicator is an opaque container (`navigation_bar.dart:1463`)"
+        );
+        assert_eq!(
+            texts(&on),
+            vec![theme.scheme.on_secondary_container, theme.scheme.on_surface],
+            "the glyph is the indicator's content, the label is the surface's"
+        );
+        assert_ne!(
+            theme.scheme.on_secondary_container, theme.scheme.on_surface,
+            "the two have to differ for that split to be worth making"
+        );
+
+        let off = destination(false, false, None, &theme);
+        assert!(rects(&off).is_empty(), "nothing behind an unselected one");
+        assert_eq!(
+            texts(&off),
+            vec![
+                theme.scheme.on_surface_variant,
+                theme.scheme.on_surface_variant
+            ]
+        );
+    }
+
+    /// The one question the reference answers differently for the two widgets: an
+    /// unselected label is `on_surface` on a rail (`navigation_rail.dart:1251`) and
+    /// `on_surface_variant` on a bar (`navigation_bar.dart:1477`).
+    #[test]
+    fn a_rail_and_a_bar_part_company_on_one_colour() {
+        let theme = Theme::default();
+        let rail = texts(&destination(true, false, None, &theme));
+        let bar = texts(&destination(false, false, None, &theme));
+        assert_eq!(rail[1], theme.scheme.on_surface);
+        assert_eq!(bar[1], theme.scheme.on_surface_variant);
+        assert_eq!(rail[0], bar[0], "and agree on the glyph");
+    }
+
+    /// **One badge, one theme.** The rail drew its own red on the reasoning that an alert
+    /// dot reads as red whatever the theme; the [`Badge`](crate::Badge) widget beside it
+    /// already answered the same question from the scheme. Two badges in one framework
+    /// painting different reds was the part that was actually wrong.
+    #[test]
+    fn the_rail_s_badge_is_the_badge_widget_s_badge() {
+        let mut theme = Theme::default();
+        let scene = destination(false, false, Some(3), &theme);
+        assert_eq!(rects(&scene).first().copied(), Some(theme.scheme.error));
+        assert_eq!(
+            texts(&scene).last().copied(),
+            Some(theme.scheme.on_error),
+            "the count is what is legible on it"
+        );
+
+        let told = Color::rgb8(1, 2, 3);
+        theme.widgets.badge.background_color = Some(told);
+        assert_eq!(
+            rects(&destination(false, false, Some(3), &theme))
+                .first()
+                .copied(),
+            Some(told),
+            "and recolouring badges recolours this one too"
+        );
+    }
+
+    /// Which destinations name themselves, under each of the three modes.
+    fn labelled_indices(labels: RailLabels, count: usize, selected: usize) -> Vec<usize> {
+        (0..count).filter(|&i| labels.shows(i, selected)).collect()
+    }
+
+    /// The three modes, and the two **different defaults** the reference gives the two
+    /// widgets (`navigation_rail.dart:1238` against `navigation_bar.dart:1388`).
+    ///
+    /// The asymmetry is the part worth holding onto: a rail stands beside a page it does
+    /// not own and glyphs alone keep it narrow, a bar owns the bottom of the screen and
+    /// has the room to say what its destinations are.
+    #[test]
+    fn a_rail_and_a_bar_start_from_opposite_defaults() {
+        assert_eq!(
+            labelled_indices(RailLabels::None, 3, 1),
+            Vec::<usize>::new()
+        );
+        assert_eq!(labelled_indices(RailLabels::Selected, 3, 1), vec![1]);
+        assert_eq!(labelled_indices(RailLabels::All, 3, 1), vec![0, 1, 2]);
+
+        let rail = NavigationRail::new(0, Msg::Go).item("H", "Home");
+        let bar = BottomBar::new(0, Msg::Go).item("H", "Home");
+        assert_eq!(
+            rail.labels,
+            RailLabels::None,
+            "a rail says nothing until asked"
+        );
+        assert_eq!(bar.labels, RailLabels::All, "a bar says everything");
+    }
+
+    /// A destination with no label paints no label — and centres the glyph on its own
+    /// rather than leaving it where it sat when there was something below it.
+    #[test]
+    fn a_silent_destination_centres_its_glyph() {
+        let theme = Theme::default();
+        let with = labelled(true, false, None, true, &theme);
+        let without = labelled(true, false, None, false, &theme);
+
+        let glyph_y = |scene: &Scene| {
+            scene.primitives().iter().find_map(|p| match p {
+                frus_core::Primitive::Text { position, .. } => Some(position.y),
+                _ => None,
+            })
+        };
+        assert_eq!(
+            without
+                .primitives()
+                .iter()
+                .filter(|p| matches!(p, frus_core::Primitive::Text { .. }))
+                .count(),
+            1,
+            "the glyph and nothing else"
+        );
+        assert_eq!(texts(&with).len(), 2, "the glyph and its label");
+        assert!(
+            glyph_y(&without) > glyph_y(&with),
+            "and the glyph moved down into the room the label was using"
+        );
+    }
+
+    /// The row keeps its height when the label goes.
+    ///
+    /// Under [`RailLabels::Selected`] exactly one destination is labelled at a time, so a
+    /// row that shrank without one would move every destination in the rail the first
+    /// time the selection changed.
+    #[test]
+    fn a_row_does_not_shrink_when_its_label_goes() {
+        let theme = Theme::default();
+        let height = |show_label: bool| {
+            let item = row(true, show_label, false, None);
+            match Widget::<Msg>::style_themed(&item, &theme).height {
+                Dimension::Length(h) => h,
+                other => panic!("a rail row names its height, got {other:?}"),
+            }
+        };
+        assert_eq!(height(true), height(false));
+    }
+
+    /// The one rectangle a destination paints under itself, if it paints one.
+    fn layer(rail: &NavigationRail<Msg>, status: Status, theme: &Theme) -> Option<Color> {
+        rects(&paint_destination(rail, 0, status, theme))
+            .first()
+            .copied()
+    }
+
+    /// **A state layer is opaque, and it is a lerp from the ground** (milestone 437).
+    ///
+    /// This painted `muted` at 12 % handed to the GPU as an alpha, which is three
+    /// mistakes in one line: the wrong *kind* of colour, since a translucent overlay
+    /// blends in linear light here and 12 % paints like a third (milestone 329); the
+    /// wrong *role*, the reference's ink for this widget being `primary`
+    /// (`navigation_rail.dart:946`); and the wrong *number*, 12 % being the splash's
+    /// (`:943`) rather than the hover's.
+    #[test]
+    fn a_destination_s_state_layer_is_opaque_and_starts_from_the_ground() {
+        let theme = Theme::default();
+        let rail = NavigationRail::new(9, Msg::Go).item("H", "Home");
+        let painted = layer(&rail, hovered(), &theme).expect("a hovered destination lights");
+        assert_eq!(painted.a, 1.0, "resolved here, not handed over as an alpha");
+        assert_eq!(
+            painted,
+            theme.state_layer(theme.scheme.surface, theme.scheme.primary, &hovered()),
+            "the framework's one state rule, over the rail's own rung"
+        );
+        assert_eq!(
+            layer(&rail, live(), &theme),
+            None,
+            "and nothing at rest, which is what it has always drawn"
+        );
+    }
+
+    /// It starts from the ground the widget **actually painted**: the two widgets stand on
+    /// different rungs (milestone 427), and either can be told a third colour.
+    #[test]
+    fn the_layer_starts_from_the_ground_the_widget_painted() {
+        let theme = Theme::default();
+        let rail = NavigationRail::new(9, Msg::Go).item("H", "Home");
+        let on_rail = layer(&rail, hovered(), &theme).expect("lit");
+
+        let mut bar_scene = Scene::new();
+        let bar = BottomBar::new(9, Msg::Go).item("H", "Home");
+        Widget::<Msg>::children(&bar)[0].paint(
+            Rect::new(0.0, 0.0, RAIL_WIDTH, BAR_HEIGHT),
+            hovered(),
+            &theme,
+            &mut bar_scene,
+        );
+        let on_bar = rects(&bar_scene).first().copied().expect("lit");
+        assert_ne!(
+            on_rail, on_bar,
+            "a bar stands a rung above a rail, so its layer starts higher"
+        );
+
+        let told = Color::rgb8(120, 20, 20);
+        let painted = NavigationRail::new(9, Msg::Go)
+            .item("H", "Home")
+            .background(told);
+        assert_eq!(
+            layer(&painted, hovered(), &theme),
+            Some(theme.state_layer(told, theme.scheme.primary, &hovered())),
+            "and a rail told a colour is the colour its destinations stand on"
+        );
+    }
+
+    /// **A selected destination lights too.** The old branch answered hover only when
+    /// there was no indicator, so the one destination a pointer is most likely to be over
+    /// was the one that never responded.
+    #[test]
+    fn a_selected_destination_lights_under_the_pointer_too() {
+        let theme = Theme::default();
+        let rail = NavigationRail::new(0, Msg::Go).item("H", "Home");
+        let resting = layer(&rail, live(), &theme).expect("the indicator");
+        let lit = layer(&rail, hovered(), &theme).expect("the indicator, plus the layer");
+        assert_eq!(resting, theme.scheme.secondary_container);
+        assert_ne!(lit, resting, "the indicator takes the layer over it");
+        assert_eq!(
+            lit,
+            theme.state_layer(
+                theme.scheme.secondary_container,
+                theme.scheme.primary,
+                &hovered()
+            )
+        );
+    }
+
+    /// And **focus and press** light it as well, which nothing did before: the old line
+    /// read `hover_progress` alone, where the theme's rule answers all three states.
+    #[test]
+    fn focus_and_press_light_it_as_well() {
+        let theme = Theme::default();
+        let rail = NavigationRail::new(9, Msg::Go).item("H", "Home");
+        let focused = Status {
+            focus_progress: 1.0,
+            ..live()
+        };
+        let pressed = Status {
+            press_progress: 1.0,
+            ..live()
+        };
+        assert!(layer(&rail, focused, &theme).is_some(), "focus");
+        assert!(layer(&rail, pressed, &theme).is_some(), "press");
+        assert!(
+            layer(&rail, live(), &theme).is_none(),
+            "and still nothing at rest"
+        );
+    }
+
+    /// Nothing lights on a destination that cannot be reached, in any of the three states:
+    /// a state layer is the promise of an interaction, and there is none here.
+    #[test]
+    fn a_disabled_destination_lights_in_no_state_at_all() {
+        let theme = Theme::default();
+        let rail = NavigationRail::new(9, Msg::Go).item("H", "Home").disabled();
+        for status in [
+            hovered(),
+            Status {
+                focus_progress: 1.0,
+                ..live()
+            },
+            Status {
+                press_progress: 1.0,
+                ..live()
+            },
+        ] {
+            assert_eq!(layer(&rail, status, &theme), None);
+        }
+    }
+
+    /// **The wide form.** An extended rail puts each label beside its glyph rather than
+    /// under it (`navigation_rail.dart:796`), and the glyph keeps the 80-pixel column it
+    /// had (`:753`) — so extending a rail widens it and moves nothing.
+    #[test]
+    fn an_extended_rail_puts_the_label_beside_the_glyph() {
+        let theme = Theme::default();
+        let under = placed(&painted(true, false, None, true, false, &theme));
+        let beside = placed(&painted(true, false, None, true, true, &theme));
+        assert_eq!(under.len(), 2, "the glyph and its label");
+        assert_eq!(beside.len(), 2);
+
+        assert!(
+            under[1].1.y > under[0].1.y + frus_text::line_height(ICON_SIZE),
+            "unextended, the label is clear of the glyph's line"
+        );
+        assert!(
+            beside[1].1.x >= RAIL_WIDTH,
+            "extended, the label starts where the glyph's column ends, not at x = {}",
+            beside[1].1.x
+        );
+        assert!(
+            beside[1].1.y > beside[0].1.y
+                && beside[1].1.y < beside[0].1.y + frus_text::line_height(ICON_SIZE),
+            "extended, the two stand on one line: {} against {}",
+            beside[1].1.y,
+            beside[0].1.y
+        );
+        assert!(
+            (beside[0].1.x - under[0].1.x).abs() < 0.01,
+            "and the glyph kept its column: {} against {}",
+            beside[0].1.x,
+            under[0].1.x
+        );
+    }
+
+    /// An extended row is **wider, not taller**: the label left the column, so the row is
+    /// as tall as the taller of the two rather than as tall as both.
+    ///
+    /// Asked with a label big enough to beat the row's constant floor, which is what
+    /// makes the two numbers differ at all.
+    #[test]
+    fn an_extended_row_is_wider_and_not_taller() {
+        let theme = Theme::default();
+        let big = Some(TextStyle {
+            size: Some(40.0),
+            ..Default::default()
+        });
+        let size = |extended: bool| {
+            let style = Widget::<Msg>::style_themed(&row(true, true, extended, big), &theme);
+            match (style.width, style.height) {
+                (Dimension::Length(w), Dimension::Length(h)) => (w, h),
+                other => panic!("a rail row names both of its sides, got {other:?}"),
+            }
+        };
+        let (narrow, tall) = size(false);
+        let (wide, short) = size(true);
+        assert_eq!(narrow, RAIL_WIDTH);
+        assert_eq!(wide, EXTENDED_RAIL_WIDTH);
+        assert!(
+            short < tall,
+            "the label moved out of the column and the row did not follow it: {short} \
+             against {tall}"
+        );
+    }
+
+    /// And it labels **every** destination, whatever the rail's label mode says
+    /// (`navigation_rail.dart:219`): the label has room of its own there, so there is
+    /// nothing for a mode to trade away.
+    #[test]
+    fn an_extended_rail_labels_every_destination() {
+        let theme = Theme::default();
+        let rail = NavigationRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .item("S", "Search")
+            .labels(RailLabels::None)
+            .extended(true);
+        for destination in destinations(&rail) {
+            let mut scene = Scene::new();
+            destination.paint(
+                Rect::new(0.0, 0.0, EXTENDED_RAIL_WIDTH, ITEM_HEIGHT),
+                Status::default(),
+                &theme,
+                &mut scene,
+            );
+            assert_eq!(
+                placed(&scene).len(),
+                2,
+                "an extended destination says what it is even under RailLabels::None"
+            );
+        }
+    }
+
+    /// The rail, in a window tall enough for its destinations to have somewhere to go.
+    fn glyph_ys(rail: NavigationRail<Msg>) -> Vec<f32> {
+        marks(rail)
+            .into_iter()
+            .filter(|(text, _)| text == "H" || text == "S")
+            .map(|(_, y)| y)
+            .collect()
+    }
+
+    /// Everything one chrome painted, for a scene a test can ask questions of.
+    fn scene_of(widget: impl Widget<Msg> + 'static, w: f32, h: f32) -> Vec<frus_core::Primitive> {
+        let root = crate::Flex::row().width(w).height(h).child(widget);
+        crate::build_ui(
+            &root as &dyn Widget<Msg>,
+            crate::Size::new(w, h),
+            &crate::Runtime::default(),
+            &Theme::default(),
+        )
+        .scene()
+        .primitives()
+        .to_vec()
+    }
+
+    /// How many filled paths a scene holds — a drawn icon is one, and a glyph is none.
+    fn drawn_icons(prims: &[frus_core::Primitive]) -> usize {
+        prims
+            .iter()
+            .filter(|p| matches!(p, frus_core::Primitive::Path { fill: Some(_), .. }))
+            .count()
+    }
+
+    /// A destination is a **value**, and says what it was told.
+    #[test]
+    fn a_destination_carries_what_it_was_given() {
+        let inbox = NavigationDestination::new(crate::Icons::MAIL_OUTLINE, "Inbox")
+            .selected_icon(crate::Icons::MAIL)
+            .badge(3)
+            .tooltip("Unread messages")
+            .disabled();
+        assert_eq!(inbox.label(), "Inbox");
+        assert_eq!(inbox.badge, Some(3));
+        assert_eq!(inbox.tooltip.as_deref(), Some("Unread messages"));
+        assert!(inbox.disabled);
+        // The resting mark and the selected one are different marks, which is the whole
+        // point of having both.
+        assert_eq!(
+            inbox.glyph(false),
+            &DestinationIcon::Icon(crate::Icons::MAIL_OUTLINE)
+        );
+        assert_eq!(
+            inbox.glyph(true),
+            &DestinationIcon::Icon(crate::Icons::MAIL)
+        );
+        // With no selected mark, both states are the resting one.
+        let plain = NavigationDestination::new("H", "Home");
+        assert_eq!(plain.glyph(true), plain.glyph(false));
+    }
+
+    /// A mark is an icon **or** a glyph, and neither has to be named at the call site.
+    #[test]
+    fn a_mark_is_an_icon_or_a_glyph() {
+        assert_eq!(
+            DestinationIcon::from(crate::Icons::HOME),
+            DestinationIcon::Icon(crate::Icons::HOME)
+        );
+        assert_eq!(
+            DestinationIcon::from("🏠"),
+            DestinationIcon::Glyph("🏠".to_string())
+        );
+        assert_eq!(
+            DestinationIcon::from('★'),
+            DestinationIcon::Glyph("★".to_string())
+        );
+        assert_eq!(
+            DestinationIcon::from("H".to_string()),
+            DestinationIcon::Glyph("H".to_string())
+        );
+        // A drawn icon is a square of its own size; a glyph is whatever the font makes of
+        // it. The two cannot share one number, which is why `measure` asks the mark.
+        let square = DestinationIcon::from(crate::Icons::HOME).measure(24.0);
+        assert_eq!((square.width, square.height), (24.0, 24.0));
+        // An unnamed mark draws nothing rather than a placeholder of our choosing.
+        let nothing = DestinationIcon::default().measure(24.0);
+        assert_eq!(nothing.width, 0.0);
+    }
+
+    /// The destinations reach the scene as **paths** when they are drawn icons, and as
+    /// text when they are glyphs. This is the test that says an icon set arrived: before
+    /// it, a destination could only be a character.
+    #[test]
+    fn a_drawn_icon_is_painted_as_a_path_and_a_glyph_as_text() {
+        let drawn = scene_of(
+            BottomBar::new(0, Msg::Go)
+                .item(crate::Icons::HOME, "Home")
+                .item(crate::Icons::SEARCH, "Search"),
+            320.0,
+            BAR_HEIGHT,
+        );
+        assert_eq!(drawn_icons(&drawn), 2, "two destinations, two drawn icons");
+
+        let glyphs = scene_of(
+            BottomBar::new(0, Msg::Go)
+                .item("H", "Home")
+                .item("S", "Search"),
+            320.0,
+            BAR_HEIGHT,
+        );
+        assert_eq!(drawn_icons(&glyphs), 0, "a glyph is text, not a path");
+    }
+
+    /// **The convention the icon set is drawn for**: an outline at rest, the filled twin
+    /// when selected. Selecting a different destination changes which mark is painted,
+    /// which is what makes navigation readable without leaning on colour alone.
+    #[test]
+    fn a_selected_destination_shows_its_selected_mark() {
+        let bar = |selected: usize| {
+            BottomBar::new(selected, Msg::Go)
+                .item("h", "Home")
+                .selected_icon("H")
+                .item("s", "Search")
+                .selected_icon("S")
+        };
+        let marks = |selected: usize| {
+            scene_of(bar(selected), 320.0, BAR_HEIGHT)
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Text { text, .. } if text.len() == 1 => {
+                        Some(text.clone())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(marks(0), vec!["H".to_string(), "s".to_string()]);
+        assert_eq!(marks(1), vec!["h".to_string(), "S".to_string()]);
+    }
+
+    /// **One list, three chromes.** The reason a destination is a value at all: an
+    /// application that shows a bar when narrow and a rail when wide declares its
+    /// navigation once, and the two cannot drift.
+    #[test]
+    fn one_list_drives_a_bar_and_a_rail_alike() {
+        let places = || {
+            vec![
+                NavigationDestination::new(crate::Icons::HOME, "Home"),
+                NavigationDestination::new(crate::Icons::SEARCH, "Search").badge(2),
+            ]
+        };
+        let bar = scene_of(
+            BottomBar::new(1, Msg::Go).destinations(places()),
+            320.0,
+            BAR_HEIGHT,
+        );
+        let rail = scene_of(
+            NavigationRail::new(1, Msg::Go)
+                .labels(RailLabels::All)
+                .destinations(places()),
+            RAIL_WIDTH,
+            600.0,
+        );
+        // Both drew both marks…
+        assert_eq!(drawn_icons(&bar), 2);
+        assert_eq!(drawn_icons(&rail), 2);
+        // …both names, and both the same badge.
+        let words = |prims: &[frus_core::Primitive]| {
+            prims
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(words(&bar), words(&rail));
+        assert!(
+            words(&bar).contains(&"2".to_string()),
+            "the badge travelled"
+        );
+    }
+
+    /// A tooltip is a wrapper, and a wrapper must not change the shape of what it wraps:
+    /// a bar's destinations share the row whether or not they were given one.
+    #[test]
+    fn a_tooltip_does_not_move_the_destination_it_describes() {
+        let without = scene_of(
+            BottomBar::new(0, Msg::Go)
+                .item("H", "Home")
+                .item("S", "Search"),
+            320.0,
+            BAR_HEIGHT,
+        );
+        let with = scene_of(
+            BottomBar::new(0, Msg::Go)
+                .item("H", "Home")
+                .tooltip("Go home")
+                .item("S", "Search")
+                .tooltip("Find something"),
+            320.0,
+            BAR_HEIGHT,
+        );
+        let marks = |prims: &[frus_core::Primitive]| {
+            prims
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Text { text, position, .. } if text.len() == 1 => {
+                        Some((text.clone(), position.x, position.y))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            marks(&without),
+            marks(&with),
+            "a hint moved the destinations it was meant to describe"
+        );
+    }
+
+    /// Every glyph the rail painted, top to bottom, as `(text, y)`.
+    fn marks(rail: NavigationRail<Msg>) -> Vec<(String, f32)> {
+        const TALL: f32 = 600.0;
+        let root = crate::Flex::row().width(200.0).height(TALL).child(rail);
+        let ui = crate::build_ui(
+            &root as &dyn Widget<Msg>,
+            crate::Size::new(200.0, TALL),
+            &crate::Runtime::default(),
+            &Theme::default(),
+        );
+        let mut found: Vec<(String, f32)> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Text { text, position, .. } => {
+                    Some((text.clone(), position.y))
+                }
+                _ => None,
+            })
+            .collect();
+        found.sort_by(|a, b| a.1.partial_cmp(&b.1).expect("no NaN in a laid-out rail"));
+        found
+    }
+
+    /// **Where the destinations sit**, anywhere between the rail's two ends
+    /// (`navigation_rail.dart:205`).
+    ///
+    /// Continuous, which is the part a three-valued enum could not have done: `-0.5`
+    /// lands between the top and the middle rather than at one of them.
+    #[test]
+    fn the_group_travels_between_the_rail_s_ends() {
+        let at = |alignment: f32| {
+            glyph_ys(
+                NavigationRail::new(0, Msg::Go)
+                    .item("H", "Home")
+                    .item("S", "Search")
+                    .group_alignment(alignment),
+            )
+        };
+        let top = at(-1.0);
+        let quarter = at(-0.5);
+        let middle = at(0.0);
+        let bottom = at(1.0);
+        assert!(
+            top[0] < quarter[0] && quarter[0] < middle[0] && middle[0] < bottom[0],
+            "the group did not travel: {top:?} {quarter:?} {middle:?} {bottom:?}"
+        );
+        assert!(
+            (bottom[1] - bottom[0] - (top[1] - top[0])).abs() < 0.01,
+            "the group changed shape on the way: {top:?} against {bottom:?}"
+        );
+    }
+
+    /// **A pinned slot does not travel with the group.** The reference pins the leading
+    /// slot to the top and lets the trailing one travel (`navigation_rail.dart:148`,
+    /// `:158`): a leading slot is chrome at the top of the rail, a trailing one is the
+    /// tail of the list of destinations.
+    #[test]
+    fn the_leading_slot_stays_where_the_trailing_one_travels() {
+        let at = |alignment: f32| {
+            marks(
+                NavigationRail::new(0, Msg::Go)
+                    .leading(crate::text("L"))
+                    .trailing(crate::text("T"))
+                    .item("H", "Home")
+                    .group_alignment(alignment),
+            )
+        };
+        let (up, down) = (at(-1.0), at(1.0));
+        let (top, bottom) = (y_of(&up), y_of(&down));
+        assert!(
+            (top("L") - bottom("L")).abs() < 0.01,
+            "the leading slot moved with the group: {} against {}",
+            top("L"),
+            bottom("L")
+        );
+        assert!(
+            bottom("T") > top("T"),
+            "the trailing slot did not travel: {} against {}",
+            bottom("T"),
+            top("T")
+        );
+        assert!(
+            bottom("T") > bottom("H"),
+            "and it is still the tail of the list"
+        );
+        assert!(top("L") < top("H"), "the leading slot is above them");
+    }
+
+    /// And **which** of the two is pinned is the caller's to say, both ways round.
+    #[test]
+    fn and_which_of_them_is_pinned_can_be_swapped() {
+        let at = |alignment: f32| {
+            marks(
+                NavigationRail::new(0, Msg::Go)
+                    .leading(crate::text("L"))
+                    .trailing(crate::text("T"))
+                    .leading_at_top(false)
+                    .trailing_at_bottom(true)
+                    .item("H", "Home")
+                    .group_alignment(alignment),
+            )
+        };
+        let (up, down) = (at(-1.0), at(1.0));
+        let (top, bottom) = (y_of(&up), y_of(&down));
+        assert!(
+            bottom("L") > top("L"),
+            "an unpinned leading slot travels with the group"
+        );
+        assert!(
+            (top("T") - bottom("T")).abs() < 0.01,
+            "a pinned trailing slot does not: {} against {}",
+            top("T"),
+            bottom("T")
+        );
+        assert!(
+            top("T") > top("H"),
+            "and it stays below the destinations either way"
+        );
+    }
+
+    /// Reads one glyph's `y` out of what [`marks`] collected.
+    fn y_of(found: &[(String, f32)]) -> impl Fn(&str) -> f32 + '_ {
+        move |glyph| {
+            found
+                .iter()
+                .find(|(text, _)| text == glyph)
+                .unwrap_or_else(|| panic!("{glyph} was never painted, only {found:?}"))
+                .1
+        }
+    }
+
+    /// A [`Status`] a destination is actually being painted under, rather than the
+    /// default's zero opacity.
+    fn live() -> Status {
+        Status {
+            opacity: 1.0,
+            ..Default::default()
+        }
+    }
+
+    /// The same, with the pointer over it.
+    fn hovered() -> Status {
+        Status {
+            hover_progress: 1.0,
+            ..live()
+        }
+    }
+
+    /// Paints destination `index` of `rail`, in a rail-sized box.
+    fn paint_destination(
+        rail: &NavigationRail<Msg>,
+        index: usize,
+        status: Status,
+        theme: &Theme,
+    ) -> Scene {
+        let mut scene = Scene::new();
+        destinations(rail)[index].paint(
+            Rect::new(0.0, 0.0, RAIL_WIDTH, ITEM_HEIGHT),
+            status,
+            theme,
+            &mut scene,
+        );
+        scene
+    }
+
+    /// **A destination that cannot be reached says so, four ways** (milestone 436).
+    ///
+    /// The reference gives the glyph and the label one rule — `on_surface` at 38 %
+    /// (`navigation_rail.dart:717`, `:723`) — and hands the ink well a null `onTap`
+    /// (`:957`). The hover and the focus follow from there rather than from a fifth
+    /// property: a hover is the promise of a click, and there is no click here.
+    #[test]
+    fn a_destination_that_cannot_be_reached_says_so() {
+        let theme = Theme::default();
+        // 9 with two destinations: nothing selected, so no indicator confuses the count.
+        let rail = NavigationRail::new(9, Msg::Go)
+            .labels(RailLabels::All)
+            .item("H", "Home")
+            .disabled();
+        let item = &destinations(&rail)[0];
+        assert_eq!(item.on_click(), None, "it emits nothing");
+        assert!(!item.focusable(), "and the keyboard steps over it");
+
+        let ink = disabled_content(&theme);
+        assert_eq!(
+            texts(&paint_destination(&rail, 0, live(), &theme)),
+            vec![ink, ink],
+            "one rule for the glyph and for the label"
+        );
+        assert!(
+            rects(&paint_destination(&rail, 0, hovered(), &theme)).is_empty(),
+            "and nothing lights under the pointer"
+        );
+
+        // Which means something only if a live one does all four.
+        let live_rail = NavigationRail::new(9, Msg::Go)
+            .labels(RailLabels::All)
+            .item("H", "Home");
+        let live_item = &destinations(&live_rail)[0];
+        assert_eq!(live_item.on_click(), Some(Msg::Go(0)));
+        assert!(live_item.focusable());
+        assert_ne!(
+            texts(&paint_destination(&live_rail, 0, live(), &theme))[0],
+            ink
+        );
+        assert!(!rects(&paint_destination(&live_rail, 0, hovered(), &theme)).is_empty());
+    }
+
+    /// **A selected destination can show a different glyph** (`navigation_rail.dart:1132`).
+    ///
+    /// The reference pairs a stroked icon with its filled version, which is how a
+    /// selected destination reads as selected without leaning on colour alone.
+    #[test]
+    fn a_selected_destination_can_show_a_different_glyph() {
+        let theme = Theme::default();
+        let glyph = |selected: usize| {
+            let rail = NavigationRail::new(selected, Msg::Go)
+                .item("H", "Home")
+                .selected_icon("\u{2605}")
+                .item("S", "Search");
+            placed(&paint_destination(&rail, 0, live(), &theme))[0]
+                .0
+                .clone()
+        };
+        assert_eq!(glyph(1), "H", "at rest, the one it was given");
+        assert_eq!(glyph(0), "\u{2605}", "selected, the other one");
+
+        // A destination that names no second glyph keeps its first in both states.
+        let plain = |selected: usize| {
+            let rail = NavigationRail::new(selected, Msg::Go).item("H", "Home");
+            placed(&paint_destination(&rail, 0, live(), &theme))[0]
+                .0
+                .clone()
+        };
+        assert_eq!(plain(0), plain(1));
+    }
+
+    /// **A destination's own indicator colour outranks the theme's**
+    /// (`navigation_rail.dart:1144`) — how one entry marks itself out from the rest.
+    #[test]
+    fn a_destination_can_carry_its_own_indicator_colour() {
+        let mut theme = Theme::default();
+        theme.widgets.nav_rail.indicator_color = Some(Color::rgb8(1, 2, 3));
+        let told = Color::rgb8(4, 5, 6);
+
+        let mine = NavigationRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .indicator_color(told);
+        assert_eq!(
+            rects(&paint_destination(&mine, 0, live(), &theme))
+                .first()
+                .copied(),
+            Some(told)
+        );
+
+        let theirs = NavigationRail::new(0, Msg::Go).item("H", "Home");
+        assert_eq!(
+            rects(&paint_destination(&theirs, 0, live(), &theme))
+                .first()
+                .copied(),
+            Some(Color::rgb8(1, 2, 3)),
+            "and the theme's when the destination says nothing"
+        );
+    }
+
+    /// The rail's destinations, which since milestone 433 sit inside the **group** that
+    /// [`NavigationRail::group_alignment`] moves rather than directly under the rail.
+    /// **A rail too short for its destinations scrolls them**
+    /// (`navigation_rail.dart:353`) rather than running them off the bottom.
+    ///
+    /// The pinned slots stay put and the group goes in a viewport that fills what is
+    /// left, which is why the two spacers that would otherwise place it are gone: a
+    /// viewport filling the rail has no spare room to be placed in.
+    #[test]
+    fn a_short_rail_scrolls_its_destinations() {
+        let plain = NavigationRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .item("S", "Saved");
+        assert!(
+            !Widget::<Msg>::children(&plain)
+                .iter()
+                .any(|c| c.debug_name() == "SingleChildScrollView"),
+            "a rail does not scroll unless asked"
+        );
+        assert_eq!(
+            Widget::<Msg>::children(&plain).len(),
+            3,
+            "two spacers around the group"
+        );
+
+        let scrolling = NavigationRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .item("S", "Saved")
+            .scrollable();
+        let children = Widget::<Msg>::children(&scrolling);
+        assert_eq!(
+            children.len(),
+            1,
+            "the viewport fills, so nothing places it"
+        );
+        assert_eq!(children[0].debug_name(), "SingleChildScrollView");
+        // And the destinations are still in there, one level down.
+        assert!(
+            children[0]
+                .children()
+                .iter()
+                .any(|c| c.children().iter().any(|d| d.debug_name() == "NavItem")),
+            "the group went into the viewport"
+        );
+    }
+
+    /// **Spreading the destinations replaces the alignment** (`navigation_rail.dart:362`),
+    /// and not by a rule: the group fills the rail to have room to spread them in, so
+    /// there is none left outside it for `group_alignment` to work in — which is how the
+    /// reference arrives at the same sentence (`:501`).
+    #[test]
+    fn spreading_the_destinations_replaces_the_alignment() {
+        let spread = NavigationRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .item("S", "Saved")
+            .group_alignment(0.0)
+            .main_axis_alignment(Justify::SpaceEvenly);
+        let children = Widget::<Msg>::children(&spread);
+        assert_eq!(children.len(), 1, "no spacers left to fight the group");
+        assert!(
+            children[0]
+                .children()
+                .iter()
+                .any(|c| c.debug_name() == "NavItem"),
+            "and the group itself is what fills"
+        );
+        assert_eq!(children[0].style().justify, Justify::SpaceEvenly);
+        assert_eq!(
+            children[0].style().flex_grow,
+            1.0,
+            "it has to fill to spread"
+        );
+    }
+
+    /// **Without an indicator the selected destination says so in the accent**
+    /// (`navigation_rail.dart:1221`, `:1211`).
+    ///
+    /// Turning the indicator off is not just removing a shape: with nothing behind it the
+    /// glyph stands on the rail's own surface, and the indicator's content colour would
+    /// be a colour for a ground that is not there.
+    #[test]
+    fn a_rail_without_an_indicator_says_so_in_the_accent() {
+        let theme = Theme::default();
+        let ink = |use_indicator: bool| {
+            let rail = NavigationRail::new(0, Msg::Go)
+                .item("H", "Home")
+                .labels(RailLabels::All)
+                .use_indicator(use_indicator);
+            let item = &destinations(&rail)[0];
+            let mut scene = Scene::new();
+            item.paint(
+                Rect::new(0.0, 0.0, RAIL_WIDTH, ITEM_HEIGHT),
+                Status {
+                    opacity: 1.0,
+                    ..Default::default()
+                },
+                &theme,
+                &mut scene,
+            );
+            let pills = scene
+                .primitives()
+                .iter()
+                .filter(|p| matches!(p, frus_core::Primitive::Rect { .. }))
+                .count();
+            let inks: Vec<Color> = scene
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Text { color, .. } => Some(*color),
+                    _ => None,
+                })
+                .collect();
+            (pills, inks)
+        };
+
+        let (with, on_indicator) = ink(true);
+        assert_eq!(with, 1, "the indicator is drawn");
+        assert_eq!(on_indicator[0], theme.scheme.on_secondary_container);
+
+        let (without, on_surface) = ink(false);
+        assert_eq!(without, 0, "and it is not, when it was turned off");
+        assert_eq!(on_surface[0], theme.primary, "the glyph carries the accent");
+        assert_eq!(
+            on_surface[1], theme.primary,
+            "and so does the label (`navigation_rail.dart:1211`)"
+        );
+    }
+
+    /// **A raised rail drops its rule** (`navigation_rail.dart:192`). A shadow and a
+    /// hairline are two ways of saying the same thing, and drawing both says it twice.
+    #[test]
+    fn a_raised_rail_drops_its_rule() {
+        let theme = Theme::default();
+        let painted = |rail: &NavigationRail<Msg>| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                rail,
+                Rect::new(0.0, 0.0, RAIL_WIDTH, 400.0),
+                Status {
+                    opacity: 1.0,
+                    ..Default::default()
+                },
+                &theme,
+                &mut scene,
+            );
+            // A shadow is a rect with a blurred edge — see `Scene::shadow`.
+            let shadows = scene
+                .primitives()
+                .iter()
+                .filter(|p| match p {
+                    frus_core::Primitive::Rect { blur, .. } => *blur > 0.0,
+                    _ => false,
+                })
+                .count();
+            let rules = scene
+                .primitives()
+                .iter()
+                .filter(|p| match p {
+                    frus_core::Primitive::Rect { rect, .. } => rect.width == 1.0,
+                    _ => false,
+                })
+                .count();
+            (shadows, rules)
+        };
+
+        let flat = NavigationRail::new(0, Msg::Go).item("H", "Home");
+        assert_eq!(painted(&flat), (0, 1), "flat by default, and ruled");
+        let raised = NavigationRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .elevation(3.0);
+        assert_eq!(painted(&raised), (1, 0), "raised, and the rule is gone");
+    }
+
+    fn destinations(rail: &NavigationRail<Msg>) -> &[Box<dyn Widget<Msg>>] {
+        // By what the children **are**, not by whether they are clickable: a rail whose
+        // only destination is disabled has nothing clickable in it (milestone 436).
+        Widget::<Msg>::children(rail)
+            .iter()
+            .find(|child| child.children().iter().any(|c| c.debug_name() == "NavItem"))
+            .expect("the rail assembles its destinations into one group")
+            .children()
+    }
+
     #[test]
     fn rail_items_emit_index_and_track_selection() {
         let rail = NavigationRail::new(1, Msg::Go)
             .item("H", "Home")
             .item("S", "Search")
             .item("P", "Profile");
-        let children = Widget::<Msg>::children(&rail);
+        let children = destinations(&rail);
         assert_eq!(children.len(), 3);
         assert_eq!(children[2].on_click(), Some(Msg::Go(2)));
     }
@@ -328,7 +3111,7 @@ mod tests {
             .item("H", "Home")
             .item("M", "Mail")
             .badge(5);
-        let children = Widget::<Msg>::children(&rail);
+        let children = destinations(&rail);
         // The badge paints a dot + the count text on the targeted item.
         let mut scene = Scene::new();
         children[1].paint(
@@ -370,6 +3153,43 @@ mod tests {
             .primitives()
             .iter()
             .any(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "99+")));
+    }
+
+    /// **The bar consumes what it is told about** (milestone 418). Its parent used to
+    /// pad it from outside, which put the bar's surface above the gesture bar rather
+    /// than behind it; the reference keeps the safe area inside the `Material`
+    /// (`navigation_bar.dart:285`) and the bar grows by the intrusion instead.
+    #[test]
+    fn a_bottom_bar_consumes_the_intrusion_it_was_told_about() {
+        use crate::{MediaQuery, Size};
+        const GESTURE: f32 = 24.0;
+        let bar = BottomBar::new(0, Msg::Go).item("H", "Home");
+        let bare = match Widget::<Msg>::style(&bar).height {
+            Dimension::Length(h) => h,
+            other => panic!("a bar declares a height, not {other:?}"),
+        };
+        let told = MediaQuery::new(Size::new(400.0, 800.0))
+            .with_insets(frus_core::WindowInsets::bars(Insets::new(
+                0.0, 0.0, GESTURE, 0.0,
+            )))
+            .scope(|| Widget::<Msg>::style(&bar));
+        match told.height {
+            Dimension::Length(h) => assert!(
+                (h - (bare + GESTURE)).abs() < 0.01,
+                "the bar did not grow by the intrusion: {h} vs {bare}"
+            ),
+            other => panic!("a bar declares a height, not {other:?}"),
+        }
+        // And it is the **content** that is held clear, not the box: the padding is what
+        // keeps the destinations off the edge while the surface reaches it.
+        assert!(
+            (told.padding.bottom - GESTURE).abs() < 0.01,
+            "the destinations were not held clear: {:?}",
+            told.padding
+        );
+        // Never the top: a shell removes it before handing the slot over, and a bar at
+        // the bottom of a screen has nothing above it to avoid.
+        assert_eq!(told.padding.top, 0.0);
     }
 
     #[test]

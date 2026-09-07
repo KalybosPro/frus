@@ -23,34 +23,93 @@
 //! beside `style`. A theme that could only reach paint would be able to recolour a
 //! divider but not make one thin, which is the setting an application actually wants.
 
-use frus_core::{BorderRadius, Color, TextAlign, TextOverflow, TextStyle};
+use frus_core::{BorderRadius, Color, Insets, ShapeBorder, TextAlign, TextOverflow, TextStyle};
 
 use crate::card::CardVariant;
+
+/// **The shape a box takes**, on the rungs everything here is resolved on
+/// (`card.dart`, `button_style.dart`, and every other `shape` in the reference).
+///
+/// The caller's word first, then the theme's shape, then the theme's plain **radius** read
+/// as a rounded rectangle, then the widget's own default.
+///
+/// The third rung is the one worth explaining. A radius was the only thing a theme could
+/// say until milestone 450, and applications have written them; a theme that names a
+/// `shape` outranks one that names only a `radius`, and naming both is naming the shape.
+pub fn resolve_shape(
+    own: Option<ShapeBorder>,
+    themed: Option<ShapeBorder>,
+    radius: Option<BorderRadius>,
+    fallback: ShapeBorder,
+) -> ShapeBorder {
+    own.or(themed)
+        .or_else(|| radius.map(ShapeBorder::rounded))
+        .unwrap_or(fallback)
+}
 
 /// The per-widget defaults carried by a [`Theme`](crate::Theme).
 ///
 /// Adding a widget here is adding a field: the pattern is one `Option` per builder the
 /// widget already has, resolved in the same order everywhere.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct WidgetThemes {
+    pub alert: AlertTheme,
+    pub dialog: DialogTheme,
+    /// Which glyphs the four named buttons carry.
+    pub action_icons: ActionIconTheme,
     pub app_bar: AppBarTheme,
+    pub autocomplete: AutocompleteTheme,
     pub badge: BadgeTheme,
+    pub banner: BannerTheme,
+    pub bottom_app_bar: BottomAppBarTheme,
+    pub bottom_sheet: BottomSheetTheme,
+    pub breadcrumb: BreadcrumbTheme,
     pub button: ButtonTheme,
     pub card: CardTheme,
     pub checkbox: CheckboxTheme,
     pub chip: ChipTheme,
+    pub date_picker: DatePickerTheme,
     pub divider: DividerTheme,
     pub drawer: DrawerTheme,
+    /// Defaults for [`ListTile`](crate::ListTile).
+    pub list_tile: ListTileTheme,
+    pub dropdown: DropdownTheme,
+    /// Defaults for [`ExpansionTile`](crate::ExpansionTile).
+    pub expansion_tile: ExpansionTileTheme,
+    /// Defaults for [`FloatingActionButton`](crate::FloatingActionButton).
+    pub fab: FabTheme,
+    pub form: FormTheme,
+    /// Defaults for [`GridTileBar`](crate::GridTileBar).
+    pub grid_tile_bar: GridTileBarTheme,
     pub icon: IconTheme,
     pub icon_button: IconButtonTheme,
     pub ink: InkTheme,
+    pub kanban: KanbanTheme,
+    pub kbd: KbdTheme,
+    pub menu: MenuTheme,
+    pub nav_rail: NavRailTheme,
+    pub nav_drawer: NavDrawerTheme,
+    pub search_bar: SearchBarTheme,
+    pub search_view: SearchViewTheme,
+    /// Defaults for the two progress indicators.
+    pub progress: ProgressTheme,
     pub radio: RadioTheme,
     pub segmented: SegmentedTheme,
     pub slider: SliderTheme,
+    pub snack_bar: SnackBarTheme,
+    pub steps: StepsTheme,
     pub switch: SwitchTheme,
     pub tab_bar: TabBarTheme,
+    pub table: TableTheme,
     pub text: DefaultTextStyle,
     pub text_field: TextFieldTheme,
+    pub time_picker: TimePickerTheme,
+    pub timeline: TimelineTheme,
+    /// Defaults for [`ToggleButtons`](crate::ToggleButtons).
+    pub toggle_buttons: ToggleButtonsTheme,
+    /// Defaults for [`Tooltip`](crate::Tooltip).
+    pub tooltip: TooltipTheme,
+    pub tree: TreeTheme,
 }
 
 /// Defaults for [`Badge`](crate::Badge).
@@ -96,6 +155,9 @@ pub struct CheckboxTheme {
     pub radius: Option<f32>,
     /// The label beside it.
     pub label_color: Option<Color>,
+    /// **How much room it reserves for a finger** — the reference's per-widget say over
+    /// the theme's (`checkbox.dart:512`). Unset, the theme's own answer.
+    pub tap_target: Option<crate::theme::TapTarget>,
 }
 
 /// Defaults for [`RadioGroup`](crate::RadioGroup).
@@ -109,11 +171,17 @@ pub struct RadioTheme {
     pub active_border_color: Option<Color>,
     /// The labels.
     pub label_color: Option<Color>,
+    /// **How much room it reserves for a finger** — the reference's per-widget say over
+    /// the theme's (`radio.dart:734`). Unset, the theme's own answer.
+    pub tap_target: Option<crate::theme::TapTarget>,
 }
 
 /// Defaults for [`Slider`](crate::Slider) and [`RangeSlider`](crate::RangeSlider).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SliderTheme {
+    /// The value bubble's type. The reference calls it the *value indicator* and sets it in
+    /// `labelLarge`.
+    pub value_indicator_text_style: Option<TextStyle>,
     /// The travelled part of the track.
     pub active_track_color: Option<Color>,
     /// The part still to travel.
@@ -136,6 +204,16 @@ pub struct SwitchTheme {
     /// The thumb, off. Unset it follows the on colour, which is what the reference does
     /// and what a switch looks like: one thumb sliding, not two.
     pub inactive_thumb_color: Option<Color>,
+    /// The glyph inside the thumb, on. Unset, the scheme's `on_primary_container`
+    /// (`switch.dart:2338`).
+    pub icon_color: Option<Color>,
+    /// The glyph inside the thumb, off. Unset, the scheme's `surface_container_highest`
+    /// (`switch.dart:2349`) — the track's own colour, so the glyph reads as a hole in the
+    /// thumb rather than as a mark on it.
+    pub inactive_icon_color: Option<Color>,
+    /// **How much room it reserves for a finger** — the reference's per-widget say over
+    /// the theme's (`switch.dart:603`). Unset, the theme's own answer.
+    pub tap_target: Option<crate::theme::TapTarget>,
 }
 
 /// The text style a **subtree** hands down — the reference's `DefaultTextStyle`, and an
@@ -260,8 +338,11 @@ pub struct AppBarTheme {
     /// The colour laid over the surface in proportion to the elevation — Material 3's
     /// way of showing height, and the one that still reads on a dark background.
     pub surface_tint: Option<Color>,
-    /// How far the bar's corners are rounded. Unset, square.
-    pub shape: Option<BorderRadius>,
+    /// **What shape the bar is** — the reference's `AppBarTheme.shape`. Unset, square.
+    ///
+    /// It was an `Option<BorderRadius>` under this name until milestone 455: the last
+    /// theme field left carrying the reference's *word* with a corner radius behind it.
+    pub shape: Option<ShapeBorder>,
 }
 
 /// Defaults for [`TextField`](crate::TextField).
@@ -276,6 +357,9 @@ pub struct TextFieldTheme {
     pub focused_border_color: Option<Color>,
     /// Border, label and helper colour while an error is showing.
     pub error_color: Option<Color>,
+    /// The same under the pointer: an errored field **deepens** on hover
+    /// (`input_decorator.dart:5981`). Unset, the scheme's `on_error_container`.
+    pub error_hover_color: Option<Color>,
     /// The value's colour.
     pub text_color: Option<Color>,
     /// The label and the hint, at rest.
@@ -297,6 +381,9 @@ pub struct TextFieldTheme {
 /// Defaults for [`Button`](crate::Button).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ButtonTheme {
+    /// **What shape it is** (`shape_border.dart`), over the plain `radius` below:
+    /// a button's, whose default is a **pill** (`button_style.dart`). Unset, the widget decides.
+    pub shape: Option<ShapeBorder>,
     /// The surface under the label, whatever the variant would have used.
     pub color: Option<Color>,
     /// The label's colour.
@@ -322,6 +409,9 @@ pub struct ButtonTheme {
 /// Defaults for [`Card`](crate::Card).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CardTheme {
+    /// **What shape it is** (`shape_border.dart`), over the plain `radius` below:
+    /// a card's. Unset, the widget decides.
+    pub shape: Option<ShapeBorder>,
     /// Which of the three cards an untold `Card::new()` is.
     pub variant: Option<CardVariant>,
     /// How far off the surface it sits.
@@ -339,6 +429,9 @@ pub struct CardTheme {
 /// Defaults for [`Chip`](crate::Chip).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ChipTheme {
+    /// **What shape it is** (`shape_border.dart`), over the plain `radius` below:
+    /// a chip's. Unset, the widget decides.
+    pub shape: Option<ShapeBorder>,
     /// The surface under an unselected chip.
     pub color: Option<Color>,
     /// The surface under a selected one.
@@ -367,6 +460,191 @@ pub struct ChipTheme {
     pub show_checkmark: Option<bool>,
 }
 
+/// Defaults for [`ListTile`](crate::ListTile) — the reference's `ListTileThemeData`.
+///
+/// Every field is what the tile would otherwise decide for itself, on the usual rungs: the
+/// tile's own word, then this, then the framework's. An application that wants all its
+/// tiles rounded, or all its selected rows tinted, says it **once** here rather than on
+/// every tile it ever builds.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ListTileTheme {
+    /// The tile's surface. Unset, transparent — a tile takes the colour of what it sits on.
+    pub tile_color: Option<Color>,
+    /// The surface while the tile is the chosen one.
+    pub selected_tile_color: Option<Color>,
+    /// The colour its words and slots take while it is the chosen one.
+    pub selected_color: Option<Color>,
+    /// The two slots' icon colour.
+    pub icon_color: Option<Color>,
+    /// The title's and subtitle's colour.
+    pub text_color: Option<Color>,
+    /// What shape the tile is — taken by its surface and by its ink.
+    pub shape: Option<ShapeBorder>,
+    /// The room kept inside the tile, round its content.
+    pub content_padding: Option<Insets>,
+    /// The title's type.
+    pub title_style: Option<TextStyle>,
+    /// The subtitle's.
+    pub subtitle_style: Option<TextStyle>,
+    /// The gap between the slots and the text column.
+    pub title_gap: Option<f32>,
+    /// How much room the leading slot is guaranteed, so the text lines up down a list.
+    pub min_leading_width: Option<f32>,
+    /// The tile's minimum height, over the one its line count asks for.
+    pub min_height: Option<f32>,
+    /// Whether tiles are the tighter kind.
+    pub dense: Option<bool>,
+}
+
+/// Defaults for [`LinearProgressIndicator`](crate::LinearProgressIndicator) and
+/// [`CircularProgressIndicator`](crate::CircularProgressIndicator) — the reference's
+/// `ProgressIndicatorThemeData`.
+///
+/// Neither of them read a theme at all before this, and between them they had **two**
+/// builders: a width and a size. Everything else — the height of the bar, the colour of
+/// its track, the colour of the fill — was decided inside `paint` where nothing could
+/// reach it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ProgressTheme {
+    /// The colour of the moving part: the bar's fill and the ring's dots. Unset,
+    /// `primary` (`progress_indicator.dart:1618`).
+    pub color: Option<Color>,
+    /// The colour of the bar's track — the part not yet filled. Unset,
+    /// `secondary_container` (`progress_indicator.dart:1621`).
+    pub linear_track_color: Option<Color>,
+    /// How tall the bar is. Unset, four (`progress_indicator.dart:1624`).
+    pub linear_min_height: Option<f32>,
+    /// A track **behind the ring**, for a determinate circular indicator
+    /// (`progress_indicator.dart:1590`). Unset, none is drawn.
+    pub circular_track_color: Option<Color>,
+    /// The corners of the bar and of its track. Unset, fully rounded.
+    pub border_radius: Option<BorderRadius>,
+    /// The dot at the far end of the track, which says where the bar is going. Unset,
+    /// the same colour as the fill (`progress_indicator.dart:1630`).
+    pub stop_indicator_color: Option<Color>,
+    /// That dot's radius. Unset, two (`progress_indicator.dart:1633`). Zero draws none.
+    pub stop_indicator_radius: Option<f32>,
+    /// The gap left between the end of the fill and the start of the track. Unset, four
+    /// (`progress_indicator.dart:1636`).
+    pub track_gap: Option<f32>,
+    /// How thick the ring's dots are. Unset, the framework's own proportional rule, so
+    /// that a large indicator does not draw a hairline.
+    pub stroke_width: Option<f32>,
+}
+
+/// Defaults for [`Tooltip`](crate::Tooltip) — the reference's `TooltipThemeData`.
+///
+/// A tooltip is the one widget an application is likely to use on *every* icon it draws,
+/// so saying what one looks like on each of them is saying it a hundred times.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TooltipTheme {
+    /// The bubble's surface. Unset, `inverse_surface` — a tooltip is a label **over**
+    /// the interface, not another panel of it.
+    pub background: Option<Color>,
+    /// The label's type. Unset, `body_small`.
+    pub text_style: Option<TextStyle>,
+    /// The label's colour. Unset, `on_inverse_surface`.
+    pub text_color: Option<Color>,
+    /// Where the lines sit once the label has wrapped. Unset, the start edge, as the
+    /// reference's `_defaultTextAlign` is (`tooltip.dart:398`).
+    pub text_align: Option<TextAlign>,
+    /// The room kept round the label.
+    pub padding: Option<Insets>,
+    /// What shape the bubble is.
+    pub shape: Option<ShapeBorder>,
+    /// The radius of its corners, for a theme that would rather give the number than the
+    /// shape. Outranked by [`shape`](Self::shape).
+    pub radius: Option<f32>,
+    /// How wide the bubble may get before the label wraps.
+    pub max_width: Option<f32>,
+}
+
+/// Defaults for [`ExpansionTile`](crate::ExpansionTile) — the reference's
+/// `ExpansionTileThemeData`.
+///
+/// The tile already had every one of these as a **builder**; what it had nowhere was a
+/// place to say them **once**. A settings screen is a column of these, and an
+/// application that wants its open sections tinted said so on each of them.
+///
+/// Every colour comes in a pair, because an expansion tile is two things: the row that
+/// is always there, and the row while what it hides is showing.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ExpansionTileTheme {
+    /// The row's surface while the tile is **open**.
+    pub background: Option<Color>,
+    /// And while it is shut.
+    pub collapsed_background: Option<Color>,
+    /// The title's colour while it is open.
+    pub text_color: Option<Color>,
+    /// And while it is shut.
+    pub collapsed_text_color: Option<Color>,
+    /// The chevron's colour while it is open.
+    pub icon_color: Option<Color>,
+    /// And while it is shut.
+    pub collapsed_icon_color: Option<Color>,
+    /// The room kept inside the row, round its content.
+    pub tile_padding: Option<Insets>,
+    /// The room kept round what the tile hides, while it is showing.
+    pub children_padding: Option<Insets>,
+    /// What shape the row is while the tile is open.
+    pub shape: Option<ShapeBorder>,
+    /// And while it is shut. Deliberately **not** falling back to
+    /// [`shape`](Self::shape): the reference keeps the two apart
+    /// (`expansion_tile_theme.dart:55`), and a tile that is square when shut and rounded
+    /// when open is a design, not a mistake.
+    pub collapsed_shape: Option<ShapeBorder>,
+}
+
+/// Defaults for [`FloatingActionButton`](crate::FloatingActionButton) — the
+/// reference's `FloatingActionButtonThemeData`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FabTheme {
+    /// The surface. Unset, `primary_container`
+    /// (`floating_action_button.dart:810`) — **not** `primary`, which is what a filled
+    /// button takes and what this framework's `fab_button` helper was giving it.
+    pub background: Option<Color>,
+    /// What is drawn on it. Unset, `on_primary_container`.
+    pub foreground: Option<Color>,
+    /// How far off the page it sits at rest. Unset, six.
+    pub elevation: Option<f32>,
+    /// And under a pointer. Unset, eight.
+    pub hover_elevation: Option<f32>,
+    /// What shape it is. Unset, the corner its size asks for — sixteen, twelve or
+    /// twenty-eight (`floating_action_button.dart:816`).
+    pub shape: Option<ShapeBorder>,
+    /// The radius of its corners, for a theme that would rather give the number than the
+    /// shape. Outranked by [`shape`](Self::shape).
+    pub radius: Option<f32>,
+    /// How big the glyph inside is. Unset, the size's own — twenty-four, or
+    /// thirty-six on a large one.
+    pub icon_size: Option<f32>,
+    /// An extended button's type. Unset, `label_large`.
+    pub label_style: Option<TextStyle>,
+    /// The room either side of an extended button's content.
+    pub extended_padding: Option<f32>,
+    /// The gap between an extended button's glyph and its words. Unset, eight.
+    pub extended_gap: Option<f32>,
+}
+
+/// Which glyphs the framework's four named buttons carry — the reference's
+/// `ActionIconTheme` (`action_icons_theme.dart`).
+///
+/// Unset, each takes the framework's own, and the back arrow takes the platform's: a
+/// chevron where the platform's own back control is a chevron, an arrow everywhere else.
+/// An application with its own icon set should not have to leave four of the framework's
+/// showing through.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ActionIconTheme {
+    /// The glyph on a [`BackButton`](crate::BackButton).
+    pub back: Option<crate::IconData>,
+    /// On a [`CloseButton`](crate::CloseButton).
+    pub close: Option<crate::IconData>,
+    /// On a [`DrawerButton`](crate::DrawerButton).
+    pub drawer: Option<crate::IconData>,
+    /// On an [`EndDrawerButton`](crate::EndDrawerButton).
+    pub end_drawer: Option<crate::IconData>,
+}
+
 /// Defaults for [`Divider`](crate::Divider).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DividerTheme {
@@ -390,6 +668,18 @@ pub struct DividerTheme {
 /// panel does not know which side of the screen it landed on until it paints.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DrawerTheme {
+    /// **What shape a leading panel is** — the reference's `DrawerThemeData.shape`
+    /// (`drawer.dart:268`). Unset, the framework rounds the panel's *inner* edge by
+    /// [`DRAWER_RADIUS`](crate::DRAWER_RADIUS).
+    pub shape: Option<ShapeBorder>,
+    /// **And a trailing one** — the reference's `endShape` (`drawer.dart:269`), which is a
+    /// separate field rather than a mirror of the first because a panel's rounded edge is
+    /// the one facing the page, and that is the opposite side.
+    ///
+    /// A trailing panel does **not** fall back to [`shape`](Self::shape): a theme that
+    /// named only the leading panel's shape has said nothing about the other one, and the
+    /// framework's own default is a better answer than a shape rounded on the wrong edge.
+    pub end_shape: Option<ShapeBorder>,
     /// The panel's width.
     pub width: Option<f32>,
     /// The panel's fill.
@@ -478,6 +768,9 @@ pub struct IconButtonTheme {
     pub border_width: Option<f32>,
     /// The corner radii. Unset, an icon button is a circle.
     pub radius: Option<BorderRadius>,
+    /// **How much room it reserves for a finger** — the reference's per-widget say over
+    /// the theme's (`icon_button.dart:708`). Unset, the theme's own answer.
+    pub tap_target: Option<crate::theme::TapTarget>,
 }
 
 /// Defaults for the **ink ripple** — every surface that splashes, including
@@ -490,14 +783,584 @@ pub struct InkTheme {
     pub color: Option<Color>,
 }
 
+/// Defaults for [`SnackBar`](crate::SnackBar).
+///
+/// The reference's Material 3 snackbar sets its content in `bodyMedium` and its action in
+/// `labelLarge`, and both are read from the type scale rather than written down here.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SnackBarTheme {
+    /// **What shape it is** (`shape_border.dart`), over the plain `radius` below:
+    /// a snack bar's, which its behaviour already decides — see [`crate::SnackBarBehavior`]. Unset, the widget decides.
+    pub shape: Option<ShapeBorder>,
+    /// **Where its bars sit**, and therefore what they look like. Unset, the reference's
+    /// `Fixed` (`snack_bar.dart:986`). See [`SnackBarBehavior`](crate::SnackBarBehavior).
+    pub behavior: Option<crate::toast::SnackBarBehavior>,
+    /// What a **floating** bar keeps clear of the page. Unset, the reference's
+    /// `insetPadding` (`snack_bar.dart:989`). Silent under `Fixed`.
+    pub inset_padding: Option<Insets>,
+    /// A **floating** bar's width, instead of the room it is given. Unset, the room it is
+    /// given. Silent under `Fixed`, where a width would contradict the behaviour.
+    pub width: Option<f32>,
+    /// The message's type.
+    pub content_text_style: Option<TextStyle>,
+    /// The action's type.
+    pub action_text_style: Option<TextStyle>,
+    /// The bar's surface. Unset, the scheme's `inverse_surface`.
+    pub background_color: Option<Color>,
+    /// The message's colour. Unset, the scheme's `on_inverse_surface`.
+    pub text_color: Option<Color>,
+    /// The action's colour. Unset, the scheme's `inverse_primary` — the one role in the
+    /// scheme whose whole reason for existing is being legible on an inverted surface.
+    pub action_text_color: Option<Color>,
+    /// The close cross's colour. Unset, the scheme's `on_inverse_surface`
+    /// (`snack_bar.dart:995`).
+    pub close_icon_color: Option<Color>,
+    /// The stripe down a notification's leading edge, whichever kind it is. Unset, the
+    /// kind decides.
+    pub accent_color: Option<Color>,
+    /// The stripe for a **success**, the one kind Material 3 has no role for. Unset, a
+    /// green of this crate's own choosing.
+    pub success_color: Option<Color>,
+    /// The corner. Unset, the reference's 4 for a **floating** bar and **nothing at all**
+    /// for a fixed one, which is flush against the edges and has nothing to round.
+    pub radius: Option<f32>,
+    /// How far off the page it sits. Unset, the reference's 6.
+    pub elevation: Option<f32>,
+}
+
+/// Defaults for [`PopupMenuButton`](crate::PopupMenuButton) and its items.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MenuTheme {
+    /// The items' type.
+    pub text_style: Option<TextStyle>,
+    /// **The panel's surface.** Unset, `surface_container` — a menu is a distinct area
+    /// within the surface, not a thing that floats above it in a different colour
+    /// (`popup_menu.dart:1858`).
+    pub background: Option<Color>,
+    /// What shape the panel is.
+    pub shape: Option<ShapeBorder>,
+    /// The radius of its corners, for a theme that would rather give the number than the
+    /// shape. Outranked by [`shape`](Self::shape).
+    pub radius: Option<f32>,
+    /// How far off the page the panel sits, in pixels. Unset, three
+    /// (`popup_menu.dart:1839`).
+    pub elevation: Option<f32>,
+    /// The room kept **above and below** the rows, inside the panel
+    /// (`popup_menu.dart:1872`).
+    pub padding: Option<Insets>,
+    /// The room kept either side of a row's label (`popup_menu.dart:1876`).
+    pub item_padding: Option<Insets>,
+    /// How tall one row is. Unset, the smallest box a finger can be asked to hit.
+    pub item_height: Option<f32>,
+}
+
+/// Defaults for [`DropdownButton`](crate::DropdownButton) and its options.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DropdownTheme {
+    /// The value's and the options' type.
+    pub text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Autocomplete`](crate::Autocomplete) and its suggestions.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AutocompleteTheme {
+    /// The suggestions' type.
+    pub text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Table`](crate::Table).
+///
+/// The reference names the two apart — a heading is `titleSmall`, a cell is `bodyMedium` —
+/// which is why one `text_style` would be the wrong shape here.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TableTheme {
+    /// The column headings' type.
+    pub heading_text_style: Option<TextStyle>,
+    /// The cells' type.
+    pub data_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`DatePicker`](crate::DatePicker).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DatePickerTheme {
+    /// The days' type.
+    pub day_text_style: Option<TextStyle>,
+    /// The weekday initials above them.
+    pub weekday_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`NavigationRail`](crate::NavigationRail) and [`BottomBar`](crate::BottomBar).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NavRailTheme {
+    /// **The shape of a selected destination's indicator** (`navigation_rail.dart:1148`).
+    /// Unset, the reference's pill.
+    pub indicator_shape: Option<frus_core::ShapeBorder>,
+    /// **The highlight over a destination, per state** — over the framework's own state
+    /// layer, and under the destination's own word (`navigation_bar.dart:232`).
+    ///
+    /// The first field here that is not a plain value but a
+    /// [`WidgetStateProperty`](crate::WidgetStateProperty). It owns a `Vec`, which is why
+    /// this struct and [`WidgetThemes`] stopped being `Copy` in milestone 448 — a theme
+    /// that weighed eight kilobytes had no business being copied implicitly anyway.
+    pub overlay_color: Option<crate::widgetstate::WidgetStateProperty<frus_core::Color>>,
+    /// The destinations' labels.
+    pub label_text_style: Option<TextStyle>,
+    /// The count carried by a destination's badge.
+    pub badge_text_style: Option<TextStyle>,
+    /// The **rail's** surface. Unset, the scheme's `surface`.
+    pub background_color: Option<Color>,
+    /// The pill behind the selected destination. Unset, the scheme's
+    /// `secondary_container` — **opaque**, as the reference's is.
+    pub indicator_color: Option<Color>,
+    /// The selected destination's glyph. Unset, `on_secondary_container`: it is drawn on
+    /// the indicator, so it takes the indicator's content colour.
+    pub selected_icon_color: Option<Color>,
+    /// An unselected destination's glyph. Unset, `on_surface_variant`.
+    pub unselected_icon_color: Option<Color>,
+    /// The selected destination's label. Unset, `on_surface` — the label sits *below* the
+    /// indicator rather than on it, which is why it is not the indicator's content colour.
+    pub selected_label_color: Option<Color>,
+    /// An unselected destination's label. Unset, `on_surface` on a rail and
+    /// `on_surface_variant` on a bar, which is the one place the reference gives the two
+    /// different answers.
+    pub unselected_label_color: Option<Color>,
+    /// The destinations' glyphs. Unset, the reference's 24.
+    pub icon_size: Option<f32>,
+    /// Whether a **rail's** selected destination gets an indicator behind its glyph.
+    /// Unset, `true` (`navigation_rail.dart:1233`). `false` is the arrangement that
+    /// predates it, where the selected destination says so in the accent instead.
+    pub use_indicator: Option<bool>,
+    /// How far off the page a **rail** sits. Unset, `0` — flat, as the reference's is
+    /// (`navigation_rail.dart:1236`), the rail being separated by a rule and not by a
+    /// shadow.
+    pub elevation: Option<f32>,
+    /// The **bottom bar's** surface, a rung higher than the rail's. Unset, the scheme's
+    /// `surface_container`.
+    ///
+    /// The reference keeps a theme object per navigation widget and gives them different
+    /// defaults; this crate keeps one for the two, so the two surfaces are two fields
+    /// rather than two structs.
+    pub bar_background_color: Option<Color>,
+}
+
+/// Defaults for [`SearchBar`](crate::SearchBar) — the reference's `SearchBarThemeData`.
+///
+/// Every field there is a `WidgetStateProperty`, resolved against the bar's own state; here
+/// they are plain values, with one exception that matters and several that do not. The
+/// exception is the highlight, and this framework already answers it: a state layer is one
+/// rule applied from the ground toward the ink, so a bar does not need a colour per state
+/// to light under a pointer. The rest — a fill, a shape or a padding that changes when the
+/// bar is hovered — are things the reference *can* say and its own defaults never do.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SearchBarTheme {
+    /// The bar's fill. Unset, the scheme's `surface_container_high`
+    /// (`search_anchor.dart:1859`).
+    pub background_color: Option<Color>,
+    /// The colour its shadow is cast in. Unset, the scheme's `shadow`.
+    pub shadow_color: Option<Color>,
+    /// How far off the page it sits. Unset, `6` (`search_anchor.dart:1863`).
+    pub elevation: Option<f32>,
+    /// Its shape. Unset, a stadium (`search_anchor.dart:1892`).
+    pub shape: Option<frus_core::ShapeBorder>,
+    /// Its corners, read as a rounded rectangle when no shape was named.
+    pub radius: Option<BorderRadius>,
+    /// An outline around it. Unset, none — the reference has no default side
+    /// (`search_anchor.dart:1888`), a raised surface being told apart by its shadow.
+    pub side: Option<frus_core::BorderSide>,
+    /// The room inside it. Unset, `8` either side, applied twice (once around the row and
+    /// once around the field), which is where the sixteen between an icon and the first
+    /// letter comes from.
+    pub padding: Option<frus_core::Insets>,
+    /// The narrowest it will go. Unset, `360`.
+    pub min_width: Option<f32>,
+    /// The widest. Unset, `800`.
+    pub max_width: Option<f32>,
+    /// Its height. Unset, `56`.
+    pub height: Option<f32>,
+    /// The value's type. Unset, `bodyLarge` in `on_surface`.
+    pub text_style: Option<TextStyle>,
+    /// The hint's. Unset, the value's, then `bodyLarge` in `on_surface_variant` — the
+    /// reference falls back to the value's style **before** its own default, so a bar told
+    /// to use one type does not say its hint in another.
+    pub hint_style: Option<TextStyle>,
+}
+
+/// Defaults for the view a [`SearchAnchor`](crate::SearchAnchor) opens — the reference's
+/// `SearchViewThemeData`.
+///
+/// Kept apart from [`SearchBarTheme`] because the reference keeps them apart, and because
+/// the two disagree where it matters: the view's shape depends on whether it is the screen,
+/// its header is taller than a bar when it is, and it has a rule under that header that a
+/// bar has nothing to do with.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SearchViewTheme {
+    /// The view's fill. Unset, the scheme's `surface_container_high`
+    /// (`search_anchor.dart:1936`) — the same rung the bar takes, so one grows out of the
+    /// other rather than changing colour on the way.
+    pub background_color: Option<Color>,
+    /// How far off the page it sits. Unset, `6`.
+    pub elevation: Option<f32>,
+    /// Its shape. Unset, corners of `28` floating and square full-screen.
+    pub shape: Option<frus_core::ShapeBorder>,
+    /// Its corners, read as a rounded rectangle when no shape was named.
+    pub radius: Option<BorderRadius>,
+    /// An outline around it. Unset, none (`search_anchor.dart:1944`).
+    pub side: Option<frus_core::BorderSide>,
+    /// The rule under the header. Unset, the scheme's `outline`
+    /// (`search_anchor.dart:1967`).
+    pub divider_color: Option<Color>,
+    /// The header's height. Unset, `72` full-screen and a bar's `56` floating.
+    pub header_height: Option<f32>,
+    /// The header's type. Unset, `bodyLarge` in `on_surface`.
+    pub header_text_style: Option<TextStyle>,
+    /// The header hint's. Unset, `bodyLarge` in `on_surface_variant`.
+    pub header_hint_style: Option<TextStyle>,
+    /// The narrowest the view goes. Unset, `360`.
+    pub min_width: Option<f32>,
+    /// The shortest. Unset, `240`.
+    pub min_height: Option<f32>,
+    /// The room either side of the header's contents. Unset, `8`.
+    pub bar_padding: Option<frus_core::Insets>,
+}
+
+/// Defaults for [`NavigationDrawer`](crate::NavigationDrawer).
+///
+/// The reference keeps `NavigationDrawerThemeData` apart from the rail's and the bar's
+/// (`navigation_drawer_theme.dart`) and this follows it, where [`NavRailTheme`] holds two
+/// widgets at once. The reason is the defaults: a drawer's surface, type step, indicator
+/// size and tile height all differ from a rail's, and a shared struct would have had to
+/// carry a second copy of every one of them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NavDrawerTheme {
+    /// The panel's surface. Unset, the scheme's `surface_container_low`
+    /// (`navigation_drawer.dart:740`) — a rung above a rail's `surface`, the drawer being
+    /// a sheet over the page rather than a strip beside it.
+    pub background_color: Option<Color>,
+    /// How far off the page the panel sits. Unset, `1` (`navigation_drawer.dart:729`).
+    pub elevation: Option<f32>,
+    /// The pill behind the selected destination. Unset, the scheme's
+    /// `secondary_container`.
+    pub indicator_color: Option<Color>,
+    /// That pill's shape. Unset, a stadium (`navigation_drawer.dart:731`).
+    pub indicator_shape: Option<frus_core::ShapeBorder>,
+    /// That pill's box, `(width, height)`. Unset, `336 x 56`
+    /// (`navigation_drawer.dart:732`). The width is a **ceiling**: the pill never grows
+    /// past the room its tile has, which is what keeps 336 inside a 304-wide panel.
+    pub indicator_size: Option<(f32, f32)>,
+    /// The highlight over a destination, per state — over the framework's state layer, and
+    /// under the destination's own word.
+    pub overlay_color: Option<crate::widgetstate::WidgetStateProperty<frus_core::Color>>,
+    /// A tile's height. Unset, `56` (`navigation_drawer.dart:730`).
+    pub tile_height: Option<f32>,
+    /// The room either side of a tile. Unset, `12` left and right
+    /// (`navigation_drawer.dart:69`).
+    pub tile_padding: Option<frus_core::Insets>,
+    /// The destinations' glyphs. Unset, `24`.
+    pub icon_size: Option<f32>,
+    /// The destinations' labels. Unset, `labelLarge` (`navigation_drawer.dart:768`) — a
+    /// step above a rail's, a drawer's label having a line to itself.
+    pub label_text_style: Option<TextStyle>,
+    /// The count a destination carries. Unset, `labelSmall`.
+    pub badge_text_style: Option<TextStyle>,
+    /// A selected destination's glyph **and** label. Unset, `on_secondary_container`:
+    /// here the indicator is the whole row, so both stand on it and both take its content
+    /// colour — the one place this differs from a rail, where the label sits outside the
+    /// pill.
+    pub selected_color: Option<Color>,
+    /// An unselected destination's glyph and label. Unset, `on_surface_variant`.
+    pub unselected_color: Option<Color>,
+}
+
+/// Defaults for [`Alert`](crate::Alert) — the message box, not the dialog. See
+/// [`DialogTheme`] for [`AlertDialog`](crate::AlertDialog).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AlertTheme {
+    /// The heading's type.
+    pub title_text_style: Option<TextStyle>,
+    /// The message's type.
+    pub content_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`BottomAppBar`](crate::BottomAppBar).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BottomAppBarTheme {
+    /// The bar's surface. Unset, the scheme's `surface_container`.
+    pub color: Option<Color>,
+}
+
+/// Defaults for [`BottomSheet`](crate::BottomSheet).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BottomSheetTheme {
+    /// **What shape the sheet is** — the reference's `BottomSheetThemeData.shape`. Unset,
+    /// the framework rounds the **top** corners only: the bottom edge is flush against the
+    /// window, and rounding it would cut two notches out of the screen.
+    pub shape: Option<ShapeBorder>,
+    /// The radius of those top two corners, for a theme that would rather give the number
+    /// than the shape. Outranked by [`shape`](Self::shape).
+    pub radius: Option<f32>,
+    /// The sheet's surface. Unset, the scheme's `surface_container_low`.
+    pub background_color: Option<Color>,
+}
+
+/// Defaults for [`MaterialBanner`](crate::MaterialBanner).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BannerTheme {
+    /// The banner's colour. Unset, a low container tone.
+    pub color: Option<Color>,
+    /// What the surface is tinted towards for its elevation. Unset, nothing is.
+    pub surface_tint: Option<Color>,
+    /// The shadow's colour. Unset, there is none.
+    pub shadow_color: Option<Color>,
+    /// The rule along the bottom, drawn only where the banner is flat. Unset, the
+    /// scheme's `outlineVariant`.
+    pub divider_color: Option<Color>,
+    /// How far off the page it sits. Unset, 1.
+    pub elevation: Option<f32>,
+    /// The padding around the message row. Unset, it depends on where the actions went.
+    pub padding: Option<Insets>,
+    /// The margin around the banner. Unset, it depends on the elevation.
+    pub margin: Option<Insets>,
+    /// What the leading slot is held off the message by. Unset, 16 at its trailing edge.
+    pub leading_padding: Option<Insets>,
+    /// What the message is set in. Unset, `bodyMedium`.
+    pub content_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Dialog`](crate::Dialog) and [`AlertDialog`](crate::AlertDialog).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DialogTheme {
+    /// The surface's colour. Unset, the scheme's `surfaceContainerHigh`.
+    pub color: Option<Color>,
+    /// How far off the page it sits. Unset, 6.
+    pub elevation: Option<f32>,
+    /// The shadow's colour. Unset, **transparent**: the reference's Material 3 dialog
+    /// shows its height by its container tone, not by a drop shadow.
+    pub shadow_color: Option<Color>,
+    /// What the surface is tinted towards for its elevation. Unset, nothing is — see
+    /// [`Self::shadow_color`] for why.
+    pub surface_tint: Option<Color>,
+    /// **What shape it is** (`dialog.dart`). Unset, a 28-radius rounded rectangle.
+    ///
+    /// It carried the reference's *name* and a `BorderRadius` until milestone 451, which
+    /// is the deviation this field is the clearest case of: `shape` in the reference is a
+    /// `ShapeBorder`, and a corner radius is one of the things one can be.
+    pub shape: Option<ShapeBorder>,
+    /// How far the dialog is held off the window's edges. Unset, 40 across and 24 down.
+    pub inset_padding: Option<Insets>,
+    /// The glyph above the title. Unset, the scheme's `secondary`.
+    pub icon_color: Option<Color>,
+    /// The heading's type. Unset, `headlineSmall`.
+    pub title_text_style: Option<TextStyle>,
+    /// What the dialog says. Unset, `bodyMedium`.
+    pub content_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Steps`](crate::Steps).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct StepsTheme {
+    /// The caption under each marker.
+    pub label_text_style: Option<TextStyle>,
+    /// The number inside the marker. It is a **glyph on a circle** rather than something
+    /// read at length, so the framework's own default does not pass through the reader's
+    /// font setting — a theme that sets this one takes that decision back.
+    pub index_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Tree`](crate::Tree).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TreeTheme {
+    /// The rows' type.
+    pub text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Timeline`](crate::Timeline).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TimelineTheme {
+    /// An entry's heading.
+    pub title_text_style: Option<TextStyle>,
+    /// The line under it.
+    pub detail_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Breadcrumb`](crate::Breadcrumb).
+///
+/// The reference has no breadcrumb, so its type is argued rather than read: a trail is a
+/// **secondary** line of navigation above the page's own content, which is `bodyMedium`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BreadcrumbTheme {
+    /// The segments' type, the separators included.
+    pub text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Kanban`](crate::Kanban).
+///
+/// The reference has no board, so its type is argued: a card is a small piece of content
+/// read on its own, which is `bodyLarge` — the step the reference gives a list tile's title
+/// and this framework already gives a `Tree` row.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct KanbanTheme {
+    /// A text card's label.
+    pub card_text_style: Option<TextStyle>,
+    /// A column's heading over its cards.
+    pub column_title_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Form`](crate::Form)'s error summary.
+///
+/// The reference has no summary list, so its type is argued: a bullet restates an error
+/// already shown under its field, which is `bodySmall` — the step the reference gives the
+/// helper line those errors come from.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FormTheme {
+    /// A summary bullet's type.
+    pub bullet_text_style: Option<TextStyle>,
+    /// The summary's heading over them.
+    pub summary_title_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`TimePicker`](crate::TimePicker) and [`TimeRange`](crate::TimeRange).
+///
+/// The reference names three of these four. Its dial is `bodyLarge`, its help line
+/// `labelMedium`, and its day period `titleMedium` — which is the same step as the dial and
+/// is why the AM/PM cells here are simply cells. The **preview** is the fourth: the
+/// reference puts an editable pair of fields at `displayMedium` where this widget shows one
+/// read-only line above two grids, so it takes the heading step that line is.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TimePickerTheme {
+    /// The hour, minute and AM/PM cells.
+    pub dial_text_style: Option<TextStyle>,
+    /// The `HH:MM` line above them.
+    pub preview_text_style: Option<TextStyle>,
+    /// The "Hour" and "Minute" lines over each grid.
+    pub help_text_style: Option<TextStyle>,
+    /// The "Start" and "End" headings of a [`TimeRange`](crate::TimeRange).
+    pub range_label_text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`Kbd`](crate::Kbd).
+///
+/// The reference has no key cap, so its type is argued rather than read: a shortcut hint is
+/// a **label**, and a key cap is the one place in this framework where the glyphs stand for
+/// what is printed on a keyboard, hence the monospaced default.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct KbdTheme {
+    /// The cap's label.
+    pub text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`ToggleButtons`](crate::ToggleButtons).
+///
+/// The three border colours are named apart although the reference defaults all three to
+/// the same value (`toggle_buttons.dart:601`, `:635`, `:651`): a bank is one object and
+/// its outline does not break up because one of its buttons is on, but an application
+/// that wants the chosen pair marked out needs somewhere to say so.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ToggleButtonsTheme {
+    /// What is drawn in a button that is off — its text, its glyph, anything under it
+    /// that reads the theme for a colour.
+    pub color: Option<Color>,
+    /// The same, for a button that is on.
+    pub selected_color: Option<Color>,
+    /// The same, when the bank cannot be pressed.
+    pub disabled_color: Option<Color>,
+    /// A button's ground, per state. A plain colour — `WidgetStateProperty::all` —
+    /// fills every button rather than only the ones that are on, as the reference's does.
+    pub fill_color: Option<crate::WidgetStateProperty<Color>>,
+    /// The hairline around and beside a button that is off.
+    pub border_color: Option<Color>,
+    /// The hairline around and beside a button that is on. A seam between an on button and
+    /// an off one takes this, from either side.
+    pub selected_border_color: Option<Color>,
+    /// The hairline when the bank cannot be pressed.
+    pub disabled_border_color: Option<Color>,
+    /// The hairline's width, around the bank and between its buttons.
+    pub border_width: Option<f32>,
+    /// The **bank's** corners: the buttons at its two ends take a pair each, and the ones
+    /// between them are square.
+    pub border_radius: Option<BorderRadius>,
+    /// The type any text in the bank takes. Its colour is ignored — that is the three
+    /// content colours' to answer, and it depends on the state.
+    pub text_style: Option<TextStyle>,
+    /// The smallest a button may be across.
+    pub min_width: Option<f32>,
+    /// And down. Untold, both are the tap target.
+    pub min_height: Option<f32>,
+    /// The largest. Untold, unbounded.
+    pub max_width: Option<f32>,
+    /// Likewise.
+    pub max_height: Option<f32>,
+}
+
+/// Defaults for [`GridTileBar`](crate::GridTileBar).
+///
+/// The two heights are two fields and not one, because it is the **content** that picks
+/// between them: a bar with a title and a subtitle is 68 and any other is 48. An
+/// application setting one has not thereby said anything about the other.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GridTileBarTheme {
+    /// What is drawn behind the words. Untold, nothing at all: the picture is the
+    /// background, which is the arrangement the widget is for.
+    pub background_color: Option<Color>,
+    /// The colour of the words and glyphs on it. Untold, white — the bar stands on a
+    /// photograph, and a photograph has no brightness the theme knows about.
+    pub foreground_color: Option<Color>,
+    /// The title's type. Untold, the scale's `title_medium`.
+    pub title_style: Option<TextStyle>,
+    /// The subtitle's. Untold, `body_small`.
+    pub subtitle_style: Option<TextStyle>,
+    /// How tall a bar carrying one line is.
+    pub height: Option<f32>,
+    /// How tall one carrying a title **and** a subtitle is.
+    pub two_line_height: Option<f32>,
+}
+
 #[cfg(test)]
 mod tests {
+    /// **The rungs a shape is resolved on**, and the third one in particular: a radius
+    /// was all a theme could say until milestone 450, and applications have written them.
+    /// A theme naming a `shape` outranks one naming only a `radius`; naming both is
+    /// naming the shape.
+    #[test]
+    fn a_shape_outranks_a_radius_and_a_caller_outranks_both() {
+        use super::{resolve_shape, BorderRadius, ShapeBorder};
+        let fallback = ShapeBorder::stadium();
+        let told = ShapeBorder::circle();
+        let themed = ShapeBorder::beveled(3.0);
+
+        assert_eq!(resolve_shape(None, None, None, fallback), fallback);
+        assert_eq!(
+            resolve_shape(None, None, Some(BorderRadius::uniform(4.0)), fallback),
+            ShapeBorder::rounded(4.0),
+            "a plain radius still speaks"
+        );
+        assert_eq!(
+            resolve_shape(
+                None,
+                Some(themed),
+                Some(BorderRadius::uniform(4.0)),
+                fallback
+            ),
+            themed,
+            "and a shape beside it outranks it"
+        );
+        assert_eq!(
+            resolve_shape(
+                Some(told),
+                Some(themed),
+                Some(BorderRadius::uniform(4.0)),
+                fallback
+            ),
+            told,
+            "and the caller outranks the theme"
+        );
+    }
+
     use super::*;
     use crate::card::{Card, CardVariant, CARD_MARGIN};
     use crate::divider::{Divider, DIVIDER_SPACE};
     use crate::flex::Flex;
     use crate::runtime::Runtime;
-    use crate::theme::Theme;
+    use crate::theme::{TextTheme, Theme};
     use crate::ui::build_ui;
     use crate::widget::Widget;
     use frus_core::{Color, Primitive, Rect, Size};
@@ -644,6 +1507,188 @@ mod tests {
         );
     }
 
+    /// The size every `Primitive::Text` in a frame was drawn at, in the order they were
+    /// painted. A widget's type is not reachable any other way — these widgets paint their
+    /// labels instead of laying them out.
+    fn text_sizes(widget: impl Widget<Msg> + 'static, theme: &Theme) -> Vec<f32> {
+        framed(widget, theme)
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Text { size, .. } => Some(*size),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The weight of the first text in a frame.
+    fn first_weight(widget: impl Widget<Msg> + 'static, theme: &Theme) -> Option<u16> {
+        framed(widget, theme).iter().find_map(|p| match p {
+            Primitive::Text { weight, .. } => Some(weight.to_u16()),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn a_widget_no_longer_decides_its_own_type() {
+        // Milestone 413. Twelve widgets set their text in a private constant that no theme
+        // and no caller could reach, and one of them had **drifted two pixels from the
+        // reference** without anybody being able to see it. Each is checked here at the
+        // step the reference names, and then moved by a theme — which is the part that was
+        // impossible before, and the reason the drift went unseen.
+        let plain = Theme::default();
+
+        // A snackbar's content is `bodyMedium` — 14 px, not the 16 the constant said.
+        assert_eq!(
+            text_sizes(crate::toast::SnackBar::<Msg>::new("Saved"), &plain),
+            vec![plain.text.body_medium.size.unwrap()]
+        );
+        let mut loud = Theme::default();
+        loud.widgets.snack_bar.content_text_style = Some(TextStyle::new(30.0));
+        assert_eq!(
+            text_sizes(crate::toast::SnackBar::<Msg>::new("Saved"), &loud),
+            vec![30.0],
+            "the theme has a say"
+        );
+        assert_eq!(
+            text_sizes(
+                crate::toast::SnackBar::<Msg>::new("Saved").content_text_style(TextStyle::new(9.0)),
+                &loud
+            ),
+            vec![9.0],
+            "and the caller has the last word over it"
+        );
+
+        // A key cap is a label, and monospaced.
+        let kbd = || crate::kbd::Kbd::new("Ctrl");
+        assert_eq!(
+            text_sizes(kbd(), &plain),
+            vec![plain.text.label_medium.size.unwrap()]
+        );
+        assert_eq!(
+            framed(kbd(), &plain).iter().find_map(|p| match p {
+                Primitive::Text { family, .. } => Some(*family),
+                _ => None,
+            }),
+            Some(Some(frus_core::FontFamily::Monospace)),
+            "a cap stands for what is printed on a keyboard"
+        );
+
+        // A tree row is a list tile's title.
+        let tree =
+            || crate::tree::Tree::<Msg>::new(|_| unreachable!()).node(1, 0, "root", false, false);
+        assert_eq!(
+            text_sizes(tree(), &plain),
+            vec![plain.text.body_large.size.unwrap()]
+        );
+        assert_eq!(
+            text_sizes(tree().text_style(TextStyle::new(7.0)), &plain),
+            vec![7.0],
+            "said on the widget, whatever order the builders came in"
+        );
+    }
+
+    #[test]
+    fn the_reference_names_a_table_s_two_rows_apart() {
+        // A data table's heading is `titleSmall` and its cells `bodyMedium` — **two
+        // different steps**, which one `SIZE` constant for the whole widget could not say.
+        let theme = Theme::default();
+        let table = crate::table::Table::<Msg>::new(1)
+            .header(&["Name"])
+            .row(&["Ada"]);
+        assert_eq!(
+            text_sizes(table, &theme),
+            vec![
+                theme.text.title_small.size.unwrap(),
+                theme.text.body_medium.size.unwrap(),
+            ]
+        );
+        // And the heading carries the medium weight the step does.
+        let heading = crate::table::Table::<Msg>::new(1).header(&["Name"]);
+        assert_eq!(
+            first_weight(heading, &theme),
+            Some(frus_core::FontWeight::Medium.to_u16())
+        );
+    }
+
+    #[test]
+    fn a_table_carries_its_own_word_down_to_cells_it_did_not_build_directly() {
+        // `Table` and `DatePicker` hand their override down the **theme**
+        // (`Widget::theme_override`) rather than through the cells' fields: a table builds
+        // cells in half a dozen places and a calendar has five constructors, and a value
+        // carried down the theme reaches all of them without any of them being taught to
+        // pass it on.
+        let theme = Theme::default();
+        let table = crate::table::Table::<Msg>::new(1)
+            .header(&["Name"])
+            .row(&["Ada"])
+            .heading_text_style(TextStyle::new(21.0))
+            .data_text_style(TextStyle::new(8.0));
+        assert_eq!(text_sizes(table, &theme), vec![21.0, 8.0]);
+        // Saying nothing costs nothing: no override, no theme to allocate.
+        assert!(Widget::<Msg>::theme_override(
+            &crate::table::Table::<Msg>::new(1).header(&["Name"]),
+            &theme
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn the_un_themed_path_reads_the_same_scale_as_the_themed_one() {
+        // `Widget::style` has no theme — it is what the transparent wrappers ask a child
+        // when they want its size. It answers from `TextTheme::M3`, the same const
+        // `Theme::default()` carries, rather than from a fallback constant beside it: two
+        // numbers that have to agree is the shape the last five milestones were about.
+        assert_eq!(TextTheme::M3, Theme::default().text);
+        let kbd = crate::kbd::Kbd::new("Ctrl");
+        assert_eq!(
+            Widget::<Msg>::style(&kbd),
+            Widget::<Msg>::style_themed(&kbd, &Theme::default()),
+            "the same widget, sized the same way, with and without a theme in hand"
+        );
+    }
+
+    #[test]
+    fn the_last_seven_widgets_stop_deciding_their_own_type() {
+        // Milestone 414, the tail of 413. Five of these seven turned out to be **read**
+        // from the reference after all, and the note that sent them here said only two
+        // were — which is the same mistake as the constants themselves, an estimate
+        // standing in for a look.
+        let plain = Theme::default();
+
+        // Argued: a trail is a *secondary* line of navigation, `bodyMedium`.
+        let trail = || crate::breadcrumb::Breadcrumb::<Msg>::new(|_| unreachable!()).crumb("Home");
+        assert_eq!(
+            text_sizes(trail(), &plain),
+            vec![plain.text.body_medium.size.unwrap()]
+        );
+        assert_eq!(
+            text_sizes(trail().text_style(TextStyle::new(9.0)), &plain),
+            vec![9.0],
+            "and a caller can still say otherwise"
+        );
+        let mut themed = Theme::default();
+        themed.widgets.breadcrumb.text_style = Some(TextStyle::new(31.0));
+        assert_eq!(text_sizes(trail(), &themed), vec![31.0]);
+    }
+
+    #[test]
+    fn a_bar_titles_at_the_reference_s_weight() {
+        // The app bar's title was a private `TextStyle::new(22.0).weight(Medium)`: the size
+        // right and **the weight wrong**, because `titleLarge` is regular. Nothing tested it
+        // — the one test that looked compared it against the constant it came from, which is
+        // a tautology, not a check.
+        let plain = Theme::default();
+        assert_eq!(
+            first_weight(crate::navbar::NavigationBar::<Msg>::new("Inbox"), &plain),
+            Some(frus_core::FontWeight::Regular.to_u16())
+        );
+        assert_eq!(
+            text_sizes(crate::navbar::NavigationBar::<Msg>::new("Inbox"), &plain),
+            vec![plain.text.title_large.size.unwrap()],
+            "and a navigation bar titles at 22, not at a private 20"
+        );
+    }
+
     #[test]
     fn a_theme_that_says_nothing_is_the_absence_of_a_theme() {
         // The whole contract of `None`: a fresh theme must carry no opinions at all, or
@@ -658,5 +1703,17 @@ mod tests {
         assert_eq!(WidgetThemes::default().button.height, None);
         assert_eq!(WidgetThemes::default().segmented.height, None);
         assert_eq!(WidgetThemes::default().icon_button.size, None);
+        assert_eq!(WidgetThemes::default().snack_bar.content_text_style, None);
+        assert_eq!(WidgetThemes::default().table.heading_text_style, None);
+        assert_eq!(WidgetThemes::default().date_picker.day_text_style, None);
+        assert_eq!(WidgetThemes::default().kbd.text_style, None);
+        assert_eq!(WidgetThemes::default().breadcrumb.text_style, None);
+        assert_eq!(WidgetThemes::default().kanban.card_text_style, None);
+        assert_eq!(WidgetThemes::default().form.bullet_text_style, None);
+        assert_eq!(WidgetThemes::default().time_picker.dial_text_style, None);
+        assert_eq!(
+            WidgetThemes::default().slider.value_indicator_text_style,
+            None
+        );
     }
 }

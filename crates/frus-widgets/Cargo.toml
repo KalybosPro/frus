@@ -18,6 +18,13 @@ bundled-sans = ["frus-text/bundled-sans"]
 bundled-italic = ["frus-text/bundled-italic"]
 bundled-mono = ["frus-text/bundled-mono"]
 bundled-arabic = ["frus-text/bundled-arabic"]
+# The **variant icon styles**. The filled set is always bundled; each of these adds one
+# more blob of artwork (~340, ~400 and ~270 KiB), which is why none is on by default.
+# Without one, its constants do not exist and `Icons::by_name` answers `None` for its
+# names rather than quietly handing back a different drawing.
+icons-outlined = []
+icons-rounded = []
+icons-sharp = []
 
 [dependencies]
 frus-core = { path = "../frus-core" }

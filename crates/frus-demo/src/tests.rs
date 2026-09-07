@@ -1208,7 +1208,14 @@ fn no_screen_draws_outside_itself() {
             // found the cause: a slider asking for a fixed 220 next to a label of 108 in a
             // card of 331. It asks loosely now, and the pin came down.
             if over > 0.0 {
-                worst.push(format!("{route:?}/{label} overflows by {over:.1} px"));
+                // The box and the edge as well as the amount: "2 px" on nine screens at
+                // once says a shared widget grew, and only the rectangle says which.
+                for o in ui.overflows() {
+                    worst.push(format!(
+                        "{route:?}/{label} overflows {:?} by {:.1} px at {:?}",
+                        o.side, o.amount, o.rect
+                    ));
+                }
             }
         }
     }

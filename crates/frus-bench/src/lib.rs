@@ -28,7 +28,7 @@ pub fn task_list(rows: usize) -> Container<()> {
                 Checkbox::new(i % 2 == 0),
                 text(format!("Task number {i}")).size(15.0),
                 Container::new().flex(1.0),
-                Icon::new(Icons::Close).size(16.0),
+                Icon::new(Icons::CLOSE).size(16.0),
                 button("Open", ()),
             ]
             .gap(12.0)
@@ -54,7 +54,7 @@ pub fn task_list_wordless(rows: usize) -> Container<()> {
                 .child(Checkbox::new(i % 2 == 0))
                 .child(Container::new().width(120.0).height(18.0))
                 .child(Container::new().flex(1.0))
-                .child(Icon::new(Icons::Close).size(16.0))
+                .child(Icon::new(Icons::CLOSE).size(16.0))
                 .child(Container::new().width(56.0).height(32.0))
                 .gap(12.0)
                 .align(Align::Center)

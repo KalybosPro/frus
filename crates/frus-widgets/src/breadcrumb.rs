@@ -1,14 +1,28 @@
 //! [`Breadcrumb`]: a trail of clickable segments, the last of which is the current
 //! page.
 
-use frus_core::{Point, Rect, Scene};
+use frus_core::{Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-const SIZE: f32 = 15.0;
+/// The style the segments are drawn in: what the caller said, else what the theme says,
+/// else `bodyMedium`.
+///
+/// The reference has no breadcrumb, so this one is argued rather than read: a trail is a
+/// **secondary** line of navigation above the page's own content, and it should not read
+/// louder than what it leads to.
+///
+/// **Resolved once**, so that the number the box is measured with is the number the glyphs
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403); a size that never passes through it is a size the reader cannot change.
+fn label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.breadcrumb.text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_medium)
+        .resolved()
+}
 
 /// One segment: a clickable link, the current page, or a separator.
 struct Crumb<Msg> {
@@ -16,16 +30,28 @@ struct Crumb<Msg> {
     /// `Some` is a clickable link; `None` is the current page or a separator.
     message: Option<Msg>,
     separator: bool,
+    text_style: Option<TextStyle>,
 }
 
-impl<Msg: Clone> Widget<Msg> for Crumb<Msg> {
-    fn style(&self) -> Style {
-        let measured = frus_text::measure(&self.label, SIZE);
+impl<Msg> Crumb<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        let measured =
+            frus_text::measure_resolved(&self.label, &label_style(self.text_style, theme));
         Style {
             width: Dimension::Length(measured.width.ceil()),
             height: Dimension::Length(measured.height.ceil()),
             ..Default::default()
         }
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for Crumb<Msg> {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -40,13 +66,13 @@ impl<Msg: Clone> Widget<Msg> for Crumb<Msg> {
             // A link: discreet, lightening on hover.
             theme.muted.lerp(theme.on_surface, status.hover_progress)
         } else {
-            // Page courante.
+            // The current page.
             theme.on_surface
         };
         scene.text(
             Point::new(bounds.x, bounds.y),
             self.label.clone(),
-            SIZE,
+            &label_style(self.text_style, Some(theme)),
             color.fade(o),
         );
     }
@@ -64,6 +90,7 @@ impl<Msg: Clone> Widget<Msg> for Crumb<Msg> {
 pub struct Breadcrumb<Msg> {
     on_select: Box<dyn Fn(usize) -> Msg>,
     labels: Vec<String>,
+    text_style: Option<TextStyle>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -73,8 +100,17 @@ impl<Msg: Clone + 'static> Breadcrumb<Msg> {
         Self {
             on_select: Box::new(on_select),
             labels: Vec::new(),
+            text_style: None,
             children: Vec::new(),
         }
+    }
+
+    /// The segments' type, over the theme's and the framework's.
+    #[must_use]
+    pub fn text_style(mut self, style: TextStyle) -> Self {
+        self.text_style = Some(style);
+        self.rebuild();
+        self
     }
 
     /// Adds a segment (at the end of the trail).
@@ -93,6 +129,7 @@ impl<Msg: Clone + 'static> Breadcrumb<Msg> {
                     label: "›".to_string(),
                     message: None,
                     separator: true,
+                    text_style: self.text_style,
                 }));
             }
             children.push(Box::new(Crumb {
@@ -103,6 +140,7 @@ impl<Msg: Clone + 'static> Breadcrumb<Msg> {
                     Some((self.on_select)(i))
                 },
                 separator: false,
+                text_style: self.text_style,
             }));
         }
         self.children = children;

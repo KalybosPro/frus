@@ -154,7 +154,7 @@ impl RichText {
     /// A line limit is a height cap and nothing else.
     fn capped(&self, height: f32) -> f32 {
         match self.max_lines {
-            Some(max) => height.min(frus_text::line_height(self.base.resolved().size) * max as f32),
+            Some(max) => height.min(self.base.resolved().line_height() * max as f32),
             None => height,
         }
     }
@@ -166,7 +166,7 @@ impl RichText {
         } else {
             bounds.height
         };
-        let run = (extent * 0.2).min(frus_text::line_height(self.base.resolved().size) * 3.0);
+        let run = (extent * 0.2).min(self.base.resolved().line_height() * 3.0);
         let (from, to) = if horizontal {
             (
                 Point::new(bounds.x + bounds.width - run, bounds.y),

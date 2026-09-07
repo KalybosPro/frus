@@ -13,25 +13,27 @@ pub(crate) use std::path::{Path, PathBuf};
 pub(crate) use std::time::Duration;
 
 pub(crate) use frus_l10n::args;
-pub(crate) use frus_shell::{Application, Command, Lifecycle, Subscription};
+pub(crate) use frus_shell::{
+    Application, Brightness, Command, Lifecycle, Locale, Subscription, ThemeMode,
+};
 
 // `column!` and `row!` are macros: they are exported at frus-widgets' root and have
 // to be imported by name in each module, not carried in through a glob.
 pub(crate) use frus_widgets::form::{Form, Rule};
 pub(crate) use frus_widgets::{
-    bar_spacer, button, disabled_content, fab_button, keyed, spacer, text, AlertDialog, Align,
+    bar_spacer, button, disabled_content, fab_button, keyed, spacer, text, Alert, Align,
     AnimationController, AppBar, Autocomplete, Axis, BarChart, BottomAppBar, BoxFit, Breadcrumb,
     Card, CarouselView, CellFn, Checkbox, Chip, CircleAvatar, Color, ColorPicker, ConstrainedBox,
     Container, CustomPaint, DataTable, DatePicker, Dismissible, Divider, DragTarget, Draggable,
     DropdownButton, ErrorSummary, Expanded, ExpansionTile, FabLocation, Flex, FontWeight, GridView,
     Hero, Icon, IconButton, Icons, Image, ImageData, ImageHandle, Insets, Justify, Kanban, Kbd,
     LayoutBuilder, LineChart, LinearProgressIndicator, ListView, MediaQuery, MenuAnchor,
-    NavigationBar, Navigator, Orientation, OverlayPortal, PageView, Pagination, Placement,
-    RadioGroup, Rating, Rect, RefreshIndicator, RichText, SafeArea, Scaffold, ScaffoldMessenger,
-    ScrollPhysics, SegmentedButton, SingleChildScrollView, Size, SizeClass, SizedBox, Skeleton,
-    Slider, SnackBar, SnackBarPosition, SnackBarQueue, SpringDescription, Stack, Stepper, Steps,
-    Switch, TabBar, Table, TextField, TextSpan, Theme, Timeline, Tree, TwoPane, Variant, Widget,
-    WindowInsets,
+    NavigationBar, NavigationDestination, Navigator, Orientation, OverlayPortal, PageView,
+    Pagination, Placement, RadioGroup, Rating, Rect, RefreshIndicator, RichText, SafeArea,
+    Scaffold, ScaffoldMessenger, ScrollPhysics, SegmentedButton, SingleChildScrollView, Size,
+    SizeClass, SizedBox, Skeleton, Slider, SnackBar, SnackBarPosition, SnackBarQueue,
+    SpringDescription, Stack, Stepper, Steps, Switch, TabBar, Table, TextField, TextSpan, Theme,
+    Timeline, Tree, TwoPane, Variant, Widget, WindowInsets,
 };
 
 // The application's own vocabulary: its state, its messages, and the small modules

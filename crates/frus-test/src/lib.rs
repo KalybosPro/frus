@@ -53,7 +53,7 @@ pub fn render_widget<Msg: Clone + 'static>(
     height: u32,
     theme: &Theme,
 ) -> Option<Snapshot> {
-    let mut stage = Stage::new(width, height).theme(*theme);
+    let mut stage = Stage::new(width, height).theme(theme.clone());
     stage.settle(root);
     stage.render(root)
 }
@@ -201,7 +201,9 @@ impl Snapshot {
     /// "something is drawn here".
     pub fn lit_pixels(&self, threshold: u8) -> usize {
         self.rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|px| px[0] > threshold || px[1] > threshold || px[2] > threshold)
             .count()
     }
@@ -215,8 +217,10 @@ impl Snapshot {
             "the snapshots have different sizes"
         );
         self.rgba
-            .chunks_exact(4)
-            .zip(other.rgba.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(other.rgba.as_chunks::<4>().0.iter())
             .filter(|(a, b)| {
                 a.iter()
                     .zip(b.iter())
@@ -363,7 +367,7 @@ mod tests {
                     Checkbox::new(i % 2 == 0),
                     text(format!("Task number {i}")).size(15.0),
                     Container::new().flex(1.0),
-                    Icon::new(Icons::Close).size(16.0),
+                    Icon::new(Icons::CLOSE).size(16.0),
                     button("Open", ()),
                 ]
                 .gap(12.0)

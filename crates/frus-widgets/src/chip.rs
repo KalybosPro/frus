@@ -10,17 +10,17 @@
 //! ```ignore
 //! Chip::new("Draft")                                   // an attribute
 //! Chip::new("Unread").selected(on).on_press(Msg::Toggle)   // a filter
-//! Chip::new(name).leading(Icons::Star).on_remove(Msg::Drop(id))  // an entry
+//! Chip::new(name).leading(Icons::STAR).on_remove(Msg::Drop(id))  // an entry
 //! ```
 //!
 //! Every measurement and colour is overridable, per call or through
 //! [`ChipTheme`](crate::ChipTheme).
 
-use frus_core::{BorderRadius, Color, Insets, Point, Rect, Scene, TextStyle};
+use frus_core::{BorderRadius, Color, Insets, Point, Rect, Scene, ShapeBorder, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
-use crate::icons::Icons;
+use crate::icons::{IconData, Icons};
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -38,9 +38,6 @@ pub const CHIP_ICON_SIZE: f32 = 18.0;
 /// The outline's thickness.
 pub const CHIP_BORDER_WIDTH: f32 = 1.0;
 
-/// The icon grid the vector icons are drawn on; see [`crate::icons`].
-const ICON_GRID: f32 = 24.0;
-
 /// Everything about a chip's appearance, each part `None` until someone says otherwise.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct ChipStyle {
@@ -51,7 +48,9 @@ pub(crate) struct ChipStyle {
     pub label_style: Option<TextStyle>,
     pub border_color: Option<Color>,
     pub border_width: Option<f32>,
-    pub radius: Option<BorderRadius>,
+    /// What shape it is, over the theme's. A radius named through
+    /// [`Chip::radius`](crate::Chip::radius) arrives here as a rounded rectangle.
+    pub shape: Option<ShapeBorder>,
     pub padding: Option<f32>,
     pub label_padding: Option<f32>,
     pub height: Option<f32>,
@@ -106,10 +105,25 @@ impl ChipStyle {
         (width, color)
     }
 
+    /// **What shape this chip is**: its own word, then the theme's shape, then the
+    /// theme's plain radius, then the reference's 8.
+    fn shape(&self, theme: &Theme) -> ShapeBorder {
+        crate::resolve_shape(
+            self.shape,
+            theme.widgets.chip.shape,
+            theme.widgets.chip.radius,
+            ShapeBorder::rounded(CHIP_RADIUS),
+        )
+    }
+
+    /// The corners that shape resolves to in a box of this chip's height — what the ink
+    /// is clipped to, and what a shape with no rounded form has none of.
     fn radius(&self, theme: &Theme) -> BorderRadius {
-        self.radius
-            .or(theme.widgets.chip.radius)
-            .unwrap_or(BorderRadius::uniform(CHIP_RADIUS))
+        let side = self.height(theme);
+        self.shape(theme)
+            .as_rounded(Rect::new(0.0, 0.0, side, side))
+            .map(|(_, radius)| radius)
+            .unwrap_or(BorderRadius::ZERO)
     }
 
     fn padding(&self, theme: &Theme) -> f32 {
@@ -186,10 +200,12 @@ impl<Msg: Clone> Widget<Msg> for Remove<Msg> {
             disabled_content(theme)
         }
         .fade(status.opacity);
-        let path = Icons::Close
-            .path()
-            .scaled(size / ICON_GRID)
-            .translated(bounds.x, bounds.y + (bounds.height - size) * 0.5);
+        let path = Icons::CLOSE.placed(
+            size,
+            bounds.x,
+            bounds.y + (bounds.height - size) * 0.5,
+            theme.direction,
+        );
         scene.fill_path(&path, color);
     }
 
@@ -223,7 +239,7 @@ impl<Msg: Clone> Widget<Msg> for Remove<Msg> {
 pub struct Chip<Msg> {
     label: String,
     selected: bool,
-    leading: Option<Icons>,
+    leading: Option<IconData>,
     on_press: Option<Msg>,
     on_remove: Option<Msg>,
     /// A chip that is shown but cannot be acted on: greyed out and inert, its label still
@@ -278,7 +294,7 @@ impl<Msg: Clone + 'static> Chip<Msg> {
     }
 
     /// A leading icon — the avatar or glyph an entry chip carries.
-    pub fn leading(mut self, icon: Icons) -> Self {
+    pub fn leading(mut self, icon: IconData) -> Self {
         self.leading = Some(icon);
         self.rebuild()
     }
@@ -352,9 +368,17 @@ impl<Msg: Clone + 'static> Chip<Msg> {
         self.rebuild()
     }
 
-    /// The corner radii (uniform via `f32`, per corner via [`BorderRadius`]).
+    /// The corner radii (uniform via `f32`, per corner via [`BorderRadius`]) — the
+    /// shorthand for a rounded rectangle. See [`Chip::shape`].
     pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
-        self.style.radius = Some(radius.into());
+        self.style.shape = Some(ShapeBorder::rounded(radius));
+        self.rebuild()
+    }
+
+    /// **What shape it is** (`chip.dart`), over the corners named above. The last of the
+    /// two to be called is the one that counts: they are one property.
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.style.shape = Some(shape);
         self.rebuild()
     }
 
@@ -384,9 +408,9 @@ impl<Msg: Clone + 'static> Chip<Msg> {
 
     /// Whether anything is drawn in the leading slot, and what: an icon if there is one,
     /// otherwise the checkmark of a selected chip.
-    fn leading_glyph(&self, theme: &Theme) -> Option<Icons> {
+    fn leading_glyph(&self, theme: &Theme) -> Option<IconData> {
         self.leading
-            .or_else(|| (self.selected && self.style.show_checkmark(theme)).then_some(Icons::Check))
+            .or_else(|| (self.selected && self.style.show_checkmark(theme)).then_some(Icons::CHECK))
     }
 
     /// Where the label starts, measured from the chip's left edge.
@@ -399,8 +423,27 @@ impl<Msg: Clone + 'static> Chip<Msg> {
     }
 
     fn label_size(&self, theme: &Theme) -> frus_core::Size {
-        let style = self.style.label_style(theme);
-        frus_text::measure_style(&self.label, style)
+        frus_text::measure_resolved(&self.label, &self.style.label_style(theme).resolved())
+    }
+
+    /// The chip's height: the one it was given, **or what its label needs** when the reader
+    /// asked for type that does not fit inside it.
+    ///
+    /// The reference's chip does the same arithmetic —
+    /// `max(chipHeight - padding.vertical, labelHeight) + padding.vertical` — because a
+    /// component's default height is a **floor** and not a ceiling. Ours was a ceiling, so
+    /// at a text scale of 2 a chip's glyphs needed 34 px inside a 32 px box and were cut.
+    ///
+    /// The room asked for around the line is `0`, not the chip's padding: that padding is
+    /// applied on the horizontal axis only (the label is painted, not laid out, and is
+    /// centred in the box), so counting it here would move every chip that fits perfectly
+    /// well today.
+    fn box_height(&self, theme: &Theme) -> f32 {
+        frus_text::line_box(
+            self.style.height(theme),
+            &self.style.label_style(theme).resolved(),
+            0.0,
+        )
     }
 }
 
@@ -421,7 +464,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Chip<Msg> {
         let removable = !self.children.is_empty();
         Style {
             width: Dimension::Length(after_label + if removable { icon } else { 0.0 } + pad),
-            height: Dimension::Length(self.style.height(theme)),
+            height: Dimension::Length(self.box_height(theme)),
             flex_direction: FlexDirection::Row,
             align: Align::Center,
             padding: Insets::new(0.0, pad, 0.0, after_label),
@@ -460,16 +503,19 @@ impl<Msg: Clone + 'static> Widget<Msg> for Chip<Msg> {
             )
         };
 
-        scene.draw_rect(
+        scene.draw_shape(
             bounds,
+            self.style
+                .shape(theme)
+                .with_side(frus_core::BorderSide::new(
+                    if border_width > 0.0 {
+                        border_color.fade(o)
+                    } else {
+                        Color::TRANSPARENT
+                    },
+                    border_width,
+                )),
             background.fade(o),
-            self.style.radius(theme),
-            border_width,
-            if border_width > 0.0 {
-                border_color.fade(o)
-            } else {
-                Color::TRANSPARENT
-            },
         );
 
         // The leading slot: an icon if the chip has one, otherwise a selected chip's
@@ -483,16 +529,18 @@ impl<Msg: Clone + 'static> Widget<Msg> for Chip<Msg> {
             } else {
                 theme.scheme.primary
             };
-            let path = name.path().scaled(icon_size / ICON_GRID).translated(
+            let path = name.placed(
+                icon_size,
                 bounds.x + self.style.padding(theme),
                 bounds.y + (bounds.height - icon_size) * 0.5,
+                theme.direction,
             );
             scene.fill_path(&path, color.fade(o));
         }
 
         let label_style = self.style.label_style(theme);
         let measured = self.label_size(theme);
-        scene.text_styled(
+        scene.text(
             Point::new(
                 bounds.x + self.label_offset(theme),
                 bounds.y + (bounds.height - measured.height) * 0.5,
@@ -764,9 +812,9 @@ mod tests {
                 .filter(|p| matches!(p, Primitive::Path { .. }))
                 .count()
         };
-        assert_eq!(paths(Chip::new("Ada").leading(Icons::Star)), 1);
+        assert_eq!(paths(Chip::new("Ada").leading(Icons::STAR)), 1);
         assert_eq!(
-            paths(Chip::new("Ada").leading(Icons::Star).selected(true)),
+            paths(Chip::new("Ada").leading(Icons::STAR).selected(true)),
             1,
             "the icon, not the icon and a checkmark"
         );

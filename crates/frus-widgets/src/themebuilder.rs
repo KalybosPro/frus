@@ -117,7 +117,20 @@ impl<Msg: Clone + 'static> Widget<Msg> for ThemeBuilder<Msg> {
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         // Unbuilt, this is empty — which is why `build_themed` runs on the way down in
         // the layout pass, before anything reads it. A traversal that arrives first
-        // should call `build_themed`, not this.
+        // should call `crate::build_deferred`, not this.
+        //
+        // That rule was a comment for three milestones and the shell broke it: a tree
+        // rebuilt outside a frame, on a burst of keystrokes, was read straight away and
+        // every deferred subtree in it answered "no children" — so nothing inside one
+        // could be found, focused, or scrolled to. It is a tripwire now, because the
+        // failure it guards against is **silence**, and silence is what a reader of this
+        // code would have to notice on their own.
+        #[cfg(debug_assertions)]
+        if self.built.get().is_none() && self.build.borrow().is_some() {
+            panic!(
+                "a ThemeBuilder's children were read before it was built: a traversal                  reached this tree before any layout pass did. Call `build_deferred(tree,                  &theme)` on it first — milestone 415."
+            );
+        }
         self.built.get().map(Vec::as_slice).unwrap_or(&[])
     }
 

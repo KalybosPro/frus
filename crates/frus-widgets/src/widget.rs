@@ -69,6 +69,82 @@ pub struct FilterContext {
     pub backdrop_group: Option<u64>,
 }
 
+/// The axes a widget asks to **fill**: on each, it takes the room its parent leaves it
+/// rather than shrink-wrapping its children.
+///
+/// # Why this is asked and not declared
+///
+/// `width: 100%` looks like the same thing and is not. A percentage resolves against the
+/// parent's **resolved** width, which a parent that shrink-wraps has not got yet — it is
+/// waiting on this very child to find out how wide it should be. Both are "full width" in
+/// English, and only one can be computed in time:
+///
+/// | | what it needs | known |
+/// |---|---|---|
+/// | `width: 100%` | the parent's own width | on the way back **up** |
+/// | a fill request | the room being offered | on the way **down** |
+///
+/// Fifteen widgets in this crate said it the first way and every one of them collapsed
+/// under a plain column (milestone 404). Asking is the only phrasing the layout can answer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FillAxes {
+    /// Take the width the parent offers.
+    pub horizontal: bool,
+    /// Take the height the parent offers.
+    pub vertical: bool,
+}
+
+impl FillAxes {
+    /// Shrink-wrap on both axes — what a widget with no opinion answers.
+    pub const NONE: Self = Self {
+        horizontal: false,
+        vertical: false,
+    };
+    /// Take the width offered; hug the content vertically.
+    pub const WIDTH: Self = Self {
+        horizontal: true,
+        vertical: false,
+    };
+    /// Take the height offered; hug the content horizontally.
+    pub const HEIGHT: Self = Self {
+        horizontal: false,
+        vertical: true,
+    };
+    /// Take everything offered — a full-screen shell.
+    pub const BOTH: Self = Self {
+        horizontal: true,
+        vertical: true,
+    };
+
+    /// The axes asked for, as one flex direction, or `None` where that cannot be said —
+    /// neither axis, or both. For the walk, which resolves each axis separately anyway.
+    pub fn single(self) -> Option<frus_layout::FlexDirection> {
+        match (self.horizontal, self.vertical) {
+            (true, false) => Some(frus_layout::FlexDirection::Row),
+            (false, true) => Some(frus_layout::FlexDirection::Column),
+            _ => None,
+        }
+    }
+
+    /// Whether one axis is asked for.
+    pub fn wants(self, horizontal: bool) -> bool {
+        if horizontal {
+            self.horizontal
+        } else {
+            self.vertical
+        }
+    }
+
+    /// The axis a [`frus_layout::FlexDirection`] names, and nothing else.
+    pub fn along(direction: frus_layout::FlexDirection) -> Self {
+        if direction.is_horizontal() {
+            Self::WIDTH
+        } else {
+            Self::HEIGHT
+        }
+    }
+}
+
 pub trait Widget<Msg> {
     /// Layout style (handed to `frus-layout`).
     fn style(&self) -> Style;
@@ -500,6 +576,23 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// **Whether this area draws a scrollbar**, when it wants its own answer rather than
+    /// the application's. `None` — the default — follows the application, which follows
+    /// the platform. See [`crate::Scrollbars`].
+    fn scrollbars(&self) -> Option<crate::physics::Scrollbars> {
+        None
+    }
+
+    /// **Keep this area's scrollbar on screen**, instead of letting it fade away when
+    /// the area stops moving (`scrollbar.dart:214`).
+    ///
+    /// `None` — the default — lets it fade, which is what a bar over content should do.
+    /// `Some(true)` pins it: for an area whose content is not obviously scrollable, or
+    /// one a reader is meant to be able to aim at without scrolling first.
+    fn thumb_visibility(&self) -> Option<bool> {
+        None
+    }
+
     /// What the **software keyboard** should be, when this widget is the focused
     /// editable one.
     ///
@@ -684,6 +777,45 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// The **surface** this widget imposes on itself and its subtree, given the one it
+    /// inherits. `None` — the default — means "whatever came down from above", which is
+    /// what every widget but [`MediaScope`](crate::MediaScope) answers.
+    ///
+    /// The counterpart of [`Self::theme_override`], and it exists for the same reason one
+    /// milestone later: a surface could until now only be narrowed **where a widget is
+    /// constructed** (`SafeArea::build`), and the widget that knows what to narrow is often
+    /// not the one doing the constructing. A shell hands its app bar's slot the description
+    /// that slot should believe in; the bar then decides for itself whether to consume the
+    /// status bar, which is how the reference splits that job across two widgets.
+    ///
+    /// Applied by the layout walk on the way down and held for the subtree, so anything
+    /// reading [`MediaQuery::of`](crate::MediaQuery::of) below this node sees it — including
+    /// a subtree deferred until [`Self::build_themed`], which runs after the swap.
+    /// [`crate::build_deferred`], the relayout fingerprint and the paint walk make the same
+    /// swap; the four staying in step is what keeps the cache and the picture honest.
+    fn media_override(&self, _inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        None
+    }
+
+    /// The **shell** this widget imposes on its subtree: what a
+    /// [`Scaffold`](crate::Scaffold) knows about itself and its slots do not.
+    ///
+    /// The third of the inherited things, after the theme and the surface, and it exists
+    /// for the same reason as the second: a slot is handed to a shell **already built**, so
+    /// the widget that knows there is a drawer is never the one that has to draw the button
+    /// for it. The reference reads it from the context (`Scaffold.of`), which is how a bar
+    /// with no `leading` grows a menu button on a screen that has a menu and stays empty on
+    /// one that does not (`app_bar.dart:1010`).
+    ///
+    /// `None` — the default — means "whatever came down from above", which is what every
+    /// widget but [`ScaffoldScope`](crate::ScaffoldScope) answers. Applied by the same four
+    /// walks as [`Self::media_override`], and for the same reason: an
+    /// [`AppBar`](crate::AppBar) is composed in [`Self::build_themed`], which runs after the
+    /// swap, and the relayout fingerprint has to see what the composition saw.
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        None
+    }
+
     /// Builds this widget's subtree **from the ambient theme**, for the widgets that
     /// defer that decision — see [`ThemeBuilder`](crate::ThemeBuilder). Does nothing by
     /// default, which is what all but a handful of widgets want.
@@ -774,23 +906,27 @@ pub trait Widget<Msg> {
         false
     }
 
-    /// The **axis this widget asks to fill**: it takes the room the parent leaves it
-    /// along that axis rather than shrink-wrapping its children. `MainAxisSize::Max` on a
-    /// [`crate::Row`] or a [`crate::Column`] is the reason it exists, and there the axis
-    /// is the widget's own main one; a [`crate::TabBar`] asks for the horizontal one, which
-    /// is its cross axis. `None` means shrink-wrap.
+    /// The **axes this widget asks to fill**: on each, it takes the room the parent
+    /// leaves it rather than shrink-wrapping its children. [`FillAxes::NONE`] means
+    /// shrink-wrap on both.
+    ///
+    /// `MainAxisSize::Max` on a [`crate::Row`] or a [`crate::Column`] is the reason it
+    /// exists, and there the axis is the widget's own main one; a [`crate::TabBar`] asks
+    /// for the horizontal one, which is its cross axis; a full-screen shell asks for
+    /// [`FillAxes::BOTH`].
     ///
     /// It is a question about the *parent*, which is why it is asked rather than written
     /// into the style: filling means growing when the parent runs the same way and
     /// stretching when it runs across, and a widget cannot know what it was put inside.
-    /// The layout walk resolves it, where both are in view.
+    /// The layout walk resolves it, where both are in view. **Declaring `width: 100%`
+    /// instead does not work** and cannot be made to — see [`FillAxes`].
     ///
     /// The theme is here for the same reason it is on [`Widget::measure`]: a text asks to
     /// fill because it was told to align inside its box, and a subtree can hand that
     /// alignment down. A hook blind to the theme would leave the one setting that arrives
     /// by inheritance silently doing nothing.
-    fn main_axis_fill(&self, _theme: &Theme) -> Option<frus_layout::FlexDirection> {
-        None
+    fn fill_axes(&self, _theme: &Theme) -> FillAxes {
+        FillAxes::NONE
     }
 
     /// The width below which this widget must not be squeezed **when its parent runs
@@ -1036,6 +1172,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn theme_override(&self, inherited: &Theme) -> Option<Box<Theme>> {
         (**self).theme_override(inherited)
     }
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        (**self).media_override(inherited)
+    }
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        (**self).scaffold_override()
+    }
     fn build_themed(&self, theme: &Theme) {
         (**self).build_themed(theme)
     }
@@ -1237,6 +1379,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn scroll_physics(&self) -> Option<crate::physics::ScrollPhysics> {
         (**self).scroll_physics()
     }
+    fn scrollbars(&self) -> Option<crate::physics::Scrollbars> {
+        (**self).scrollbars()
+    }
+    fn thumb_visibility(&self) -> Option<bool> {
+        (**self).thumb_visibility()
+    }
     fn ime(&self) -> crate::ime::Ime {
         (**self).ime()
     }
@@ -1306,8 +1454,8 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn baseline_target(&self) -> Option<f32> {
         (**self).baseline_target()
     }
-    fn main_axis_fill(&self, theme: &Theme) -> Option<frus_layout::FlexDirection> {
-        (**self).main_axis_fill(theme)
+    fn fill_axes(&self, theme: &Theme) -> FillAxes {
+        (**self).fill_axes(theme)
     }
     fn main_axis_floor(&self, theme: &Theme) -> Option<f32> {
         (**self).main_axis_floor(theme)

@@ -96,14 +96,22 @@ crate::transparent::forward_transparent!(Themed {
     /// which is what nesting means when it is written out.
     fn theme_override(&self, inherited: &Theme) -> Option<Box<Theme>> {
         let mine = match &self.source {
-            Source::Data(theme) => **theme,
+            Source::Data(theme) => (**theme).clone(),
             Source::Tweak(change) => {
-                let mut theme = *inherited;
+                let mut theme = inherited.clone();
                 change(&mut theme);
                 theme
             }
         };
         Some(self.inner.theme_override(&mine).unwrap_or_else(|| Box::new(mine)))
+    }
+
+    /// Forwarded: a theme says nothing about the surface.
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        self.inner.media_override(inherited)
+    }
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        self.inner.scaffold_override()
     }
 });
 

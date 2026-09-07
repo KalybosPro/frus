@@ -16,6 +16,8 @@
 //!     .nav(app.section, Msg::SetSection)     // destinations, in a bottom bar
 //!     .destination("✔", "Tasks").badge(3)
 //!     .destination("▦", "Stats")
+//!     .rail(|rail| rail.extended(true))      // when the navigation is a rail
+
 //!     .drawer(menu, app.menu_open, Msg::ToggleMenu)          // leading edge
 //!     .end_drawer(filters, app.drawer_open, Msg::ToggleDrawer)
 //!     .persistent_footer(row![cancel, save])  // never scrolls away
@@ -32,13 +34,25 @@
 //! no size either — and it is not a convenience: a number that travels by hand gets
 //! dropped, and the failure is a screen laid out to the wrong width.
 //!
-//! **What the body is given, and what it is given under.** By default the body gets
-//! what the bars leave it: it starts below the app bar, stops above the bottom bar,
-//! and is shortened by the soft keyboard so that a field at the end of a form is not
-//! covered by it. Each of those three is a decision a screen may reverse —
+//! **What the body is given.** The body gets what the bars leave it: it starts below
+//! the app bar, stops above the bottom bar and the persistent footer, and is shortened
+//! by the soft keyboard so that a field at the end of a form is not covered by it. Each
+//! of those is a decision a screen may reverse —
 //! [`Scaffold::extend_body_behind_app_bar`], [`Scaffold::extend_body`] and
-//! [`Scaffold::resize_to_avoid_bottom_inset`] — and none of them lets content sit
-//! under the system's own bars, which are not the application's to spend.
+//! [`Scaffold::resize_to_avoid_bottom_inset`].
+//!
+//! **And what it is told.** The system's own intrusions — the notch, the gesture bar —
+//! are *described* to the body, not spent on its behalf. With nothing below it the body
+//! reaches the screen's edge, and the description it is handed says the gesture bar is
+//! there; a body that must be held clear of it says [`SafeArea`](crate::SafeArea) and is
+//! answered. That is the reference's arrangement, and it is what a background, a hero
+//! image, or a list that should scroll *under* the gesture bar needs — a shell that spent
+//! the intrusion for them made all three impossible, and made every screen pay for the
+//! notch whether it wanted the room or not.
+//!
+//! It is only ever the **body**. A bar, a rail or a footer put in a slot consumes what it
+//! is told about, so the chrome keeps clear of the intrusions without a screen saying
+//! anything at all.
 //!
 //! **The body does not scroll.** It is placed in the room the bars leave and that is
 //! all; a screen that needs to scroll puts a scrolling widget in the body, and picks
@@ -53,11 +67,10 @@ use frus_core::{Color, Insets, WindowInsets};
 use frus_layout::Justify;
 
 use crate::bottomappbar::BottomAppBar;
-use crate::button::Variant;
 use crate::container::Container;
 use crate::flex::Flex;
 use crate::media::MediaQuery;
-use crate::navrail::{BottomBar, NavigationRail, BAR_HEIGHT, RAIL_WIDTH};
+use crate::navrail::{BottomBar, NavigationDestination, NavigationRail, RailLabels, BAR_HEIGHT};
 use crate::stack::Stack;
 use crate::widget::Widget;
 
@@ -68,6 +81,10 @@ const FOOTER_PAD: f32 = 12.0;
 /// The height a floating action button is assumed to have, absent
 /// [`Scaffold::fab_size`]. The conventional Material diameter.
 const FAB_SIZE: f32 = 56.0;
+
+/// What a caller wants done to the [`NavigationRail`] the shell built for it, once it is
+/// built and before it is measured. See [`Scaffold::rail`].
+type RailConfig<Msg> = Box<dyn FnOnce(NavigationRail<Msg>) -> NavigationRail<Msg>>;
 
 /// Where a [`Scaffold`]'s navigation destinations are drawn.
 ///
@@ -154,8 +171,12 @@ pub struct Scaffold<Msg> {
     body: Option<Box<dyn Widget<Msg>>>,
     selected: usize,
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,
-    destinations: Vec<(String, String, Option<u32>)>,
+    destinations: Vec<NavigationDestination>,
     nav_placement: NavPlacement,
+    nav_labels: Option<RailLabels>,
+    /// What the caller wants done to the rail once the shell has built it. `None` leaves
+    /// the rail the shell would have built anyway.
+    rail: Option<RailConfig<Msg>>,
     drawer: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
     end_drawer: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
     bottom_app_bar: Option<BottomAppBar<Msg>>,
@@ -214,6 +235,12 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             on_select: None,
             destinations: Vec::new(),
             nav_placement: NavPlacement::default(),
+            // **Not a default of its own.** Left unsaid, each of the two navigation
+            // widgets keeps the one the reference gives it — a rail labels nothing, a
+            // bar labels everything (milestone 432) — and collapsing them to one answer
+            // here would quietly undo that.
+            nav_labels: None,
+            rail: None,
             drawer: None,
             end_drawer: None,
             bottom_app_bar: None,
@@ -324,6 +351,16 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     ///
     /// Left plain, the body is positioned at the top of that room, so a body that
     /// wants all of it says so — `.flex(1.0)`, or a `Flex` that centres its content.
+    ///
+    /// **The room includes the system's intrusions when nothing else holds them off.**
+    /// With a bottom bar or a footer below it, they keep the body clear of the gesture
+    /// bar; with neither, the body reaches the screen's edge and is *told* the intrusion
+    /// is there. A body whose content must not sit under it wraps in
+    /// [`SafeArea`](crate::SafeArea):
+    ///
+    /// ```ignore
+    /// .body(SafeArea::new(form))
+    /// ```
     pub fn body(mut self, widget: impl Widget<Msg> + 'static) -> Self {
         self.body = Some(Box::new(widget));
         self
@@ -349,16 +386,114 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         self
     }
 
-    /// Adds a navigation destination (glyph + label).
-    pub fn destination(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
-        self.destinations.push((icon.into(), label.into(), None));
+    /// **When the destinations say what they are**, whichever of the two widgets ends
+    /// up carrying them. See [`RailLabels`].
+    ///
+    /// Unsaid, each keeps the default the reference gives it: a rail shows no labels, a
+    /// bar shows them all (milestone 432).
+    pub fn nav_labels(mut self, labels: RailLabels) -> Self {
+        self.nav_labels = Some(labels);
         self
     }
 
+    /// **What to do to the rail** once the shell has built it from the destinations —
+    /// `.rail(|rail| rail.extended(true).group_alignment(0.0))`.
+    ///
+    /// The shell builds the navigation itself, which is what makes it a shell: an
+    /// application says `.destination("✔", "Tasks")` and never sees the widget. That
+    /// left everything a rail can do and a bar cannot — its extended form, where its
+    /// destinations sit, the slots above and below them — reachable only by building the
+    /// rail by hand and giving up the shell. This is the door: the shell builds the rail,
+    /// hands it over, and takes back whatever comes out.
+    ///
+    /// It runs **last**, after the destinations and after [`Self::nav_labels`], so it has
+    /// the final word on both. Silent when the navigation is a bottom bar, which has none
+    /// of these properties to set.
+    ///
+    /// The shell then measures the rail it was handed rather than assuming the width it
+    /// started with — an extended rail is 256 wide, and everything the shell puts beside
+    /// it has to know.
+    pub fn rail(
+        mut self,
+        configure: impl FnOnce(NavigationRail<Msg>) -> NavigationRail<Msg> + 'static,
+    ) -> Self {
+        self.rail = Some(Box::new(configure));
+        self
+    }
+
+    /// Adds a navigation destination (mark + label).
+    pub fn destination(
+        mut self,
+        icon: impl Into<crate::navrail::DestinationIcon>,
+        label: impl Into<String>,
+    ) -> Self {
+        self.destinations
+            .push(NavigationDestination::new(icon, label));
+        self
+    }
+
+    /// Adds a whole list of destinations **declared elsewhere** — the same list a rail, a
+    /// drawer or a [`NavScaffold`](crate::NavScaffold) would take, so an application
+    /// describes its navigation once.
+    ///
+    /// ```
+    /// use frus_widgets::{Icons, NavigationDestination, Scaffold};
+    ///
+    /// let places = vec![
+    ///     NavigationDestination::new(Icons::FAVORITE_BORDER, "Saved")
+    ///         .selected_icon(Icons::FAVORITE),
+    ///     NavigationDestination::new(Icons::MAIL_OUTLINE, "Inbox").badge(3),
+    /// ];
+    /// let _shell = Scaffold::new()
+    ///     .body(frus_widgets::text("…"))
+    ///     .nav(0, |i| i)
+    ///     .destinations(places)
+    ///     .build();
+    /// ```
+    #[must_use]
+    pub fn destinations(
+        mut self,
+        destinations: impl IntoIterator<Item = NavigationDestination>,
+    ) -> Self {
+        self.destinations.extend(destinations);
+        self
+    }
+
+    /// What a pointer resting on the **last** destination is told. See
+    /// [`NavigationRail::tooltip`].
+    #[must_use]
+    pub fn tooltip(self, message: impl Into<String>) -> Self {
+        let message = message.into();
+        self.decorate(move |last| last.tooltip = Some(message))
+    }
+
     /// A notification count on the **last** destination.
-    pub fn badge(mut self, count: u32) -> Self {
+    pub fn badge(self, count: u32) -> Self {
+        self.decorate(|last| last.badge = Some(count))
+    }
+
+    /// The glyph the **last** destination shows while it is selected, where that differs
+    /// from its resting one. See [`NavigationRail::selected_icon`].
+    pub fn selected_icon(self, icon: impl Into<crate::navrail::DestinationIcon>) -> Self {
+        let icon = icon.into();
+        self.decorate(move |last| last.selected_icon = Some(icon))
+    }
+
+    /// Marks the **last** destination inaccessible. See [`NavigationRail::disabled`].
+    pub fn disabled(self) -> Self {
+        self.decorate(|last| last.disabled = true)
+    }
+
+    /// The **last** destination's own indicator colour, over the theme's. See
+    /// [`NavigationRail::indicator_color`].
+    pub fn indicator_color(self, color: Color) -> Self {
+        self.decorate(move |last| last.indicator_color = Some(color))
+    }
+
+    /// Applies `f` to the destination just added. Silent when there is none.
+    fn decorate(mut self, f: impl FnOnce(&mut NavigationDestination)) -> Self {
         if let Some(last) = self.destinations.last_mut() {
-            last.2 = Some(count);
+            f(last);
         }
         self
     }
@@ -529,6 +664,8 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             on_select,
             destinations,
             nav_placement,
+            nav_labels,
+            rail: configure_rail,
             drawer,
             end_drawer,
             bottom_app_bar,
@@ -559,26 +696,37 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         let body_widget = body.unwrap_or_else(|| Box::new(Container::new()));
 
         // Navigation: a bottom bar, or a side rail if one was asked for.
+        //
+        // **How wide the rail came out**, which is not a constant since milestone 433: a
+        // caller can extend it, and everything the shell puts beside it — the persistent
+        // footer's row, for one — is laid out against this number.
+        let mut rail_width = 0.0;
         let nav: Option<Box<dyn Widget<Msg>>> = if has_nav {
             let on_select =
                 on_select.expect("nav(selected, on_select) is required with destinations");
             if !rail_nav {
                 let mut bar = BottomBar::new(selected, on_select);
-                for (icon, label, badge) in &destinations {
-                    bar = bar.item(icon.clone(), label.clone());
-                    if let Some(count) = *badge {
-                        bar = bar.badge(count);
-                    }
+                for destination in &destinations {
+                    bar = bar.destination(destination.clone());
+                }
+                if let Some(labels) = nav_labels {
+                    bar = bar.labels(labels);
                 }
                 Some(Box::new(bar))
             } else {
                 let mut rail = NavigationRail::new(selected, on_select);
-                for (icon, label, badge) in &destinations {
-                    rail = rail.item(icon.clone(), label.clone());
-                    if let Some(count) = *badge {
-                        rail = rail.badge(count);
-                    }
+                for destination in &destinations {
+                    rail = rail.destination(destination.clone());
                 }
+                if let Some(labels) = nav_labels {
+                    rail = rail.labels(labels);
+                }
+                // The caller's word is the last one, and the measurement is taken after
+                // it rather than before.
+                if let Some(configure) = configure_rail {
+                    rail = configure(rail);
+                }
+                rail_width = rail.declared_width();
                 Some(Box::new(rail))
             }
         } else {
@@ -602,7 +750,11 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             (None, Some(bar)) => {
                 bottom_bar_height = bar.declared_height();
                 let bar = if fab.is_some() && fab_location.docked() {
-                    bar.notched_at(fab_centre_x - insets.left, fab_size / 2.0)
+                    // In the bar's own coordinates, which are the window's: since
+                    // milestone 418 the bottom slot spans the full width and consumes
+                    // the side intrusions itself, so its origin is no longer held off
+                    // by `insets.left` and the notch is no longer moved back by it.
+                    bar.notched_at(fab_centre_x, fab_size / 2.0)
                 } else {
                     bar
                 };
@@ -611,42 +763,6 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             (None, None) => None,
         };
         let has_nav = has_nav || bottom_bar_height > 0.0;
-
-        // The persistent footer: its own row, aligned as asked, kept clear of the side
-        // insets. It sits between the body and the bottom bar and never scrolls.
-        let footer: Option<Box<dyn Widget<Msg>>> = persistent_footer.map(|widget| {
-            // The row is **given** the width it has to fill. A row that hugged its
-            // content would leave the alignment nothing to distribute, and every
-            // footer would sit at the leading edge whatever it was asked for.
-            let rail = if rail_nav { RAIL_WIDTH } else { 0.0 };
-            let row_width = (width - insets.left - insets.right - rail - FOOTER_PAD * 2.0).max(0.0);
-            let row = Flex::row()
-                .width(row_width)
-                .justify(persistent_footer_alignment)
-                .child(widget);
-            // **The decoration outside, the safe area inside.** The reference's footer
-            // is a decorated container — background, and a one-pixel top border unless
-            // the caller replaces it — wrapping a `SafeArea(top: false)`. So the line
-            // and the background run the full width of the screen and the *content* is
-            // what keeps clear of the side intrusions; a border inset by the notch
-            // would be a rule that stops short of the edge it is ruling off.
-            let mut stack = Flex::column();
-            if persistent_footer_divider {
-                stack = stack.child(crate::Divider::new());
-            }
-            stack = stack.child_boxed(inset_pad(
-                Box::new(Container::new().padding(FOOTER_PAD).child(row)),
-                0.0,
-                insets.right,
-                0.0,
-                insets.left,
-            ));
-            let mut decorated = Container::new().child(stack);
-            if let Some(color) = persistent_footer_color {
-                decorated = decorated.color(color);
-            }
-            Box::new(decorated) as Box<dyn Widget<Msg>>
-        });
 
         // How far the bottom-most slot is held off the edge. The keyboard is the only
         // inset a screen may decline: `view_insets.bottom` measures the occlusion from
@@ -658,33 +774,169 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // button onto the window's edge the moment a field was tapped, then lift them
         // back when the keyboard closed. `view_padding` is the intrusion that does not
         // move, which is exactly what "ignore the keyboard" means.
+        //
+        // It is worked out here, above the footer, because the footer is one of the
+        // slots it falls to (milestone 419).
         let bottom_clear = if resize_to_avoid_bottom_inset {
             insets.bottom.max(view_insets.bottom)
         } else {
             view_padding.bottom
         };
+        // Whether something below the footer already holds the edge off. A rail is
+        // beside the body, not beneath it, so it holds nothing off.
+        let bar_below_body = has_nav && !rail_nav;
+        // How far the bottom bar reaches up, which the body needs when it is told to run
+        // under it and the floating button needs to sit on its edge.
+        let nav_h = if bottom_bar_height > 0.0 {
+            bottom_bar_height
+        } else if !rail_nav && has_nav {
+            BAR_HEIGHT
+        } else {
+            0.0
+        };
 
-        // The body: given the room the bars leave, with the side insets applied to its
-        // content, and **not** wrapped in a scroller. A pane rather than a viewport —
+        // The persistent footer: its own row, aligned as asked, kept clear of the side
+        // insets. It sits between the body and the bottom bar and never scrolls.
+        let footer: Option<Box<dyn Widget<Msg>>> = persistent_footer.map(|widget| {
+            // The row is **given** the width it has to fill. A row that hugged its
+            // content would leave the alignment nothing to distribute, and every
+            // footer would sit at the leading edge whatever it was asked for.
+            let row_width =
+                (width - insets.left - insets.right - rail_width - FOOTER_PAD * 2.0).max(0.0);
+            let row = Flex::row()
+                .width(row_width)
+                .justify(persistent_footer_alignment)
+                .child(widget);
+            // **The decoration outside, the safe area inside.** The reference's footer
+            // is a decorated container — background, and a one-pixel top border unless
+            // the caller replaces it — wrapping a `SafeArea(top: false)`
+            // (`scaffold.dart:3133`). So the line and the background run the full width
+            // of the screen and the *content* is what keeps clear of the intrusions; a
+            // border inset by the notch would be a rule that stops short of the edge it
+            // is ruling off.
+            //
+            // It is a **real safe area** since milestone 419, not a padding worked out
+            // here, and that is what fixed the bottom: this used to pass zero, so a
+            // footer with nothing under it left its buttons sitting on the gesture bar.
+            // The shell holds the clearance for whatever is bottom-most, and with a
+            // footer there, that is the footer.
+            let mut stack = Flex::column();
+            if persistent_footer_divider {
+                stack = stack.child(crate::Divider::new());
+            }
+            stack = stack.child(
+                crate::SafeArea::new(Container::new().padding(FOOTER_PAD).child(row))
+                    .edges(crate::Edges::ALL.without_top()),
+            );
+            let mut decorated = Container::new().child(stack);
+            if let Some(color) = persistent_footer_color {
+                decorated = decorated.color(color);
+            }
+            // The description the slot is handed: the top removed, the sides as the
+            // shell resolved them, and the bottom only when nothing below it holds the
+            // edge off — which is what the reference's `removeBottomPadding:
+            // bottomNavigationBar != null` says (`scaffold.dart:3158`).
+            // Beside a rail the leading intrusion is the rail's — it is inside the
+            // rail's own box, and the footer sits in the column to its right (milestone
+            // 420). `row_width` above already reads it that way: subtracting the rail's
+            // bare width *and* `insets.left` is the same number as subtracting the rail's
+            // box, which is the two added together since the rail took the intrusion.
+            let left = if rail_nav { 0.0 } else { insets.left };
+            let right = insets.right;
+            let bottom = if bar_below_body { 0.0 } else { bottom_clear };
+            Box::new(crate::MediaScope::tweak(
+                move |mq: &mut crate::MediaQuery| {
+                    mq.padding.top = 0.0;
+                    mq.padding.left = left;
+                    mq.padding.right = right;
+                    mq.padding.bottom = bottom;
+                },
+                decorated,
+            )) as Box<dyn Widget<Msg>>
+        });
+
+        // **The body is told, not padded** (milestone 421), the last of the four slots.
+        // The shell used to apply the side intrusions to its content and tell it nothing,
+        // so a `SafeArea` inside a body read the **ambient** description and padded for
+        // intrusions that had already been dealt with — the status bar twice over under an
+        // app bar, and the sides twice over anywhere.
+        //
+        // The reference lays its body out full width and hands the slot a description
+        // (`scaffold.dart:3019`): the sides kept, the top removed when there is an app bar,
+        // the bottom removed when something below it holds the edge off, and the keyboard
+        // removed when the layout has already shortened the body for it.
+        //
+        // Which is also to say: **a body that wants the notch avoided says so.** The slot
+        // is now told the truth about its edges, and `SafeArea` is what reads it.
+        //
+        // It is still **not** wrapped in a scroller: a pane rather than a viewport —
         // whether this screen scrolls is the screen's to say, and it says it by what it
         // puts here.
-        let body_pane = Flex::column().flex(1.0).child(inset_pad(
+        let bar_over_body = extend_body_behind_app_bar && app_bar.is_some();
+        // The top is the app bar's when there is one in front of the body. Behind it
+        // (`extend_body_behind_app_bar`) the body faces the status bar itself again, which
+        // is the `max(padding.top, appBarHeight)` half of the reference's `_BodyBuilder`
+        // (`scaffold.dart:973`) — the bar's own height is not in it yet.
+        let body_top = if app_bar.is_some() && !bar_over_body {
+            0.0
+        } else {
+            insets.top
+        };
+        // And the bottom, which changed hands at milestone 423. The shell shortens the
+        // body for the **keyboard** and for the widgets below it, **never for the gesture
+        // bar**: the reference's `minInsets.bottom` is `resize ? viewInsets.bottom : 0`
+        // (`scaffold.dart:3220`), so a body with nothing under it reaches the screen's edge
+        // and is **told** what is there. With a bar or a footer under it they hold the edge
+        // off and the body is told nothing, which is the reference's `removeBottomPadding:
+        // bottomNavigationBar != null || persistentFooterButtons != null`.
+        //
+        // Told to run **under** them, it faces the further of two things: the intrusion, or
+        // how far the slots it runs under reach. That is `_BodyBuilder`'s
+        // `max(padding.bottom, bottomWidgetsHeight)` (`scaffold.dart:969`) — with the
+        // footer's own height still missing from the second term, since nothing measures it.
+        let below_body = bar_below_body || footer.is_some();
+        let body_bottom = if extend_body {
+            insets.bottom.max(nav_h)
+        } else if below_body {
+            0.0
+        } else {
+            insets.bottom
+        };
+        let (body_left, body_right) = (insets.left, insets.right);
+        let body_keyboard = resize_to_avoid_bottom_inset;
+        let body_pane = Flex::column().flex(1.0).child(crate::MediaScope::tweak(
+            move |mq: &mut crate::MediaQuery| {
+                mq.padding.top = body_top;
+                mq.padding.left = body_left;
+                mq.padding.right = body_right;
+                mq.padding.bottom = body_bottom;
+                // `removeBottomInset: _resizeToAvoidBottomInset` — the column has already
+                // shortened the body for the keyboard, so there is nothing left to avoid.
+                if body_keyboard {
+                    mq.view_insets.bottom = 0.0;
+                }
+            },
             body_widget,
-            0.0,
-            insets.right,
-            0.0,
-            insets.left,
         ));
 
-        // Whether the bottom clearance falls to the body. With a bar or a footer below
-        // it, they hold the edge off; alone — or with the body told to run under them —
-        // it is on the body, and it is taken as a **sibling** rather than as padding
-        // inside it: the room the body is given shrinks, so a scrolling body scrolls
-        // within what is left instead of running under the keyboard.
-        // A rail is beside the body, not beneath it, so it holds nothing off the edge.
-        let bar_below_body = has_nav && !rail_nav;
+        // Whether the bottom clearance falls to the body — and **which** clearance.
+        //
+        // The keyboard, and nothing else (milestone 423). It is taken as a **sibling**
+        // rather than as padding inside the body: the room the body is given shrinks, so a
+        // scrolling body scrolls within what is left instead of running under the keyboard.
+        // The gesture bar is *not* here any more; it reaches the body as a description, and
+        // a body that wants to be held clear of it says `SafeArea` — which is what the
+        // reference does, `minInsets.bottom` being the keyboard alone.
+        //
+        // With a bar or a footer below it they hold the edge off, and a body told to run
+        // under them has asked for the room.
         let body_owns_bottom = !extend_body && footer.is_none() && !bar_below_body;
-        let body_spacer = body_owns_bottom && bottom_clear > 0.0;
+        let keyboard_clear = if resize_to_avoid_bottom_inset {
+            view_insets.bottom
+        } else {
+            0.0
+        };
+        let body_spacer = body_owns_bottom && keyboard_clear > 0.0;
 
         // Which slots the body must make room for, and which it runs under. A slot that
         // is extended behind moves out of the body's column and into an overlay layer
@@ -694,17 +946,57 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // actually is one. Wide, the navigation is a rail beside the body and the
         // overlay would span the rail as well as the content; a footer there stays in
         // the column, which is what it should do anyway when nothing is under it.
-        let bar_over_body = extend_body_behind_app_bar && app_bar.is_some();
         let bottom_over_body = extend_body && !rail_nav && (footer.is_some() || nav.is_some());
         // **Only a primary shell absorbs the status bar.** One nested in a page, or
         // sitting beside another, takes the bar's own height and leaves the top
         // intrusion to whatever is actually above it. The reference computes the same
         // thing in the same place: `primary ? MediaQuery.paddingOf(context).top : 0.0`.
+        // The slot is handed a **description**, not a padding (milestone 417). An
+        // `AppBar` consumes the intrusion itself when it is `primary`, exactly as the
+        // reference's does — the shell's job is to say what there is to consume.
+        //
+        // It says it even when the answer is "the same as outside", because the shell's
+        // idea of its intrusions is not always the ambient one: `Scaffold::insets` is an
+        // explicit override, and a slot told nothing would read past it to the surface and
+        // pad by something the shell had already decided against. The left is per call —
+        // beside a rail, the rail has taken it.
         let bar_top = if primary { insets.top } else { 0.0 };
-        let app_bar_pad =
-            |bar: Box<dyn Widget<Msg>>, left: f32| inset_pad(bar, bar_top, insets.right, 0.0, left);
-        let nav_pad =
-            |n: Box<dyn Widget<Msg>>| inset_pad(n, 0.0, insets.right, bottom_clear, insets.left);
+        let bar_right = insets.right;
+        let app_bar_pad = move |bar: Box<dyn Widget<Msg>>, left: f32| -> Box<dyn Widget<Msg>> {
+            Box::new(crate::MediaScope::tweak(
+                move |mq: &mut crate::MediaQuery| {
+                    mq.padding.top = bar_top;
+                    mq.padding.left = left;
+                    mq.padding.right = bar_right;
+                },
+                bar,
+            ))
+        };
+        // **The bottom slot is told, not padded** (milestone 418) — the same split
+        // milestone 417 made at the top of the screen. The reference hands this slot a
+        // description with the **top** intrusion removed and the bottom one left in
+        // (`scaffold.dart:3167`), and the bar consumes what it is told about, inside its
+        // own surface: `NavigationBar` wraps its row in a safe area and leaves the
+        // `Material` outside it (`navigation_bar.dart:285`), and so does `BottomAppBar`
+        // (`bottom_app_bar.dart:230`). That is what makes a bar's background run behind
+        // the gesture bar instead of stopping short above it, with a strip of the
+        // scaffold showing through — which is what a padding from outside produced.
+        //
+        // `bottom_clear` is already the number the reference arrives at through
+        // `maintainBottomViewPadding: !resizeToAvoidBottomInset`, worked out above.
+        let nav_left = insets.left;
+        let nav_right = insets.right;
+        let nav_pad = move |n: Box<dyn Widget<Msg>>| -> Box<dyn Widget<Msg>> {
+            Box::new(crate::MediaScope::tweak(
+                move |mq: &mut crate::MediaQuery| {
+                    mq.padding.top = 0.0;
+                    mq.padding.left = nav_left;
+                    mq.padding.right = nav_right;
+                    mq.padding.bottom = bottom_clear;
+                },
+                n,
+            ))
+        };
 
         // The pinned shell: app bar · body · footer · (bottom bar | rail).
         let mut app_bar = app_bar;
@@ -719,7 +1011,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             }
             col = col.child(body_pane);
             if body_spacer {
-                col = col.child(Container::new().height(bottom_clear));
+                col = col.child(Container::new().height(keyboard_clear));
             }
             if !bottom_over_body {
                 if let Some(f) = footer.take() {
@@ -735,7 +1027,22 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             if let Some(n) = nav.take() {
                 // The rail is a sibling, never an overlay: `extend_body` speaks of the
                 // bottom bar, and a body sliding under a side rail is nobody's design.
-                row = row.child(inset_pad(n, insets.top, 0.0, bottom_clear, insets.left));
+                //
+                // Told, not padded (milestone 420): the trailing side is the body's, so
+                // it is removed; the leading side, the top and the bottom are the rail's
+                // to consume, which is the set the reference's own safe area takes
+                // (`navigation_rail.dart:556`). The rule down the rail's edge then runs
+                // the full height of the screen instead of stopping at the notch.
+                let (rail_top, rail_left) = (insets.top, insets.left);
+                row = row.child(crate::MediaScope::tweak(
+                    move |mq: &mut crate::MediaQuery| {
+                        mq.padding.top = rail_top;
+                        mq.padding.right = 0.0;
+                        mq.padding.left = rail_left;
+                        mq.padding.bottom = bottom_clear;
+                    },
+                    n,
+                ));
             }
             let mut content = Flex::column().flex(1.0);
             if !bar_over_body {
@@ -745,7 +1052,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             }
             content = content.child(body_pane);
             if body_spacer {
-                content = content.child(Container::new().height(bottom_clear));
+                content = content.child(Container::new().height(keyboard_clear));
             }
             if !bottom_over_body {
                 if let Some(f) = footer.take() {
@@ -787,13 +1094,6 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         if let Some(fab) = fab {
             // Where the body stops: the top of the bottom bar, which is what both
             // vertical placements are measured from.
-            let nav_h = if bottom_bar_height > 0.0 {
-                bottom_bar_height
-            } else if !rail_nav && has_nav {
-                BAR_HEIGHT
-            } else {
-                0.0
-            };
             let content_bottom = bottom_clear + nav_h;
             let fab_bottom = if fab_location.docked() {
                 // Docked: the button's **centre** on that edge, straddling the bar.
@@ -825,6 +1125,16 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                     .layer(content)
                     .layer(fab_layer),
             );
+        }
+
+        // What this shell knows, for the slots that cannot see it (milestone 422). Taken
+        // before the drawers are consumed below, since the message is what a bar needs.
+        let mut info = crate::ScaffoldInfo::default();
+        if let Some((_, _, toggle)) = &drawer {
+            info = info.with_drawer(toggle.clone());
+        }
+        if let Some((_, _, toggle)) = &end_drawer {
+            info = info.with_end_drawer(toggle.clone());
         }
 
         // The modal drawers, then the modal sheet, wrap the shell as overlays. The
@@ -864,56 +1174,56 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         }
 
         // A full-window background (edge to edge) giving the slots a definite size.
-        Box::new(
+        let shell: Box<dyn Widget<Msg>> = Box::new(
             Container::new()
                 .width(width)
                 .height(height)
                 .color(bg)
                 .child(content),
-        )
+        );
+        // **And the shell says what it is** (milestone 422). Its slots were handed to it
+        // already built and cannot see the screen they stand on; this is how a bar with no
+        // leading of its own learns that there is a drawer, and what opens it. It wraps the
+        // whole shell rather than the app-bar slot alone, because the reference's
+        // `Scaffold.of` is readable from anywhere below the scaffold and not only from the
+        // bar (`scaffold.dart:3232`).
+        if info.has_drawer() || info.has_end_drawer() {
+            Box::new(crate::ScaffoldScope::new(info, shell))
+        } else {
+            shell
+        }
     }
 }
 
-/// Keeps a slot clear of the system bars, **without a superfluous wrapper**: if
-/// all the insets are zero, returns the widget as is (preserving the parent's
-/// stretch); otherwise wraps it in a padding `Container`.
-fn inset_pad<Msg: Clone + 'static>(
-    widget: Box<dyn Widget<Msg>>,
-    top: f32,
-    right: f32,
-    bottom: f32,
-    left: f32,
-) -> Box<dyn Widget<Msg>> {
-    if top == 0.0 && right == 0.0 && bottom == 0.0 && left == 0.0 {
-        widget
-    } else {
-        Box::new(
-            Container::new()
-                .padding_each(top, right, bottom, left)
-                .child(widget),
-        )
-    }
-}
-
-/// A conventional floating action button (round, accent), to be passed to
-/// [`Scaffold::fab`]. Sugar for `button(label, msg)` styled as primary.
+/// The floating action button the [`Scaffold`] examples show: **one character**, round,
+/// wired to a message.
+///
+/// It is a two-line shorthand for [`FloatingActionButton`](crate::FloatingActionButton),
+/// which is the widget and where every property lives. Until milestone 464 it was not a
+/// shorthand for anything: it returned a filled [`Button`](crate::Button), so a screen's
+/// most prominent control took `primary` on `on_primary` where the reference's floating
+/// action button takes `primary_container` on `on_primary_container`.
+///
+/// **Round**, and not only because the convention is round: a docked button sits in the
+/// circular notch a [`BottomAppBar`](crate::BottomAppBar) cuts for it, and the reference's
+/// own sixteen-pixel corner would leave four of them hanging over the bar. A stadium
+/// rather than `FAB_SIZE / 2`, which is the same number written out and only right while
+/// the button is exactly that tall.
 pub fn fab_button<Msg: Clone + 'static>(
     label: impl Into<String>,
     message: Msg,
-) -> crate::Button<Msg> {
-    crate::Button::new(label)
-        .variant(Variant::Filled)
-        .size(24.0)
-        // **Round**, and not only because the convention is round: a docked button
-        // sits in a circular notch, and a square one would leave the bar curving
-        // around a shape that is not there.
-        .radius(FAB_SIZE / 2.0)
+) -> crate::FloatingActionButton<Msg> {
+    crate::FloatingActionButton::glyph(label)
+        .shape(frus_core::ShapeBorder::stadium())
         .on_press(message)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Named by the tests alone since milestone 434: the shell asks the rail how wide it
+    // came out rather than reading the constant, because a rail can be extended.
+    use crate::navrail::{EXTENDED_RAIL_WIDTH, RAIL_WIDTH};
     use crate::{build_ui, dsl::button, dsl::text, Runtime, Size, Theme};
 
     #[derive(Clone, Debug, PartialEq)]
@@ -936,7 +1246,11 @@ mod tests {
             let surface = MediaQuery::new(size).with_insets(bars);
             let tree = surface.scope(|| {
                 Scaffold::<Msg>::new()
-                    .app_bar(Container::new().height(56.0).child(text("bar")))
+                    // A real bar, because since milestone 417 the shell hands this slot a
+                    // *description* rather than a padding: an `AppBar` consumes the status
+                    // bar itself, as the reference's does, and a bare box in this slot is a
+                    // bare box that does not.
+                    .app_bar(crate::AppBar::<Msg>::new("bar").height(56.0).build())
                     .body(Container::new().flex(1.0).child(text("body")))
                     .build()
             });
@@ -1098,9 +1412,13 @@ mod tests {
                 .body(filling())
                 .build(),
         );
-        // Declined: only the permanent bottom bar is kept clear, the keyboard covers.
+        // Declined: the screen has said the keyboard is an **overlay**, so nothing
+        // shortens the body at all and it keeps the whole window — `minInsets.bottom` is
+        // zero when `resizeToAvoidBottomInset` is false, and the permanent bottom bar was
+        // never in that number (milestone 423). It reaches the body as a description, and
+        // a body that wants to be clear of it says `SafeArea`.
         assert!(
-            (covered[0].y + covered[0].height - (H - 30.0)).abs() < 1.0,
+            (covered[0].y + covered[0].height - H).abs() < 1.0,
             "the body must run under the keyboard: {:?}",
             covered[0]
         );
@@ -1152,21 +1470,42 @@ mod tests {
         );
     }
 
-    /// Without a bottom bar or a footer, the body itself must clear the system bar —
-    /// there is nobody else below it to do it.
+    /// **A body alone reaches the screen's edge, and is told what is there** (milestone
+    /// 423).
+    ///
+    /// The reference shortens its body for the keyboard and for the widgets below it,
+    /// **never for the gesture bar**: `minInsets.bottom` is `resize ? viewInsets.bottom : 0`
+    /// (`scaffold.dart:3220`). So a plain body runs to the edge — which is what a
+    /// background, a hero image, or a list that should scroll *under* the gesture bar
+    /// wants — and a body that must be held clear of it says `SafeArea`.
     #[test]
-    fn a_body_alone_still_clears_the_navigation_bar() {
-        let body = marks(
+    fn a_body_alone_reaches_the_edge_and_is_told_what_is_there() {
+        const BOTTOM: f32 = 30.0;
+        let size = Size::new(W, H);
+        let surface = MediaQuery::new(size)
+            .with_insets(WindowInsets::bars(Insets::new(40.0, 0.0, BOTTOM, 0.0)));
+
+        // Nothing below it and nothing asked for: it is the whole screen.
+        let bare = marked_under(surface, size, || {
+            Scaffold::new().size(W, H).body(filling::<Msg>()).build()
+        });
+        assert!(
+            (bare.y + bare.height - H).abs() < 1.0,
+            "the body stopped short of the edge: {bare:?}"
+        );
+
+        // And a body that must be clear of the gesture bar says so, and is answered —
+        // which it could not be before, the description having said the bottom was
+        // already dealt with.
+        let asked = marked_under(surface, size, || {
             Scaffold::new()
                 .size(W, H)
-                .insets(Insets::new(40.0, 0.0, 30.0, 0.0))
-                .body(filling())
-                .build(),
-        );
+                .body(crate::SafeArea::new(filling::<Msg>()))
+                .build()
+        });
         assert!(
-            (body[0].y + body[0].height - (H - 30.0)).abs() < 1.0,
-            "the body ran under the navigation bar: {:?}",
-            body[0]
+            (asked.y + asked.height - (H - BOTTOM)).abs() < 1.0,
+            "a body that asked to be held clear of the gesture bar was not: {asked:?}"
         );
     }
 
@@ -1212,7 +1551,7 @@ mod tests {
             Scaffold::new()
                 .size(W, H)
                 .insets(Insets::new(40.0, 0.0, 0.0, 0.0))
-                .app_bar(Container::<Msg>::new().height(56.0))
+                .app_bar(crate::AppBar::<Msg>::new("").height(56.0).build())
                 .body(marked(200.0))
                 .build(),
         );
@@ -1223,7 +1562,7 @@ mod tests {
                 .size(W, H)
                 .insets(Insets::new(40.0, 0.0, 0.0, 0.0))
                 .extend_body_behind_app_bar(true)
-                .app_bar(Container::<Msg>::new().height(56.0))
+                .app_bar(crate::AppBar::<Msg>::new("").height(56.0).build())
                 .body(marked(200.0))
                 .build(),
         );
@@ -1380,14 +1719,433 @@ mod tests {
         }
     }
 
+    /// The first marked rectangle of a scaffold built under `surface`.
+    fn marked_under(
+        surface: MediaQuery,
+        size: Size,
+        build: impl FnOnce() -> Box<dyn Widget<Msg>>,
+    ) -> frus_core::Rect {
+        let ui = surface.scope(|| {
+            let tree = build();
+            build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default())
+        });
+        ui.scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, color, .. } if *color == MARK => Some(*rect),
+                _ => None,
+            })
+            .expect("the body is drawn")
+    }
+
+    /// Every message a click anywhere in `tree` would emit, the deferred subtrees built
+    /// first — an app bar is composed there, which is the whole point here.
+    fn click_messages(tree: &dyn Widget<Msg>) -> Vec<Msg> {
+        crate::build_deferred(tree, &Theme::default());
+        fn walk(widget: &dyn Widget<Msg>, out: &mut Vec<Msg>) {
+            if let Some(message) = widget.on_click() {
+                out.push(message);
+            }
+            for child in widget.children() {
+                walk(child.as_ref(), out);
+            }
+        }
+        let mut found = Vec::new();
+        walk(tree, &mut found);
+        found
+    }
+
+    /// **What the shell knows and the bar does not** (milestone 422).
+    ///
+    /// An `AppBar` is handed to its `Scaffold` already built, so it cannot see the screen
+    /// it is about to stand on. The reference's reads it from the context: a bar with no
+    /// `leading` of its own, on a screen that has a drawer, grows the button that opens it
+    /// (`app_bar.dart:1010`), and one with nothing at its trailing end grows the button for
+    /// an end drawer (`app_bar.dart:1113`).
+    ///
+    /// Counted rather than searched for, because a closed drawer has a dismiss target of
+    /// its own carrying the same message: what this asserts is **one more** click that
+    /// opens the drawer, which is the button.
+    #[test]
+    fn a_bar_grows_the_buttons_for_drawers_it_could_not_see() {
+        let bar = |leading: bool, actions: bool| {
+            let tree = Scaffold::new()
+                .size(W, H)
+                .body(Container::<Msg>::new())
+                .drawer(text("Menu"), false, Msg::Drawer)
+                .end_drawer(text("Filters"), false, Msg::Add)
+                .app_bar(
+                    crate::AppBar::<Msg>::new("Title")
+                        .automatically_imply_leading(leading)
+                        .automatically_imply_actions(actions)
+                        .build(),
+                )
+                .build();
+            click_messages(tree.as_ref())
+        };
+        let count = |found: &[Msg], wanted: &Msg| found.iter().filter(|m| *m == wanted).count();
+
+        let implied = bar(true, true);
+        let asked_not_to = bar(false, false);
+        assert_eq!(
+            count(&implied, &Msg::Drawer),
+            count(&asked_not_to, &Msg::Drawer) + 1,
+            "the bar did not grow the button for the drawer it stands over"
+        );
+        assert_eq!(
+            count(&implied, &Msg::Add),
+            count(&asked_not_to, &Msg::Add) + 1,
+            "the bar did not grow the button for the end drawer"
+        );
+    }
+
+    /// And it implies nothing where there is nothing to imply, or where the caller has
+    /// already filled the slot. The implied button **fills an empty end**; it is never
+    /// added beside what the bar was given.
+    #[test]
+    fn a_bar_implies_a_button_only_into_an_empty_slot() {
+        let without_a_drawer = click_messages(
+            Scaffold::new()
+                .size(W, H)
+                .body(Container::<Msg>::new())
+                .app_bar(crate::AppBar::<Msg>::new("Title").build())
+                .build()
+                .as_ref(),
+        );
+        assert!(
+            !without_a_drawer.contains(&Msg::Drawer),
+            "a bar on a screen with no drawer grew a button for one"
+        );
+
+        // A leading of its own, and an action of its own: neither slot is empty, so
+        // neither is filled. The drawer's own dismiss target is the only `Drawer` left,
+        // and the caller's own action is the only `Go(1)`.
+        let filled = click_messages(
+            Scaffold::new()
+                .size(W, H)
+                .body(Container::<Msg>::new())
+                .drawer(text("Menu"), false, Msg::Drawer)
+                .end_drawer(text("Filters"), false, Msg::Add)
+                .app_bar(
+                    crate::AppBar::<Msg>::new("Title")
+                        .leading(button("Back", Msg::Go(1)))
+                        .action("Save", Msg::Go(2))
+                        .build(),
+                )
+                .build()
+                .as_ref(),
+        );
+        let bare = click_messages(
+            Scaffold::new()
+                .size(W, H)
+                .body(Container::<Msg>::new())
+                .drawer(text("Menu"), false, Msg::Drawer)
+                .end_drawer(text("Filters"), false, Msg::Add)
+                .body(Container::<Msg>::new())
+                .build()
+                .as_ref(),
+        );
+        let count = |found: &[Msg], wanted: &Msg| found.iter().filter(|m| *m == wanted).count();
+        assert_eq!(
+            count(&filled, &Msg::Drawer),
+            count(&bare, &Msg::Drawer),
+            "a bar with its own leading grew a menu button beside it"
+        );
+        assert_eq!(
+            count(&filled, &Msg::Add),
+            count(&bare, &Msg::Add),
+            "a bar with its own action grew an end-drawer button beside it"
+        );
+    }
+
+    /// **A `SafeArea` in the body padded for a status bar the app bar had already taken**
+    /// (milestone 421).
+    ///
+    /// The shell told the body nothing, so a safe area inside it read the **ambient**
+    /// description — the shell's whole notch — and held its content off by it a second
+    /// time, below a bar that was already clear of it. The reference removes the top from
+    /// that slot's description whenever there is an app bar (`scaffold.dart:3030`).
+    #[test]
+    fn a_safe_area_in_the_body_is_told_what_the_bar_already_took() {
+        const TOP: f32 = 40.0;
+        const BAR: f32 = 56.0;
+        let size = Size::new(W, H);
+        let surface =
+            MediaQuery::new(size).with_insets(WindowInsets::bars(Insets::new(TOP, 0.0, 0.0, 0.0)));
+        let top_of_content = |with_bar: bool| {
+            marked_under(surface, size, || {
+                let mut scaffold = Scaffold::new().size(W, H);
+                if with_bar {
+                    scaffold =
+                        scaffold.app_bar(crate::AppBar::<Msg>::new("bar").height(BAR).build());
+                }
+                scaffold
+                    .body(crate::SafeArea::new(marked::<Msg>(20.0).width(20.0)))
+                    .build()
+            })
+            .y
+        };
+        // No bar: the body faces the status bar, and its safe area is what holds it off.
+        assert!(
+            (top_of_content(false) - TOP).abs() < 0.5,
+            "a body alone must clear the status bar itself: {}",
+            top_of_content(false)
+        );
+        // A bar: it stands `BAR + TOP` tall, having taken the notch (milestone 417), and
+        // the body's safe area is told there is nothing left to take. Padding twice put
+        // the content a whole notch lower.
+        assert!(
+            (top_of_content(true) - (BAR + TOP)).abs() < 0.5,
+            "the body padded for a notch the bar had already taken: {}",
+            top_of_content(true)
+        );
+    }
+
+    /// **The body is told about the cutout beside it, not padded for it** (milestone 421).
+    ///
+    /// The reference lays its body out full width and keeps the side intrusions in the
+    /// description it hands the slot (`scaffold.dart:3029`). So a body that says nothing
+    /// reaches the screen's edge — which is what a background, a hero image or a list's
+    /// own scrollbar wants — and a body that says `SafeArea` is held clear of it.
+    #[test]
+    fn a_body_is_told_about_the_cutout_beside_it_rather_than_padded_for_it() {
+        const CUTOUT: f32 = 48.0;
+        let size = Size::new(W, H);
+        let surface = MediaQuery::new(size)
+            .with_insets(WindowInsets::bars(Insets::new(0.0, 0.0, 0.0, CUTOUT)));
+        let bare = marked_under(surface, size, || {
+            Scaffold::new()
+                .size(W, H)
+                .body(marked::<Msg>(20.0).width(20.0))
+                .build()
+        });
+        assert!(
+            bare.x.abs() < 0.5,
+            "the body was padded for the cutout instead of told about it: {bare:?}"
+        );
+        let asked = marked_under(surface, size, || {
+            Scaffold::new()
+                .size(W, H)
+                .body(crate::SafeArea::new(marked::<Msg>(20.0).width(20.0)))
+                .build()
+        });
+        assert!(
+            (asked.x - CUTOUT).abs() < 0.5,
+            "the body was not told about the cutout: {asked:?}"
+        );
+    }
+
+    /// **A footer alone held nothing off the bottom edge** (milestone 419).
+    ///
+    /// The shell leaves the bottom clearance to whatever is bottom-most, and with a
+    /// footer there it is the footer's. But the footer only ever consumed the *sides* —
+    /// the bottom it passed itself was a literal zero — so its buttons sat on the gesture
+    /// bar. The reference removes the bottom intrusion from that slot **only when a
+    /// navigation bar is below it** (`scaffold.dart:3158`); with nothing below, the
+    /// footer's own `SafeArea(top: false)` takes it.
+    ///
+    /// And the decoration stays outside that safe area, so the rule and the background
+    /// still run to the screen's edge. A footer that padded its own box would be a rule
+    /// stopping short of the edge it is ruling off.
+    #[test]
+    fn a_footer_holds_the_bottom_edge_off_unless_a_bar_below_it_does() {
+        const GESTURE: f32 = 24.0;
+        /// The footer's content, in a colour the decoration does not use.
+        const CONTENT: Color = Color {
+            r: 0.0,
+            g: 1.0,
+            b: 1.0,
+            a: 1.0,
+        };
+        let size = Size::new(W, H);
+        let footer = |with_bar: bool| {
+            let surface = MediaQuery::new(size)
+                .with_insets(WindowInsets::bars(Insets::new(0.0, 0.0, GESTURE, 0.0)));
+            let ui = surface.scope(|| {
+                let mut scaffold = Scaffold::new()
+                    .size(W, H)
+                    .body(Container::<Msg>::new().flex(1.0))
+                    .persistent_footer_color(MARK)
+                    .persistent_footer(
+                        Container::<Msg>::new()
+                            .width(100.0)
+                            .height(40.0)
+                            .color(CONTENT),
+                    );
+                if with_bar {
+                    scaffold = scaffold.nav(0, Msg::Go).destination("H", "Home");
+                }
+                let tree = scaffold.build();
+                build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default())
+            });
+            let find = |wanted: Color| {
+                ui.scene()
+                    .primitives()
+                    .iter()
+                    .find_map(|p| match p {
+                        frus_core::Primitive::Rect { rect, color, .. } if *color == wanted => {
+                            Some(*rect)
+                        }
+                        _ => None,
+                    })
+                    .expect("the footer is drawn")
+            };
+            (find(MARK), find(CONTENT))
+        };
+
+        // Alone: the background reaches the window's edge, the buttons stop above the
+        // gesture bar.
+        let (decoration, buttons) = footer(false);
+        assert!(
+            (decoration.y + decoration.height - H).abs() < 0.5,
+            "the footer's background stops short of the edge: {decoration:?}"
+        );
+        assert!(
+            buttons.y + buttons.height <= H - GESTURE + 0.5,
+            "the footer's buttons sit on the gesture bar: {buttons:?}"
+        );
+
+        // With a bar below it, the bar holds the edge off and the footer must not pad
+        // for it a second time: its buttons stop a plain footer padding from its own
+        // bottom edge, and no further.
+        let (decoration, buttons) = footer(true);
+        let gap = (decoration.y + decoration.height) - (buttons.y + buttons.height);
+        assert!(
+            gap <= FOOTER_PAD + 0.5,
+            "the footer padded for an intrusion the bar below it already holds off: {gap}"
+        );
+    }
+
+    /// **The bottom slot is told, not padded** (milestone 418), and the difference is
+    /// one you can see. The reference puts the safe area *inside* the shape that carries
+    /// the colour (`bottom_app_bar.dart:230`), so a bar's surface runs behind the gesture
+    /// bar and only its actions are held clear of it. Padded from outside, the surface
+    /// stopped short of the screen's edge and a strip of the scaffold showed through
+    /// underneath it.
+    #[test]
+    fn a_bottom_bar_s_surface_runs_behind_the_gesture_bar() {
+        use crate::BottomAppBar;
+        const GESTURE: f32 = 24.0;
+        const BAR: f32 = 64.0;
+        let size = Size::new(W, H);
+        let surface = MediaQuery::new(size)
+            .with_insets(WindowInsets::bars(Insets::new(0.0, 0.0, GESTURE, 0.0)));
+        let ui = surface.scope(|| {
+            let tree = Scaffold::new()
+                .size(W, H)
+                .body(Container::<Msg>::new())
+                .bottom_app_bar(
+                    BottomAppBar::new()
+                        .height(BAR)
+                        .padding(0.0)
+                        .color(MARK)
+                        .child(marked::<Msg>(20.0)),
+                )
+                .build();
+            build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default())
+        });
+        let mut rects: Vec<frus_core::Rect> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Rect { rect, color, .. } if *color == MARK => Some(*rect),
+                _ => None,
+            })
+            .collect();
+        rects.sort_by(|a, b| a.height.total_cmp(&b.height));
+        let (content, bar) = (rects[0], rects[rects.len() - 1]);
+        // The surface: it took the intrusion into itself and reaches the window's edge.
+        assert!(
+            (bar.height - (BAR + GESTURE)).abs() < 0.5,
+            "the bar did not consume what it was told about: {bar:?}"
+        );
+        assert!(
+            (bar.y + bar.height - H).abs() < 0.5,
+            "the bar's surface stops short of the edge: {bar:?}"
+        );
+        // Its content: inside that surface, clear of the gesture bar.
+        assert!(
+            content.y + content.height <= H - GESTURE + 0.5,
+            "the actions run under the gesture bar: {content:?}"
+        );
+    }
+
+    /// The notch is cut in the **bar's own** coordinates, and since milestone 418 those
+    /// are the window's: the bottom slot spans the full width and consumes the side
+    /// intrusions itself, so its box is no longer held off by the left one and the notch
+    /// must no longer be moved back by it. With no side intrusion the two readings agree
+    /// and the mistake hides, which is why this test puts a cutout down one edge.
+    #[test]
+    fn a_notch_stays_under_its_button_beside_a_cutout() {
+        use crate::BottomAppBar;
+        const CUTOUT: f32 = 48.0;
+        const BAR: f32 = 64.0;
+        const FAB: f32 = 56.0;
+        let size = Size::new(W, H);
+        let surface = MediaQuery::new(size)
+            .with_insets(WindowInsets::bars(Insets::new(0.0, 0.0, 0.0, CUTOUT)));
+        let ui = surface.scope(|| {
+            let tree = Scaffold::new()
+                .size(W, H)
+                .body(Container::<Msg>::new())
+                .bottom_app_bar(BottomAppBar::new().height(BAR).color(MARK))
+                .fab_location(FabLocation::StartDocked)
+                .fab_size(FAB)
+                .fab(Container::<Msg>::new().width(FAB).height(FAB))
+                .build();
+            build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default())
+        });
+        let outline = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Path { path, fill, .. } if *fill == Some(MARK) => {
+                    Some(path.clone())
+                }
+                _ => None,
+            })
+            .expect("a notched bar paints an outline");
+        // Where the button is: past the cutout, then the usual margin.
+        let fab_centre_x = CUTOUT + FAB_MARGIN + FAB / 2.0;
+        let bar_top = H - BAR;
+        // Every node the notch put below the top edge belongs to the notch, so every one
+        // of them is within the notch's own reach of the button's centre. Cut at the old
+        // place these sit a whole cutout away.
+        let mut dipped = 0;
+        for verb in outline.verbs() {
+            let p = match verb {
+                frus_core::PathVerb::MoveTo(p) | frus_core::PathVerb::LineTo(p) => *p,
+                frus_core::PathVerb::QuadTo { to, .. }
+                | frus_core::PathVerb::CubicTo { to, .. } => *to,
+                frus_core::PathVerb::Close => continue,
+            };
+            if p.y > bar_top + 1.0 && p.y < bar_top + BAR - 1.0 {
+                dipped += 1;
+                assert!(
+                    (p.x - fab_centre_x).abs() <= FAB,
+                    "the notch was cut away from its button: {p:?} (centre {fab_centre_x})"
+                );
+            }
+        }
+        assert!(dipped > 0, "no notch was cut at all");
+    }
+
     /// Two drawers, two edges, and a screen may have both.
     /// **Only a primary shell absorbs the status bar.**
     ///
     /// The reference's `primary` decides whether the app bar's height is the bar's own
     /// or the bar's plus the top intrusion (`scaffold.dart:3049`). A shell nested in a
     /// page has something else above it, and adding the notch there would inset for it
-    /// twice. Same shell, same surface, one switch, and the bar moves by exactly the
-    /// intrusion.
+    /// twice. Same shell, same surface, one switch, and the bar's title moves by exactly
+    /// the intrusion.
+    ///
+    /// Since milestone 417 the switch works the way the reference's does — through the
+    /// **description** the slot is handed, not through a padding applied from outside. A
+    /// non-primary shell tells its bar's subtree that there is no status bar; the bar,
+    /// which is what actually pads, then has nothing to pad by.
     #[test]
     fn only_a_primary_shell_absorbs_the_status_bar() {
         const TOP: f32 = 40.0;
@@ -1398,7 +2156,7 @@ mod tests {
             let tree = surface.scope(|| {
                 Scaffold::<Msg>::new()
                     .primary(primary)
-                    .app_bar(Container::new().height(56.0).child(text("bar")))
+                    .app_bar(crate::AppBar::<Msg>::new("bar").height(56.0).build())
                     .body(Container::new().flex(1.0))
                     .build()
             });
@@ -1513,9 +2271,158 @@ mod tests {
         assert_eq!(ui.msg_for(target), Some(Msg::Add));
     }
 
-    /// Where the navigation is drawn: `(min x, max y)` of the destinations' labels.
-    /// A bottom bar sits low and spans the width; a rail is a narrow column against
-    /// the leading edge.
+    /// **The shell forwards what a destination says about itself** (milestone 436). A
+    /// property the navigation widgets have and the shell drops is a property most
+    /// applications do not have, which is milestone 434's lesson applied one level down.
+    #[test]
+    fn the_shell_forwards_a_disabled_destination() {
+        let shell = Scaffold::new()
+            .size(W, H)
+            .body(Container::<Msg>::new())
+            .nav(0, Msg::Go)
+            .destination("H", "Home")
+            .destination("S", "Stats")
+            .disabled()
+            .build();
+        let ui = build_ui(
+            shell.as_ref(),
+            Size::new(W, H),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let msg_at = |x: f32| {
+            ui.hit(frus_core::Point::new(x, H - 30.0))
+                .and_then(|target| ui.msg_for(target))
+        };
+        assert_eq!(
+            msg_at(W * 0.25),
+            Some(Msg::Go(0)),
+            "the live destination is where this test thinks it is"
+        );
+        assert_eq!(msg_at(W * 0.75), None, "and the disabled one emits nothing");
+    }
+
+    /// **The shell can say what kind of rail it wants** (milestone 434).
+    ///
+    /// It builds the navigation itself, which is what makes it a shell — and until now
+    /// that meant everything a rail can do and a bar cannot was reachable only by giving
+    /// the shell up and building the rail by hand.
+    #[test]
+    fn the_shell_can_ask_for_an_extended_rail() {
+        let body_x = |placement, extended: bool| {
+            marks(
+                Scaffold::new()
+                    .size(W, H)
+                    .body(filling::<Msg>())
+                    .nav(0, Msg::Go)
+                    .nav_placement(placement)
+                    .destination("H", "Home")
+                    .rail(move |rail| rail.extended(extended))
+                    .build(),
+            )[0]
+            .x
+        };
+        assert!(
+            (body_x(NavPlacement::Rail, false) - RAIL_WIDTH).abs() < 0.01,
+            "a rail is 80 wide: {}",
+            body_x(NavPlacement::Rail, false)
+        );
+        assert!(
+            (body_x(NavPlacement::Rail, true) - EXTENDED_RAIL_WIDTH).abs() < 0.01,
+            "an extended one is 256, and the body starts after it: {}",
+            body_x(NavPlacement::Rail, true)
+        );
+        assert_eq!(
+            body_x(NavPlacement::Bottom, true),
+            0.0,
+            "and the door is shut when the navigation is a bar, which has none of it"
+        );
+    }
+
+    /// **What the shell puts beside a rail has to know how wide the rail came out.**
+    ///
+    /// The persistent footer's row is *given* its width, so that the alignment has
+    /// something to distribute. That width was `window - RAIL_WIDTH - padding`, read off
+    /// the constant — which is right until a caller extends the rail, and then it is 176
+    /// pixels too wide and an end-aligned footer is pushed clean off the screen. The
+    /// shell asks the rail it was handed instead.
+    #[test]
+    fn a_footer_beside_an_extended_rail_stays_on_the_screen() {
+        let footer_x = |extended: bool| {
+            marks(
+                Scaffold::new()
+                    .size(W, H)
+                    .body(Container::<Msg>::new())
+                    .nav(0, Msg::Go)
+                    .nav_placement(NavPlacement::Rail)
+                    .destination("H", "Home")
+                    .persistent_footer_alignment(Justify::End)
+                    .persistent_footer(marked::<Msg>(40.0).width(100.0))
+                    .rail(move |rail| rail.extended(extended))
+                    .build(),
+            )[0]
+            .x
+        };
+        assert!(
+            footer_x(true) + 100.0 <= W,
+            "the footer was pushed off the screen: {}",
+            footer_x(true)
+        );
+        // And it lands in the *same* place either way: the footer's row ends where the
+        // window does, whatever the rail took off the front of it.
+        assert!(
+            (footer_x(true) - footer_x(false)).abs() < 0.01,
+            "{} against {}",
+            footer_x(true),
+            footer_x(false)
+        );
+    }
+
+    /// The label mode reaches **whichever** of the two widgets the placement chose, and
+    /// saying nothing leaves each of them on the default the reference gives it
+    /// (milestone 432) rather than collapsing the two onto one answer.
+    #[test]
+    fn the_shell_hands_the_label_mode_on() {
+        let says_home = |placement, labels: Option<RailLabels>| {
+            let mut shell = Scaffold::new()
+                .size(W, H)
+                .body(Container::<Msg>::new())
+                .nav(0, Msg::Go)
+                .nav_placement(placement)
+                .destination("H", "Home");
+            if let Some(labels) = labels {
+                shell = shell.nav_labels(labels);
+            }
+            let shell = shell.build();
+            let ui = build_ui(
+                shell.as_ref(),
+                Size::new(W, H),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            ui.scene()
+                .primitives()
+                .iter()
+                .any(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "Home"))
+        };
+        assert!(
+            !says_home(NavPlacement::Rail, None),
+            "a rail says nothing until it is asked"
+        );
+        assert!(
+            says_home(NavPlacement::Bottom, None),
+            "a bar says everything"
+        );
+        assert!(says_home(NavPlacement::Rail, Some(RailLabels::All)));
+        assert!(!says_home(NavPlacement::Bottom, Some(RailLabels::None)));
+    }
+
+    /// Where the navigation is drawn: `(min x, max y)` of the destinations' **glyphs**.
+    ///
+    /// The glyph rather than the label, since milestone 432: a rail shows no labels
+    /// unless it is asked to, so a helper that looked for them stopped finding the
+    /// navigation it was measuring. The glyph is the one thing every destination paints
+    /// in every mode.
     fn nav_extent(root: &dyn Widget<Msg>, width: f32, height: f32) -> (f32, f32) {
         let ui = build_ui(
             root,
@@ -1526,10 +2433,10 @@ mod tests {
         let mut leftmost = f32::MAX;
         let mut lowest: f32 = 0.0;
         for primitive in ui.scene().primitives() {
-            // The labels are what identify the navigation: "Home" and "Stats" are in
-            // the destinations and nowhere else in the test's scaffold.
+            // The glyphs are what identify the navigation: "H" and "S" are in the
+            // destinations and nowhere else in the test's scaffold.
             if let frus_core::Primitive::Text { text, position, .. } = primitive {
-                if text == "Home" || text == "Stats" {
+                if text == "H" || text == "S" {
                     leftmost = leftmost.min(position.x);
                     lowest = lowest.max(position.y);
                 }
@@ -1573,6 +2480,85 @@ mod tests {
         assert!(
             lowest < 420.0 * 0.6,
             "a rail stacks from the top, not at y = {lowest}"
+        );
+    }
+
+    /// **The rail is told, not padded** (milestone 420).
+    ///
+    /// The reference keeps its safe area inside the `Material`
+    /// (`navigation_rail.dart:553`) and takes the **leading** side, the top and the
+    /// bottom — never the trailing one, which is where the body is. So the rail's box
+    /// swallows the cutout, the rule down its edge runs the full height of the screen,
+    /// and the destinations are what stays clear of the notch and the gesture bar.
+    ///
+    /// Padded from outside, the rail was a shorter box floated inside the intrusions and
+    /// the rule stopped at the notch — a rule that does not reach the edge it is ruling.
+    #[test]
+    fn a_rail_rules_the_full_height_and_holds_its_destinations_clear() {
+        const TOP: f32 = 40.0;
+        const BOTTOM: f32 = 30.0;
+        const CUTOUT: f32 = 24.0;
+        const WIDE: f32 = 900.0;
+        const TALL: f32 = 420.0;
+        let size = Size::new(WIDE, TALL);
+        let surface = MediaQuery::new(size)
+            .with_insets(WindowInsets::bars(Insets::new(TOP, 0.0, BOTTOM, CUTOUT)));
+        let ui = surface.scope(|| {
+            let tree = Scaffold::new()
+                .size(WIDE, TALL)
+                .body(Container::<Msg>::new().flex(1.0))
+                .nav(0, Msg::Go)
+                .nav_placement(NavPlacement::Rail)
+                .destination("H", "Home")
+                .destination("S", "Stats")
+                .build();
+            build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default())
+        });
+        // The rule: the one-pixel column down the rail's trailing edge.
+        let rule = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, .. }
+                    if rect.width <= 1.5 && rect.height > TALL / 2.0 =>
+                {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("the rail rules itself off from the body");
+        assert!(
+            rule.y.abs() < 0.5 && (rule.y + rule.height - TALL).abs() < 0.5,
+            "the rule stops at the intrusions: {rule:?}"
+        );
+        assert!(
+            (rule.x - (CUTOUT + RAIL_WIDTH - 1.0)).abs() < 0.5,
+            "the rail did not take the cutout into its own box: {rule:?}"
+        );
+        // The destinations: clear of the cutout beside them and the bars above and below.
+        let (mut left, mut top, mut bottom) = (f32::MAX, f32::MAX, f32::MIN);
+        for p in ui.scene().primitives() {
+            if let frus_core::Primitive::Text {
+                position, size: em, ..
+            } = p
+            {
+                left = left.min(position.x);
+                top = top.min(position.y);
+                bottom = bottom.max(position.y + em);
+            }
+        }
+        assert!(
+            left >= CUTOUT - 0.5,
+            "a destination sits in the cutout: {left}"
+        );
+        assert!(
+            top >= TOP - 0.5,
+            "a destination sits under the status bar: {top}"
+        );
+        assert!(
+            bottom <= TALL - BOTTOM + 0.5,
+            "a destination sits on the gesture bar: {bottom}"
         );
     }
 

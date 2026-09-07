@@ -92,8 +92,9 @@ fn write_shot(dir: &Path, shot: &Shot) -> anyhow::Result<()> {
     if let Some(route) = shot.route {
         let _ = app.update(Msg::Push(route));
     }
-    // A route change is a spring, and a theme change is a fade: settle both, rather
-    // than photographing the application mid-thought.
+    // A route change is a spring: settle it, rather than photographing the application
+    // mid-thought. The theme's own crossing is the framework's since milestone 452, and
+    // is not running here — `resolved_theme` below asks for the destination directly.
     for _ in 0..120 {
         if !app.tick(DT) {
             break;
@@ -101,8 +102,8 @@ fn write_shot(dir: &Path, shot: &Shot) -> anyhow::Result<()> {
     }
 
     let (width, height) = (shot.width, shot.height);
-    let theme = app.theme();
-    let mut stage = Stage::new(width, height).theme(theme);
+    let theme = shot_theme(&app);
+    let mut stage = Stage::new(width, height).theme(theme.clone());
     let root = MediaQuery::new(Size::new(width as f32, height as f32)).scope(|| app.view(&theme));
     stage.settle(root.as_ref());
     // Two settled frames: the first adopts every implicit target, the second draws
@@ -142,7 +143,7 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
 
     let mut app = seeded_app(false);
     let theme = app.theme();
-    let mut stage = Stage::new(WIDTH, HEIGHT).theme(theme);
+    let mut stage = Stage::new(WIDTH, HEIGHT).theme(theme.clone());
     {
         let root =
             MediaQuery::new(Size::new(WIDTH as f32, HEIGHT as f32)).scope(|| app.view(&theme));
@@ -152,7 +153,7 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
     let mut frames: Vec<Vec<u8>> = Vec::new();
     let capture = |app: &TodoApp, stage: &mut Stage, frames: &mut Vec<Vec<u8>>| {
         let theme = app.theme();
-        stage.theme = theme;
+        stage.theme = theme.clone();
         let root =
             MediaQuery::new(Size::new(WIDTH as f32, HEIGHT as f32)).scope(|| app.view(&theme));
         stage.advance(root.as_ref(), DT);
@@ -224,6 +225,15 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
         bytes / 1024
     );
     Ok(())
+}
+
+/// **The theme the application would be showing**, asked of the application itself.
+///
+/// The shell resolves this every frame from the platform's brightness and the reader's
+/// contrast setting; nothing here has a platform, so it asks for a light one and lets the
+/// application's own `theme_mode` — which this demonstration pins — decide.
+fn shot_theme(app: &TodoApp) -> Theme {
+    Application::resolved_theme(app, Brightness::Light, false)
 }
 
 /// The application as it starts, with its demonstration data, in the asked-for theme.

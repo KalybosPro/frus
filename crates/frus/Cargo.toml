@@ -16,6 +16,15 @@ license.workspace = true
 #
 # Dropping one is never a panic: italic falls back to upright, a missing script falls
 # back to the sans, and a missing sans falls back to the platform's own.
+#
+# The `icons-*` features forward the **variant icon styles**. The filled set is always
+# bundled; each of these adds one more blob of artwork, which is why none is on by
+# default:
+#
+#     frus = { version = "0.1", features = ["icons-outlined"] }
+#
+# Without one, its constants do not exist and `Icons::by_name` answers `None` for its
+# names rather than quietly handing back a different drawing.
 [features]
 net = ["frus-shell/net"]
 json = ["frus-shell/json"]
@@ -27,6 +36,9 @@ bundled-sans = ["frus-shell/bundled-sans", "frus-widgets/bundled-sans", "frus-te
 bundled-italic = ["frus-shell/bundled-italic", "frus-widgets/bundled-italic", "frus-text/bundled-italic"]
 bundled-mono = ["frus-shell/bundled-mono", "frus-widgets/bundled-mono", "frus-text/bundled-mono"]
 bundled-arabic = ["frus-shell/bundled-arabic", "frus-widgets/bundled-arabic", "frus-text/bundled-arabic"]
+icons-outlined = ["frus-widgets/icons-outlined"]
+icons-rounded = ["frus-widgets/icons-rounded"]
+icons-sharp = ["frus-widgets/icons-sharp"]
 
 # The facade only re-exports: no `cdylib` of its own. The app stays `rlib` + `cdylib`.
 [dependencies]

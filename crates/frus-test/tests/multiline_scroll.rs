@@ -3,7 +3,7 @@
 //! eye.
 
 use frus_core::Size;
-use frus_widgets::{build_ui, collect_ids, Container, Runtime, TextField, Theme};
+use frus_widgets::{build_ui, collect_ids, Container, Runtime, ScrollbarFade, TextField, Theme};
 
 #[test]
 fn scrolled_multiline_matches_golden() {
@@ -24,6 +24,13 @@ fn scrolled_multiline_matches_golden() {
     // The field is the second node: Container is the root, its child is the field.
     let field_id = ids[1];
     runtime.scroll.insert(field_id, (0.0, 44.0)); // about two lines further down
+                                                  // **And the bar awake.** A scrollbar is not a permanent fixture: it arrives when the
+                                                  // area moves and goes again, so a runtime that has never seen this field move draws
+                                                  // no bar at all — correctly. This preview is meant to show one, and a picture of a
+                                                  // scrolled field with nothing at its edge says nothing about where the scroll is.
+    let mut bar = ScrollbarFade::default();
+    bar.opacity = 1.0;
+    runtime.scrollbar_fade.insert(field_id, bar);
 
     let ui = build_ui(&root, size, &runtime, &theme);
     let Some(snap) = frus_test::render_scene(ui.scene(), 340, 160, theme.background) else {

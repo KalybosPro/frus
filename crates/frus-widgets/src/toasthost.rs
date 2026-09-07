@@ -10,15 +10,22 @@
 //! by the application through [`crate::SnackBarQueue`]: `ScaffoldMessenger` only places them.
 
 use frus_core::{Curve, Insets, Rect, Scene};
-use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
+use frus_layout::{Align, FlexDirection, Justify, Style};
 
 use crate::animated::AnimatedOpacity;
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Default margin between the toasts and the edges.
-const HOST_PAD: f32 = 16.0;
+/// Default margin between the toasts and the edges: **none**.
+///
+/// What a notification keeps clear of the page belongs to the notification, which is
+/// where the reference keeps it (`snack_bar.dart:823`, `:989`) — a fixed bar keeps
+/// nothing clear and a floating one keeps 15 and 10, and neither number is the host's to
+/// decide. This used to impose 16 on everything it held, which a floating bar then added
+/// its own margin to. [`ScaffoldMessenger::padding`] is still there for a caller who
+/// wants a layer of their own arrangement.
+const HOST_PAD: f32 = 0.0;
 /// Vertical gap between stacked toasts.
 const STACK_GAP: f32 = 8.0;
 
@@ -71,7 +78,9 @@ impl<Msg: Clone + 'static> ScaffoldMessenger<Msg> {
         }
     }
 
-    /// Margin between the toasts and the edges (16 px by default).
+    /// Margin between the toasts and the edges. **None by default**: what a notification
+    /// keeps clear of the page is the notification's own business — see
+    /// [`SnackBar::margin`](crate::SnackBar::margin).
     pub fn padding(mut self, padding: f32) -> Self {
         self.padding = padding;
         self
@@ -116,10 +125,12 @@ impl<Msg: Clone + 'static> ScaffoldMessenger<Msg> {
 }
 
 impl<Msg: Clone> Widget<Msg> for ScaffoldMessenger<Msg> {
+    /// It asks to fill **both** axes rather than declaring `100%` on either — see
+    /// [`FillAxes`](crate::widget::FillAxes). A percentage resolves against the parent's
+    /// *resolved* size, which a parent that shrink-wraps has not got yet, so a shell
+    /// nested in one vanished entirely (milestone 404).
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
-            height: Dimension::Percent(1.0),
             flex_direction: FlexDirection::Column,
             justify: self.position.justify(),
             align: self.position.align(),
@@ -127,6 +138,11 @@ impl<Msg: Clone> Widget<Msg> for ScaffoldMessenger<Msg> {
             padding: Insets::new(self.padding, self.padding, self.padding, self.padding),
             ..Default::default()
         }
+    }
+
+    /// A shell takes everything it is offered, on both axes.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::BOTH
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {

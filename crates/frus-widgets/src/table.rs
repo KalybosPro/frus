@@ -9,11 +9,11 @@
 
 use std::rc::Rc;
 
-use frus_core::{Color, Insets, Path, Point, Rect, Scene};
+use frus_core::{Color, Insets, Path, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Align, Dimension, Justify, Style};
 
 use crate::flex::Flex;
-use crate::icons::Icons;
+use crate::icons::{IconData, Icons};
 use crate::interaction::{Key, KeyResponse, Status};
 use crate::list::ListView;
 use crate::scroll::{Axis, SingleChildScrollView};
@@ -30,7 +30,38 @@ type RowWidgets<Msg> = Rc<dyn Fn(usize) -> Vec<Box<dyn Widget<Msg>>>>;
 
 const ROW_H: f32 = 34.0;
 const PAD_X: f32 = 10.0;
-const SIZE: f32 = 15.0;
+
+/// A column heading's style: what the table was told, else what the theme says, else the
+/// reference's — a data table's headings are `titleSmall` and its cells `bodyMedium`, and
+/// they are **named apart** there rather than being one size for both.
+///
+/// **Resolved once** so that the number the box is measured with is the number the glyphs
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403); a size that never passes through it is a size the reader cannot change.
+fn heading_style(theme: Option<&Theme>) -> ResolvedTextStyle {
+    theme
+        .and_then(|t| t.widgets.table.heading_text_style)
+        .unwrap_or_else(|| crate::theme::type_scale(theme).title_small)
+        .resolved()
+}
+
+/// A data cell's style. See [`heading_style`].
+fn data_style(theme: Option<&Theme>) -> ResolvedTextStyle {
+    theme
+        .and_then(|t| t.widgets.table.data_text_style)
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_medium)
+        .resolved()
+}
+
+/// The style a cell wears, given which of the two rows it is in.
+fn cell_text_style(header: bool, theme: Option<&Theme>) -> ResolvedTextStyle {
+    if header {
+        heading_style(theme)
+    } else {
+        data_style(theme)
+    }
+}
+
 /// Gap between rows and between cells (must match the geometry of the handles).
 const ROW_GAP: f32 = 2.0;
 /// Width of the checkbox column (multi-selection).
@@ -63,9 +94,14 @@ fn cell_background(
 }
 
 /// Style of a cell: the column width (fixed or flexible), and an **adaptive** height — a
-/// `ROW_H` floor (a minimum comfort) that grows with the content. Since the row aligns its
-/// cells with `Stretch`, they all follow the tallest one (nothing is clipped).
-fn cell_style(width: Dimension) -> Style {
+/// floor that grows with the content. Since the row aligns its cells with `Stretch`, they
+/// all follow the tallest one.
+///
+/// The floor is `ROW_H` *or what the label needs*, whichever is larger. A cell **paints**
+/// its label rather than laying it out, so as far as the layout is concerned its content
+/// is empty: a bare `ROW_H` would have been a ceiling in everything but name, and at a text
+/// scale of 2 a 15 px label wants 36 px of line inside 34.
+fn cell_style(width: Dimension, header: bool, theme: Option<&Theme>) -> Style {
     let flex_grow = if matches!(width, Dimension::Length(_)) {
         0.0
     } else {
@@ -74,7 +110,14 @@ fn cell_style(width: Dimension) -> Style {
     Style {
         width,
         height: Dimension::Auto,
-        min_height: Dimension::Length(ROW_H),
+        // A **floor**, and one that answers to the reader: the cell paints its label
+        // rather than laying it out, so its content height is zero and `min_height` is the
+        // only thing standing between a row and text taller than it.
+        min_height: Dimension::Length(frus_text::line_box(
+            ROW_H,
+            &cell_text_style(header, theme),
+            0.0,
+        )),
         flex_grow,
         ..Default::default()
     }
@@ -95,7 +138,7 @@ struct Cell<Msg> {
     /// reader. `None` on a header.
     row: Option<usize>,
     /// **Leading** icon (headers only): painted before the label (icon + text).
-    icon: Option<Icons>,
+    icon: Option<IconData>,
     /// The header's sort indicator: `Some(true)` = ▲, `Some(false)` = ▼.
     sort: Option<bool>,
     message: Option<Msg>,
@@ -109,9 +152,9 @@ struct Cell<Msg> {
     action: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
-    fn style(&self) -> Style {
-        let base = cell_style(self.width);
+impl<Msg> Cell<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        let base = cell_style(self.width, self.header, theme);
         // With an action widget, it sits on the **right** (the label goes on being painted
         // on the left) and is vertically centred.
         if self.action.is_empty() {
@@ -124,6 +167,16 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
                 ..base
             }
         }
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -143,25 +196,31 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
         } else {
             theme.on_surface
         };
-        let ty = bounds.y + (bounds.height - frus_text::line_height(SIZE)) * 0.5;
+        // The style's **own** line, not one recomputed from its size: milestone 412 left
+        // this one behind because it was written against a bare constant rather than a
+        // style, which is exactly the formulation a compiler cannot find.
+        let style = cell_text_style(self.header, Some(theme));
+        let ty = bounds.y + (bounds.height - style.line_height()) * 0.5;
 
         // Leading icon (headers): painted on the left, the label shifted after it.
         let mut text_x = bounds.x + PAD_X;
         if let Some(icon) = self.icon {
             let iy = bounds.y + (bounds.height - ICON) * 0.5;
-            let path = icon.path().scaled(ICON / 24.0).translated(text_x, iy);
+            let path = icon.placed(ICON, text_x, iy, theme.direction);
             scene.fill_path(&path, color.fade(o));
             text_x += ICON + ICON_GAP;
         }
         scene.text(
             Point::new(text_x, ty),
             self.label.clone(),
-            SIZE,
+            &style,
             color.fade(o),
         );
 
         if let (true, Some(ascending)) = (self.header, self.sort) {
-            let lw = frus_text::measure(&self.label, SIZE).width;
+            // Measured with the style the label was **drawn** with: a sort arrow placed
+            // from a bare size lands inside the word the moment the reader enlarges it.
+            let lw = frus_text::measure_resolved(&self.label, &style).width;
             let cx = text_x + lw + 8.0;
             let cy = bounds.y + bounds.height * 0.5;
             let (w, h) = (4.0, 4.0);
@@ -265,7 +324,11 @@ struct CheckCell<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
     fn style(&self) -> Style {
-        cell_style(Dimension::Length(CHECK_W))
+        cell_style(Dimension::Length(CHECK_W), self.header, None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        cell_style(Dimension::Length(CHECK_W), self.header, Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -292,12 +355,9 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
                 Color::TRANSPARENT,
             );
             // The tick: the filled Check icon, centred in the box.
-            let scale = (BOX - 4.0) / 24.0;
-            let inset = (BOX - 24.0 * scale) * 0.5;
-            let path = Icons::Check
-                .path()
-                .scaled(scale)
-                .translated(bx + inset, by + inset);
+            let tick = BOX - 4.0;
+            let inset = (BOX - tick) * 0.5;
+            let path = Icons::CHECK.placed(tick, bx + inset, by + inset, theme.direction);
             scene.fill_path(&path, theme.on_primary.fade(o));
         } else if self.indeterminate {
             // Indeterminate: a filled box crossed by a dash.
@@ -370,13 +430,25 @@ struct WidgetCell<Msg> {
     content: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg: Clone> Widget<Msg> for WidgetCell<Msg> {
-    fn style(&self) -> Style {
+impl<Msg> WidgetCell<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
         Style {
             align: Align::Center,
             padding: Insets::new(0.0, PAD_X, 0.0, PAD_X),
-            ..cell_style(self.width)
+            // A widget cell carries no label of its own, and still has to be as tall as
+            // the text cells beside it — the row stretches to the tallest.
+            ..cell_style(self.width, false, theme)
         }
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for WidgetCell<Msg> {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -565,7 +637,7 @@ pub struct Table<Msg> {
     columns: usize,
     headers: Vec<String>,
     /// Leading icon per header column (icon + label). Missing = none.
-    header_icons: Vec<Option<Icons>>,
+    header_icons: Vec<Option<IconData>>,
     /// A **fully widget** header (per column): it replaces the text header row. Empty = the
     /// ordinary text header. Automatic sorting/reordering does not apply to these headers —
     /// the application wires the behaviour into its own widgets.
@@ -596,6 +668,8 @@ pub struct Table<Msg> {
     /// **Frozen** columns `(left, right)`: pinned at both edges while the middle scrolls
     /// horizontally. Requires a total width and columns that are all **fixed**.
     frozen: (usize, usize),
+    heading_text_style: Option<TextStyle>,
+    data_text_style: Option<TextStyle>,
     root: Box<dyn Widget<Msg>>,
 }
 
@@ -631,8 +705,30 @@ impl<Msg: Clone + 'static> Table<Msg> {
             on_reorder: None,
             virtual_data: None,
             frozen: (0, 0),
+            heading_text_style: None,
+            data_text_style: None,
             root: Box::new(Flex::<Msg>::column().gap(ROW_GAP)),
         }
+    }
+
+    /// The column headings' type, over the theme's and the reference's.
+    ///
+    /// It reaches the cells through [`Widget::theme_override`] rather than through their
+    /// fields: cells are built in half a dozen places here — the header row, the data rows,
+    /// the virtualised rows, the frozen columns — and a value carried down the theme
+    /// arrives at all of them without any of them being taught to pass it on.
+    #[must_use]
+    pub fn heading_text_style(mut self, style: TextStyle) -> Self {
+        self.heading_text_style = Some(style);
+        self
+    }
+
+    /// The cells' type, over the theme's and the reference's. See
+    /// [`heading_text_style`](Self::heading_text_style).
+    #[must_use]
+    pub fn data_text_style(mut self, style: TextStyle) -> Self {
+        self.data_text_style = Some(style);
+        self
     }
 
     /// Sets the header row (one label per column).
@@ -658,7 +754,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// Gives header columns a **leading icon** (icon + label): `None` leaves the column
     /// without one. The header stays **sortable** and **reorderable** just like a text
     /// header (the icon is purely decorative).
-    pub fn header_icons(mut self, icons: &[Option<Icons>]) -> Self {
+    pub fn header_icons(mut self, icons: &[Option<IconData>]) -> Self {
         self.header_icons = icons.to_vec();
         self.rebuild();
         self
@@ -1310,6 +1406,23 @@ impl<Msg: Clone> Widget<Msg> for Table<Msg> {
         // flag is relayed so the layers superimpose instead of lining up.
         Widget::<Msg>::stack(&self.root)
     }
+
+    /// Carries what this table was told down to its cells, over what the subtree
+    /// inherited. `None` when it was told nothing, so a table that says nothing costs
+    /// nothing and the theme's own answer stands.
+    fn theme_override(&self, inherited: &Theme) -> Option<Box<Theme>> {
+        if self.heading_text_style.is_none() && self.data_text_style.is_none() {
+            return None;
+        }
+        let mut theme = inherited.clone();
+        if let Some(style) = self.heading_text_style {
+            theme.widgets.table.heading_text_style = Some(style);
+        }
+        if let Some(style) = self.data_text_style {
+            theme.widgets.table.data_text_style = Some(style);
+        }
+        Some(Box::new(theme))
+    }
 }
 
 #[cfg(test)]
@@ -1628,7 +1741,7 @@ mod tests {
         let name_x = |icons: bool| {
             let mut t = Table::<Msg>::new(2).width(240.0).header(&["Name", "Score"]);
             if icons {
-                t = t.header_icons(&[Some(Icons::Star), None]);
+                t = t.header_icons(&[Some(Icons::STAR), None]);
             }
             let ui = build_ui(
                 &t,

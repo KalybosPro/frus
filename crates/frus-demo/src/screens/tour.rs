@@ -56,12 +56,14 @@ pub(crate) fn tour_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     let Size { width, height } = surface();
     let last = TOUR_PAGES.len() - 1;
     let page = app.tour_page.min(last);
-    let palette = *theme;
-    let pages = PageView::new(TOUR_PAGES.len(), move |index| tour_panel(index, palette))
-        .width(width)
-        .flex(1.0)
-        .page(page)
-        .on_page_changed(Msg::TourPage);
+    let palette = theme.clone();
+    let pages = PageView::new(TOUR_PAGES.len(), move |index| {
+        tour_panel(index, palette.clone())
+    })
+    .width(width)
+    .flex(1.0)
+    .page(page)
+    .on_page_changed(Msg::TourPage);
 
     let picker = Pagination::new(page + 1, TOUR_PAGES.len(), |p| Msg::TourPage(p - 1));
     let position = text(format!("Panel {} of {}", page + 1, TOUR_PAGES.len()))

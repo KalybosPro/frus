@@ -19,14 +19,18 @@ use frus_core::{
 };
 use frus_test::render_widget;
 use frus_widgets::{
-    text, AlertDialog, Align, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar, BottomSheet,
-    Breadcrumb, Card, CarouselView, Checkbox, CircularProgressIndicator, ClipOval, ClipPath,
-    ClipRRect, ColorPicker, ConstrainedBox, Container, CustomPaint, Divider, Expanded,
-    ExpansionTile, FittedBox, Flex, FontWeight, FractionallySizedBox, GridView, Icon, Icons, Image,
-    Intrinsic, Kbd, LinearProgressIndicator, ListView, MenuAnchor, NavigationBar, NavigationRail,
-    Offstage, Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup, RichText, RotatedBox,
-    SafeArea, SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Stack, Stepper, Switch,
-    TabBar, Theme, Timeline, Transform, TwoPane, Visibility, Widget,
+    text, Alert, Align, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar, BottomSheet,
+    Breadcrumb, Card, CarouselView, Checkbox, CheckboxListTile, CircleAvatar,
+    CircularProgressIndicator, ClipOval, ClipPath, ClipRRect, ColorPicker, ConstrainedBox,
+    Container, ControlAffinity, CustomPaint, Divider, Expanded, ExpansionTile, FittedBox, Flex,
+    FloatingActionButton, FontWeight, FractionallySizedBox, GridTile, GridTileBar, GridView, Icon,
+    IconData, Icons, Image, Intrinsic, Kbd, LinearProgressIndicator, ListTile, ListView,
+    MenuAnchor, NavigationBar, NavigationDestination, NavigationDrawer, NavigationRail, Offstage,
+    Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup, RadioListTile, RailLabels,
+    RichText, RotatedBox, SafeArea, SearchAnchor, SearchBar, SegmentedButton,
+    SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile,
+    TabBar, Theme, Timeline, ToggleButtons, Transform, TwoPane, UserAccountsDrawerHeader,
+    VerticalDivider, Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -125,6 +129,66 @@ fn the_small_indicators() {
     check("small_indicators", 260, 220, &root);
 }
 
+/// **The four floating action buttons**, which had no widget at all until milestone 464
+/// — only a helper returning a filled `Button`, two colour roles off the reference's.
+/// Small, regular, large and extended, so the three numbers each size carries (its box,
+/// its corner, its glyph) can be seen to be three and not one.
+#[test]
+fn the_floating_action_buttons() {
+    let root: Container<()> = Container::new().padding(16.0).child(
+        Flex::column()
+            .gap(12.0)
+            .align(Align::Center)
+            .child(
+                Flex::row()
+                    .gap(12.0)
+                    .align(Align::Center)
+                    .child(FloatingActionButton::new(Icons::ADD).small().on_press(()))
+                    .child(FloatingActionButton::new(Icons::ADD).on_press(()))
+                    .child(FloatingActionButton::new(Icons::ADD).large().on_press(())),
+            )
+            .child(
+                FloatingActionButton::extended("New list")
+                    .icon(Icons::ADD)
+                    .on_press(()),
+            ),
+    );
+    check("floating_action_buttons", 260, 220, &root);
+}
+
+/// **The three control tiles**, none of which existed until milestone 465: a row whose
+/// whole width works one control. A settings screen is a column of these, and the point
+/// of the picture is that the label and the control read as one thing.
+#[test]
+fn the_control_list_tiles() {
+    let root: Container<()> = Container::new().padding(8.0).child(
+        Flex::column()
+            .width(280.0)
+            .child(
+                SwitchListTile::new(true, ())
+                    .title("Notifications")
+                    .subtitle("Replies and mentions"),
+            )
+            .child(CheckboxListTile::new(true, ()).title("Sounds"))
+            .child(
+                CheckboxListTile::maybe(None, ())
+                    .title("Select all")
+                    .control_affinity(ControlAffinity::Leading),
+            )
+            .child(
+                RadioListTile::new(true, ())
+                    .title("Every day")
+                    .control_affinity(ControlAffinity::Leading),
+            )
+            .child(
+                RadioListTile::new(false, ())
+                    .title("Once a week")
+                    .control_affinity(ControlAffinity::Leading),
+            ),
+    );
+    check("control_list_tiles", 300, 340, &root);
+}
+
 /// The four alert kinds together, which is the only way to see that they are four
 /// different colours and not three and a duplicate.
 #[test]
@@ -132,19 +196,19 @@ fn the_four_alert_kinds() {
     let root: Container<()> = Container::new().padding(12.0).child(
         Flex::column()
             .gap(8.0)
-            .child(AlertDialog::new("Saved as a draft.").title("Note"))
+            .child(Alert::new("Saved as a draft.").title("Note"))
             .child(
-                AlertDialog::new("Everything went through.")
+                Alert::new("Everything went through.")
                     .title("Done")
                     .success(),
             )
             .child(
-                AlertDialog::new("Two rows were skipped.")
+                Alert::new("Two rows were skipped.")
                     .title("Careful")
                     .warning(),
             )
             .child(
-                AlertDialog::new("The server refused the change.")
+                Alert::new("The server refused the change.")
                     .title("Failed")
                     .error(),
             ),
@@ -152,25 +216,27 @@ fn the_four_alert_kinds() {
     check("alert_kinds", 320, 340, &root);
 }
 
-/// Every icon the framework ships, at two sizes and two colours, with a divider
-/// between the rows. Icons are paths, and this is the frame that says whether a
-/// change to the path pipeline moved any of them.
+/// Fourteen icons the framework's own widgets lean on, at two sizes and two colours,
+/// with a divider between the rows. Icons are paths, and this is the frame that says
+/// whether a change to the path pipeline moved any of them. The whole set is walked by
+/// `frus_widgets`'s own unit tests; a golden is for the pipeline, not for the artwork.
 #[test]
 fn every_icon_and_a_divider() {
-    const NAMES: [Icons; 13] = [
-        Icons::Check,
-        Icons::Close,
-        Icons::Add,
-        Icons::Menu,
-        Icons::Star,
-        Icons::Heart,
-        Icons::Circle,
-        Icons::Square,
-        Icons::Play,
-        Icons::ChevronLeft,
-        Icons::ChevronRight,
-        Icons::Eye,
-        Icons::EyeOff,
+    const NAMES: [IconData; 14] = [
+        Icons::CHECK,
+        Icons::CLOSE,
+        Icons::ADD,
+        Icons::MENU,
+        Icons::STAR,
+        Icons::FAVORITE,
+        Icons::CIRCLE,
+        Icons::SQUARE,
+        Icons::PLAY_ARROW,
+        Icons::ARROW_BACK,
+        Icons::CHEVRON_LEFT,
+        Icons::CHEVRON_RIGHT,
+        Icons::VISIBILITY,
+        Icons::VISIBILITY_OFF,
     ];
     let mut small = Flex::row().gap(8.0).align(Align::Center);
     let mut large = Flex::row().gap(8.0).align(Align::Center);
@@ -185,7 +251,7 @@ fn every_icon_and_a_divider() {
             .child(Divider::new())
             .child(large),
     );
-    check("icon_set", 400, 110, &root);
+    check("icon_set", 430, 110, &root);
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +334,7 @@ fn a_stepper_and_a_timeline() {
 fn the_app_bar() {
     let bar: Box<dyn Widget<()>> = AppBar::new("Inbox")
         .width(360.0)
-        .leading(Icon::new(Icons::Menu).size(20.0))
+        .leading(Icon::new(Icons::MENU).size(20.0))
         .action("Save", ())
         .action("Edit", ())
         .build();
@@ -285,10 +351,10 @@ fn the_bottom_app_bar() {
                 .width(304.0)
                 .gap(16.0)
                 .align(Align::Center)
-                .child(Icon::new(Icons::Menu).size(20.0))
-                .child(Icon::new(Icons::Star).size(20.0))
+                .child(Icon::new(Icons::MENU).size(20.0))
+                .child(Icon::new(Icons::STAR).size(20.0))
                 .child(Container::new().flex(1.0))
-                .child(Icon::new(Icons::Close).size(20.0)),
+                .child(Icon::new(Icons::CLOSE).size(20.0)),
         ),
     );
     check("bottom_app_bar", 320, 90, &root);
@@ -322,6 +388,245 @@ fn the_navigation_chrome() {
                 ),
         );
     check("navigation_chrome", 340, 220, &root);
+}
+
+/// **One declaration, two chromes.** The same `Vec<NavigationDestination>` builds the
+/// rail down the side and the bar across the bottom, so the picture shows what the type
+/// is for: an application that adapts across widths writes its navigation once.
+///
+/// It also shows the two things a positional `(glyph, label)` could not say — the second
+/// destination is selected and wears its **solid** icon where the others wear outlines,
+/// and the third carries a **badge**.
+#[test]
+fn one_navigation_two_chromes() {
+    let places = || {
+        vec![
+            NavigationDestination::new(Icons::HOME, "Home"),
+            NavigationDestination::new(Icons::FAVORITE_BORDER, "Saved")
+                .selected_icon(Icons::FAVORITE),
+            NavigationDestination::new(Icons::MAIL_OUTLINE, "Inbox")
+                .selected_icon(Icons::MAIL)
+                .badge(7)
+                .tooltip("Unread messages"),
+        ]
+    };
+    let root: Flex<()> = Flex::row()
+        .child(
+            NavigationRail::new(1, |_: usize| ())
+                .labels(RailLabels::All)
+                .destinations(places()),
+        )
+        .child(
+            Flex::column()
+                .width(260.0)
+                .flex(1.0)
+                .child(Container::new().flex(1.0))
+                .child(BottomBar::new(1, |_: usize| ()).destinations(places())),
+        );
+    check("one_navigation_two_chromes", 340, 200, &root);
+}
+
+/// **The third navigation form**, which the framework had no widget for until milestone
+/// 467: a rail and a bar were the only two, and an application with eight destinations
+/// had to choose between hiding six of them and inventing its own list.
+///
+/// What the picture is for: the indicator is the **whole row** here, not a pill around
+/// the glyph, so the glyph and the label take the same colour when selected — the one
+/// visible difference from a rail, and the one a set of assertions about colours cannot
+/// show. The rule between the second group and the first is a child and not a
+/// destination, so `Trash` answers with 2.
+#[test]
+fn the_navigation_drawer() {
+    let root: NavigationDrawer<()> = NavigationDrawer::new(1, |_: usize| ())
+        .width(300.0)
+        .header(
+            Container::new()
+                .padding(16.0)
+                .child(text("Mailbox").size(16.0)),
+        )
+        .item("\u{2709}", "Inbox")
+        .badge(12)
+        .item("\u{2605}", "Starred")
+        .item("\u{2691}", "Drafts")
+        .child(Divider::new())
+        .item("\u{2717}", "Trash")
+        .item("\u{2699}", "Settings")
+        .disabled();
+    check("navigation_drawer", 300, 340, &root);
+}
+
+/// **The block at the top of a side panel**, which milestone 467 left a slot for and
+/// nothing to put in it. The account variant is the one worth a picture: the two lines
+/// are not centred as a pair — the address sits at the middle of its 56-pixel row so that
+/// it stays level with the control beside it, and the name goes above it.
+#[test]
+fn the_drawer_account_header() {
+    let root: NavigationDrawer<()> = NavigationDrawer::new(0, |_: usize| ())
+        .width(300.0)
+        .header(
+            UserAccountsDrawerHeader::new()
+                .account_name("Ada Lovelace")
+                .account_email("ada@example.com")
+                .current_picture(
+                    CircleAvatar::new("Ada Lovelace")
+                        .size(72.0)
+                        .color(Color::rgb8(24, 60, 40)),
+                )
+                .other_picture(
+                    CircleAvatar::new("Charles Babbage")
+                        .size(40.0)
+                        .color(Color::rgb8(24, 60, 40)),
+                )
+                .other_picture(
+                    CircleAvatar::new("Grace Hopper")
+                        .size(40.0)
+                        .color(Color::rgb8(24, 60, 40)),
+                )
+                .on_details_pressed(()),
+        )
+        .item("\u{2709}", "Inbox")
+        .item("\u{2605}", "Starred");
+    check("drawer_account_header", 300, 340, &root);
+}
+
+/// **A rule down a row and a gap that takes what is left.** Neither existed before
+/// milestone 468: every separator in the framework ran across a column, and every gap was
+/// a number somebody had to guess from the parent's width.
+#[test]
+fn a_rule_down_a_row_and_the_room_left_over() {
+    let root: Container<()> = Container::new().padding(12.0).child(
+        Flex::row()
+            .width(256.0)
+            .height(40.0)
+            .align(Align::Center)
+            .child(text("Drafts"))
+            .child(VerticalDivider::new())
+            .child(text("Sent"))
+            .child(Spacer::new())
+            .child(text("12")),
+    );
+    check("row_rules_and_space", 280, 64, &root);
+}
+
+/// **The search bar**, which is a field with no container of its own inside a container of
+/// the framework's. The picture is for that: the pill's corners are the pill's, and there
+/// is no second box sitting inside them. Three of them — carrying a query, empty with a
+/// hint, and disabled, which fades rather than flattening.
+#[test]
+fn the_search_bars() {
+    let root: Container<()> = Container::new().padding(12.0).child(
+        Flex::column()
+            .gap(14.0)
+            .child(
+                SearchBar::new("flight to lisbon")
+                    .min_width(340.0)
+                    .leading(Icon::new(Icons::MENU).size(20.0))
+                    .trailing(Icon::new(Icons::CLOSE).size(20.0)),
+            )
+            .child(
+                SearchBar::new("")
+                    .min_width(340.0)
+                    .hint("Search mail")
+                    .leading(Icon::new(Icons::STAR).size(20.0)),
+            )
+            .child(
+                SearchBar::new("")
+                    .min_width(340.0)
+                    .hint("Search is off")
+                    .enabled(false),
+            ),
+    );
+    check("search_bars", 380, 230, &root);
+}
+
+/// **The view a search bar opens**, which milestone 469 left the bar without. The picture
+/// is of the floating form: a panel under the anchor, its header the same field again on
+/// the panel's own surface — flat and transparent, so the panel casts one shadow and not
+/// two — a rule, and the rows underneath.
+#[test]
+fn the_search_view() {
+    let root: Container<()> = Container::new().padding(10.0).child(
+        SearchAnchor::new(true, "lis")
+            .full_screen(false)
+            .hint("Search mail")
+            .view_min_width(340.0)
+            .view_min_height(215.0)
+            .on_close(())
+            .on_clear(())
+            .suggestion(ListTile::new().dense().title("flight to lisbon").on_tap(()))
+            .suggestion(
+                ListTile::new()
+                    .dense()
+                    .title("flights from lisbon")
+                    .on_tap(()),
+            )
+            .suggestion(ListTile::new().dense().title("lisbon weather").on_tap(())),
+    );
+    check("search_view", 380, 320, &root);
+}
+
+/// **The toggle buttons**, whose whole point is the picture: three buttons touching have
+/// four lines and not six, because each one draws only the edge facing the button before
+/// it. The second bank rounds the bank's two ends and nothing between them, and marks the
+/// seams either side of a chosen button — the rule a row of separate buttons cannot
+/// express. The third cannot be pressed, and flattens to one grey rather than fading.
+#[test]
+fn the_toggle_buttons() {
+    let bank = |selected: Vec<bool>| {
+        ToggleButtons::new(selected, |_| ())
+            .child(text("B"))
+            .child(text("I"))
+            .child(text("U"))
+    };
+    let root: Container<()> = Container::new().padding(12.0).child(
+        Flex::column()
+            .gap(14.0)
+            .align(Align::Start)
+            .child(bank(vec![true, false, false]))
+            .child(
+                bank(vec![false, true, false])
+                    .border_radius(10.0)
+                    .selected_border_color(Color::rgb8(120, 180, 255)),
+            )
+            .child(bank(vec![true, false, false]).enabled(false)),
+    );
+    check("toggle_buttons", 240, 220, &root);
+}
+
+/// **The grid tiles**: a strip of words laid *over* a picture rather than under it, so the
+/// tile is the picture's size and the grid's rows stay even. Two of them — a footer
+/// carrying two lines over a scrim, and a header carrying one and a glyph over nothing at
+/// all — and both read light, whatever the application's theme is.
+#[test]
+fn the_grid_tiles() {
+    let photo = |color: Color| {
+        Container::<()>::new()
+            .width(124.0)
+            .height(124.0)
+            .color(color)
+            .radius(6.0)
+    };
+    let root: Container<()> = Container::new().padding(12.0).child(
+        Flex::row()
+            .gap(12.0)
+            .align(Align::Start)
+            .child(
+                GridTile::new(photo(Color::rgb8(58, 92, 138))).footer(
+                    GridTileBar::new()
+                        .background_color(Color::rgba(0.0, 0.0, 0.0, 0.45))
+                        .title(text("Cliffs"))
+                        .subtitle(text("Ada Lovelace")),
+                ),
+            )
+            .child(
+                GridTile::new(photo(Color::rgb8(138, 92, 58))).header(
+                    GridTileBar::new()
+                        .title(text("Sunset"))
+                        .trailing(Icon::new(Icons::STAR).size(20.0)),
+                ),
+            ),
+    );
+    check("grid_tiles", 300, 150, &root);
 }
 
 // ---------------------------------------------------------------------------
@@ -642,7 +947,7 @@ fn a_canvas_painted_by_hand() {
             scene.text(
                 Point::new(left + 12.0, top + 8.0),
                 "painted by hand",
-                13.0,
+                &frus_core::ResolvedTextStyle::exact(13.0),
                 theme.on_surface,
             );
         },

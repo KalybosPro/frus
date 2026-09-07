@@ -157,13 +157,13 @@ pub fn paint_overlay(
         Color::TRANSPARENT,
     );
     let on = theme.scheme.on_inverse_surface;
-    scene.text_styled(
+    scene.text(
         Point::new(x + PAD, y + PAD),
         title,
         &title_style.resolved(),
         on,
     );
-    scene.text_styled(
+    scene.text(
         Point::new(x + PAD, y + PAD + title_size.height),
         details,
         &detail_style.resolved(),

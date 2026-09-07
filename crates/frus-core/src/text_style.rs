@@ -131,6 +131,30 @@ impl TextDecoration {
 /// The font size a text ends up at when nothing anywhere in the chain named one.
 pub const DEFAULT_TEXT_SIZE: f32 = 16.0;
 
+/// A **font family**, as a style names it.
+///
+/// `Copy`, and `Named` holds a `&'static str`, so that a [`TextStyle`] stays `Copy` and can
+/// be handed down a subtree by value like every other field. Family names come from
+/// `frus_text::add_font`, which registers them for the life of the program, so a borrowed
+/// name outliving the style is the normal case rather than a restriction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FontFamily {
+    /// The application's default sans-serif — what text gets when it says nothing.
+    SansSerif,
+    /// A serif face, if the platform or the application has one.
+    Serif,
+    /// The registered monospaced family: code, keys, anything whose columns must line up.
+    Monospace,
+    /// A family **by name**, as registered with `frus_text::add_font`.
+    Named(&'static str),
+}
+
+/// The line height a style that says nothing gets, as a **multiple of the font size**.
+///
+/// 1.2 is what the bundled faces want, and what every part of the framework used before it
+/// was expressible at all — see [`TextStyle::height`].
+pub const DEFAULT_LINE_HEIGHT: f32 = 1.2;
+
 /// The typographic attributes of a single line of text — **every field optional**.
 ///
 /// `None` is not a missing value but an answer: *this style does not say*. That is what
@@ -159,6 +183,25 @@ pub struct TextStyle {
     pub decoration: Option<TextDecoration>,
     /// Decoration colour; unset, the text's own.
     pub decoration_color: Option<Color>,
+    /// The line's height, as a **multiple of the font size** — the reference's `height`.
+    ///
+    /// `1.0` sets each line box to exactly the font size, `1.5` to half again; unset says
+    /// nothing, and a style that says nothing inherits whatever a subtree handed down, or
+    /// [`DEFAULT_LINE_HEIGHT`] at the end of that chain.
+    ///
+    /// It is a **ratio, not a length**, for the reason the reference gives: a paragraph
+    /// keeps its rhythm when the reader turns the type up, because the leading grows with
+    /// the letters instead of staying where a designer left it.
+    pub height: Option<f32>,
+    /// The font family — the reference's `fontFamily`. Unset, the application's default.
+    ///
+    /// **It does not always get the last word, and that is deliberate.** A run containing
+    /// Arabic is drawn with the registered Arabic face even when a family was named,
+    /// because cosmic-text does not fall back across families on Android, where the
+    /// platform fallback lists are empty: a named family without Arabic coverage renders
+    /// *nothing at all*. Text in an unexpected face is a smaller failure than no text, and
+    /// naming the Arabic family itself still works.
+    pub family: Option<FontFamily>,
 }
 
 /// A [`TextStyle`] with every question answered: what to measure with, and what to draw.
@@ -180,6 +223,48 @@ pub struct ResolvedTextStyle {
     pub decoration: TextDecoration,
     /// Decoration colour; `None` means the text's own colour.
     pub decoration_color: Option<Color>,
+    /// The line's height as a **multiple of the font size**; `None` means
+    /// [`DEFAULT_LINE_HEIGHT`]. Read it through [`line_height`](Self::line_height).
+    pub height: Option<f32>,
+    /// The font family; `None` means the application's default. See
+    /// [`TextStyle::family`] for why it does not always win.
+    pub family: Option<FontFamily>,
+}
+
+impl ResolvedTextStyle {
+    /// The height of one line, in logical pixels.
+    ///
+    /// **The one place this number is decided.** It used to be a `LINE_HEIGHT_FACTOR`
+    /// constant in `frus-text` and *another* in `frus-gpu`, which is two constants that
+    /// had to agree: a measure and a paint disagreeing about how tall a line is puts the
+    /// second line of every paragraph somewhere the layout did not reserve.
+    pub fn line_height(&self) -> f32 {
+        self.size * self.height.unwrap_or(DEFAULT_LINE_HEIGHT)
+    }
+    /// A style of **exactly** this size — regular, upright, undecorated, and *not* put
+    /// through the reader's font setting.
+    ///
+    /// For glyphs whose size is geometry rather than type: an icon on its 24 px grid, a
+    /// marker that has to stay inside a circle drawn beside it. The reference's `Icon` is
+    /// sized by `IconTheme` and ignores the text scaler for the same reason — an icon that
+    /// grew with the type would leave its own box.
+    ///
+    /// Everything a reader *reads* wants
+    /// [`TextStyle::new(size).resolved()`](TextStyle::resolved) instead. The two are one
+    /// keyword apart on purpose: the choice is worth stating at every call, which is why
+    /// there is no third form that guesses.
+    pub const fn exact(size: f32) -> Self {
+        Self {
+            size,
+            weight: FontWeight::Regular,
+            italic: false,
+            color: None,
+            decoration: TextDecoration::NONE,
+            decoration_color: None,
+            height: None,
+            family: None,
+        }
+    }
 }
 
 impl TextStyle {
@@ -191,6 +276,8 @@ impl TextStyle {
         color: None,
         decoration: None,
         decoration_color: None,
+        height: None,
+        family: None,
     };
 
     /// A style that names a `size` and nothing else.
@@ -258,6 +345,20 @@ impl TextStyle {
         self
     }
 
+    /// Sets the line's height, as a **multiple of the font size** — `2.0` is double
+    /// leading, not two pixels. See the [field](Self::height) for why it is a ratio.
+    pub const fn height(mut self, height: f32) -> Self {
+        self.height = Some(height);
+        self
+    }
+
+    /// Names the font family. See the [field](Self::family) for the one case where a
+    /// named family does not get the last word.
+    pub const fn family(mut self, family: FontFamily) -> Self {
+        self.family = Some(family);
+        self
+    }
+
     /// **Merges** `over` on top of `self`, **field by field**: where `over` said nothing,
     /// this one's answer survives.
     ///
@@ -275,40 +376,132 @@ impl TextStyle {
             color: over.color.or(self.color),
             decoration: over.decoration.or(self.decoration),
             decoration_color: over.decoration_color.or(self.decoration_color),
+            height: over.height.or(self.height),
+            family: over.family.or(self.family),
         }
     }
 
     /// Every question answered: the framework's own default wherever nothing in the chain
-    /// said anything.
+    /// said anything, and **the reader's font size applied**.
     ///
     /// This is where the chain **stops**. Above it a style may leave a field open for a
     /// subtree or a theme to answer; below it a shaper needs a number, and there is nobody
     /// left to ask.
+    ///
+    /// Which is exactly why the user's *Font size* setting is applied here and nowhere
+    /// else. A phone's slider goes to 1.3 on Android and past 3 with iOS's larger
+    /// accessibility sizes, and an interface that ignores it is one a lot of people cannot
+    /// read. Scaling it at the one place a size becomes a number is what keeps the
+    /// **measurement and the paint agreeing**: text measured at one size and drawn at
+    /// another is a layout that is wrong everywhere at once, with nothing in the picture to
+    /// say which of the two numbers was the mistake.
+    ///
+    /// See [`with_text_scale`]. Outside any scope the scale is 1 and this is the identity.
+    /// Caps how far the **reader's font setting** may enlarge this style.
+    ///
+    /// The size is declared smaller in exact proportion, so that resolving it lands at
+    /// `max_scale` times the size asked for and no more. Below `max_scale` nothing changes.
+    ///
+    /// This is the reference's second answer to a reader who turns the system type up, and
+    /// it belongs to **chrome**. A component grows: its default height is a floor and the
+    /// content wins. A toolbar cannot — it would push the whole screen down — so the
+    /// reference keeps its bar at `kToolbarHeight` and clamps the title's scaler to 1.34
+    /// instead, "to keep the visual hierarchy the same even with larger font sizes".
+    ///
+    /// It reads the ambient scale, so it must be called where that scale is in force —
+    /// which for a widget means while it is being built, the same place it reads a theme.
+    #[must_use]
+    pub fn clamp_scale(mut self, max_scale: f32) -> Self {
+        let scale = text_scale();
+        if scale > max_scale && scale > 0.0 {
+            if let Some(size) = self.size {
+                self.size = Some(size * max_scale / scale);
+            }
+        }
+        self
+    }
+
     pub fn resolved(self) -> ResolvedTextStyle {
         ResolvedTextStyle {
-            size: self.size.unwrap_or(DEFAULT_TEXT_SIZE),
+            size: self.size.unwrap_or(DEFAULT_TEXT_SIZE) * text_scale(),
             weight: self.weight.unwrap_or(FontWeight::Regular),
             italic: self.italic.unwrap_or(false),
             color: self.color,
             decoration: self.decoration.unwrap_or(TextDecoration::NONE),
             decoration_color: self.decoration_color,
+            height: self.height,
+            family: self.family,
         }
     }
 }
 
-impl ResolvedTextStyle {
-    /// Back to a style that answers everything it was asked — for handing a resolved style
-    /// on to something that takes a [`TextStyle`].
-    pub const fn to_style(self) -> TextStyle {
-        TextStyle {
-            size: Some(self.size),
-            weight: Some(self.weight),
-            italic: Some(self.italic),
-            color: self.color,
-            decoration: Some(self.decoration),
-            decoration_color: self.decoration_color,
-        }
+/// The reader's font-size setting in force on this thread, or `1.0` outside any
+/// [`with_text_scale`].
+///
+/// Read once, by [`TextStyle::resolved`]. Nothing else should consult it: a second reader
+/// is a second chance to scale a size twice, or to scale one a sibling did not.
+pub fn text_scale() -> f32 {
+    TEXT_SCALE.with(|s| s.get())
+}
+
+/// Runs `f` with the reader's font-size setting in force, restoring whatever was there
+/// before — including while a panic unwinds, so one bad frame cannot leave a stale scale
+/// installed for every frame after it.
+///
+/// **Ambient rather than threaded**, and that is the decision worth stating. Passing a
+/// scaler down would mean every widget that measures a label remembering to apply it, and
+/// the one that forgot would draw text the layout never measured. There is no diagnostic
+/// for that — only a screen that is subtly wrong. Ambient makes forgetting impossible: the
+/// only place a size becomes a number already reads it.
+///
+/// The framework installs this around `view` from `MediaQuery::text_scaler`; an
+/// application does not normally call it. Scales at or below zero are ignored, a font of
+/// no size being a screen with no words on it.
+///
+/// **A closure is not always a long enough life.** A size becomes a number during layout
+/// and again during paint, which happen after the widgets have been built — see
+/// [`install_text_scale`], which the shell uses to cover a whole frame.
+pub fn with_text_scale<R>(scale: f32, f: impl FnOnce() -> R) -> R {
+    let guard = install_text_scale(scale);
+    let out = f();
+    drop(guard);
+    out
+}
+
+/// Installs the reader's font-size setting **until the returned guard is dropped**.
+///
+/// [`with_text_scale`] covers a closure, which is right for a subtree and wrong for a
+/// frame: a widget is *built* first, then measured, laid out and painted, and every one of
+/// those later steps resolves sizes too. Scoping only the build leaves the scale at 1 for
+/// the two steps that decide how big the text actually is — so the layout measures one
+/// size and the renderer draws another, which is the exact failure
+/// [`TextStyle::resolved`](TextStyle::resolved) exists to make impossible.
+///
+/// That is not a hypothetical either: the shell wrapped `view` alone, and the setting
+/// reached a device without changing a single pixel (milestone 407).
+///
+/// Scales at or below zero are ignored, as in [`with_text_scale`].
+#[must_use = "the scale is restored the moment the guard is dropped"]
+pub fn install_text_scale(scale: f32) -> TextScaleGuard {
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+    TextScaleGuard(TEXT_SCALE.with(|s| s.replace(scale)))
+}
+
+/// Puts back the scale that was in force before [`install_text_scale`], when dropped —
+/// including while a panic unwinds, so one bad frame cannot leave a stale scale installed
+/// for every frame after it.
+pub struct TextScaleGuard(f32);
+
+impl Drop for TextScaleGuard {
+    fn drop(&mut self) {
+        TEXT_SCALE.with(|s| s.set(self.0));
     }
+}
+
+thread_local! {
+    /// The reader's font-size setting on this thread. `Cell`, not `RefCell`: an `f32` is
+    /// `Copy` and every access is a whole get or a whole set.
+    static TEXT_SCALE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
 }
 
 /// A **rich-text tree**: each node carries a fragment of text, *partial* style
@@ -522,6 +715,58 @@ mod tests {
         assert_eq!(r.color, None);
     }
 
+    /// The reader's font size lands on **the one place a size becomes a number**.
+    #[test]
+    fn the_readers_font_size_reaches_a_resolved_style() {
+        assert_eq!(
+            TextStyle::new(10.0).resolved().size,
+            10.0,
+            "unscaled by default"
+        );
+        with_text_scale(1.5, || {
+            assert_eq!(TextStyle::new(10.0).resolved().size, 15.0);
+            // A style that named no size scales the framework's own, not nothing.
+            assert_eq!(
+                TextStyle::NONE.resolved().size,
+                DEFAULT_TEXT_SIZE * 1.5,
+                "the default is a size like any other"
+            );
+        });
+        assert_eq!(
+            TextStyle::new(10.0).resolved().size,
+            10.0,
+            "and the scope put it back"
+        );
+    }
+
+    /// Nothing but the size moves. A reader asking for larger text has not asked for a
+    /// different typeface, and scaling a weight or a slant is not a thing to do.
+    #[test]
+    fn only_the_size_is_scaled() {
+        with_text_scale(2.0, || {
+            let r = TextStyle::new(10.0)
+                .weight(FontWeight::Bold)
+                .italic()
+                .resolved();
+            assert_eq!(r.size, 20.0);
+            assert_eq!(r.weight, FontWeight::Bold);
+            assert!(r.italic);
+        });
+    }
+
+    /// A scale of zero is **ignored**, not obeyed. A font of no size is a screen with no
+    /// words on it, and a platform reporting one is a platform to disbelieve rather than a
+    /// user to accommodate.
+    #[test]
+    fn a_scale_of_nothing_is_disbelieved() {
+        with_text_scale(0.0, || {
+            assert_eq!(TextStyle::new(10.0).resolved().size, 10.0);
+        });
+        with_text_scale(-2.0, || {
+            assert_eq!(TextStyle::new(10.0).resolved().size, 10.0);
+        });
+    }
+
     #[test]
     fn merge_overrides_type_but_inherits_missing_colour() {
         let base = TextStyle::new(16.0).color(Color::WHITE);
@@ -639,5 +884,64 @@ mod tests {
         let runs = span.flatten(TextStyle::new(16.0));
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].1.weight, FontWeight::Bold);
+    }
+
+    /// A style that says nothing about its line height gets the framework's default, and
+    /// one that names a ratio gets that ratio **of its own size**.
+    #[test]
+    fn a_line_height_is_a_ratio_of_the_size_that_asked_for_it() {
+        assert_eq!(TextStyle::new(20.0).resolved().line_height(), 24.0);
+        let open = TextStyle {
+            height: Some(1.5),
+            ..TextStyle::new(20.0)
+        };
+        assert_eq!(open.resolved().line_height(), 30.0);
+        let packed = TextStyle {
+            height: Some(1.0),
+            ..TextStyle::new(20.0)
+        };
+        assert_eq!(packed.resolved().line_height(), 20.0);
+    }
+
+    /// **The leading grows with the letters.** A ratio rather than a length is what makes
+    /// a paragraph keep its rhythm when the reader turns the type up: a `height` of 1.5 is
+    /// 30 px at a size of 20 and 60 px when that 20 has been doubled for a reader who
+    /// asked for larger text. A length would have stayed at 30 and closed the paragraph up
+    /// exactly when it needed opening.
+    #[test]
+    fn the_leading_grows_with_the_reader() {
+        let style = TextStyle {
+            height: Some(1.5),
+            ..TextStyle::new(20.0)
+        };
+        assert_eq!(style.resolved().line_height(), 30.0);
+        with_text_scale(2.0, || {
+            let resolved = style.resolved();
+            assert_eq!(resolved.size, 40.0);
+            assert_eq!(resolved.line_height(), 60.0);
+        });
+    }
+
+    /// It inherits like every other field, and a nearer style still wins.
+    #[test]
+    fn a_line_height_is_inherited_and_overridable() {
+        let handed_down = TextStyle {
+            height: Some(1.8),
+            ..TextStyle::NONE
+        };
+        let asks_only_a_size = TextStyle::new(10.0);
+        assert_eq!(
+            handed_down.merge(asks_only_a_size).resolved().line_height(),
+            18.0,
+            "the size is the near style's and the height the inherited one"
+        );
+        let asks_for_both = TextStyle {
+            height: Some(1.0),
+            ..TextStyle::new(10.0)
+        };
+        assert_eq!(
+            handed_down.merge(asks_for_both).resolved().line_height(),
+            10.0
+        );
     }
 }

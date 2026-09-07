@@ -6,7 +6,61 @@
 
 use frus_core::{Color, FontWeight, TextDirection, TextStyle};
 
-use crate::interaction::{Interaction, Status};
+use crate::interaction::Status;
+use crate::media::Brightness;
+
+/// **Which of an application's themes is on display** (`app.dart:57`).
+///
+/// An application supplies a light theme and, if it has one, a dark theme; this says
+/// which of the two the framework picks. It is a *question about the application*, not
+/// about the device: [`Brightness`](crate::Brightness) is what the platform reports, and
+/// [`System`](Self::System) is the mode that agrees to follow it.
+///
+/// The framework resolves this once a frame and fades between the answers, so an
+/// application never has to read the platform's brightness or write a crossfade of its
+/// own.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ThemeMode {
+    /// Follow the platform: the dark theme where the system asks for a dark interface,
+    /// the light one otherwise. **The default**, and the answer most applications want.
+    #[default]
+    System,
+    /// The light theme, whatever the platform says.
+    Light,
+    /// The dark theme, whatever the platform says — falling back to the light one when
+    /// the application has no dark theme to give.
+    Dark,
+}
+
+impl ThemeMode {
+    /// Does this mode follow the platform?
+    pub const fn is_system(self) -> bool {
+        matches!(self, ThemeMode::System)
+    }
+
+    /// Does this mode pin the light theme?
+    pub const fn is_light(self) -> bool {
+        matches!(self, ThemeMode::Light)
+    }
+
+    /// Does this mode pin the dark theme?
+    pub const fn is_dark(self) -> bool {
+        matches!(self, ThemeMode::Dark)
+    }
+
+    /// **Does this mode want a dark interface** on a platform reporting `brightness`?
+    ///
+    /// The one line the whole light/dark decision comes down to (`app.dart:1000`), and
+    /// the reason it lives here rather than in the shell: an application that shows a
+    /// *theme* setting with a *System* entry needs the same answer to tick the right row.
+    pub const fn wants_dark(self, brightness: Brightness) -> bool {
+        match self {
+            ThemeMode::Dark => true,
+            ThemeMode::Light => false,
+            ThemeMode::System => matches!(brightness, Brightness::Dark),
+        }
+    }
+}
 
 /// The **named** typographic scale (Material 3's 15 steps). Widgets pick a step
 /// (`theme.text.title_medium`), never a hardcoded size — changing the scale
@@ -31,29 +85,49 @@ pub struct TextTheme {
     pub label_small: TextStyle,
 }
 
-impl Default for TextTheme {
+impl TextTheme {
     /// The reference Material 3 scale (sizes in logical pixels; the title and label
     /// steps carry a medium weight, as the spec has it).
+    ///
+    /// A **const**, and that matters: a widget measured with no theme in hand — the
+    /// un-themed [`Widget::style`](crate::Widget::style) path the transparent wrappers
+    /// take — reads its step from *this* rather than from a private constant of its own.
+    /// Twelve widgets used to carry their own number, and one of them had drifted two
+    /// pixels from the reference without anybody being able to see it.
+    pub const M3: Self = Self {
+        display_large: TextStyle::new(57.0),
+        display_medium: TextStyle::new(45.0),
+        display_small: TextStyle::new(36.0),
+        headline_large: TextStyle::new(32.0),
+        headline_medium: TextStyle::new(28.0),
+        headline_small: TextStyle::new(24.0),
+        title_large: TextStyle::new(22.0),
+        title_medium: TextStyle::new(16.0).weight(FontWeight::Medium),
+        title_small: TextStyle::new(14.0).weight(FontWeight::Medium),
+        body_large: TextStyle::new(16.0),
+        body_medium: TextStyle::new(14.0),
+        body_small: TextStyle::new(12.0),
+        label_large: TextStyle::new(14.0).weight(FontWeight::Medium),
+        label_medium: TextStyle::new(12.0).weight(FontWeight::Medium),
+        label_small: TextStyle::new(11.0).weight(FontWeight::Medium),
+    };
+}
+
+impl Default for TextTheme {
     fn default() -> Self {
-        let medium = |size: f32| TextStyle::new(size).weight(FontWeight::Medium);
-        Self {
-            display_large: TextStyle::new(57.0),
-            display_medium: TextStyle::new(45.0),
-            display_small: TextStyle::new(36.0),
-            headline_large: TextStyle::new(32.0),
-            headline_medium: TextStyle::new(28.0),
-            headline_small: TextStyle::new(24.0),
-            title_large: TextStyle::new(22.0),
-            title_medium: medium(16.0),
-            title_small: medium(14.0),
-            body_large: TextStyle::new(16.0),
-            body_medium: TextStyle::new(14.0),
-            body_small: TextStyle::new(12.0),
-            label_large: medium(14.0),
-            label_medium: medium(12.0),
-            label_small: medium(11.0),
-        }
+        Self::M3
     }
+}
+
+/// The type scale a widget measures with: the theme's when it has one, the framework's
+/// own when it does not.
+///
+/// `None` is the un-themed [`Widget::style`](crate::Widget::style) path. It answers from
+/// the *same* scale as the themed one — the point of milestone 413 being that a widget
+/// never decides its own type, and a fallback constant beside the scale would be that
+/// decision taken back.
+pub(crate) fn type_scale(theme: Option<&Theme>) -> TextTheme {
+    theme.map_or(TextTheme::M3, |t| t.text)
 }
 
 /// The **color roles** (Material 3) — the **source of truth** for the theme's
@@ -62,14 +136,75 @@ impl Default for TextTheme {
 /// hand for light and dark; `from_seed` (HCT) comes after.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ColorScheme {
+    /// **Whether this scheme is a light one or a dark one** (`color_scheme.dart`).
+    ///
+    /// It is written down rather than worked out. The surface's luminance is *usually*
+    /// the same answer, and "usually" is the problem: a dim scheme built from a dark seed
+    /// can sit either side of the halfway line, and a widget picking its opacities from a
+    /// guess picks differently on two schemes a designer considers equally dark.
+    ///
+    /// The reference's scrollbar reads exactly this field to choose the opacity of its
+    /// thumb (`scrollbar.dart:232`); this framework's was guessing at it.
+    pub brightness: Brightness,
     pub primary: Color,
     pub on_primary: Color,
     pub primary_container: Color,
     pub on_primary_container: Color,
+    /// **A container that does not change when the theme does** (`color_scheme.dart:90`).
+    ///
+    /// Every other accent role is answered twice: once for a light scheme and once for a
+    /// dark one. These four are answered **once**, and both schemes give the same answer.
+    ///
+    /// That is not a shortcut, it is the whole point. A card carrying a brand colour, a
+    /// header the marketing department chose, an onboarding page whose illustration was
+    /// drawn against one particular green — anything that has to keep its colour when
+    /// the reader turns the lights off has nowhere to sit in a scheme where every role
+    /// moves. `primary_container` is the right *emphasis* for those and the wrong
+    /// *promise*. This is the same emphasis with the promise attached.
+    ///
+    /// Tone 90 of the primary palette, which is where a light scheme's
+    /// `primary_container` already sits — so in a light theme it costs nothing, and in
+    /// a dark one it is the thing that stayed put.
+    pub primary_fixed: Color,
+    /// The **stronger** of the pair, for what needs more emphasis than
+    /// [`primary_fixed`](Self::primary_fixed) without giving up the promise. Tone 80,
+    /// which is a dark scheme's `primary`.
+    pub primary_fixed_dim: Color,
+    /// What is legible on both of them — tone 10, dark enough to read on the dimmer of
+    /// the two.
+    pub on_primary_fixed: Color,
+    /// The quieter of the two things that can be written there: a subtitle where
+    /// [`on_primary_fixed`](Self::on_primary_fixed) is the title. Tone 30.
+    pub on_primary_fixed_variant: Color,
     pub secondary: Color,
     pub on_secondary: Color,
     pub secondary_container: Color,
     pub on_secondary_container: Color,
+    /// The supporting accent's fixed container {em} see
+    /// [`primary_fixed`](Self::primary_fixed) for what "fixed" promises.
+    pub secondary_fixed: Color,
+    /// The stronger of that pair.
+    pub secondary_fixed_dim: Color,
+    /// What is legible on both.
+    pub on_secondary_fixed: Color,
+    /// The quieter thing that can be written there.
+    pub on_secondary_fixed_variant: Color,
+    /// A **third** accent, for what is neither the app's main colour nor its supporting
+    /// one: a highlight that has to stand apart from both. Generated a sixth of the way
+    /// round the wheel from the seed, which is what keeps it from reading as either.
+    pub tertiary: Color,
+    pub on_tertiary: Color,
+    pub tertiary_container: Color,
+    pub on_tertiary_container: Color,
+    /// The third accent's fixed container {em} see
+    /// [`primary_fixed`](Self::primary_fixed) for what "fixed" promises.
+    pub tertiary_fixed: Color,
+    /// The stronger of that pair.
+    pub tertiary_fixed_dim: Color,
+    /// What is legible on both.
+    pub on_tertiary_fixed: Color,
+    /// The quieter thing that can be written there.
+    pub on_tertiary_fixed_variant: Color,
     pub background: Color,
     pub surface: Color,
     pub on_surface: Color,
@@ -77,10 +212,19 @@ pub struct ColorScheme {
     pub surface_variant: Color,
     /// Secondary content on surfaces (the historical `muted`).
     pub on_surface_variant: Color,
-    /// An **elevated** surface (floating panels, menus).
+    /// The container ladder's **lowest** rung: the least emphasis against the
+    /// surface. Its neighbour rather than its opposite — in a dark scheme it is
+    /// *darker* than the surface, as the reference's is.
+    pub surface_container_lowest: Color,
+    /// Less emphasis than [`Self::surface_container`]: cards off the page, banners,
+    /// drawers, sheets.
+    pub surface_container_low: Color,
+    /// A distinct area **within** the surface: menus, navigation bars.
     pub surface_container: Color,
-    /// A surface higher still (menus above dialogs…).
+    /// More emphasis than [`Self::surface_container`]: dialogs, search views.
     pub surface_container_high: Color,
+    /// The **most** emphasis against the surface: filled cards, filled fields.
+    pub surface_container_highest: Color,
     /// An inverted surface (toasts and snackbars that stand out from the background).
     pub inverse_surface: Color,
     pub on_inverse_surface: Color,
@@ -90,6 +234,24 @@ pub struct ColorScheme {
     pub outline_variant: Color,
     pub error: Color,
     pub on_error: Color,
+    /// The **quiet** form of `error`: a field's error surface, a warning that has to be
+    /// read rather than shouted. `on_error_container` is what is legible on it — and it
+    /// is what an errored field's border, label and helper take, not `error` itself
+    /// (`input_decorator.dart:5981`).
+    pub error_container: Color,
+    pub on_error_container: Color,
+    /// The accent as it must be drawn **on `inverse_surface`**: a snack bar's action
+    /// (`snack_bar.dart:954`). `primary` on an inverted surface is the pair the scheme
+    /// guarantees nothing about, which is exactly why this role exists.
+    pub inverse_primary: Color,
+    /// What a raised surface is tinted **towards** as it lifts — `primary` in Material 3.
+    /// The elevation model there is a tint, not a shadow, and this is the colour it tints
+    /// with (`bottom_app_bar.dart:301`).
+    pub surface_tint: Color,
+    /// The **darkest** surface in either theme, and the **lightest** — the two ends the
+    /// container ladder runs between.
+    pub surface_dim: Color,
+    pub surface_bright: Color,
     /// The scrim for modals and drawers (the alpha is applied at the point of use).
     pub scrim: Color,
     /// The color of drop shadows (the alpha is applied at the point of use).
@@ -100,10 +262,19 @@ impl ColorScheme {
     /// The dark scheme.
     pub fn dark() -> Self {
         Self {
+            brightness: Brightness::Dark,
             primary: Color::rgb8(96, 200, 130),
             on_primary: Color::rgb8(16, 28, 20),
             primary_container: Color::rgb8(30, 64, 44),
             on_primary_container: Color::rgb8(178, 240, 200),
+            // The four fixed roles: tones 90, 80, 10 and 30 of the primary's own hue
+            // and chroma, read off this crate's HCT. They are byte-for-byte the same
+            // in the light scheme — that is what "fixed" means, and a test holds
+            // the two together so a later touch-up of one cannot quietly break it.
+            primary_fixed: Color::rgb8(139, 249, 175),
+            primary_fixed_dim: Color::rgb8(111, 220, 149),
+            on_primary_fixed: Color::rgb8(0, 33, 14),
+            on_primary_fixed_variant: Color::rgb8(0, 82, 43),
             secondary: Color::rgb8(150, 170, 200),
             on_secondary: Color::rgb8(20, 26, 36),
             // Tone 30 of its own hue and chroma, where the reference puts a dark
@@ -113,13 +284,31 @@ impl ColorScheme {
             // resolved that fill in sRGB; before, it was 14 tones adrift.
             secondary_container: Color::rgb8(63, 71, 88),
             on_secondary_container: Color::rgb8(205, 220, 240),
+            secondary_fixed: Color::rgb8(215, 226, 255),
+            secondary_fixed_dim: Color::rgb8(178, 199, 243),
+            on_secondary_fixed: Color::rgb8(2, 27, 62),
+            on_secondary_fixed_variant: Color::rgb8(50, 71, 108),
+            // The tertiary family, a sixth of the wheel from the primary at the chroma
+            // the reference's tonal-spot scheme uses (24), read off this crate's own HCT
+            // rather than picked by eye.
+            tertiary: Color::rgb8(162, 206, 217),
+            on_tertiary: Color::rgb8(1, 54, 63),
+            tertiary_container: Color::rgb8(32, 77, 86),
+            on_tertiary_container: Color::rgb8(190, 234, 246),
+            tertiary_fixed: Color::rgb8(190, 234, 247),
+            tertiary_fixed_dim: Color::rgb8(162, 205, 218),
+            on_tertiary_fixed: Color::rgb8(1, 31, 38),
+            on_tertiary_fixed_variant: Color::rgb8(33, 76, 87),
             background: Color::rgb8(18, 20, 24),
             surface: Color::rgb8(30, 33, 40),
             on_surface: Color::rgb8(230, 232, 236),
             surface_variant: Color::rgb8(38, 42, 52),
             on_surface_variant: Color::rgb8(150, 156, 168),
+            surface_container_lowest: Color::rgb8(26, 29, 35),
+            surface_container_low: Color::rgb8(34, 37, 45),
             surface_container: Color::rgb8(36, 40, 48),
             surface_container_high: Color::rgb8(44, 48, 58),
+            surface_container_highest: Color::rgb8(52, 56, 68),
             inverse_surface: Color::rgb8(226, 228, 234),
             on_inverse_surface: Color::rgb8(28, 32, 38),
             // Tones 60 and 30 of this palette's neutral-variant family, which is where
@@ -129,6 +318,12 @@ impl ColorScheme {
             outline_variant: Color::rgb8(67, 71, 78),
             error: Color::rgb8(224, 108, 108),
             on_error: Color::rgb8(38, 12, 12),
+            error_container: Color::rgb8(130, 37, 41),
+            on_error_container: Color::rgb8(255, 218, 216),
+            inverse_primary: Color::rgb8(2, 109, 56),
+            surface_tint: Color::rgb8(96, 200, 130),
+            surface_dim: Color::rgb8(30, 33, 40),
+            surface_bright: Color::rgb8(57, 61, 74),
             scrim: Color::BLACK,
             shadow: Color::BLACK,
         }
@@ -137,21 +332,45 @@ impl ColorScheme {
     /// The light scheme.
     pub fn light() -> Self {
         Self {
+            brightness: Brightness::Light,
             primary: Color::rgb8(46, 160, 96),
             on_primary: Color::rgb8(255, 255, 255),
             primary_container: Color::rgb8(200, 238, 214),
             on_primary_container: Color::rgb8(10, 64, 36),
+            // The four fixed roles: tones 90, 80, 10 and 30 of the primary's own hue
+            // and chroma, read off this crate's HCT. They are byte-for-byte the same
+            // in the dark scheme — that is what "fixed" means, and a test holds
+            // the two together so a later touch-up of one cannot quietly break it.
+            primary_fixed: Color::rgb8(139, 249, 175),
+            primary_fixed_dim: Color::rgb8(111, 220, 149),
+            on_primary_fixed: Color::rgb8(0, 33, 14),
+            on_primary_fixed_variant: Color::rgb8(0, 82, 43),
             secondary: Color::rgb8(90, 110, 150),
             on_secondary: Color::rgb8(255, 255, 255),
             secondary_container: Color::rgb8(220, 228, 244),
             on_secondary_container: Color::rgb8(30, 42, 66),
+            secondary_fixed: Color::rgb8(215, 226, 255),
+            secondary_fixed_dim: Color::rgb8(178, 199, 243),
+            on_secondary_fixed: Color::rgb8(2, 27, 62),
+            on_secondary_fixed_variant: Color::rgb8(50, 71, 108),
+            tertiary: Color::rgb8(58, 100, 111),
+            on_tertiary: Color::rgb8(255, 255, 255),
+            tertiary_container: Color::rgb8(190, 234, 246),
+            on_tertiary_container: Color::rgb8(1, 31, 38),
+            tertiary_fixed: Color::rgb8(190, 234, 247),
+            tertiary_fixed_dim: Color::rgb8(162, 205, 218),
+            on_tertiary_fixed: Color::rgb8(1, 31, 38),
+            on_tertiary_fixed_variant: Color::rgb8(33, 76, 87),
             background: Color::rgb8(245, 246, 248),
             surface: Color::rgb8(255, 255, 255),
             on_surface: Color::rgb8(28, 32, 38),
             surface_variant: Color::rgb8(238, 240, 244),
             on_surface_variant: Color::rgb8(110, 116, 126),
+            surface_container_lowest: Color::rgb8(255, 255, 255),
+            surface_container_low: Color::rgb8(250, 250, 252),
             surface_container: Color::rgb8(244, 245, 248),
             surface_container_high: Color::rgb8(238, 240, 244),
+            surface_container_highest: Color::rgb8(232, 235, 240),
             inverse_surface: Color::rgb8(45, 50, 58),
             on_inverse_surface: Color::rgb8(240, 242, 246),
             // Tones 50 and 80, the reference's light-scheme positions. A disabled
@@ -160,6 +379,12 @@ impl ColorScheme {
             outline_variant: Color::rgb8(195, 198, 207),
             error: Color::rgb8(200, 64, 64),
             on_error: Color::rgb8(255, 255, 255),
+            error_container: Color::rgb8(255, 218, 215),
+            on_error_container: Color::rgb8(65, 0, 5),
+            inverse_primary: Color::rgb8(111, 220, 149),
+            surface_tint: Color::rgb8(46, 160, 96),
+            surface_dim: Color::rgb8(223, 228, 234),
+            surface_bright: Color::rgb8(255, 255, 255),
             scrim: Color::BLACK,
             shadow: Color::BLACK,
         }
@@ -174,6 +399,14 @@ impl ColorScheme {
     /// Deliberate departures from the M3 spec: `surface` sits slightly apart from
     /// `background` (our cards lay a surface over the background, tones 12/6 in
     /// dark, 100/98 in light) — the 2023 spec conflates them.
+    ///
+    /// The **container ladder** is anchored on *that* surface rather than on the
+    /// spec's. Its five rungs keep the reference's own tonal steps — going toward
+    /// more emphasis, −4, −2, −2, −2 in light and +6, +2, +5, +5 in dark — measured
+    /// from `surface_container`, so every rung stands off this scheme's surface by
+    /// what it stands off the reference's. In light the top rung lands on tone 100,
+    /// which is where this scheme's `surface` already is: the departure showing
+    /// through.
     pub fn from_seed(seed: Color, dark: bool) -> Self {
         use frus_core::{Hct, TonalPalette};
 
@@ -182,65 +415,128 @@ impl ColorScheme {
         // the other palettes are muted variations on the hue.
         let primary = TonalPalette::new(hct.hue, hct.chroma.max(48.0));
         let secondary = TonalPalette::new(hct.hue, 16.0);
+        // A sixth of the wheel away, at the chroma the reference's tonal-spot scheme
+        // gives a tertiary: far enough from the primary to read as a third thing, close
+        // enough to belong to the same palette.
+        let tertiary = TonalPalette::new(hct.hue + 60.0, 24.0);
         let neutral = TonalPalette::new(hct.hue, 4.0);
         let neutral_variant = TonalPalette::new(hct.hue, 8.0);
         let error = TonalPalette::new(25.0, 84.0);
 
         let p = |tone: f64| primary.tone(tone);
         let s = |tone: f64| secondary.tone(tone);
+        let ter = |tone: f64| tertiary.tone(tone);
         let n = |tone: f64| neutral.tone(tone);
         let nv = |tone: f64| neutral_variant.tone(tone);
         let e = |tone: f64| error.tone(tone);
 
         if dark {
             Self {
+                brightness: Brightness::Dark,
                 primary: p(80.0),
                 on_primary: p(20.0),
                 primary_container: p(30.0),
                 on_primary_container: p(90.0),
+                // The fixed four. **The same tones in both branches** — they are read
+                // off the palettes, which do not know which theme is being built, so a
+                // seed gives one answer for a light scheme and a dark one and the
+                // promise holds by construction.
+                primary_fixed: p(90.0),
+                primary_fixed_dim: p(80.0),
+                on_primary_fixed: p(10.0),
+                on_primary_fixed_variant: p(30.0),
                 secondary: s(80.0),
                 on_secondary: s(20.0),
                 secondary_container: s(30.0),
                 on_secondary_container: s(90.0),
+                secondary_fixed: s(90.0),
+                secondary_fixed_dim: s(80.0),
+                on_secondary_fixed: s(10.0),
+                on_secondary_fixed_variant: s(30.0),
+                tertiary: ter(80.0),
+                on_tertiary: ter(20.0),
+                tertiary_container: ter(30.0),
+                on_tertiary_container: ter(90.0),
+                tertiary_fixed: ter(90.0),
+                tertiary_fixed_dim: ter(80.0),
+                on_tertiary_fixed: ter(10.0),
+                on_tertiary_fixed_variant: ter(30.0),
                 background: n(6.0),
                 surface: n(12.0),
                 on_surface: n(90.0),
                 surface_variant: nv(20.0),
                 on_surface_variant: nv(80.0),
+                surface_container_lowest: n(9.0),
+                surface_container_low: n(15.0),
                 surface_container: n(17.0),
                 surface_container_high: n(22.0),
+                surface_container_highest: n(27.0),
                 inverse_surface: n(90.0),
                 on_inverse_surface: n(20.0),
                 outline: nv(60.0),
                 outline_variant: nv(30.0),
                 error: e(80.0),
                 on_error: e(20.0),
+                error_container: e(30.0),
+                on_error_container: e(90.0),
+                // The accent as it reads on the inverted surface: the *other* theme's
+                // tone of the same palette, which is what an inverted surface is.
+                inverse_primary: p(40.0),
+                surface_tint: p(80.0),
+                surface_dim: n(12.0),
+                surface_bright: n(30.0),
                 scrim: n(0.0),
                 shadow: n(0.0),
             }
         } else {
             Self {
+                brightness: Brightness::Light,
                 primary: p(40.0),
                 on_primary: p(100.0),
                 primary_container: p(90.0),
                 on_primary_container: p(10.0),
+                primary_fixed: p(90.0),
+                primary_fixed_dim: p(80.0),
+                on_primary_fixed: p(10.0),
+                on_primary_fixed_variant: p(30.0),
                 secondary: s(40.0),
                 on_secondary: s(100.0),
                 secondary_container: s(90.0),
                 on_secondary_container: s(10.0),
+                secondary_fixed: s(90.0),
+                secondary_fixed_dim: s(80.0),
+                on_secondary_fixed: s(10.0),
+                on_secondary_fixed_variant: s(30.0),
+                tertiary: ter(40.0),
+                on_tertiary: ter(100.0),
+                tertiary_container: ter(90.0),
+                on_tertiary_container: ter(10.0),
+                tertiary_fixed: ter(90.0),
+                tertiary_fixed_dim: ter(80.0),
+                on_tertiary_fixed: ter(10.0),
+                on_tertiary_fixed_variant: ter(30.0),
                 background: n(98.0),
                 surface: n(100.0),
                 on_surface: n(10.0),
                 surface_variant: nv(94.0),
                 on_surface_variant: nv(30.0),
+                surface_container_lowest: n(100.0),
+                surface_container_low: n(98.0),
                 surface_container: n(96.0),
                 surface_container_high: n(94.0),
+                surface_container_highest: n(92.0),
                 inverse_surface: n(20.0),
                 on_inverse_surface: n(95.0),
                 outline: nv(50.0),
                 outline_variant: nv(80.0),
                 error: e(40.0),
                 on_error: e(100.0),
+                error_container: e(90.0),
+                on_error_container: e(10.0),
+                inverse_primary: p(80.0),
+                surface_tint: p(40.0),
+                surface_dim: n(89.0),
+                surface_bright: n(100.0),
                 scrim: n(0.0),
                 shadow: n(0.0),
             }
@@ -251,29 +547,119 @@ impl ColorScheme {
     pub fn lerp(&self, other: &ColorScheme, t: f32) -> ColorScheme {
         let c = |a: Color, b: Color| a.lerp(b, t);
         ColorScheme {
+            // Discrete, like the text direction: halfway between light and dark is not a
+            // third brightness, and a widget reading it mid-crossing wants the answer it
+            // will still be right about when the crossing ends.
+            brightness: other.brightness,
             primary: c(self.primary, other.primary),
             on_primary: c(self.on_primary, other.on_primary),
             primary_container: c(self.primary_container, other.primary_container),
             on_primary_container: c(self.on_primary_container, other.on_primary_container),
+            // The fixed four take part like any other role. A light/dark crossing moves
+            // them nowhere, because both ends hold the same colour — but a **palette**
+            // crossing does, and there they have to travel with everything else.
+            primary_fixed: c(self.primary_fixed, other.primary_fixed),
+            primary_fixed_dim: c(self.primary_fixed_dim, other.primary_fixed_dim),
+            on_primary_fixed: c(self.on_primary_fixed, other.on_primary_fixed),
+            on_primary_fixed_variant: c(
+                self.on_primary_fixed_variant,
+                other.on_primary_fixed_variant,
+            ),
             secondary: c(self.secondary, other.secondary),
             on_secondary: c(self.on_secondary, other.on_secondary),
             secondary_container: c(self.secondary_container, other.secondary_container),
             on_secondary_container: c(self.on_secondary_container, other.on_secondary_container),
+            secondary_fixed: c(self.secondary_fixed, other.secondary_fixed),
+            secondary_fixed_dim: c(self.secondary_fixed_dim, other.secondary_fixed_dim),
+            on_secondary_fixed: c(self.on_secondary_fixed, other.on_secondary_fixed),
+            on_secondary_fixed_variant: c(
+                self.on_secondary_fixed_variant,
+                other.on_secondary_fixed_variant,
+            ),
+            tertiary: c(self.tertiary, other.tertiary),
+            on_tertiary: c(self.on_tertiary, other.on_tertiary),
+            tertiary_container: c(self.tertiary_container, other.tertiary_container),
+            on_tertiary_container: c(self.on_tertiary_container, other.on_tertiary_container),
+            tertiary_fixed: c(self.tertiary_fixed, other.tertiary_fixed),
+            tertiary_fixed_dim: c(self.tertiary_fixed_dim, other.tertiary_fixed_dim),
+            on_tertiary_fixed: c(self.on_tertiary_fixed, other.on_tertiary_fixed),
+            on_tertiary_fixed_variant: c(
+                self.on_tertiary_fixed_variant,
+                other.on_tertiary_fixed_variant,
+            ),
             background: c(self.background, other.background),
             surface: c(self.surface, other.surface),
             on_surface: c(self.on_surface, other.on_surface),
             surface_variant: c(self.surface_variant, other.surface_variant),
             on_surface_variant: c(self.on_surface_variant, other.on_surface_variant),
+            surface_container_lowest: c(
+                self.surface_container_lowest,
+                other.surface_container_lowest,
+            ),
+            surface_container_low: c(self.surface_container_low, other.surface_container_low),
             surface_container: c(self.surface_container, other.surface_container),
             surface_container_high: c(self.surface_container_high, other.surface_container_high),
+            surface_container_highest: c(
+                self.surface_container_highest,
+                other.surface_container_highest,
+            ),
             inverse_surface: c(self.inverse_surface, other.inverse_surface),
             on_inverse_surface: c(self.on_inverse_surface, other.on_inverse_surface),
             outline: c(self.outline, other.outline),
             outline_variant: c(self.outline_variant, other.outline_variant),
             error: c(self.error, other.error),
             on_error: c(self.on_error, other.on_error),
+            error_container: c(self.error_container, other.error_container),
+            on_error_container: c(self.on_error_container, other.on_error_container),
+            inverse_primary: c(self.inverse_primary, other.inverse_primary),
+            surface_tint: c(self.surface_tint, other.surface_tint),
+            surface_dim: c(self.surface_dim, other.surface_dim),
+            surface_bright: c(self.surface_bright, other.surface_bright),
             scrim: c(self.scrim, other.scrim),
             shadow: c(self.shadow, other.shadow),
+        }
+    }
+}
+
+/// **The smallest box a control that a finger works reserves for it**, in pixels
+/// (`constants.dart:27`).
+///
+/// Not a look: a target. Forty-eight is the number the accessibility scanners on both
+/// mobile platforms check for, and it is what the reference reserves by default for
+/// every switch, checkbox, radio and icon button it draws — whatever those controls
+/// actually paint inside it.
+pub const MIN_TAP_TARGET: f32 = 48.0;
+
+/// The same for a control told to reserve only what the specification requires: the
+/// minimum less eight (`checkbox.dart:522`, `switch.dart:2090`).
+pub const SHRUNK_TAP_TARGET: f32 = 40.0;
+
+/// **How much room a small control reserves for the finger that works it.**
+///
+/// A switch paints a track 32 pixels tall; a checkbox paints a box of 20. Neither is
+/// something a finger can be asked to hit. The reference lays both out inside a
+/// 48-pixel square and paints the small thing in the middle of it, and it makes that a
+/// theme-wide setting with a per-widget override, because it is the kind of decision an
+/// application makes once (`theme_data.dart:172`).
+///
+/// This is a **layout** answer, not a visual one. What the control paints does not
+/// change; the room around it does, and so does the area a click may land in.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+pub enum TapTarget {
+    /// At least [`MIN_TAP_TARGET`] on both sides — the default, as it is over there.
+    #[default]
+    Padded,
+    /// Only [`SHRUNK_TAP_TARGET`]: for the dense interface that has measured its own
+    /// reach and decided, which is a decision rather than an oversight.
+    ShrinkWrap,
+}
+
+impl TapTarget {
+    /// The smallest side, in pixels, this answer reserves.
+    pub fn min_side(self) -> f32 {
+        match self {
+            TapTarget::Padded => MIN_TAP_TARGET,
+            TapTarget::ShrinkWrap => SHRUNK_TAP_TARGET,
         }
     }
 }
@@ -285,7 +671,7 @@ impl ColorScheme {
 /// views** of the most used roles, derived from the scheme — the widgets'
 /// historical API stays intact. `focus`/`selection` are interaction accents
 /// specific to frus (outside the M3 roles).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Theme {
     /// The color roles (the source of truth).
     pub scheme: ColorScheme,
@@ -332,6 +718,11 @@ pub struct Theme {
     /// nothing behaves exactly as if there were none. See
     /// [`WidgetThemes`](crate::WidgetThemes).
     pub widgets: crate::widgettheme::WidgetThemes,
+    /// **How much room the small controls reserve for a finger** ([`TapTarget`]).
+    /// [`Padded`](TapTarget::Padded) by default, as it is over there: a switch, a
+    /// checkbox, a radio and an icon button each lay out inside at least
+    /// [`MIN_TAP_TARGET`] and paint what they paint in the middle of it.
+    pub tap_target: TapTarget,
 }
 
 impl Theme {
@@ -359,6 +750,7 @@ impl Theme {
             spacing: 8.0,
             direction: TextDirection::Ltr,
             widgets: crate::widgettheme::WidgetThemes::default(),
+            tap_target: TapTarget::default(),
         }
     }
 
@@ -399,15 +791,31 @@ impl Theme {
     /// Applies the Material **state layer** over `base`: it overlays the content
     /// color `on` at low opacity according to the interaction state — hover 8%,
     /// focus 10%, press 12% — taking the animated progressions into account
-    /// (`hover_progress`/`focus_progress`). This is the state rule **baked** into
-    /// the theme: widgets stay declarative (they pass their base color and their
-    /// content color, and the theme decides on the overlay).
+    /// (`hover_progress`/`focus_progress`/`press_progress`). This is the state rule
+    /// **baked** into the theme: widgets stay declarative (they pass their base color and
+    /// their content color, and the theme decides on the overlay).
+    ///
+    /// All three terms are **progressions**, the press included. It read the flag until
+    /// milestone 441, which meant that term could only ever be 0 or 12%: the layer
+    /// arrived whole under a finger and vanished whole when it left. Reading
+    /// `press_progress` is what lets it fade, and reading the flag *as well* would defeat
+    /// that — the term would reach full on the first frame and the fade would never run.
+    /// **Whether this theme is a light one or a dark one** (`ThemeData.brightness`).
+    ///
+    /// The scheme is the source of truth for the colours, so it is the source of truth
+    /// for this too — a theme cannot be dark and hold a light scheme.
+    ///
+    /// Widgets that have two sets of numbers, one per brightness, ask this. They used to
+    /// compare the surface's luminance against a half, which agrees with it nearly always
+    /// and is a guess either way.
+    pub fn brightness(&self) -> crate::media::Brightness {
+        self.scheme.brightness
+    }
+
     pub fn state_layer(&self, base: Color, on: Color, status: &Status) -> Color {
-        let mut overlay = 0.08 * status.hover_progress.clamp(0.0, 1.0)
-            + 0.10 * status.focus_progress.clamp(0.0, 1.0);
-        if status.interaction == Interaction::Pressed {
-            overlay += 0.12;
-        }
+        let overlay = 0.08 * status.hover_progress.clamp(0.0, 1.0)
+            + 0.10 * status.focus_progress.clamp(0.0, 1.0)
+            + 0.12 * status.press_progress.clamp(0.0, 1.0);
         base.lerp(on, overlay.min(1.0))
     }
 }
@@ -431,6 +839,12 @@ impl Theme {
         out.spacing = f(self.spacing, other.spacing);
         // Direction is discrete: keep the fade target's.
         out.direction = other.direction;
+        // So is the tap target — and so are the per-widget defaults, which the fade used
+        // to **drop**: `from_scheme` starts from an empty set and nothing put them back,
+        // so every override an application had written disappeared for the length of a
+        // light/dark crossing and came back when it ended.
+        out.tap_target = other.tap_target;
+        out.widgets = other.widgets.clone();
         out
     }
 }
@@ -443,8 +857,67 @@ impl Default for Theme {
 
 #[cfg(test)]
 mod tests {
+    /// **A theme is eight kilobytes, and it used to be `Copy`.** Every `*theme` in the
+    /// crate was a silent eight-kilobyte memcpy — in the layout walk, in every themed
+    /// subtree, once per overlay. Milestone 448 dropped `Copy`, which turned nine of
+    /// those into `clone()` calls that say what they cost.
+    ///
+    /// The number itself is not a promise; the assertion is that it is **large**, since
+    /// that is the whole argument for the change.
+    #[test]
+    fn a_theme_is_far_too_big_to_copy_by_accident() {
+        assert!(
+            std::mem::size_of::<super::Theme>() > 4096,
+            "a theme is {} bytes",
+            std::mem::size_of::<super::Theme>()
+        );
+    }
+
     use super::*;
     use crate::disabled::DISABLED_CONTAINER_OPACITY;
+
+    /// **A scheme says what it is instead of being measured.**
+    ///
+    /// The reference carries `brightness` on both `ColorScheme` and `ThemeData`, and its
+    /// scrollbar reads it (`scrollbar.dart:232`). This framework had neither, so the one
+    /// widget that needed the answer compared the surface's luminance against a half.
+    ///
+    /// That agrees on the four schemes this crate builds — which is exactly why it
+    /// survived. It does not agree on a scheme an application writes for itself.
+    #[test]
+    fn a_scheme_says_whether_it_is_dark_rather_than_being_measured() {
+        assert!(ColorScheme::dark().brightness.is_dark());
+        assert!(ColorScheme::light().brightness.is_light());
+        let seed = Color::rgb8(0x42, 0x85, 0xF4);
+        assert!(ColorScheme::from_seed(seed, true).brightness.is_dark());
+        assert!(ColorScheme::from_seed(seed, false).brightness.is_light());
+        assert_eq!(Theme::dark().brightness(), Brightness::Dark);
+        assert_eq!(Theme::light().brightness(), Brightness::Light);
+
+        // A dimmed **light** scheme — a reading theme, a low-light one — whose surface
+        // sits below the halfway line. The guess called this dark; it is not.
+        let dim = ColorScheme {
+            surface: Color::rgb8(110, 110, 110),
+            ..ColorScheme::light()
+        };
+        assert!(
+            dim.surface.compute_luminance() < 0.5,
+            "the measurement says dark"
+        );
+        assert!(dim.brightness.is_light(), "and the scheme says light");
+    }
+
+    /// **A brightness does not interpolate.** Halfway between light and dark is not a
+    /// third brightness, and a widget reading one mid-crossing wants the answer it will
+    /// still be right about when the crossing ends — the same rule as the text
+    /// direction, and for the same reason.
+    #[test]
+    fn a_brightness_does_not_interpolate() {
+        let half = Theme::light().lerp(&Theme::dark(), 0.5);
+        assert_eq!(half.brightness(), Brightness::Dark);
+        let back = Theme::dark().lerp(&Theme::light(), 0.01);
+        assert_eq!(back.brightness(), Brightness::Light);
+    }
 
     /// The WCAG contrast between two colors (a ratio ≥ 1).
     fn contrast(a: Color, b: Color) -> f32 {
@@ -463,7 +936,7 @@ mod tests {
         for seed in [
             Color::rgb8(0x42, 0x85, 0xF4), // Google blue
             Color::rgb8(0x9C, 0x27, 0xB0), // violet
-            Color::rgb8(0x80, 0x80, 0x80), // gris (chroma quasi nul)
+            Color::rgb8(0x80, 0x80, 0x80), // grey — very nearly no chroma at all
         ] {
             for dark in [false, true] {
                 let s = ColorScheme::from_seed(seed, dark);
@@ -471,15 +944,204 @@ mod tests {
                     ("primary", s.primary, s.on_primary),
                     ("secondary", s.secondary, s.on_secondary),
                     ("surface", s.surface, s.on_surface),
+                    ("tertiary", s.tertiary, s.on_tertiary),
                     ("error", s.error, s.on_error),
                     ("inverse", s.inverse_surface, s.on_inverse_surface),
+                    // The containers carry text too — an errored field's helper line is
+                    // `on_error_container` on `error_container`, and it has to be read.
+                    (
+                        "primary_container",
+                        s.primary_container,
+                        s.on_primary_container,
+                    ),
+                    (
+                        "secondary_container",
+                        s.secondary_container,
+                        s.on_secondary_container,
+                    ),
+                    (
+                        "tertiary_container",
+                        s.tertiary_container,
+                        s.on_tertiary_container,
+                    ),
+                    ("error_container", s.error_container, s.on_error_container),
+                    // The fixed pair carries text as well, and it carries the **same**
+                    // text over two surfaces: whatever is written on `primary_fixed`
+                    // has to still be legible when a caller reaches for the dim one.
+                    ("primary_fixed", s.primary_fixed, s.on_primary_fixed),
+                    ("primary_fixed_dim", s.primary_fixed_dim, s.on_primary_fixed),
+                    ("secondary_fixed", s.secondary_fixed, s.on_secondary_fixed),
+                    (
+                        "secondary_fixed_dim",
+                        s.secondary_fixed_dim,
+                        s.on_secondary_fixed,
+                    ),
+                    ("tertiary_fixed", s.tertiary_fixed, s.on_tertiary_fixed),
+                    (
+                        "tertiary_fixed_dim",
+                        s.tertiary_fixed_dim,
+                        s.on_tertiary_fixed,
+                    ),
                 ] {
                     let ratio = contrast(base, on);
                     assert!(
                         ratio >= 4.5,
-                        "contraste {name} insuffisant ({ratio:.2}) — graine {seed:?}, dark={dark}"
+                        "{name} does not contrast enough ({ratio:.2}) — seed {seed:?}, \
+                         dark={dark}"
                     );
                 }
+            }
+        }
+    }
+
+    /// The twelve roles that promise to stay put, as `(name, light, dark)`.
+    fn fixed_roles(light: &ColorScheme, dark: &ColorScheme) -> Vec<(&'static str, Color, Color)> {
+        vec![
+            ("primary_fixed", light.primary_fixed, dark.primary_fixed),
+            (
+                "primary_fixed_dim",
+                light.primary_fixed_dim,
+                dark.primary_fixed_dim,
+            ),
+            (
+                "on_primary_fixed",
+                light.on_primary_fixed,
+                dark.on_primary_fixed,
+            ),
+            (
+                "on_primary_fixed_variant",
+                light.on_primary_fixed_variant,
+                dark.on_primary_fixed_variant,
+            ),
+            (
+                "secondary_fixed",
+                light.secondary_fixed,
+                dark.secondary_fixed,
+            ),
+            (
+                "secondary_fixed_dim",
+                light.secondary_fixed_dim,
+                dark.secondary_fixed_dim,
+            ),
+            (
+                "on_secondary_fixed",
+                light.on_secondary_fixed,
+                dark.on_secondary_fixed,
+            ),
+            (
+                "on_secondary_fixed_variant",
+                light.on_secondary_fixed_variant,
+                dark.on_secondary_fixed_variant,
+            ),
+            ("tertiary_fixed", light.tertiary_fixed, dark.tertiary_fixed),
+            (
+                "tertiary_fixed_dim",
+                light.tertiary_fixed_dim,
+                dark.tertiary_fixed_dim,
+            ),
+            (
+                "on_tertiary_fixed",
+                light.on_tertiary_fixed,
+                dark.on_tertiary_fixed,
+            ),
+            (
+                "on_tertiary_fixed_variant",
+                light.on_tertiary_fixed_variant,
+                dark.on_tertiary_fixed_variant,
+            ),
+        ]
+    }
+
+    /// **A fixed role does not move when the lights go out** — the one promise the
+    /// twelve of them make (`color_scheme.dart:90`).
+    ///
+    /// Every other accent role is answered twice, once per brightness. These are
+    /// answered once. A brand colour on a card, an onboarding illustration drawn against
+    /// one particular green, a header somebody signed off in a design review: they have
+    /// nowhere to sit in a scheme where every role moves. `primary_container` is the
+    /// right emphasis for them and the wrong promise.
+    ///
+    /// This holds it for **both** ways a scheme is built — the pair written out by
+    /// hand, where the promise is two literals that have to agree, and the pair a seed
+    /// generates, where it holds by construction because the tone is read off a palette
+    /// that does not know which theme is being built.
+    #[test]
+    fn a_fixed_role_does_not_move_when_the_lights_go_out() {
+        for (name, light, dark) in fixed_roles(&ColorScheme::light(), &ColorScheme::dark()) {
+            assert_eq!(light, dark, "the written schemes disagree about {name}");
+        }
+
+        for seed in [
+            Color::rgb8(0x42, 0x85, 0xF4),
+            Color::rgb8(0x9C, 0x27, 0xB0),
+            Color::rgb8(0x80, 0x80, 0x80),
+        ] {
+            let l = ColorScheme::from_seed(seed, false);
+            let d = ColorScheme::from_seed(seed, true);
+            for (name, light, dark) in fixed_roles(&l, &d) {
+                assert_eq!(light, dark, "seed {seed:?} disagrees about {name}");
+            }
+        }
+    }
+
+    /// **The dim one is the stronger one**, and what is written on either is legible on
+    /// **both** — which is the reason `on_*_fixed` is a single role and not two.
+    ///
+    /// A caller that paints `primary_fixed` today and swaps to `primary_fixed_dim` for
+    /// emphasis tomorrow does not get to re-pick its text colour, so tone 10 has to
+    /// clear the bar against the darker of the pair as well.
+    #[test]
+    fn the_dim_half_is_the_stronger_half() {
+        for scheme in [
+            ColorScheme::light(),
+            ColorScheme::dark(),
+            ColorScheme::from_seed(Color::rgb8(0x42, 0x85, 0xF4), false),
+            ColorScheme::from_seed(Color::rgb8(0x9C, 0x27, 0xB0), true),
+        ] {
+            for (name, fixed, dim, on, variant) in [
+                (
+                    "primary",
+                    scheme.primary_fixed,
+                    scheme.primary_fixed_dim,
+                    scheme.on_primary_fixed,
+                    scheme.on_primary_fixed_variant,
+                ),
+                (
+                    "secondary",
+                    scheme.secondary_fixed,
+                    scheme.secondary_fixed_dim,
+                    scheme.on_secondary_fixed,
+                    scheme.on_secondary_fixed_variant,
+                ),
+                (
+                    "tertiary",
+                    scheme.tertiary_fixed,
+                    scheme.tertiary_fixed_dim,
+                    scheme.on_tertiary_fixed,
+                    scheme.on_tertiary_fixed_variant,
+                ),
+            ] {
+                assert!(
+                    dim.compute_luminance() < fixed.compute_luminance(),
+                    "{name}_fixed_dim is not the stronger of the pair"
+                );
+                for (surface, label) in [(fixed, "fixed"), (dim, "fixed_dim")] {
+                    let ratio = contrast(surface, on);
+                    assert!(
+                        ratio >= 4.5,
+                        "on_{name}_fixed does not read on {name}_{label} ({ratio:.2})"
+                    );
+                }
+                // The variant is the quieter of the two, so it is allowed less — but
+                // it is still text, and 3:1 is the floor for large text.
+                assert!(
+                    contrast(fixed, variant) >= 3.0,
+                    "on_{name}_fixed_variant does not read on {name}_fixed"
+                );
+                assert!(
+                    variant.compute_luminance() > on.compute_luminance(),
+                    "on_{name}_fixed_variant is not the quieter of the two"
+                );
             }
         }
     }
@@ -622,6 +1284,70 @@ mod tests {
         assert_eq!(checked, 10);
     }
 
+    /// The five container rungs are a **ladder**: each stands further from the
+    /// surface than the one below it, in whichever direction the scheme's own
+    /// brightness sends them. A rung out of order — or two on the same tone — is two
+    /// widgets that cannot be told apart while their roles say they should be.
+    #[test]
+    fn the_container_ladder_climbs_in_one_direction() {
+        let tone = |c: Color| frus_core::Hct::from_color(c).tone;
+        /// Two rungs closer than this read as the same colour.
+        const RUNG: f64 = 1.0;
+        let mut checked = 0;
+        for (name, s) in [
+            ("dark", ColorScheme::dark()),
+            ("light", ColorScheme::light()),
+            (
+                "seeded dark",
+                ColorScheme::from_seed(Color::rgb8(0x42, 0x85, 0xF4), true),
+            ),
+            (
+                "seeded light",
+                ColorScheme::from_seed(Color::rgb8(0x42, 0x85, 0xF4), false),
+            ),
+        ] {
+            // A dark scheme's containers grow lighter as they take emphasis, a light
+            // scheme's darker.
+            let up = if tone(s.surface) < 50.0 { 1.0 } else { -1.0 };
+            let rungs = [
+                ("lowest", s.surface_container_lowest),
+                ("low", s.surface_container_low),
+                ("container", s.surface_container),
+                ("high", s.surface_container_high),
+                ("highest", s.surface_container_highest),
+            ];
+            // `surface_dim` and `surface_bright` bracket the **surface**, in either
+            // theme — "always the darkest" and "always the lightest"
+            // (`color_scheme.dart:1236`, `:1241`).
+            //
+            // They do not bracket the *containers*, and the first draft of this test
+            // asserted that they did. The reference's own dark scheme puts
+            // `surfaceContainerLowest` at tone 4 and `surfaceDim` at 6, so the ladder's
+            // bottom rung is darker than the darkest surface: the two are separate
+            // families, and dim/bright are a claim about the surface alone.
+            assert!(
+                tone(s.surface_dim) <= tone(s.surface) + 1e-6,
+                "surface_dim is not the darker end"
+            );
+            assert!(
+                tone(s.surface) <= tone(s.surface_bright) + 1e-6,
+                "surface_bright is not the lighter one"
+            );
+            checked += 2;
+            for pair in rungs.windows(2) {
+                let ((below, b), (above, a)) = (pair[0], pair[1]);
+                let step = (tone(a) - tone(b)) * up;
+                assert!(
+                    step >= RUNG,
+                    "{name}: the {above} rung is {step:.1} tones of emphasis above the \
+                     {below} one — a ladder cannot go back down"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 24);
+    }
+
     #[test]
     fn dark_and_light_differ() {
         assert_ne!(Theme::dark().background, Theme::light().background);
@@ -670,10 +1396,89 @@ mod tests {
 
         // Pressed: a stronger overlay than hover alone.
         let pressed = Status {
-            interaction: Interaction::Pressed,
+            press_progress: 1.0,
             ..Default::default()
         };
         assert!(theme.state_layer(base, on, &pressed).r < h.r);
+    }
+
+    /// **A press lights by degrees** (milestone 441). The term read
+    /// `Interaction::Pressed`, a flag, so it could only ever be 0 or 12 %: the layer
+    /// arrived whole under a finger and left whole with it.
+    #[test]
+    fn a_press_lights_by_degrees() {
+        let theme = Theme::dark();
+        let base = Color::rgb(0.4, 0.4, 0.4);
+        let on = Color::BLACK;
+        let at = |p: f32| {
+            theme.state_layer(
+                base,
+                on,
+                &Status {
+                    press_progress: p,
+                    ..Default::default()
+                },
+            )
+        };
+        let (rest, half, full) = (at(0.0), at(0.5), at(1.0));
+        assert_eq!(rest, base, "nothing at rest");
+        assert!(full.r < half.r && half.r < rest.r, "half way is half way");
+        assert!(
+            (half.r - (rest.r + full.r) * 0.5).abs() < 1e-4,
+            "and it is the overlay that is halved, not the colour"
+        );
+
+        // And the flag alone no longer lights it. If it were read as well the term would
+        // reach full on the very first frame, and the fade above could never run.
+        let flagged = Status {
+            interaction: crate::interaction::Interaction::Pressed,
+            ..Default::default()
+        };
+        assert_eq!(theme.state_layer(base, on, &flagged), base);
+    }
+
+    /// **A tap target is a theme-wide answer with a per-widget override** (milestone
+    /// 442), and the default is the reference's: at least 48 pixels for anything a
+    /// finger works.
+    #[test]
+    fn a_theme_reserves_a_tap_target_by_default() {
+        assert_eq!(Theme::dark().tap_target, TapTarget::Padded);
+        assert_eq!(Theme::light().tap_target, TapTarget::Padded);
+        // Read through the enum, which is what a widget asking would get.
+        let sides: Vec<f32> = [TapTarget::Padded, TapTarget::ShrinkWrap]
+            .iter()
+            .map(|t| t.min_side())
+            .collect();
+        assert_eq!(sides, vec![MIN_TAP_TARGET, SHRUNK_TAP_TARGET]);
+        assert!(
+            sides[1] < sides[0],
+            "shrink-wrapping is a smaller answer, not a different one"
+        );
+    }
+
+    /// **A fade used to drop every per-widget default it crossed** (milestone 442).
+    ///
+    /// `lerp` rebuilds the theme from the interpolated scheme, and `from_scheme` starts
+    /// from an empty set of widget defaults — so every override an application had
+    /// written disappeared for the length of a light/dark crossing and came back when it
+    /// ended. Discrete, like the direction beside it: a corner radius is not a colour and
+    /// has no half-way.
+    #[test]
+    fn a_fade_keeps_what_it_cannot_interpolate() {
+        let mut target = Theme::light();
+        target.widgets.checkbox.radius = Some(3.0);
+        target.tap_target = TapTarget::ShrinkWrap;
+
+        let mid = Theme::dark().lerp(&target, 0.5);
+        assert_eq!(
+            mid.widgets.checkbox.radius,
+            Some(3.0),
+            "the defaults survive"
+        );
+        assert_eq!(mid.tap_target, TapTarget::ShrinkWrap);
+        // And the colours are still half way across, which is what the fade is for.
+        assert_ne!(mid.background, Theme::dark().background);
+        assert_ne!(mid.background, target.background);
     }
 
     #[test]

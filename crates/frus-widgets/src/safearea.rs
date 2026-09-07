@@ -39,25 +39,18 @@ pub struct SafeArea<Msg> {
     /// [`SafeArea::maintain_bottom_view_padding`].
     maintain_bottom: bool,
     children: Vec<Box<dyn Widget<Msg>>>,
-    /// The padding this widget resolved when it was constructed. Kept rather than
-    /// recomputed in `style`, because `style` is also called from the layout cache,
-    /// outside any [`MediaQuery::scope`] the shell installed.
-    resolved: Insets,
 }
 
 impl<Msg> SafeArea<Msg> {
     /// Insets `child` away from every occupied edge.
     pub fn new(child: impl Widget<Msg> + 'static) -> Self {
-        let mut area = Self {
+        Self {
             edges: Edges::ALL,
             minimum: Insets::ZERO,
             keyboard: false,
             maintain_bottom: false,
             children: vec![Box::new(child)],
-            resolved: Insets::ZERO,
-        };
-        area.resolved = area.resolve();
-        area
+        }
     }
 
     /// Builds the child **inside** the safe area: `build` receives a [`MediaQuery`]
@@ -91,9 +84,7 @@ impl<Msg> SafeArea<Msg> {
             // told had been consumed, and those are different questions.
             maintain_bottom: false,
             children: Vec::new(),
-            resolved: Insets::ZERO,
         };
-        area.resolved = area.resolve();
 
         let mut inner = MediaQuery::of().remove_padding(edges);
         if keyboard {
@@ -108,7 +99,6 @@ impl<Msg> SafeArea<Msg> {
     /// that should scroll under the gesture handle, say, keeps its bottom edge free.
     pub fn edges(mut self, edges: Edges) -> Self {
         self.edges = edges;
-        self.resolved = self.resolve();
         self
     }
 
@@ -117,7 +107,6 @@ impl<Msg> SafeArea<Msg> {
     /// notch avoidance in one widget.
     pub fn minimum(mut self, minimum: Insets) -> Self {
         self.minimum = minimum;
-        self.resolved = self.resolve();
         self
     }
 
@@ -135,7 +124,6 @@ impl<Msg> SafeArea<Msg> {
     /// was already doing.
     pub fn maintain_bottom_view_padding(mut self) -> Self {
         self.maintain_bottom = true;
-        self.resolved = self.resolve();
         self
     }
 
@@ -146,12 +134,19 @@ impl<Msg> SafeArea<Msg> {
     /// whole screen. Turn it on for a short, non-scrolling form.
     pub fn avoid_keyboard(mut self) -> Self {
         self.keyboard = true;
-        self.resolved = self.resolve();
         self
     }
 
     /// The padding to apply: the occupied edges this widget was asked for, floored by
     /// `minimum`.
+    ///
+    /// Read **when it is asked for**, not when the widget was built. It used to be
+    /// resolved once in the constructor with a comment saying `style` runs outside any
+    /// surface the shell installed — which was true when it was written and stopped being
+    /// true at milestone 408, when the shell began holding one surface across the build,
+    /// the layout *and* the paint. Resolving here is what lets a
+    /// [`MediaScope`](crate::MediaScope) above this widget reach it: a shell that has
+    /// already dealt with the status bar can say so, and the safe area below believes it.
     fn resolve(&self) -> Insets {
         let mq = MediaQuery::of();
         let mut occupied = if self.keyboard { mq.safe() } else { mq.padding };
@@ -167,17 +162,17 @@ impl<Msg> SafeArea<Msg> {
         )
     }
 
-    /// The padding this widget resolved — for tests and for a parent that needs to
-    /// know how much was taken.
+    /// The padding this widget resolves **against the surface in force right now** — for
+    /// tests and for a parent that needs to know how much was taken.
     pub fn padding(&self) -> Insets {
-        self.resolved
+        self.resolve()
     }
 }
 
 impl<Msg: Clone> Widget<Msg> for SafeArea<Msg> {
     fn style(&self) -> Style {
         Style {
-            padding: self.resolved,
+            padding: self.resolve(),
             // **It fills what it is given.** The reference's is a `Padding` under the
             // screen's own constraints, which are tight: it is the size of the box it
             // was handed, and its child is that box less the intrusions. A flex node
@@ -213,12 +208,18 @@ mod tests {
             .with_insets(WindowInsets::bars(Insets::new(28.0, 0.0, 16.0, 0.0)))
     }
 
+    /// The padding is asked for **under the surface**, because that is the question:
+    /// milestone 417 made a safe area resolve when it is asked rather than when it was
+    /// built, so that a `MediaScope` above it can change the answer. Asking outside any
+    /// surface is asking about a screen that is not there.
     #[test]
     fn it_pads_by_the_occupied_edges() {
-        let area = phone().scope(|| SafeArea::<()>::new(Container::new()));
-        assert_eq!(area.padding().top, 28.0);
-        assert_eq!(area.padding().bottom, 16.0);
-        assert_eq!(area.padding().left, 0.0);
+        phone().scope(|| {
+            let area = SafeArea::<()>::new(Container::new());
+            assert_eq!(area.padding().top, 28.0);
+            assert_eq!(area.padding().bottom, 16.0);
+            assert_eq!(area.padding().left, 0.0);
+        });
     }
 
     #[test]
@@ -229,23 +230,25 @@ mod tests {
 
     #[test]
     fn an_unselected_edge_is_left_free() {
-        let area = phone()
-            .scope(|| SafeArea::<()>::new(Container::new()).edges(Edges::ALL.without_bottom()));
-        assert_eq!(area.padding().top, 28.0);
-        assert_eq!(
-            area.padding().bottom,
-            0.0,
-            "the content should run under the gesture handle"
-        );
+        phone().scope(|| {
+            let area = SafeArea::<()>::new(Container::new()).edges(Edges::ALL.without_bottom());
+            assert_eq!(area.padding().top, 28.0);
+            assert_eq!(
+                area.padding().bottom,
+                0.0,
+                "the content should run under the gesture handle"
+            );
+        });
     }
 
     #[test]
     fn the_minimum_is_a_floor_and_not_an_addition() {
-        let area =
-            phone().scope(|| SafeArea::<()>::new(Container::new()).minimum(Insets::uniform(20.0)));
-        assert_eq!(area.padding().top, 28.0, "28 already clears 20");
-        assert_eq!(area.padding().bottom, 20.0, "16 is raised to 20");
-        assert_eq!(area.padding().left, 20.0, "nothing occupied, so the floor");
+        phone().scope(|| {
+            let area = SafeArea::<()>::new(Container::new()).minimum(Insets::uniform(20.0));
+            assert_eq!(area.padding().top, 28.0, "28 already clears 20");
+            assert_eq!(area.padding().bottom, 20.0, "16 is raised to 20");
+            assert_eq!(area.padding().left, 20.0, "nothing occupied, so the floor");
+        });
     }
 
     fn with_keyboard() -> MediaQuery {
@@ -261,12 +264,12 @@ mod tests {
         // **Zero**, not sixteen. The navigation bar is under the keyboard, so there is
         // nothing left at the bottom to stay clear of, and padding by it as well would
         // leave a strip of nothing between the content and the keys.
-        let ignoring = with_keyboard.scope(|| SafeArea::<()>::new(Container::new()));
-        assert_eq!(ignoring.padding().bottom, 0.0);
-
-        let avoiding =
-            with_keyboard.scope(|| SafeArea::<()>::new(Container::new()).avoid_keyboard());
-        assert_eq!(avoiding.padding().bottom, 320.0);
+        with_keyboard.scope(|| {
+            let ignoring = SafeArea::<()>::new(Container::new());
+            assert_eq!(ignoring.padding().bottom, 0.0);
+            let avoiding = SafeArea::<()>::new(Container::new()).avoid_keyboard();
+            assert_eq!(avoiding.padding().bottom, 320.0);
+        });
     }
 
     /// The bottom padding going to zero is right for nearly every screen and wrong for
@@ -275,19 +278,23 @@ mod tests {
     /// area keeps the intrusion that does not move.
     #[test]
     fn the_bottom_can_be_kept_still_while_the_keyboard_comes_and_goes() {
-        let shut =
-            phone().scope(|| SafeArea::<()>::new(Container::new()).maintain_bottom_view_padding());
-        let open = with_keyboard()
-            .scope(|| SafeArea::<()>::new(Container::new()).maintain_bottom_view_padding());
-        assert_eq!(shut.padding().bottom, 16.0);
+        let bottom = |mq: MediaQuery| {
+            mq.scope(|| {
+                SafeArea::<()>::new(Container::new())
+                    .maintain_bottom_view_padding()
+                    .padding()
+                    .bottom
+            })
+        };
+        assert_eq!(bottom(phone()), 16.0);
         assert_eq!(
-            open.padding().bottom,
+            bottom(with_keyboard()),
             16.0,
             "the same, keyboard or no keyboard"
         );
         // And it is the *view* padding it keeps, not the keyboard: the content still
         // sits behind the keys rather than being lifted above them.
-        assert!(open.padding().bottom < 320.0);
+        assert!(bottom(with_keyboard()) < 320.0);
     }
 
     #[test]
@@ -338,7 +345,9 @@ mod tests {
 
     #[test]
     fn the_padding_reaches_the_layout_style() {
-        let area = phone().scope(|| SafeArea::<()>::new(Container::new()));
-        assert_eq!(Widget::<()>::style(&area).padding.top, 28.0);
+        phone().scope(|| {
+            let area = SafeArea::<()>::new(Container::new());
+            assert_eq!(Widget::<()>::style(&area).padding.top, 28.0);
+        });
     }
 }

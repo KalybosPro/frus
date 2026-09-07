@@ -28,7 +28,7 @@ fn scene_matches_golden() {
         0.0,
         Color::TRANSPARENT,
     );
-    scene.text_styled(
+    scene.text(
         Point::new(16.0, 20.0),
         "Golden",
         &TextStyle::new(20.0).underline().resolved(),
@@ -689,7 +689,7 @@ fn table_header_icons_matches_golden() {
     let table = Table::<()>::new(2)
         .width(260.0)
         .header(&["Name", "Rating"])
-        .header_icons(&[Some(Icons::Menu), Some(Icons::Star)])
+        .header_icons(&[Some(Icons::MENU), Some(Icons::STAR)])
         .sorted(1, false)
         .row(&["Ada", "5"])
         .row(&["Bob", "3"]);
@@ -805,7 +805,11 @@ fn table_column_menu_matches_golden() {
         .row(&["Ada", "5"])
         .row(&["Bob", "3"]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
-    let Some(snapshot) = render_widget(&root, 340, 230, &theme) else {
+    // Fifty pixels taller than it was: milestone 460 gave every row the tap target the
+    // reference gives it and the panel the room above and below the reference gives it,
+    // and the menu no longer fits in the old frame. A picture that cuts the bottom off
+    // the thing it documents is worse than no picture.
+    let Some(snapshot) = render_widget(&root, 340, 280, &theme) else {
         eprintln!("no GPU adapter available: test skipped");
         return;
     };
@@ -2237,7 +2241,7 @@ fn password_eye_matches_golden() {
         .width(280.0)
         .label("Password")
         .obscure(true)
-        .suffix_icon(Icons::Eye)
+        .suffix_icon(Icons::VISIBILITY)
         .on_suffix(());
     let root: Container<()> = Container::new().padding(20.0).child(field);
     let Some(snapshot) = render_widget(&root, 340, 110, &theme) else {
@@ -2259,7 +2263,7 @@ fn textinput_clear_matches_golden() {
     let field = TextField::<()>::new("Buy milk")
         .width(280.0)
         .label("New task")
-        .suffix_icon(Icons::Close)
+        .suffix_icon(Icons::CLOSE)
         .on_suffix(());
     let root: Container<()> = Container::new().padding(20.0).child(field);
     let Some(snapshot) = render_widget(&root, 340, 110, &theme) else {
@@ -2535,8 +2539,8 @@ fn password_field_matches_golden() {
             .width(280.0)
             .label("Password")
             .obscure(true)
-            .prefix_icon(Icons::Circle)
-            .suffix_icon(Icons::Check)
+            .prefix_icon(Icons::CIRCLE)
+            .suffix_icon(Icons::CHECK)
             .helper("Tap the eye to reveal"),
     );
     let Some(snapshot) = render_widget(&root, 340, 130, &theme) else {
@@ -2714,6 +2718,72 @@ fn rtl_mirrors_the_row() {
     rtl.assert_golden(golden("rtl_row"));
 }
 
+/// **RTL**: an icon that points somewhere is turned round; one that points nowhere is
+/// left alone.
+///
+/// The frame is exactly the icon's size, so the layout's own mirroring has nowhere to
+/// move it to: whatever changes between the two renderings is the glyph and only the
+/// glyph. The ink is then weighed on each half of the frame rather than compared pixel
+/// for pixel, which makes this a statement about *direction* and not about antialiasing.
+#[test]
+fn rtl_turns_a_directional_icon_round() {
+    use frus_widgets::{Icon, Icons};
+
+    let render = |icon, theme: &Theme| {
+        let root: Container<()> = Container::new()
+            .width(40.0)
+            .height(40.0)
+            .child(Icon::new(icon).size(40.0));
+        render_widget(&root, 40, 40, theme)
+    };
+    // Ink to the left of the middle, minus ink to the right of it.
+    let lean = |snap: &frus_test::Snapshot| {
+        let (mut left, mut right) = (0i32, 0i32);
+        for y in 0..40 {
+            for x in 0..40 {
+                let px = snap.pixel(x, y);
+                let lit = i32::from(px[0] > 90 || px[1] > 90 || px[2] > 90);
+                if x < 20 {
+                    left += lit;
+                } else {
+                    right += lit;
+                }
+            }
+        }
+        left - right
+    };
+
+    let (ltr_theme, rtl_theme) = (Theme::dark(), Theme::dark().rtl());
+    let (Some(arrow_ltr), Some(arrow_rtl), Some(tick_ltr), Some(tick_rtl)) = (
+        render(Icons::ARROW_BACK, &ltr_theme),
+        render(Icons::ARROW_BACK, &rtl_theme),
+        render(Icons::CHECK, &ltr_theme),
+        render(Icons::CHECK, &rtl_theme),
+    ) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+
+    // A back arrow's head is its heavy end. Under LTR it leans left; under RTL it must
+    // lean the other way by about as much.
+    let (before, after) = (lean(&arrow_ltr), lean(&arrow_rtl));
+    assert!(before > 0, "a back arrow leans left under LTR: {before}");
+    assert!(after < 0, "and right under RTL: {after}");
+    assert!(
+        (before + after).abs() <= 4,
+        "the same glyph, reflected: {before} then {after}"
+    );
+
+    // A tick points nowhere: turning it round would be a bug, not a courtesy.
+    assert_eq!(
+        tick_ltr.diff_count(&tick_rtl, 0),
+        0,
+        "a tick must render identically in either direction"
+    );
+
+    arrow_rtl.assert_golden(golden("rtl_arrow_back"));
+}
+
 /// **RTL**: an edge drawer (`end_drawer`, the *end* side being the right under LTR)
 /// moves to the **left** under RTL — overlay placement follows the direction.
 #[test]
@@ -2849,7 +2919,15 @@ fn the_three_filters_match_their_golden() {
         eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    snapshot.assert_golden(golden("filters_three"));
+    // **A blur is the one golden that cannot be byte-exact across adapters.** Its edge
+    // pixels are a weighted sum of a dozen samples, and where that sum lands between two
+    // integers is the adapter's business, not ours: twelve pixels on the blur's two
+    // vertical edges come out three counts of 255 darker here than on the machine that
+    // wrote these bytes, and nowhere else in the picture differs at all. Three counts is
+    // invisible; a filter that stopped blurring, greyed the wrong subtree or spread the
+    // wrong way would move hundreds of pixels by hundreds of counts, which this still
+    // catches. Measured, not guessed — see milestone 473.
+    snapshot.assert_golden_with(golden("filters_three"), 3, 0);
 }
 
 /// The colour used by the filter golden, kept beside it so the expected greyscale
@@ -3082,7 +3160,15 @@ fn an_overflow_band_matches_its_golden() {
         eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    snapshot.assert_golden(golden("overflow_band"));
+    // **Four pixels of one rounded corner.** The label plate's top-right arc resolves a
+    // row earlier on this machine's adapter than on the one that wrote these bytes — a
+    // 1×4 sliver at the corner, and the only difference in 48 000 pixels. It is not drift
+    // in this framework: the same four pixels differ at the commit that first wrote the
+    // golden, 128 commits back, and the rendering has been byte-identical the whole way.
+    // So the allowance is for the arc, and nothing in this picture that could actually go
+    // wrong — the band on the wrong edge, the label unturned, the stripes the wrong way —
+    // fits inside four pixels.
+    snapshot.assert_golden_with(golden("overflow_band"), 2, 4);
 }
 
 /// Rich text answering the three questions milestone 343 gave plain text: centred,

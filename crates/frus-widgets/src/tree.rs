@@ -9,7 +9,7 @@
 
 use std::rc::Rc;
 
-use frus_core::{Color, Point, Rect, Scene};
+use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::interaction::Status;
@@ -18,7 +18,22 @@ use crate::widget::Widget;
 
 const ROW_H: f32 = 32.0;
 const INDENT: f32 = 20.0;
-const SIZE: f32 = 16.0;
+/// The chevron's size. **Geometry, not type**: it has to fit inside `INDENT`, so it is
+/// stated beside the indent it lives in rather than taken from the type scale.
+const CHEVRON_SIZE: f32 = 16.0;
+
+/// The style the rows are drawn in: what the caller said, else what the theme says, else
+/// the reference's — the reference builds its rows out of list tiles, whose title is
+/// `bodyLarge`.
+///
+/// **Resolved once**, so that the number the box is measured with is the number the glyphs
+/// are drawn at. Resolving is the single place the reader's font setting is applied
+/// (milestone 403); a size that never passes through it is a size the reader cannot change.
+fn label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.tree.text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_large)
+        .resolved()
+}
 
 /// One tree row: indented, a chevron if the node has children, **guide lines** back to its
 /// ancestors, and a **selection** background. Clicking the chevron expands or collapses
@@ -34,12 +49,28 @@ struct Row<Msg> {
     toggle: Option<Msg>,
     /// Selection message (if the tree is selectable).
     select: Option<Msg>,
+    text_style: Option<TextStyle>,
 }
 
 impl<Msg: Clone> Row<Msg> {
     /// The chevron's local start x, within the row's box.
     fn chevron_start(&self) -> f32 {
         self.depth as f32 * INDENT
+    }
+
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        // **Intrinsic** width = indentation + chevron + label (+ margin): without it the row
+        // would have no width at all (no child to measure) and the selection background
+        // would be invisible. The `Tree` (a column, align Stretch) then stretches every
+        // row out to the widest one.
+        let style = label_style(self.text_style, theme);
+        let text_w = frus_text::measure_resolved(&self.label, &style).width;
+        let width = self.chevron_start() + INDENT + text_w + ROW_PAD_R;
+        Style {
+            width: Dimension::Length(width),
+            height: Dimension::Length(frus_text::line_box(ROW_H, &style, 0.0)),
+            ..Default::default()
+        }
     }
 }
 
@@ -48,17 +79,11 @@ const ROW_PAD_R: f32 = 12.0;
 
 impl<Msg: Clone> Widget<Msg> for Row<Msg> {
     fn style(&self) -> Style {
-        // **Intrinsic** width = indentation + chevron + label (+ margin): without it the row
-        // would have no width at all (no child to measure) and the selection background
-        // would be invisible. The `Tree` (a column, align Stretch) then stretches every
-        // row out to the widest one.
-        let text_w = frus_text::measure(&self.label, SIZE).width;
-        let width = self.chevron_start() + INDENT + text_w + ROW_PAD_R;
-        Style {
-            width: Dimension::Length(width),
-            height: Dimension::Length(ROW_H),
-            ..Default::default()
-        }
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -90,19 +115,22 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         }
 
         let x = bounds.x + self.chevron_start();
-        let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
+        let style = label_style(self.text_style, Some(theme));
+        let ty = bounds.y + (bounds.height - style.line_height()) * 0.5;
         if self.expandable {
             scene.text(
                 Point::new(x, ty),
                 if self.expanded { "▾" } else { "▸" }.to_string(),
-                SIZE,
+                // The chevron is an icon drawn as a glyph, so it keeps its size: it lives
+                // in a fixed indent, and type that grew would push the label out of it.
+                &ResolvedTextStyle::exact(CHEVRON_SIZE),
                 theme.muted.fade(o),
             );
         }
         scene.text(
             Point::new(x + INDENT, ty),
             self.label.clone(),
-            SIZE,
+            &style,
             theme.on_surface.fade(o),
         );
     }
@@ -138,6 +166,7 @@ pub struct Tree<Msg> {
     on_select: Option<Rc<dyn Fn(u64) -> Msg>>,
     selected: Option<u64>,
     nodes: Vec<(u64, usize, String, bool, bool)>,
+    text_style: Option<TextStyle>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -149,8 +178,17 @@ impl<Msg: Clone + 'static> Tree<Msg> {
             on_select: None,
             selected: None,
             nodes: Vec::new(),
+            text_style: None,
             children: Vec::new(),
         }
+    }
+
+    /// The rows' type, over the theme's and the reference's.
+    #[must_use]
+    pub fn text_style(mut self, style: TextStyle) -> Self {
+        self.text_style = Some(style);
+        self.rebuild();
+        self
     }
 
     /// Makes the nodes **selectable**: `on_select(id)` when the row's body is clicked (outside
@@ -197,6 +235,7 @@ impl<Msg: Clone + 'static> Tree<Msg> {
                     selected: self.selected == Some(*id),
                     toggle: expandable.then(|| (self.on_toggle)(*id)),
                     select: self.on_select.as_ref().map(|f| f(*id)),
+                    text_style: self.text_style,
                 }) as Box<dyn Widget<Msg>>
             })
             .collect();

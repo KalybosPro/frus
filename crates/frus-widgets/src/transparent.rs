@@ -361,6 +361,14 @@ macro_rules! forward_transparent {
                 self.inner.scroll_axis()
             }
 
+            fn scrollbars(&self) -> Option<$crate::physics::Scrollbars> {
+                self.inner.scrollbars()
+            }
+
+            fn thumb_visibility(&self) -> Option<bool> {
+                self.inner.thumb_visibility()
+            }
+
             fn scroll_physics(&self) -> Option<$crate::physics::ScrollPhysics> {
                 self.inner.scroll_physics()
             }
@@ -469,11 +477,8 @@ macro_rules! forward_transparent {
                 self.inner.baseline_target()
             }
 
-            fn main_axis_fill(
-                &self,
-                theme: &$crate::theme::Theme,
-            ) -> Option<frus_layout::FlexDirection> {
-                self.inner.main_axis_fill(theme)
+            fn fill_axes(&self, theme: &$crate::theme::Theme) -> $crate::widget::FillAxes {
+                self.inner.fill_axes(theme)
             }
 
             fn main_axis_floor(&self, theme: &$crate::theme::Theme) -> Option<f32> {
@@ -574,16 +579,28 @@ pub(crate) use forward_transparent;
 mod tests {
     use crate::widget::Widget;
 
+    /// Reads one of this crate's own source files, with its line endings normalised.
+    ///
+    /// A checkout on Windows hands these files back with CRLF — git's `core.autocrlf` is
+    /// on there, and it is on the CI runner — while the patterns below are written with
+    /// `\n`: rustc normalises line endings inside a string literal, so a newline written
+    /// in *this* file is an LF whatever the checkout did. Without this the two tripwires
+    /// below fail to find the end of the trait and report that, rather than what they
+    /// exist to measure.
+    fn read_source(relative: &str) -> String {
+        let path = format!("{}{relative}", env!("CARGO_MANIFEST_DIR"));
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("reading {path}: {e}"))
+            .replace("\r\n", "\n")
+    }
+
     /// Every hook the trait has, forwarded — checked against the trait itself rather
     /// than against a list someone kept up to date by hand. A hook added to `Widget`
     /// and not to the macro is a wrapper that silently answers for itself.
     #[test]
     fn the_macro_forwards_every_hook_the_trait_declares() {
-        let widget = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/widget.rs"))
-            .expect("widget.rs");
-        let macro_src =
-            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/transparent.rs"))
-                .expect("transparent.rs");
+        let widget = read_source("/src/widget.rs");
+        let macro_src = read_source("/src/transparent.rs");
         // The trait's own declarations stop at its closing brace (the blanket impl for
         // `Box<dyn Widget>` follows and repeats every name).
         let trait_body = widget
@@ -601,7 +618,12 @@ mod tests {
                 .collect()
         };
         // The two the macro deliberately leaves to its callers; each wrapper states both.
-        let claimable = ["key", "theme_override"];
+        let claimable = [
+            "key",
+            "theme_override",
+            "media_override",
+            "scaffold_override",
+        ];
         let missing: Vec<String> = names(trait_body)
             .into_iter()
             .filter(|n| !claimable.contains(&n.as_str()))
@@ -624,17 +646,12 @@ mod tests {
     /// bug this module exists to prevent, and the blanket impl had no guard at all.
     #[test]
     fn the_boxed_widget_forwards_every_hook_the_trait_declares() {
-        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/widget.rs"))
-            .expect("widget.rs");
+        let src = read_source("/src/widget.rs");
         let trait_body = src
             .split_once("pub trait Widget")
             .expect("the trait")
             .1
-            .split_once(
-                "
-}
-",
-            )
+            .split_once("\n}\n")
             .expect("its end")
             .0;
         let blanket = src
@@ -675,7 +692,10 @@ mod tests {
                 .expect("a name")
                 .to_string_lossy()
                 .to_string();
-            if file == "transparent.rs" {
+            // `src` holds directories too (a module with children); only a `.rs` file
+            // can carry a wrapper, and reading a directory is an error, not an empty
+            // string.
+            if file == "transparent.rs" || path.extension().is_none_or(|e| e != "rs") {
                 continue;
             }
             let src = std::fs::read_to_string(&path).expect("the wrapper's source");
@@ -686,6 +706,8 @@ mod tests {
             for hook in [
                 "fn key(",
                 "fn theme_override(",
+                "fn media_override(",
+                "fn scaffold_override(",
                 "fn restyle(",
                 "fn positioned(",
             ] {

@@ -9,7 +9,7 @@
 
 use crate::{
     Affine, BorderRadius, Color, FontWeight, ImageHandle, LayerFilter, Path, PathVerb, Point, Rect,
-    ResolvedTextStyle, ShaderMask, Size, Stroke, TextAlign, TextDecoration, TextRun,
+    ResolvedTextStyle, ShaderMask, ShapeBorder, Size, Stroke, TextAlign, TextDecoration, TextRun,
 };
 
 /// The transform applied to a **layer** ([`Primitive::Layer`]) at compositing time:
@@ -257,6 +257,15 @@ pub enum Primitive {
         decoration: TextDecoration,
         /// Decoration colour; `None` means the text's own colour.
         decoration_color: Option<Color>,
+        /// The line's height as a **multiple of `size`**; `None` means
+        /// [`crate::DEFAULT_LINE_HEIGHT`]. Carried on the primitive because the renderer
+        /// has to lay the lines out at the height the measurement used, and it cannot
+        /// derive that from the size alone.
+        height: Option<f32>,
+        /// The font family; `None` means the application's default. Carried for the same
+        /// reason as `height`: the renderer must shape with the face the measurement used,
+        /// and it cannot know which that was from the words alone.
+        family: Option<crate::FontFamily>,
         /// Clip rectangle.
         clip: Rect,
         /// The box the text was laid out in — the emitting widget's, so an
@@ -409,6 +418,8 @@ impl Primitive {
                 align,
                 decoration,
                 decoration_color,
+                height,
+                family,
                 clip,
                 bounds,
                 owner,
@@ -424,6 +435,8 @@ impl Primitive {
                 align,
                 decoration,
                 decoration_color,
+                height,
+                family,
                 clip: clip.scale_xy(sx, sy),
                 bounds: bounds.scale_xy(sx, sy),
                 owner,
@@ -544,6 +557,8 @@ impl Primitive {
                 align,
                 decoration,
                 decoration_color,
+                height,
+                family,
                 clip,
                 bounds,
                 owner,
@@ -559,6 +574,8 @@ impl Primitive {
                 align,
                 decoration,
                 decoration_color,
+                height,
+                family,
                 clip: clip.translate(dx, dy),
                 bounds: bounds.translate(dx, dy),
                 owner,
@@ -728,6 +745,8 @@ impl Primitive {
                 align,
                 decoration,
                 decoration_color,
+                height,
+                family,
                 bounds,
                 owner,
                 ..
@@ -743,6 +762,8 @@ impl Primitive {
                 align,
                 decoration,
                 decoration_color,
+                height,
+                family,
                 clip,
                 bounds,
                 owner,
@@ -961,6 +982,8 @@ impl Scene {
                 align,
                 decoration,
                 decoration_color,
+                height,
+                family,
                 clip,
                 bounds,
                 owner,
@@ -976,6 +999,8 @@ impl Scene {
                 align,
                 decoration,
                 decoration_color: decoration_color.map(|c| c.fade(opacity)),
+                height,
+                family,
                 clip,
                 bounds,
                 owner,
@@ -1075,6 +1100,31 @@ impl Scene {
 
     /// Adds a rectangle with rounded corners (uniform through `f32`, or per corner
     /// through [`BorderRadius`]) and/or a border.
+    /// **Fills a shape**, and draws its edge if it has one.
+    ///
+    /// Three of the four shapes are rounded rectangles once the box is known, so they go
+    /// down the same path as [`Scene::draw_rect`] and cost nothing extra; a bevel becomes
+    /// a filled path plus a stroked one. A caller who does this by hand at each site gets
+    /// the fast path wrong somewhere, which is the whole reason this is one function.
+    pub fn draw_shape(&mut self, rect: Rect, shape: ShapeBorder, fill: Color) {
+        let side = shape.side();
+        if let Some((box_, radius)) = shape.as_rounded(rect) {
+            self.draw_rect(
+                box_,
+                fill,
+                radius,
+                if side.is_drawn() { side.width } else { 0.0 },
+                side.color,
+            );
+            return;
+        }
+        let outline = shape.outline(rect);
+        self.fill_path(&outline, fill);
+        if side.is_drawn() {
+            self.stroke_path(&outline, side.color, side.width);
+        }
+    }
+
     pub fn draw_rect(
         &mut self,
         rect: Rect,
@@ -1328,27 +1378,6 @@ impl Scene {
         });
     }
 
-    /// Adds a line of text, anchored by its top-left corner, regular and upright.
-    /// See [`Scene::text_styled`] for weight and italics.
-    pub fn text(&mut self, position: Point, text: impl Into<String>, size: f32, color: Color) {
-        self.primitives.push(Primitive::Text {
-            position,
-            text: text.into(),
-            size,
-            color,
-            weight: FontWeight::Regular,
-            italic: false,
-            max_width: None,
-            soft_wrap: true,
-            align: TextAlign::Start,
-            decoration: TextDecoration::NONE,
-            decoration_color: None,
-            clip: self.current_clip,
-            bounds: self.current_bounds,
-            owner: self.current_owner,
-        });
-    }
-
     /// Adds **rich** text: resolved runs, mixing styles and colours, laid out as one
     /// piece, anchored by its top-left corner.
     pub fn rich_text(&mut self, position: Point, runs: Vec<TextRun>) {
@@ -1379,14 +1408,20 @@ impl Scene {
         });
     }
 
-    /// Adds a styled line of text — size, weight and italics from the
-    /// [`ResolvedTextStyle`].
+    /// Adds a line of text, anchored by its top-left corner — size, weight and italics
+    /// from the [`ResolvedTextStyle`].
     ///
     /// It takes a **resolved** style and not a [`TextStyle`](crate::TextStyle) because
     /// this is the bottom of the chain: a shaper needs a number and there is nobody left
     /// below to ask one of. `color` is settled the same way, by the caller, usually
     /// against the theme — which is the one answer this crate cannot work out for itself.
-    pub fn text_styled(
+    ///
+    /// There is deliberately **no form of this that takes a bare `f32` size**. A number
+    /// arriving here has been through [`TextStyle::resolved`](crate::TextStyle::resolved),
+    /// which is the single place the reader's font size is applied; a second door taking a
+    /// raw constant is a door onto text that ignores the reader, and forty-seven call sites
+    /// walked through it (milestone 406).
+    pub fn text(
         &mut self,
         position: Point,
         text: impl Into<String>,
@@ -1405,6 +1440,8 @@ impl Scene {
             align: TextAlign::Start,
             decoration: style.decoration,
             decoration_color: style.decoration_color,
+            height: style.height,
+            family: style.family,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,
@@ -1433,6 +1470,8 @@ impl Scene {
             align: TextAlign::Start,
             decoration: style.decoration,
             decoration_color: style.decoration_color,
+            height: style.height,
+            family: style.family,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,
@@ -1466,6 +1505,8 @@ impl Scene {
             align: block.align,
             decoration: style.decoration,
             decoration_color: style.decoration_color,
+            height: style.height,
+            family: style.family,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,
@@ -1605,7 +1646,12 @@ mod tests {
             1.0,
             Color::WHITE,
         );
-        scene.text(Point::new(5.0, 6.0), "hi", 18.0, Color::BLACK);
+        scene.text(
+            Point::new(5.0, 6.0),
+            "hi",
+            &ResolvedTextStyle::exact(18.0),
+            Color::BLACK,
+        );
 
         let big = scene.scaled(2.0);
         match &big.primitives()[0] {

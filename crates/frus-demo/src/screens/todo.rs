@@ -34,7 +34,13 @@ pub(crate) fn todo_row_swipeable(todo: &Todo, theme: &Theme) -> Dismissible<Msg>
 }
 
 /// The height of a task row. Fixed, because a swipeable row is a layout leaf.
-pub(crate) const TODO_ROW_HEIGHT: f32 = 62.0;
+///
+/// Sixty-six, not sixty-two: the checkbox and the delete button each reserve a 48-pixel
+/// tap target (milestone 442), and around them this row has 8 pixels of padding above and
+/// below plus a one-pixel rule. It was pinned at 62 when those controls were 20 and 40,
+/// and the framework's own overflow check said so on all nine screens at once the moment
+/// they grew — which is the instrument working.
+pub(crate) const TODO_ROW_HEIGHT: f32 = 66.0;
 
 /// One task row: a checkbox, the label (dimmed **and struck through** when done) and a delete
 /// button.
@@ -65,7 +71,7 @@ pub(crate) fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
         // longer be deleted (milestones 333 and 334). No `spacer()` is needed — the
         // expanding label is what pushes the button to the right edge.
         Expanded::new(label.ellipsis()),
-        IconButton::new(Icons::Close)
+        IconButton::new(Icons::CLOSE)
             .label("Delete task")
             .icon_color(theme.error)
             .icon_size(18.0)
@@ -161,7 +167,7 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     let section_title = match app.section {
         1 => "Stats".to_string(),
         2 => "About".to_string(),
-        _ => tr(app.lang, "app-title"),
+        _ => tr(lang_of(app), "app-title"),
     };
     let header = AppBar::new(section_title)
         .leading(
@@ -176,7 +182,7 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
         .action(seed_label(app), Msg::CycleSeed)
         .action(if app.rtl { "LTR" } else { "RTL" }, Msg::ToggleRtl)
         // The language toggle: the label shows the language being switched TO.
-        .action(LANGS[(app.lang + 1) % LANGS.len()].0, Msg::CycleLang)
+        .action(lang_label(app), Msg::CycleLang)
         .action("A+", Msg::SetDensity(app.density + 0.1))
         .action("A−", Msg::SetDensity(app.density - 0.1))
         .action("Log →", Msg::Push(Route::Journal))
@@ -194,7 +200,7 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
         .on_submit(Msg::AddTodo);
     if !app.draft.is_empty() {
         draft_input = draft_input
-            .suffix_icon(Icons::Close)
+            .suffix_icon(Icons::CLOSE)
             .on_suffix(Msg::ClearDraft);
     }
     // The field takes the room the button leaves — no subtraction, and it stays right
@@ -207,9 +213,9 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     let segmented = SegmentedButton::new(filter_index(app.filter), |i| {
         Msg::SetFilter(filter_from_index(i))
     })
-    .segment(tr(app.lang, "filter-all"))
-    .segment(tr(app.lang, "filter-active"))
-    .segment(tr(app.lang, "filter-done"));
+    .segment(tr(lang_of(app), "filter-all"))
+    .segment(tr(lang_of(app), "filter-active"))
+    .segment(tr(lang_of(app), "filter-done"));
     let mut filters = row![segmented].align(Align::Center).gap(8.0);
     // The active filter (other than "All") is shown as a removable chip.
     if app.filter != Filter::All {
@@ -283,7 +289,7 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     // localized through Fluent) when there is room, short text when it is narrow — at a fixed
     // height.
     let muted = theme.muted;
-    let lang = app.lang;
+    let lang = lang_of(app);
     let total = active + done;
     let summary = LayoutBuilder::new(move |size: Size| {
         let label = if size.width >= 360.0 {
@@ -329,7 +335,7 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
         // repainted every frame.
         card_body = card_body.child(
             Container::new().repaint_boundary().child(
-                AlertDialog::new("Press Enter to add a task; swipe from the left edge to go back.")
+                Alert::new("Press Enter to add a task; swipe from the left edge to go back.")
                     .title("Tip"),
             ),
         );
@@ -340,11 +346,11 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
         let showcase = Flex::row()
             .gap(16.0)
             .align(Align::Center)
-            .child(Icon::new(Icons::Check).color(theme.primary))
-            .child(Icon::new(Icons::Star))
-            .child(Icon::new(Icons::Heart))
-            .child(Icon::new(Icons::Menu))
-            .child(Icon::new(Icons::ChevronRight))
+            .child(Icon::new(Icons::CHECK).color(theme.primary))
+            .child(Icon::new(Icons::STAR))
+            .child(Icon::new(Icons::FAVORITE))
+            .child(Icon::new(Icons::MENU))
+            .child(Icon::new(Icons::CHEVRON_RIGHT))
             .child(demo_logo().size(72.0, 48.0).fit(BoxFit::Cover))
             // A group-opacity layer (milestone 92): two overlapping squares, composited as one →
             // the overlap does not darken (no double-blending of the alpha).
@@ -417,10 +423,10 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
         // `.nav_placement(NavPlacement::Rail)` pins a rail instead; navigation that
         // follows the size class is `NavScaffold`, which is a different widget.
         .nav(app.section, Msg::SetSection)
-        .destination("✔", "Tasks")
-        .badge(active as u32)
-        .destination("▦", "Stats")
-        .destination("★", "About")
+        // **One list.** The bar here, the drawer below and — in an application that used
+        // `NavScaffold` — the rail at a wider size all read the same declaration, so
+        // there is nowhere for the three to drift apart. Milestone 473.
+        .destinations(sections(active))
         .end_drawer(
             drawer_menu(app, theme, active),
             app.drawer_open,
@@ -483,6 +489,27 @@ pub(crate) fn quick_actions_sheet(theme: &Theme) -> Container<Msg> {
     )
 }
 
+/// **The application's three sections, declared once.**
+///
+/// Each is a drawn icon at rest and its solid twin when selected — the convention the
+/// icon set is drawn for, and the thing a colour alone cannot say. `active` is the number
+/// of tasks still to do, which the first destination wears as a badge; `0` shows nothing,
+/// so the count goes straight in with no `if` around it.
+pub(crate) fn sections(active: usize) -> Vec<NavigationDestination> {
+    vec![
+        NavigationDestination::new(Icons::CHECK_CIRCLE_OUTLINE, "Tasks")
+            .selected_icon(Icons::CHECK_CIRCLE)
+            .badge(active as u32)
+            .tooltip("What is still to do"),
+        NavigationDestination::new(Icons::BAR_CHART, "Stats")
+            .selected_icon(Icons::INSERT_CHART)
+            .tooltip("How the week went"),
+        NavigationDestination::new(Icons::STAR_BORDER, "About")
+            .selected_icon(Icons::STAR)
+            .tooltip("What this is"),
+    ]
+}
+
 /// The navigation drawer's content: a header + the destinations + settings.
 ///
 /// Wrapped in a `SafeArea`: a drawer is an **overlay**, so it is placed against the window
@@ -491,25 +518,28 @@ pub(crate) fn quick_actions_sheet(theme: &Theme) -> Container<Msg> {
 /// same shape of answer: its drawer runs the full height and the header adds the status
 /// bar's own height to its padding.
 pub(crate) fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> SafeArea<Msg> {
-    let entry = |icon: &str, label: &str, index: usize| {
+    let entry = |label: &str, index: usize| {
         let variant = if app.section == index {
             Variant::Filled
         } else {
             Variant::Outlined
         };
-        button(format!("{icon}  {label}"), Msg::SetSection(index))
+        button(label.to_string(), Msg::SetSection(index))
             .variant(variant)
             .size(16.0)
     };
+    // The same declaration the bottom bar reads, so the menu cannot name a section the
+    // bar has not got, or call it something else.
+    let sections = sections(active);
     SafeArea::new(
         Container::new().padding(16.0).child(
             column![
                 text("frus").size(22.0),
                 text("Navigation").size(13.0).color(theme.muted),
                 Divider::new(),
-                entry("✔", "Tasks", 0),
-                entry("▦", "Stats", 1),
-                entry("★", "About", 2),
+                entry(sections[0].label(), 0),
+                entry(sections[1].label(), 1),
+                entry(sections[2].label(), 2),
                 Divider::new(),
                 text(format!("{active} task(s) pending"))
                     .size(14.0)

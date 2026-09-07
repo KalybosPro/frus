@@ -15,7 +15,11 @@ use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping, Style, Weight};
 use frus_core::{FontWeight, Point, Rect, ResolvedTextStyle, Size, TextRun, TextStyle};
 
 /// The default line-height to font-size ratio.
-const LINE_HEIGHT_FACTOR: f32 = 1.2;
+///
+/// It lives in `frus-core` now, because the renderer needs the same number and a copy of
+/// it here is a copy that can drift: a measure and a paint disagreeing about how tall a
+/// line is puts the second line of every paragraph where the layout reserved nothing.
+use frus_core::DEFAULT_LINE_HEIGHT as LINE_HEIGHT_FACTOR;
 
 // --- The bundled fonts ---
 //
@@ -174,6 +178,37 @@ pub fn family_for(text: &str) -> cosmic_text::Family<'static> {
     }
 }
 
+/// The family to draw `text` in when a style **named one**.
+///
+/// # Why a named family does not simply win
+///
+/// A run containing Arabic keeps the registered Arabic face, whatever was named. It is not
+/// a hedge: cosmic-text does not fall back across families on Android, where the platform
+/// fallback lists are empty, so a family without Arabic coverage renders **nothing at
+/// all** — not a substituted glyph, not a box, nothing. Text in an unexpected face is a
+/// smaller failure than a blank screen, and a caller who wants an Arabic family names it
+/// and gets it.
+///
+/// Coverage is what would settle this properly — asking the face whether it has the
+/// characters — and fontdb does not offer it cheaply. That is a limit, and it is written
+/// down here rather than left for someone to discover on a device.
+pub fn family_for_style(
+    text: &str,
+    family: Option<frus_core::FontFamily>,
+) -> cosmic_text::Family<'static> {
+    use frus_core::FontFamily;
+    match family {
+        // Nothing named: the existing rule, which already chooses by script.
+        None => family_for(text),
+        // Named, but the run needs the Arabic face to be drawn at all.
+        Some(_) if contains_arabic(text) => family_for(text),
+        Some(FontFamily::SansSerif) => family_or_generic(&SANS, cosmic_text::Family::SansSerif),
+        Some(FontFamily::Serif) => cosmic_text::Family::Serif,
+        Some(FontFamily::Monospace) => monospace_family(),
+        Some(FontFamily::Named(name)) => cosmic_text::Family::Name(name),
+    }
+}
+
 /// The monospaced family, for the widgets that ask for one.
 pub fn monospace_family() -> cosmic_text::Family<'static> {
     family_or_generic(&MONO, cosmic_text::Family::Monospace)
@@ -270,6 +305,12 @@ struct MeasureKey {
     weight: u16,
     italic: bool,
     max_width: Option<u32>,
+    /// The line height these words were measured at, in bits. A style may name one, so it
+    /// is part of the question and not a constant.
+    line_h: u32,
+    /// The family they were measured in. Different faces have different widths, which is
+    /// the reason for naming one at all.
+    family: Option<frus_core::FontFamily>,
 }
 
 /// How many entries a generation holds before it is retired. Two generations live at
@@ -327,7 +368,13 @@ static BASELINES: std::sync::LazyLock<
     std::sync::Mutex<std::collections::HashMap<BaselineKey, f32>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
-/// The line height for a given font size, in pixels.
+/// The line height for a given font size, in pixels, **for a style that says nothing
+/// about it**.
+///
+/// A style that *does* say something answers for itself:
+/// [`ResolvedTextStyle::line_height`]. Prefer that wherever a style is in reach — this
+/// form cannot honour a `height` it was never shown, and a caller holding a style and
+/// calling this anyway is the same measure-and-paint disagreement in miniature.
 pub fn line_height(size_px: f32) -> f32 {
     size_px * LINE_HEIGHT_FACTOR
 }
@@ -415,7 +462,42 @@ pub fn measure_style(text: &str, style: TextStyle) -> Size {
 /// step further down, for the code that has done the resolving once and is measuring
 /// several times against it.
 pub fn measure_resolved(text: &str, style: &ResolvedTextStyle) -> Size {
-    measure_styled(text, style.size, style.weight, style.italic)
+    measure_wrapped_resolved(text, style, None)
+}
+
+/// The height a box needs to hold **one line** of `style` with `padding` of room around
+/// it: `min`, unless the reader asked for type that does not fit in `min`.
+///
+/// It is the reference's rule for its own components — a default height is a *floor*, and
+/// content taller than it wins — written once rather than as a `max` remembered at each of
+/// the places that need it. A component whose height is a bare constant clips its own text
+/// the moment somebody turns the system font size up, and says nothing about it.
+pub fn line_box(min: f32, style: &ResolvedTextStyle, padding: f32) -> f32 {
+    // Rounded **up**. The layout works in whole pixels, and a box that came out at 43 for
+    // a line needing 43.2 clips it — by a fifth of a pixel, which is still a clip.
+    min.max((style.line_height() + padding).ceil())
+}
+
+/// Measures `text` under an already-resolved style, **wrapping** at `max_width`. The
+/// resolved counterpart of [`measure_wrapped`], for a paragraph whose style has been
+/// settled once and must be measured and painted at the same size.
+pub fn measure_wrapped_resolved(
+    text: &str,
+    style: &ResolvedTextStyle,
+    max_width: Option<f32>,
+) -> Size {
+    // Through `measure_at`, not `measure_wrapped`: the style may name a line height, and
+    // going by the size alone would measure at one height what the renderer draws at
+    // another.
+    measure_at(
+        text,
+        style.size,
+        style.weight,
+        style.italic,
+        max_width,
+        style.line_height(),
+        style.family,
+    )
 }
 
 /// Measures a **styled** text's natural size; weight and italics count, since bold
@@ -434,7 +516,31 @@ pub fn measure_wrapped(
     italic: bool,
     max_width: Option<f32>,
 ) -> Size {
-    let line_h = line_height(size_px);
+    measure_at(
+        text,
+        size_px,
+        weight,
+        italic,
+        max_width,
+        line_height(size_px),
+        None,
+    )
+}
+
+/// The measurement itself, at an **explicit line height**.
+///
+/// Every public form funnels here, and the line height is a parameter rather than a
+/// constant because a style may name it: two callers computing it separately is how a
+/// measure and a paint come to disagree about where the second line starts.
+fn measure_at(
+    text: &str,
+    size_px: f32,
+    weight: FontWeight,
+    italic: bool,
+    max_width: Option<f32>,
+    line_h: f32,
+    family: Option<frus_core::FontFamily>,
+) -> Size {
     if text.is_empty() {
         return Size::new(0.0, line_h);
     }
@@ -454,6 +560,10 @@ pub fn measure_wrapped(
         weight: available_weight(weight),
         italic: available_style(italic) == Style::Italic,
         max_width: max_width.map(f32::to_bits),
+        // Two line heights give two different answers for the same words, so they cannot
+        // share a cache entry. Nor can two families: that is the point of naming one.
+        line_h: line_h.to_bits(),
+        family,
     };
     if let Some(size) = cached_measurement(&key) {
         return size;
@@ -465,7 +575,9 @@ pub fn measure_wrapped(
     // A constrained width (wrapping) or a free one; the height is always free.
     buffer.set_size(&mut font_system, max_width, None);
     let attrs = Attrs::new()
-        .family(family_for(text))
+        // The face the **renderer** will use, not the default: measuring in one family and
+        // drawing in another reserves a width for letters of a different shape.
+        .family(family_for_style(text, family))
         .weight(Weight(available_weight(weight)))
         .style(available_style(italic));
     buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
@@ -1472,5 +1584,129 @@ mod tests {
         let runs = vec![run("small", 12.0), run("large", 24.0)];
         let mixed = baseline_of_runs(&runs).expect("two runs");
         assert!((mixed - baseline(24.0, FontWeight::Regular, false)).abs() < 0.01);
+    }
+
+    /// **A taller line makes a taller measurement**, and by exactly the ratio asked for.
+    ///
+    /// This is the assertion that matters: the renderer lays a paragraph out with
+    /// `Metrics::new(size, size * height)`, and if the measurement did not use the same
+    /// number the layout would reserve room for lines that land somewhere else.
+    #[test]
+    fn a_named_line_height_reaches_the_measurement() {
+        let words = "one two three four five six seven eight nine ten";
+        let plain = ResolvedTextStyle::exact(16.0);
+        let open = ResolvedTextStyle {
+            height: Some(2.4),
+            ..plain
+        };
+        // Wrapped to a narrow column, so there are several lines to stack.
+        let a = measure_wrapped_resolved(words, &plain, Some(80.0));
+        let b = measure_wrapped_resolved(words, &open, Some(80.0));
+        assert!(a.height > 0.0 && b.height > 0.0);
+        assert_eq!(
+            a.width, b.width,
+            "the line height changes the stacking, never the letters"
+        );
+        let ratio = b.height / a.height;
+        assert!(
+            (ratio - 2.0).abs() < 0.01,
+            "doubling the line height doubles the block: {ratio}"
+        );
+    }
+
+    /// The measurement cache is keyed on the line height too. Without that, the same words
+    /// at two heights would share one answer and the second would be silently wrong.
+    #[test]
+    fn two_line_heights_do_not_share_a_cached_answer() {
+        let words = "cached words that wrap across a couple of lines here";
+        let packed = ResolvedTextStyle {
+            height: Some(1.0),
+            ..ResolvedTextStyle::exact(14.0)
+        };
+        let open = ResolvedTextStyle {
+            height: Some(2.0),
+            ..ResolvedTextStyle::exact(14.0)
+        };
+        let first = measure_wrapped_resolved(words, &packed, Some(90.0));
+        let second = measure_wrapped_resolved(words, &open, Some(90.0));
+        // Asked again, in the other order, to catch a cache that answered from the wrong
+        // entry rather than one that simply never filled.
+        assert_eq!(measure_wrapped_resolved(words, &open, Some(90.0)), second);
+        assert_eq!(measure_wrapped_resolved(words, &packed, Some(90.0)), first);
+        assert!(second.height > first.height);
+    }
+
+    /// A one-line box floor follows the style's line height, not the size alone.
+    #[test]
+    fn a_line_box_follows_the_height_it_was_given() {
+        let open = ResolvedTextStyle {
+            height: Some(3.0),
+            ..ResolvedTextStyle::exact(16.0)
+        };
+        assert_eq!(line_box(32.0, &ResolvedTextStyle::exact(16.0), 0.0), 32.0);
+        assert_eq!(
+            line_box(32.0, &open, 0.0),
+            48.0,
+            "the content wins over the floor"
+        );
+    }
+
+    /// A named family reaches the shaping, and a **different face measures differently** —
+    /// which is the whole reason a style may name one.
+    #[test]
+    fn a_named_family_reaches_the_measurement() {
+        let words = "The quick brown fox";
+        let plain = ResolvedTextStyle::exact(16.0);
+        let mono = ResolvedTextStyle {
+            family: Some(frus_core::FontFamily::Monospace),
+            ..plain
+        };
+        let a = measure_wrapped_resolved(words, &plain, None);
+        let b = measure_wrapped_resolved(words, &mono, None);
+        assert!(a.width > 0.0 && b.width > 0.0);
+        assert_ne!(
+            a.width, b.width,
+            "a monospaced face sets these words to a different width"
+        );
+    }
+
+    /// **Arabic keeps its face even when a family is named.**
+    ///
+    /// Not a hedge: cosmic-text does not fall back across families on Android, where the
+    /// platform fallback lists are empty, so a family without Arabic coverage draws
+    /// nothing at all. Text in an unexpected face is a smaller failure than a blank
+    /// screen. The measurement has to make the same choice the renderer will, so the rule
+    /// lives in one function that both call.
+    #[test]
+    fn arabic_keeps_its_face_whatever_was_named() {
+        let arabic = "\u{0645}\u{0631}\u{062d}\u{0628}\u{0627}";
+        let named = family_for_style(arabic, Some(frus_core::FontFamily::Monospace));
+        assert_eq!(
+            format!("{named:?}"),
+            format!("{:?}", family_for(arabic)),
+            "the script wins over the name"
+        );
+        // And a Latin run in the same style is free to take the name.
+        let latin = family_for_style("hello", Some(frus_core::FontFamily::Monospace));
+        assert_eq!(format!("{latin:?}"), format!("{:?}", monospace_family()));
+    }
+
+    /// Two families do not share a cached measurement, for the same reason two line
+    /// heights do not: the answer is different and the words are the same.
+    #[test]
+    fn two_families_do_not_share_a_cached_answer() {
+        let words = "shared words in two faces";
+        let plain = ResolvedTextStyle::exact(15.0);
+        let mono = ResolvedTextStyle {
+            family: Some(frus_core::FontFamily::Monospace),
+            ..plain
+        };
+        let first = measure_wrapped_resolved(words, &plain, None);
+        let second = measure_wrapped_resolved(words, &mono, None);
+        // Asked again in the other order, to catch a cache answering from the wrong entry
+        // rather than one that simply never filled.
+        assert_eq!(measure_wrapped_resolved(words, &mono, None), second);
+        assert_eq!(measure_wrapped_resolved(words, &plain, None), first);
+        assert_ne!(first.width, second.width);
     }
 }

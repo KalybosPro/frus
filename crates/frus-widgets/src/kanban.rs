@@ -9,7 +9,7 @@
 
 use std::rc::Rc;
 
-use frus_core::{Color, Insets, Point, Rect, Scene};
+use frus_core::{Color, Insets, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
 use crate::button::{Button, Variant};
@@ -33,6 +33,28 @@ const COL_W: f32 = 220.0;
 const COL_PAD: f32 = 12.0;
 /// A card's height.
 const CARD_H: f32 = 44.0;
+/// A text card's label: what the caller said, else what the theme says, else `bodyLarge`.
+///
+/// The reference has no board, so this one is argued rather than read: a card is a small
+/// piece of content read on its own, which is the step the reference gives a list tile's
+/// title and this framework already gives a `Tree` row.
+///
+/// **Resolved once**, so that the number the box is measured with is the number the glyphs
+/// are drawn at.
+fn label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| t.widgets.kanban.card_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).body_large)
+        .resolved()
+}
+
+/// A column's heading: `titleMedium`, the step a heading over a short list takes.
+///
+/// Left as a [`TextStyle`] rather than resolved, because the heading is a [`Text`] child
+/// and a `Text` resolves its own.
+fn column_title_style(over: Option<TextStyle>, theme: Option<&Theme>) -> TextStyle {
+    over.or(theme.and_then(|t| t.widgets.kanban.column_title_text_style))
+        .unwrap_or_else(|| crate::theme::type_scale(theme).title_medium)
+}
 
 /// The **flat** index of a `(col, pos)` slot: `col * STRIDE + pos`. This is a card's
 /// [`reorder_index`](Widget::reorder_index) value (both source **and** target). Reusable to
@@ -64,15 +86,20 @@ struct Card<Msg> {
     from_col: usize,
     from_pos: usize,
     on_move: Option<MoveFn<Msg>>,
+    text_style: Option<TextStyle>,
 }
 
-impl<Msg: Clone> Widget<Msg> for Card<Msg> {
-    fn style(&self) -> Style {
+impl<Msg> Card<Msg> {
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
         if self.content.is_empty() {
             // A text card: a fixed height, with the label painted by the card.
             Style {
                 width: Dimension::Auto,
-                height: Dimension::Length(CARD_H),
+                height: Dimension::Length(frus_text::line_box(
+                    CARD_H,
+                    &label_style(self.text_style, theme),
+                    0.0,
+                )),
                 ..Default::default()
             }
         } else {
@@ -86,6 +113,16 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
                 ..Default::default()
             }
         }
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for Card<Msg> {
+    fn style(&self) -> Style {
+        self.sizing(None)
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -106,11 +143,12 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
         );
         // A label only for a **text** card (a rich card paints its own content).
         if self.content.is_empty() {
-            let ty = bounds.y + (bounds.height - frus_text::line_height(15.0)) * 0.5;
+            let style = label_style(self.text_style, Some(theme));
+            let ty = bounds.y + (bounds.height - style.line_height()) * 0.5;
             scene.text(
                 Point::new(bounds.x + 12.0, ty),
                 self.label.clone(),
-                15.0,
+                &style,
                 theme.on_surface.fade(o),
             );
         }
@@ -268,6 +306,8 @@ pub struct Kanban<Msg = ()> {
     /// card area is a `flex(1)` `SingleChildScrollView` that takes the rest and then scrolls. It takes
     /// precedence over `card_area_height`. See [`Kanban::scrollable_columns`].
     fill_columns: bool,
+    card_text_style: Option<TextStyle>,
+    column_title_text_style: Option<TextStyle>,
     columns: Vec<(String, ColCards<Msg>)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -281,9 +321,27 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
             on_add: None,
             card_area_height: None,
             fill_columns: false,
+            card_text_style: None,
+            column_title_text_style: None,
             columns: Vec::new(),
             children: Vec::new(),
         }
+    }
+
+    /// The text cards' type, over the theme's and the framework's.
+    #[must_use]
+    pub fn card_text_style(mut self, style: TextStyle) -> Self {
+        self.card_text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// The column headings' type, over the theme's and the framework's.
+    #[must_use]
+    pub fn column_title_text_style(mut self, style: TextStyle) -> Self {
+        self.column_title_text_style = Some(style);
+        self.rebuild();
+        self
     }
 
     /// Adds a titled **column** with its (text) cards, in order.
@@ -365,6 +423,7 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
             from_col: col,
             from_pos: pos,
             on_move: self.on_move.clone(),
+            text_style: self.card_text_style,
         };
         // The cards (each both source **and** target) + the final drop zone: this is the
         // column's **scrollable** part (the title and the add button stay fixed).
@@ -386,8 +445,10 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
             slot: kanban_slot(col, cards.len()),
         }));
 
-        let mut children: Vec<Box<dyn Widget<Msg>>> =
-            vec![Box::new(Text::new(title.to_string()).size(16.0))];
+        let mut children: Vec<Box<dyn Widget<Msg>>> = vec![Box::new(Text::styled(
+            title.to_string(),
+            column_title_style(self.column_title_text_style, None),
+        ))];
         // The column's inner width (the column width minus its padding). The scrollable card
         // area wraps the cards in a vertical `Flex` (a single child for the `SingleChildScrollView`).
         let inner_w = COL_W - 2.0 * COL_PAD;

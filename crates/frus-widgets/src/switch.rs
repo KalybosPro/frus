@@ -3,14 +3,34 @@
 use frus_core::{Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
-use crate::disabled::{disabled_container, disabled_content, disabled_mark};
+use crate::disabled::DISABLED_CONTAINER_OPACITY;
+use crate::disabled::{disabled_container, disabled_content, disabled_mark, over_surface};
+use crate::icons::IconData;
 use crate::interaction::Status;
-use crate::theme::Theme;
+use crate::theme::{TapTarget, Theme};
 use crate::widget::Widget;
 
-const W: f32 = 44.0;
-const H: f32 = 24.0;
-const MARGIN: f32 = 3.0;
+/// The track, at the reference's size (`switch.dart:2378`, `:2375`).
+const W: f32 = 52.0;
+const H: f32 = 32.0;
+/// The thumb's radius **off** and **on** (`switch.dart:2354`, `:2317`). It grows as the
+/// switch is flipped: off it is a dot inside an outlined track, on it is a disc on a
+/// filled one, and that difference is most of what tells the two states apart at a
+/// glance.
+const THUMB_OFF: f32 = 8.0;
+const THUMB_ON: f32 = 12.0;
+/// The thumb while it is **held** (`switch.dart:2357`): larger than either end of the
+/// travel, which is the squish a finger expects back. It **grows** into it — the press is
+/// a progression since milestone 441, not a flag.
+const THUMB_PRESSED: f32 = 14.0;
+/// A thumb **carrying an icon** is the on-thumb's size at both ends (`switch.dart:2369`):
+/// 16 pixels of glyph do not fit in a 16-pixel dot, and a switch whose thumb changed size
+/// only when it had something to show would be two different switches.
+const THUMB_WITH_ICON: f32 = 12.0;
+/// The glyph inside the thumb (`switch.dart:2314`).
+const ICON_SIZE: f32 = 16.0;
+/// The rule round an **off** track (`switch.dart:2298`).
+const TRACK_OUTLINE: f32 = 2.0;
 
 /// An on/off switch.
 pub struct Switch<Msg> {
@@ -20,6 +40,9 @@ pub struct Switch<Msg> {
     inactive_track_color: Option<Color>,
     thumb_color: Option<Color>,
     inactive_thumb_color: Option<Color>,
+    thumb_icon: Option<IconData>,
+    inactive_thumb_icon: Option<IconData>,
+    tap_target: Option<TapTarget>,
     on_toggle: Option<Box<dyn Fn(bool) -> Msg>>,
 }
 
@@ -33,8 +56,28 @@ impl<Msg> Switch<Msg> {
             inactive_track_color: None,
             thumb_color: None,
             inactive_thumb_color: None,
+            thumb_icon: None,
+            inactive_thumb_icon: None,
+            tap_target: None,
             on_toggle: None,
         }
+    }
+
+    /// **How much room it reserves for a finger** ([`TapTarget`]). Unset, the theme's
+    /// answer, which is [`Padded`](TapTarget::Padded) — at least 48 pixels either way,
+    /// whatever this control paints inside it.
+    pub fn tap_target(mut self, target: TapTarget) -> Self {
+        self.tap_target = Some(target);
+        self
+    }
+
+    /// The room this switch reserves, resolved as `caller ?? theme ?? framework`
+    /// (`switch.dart:603`).
+    fn reserved(&self, theme: &Theme) -> f32 {
+        self.tap_target
+            .or(theme.widgets.switch.tap_target)
+            .unwrap_or(theme.tap_target)
+            .min_side()
     }
 
     /// The track's colour when the switch is **on**; the theme's `primary` otherwise.
@@ -43,20 +86,50 @@ impl<Msg> Switch<Msg> {
         self
     }
 
-    /// The track's colour when the switch is **off**; the theme's border otherwise.
+    /// The track's colour when the switch is **off**; the scheme's
+    /// `surface_container_highest` otherwise (`switch.dart:2246`), with a rule round it.
     pub fn inactive_track_color(mut self, color: Color) -> Self {
         self.inactive_track_color = Some(color);
         self
     }
 
-    /// The thumb's colour when the switch is **on**; white otherwise.
+    /// **A glyph inside the thumb while the switch is on** (`switch.dart:2320`).
+    ///
+    /// Unset, as the reference's is: a switch is legible without one. It is there for the
+    /// setting that needs saying in more than colour and position — the two things a
+    /// reader may not be able to tell apart — and a tick inside the thumb says *on* in a
+    /// third way.
+    ///
+    /// Giving either end an icon makes **both** thumbs the on-thumb's size
+    /// (`switch.dart:2369`), because a switch whose thumb changed size only when it had
+    /// something to show would be two different switches.
+    pub fn thumb_icon(mut self, icon: IconData) -> Self {
+        self.thumb_icon = Some(icon);
+        self
+    }
+
+    /// The same while the switch is **off** — a cross beside the tick. See
+    /// [`Self::thumb_icon`].
+    pub fn inactive_thumb_icon(mut self, icon: IconData) -> Self {
+        self.inactive_thumb_icon = Some(icon);
+        self
+    }
+
+    /// The thumb's colour when the switch is **on**; the scheme's `on_primary`
+    /// otherwise (`switch.dart:2201`) — the content colour of the track it sits on.
     pub fn thumb_color(mut self, color: Color) -> Self {
         self.thumb_color = Some(color);
         self
     }
 
-    /// The thumb's colour when the switch is **off**. Unset it follows the on colour,
-    /// which is what a switch looks like: one thumb sliding, not two swapping places.
+    /// The thumb's colour when the switch is **off**; the scheme's `outline` otherwise
+    /// (`switch.dart:2212`).
+    ///
+    /// It used to follow the on colour, on the reasoning that a switch is one thumb
+    /// sliding rather than two swapping places. The reasoning was right and the
+    /// conclusion was not: the reference resolves both ends and **interpolates between
+    /// them**, so it is still one thumb — one that changes colour as it travels, the way
+    /// the track under it does.
     pub fn inactive_thumb_color(mut self, color: Color) -> Self {
         self.inactive_thumb_color = Some(color);
         self
@@ -80,9 +153,17 @@ impl<Msg> Switch<Msg> {
 
 impl<Msg> Widget<Msg> for Switch<Msg> {
     fn style(&self) -> Style {
+        Widget::<Msg>::style_themed(self, &Theme::default())
+    }
+
+    /// **The box is the tap target, not the track** (`switch.dart:605`). The track is 32
+    /// tall and a finger is not; the reference lays a switch out at 52 × 48 and paints
+    /// the track in the middle of it. Nothing about the switch moves — the room around it
+    /// appears, and with it the area a click may land in.
+    fn style_themed(&self, theme: &Theme) -> Style {
         Style {
             width: Dimension::Length(W),
-            height: Dimension::Length(H),
+            height: Dimension::Length(H.max(self.reserved(theme))),
             ..Default::default()
         }
     }
@@ -102,7 +183,7 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
         // theme's, then the scheme's -- and `t` interpolates between the two ends rather
         // than between two already-resolved colours. An override therefore moves the
         // whole animation with it instead of being a colour the switch passes through.
-        let (track, thumb) = if self.enabled {
+        let (track, thumb, edge) = if self.enabled {
             let on_track = self
                 .track_color
                 .or(theme.widgets.switch.track_color)
@@ -110,39 +191,159 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
             let off_track = self
                 .inactive_track_color
                 .or(theme.widgets.switch.inactive_track_color)
-                .unwrap_or(theme.border);
+                .unwrap_or(theme.scheme.surface_container_highest);
             let on_thumb = self
                 .thumb_color
                 .or(theme.widgets.switch.thumb_color)
-                .unwrap_or(Color::WHITE);
+                .unwrap_or(theme.scheme.on_primary);
             let off_thumb = self
                 .inactive_thumb_color
                 .or(theme.widgets.switch.inactive_thumb_color)
-                .unwrap_or(on_thumb);
-            (off_track.lerp(on_track, t), off_thumb.lerp(on_thumb, t))
+                .unwrap_or(theme.scheme.outline);
+            (
+                off_track.lerp(on_track, t),
+                off_thumb.lerp(on_thumb, t),
+                theme.scheme.outline,
+            )
         } else {
             (
-                disabled_container(theme),
+                if self.on {
+                    // A disabled **on** track is the flattened container
+                    // (`switch.dart:2221`).
+                    disabled_container(theme)
+                } else {
+                    // A disabled **off** one is not: the reference washes
+                    // `surfaceContainerHighest` over the page at the same 12 %
+                    // (`switch.dart:2223`), which is nearly the page itself — a faint
+                    // ring with almost nothing inside. `disabled_container` is the
+                    // *ring's* colour, and filling the pill with it would draw the
+                    // opposite. Resolved in sRGB for the reason
+                    // [`crate::disabled::over_surface`] gives.
+                    theme.scheme.surface.lerp(
+                        theme.scheme.surface_container_highest,
+                        DISABLED_CONTAINER_OPACITY,
+                    )
+                },
                 if self.on {
                     disabled_mark(theme)
                 } else {
                     disabled_content(theme)
                 },
+                disabled_container(theme),
             )
         };
-        scene.draw_rect(bounds, track.fade(o), H * 0.5, 0.0, Color::TRANSPARENT);
-
-        let d = H - MARGIN * 2.0;
-        let off_x = bounds.x + MARGIN;
-        let on_x = bounds.x + W - MARGIN - d;
-        let thumb_x = off_x + (on_x - off_x) * t;
+        // The rule belongs to the **off** end alone. A filled track needs no edge, and the
+        // reference returns a transparent one for a switch that is on whether it is
+        // available or not (`switch.dart:2254`) — so fading it out along the travel *is*
+        // that rule, written as the animation it already was.
+        // The box a switch is given is its **tap target**, which is taller than the
+        // track it paints. Everything below is measured from the track, centred in it.
+        let track_rect = Rect::new(
+            bounds.x,
+            bounds.y + (bounds.height - H) * 0.5,
+            bounds.width,
+            H,
+        );
         scene.draw_rect(
-            Rect::new(thumb_x, bounds.y + MARGIN, d, d),
+            track_rect,
+            track.fade(o),
+            H * 0.5,
+            TRACK_OUTLINE,
+            edge.fade((1.0 - t) * o),
+        );
+
+        // Both ends of the travel put the thumb's centre half a track-height in from their
+        // own edge, so it stays centred in the rounded cap whichever size it is.
+        let icon = if self.on {
+            self.thumb_icon
+        } else {
+            self.inactive_thumb_icon
+        };
+        // **A thumb that carries a glyph is the on-thumb's size at both ends**
+        // (`switch.dart:2369`): sixteen pixels of glyph do not fit in a sixteen-pixel dot.
+        // The rule is about the switch, not about this end of it — either icon sets both,
+        // or a switch would change size when it was flipped for a reason that has nothing
+        // to do with being flipped.
+        let carries_an_icon = self.thumb_icon.is_some() || self.inactive_thumb_icon.is_some();
+        let off_r = if carries_an_icon {
+            THUMB_WITH_ICON
+        } else {
+            THUMB_OFF
+        };
+        let mut r = off_r + (THUMB_ON - off_r) * t;
+        // Held, it swells past either end (`switch.dart:2357`) — the squish a finger
+        // expects back, **grown** into over the press's own 200 ms rather than jumped to.
+        // It is measured from wherever the thumb has got to, so a switch held mid-travel
+        // swells from where it is instead of snapping back to an end first.
+        if self.enabled {
+            r += (THUMB_PRESSED - r) * status.press_progress.clamp(0.0, 1.0);
+        }
+        let cx = track_rect.x + H * 0.5 + (W - H) * t;
+        let cy = track_rect.y + H * 0.5;
+
+        // **The state layer**, which this had none of. The reference paints the toggle's
+        // radial reaction over the track and under the thumb (`switch.dart:2264`); here it
+        // is the theme's one rule, resolved opaquely from the track it stands on — a
+        // translucent circle would blend in linear light and paint at something other than
+        // the number it names (milestones 329, 437).
+        //
+        // **The ink is the track's content colour, where the reference's is `primary`.**
+        // That is not a disagreement about the role: the reference's reaction circle is
+        // wider than its track and spills onto the page, so `primary` over the page is
+        // visible at either end. This one is bounded by the switch's own box, so its
+        // ground is the track — and `primary` lerped over a `primary` track is that track
+        // again. A state layer takes the content colour of what it stands on, which is
+        // what [`Theme::state_layer`] asks for and what makes it visible at both ends.
+        //
+        // Nothing at all on a disabled switch: a state layer is the promise of an
+        // interaction, and there is none.
+        if self.enabled {
+            let ink = theme.scheme.on_surface.lerp(theme.scheme.on_primary, t);
+            let layer = theme.state_layer(track, ink, &status);
+            if layer != track {
+                let reach = H * 0.5;
+                scene.draw_rect(
+                    Rect::new(cx - reach, cy - reach, reach * 2.0, reach * 2.0),
+                    layer.fade(o),
+                    reach,
+                    0.0,
+                    Color::TRANSPARENT,
+                );
+            }
+        }
+
+        scene.draw_rect(
+            Rect::new(cx - r, cy - r, r * 2.0, r * 2.0),
             thumb.fade(o),
-            d * 0.5,
+            r,
             0.0,
             Color::TRANSPARENT,
         );
+
+        // And the glyph inside it. Its colour is the track's own at the off end
+        // (`switch.dart:2349`), so it reads as a hole punched through the thumb rather
+        // than as a mark drawn on it.
+        if let Some(icon) = icon {
+            let t_widget = &theme.widgets.switch;
+            let ink = if !self.enabled {
+                over_surface(theme, crate::disabled::DISABLED_CONTENT_OPACITY)
+            } else if self.on {
+                t_widget
+                    .icon_color
+                    .unwrap_or(theme.scheme.on_primary_container)
+            } else {
+                t_widget
+                    .inactive_icon_color
+                    .unwrap_or(theme.scheme.surface_container_highest)
+            };
+            let path = icon.placed(
+                ICON_SIZE,
+                cx - ICON_SIZE * 0.5,
+                cy - ICON_SIZE * 0.5,
+                theme.direction,
+            );
+            scene.fill_path(&path, ink.fade(o));
+        }
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -183,6 +384,8 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
 mod tests {
     use super::*;
     use crate::disabled::{disabled_container, disabled_content, disabled_mark};
+    use crate::icons::Icons;
+    use crate::theme::{MIN_TAP_TARGET, SHRUNK_TAP_TARGET};
     use crate::widget::Widget;
 
     #[derive(Clone, Debug, PartialEq)]
@@ -190,7 +393,8 @@ mod tests {
         Set(bool),
     }
 
-    fn painted(on: bool, enabled: bool, theme: &Theme) -> Vec<frus_core::Color> {
+    /// Each rectangle the switch painted, as `(fill, ring)`.
+    fn painted(on: bool, enabled: bool, theme: &Theme) -> Vec<(Color, Color)> {
         let mut scene = Scene::new();
         Widget::<Msg>::paint(
             &Switch::<Msg>::new(on).enabled(enabled),
@@ -207,10 +411,343 @@ mod tests {
             .primitives()
             .iter()
             .filter_map(|p| match p {
-                frus_core::Primitive::Rect { color, .. } => Some(*color),
+                frus_core::Primitive::Rect {
+                    color,
+                    border_color,
+                    ..
+                } => Some((*color, *border_color)),
                 _ => None,
             })
             .collect()
+    }
+
+    /// Every rectangle a switch paints, with its geometry, under a given interaction.
+    fn boxes(switch: &Switch<Msg>, status: Status, theme: &Theme) -> Vec<(Rect, Color)> {
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(switch, Rect::new(0.0, 0.0, W, H), status, theme, &mut scene);
+        scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Rect { rect, color, .. } => Some((*rect, *color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A switch being painted at one end of its travel, in a given interaction state.
+    fn state(on: bool) -> Status {
+        Status {
+            opacity: 1.0,
+            value: if on { 1.0 } else { 0.0 },
+            ..Default::default()
+        }
+    }
+
+    /// **A switch answers the pointer** (milestone 440).
+    ///
+    /// It had no state layer at all: hovering one, focusing it, holding it — nothing
+    /// changed. The reference paints the toggle's radial reaction over the track and under
+    /// the thumb (`switch.dart:2264`); here it is the theme's one rule, resolved opaquely
+    /// from the track it stands on, because a translucent circle would blend in linear
+    /// light and paint at something other than the number it names.
+    #[test]
+    fn a_switch_answers_the_pointer() {
+        let theme = Theme::default();
+        let switch = Switch::<Msg>::new(false).on_toggle(Msg::Set);
+        let hovered = Status {
+            hover_progress: 1.0,
+            ..state(false)
+        };
+        assert_eq!(
+            boxes(&switch, state(false), &theme).len(),
+            2,
+            "track, thumb"
+        );
+        let lit = boxes(&switch, hovered, &theme);
+        assert_eq!(lit.len(), 3, "track, layer, thumb");
+
+        let (rect, color) = lit[1];
+        assert_eq!(color.a, 1.0, "resolved here, not handed over as an alpha");
+        assert_eq!(
+            color,
+            theme.state_layer(
+                theme.scheme.surface_container_highest,
+                theme.scheme.on_surface,
+                &hovered
+            ),
+            "the theme's rule, over the track it stands on"
+        );
+        // Centred on the thumb, and inside the switch either way it is set.
+        assert!(
+            rect.x >= 0.0 && rect.x + rect.width <= W,
+            "the layer left the switch: {rect:?}"
+        );
+        assert!(
+            (rect.height - H).abs() < 0.01,
+            "and it reaches the track's full height"
+        );
+    }
+
+    /// Its ink is **the track's content colour**, which the travel interpolates between
+    /// like everything else here.
+    ///
+    /// The reference names `primary` at the on end (`switch.dart:2266`), which works there
+    /// because its reaction circle is wider than its track and spills onto the page. This
+    /// one is bounded by the switch's box, so `primary` over a `primary` track would be
+    /// that track again — the layer would vanish exactly where a pointer is most likely to
+    /// be.
+    #[test]
+    fn the_layer_is_the_accent_at_one_end_and_the_ink_at_the_other() {
+        let theme = Theme::default();
+        let switch = Switch::<Msg>::new(true).on_toggle(Msg::Set);
+        let hovered = |on: bool| Status {
+            hover_progress: 1.0,
+            ..state(on)
+        };
+        let off = boxes(&switch, hovered(false), &theme)[1].1;
+        let on = boxes(&switch, hovered(true), &theme)[1].1;
+        assert_eq!(
+            on,
+            theme.state_layer(theme.primary, theme.scheme.on_primary, &hovered(true)),
+            "the accent track, tinted with what is legible on it"
+        );
+        assert_ne!(off, on, "the two ends do not light the same way");
+        assert_ne!(on, theme.primary, "and it is visible against the track");
+    }
+
+    /// And a switch that cannot be worked does not light, in any state: a state layer is
+    /// the promise of an interaction.
+    #[test]
+    fn a_disabled_switch_does_not_light() {
+        let theme = Theme::default();
+        let dead = Switch::<Msg>::new(false).on_toggle(Msg::Set).enabled(false);
+        for status in [
+            Status {
+                hover_progress: 1.0,
+                ..state(false)
+            },
+            Status {
+                focus_progress: 1.0,
+                ..state(false)
+            },
+            Status {
+                press_progress: 1.0,
+                ..state(false)
+            },
+        ] {
+            assert_eq!(
+                boxes(&dead, status, &theme).len(),
+                2,
+                "track and thumb only"
+            );
+        }
+    }
+
+    /// The thumb's radius, at the end of the travel it was painted at.
+    fn thumb_radius(switch: &Switch<Msg>, status: Status, theme: &Theme) -> f32 {
+        boxes(switch, status, theme)
+            .last()
+            .map(|(rect, _)| rect.width * 0.5)
+            .expect("a switch paints a thumb")
+    }
+
+    /// **A thumb that carries a glyph is the larger one at both ends**
+    /// (`switch.dart:2369`): sixteen pixels of glyph do not fit in a sixteen-pixel dot.
+    ///
+    /// And the rule is about the *switch*, not about the end it is at — giving only the on
+    /// end an icon still grows the off thumb, or the switch would change size when flipped
+    /// for a reason that has nothing to do with being flipped.
+    #[test]
+    fn a_thumb_that_carries_a_glyph_is_the_larger_one() {
+        let theme = Theme::default();
+        let bare = Switch::<Msg>::new(false).on_toggle(Msg::Set);
+        assert_eq!(thumb_radius(&bare, state(false), &theme), THUMB_OFF);
+
+        let ticked = Switch::<Msg>::new(false)
+            .on_toggle(Msg::Set)
+            .thumb_icon(Icons::CHECK);
+        assert_eq!(
+            thumb_radius(&ticked, state(false), &theme),
+            THUMB_WITH_ICON,
+            "the on end's icon grows the off thumb too"
+        );
+        assert_eq!(
+            thumb_radius(&ticked, state(true), &theme),
+            THUMB_ON,
+            "and the on thumb was already that size"
+        );
+    }
+
+    /// The glyph itself: drawn only at the end that has one, in the colour that end names.
+    #[test]
+    fn the_glyph_is_drawn_at_the_end_that_has_one() {
+        let theme = Theme::default();
+        let glyph = |switch: &Switch<Msg>, on: bool| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                switch,
+                Rect::new(0.0, 0.0, W, H),
+                state(on),
+                &theme,
+                &mut scene,
+            );
+            scene.primitives().iter().find_map(|p| match p {
+                frus_core::Primitive::Path { fill, .. } => *fill,
+                _ => None,
+            })
+        };
+        let ticked = Switch::<Msg>::new(true)
+            .on_toggle(Msg::Set)
+            .thumb_icon(Icons::CHECK);
+        assert_eq!(
+            glyph(&ticked, true),
+            Some(theme.scheme.on_primary_container)
+        );
+        // The end a switch is **set** to decides which glyph it carries, as the reference
+        // resolves `thumbIcon` from the state rather than from the animation: a switch
+        // that is off and names no off icon carries none.
+        let unticked = Switch::<Msg>::new(false)
+            .on_toggle(Msg::Set)
+            .thumb_icon(Icons::CHECK);
+        assert_eq!(glyph(&unticked, false), None, "nothing at the other end");
+
+        let crossed = Switch::<Msg>::new(false)
+            .on_toggle(Msg::Set)
+            .thumb_icon(Icons::CHECK)
+            .inactive_thumb_icon(Icons::CLOSE);
+        assert_eq!(
+            glyph(&crossed, false),
+            Some(theme.scheme.surface_container_highest),
+            "off, the glyph takes the track's own colour: a hole, not a mark"
+        );
+    }
+
+    /// **A held thumb swells** (`switch.dart:2357`), past either end of the travel.
+    #[test]
+    fn a_held_thumb_swells() {
+        let theme = Theme::default();
+        let switch = Switch::<Msg>::new(false).on_toggle(Msg::Set);
+        let pressed = Status {
+            press_progress: 1.0,
+            ..state(false)
+        };
+        assert_eq!(thumb_radius(&switch, pressed, &theme), THUMB_PRESSED);
+        // Past **both** ends of the travel, which is what makes it read as a press rather
+        // than as the switch having moved.
+        for end in [false, true] {
+            assert!(
+                thumb_radius(&switch, pressed, &theme) > thumb_radius(&switch, state(end), &theme),
+                "not past the {end} end"
+            );
+        }
+    }
+
+    /// And it **grows** into it (milestone 441): half way through the press the thumb is
+    /// half way there, where it used to arrive whole on the first frame the finger was
+    /// down and leave whole on the first frame it was not.
+    #[test]
+    fn a_held_thumb_grows_into_it() {
+        let theme = Theme::default();
+        let switch = Switch::<Msg>::new(false).on_toggle(Msg::Set);
+        let at = |p: f32| {
+            thumb_radius(
+                &switch,
+                Status {
+                    press_progress: p,
+                    ..state(false)
+                },
+                &theme,
+            )
+        };
+        assert_eq!(at(0.0), THUMB_OFF, "untouched");
+        assert_eq!(at(1.0), THUMB_PRESSED, "held");
+        assert!(
+            (at(0.5) - (THUMB_OFF + THUMB_PRESSED) * 0.5).abs() < 0.01,
+            "half way = {}",
+            at(0.5)
+        );
+    }
+
+    /// The height a switch asks the layout for, under a given theme.
+    fn reserved_height(switch: &Switch<Msg>, theme: &Theme) -> f32 {
+        match Widget::<Msg>::style_themed(switch, theme).height {
+            Dimension::Length(h) => h,
+            other => panic!("a switch asks for a length, not {other:?}"),
+        }
+    }
+
+    /// **A switch's box is its tap target, not its track** (milestone 442).
+    ///
+    /// The track is 32 pixels tall and a finger is not. The reference lays a switch out
+    /// at 52 × 48 and paints the track in the middle (`switch.dart:605`); this asked the
+    /// layout for the track and nothing else, so the area a click could land in was the
+    /// track exactly.
+    #[test]
+    fn a_switch_reserves_room_for_a_finger() {
+        let theme = Theme::default();
+        assert_eq!(
+            reserved_height(&Switch::<Msg>::new(false).on_toggle(Msg::Set), &theme),
+            MIN_TAP_TARGET
+        );
+        assert_eq!(
+            reserved_height(
+                &Switch::<Msg>::new(false)
+                    .on_toggle(Msg::Set)
+                    .tap_target(TapTarget::ShrinkWrap),
+                &theme
+            ),
+            SHRUNK_TAP_TARGET,
+            "and a caller may ask for the smaller answer"
+        );
+
+        // The theme answers for a switch that has not said, and the widget theme sits
+        // between the two.
+        let dense = Theme {
+            tap_target: TapTarget::ShrinkWrap,
+            ..Theme::default()
+        };
+        let plain = Switch::<Msg>::new(false).on_toggle(Msg::Set);
+        assert_eq!(reserved_height(&plain, &dense), SHRUNK_TAP_TARGET);
+        let mut mixed = dense;
+        mixed.widgets.switch.tap_target = Some(TapTarget::Padded);
+        assert_eq!(reserved_height(&plain, &mixed), MIN_TAP_TARGET);
+    }
+
+    /// And **nothing it paints moves**: the track is centred in the room, and the thumb
+    /// stays centred on the track.
+    #[test]
+    fn the_track_is_centred_in_the_room() {
+        let theme = Theme::default();
+        let switch = Switch::<Msg>::new(false).on_toggle(Msg::Set);
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            &switch,
+            Rect::new(0.0, 0.0, W, MIN_TAP_TARGET),
+            state(false),
+            &theme,
+            &mut scene,
+        );
+        let rects: Vec<Rect> = scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Rect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect();
+
+        let track = rects[0];
+        assert_eq!(track.height, H, "the track keeps its own height");
+        assert!(
+            (track.y - (MIN_TAP_TARGET - H) * 0.5).abs() < 0.01,
+            "and sits in the middle of the room: {track:?}"
+        );
+        let thumb = *rects.last().expect("a switch paints a thumb");
+        assert!(
+            (thumb.y + thumb.height * 0.5 - MIN_TAP_TARGET * 0.5).abs() < 0.01,
+            "the thumb is centred on the track: {thumb:?}"
+        );
     }
 
     #[test]
@@ -238,12 +775,13 @@ mod tests {
     fn a_disabled_switch_takes_both_halves_of_the_rule() {
         for theme in [Theme::dark(), Theme::light()] {
             let off = painted(false, false, &theme);
-            let (track, thumb) = (off[0], off[1]);
-            assert_eq!(
-                track,
-                disabled_container(&theme),
-                "the track is a container"
-            );
+            let ((track, ring), thumb) = (off[0], off[1].0);
+            // Since milestone 428 the **off** track is the reference's
+            // `surfaceContainerHighest` wash, which is near enough the page to be nothing;
+            // the container half of the rule is the ring round it. The switch still shows
+            // both halves at once, which is the whole argument — the container is the
+            // pill's edge rather than its fill while it is off.
+            assert_eq!(ring, disabled_container(&theme), "the ring is a container");
             assert_eq!(
                 thumb,
                 disabled_content(&theme),
@@ -257,15 +795,21 @@ mod tests {
                     + (c.b - theme.scheme.surface.b).abs()
             };
             assert!(
-                from_surface(track) < from_surface(thumb),
+                from_surface(ring) < from_surface(thumb),
                 "and the container is the quieter of the two"
             );
+            assert!(
+                from_surface(track) < from_surface(ring),
+                "with the wash inside it quieter still"
+            );
 
-            // Flipped on, the thumb is sitting *on* that flattened track, so it punches
-            // through opaquely rather than adding a third translucent layer.
+            // Flipped on, the track *is* the flattened container and the thumb sits on
+            // it, so it punches through opaquely rather than adding a third translucent
+            // layer — and the ring goes, a filled track having no edge.
             let on = painted(true, false, &theme);
-            assert_eq!(on[0], disabled_container(&theme), "the same track");
-            assert_eq!(on[1], disabled_mark(&theme), "an opaque thumb");
+            assert_eq!(on[0].0, disabled_container(&theme), "a filled track");
+            assert_eq!(on[1].0, disabled_mark(&theme), "an opaque thumb");
+            assert_eq!(on[0].1.a, 0.0, "and no ring round it");
         }
     }
 
@@ -273,8 +817,8 @@ mod tests {
     fn a_live_switch_is_untouched_by_any_of_it() {
         let theme = Theme::dark();
         let live = painted(true, true, &theme);
-        assert_ne!(live[0], disabled_container(&theme));
-        assert_ne!(live[1], disabled_content(&theme));
+        assert_ne!(live[0].0, disabled_container(&theme));
+        assert_ne!(live[1].0, disabled_content(&theme));
     }
 }
 
@@ -287,40 +831,105 @@ mod color_tests {
     const RAIL: Color = Color::rgb(0.9, 0.9, 0.2);
     const KNOB: Color = Color::rgb(0.1, 0.1, 0.9);
 
-    /// The (track, thumb) a switch painted, in order.
-    fn painted(switch: &Switch<()>, on: bool, theme: &Theme) -> (Color, Color) {
+    /// The (track, thumb, ring) a switch painted.
+    fn painted(switch: &Switch<()>, on: bool, theme: &Theme) -> (Color, Color, Color) {
+        at(switch, if on { 1.0 } else { 0.0 }, theme)
+    }
+
+    /// The same, anywhere along the travel.
+    fn at(switch: &Switch<()>, t: f32, theme: &Theme) -> (Color, Color, Color) {
         let mut scene = Scene::new();
         Widget::<()>::paint(
             switch,
             Rect::new(0.0, 0.0, W, H),
             Status {
                 opacity: 1.0,
-                value: if on { 1.0 } else { 0.0 },
+                value: t,
                 ..Default::default()
             },
             theme,
             &mut scene,
         );
-        let rects: Vec<Color> = scene
+        let rects: Vec<(Color, Color)> = scene
             .primitives()
             .iter()
             .filter_map(|p| match p {
-                frus_core::Primitive::Rect { color, .. } => Some(*color),
+                frus_core::Primitive::Rect {
+                    color,
+                    border_color,
+                    ..
+                } => Some((*color, *border_color)),
                 _ => None,
             })
             .collect();
-        (rects[0], rects[1])
+        (rects[0].0, rects[1].0, rects[0].1)
     }
 
-    /// Nothing said: what it always painted.
+    /// Nothing said: the four colours the reference names, and the ring that only the
+    /// off end has.
     #[test]
-    fn the_defaults_are_what_they_were() {
+    fn the_defaults_are_the_reference_s() {
         let theme = Theme::default();
-        let (track, thumb) = painted(&Switch::<()>::new(true), true, &theme);
-        assert_eq!(track, theme.primary);
-        assert_eq!(thumb, Color::WHITE);
-        let (off, _) = painted(&Switch::<()>::new(false), false, &theme);
-        assert_eq!(off, theme.border);
+        // Both ends are the arrival of a lerp, so they land on the colour rather than
+        // matching it bit for bit — see `lands_on`.
+        let (track, thumb, ring) = painted(&Switch::<()>::new(true), true, &theme);
+        lands_on(track, theme.primary); // `switch.dart:2235`
+        lands_on(thumb, theme.scheme.on_primary); // `switch.dart:2201`
+        assert_eq!(ring.a, 0.0, "a filled track has no edge (`:2254`)");
+
+        let (track, thumb, ring) = painted(&Switch::<()>::new(false), false, &theme);
+        lands_on(track, theme.scheme.surface_container_highest); // `switch.dart:2246`
+        lands_on(thumb, theme.scheme.outline); // `switch.dart:2212`
+        lands_on(ring, theme.scheme.outline); // `switch.dart:2259`
+        assert_eq!(ring.a, 1.0, "and it is drawn");
+    }
+
+    /// The **ring fades out along the travel**, which is the animated form of the
+    /// reference's either-or: an edge round an empty track, none round a full one.
+    #[test]
+    fn the_ring_belongs_to_the_off_end_alone() {
+        let theme = Theme::default();
+        let switch = Switch::<()>::new(false);
+        let alpha = |t: f32| at(&switch, t, &theme).2.a;
+        assert_eq!(alpha(0.0), 1.0, "fully drawn off");
+        assert_eq!(alpha(1.0), 0.0, "gone on");
+        assert!(
+            (alpha(0.5) - 0.5).abs() < 1e-6,
+            "and half drawn halfway, rather than snapping at one end"
+        );
+    }
+
+    /// The **thumb grows** as the switch is flipped — a dot inside an outlined track
+    /// becoming a disc on a filled one (`switch.dart:2354`, `:2317`). It is most of what
+    /// tells the two states apart at a glance, and it is the half a colour change alone
+    /// would have missed.
+    #[test]
+    fn the_thumb_grows_as_it_travels() {
+        let theme = Theme::default();
+        let switch = Switch::<()>::new(false);
+        let thumb = |t: f32| {
+            let mut scene = Scene::new();
+            Widget::<()>::paint(
+                &switch,
+                Rect::new(0.0, 0.0, W, H),
+                Status {
+                    opacity: 1.0,
+                    value: t,
+                    ..Default::default()
+                },
+                &theme,
+                &mut scene,
+            );
+            match scene.primitives()[1] {
+                frus_core::Primitive::Rect { rect, .. } => rect,
+                _ => panic!("the thumb is a rectangle"),
+            }
+        };
+        assert_eq!(thumb(0.0).width, THUMB_OFF * 2.0);
+        assert_eq!(thumb(1.0).width, THUMB_ON * 2.0);
+        // Centred in the rounded cap at both ends, so it never breaks the pill.
+        assert!((thumb(0.0).x - (H * 0.5 - THUMB_OFF)).abs() < 1e-4);
+        assert!((thumb(1.0).x + thumb(1.0).width - (W - H * 0.5 + THUMB_ON)).abs() < 1e-4);
     }
 
     /// Each end of the travel takes its own colour.
@@ -331,7 +940,7 @@ mod color_tests {
             .track_color(BRAND)
             .inactive_track_color(RAIL)
             .thumb_color(KNOB);
-        let (track, thumb) = painted(&switch, true, &theme);
+        let (track, thumb, _) = painted(&switch, true, &theme);
         lands_on(track, BRAND);
         lands_on(thumb, KNOB);
         lands_on(painted(&switch, false, &theme).0, RAIL);
@@ -364,12 +973,19 @@ mod color_tests {
         assert_eq!(track, RAIL.lerp(BRAND, 0.5), "halfway between the two ends");
     }
 
-    /// An off thumb follows the on one: a switch is one thumb sliding, not two.
+    /// The two ends of the thumb are **two colours**, not one.
+    ///
+    /// They used to be one: an unsaid off thumb followed the on one, on the reasoning
+    /// that a switch is a single thumb sliding rather than two swapping places. The
+    /// reasoning holds and the conclusion did not — the reference resolves both ends and
+    /// interpolates between them, so it is still one thumb, one that changes colour as it
+    /// travels. Saying the on colour therefore no longer says the off one.
     #[test]
-    fn an_unsaid_off_thumb_follows_the_on_one() {
+    fn the_two_ends_of_the_thumb_are_two_colours() {
         let theme = Theme::default();
         let switch = Switch::<()>::new(false).thumb_color(KNOB);
-        lands_on(painted(&switch, false, &theme).1, KNOB);
+        lands_on(painted(&switch, false, &theme).1, theme.scheme.outline);
+        lands_on(painted(&switch, true, &theme).1, KNOB);
         let both = Switch::<()>::new(false)
             .thumb_color(KNOB)
             .inactive_thumb_color(RAIL);

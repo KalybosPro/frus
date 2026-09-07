@@ -23,6 +23,43 @@ pub(crate) fn l10n() -> &'static Localizer {
 pub(crate) const LANGS: [(&str, &str); 3] =
     [("English", "en"), ("Français", "fr"), ("العربية", "ar")];
 
+/// **The language in force**: the one the reader picked in this application, or — the
+/// default — the one the framework resolved from the device.
+///
+/// Before milestone 454 there was no second half to this: the demonstration opened in
+/// English on a French phone, because nothing carried the device's answer to it.
+pub(crate) fn lang_of(app: &TodoApp) -> usize {
+    match app.lang {
+        Some(index) => index,
+        None => {
+            let resolved = frus_widgets::locale::of();
+            LANGS
+                .iter()
+                .position(|(_, tag)| *tag == resolved.language_code())
+                .unwrap_or(0)
+        }
+    }
+}
+
+/// The label of the language action, which names the stop it switches **to**. The cycle
+/// runs through the three languages and back to the device's own.
+pub(crate) fn lang_label(app: &TodoApp) -> &'static str {
+    match app.lang {
+        None => LANGS[0].0,
+        Some(index) if index + 1 < LANGS.len() => LANGS[index + 1].0,
+        Some(_) => "System",
+    }
+}
+
+/// The next stop of that cycle.
+pub(crate) fn next_lang(app: &TodoApp) -> Option<usize> {
+    match app.lang {
+        None => Some(0),
+        Some(index) if index + 1 < LANGS.len() => Some(index + 1),
+        Some(_) => None,
+    }
+}
+
 /// Is the language at index `lang` written right to left?
 pub(crate) fn lang_is_rtl(lang: usize) -> bool {
     LANGS[lang].1 == "ar"

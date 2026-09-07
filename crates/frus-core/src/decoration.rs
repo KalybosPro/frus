@@ -9,7 +9,7 @@
 //! [`BoxDecoration::content_padding`] reserves room for the border on taffy's
 //! behalf.
 
-use crate::{Color, Insets, Rect, Scene};
+use crate::{Color, Insets, Rect, Scene, TextDirection};
 
 /// Corner radii, **per corner** (logical px). `From<f32>` covers the uniform case:
 /// anywhere a radius is expected, a plain `10.0` still works.
@@ -19,6 +19,121 @@ pub struct BorderRadius {
     pub top_right: f32,
     pub bottom_right: f32,
     pub bottom_left: f32,
+}
+
+/// **A corner radius named by the reading direction rather than by the wall**
+/// (`border_radius.dart:621`).
+///
+/// A [`BorderRadius`] says *top left*. This says *top start* — the corner where the text
+/// begins, which is the left one in English and the right one in Arabic. [`resolve`] turns
+/// one into the other once the direction is known.
+///
+/// The distinction is not decorative. A drawer rounds its **inner** edge, the one facing
+/// the page: for a leading drawer that is the *end* side in either direction, and a radius
+/// written as *right* is correct in English and wrong in Arabic. Every asymmetric radius
+/// in an interface that mirrors has this question, and answering it by hand at each site
+/// is how one of them ends up answered differently.
+///
+/// The reference has one type hierarchy for this (`BorderRadiusGeometry`, with a resolved
+/// and an unresolved subclass); this is two plain types and a `resolve`, because a widget
+/// here is handed a `&Theme` and so always has a direction available when it needs one.
+///
+/// [`resolve`]: Self::resolve
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BorderRadiusDirectional {
+    /// The corner at the top of the line's **beginning**.
+    pub top_start: f32,
+    /// The corner at the top of the line's **end**.
+    pub top_end: f32,
+    /// The corner at the bottom of the line's **end**.
+    pub bottom_end: f32,
+    /// The corner at the bottom of the line's **beginning**.
+    pub bottom_start: f32,
+}
+
+impl BorderRadiusDirectional {
+    /// No rounding at all.
+    pub const ZERO: Self = Self::uniform(0.0);
+
+    /// The same radius on all four corners — which needs no direction, and is here so a
+    /// caller can write one without changing type halfway through an expression.
+    pub const fn uniform(radius: f32) -> Self {
+        Self {
+            top_start: radius,
+            top_end: radius,
+            bottom_end: radius,
+            bottom_start: radius,
+        }
+    }
+
+    /// The two corners at the line's **beginning** — the left pair in English, the right
+    /// pair in Arabic.
+    pub const fn start(radius: f32) -> Self {
+        Self {
+            top_start: radius,
+            top_end: 0.0,
+            bottom_end: 0.0,
+            bottom_start: radius,
+        }
+    }
+
+    /// The two corners at the line's **end**.
+    pub const fn end(radius: f32) -> Self {
+        Self {
+            top_start: 0.0,
+            top_end: radius,
+            bottom_end: radius,
+            bottom_start: 0.0,
+        }
+    }
+
+    /// Both sides at once, each with its own radius — the reference's
+    /// `BorderRadiusDirectional.horizontal`.
+    pub const fn horizontal(start: f32, end: f32) -> Self {
+        Self {
+            top_start: start,
+            top_end: end,
+            bottom_end: end,
+            bottom_start: start,
+        }
+    }
+
+    /// The top pair and the bottom pair. Neither depends on the direction, so this is the
+    /// same as [`BorderRadius`]'s — and is here for the same reason as
+    /// [`uniform`](Self::uniform).
+    pub const fn vertical(top: f32, bottom: f32) -> Self {
+        Self {
+            top_start: top,
+            top_end: top,
+            bottom_end: bottom,
+            bottom_start: bottom,
+        }
+    }
+
+    /// **The concrete radius**, once the direction is known: `start` becomes left where
+    /// the text runs left to right, and right where it does not.
+    pub const fn resolve(self, direction: TextDirection) -> BorderRadius {
+        match direction {
+            TextDirection::Ltr => BorderRadius {
+                top_left: self.top_start,
+                top_right: self.top_end,
+                bottom_right: self.bottom_end,
+                bottom_left: self.bottom_start,
+            },
+            TextDirection::Rtl => BorderRadius {
+                top_left: self.top_end,
+                top_right: self.top_start,
+                bottom_right: self.bottom_start,
+                bottom_left: self.bottom_end,
+            },
+        }
+    }
+}
+
+impl From<f32> for BorderRadiusDirectional {
+    fn from(radius: f32) -> Self {
+        Self::uniform(radius)
+    }
 }
 
 impl BorderRadius {
@@ -325,6 +440,59 @@ impl BoxDecoration {
 
 #[cfg(test)]
 mod tests {
+    /// **A directional radius names the corner by the line, not by the wall**
+    /// (`border_radius.dart:621`), and `resolve` says which wall that is.
+    #[test]
+    fn a_directional_radius_follows_the_reading_direction() {
+        let end = BorderRadiusDirectional::end(16.0);
+        assert_eq!(
+            end.resolve(TextDirection::Ltr),
+            BorderRadius::right(16.0),
+            "the line ends on the right in English"
+        );
+        assert_eq!(
+            end.resolve(TextDirection::Rtl),
+            BorderRadius::left(16.0),
+            "and on the left in Arabic"
+        );
+
+        let start = BorderRadiusDirectional::start(16.0);
+        assert_eq!(start.resolve(TextDirection::Ltr), BorderRadius::left(16.0));
+        assert_eq!(start.resolve(TextDirection::Rtl), BorderRadius::right(16.0));
+
+        // Both sides at once, each keeping its own number across the mirror.
+        let both = BorderRadiusDirectional::horizontal(4.0, 12.0);
+        assert_eq!(
+            both.resolve(TextDirection::Ltr),
+            BorderRadius {
+                top_left: 4.0,
+                top_right: 12.0,
+                bottom_right: 12.0,
+                bottom_left: 4.0,
+            }
+        );
+        assert_eq!(
+            both.resolve(TextDirection::Rtl),
+            BorderRadius {
+                top_left: 12.0,
+                top_right: 4.0,
+                bottom_right: 4.0,
+                bottom_left: 12.0,
+            }
+        );
+
+        // What has no side does not move.
+        for direction in [TextDirection::Ltr, TextDirection::Rtl] {
+            assert_eq!(
+                BorderRadiusDirectional::uniform(8.0).resolve(direction),
+                BorderRadius::uniform(8.0)
+            );
+            assert_eq!(
+                BorderRadiusDirectional::vertical(8.0, 0.0).resolve(direction),
+                BorderRadius::top(8.0)
+            );
+        }
+    }
     use super::*;
     use crate::Primitive;
 
