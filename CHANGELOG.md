@@ -8,10 +8,30 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 479 so far, each documenting the objective, the alternatives
+> record — one per step, 480 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **A tab can be more than a label** (J480, closes #36): `TabBar::tab_widget` and `TabItem`.
+  A tab can carry an unread count in a pill, a coloured dot, two lines, rich text — and the
+  label stays mandatory, because it is what a screen reader says. `TabItem::width` is how a
+  tab the caller drew states its width on a bar that **scrolls**, since a widget cannot be
+  asked how wide it would like to be (#52); a bar that does not scroll shares its width
+  equally and never asks.
+
+- **`TabBar::swipeable`**: the panel becomes a `PageView` over every tab's content, on the
+  milestone-277 physics. Opt-in, because it is a behaviour change for every bar already
+  written. A swipe produces the **same message a press on the tab produces** — one rule
+  reached two ways.
+
+- **`TabPageSelector`**: the row of dots that says which page of several you are on, with
+  `PageSelectorTheme` behind it. The fill **crosses** rather than jumping, on the same
+  fractional index the tab indicator slides along, so two dots either side of a crossing
+  share exactly one dot's worth of ink. It takes no press — twelve pixels is not a target —
+  and it is announced, which the reference's is not.
 
 ### Added
 

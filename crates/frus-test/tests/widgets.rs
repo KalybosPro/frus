@@ -29,9 +29,9 @@ use frus_widgets::{
     NavigationDestination, NavigationDrawer, NavigationRail, Offstage, Opacity, OverflowBox,
     OverlayPortal, Placement, PopupMenuButton, RadioGroup, RadioListTile, RailLabels, RichText,
     RotatedBox, SafeArea, SearchAnchor, SearchBar, SegmentedButton, SingleChildScrollView,
-    SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile, TabBar, Theme, Timeline,
-    ToggleButtons, Transform, TwoPane, UserAccountsDrawerHeader, VerticalDivider, Visibility,
-    Widget,
+    SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile, TabBar, TabItem,
+    TabPageSelector, Theme, Timeline, ToggleButtons, Transform, TwoPane, UserAccountsDrawerHeader,
+    VerticalDivider, Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -1298,4 +1298,65 @@ fn a_dropdown_menu_filtering() {
             ),
         );
     check("dropdown_menu_filtering", 300, 260, &root);
+}
+
+/// **Tabs that are more than a label.** An unread count in a pill beside a word, a
+/// coloured dot beside another, and two ordinary tabs — none of the first two expressible
+/// before, and the first of them on half the tab bars ever shipped.
+///
+/// The bar paints nothing of its own on a tab the caller drew, so what is in the picture
+/// is exactly what was handed to it; the indicator, the hairline and the row's height are
+/// still the bar's. Underneath, the row of dots that says which page of several you are
+/// on — a read-out rather than a control, on the same fractional index the indicator
+/// slides along.
+#[test]
+fn tabs_carrying_more_than_a_label() {
+    let pill = |label: &str, count: &str| {
+        Flex::<()>::row()
+            .align(Align::Center)
+            .gap(6.0)
+            .child(text(label).size(14.0))
+            .child(Badge::new(count))
+    };
+    let dotted = |label: &str| {
+        Flex::<()>::row()
+            .align(Align::Center)
+            .gap(6.0)
+            .child(text(label).size(14.0))
+            .child(
+                Container::new()
+                    .width(8.0)
+                    .height(8.0)
+                    .color(TEAL)
+                    .radius(4.0),
+            )
+    };
+    let panel = |name: &str| {
+        Container::<()>::new()
+            .width(420.0)
+            .height(52.0)
+            .padding(12.0)
+            .child(text(name).size(14.0))
+    };
+    let bar: TabBar<()> = TabBar::new(0, |_| ())
+        .item(
+            TabItem::widget(pill("Inbox", "12"), "Inbox"),
+            panel("Inbox"),
+        )
+        .item(TabItem::widget(dotted("Live"), "Live"), panel("Live"))
+        .tab("Archive", panel("Archive"))
+        .icon_only_tab(Icons::STAR, "Starred", panel("Starred"));
+    let root: Container<()> = Container::new()
+        .width(460.0)
+        .height(200.0)
+        .color(Color::rgb8(20, 22, 28))
+        .padding(12.0)
+        .child(
+            Flex::column()
+                .gap(16.0)
+                .align(Align::Start)
+                .child(bar)
+                .child(TabPageSelector::<()>::new(4, 0)),
+        );
+    check("tabs_widget_labels", 460, 200, &root);
 }

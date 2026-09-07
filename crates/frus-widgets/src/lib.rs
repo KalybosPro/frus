@@ -95,6 +95,7 @@ mod navigator;
 mod navrail;
 mod navscaffold;
 mod overscroll;
+mod pageselector;
 mod pageview;
 mod pagination;
 mod paintcache;
@@ -269,6 +270,7 @@ pub use navscaffold::NavScaffold;
 pub use overscroll::{
     cross_axis as glow_cross_axis, edge_for, GlowEdge, OverscrollGlow, ScrollGlows,
 };
+pub use pageselector::{TabPageSelector, PAGE_DOT_GAP, PAGE_DOT_SIZE};
 pub use pageview::{PageSnap, PageView, PagedView};
 pub use pagination::Pagination;
 pub use paintcache::PaintCache;
@@ -322,7 +324,7 @@ pub use steps::Steps;
 pub use switch::Switch;
 pub use table::Table;
 pub use tabs::{
-    TabAlignment, TabBar, TabBarVariant, TAB_DIVIDER_HEIGHT, TAB_HEIGHT, TAB_ICON_GAP,
+    TabAlignment, TabBar, TabBarVariant, TabItem, TAB_DIVIDER_HEIGHT, TAB_HEIGHT, TAB_ICON_GAP,
     TAB_ICON_HEIGHT, TAB_ICON_SIZE, TAB_INDICATOR_PRIMARY, TAB_INDICATOR_SECONDARY,
     TAB_LABEL_PADDING, TAB_START_OFFSET,
 };
@@ -365,9 +367,9 @@ pub use widgetstate::{StateFilter, WidgetState, WidgetStateProperty, WidgetState
 pub use widgettheme::resolve_shape;
 pub use widgettheme::{
     AppBarTheme, BadgeTheme, ButtonTheme, CardTheme, CheckboxTheme, ChipTheme, DefaultTextStyle,
-    DividerTheme, DrawerTheme, GridTileBarTheme, IconButtonTheme, IconTheme, InkTheme, RadioTheme,
-    SegmentedTheme, SliderTheme, SwitchTheme, TabBarTheme, TextFieldTheme, ToggleButtonsTheme,
-    WidgetThemes,
+    DividerTheme, DrawerTheme, GridTileBarTheme, IconButtonTheme, IconTheme, InkTheme,
+    PageSelectorTheme, RadioTheme, SegmentedTheme, SliderTheme, SwitchTheme, TabBarTheme,
+    TextFieldTheme, ToggleButtonsTheme, WidgetThemes,
 };
 
 // Convenience re-exports for callers.

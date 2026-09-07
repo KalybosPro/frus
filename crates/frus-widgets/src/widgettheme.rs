@@ -103,6 +103,7 @@ pub struct WidgetThemes {
     pub snack_bar: SnackBarTheme,
     pub steps: StepsTheme,
     pub switch: SwitchTheme,
+    pub page_selector: PageSelectorTheme,
     pub tab_bar: TabBarTheme,
     pub table: TableTheme,
     pub text: DefaultTextStyle,
@@ -753,6 +754,20 @@ pub struct TabBarTheme {
     pub tab_height: Option<f32>,
     /// Where the tabs sit when they do not fill the bar.
     pub alignment: Option<crate::tabs::TabAlignment>,
+}
+
+/// Defaults for [`TabPageSelector`](crate::TabPageSelector) — the row of dots that says
+/// which page of several you are on.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PageSelectorTheme {
+    /// A dot's diameter.
+    pub size: Option<f32>,
+    /// The gap between two dots.
+    pub gap: Option<f32>,
+    /// What the dot you are on is filled with. Unset, the accent.
+    pub color: Option<Color>,
+    /// The ring every dot is drawn with.
+    pub border_color: Option<Color>,
 }
 
 /// Defaults for [`IconButton`](crate::IconButton).

@@ -33,8 +33,8 @@ pub(crate) use frus_widgets::{
     RadioGroup, Rating, Rect, RefreshIndicator, RichText, SafeArea, Scaffold, ScaffoldMessenger,
     ScrollPhysics, SegmentedButton, SingleChildScrollView, Size, SizeClass, SizedBox, Skeleton,
     Slider, SnackBar, SnackBarPosition, SnackBarQueue, SpringDescription, Stack, Stepper, Steps,
-    Switch, TabBar, Table, TextField, TextSpan, Theme, Timeline, Tree, TwoPane, Variant, Widget,
-    WindowInsets,
+    Switch, TabBar, TabPageSelector, Table, TextField, TextSpan, Theme, Timeline, Tree, TwoPane,
+    Variant, Widget, WindowInsets,
 };
 
 // The application's own vocabulary: its state, its messages, and the small modules
