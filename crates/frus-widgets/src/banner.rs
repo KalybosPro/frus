@@ -250,7 +250,14 @@ impl<Msg: Clone + 'static> MaterialBanner<Msg> {
         let elevation = elevation.or(t.elevation).unwrap_or(BANNER_ELEVATION);
 
         let actions_bar = |actions: Vec<Box<dyn Widget<Msg>>>| {
-            let mut row = crate::Flex::row().justify(Justify::End).gap(ACTION_GAP);
+            // **A bar, not a row** (`banner.dart:359`), for the reason a dialog's actions
+            // are one: a row neither wraps nor shrinks, so two actions that stopped
+            // fitting — a long label, or a reader's font size — were drawn past the end
+            // of the banner rather than under one another.
+            let mut row = crate::OverflowBar::new()
+                .alignment(Justify::End)
+                .spacing(ACTION_GAP)
+                .overflow_alignment(Align::End);
             for action in actions {
                 row = row.child_boxed(action);
             }

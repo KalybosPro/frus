@@ -8,12 +8,35 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 481 so far, each documenting the objective, the alternatives
+> record — one per step, 482 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A dialog's buttons no longer run off its edge** (J482, closes #27): `AlertDialog`'s
+  actions are an `OverflowBar` — one line while they fit, a column when they do not — and
+  the dialog takes the three pass-through overrides the reference has
+  (`actions_overflow_alignment`, `actions_overflow_direction`,
+  `actions_overflow_button_spacing`). `MaterialBanner`'s actions are a bar now too.
+
+- **A centred overlay is no longer laid out wider than the window.** One whose natural
+  width exceeds the room there is — the window less its own margin — is laid out again at
+  that room, so a dialog at a large text scale folds instead of spilling off both edges of
+  the screen. This is what makes `DIALOG_INSET_PADDING` mean what its test says it means.
+  The height is deliberately untouched: a dialog too tall wants its content to scroll.
+
+- **A squeezed button ellipsises its label** rather than painting the words out of both
+  ends of its pill.
+
 ### Added
+
+- **`OverflowBar`** (J482): a row of children that folds into a column when they stop
+  fitting — all of them, never the last one stranded on a second line the way a `Wrap`
+  would leave it. The arrangement is chosen during layout, from the box actually offered
+  against the children's natural widths measured under the theme in force, which is what
+  lets a reader's font size reach it. No child is ever wider than the bar.
 
 - **A picture arrives instead of appearing** (J481, closes #42): `Image::placeholder` takes
   a colour, a `Skeleton` or another `Image`, and the picture **crosses over** it in the

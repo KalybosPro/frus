@@ -15,23 +15,24 @@
 //! With no GPU adapter the tests skip themselves, the harness returning `None`.
 
 use frus_core::{
-    Alignment, BoxFit, Color, ImageData, ImageHandle, Insets, Path, Point, SizeClass, TextSpan,
+    Alignment, BoxFit, Color, ImageData, ImageHandle, Insets, Path, Point, Size, SizeClass,
+    TextSpan,
 };
 use frus_test::render_widget;
 use frus_widgets::{
-    text, Alert, Align, AnimatedIcons, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar,
-    BottomSheet, Breadcrumb, Card, CarouselView, Checkbox, CheckboxListTile, CircleAvatar,
-    CircularProgressIndicator, ClipOval, ClipPath, ClipRRect, ColorPicker, ConstrainedBox,
-    Container, ControlAffinity, CustomPaint, Divider, DropdownButton, DropdownMenu, DropdownOption,
-    Expanded, ExpansionTile, FittedBox, Flex, FloatingActionButton, FontWeight,
-    FractionallySizedBox, GridTile, GridTileBar, GridView, Icon, IconButton, IconData, Icons,
-    Image, ImageIcon, Intrinsic, Kbd, LinearProgressIndicator, ListTile, ListView, MenuAnchor,
-    MenuItem, NavigationBar, NavigationDestination, NavigationDrawer, NavigationRail, Offstage,
-    Opacity, OverflowBox, OverlayPortal, Placement, PopupMenuButton, RadioGroup, RadioListTile,
-    RailLabels, RichText, RotatedBox, SafeArea, SearchAnchor, SearchBar, SegmentedButton,
-    SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile,
-    TabBar, TabItem, TabPageSelector, Theme, Timeline, ToggleButtons, Transform, TwoPane,
-    UserAccountsDrawerHeader, VerticalDivider, Visibility, Widget,
+    button, text, Alert, AlertDialog, Align, AnimatedIcons, AppBar, AspectRatio, Badge,
+    BottomAppBar, BottomBar, BottomSheet, Breadcrumb, Card, CarouselView, Checkbox,
+    CheckboxListTile, CircleAvatar, CircularProgressIndicator, ClipOval, ClipPath, ClipRRect,
+    ColorPicker, ConstrainedBox, Container, ControlAffinity, CustomPaint, Divider, DropdownButton,
+    DropdownMenu, DropdownOption, Expanded, ExpansionTile, FittedBox, Flex, FloatingActionButton,
+    FontWeight, FractionallySizedBox, GridTile, GridTileBar, GridView, Icon, IconButton, IconData,
+    Icons, Image, ImageIcon, Intrinsic, Kbd, LinearProgressIndicator, ListTile, ListView,
+    MediaQuery, MenuAnchor, MenuItem, NavigationBar, NavigationDestination, NavigationDrawer,
+    NavigationRail, Offstage, Opacity, OverflowBox, OverlayPortal, Placement, PopupMenuButton,
+    RadioGroup, RadioListTile, RailLabels, RichText, RotatedBox, SafeArea, SearchAnchor, SearchBar,
+    SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch,
+    SwitchListTile, TabBar, TabItem, TabPageSelector, Theme, Timeline, ToggleButtons, Transform,
+    TwoPane, UserAccountsDrawerHeader, VerticalDivider, Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -1410,4 +1411,30 @@ fn mark_image() -> ImageHandle {
         }
     }
     ImageData::from_rgba(N as u32, N as u32, rgba).into_handle()
+}
+
+/// **A dialog's two answers, at the ordinary text size and at twice it.**
+///
+/// The one on the right is the bug this closes: the buttons grow with the reader's font
+/// size, the surface does not grow with them, and a plain row neither wraps nor shrinks —
+/// so "Delete permanently" was drawn past the surface and off the screen entirely. Both
+/// pictures come from the same three lines of application code; only the ambient text
+/// scale is different.
+#[test]
+fn dialog_actions_fold_when_they_stop_fitting() {
+    let dialog = || {
+        AlertDialog::<()>::new(true)
+            .title("Delete this task?")
+            .content("This cannot be undone.")
+            .action(button("Cancel", ()))
+            .action(button("Delete permanently", ()))
+            .body(Container::new().color(Color::rgb8(20, 22, 28)))
+    };
+    // The same window and the same three lines of application code in both: only the
+    // reader's font size is different.
+    let window = Size::new(520.0, 340.0);
+    MediaQuery::new(window).scope(|| check("dialog_actions_on_one_line", 520, 340, &dialog()));
+    MediaQuery::new(window)
+        .with_text_scaler(2.0)
+        .scope(|| check("dialog_actions_stacked", 520, 340, &dialog()));
 }

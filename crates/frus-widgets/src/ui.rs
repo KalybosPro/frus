@@ -4182,15 +4182,44 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 Placement::Bottom => (false, true),
                 _ => (true, true),
             };
-            let rects = self.cached_rects(
+            let mut rects = self.cached_rects(
                 oid,
                 content,
                 Constraints::scroll(self.available.width, self.available.height, free_x, free_y),
             );
-            let size = rects
+            let mut size = rects
                 .first()
                 .copied()
                 .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+            // **Nothing wider than the window.** A free axis asks the content how big it
+            // would like to be, and a dialog answers with the width of its widest line —
+            // which, at a reader's font size, is wider than the screen. Centred, that
+            // spills off *both* edges, and a button drawn at a negative x is a button
+            // nobody can press. So the answer is taken as a wish rather than a size: past
+            // the room there is, the content is laid out again at that room, and whatever
+            // can fold — a paragraph, a bar of actions — folds.
+            //
+            // The room is the window less the content's **own margin**, which is how an
+            // overlay says how far off the edges it wants to be held: a dialog's inset
+            // padding is exactly that, and a clamp that ignored it would push the surface
+            // flat against both sides of the screen.
+            //
+            // The height is deliberately left alone. A dialog too tall for the screen
+            // wants its content to scroll, which is a question of its own; squashing it
+            // here would only move the spill inside the surface.
+            let inset = content.style_themed(&self.theme).margin;
+            let room = (self.available.width - inset.left - inset.right).max(0.0);
+            if free_x && size.width > room {
+                rects = self.cached_rects(
+                    oid,
+                    content,
+                    Constraints::scroll(room, self.available.height, false, free_y),
+                );
+                size = rects
+                    .first()
+                    .copied()
+                    .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+            }
 
             // A drawer's slide-in from the left / right edge.
             let from_left = -(1.0 - progress) * size.width;

@@ -94,6 +94,7 @@ mod navdrawer;
 mod navigator;
 mod navrail;
 mod navscaffold;
+mod overflowbar;
 mod overscroll;
 mod pageselector;
 mod pageview;
@@ -267,6 +268,7 @@ pub use navdrawer::NavigationDrawer;
 pub use navigator::Navigator;
 pub use navrail::{BottomBar, DestinationIcon, NavigationDestination, NavigationRail, RailLabels};
 pub use navscaffold::NavScaffold;
+pub use overflowbar::OverflowBar;
 pub use overscroll::{
     cross_axis as glow_cross_axis, edge_for, GlowEdge, OverscrollGlow, ScrollGlows,
 };
