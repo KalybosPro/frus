@@ -669,6 +669,10 @@ impl<Msg: Clone> Ui<Msg> {
 
     /// The message tied to a given clickable widget. `None` for a target that swallows
     /// input without emitting anything.
+    ///
+    /// It is always paired with [`hit`](Self::hit), so the two have to agree on which
+    /// target an identity means: every registered target therefore has one of its own,
+    /// the dismissal barrier below an overlay included.
     pub fn msg_for(&self, id: WidgetId) -> Option<Msg> {
         self.hits
             .iter()
@@ -2932,6 +2936,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             });
         }
         if visible.width > 0.0 && visible.height > 0.0 {
+            // A press that lands on a **surface** and on nothing inside it stops there.
+            // Registered before the children, so anything inside still wins on the way
+            // back out — see [`Widget::opaque`].
+            if widget.opaque() {
+                self.hits.push(Hit {
+                    id,
+                    rect: visible,
+                    msg: None,
+                    xform: None,
+                });
+            }
             if let Some(msg) = widget.on_click() {
                 self.hits.push(Hit {
                     id,
@@ -4054,6 +4069,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             });
         }
         if visible.width > 0.0 && visible.height > 0.0 {
+            // A press that lands on a **surface** and on nothing inside it stops there.
+            // Registered before the children, so anything inside still wins on the way
+            // back out — see [`Widget::opaque`].
+            if widget.opaque() {
+                self.hits.push(Hit {
+                    id,
+                    rect: visible,
+                    msg: None,
+                    xform: None,
+                });
+            }
             if let Some(msg) = widget.on_click() {
                 self.hits.push(Hit {
                     id,
@@ -4261,7 +4287,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             if let Some(msg) = dismiss.filter(|_| anchor_on_screen) {
                 self.dismisses.push(msg.clone());
                 self.hits.push(Hit {
-                    id: oid,
+                    id: oid.barrier(),
                     rect: window,
                     msg: Some(msg),
                     xform: None,

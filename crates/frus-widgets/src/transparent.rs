@@ -116,6 +116,9 @@ macro_rules! forward_transparent {
             fn on_click(&self) -> Option<Msg> {
                 self.inner.on_click()
             }
+            fn opaque(&self) -> bool {
+                self.inner.opaque()
+            }
 
             fn positional_click(
                 &self,

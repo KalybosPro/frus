@@ -48,6 +48,21 @@ impl WidgetId {
         WidgetId(h)
     }
 
+    /// Derives the identity of the **dismissal barrier** under an overlay: the
+    /// window-wide region whose press closes it.
+    ///
+    /// It needs one of its own because it is not a widget. It used to borrow the
+    /// overlay's root identity, and a root that registered a target of its own then had
+    /// two different regions under one name — which [`crate::Ui::msg_for`] resolves by
+    /// identity alone, so a press on a menu's own surface read back as the press that
+    /// closes it.
+    pub(crate) fn barrier(self) -> WidgetId {
+        let mut h = self.0 ^ 0x243f_6a88_85a3_08d3;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        h ^= h >> 27;
+        WidgetId(h)
+    }
+
     /// Derives a child's identity **by key** (stable whatever its position).
     /// Distinct from [`WidgetId::child`] (a different constant and shift).
     pub(crate) fn keyed(self, key: u64) -> WidgetId {

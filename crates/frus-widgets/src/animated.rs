@@ -40,6 +40,9 @@ macro_rules! forward_to_container {
             fn on_click(&self) -> Option<Msg> {
                 Widget::on_click(&self.inner)
             }
+            fn opaque(&self) -> bool {
+                Widget::opaque(&self.inner)
+            }
             fn on_long_press(&self) -> Option<Msg> {
                 Widget::on_long_press(&self.inner)
             }

@@ -258,7 +258,7 @@ pub use media::{
     Accessibility, AccessibilityOverrides, Brightness, Edges, MediaQuery, SurfaceGuard,
 };
 pub use mediascope::MediaScope;
-pub use menu::PopupMenuButton;
+pub use menu::{MenuItem, PopupMenuButton};
 pub use navbar::NavigationBar;
 pub use navdrawer::NavigationDrawer;
 pub use navigator::Navigator;

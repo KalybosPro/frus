@@ -8,10 +8,43 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 477 so far, each documenting the objective, the alternatives
+> record — one per step, 478 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **A menu's rows can be more than a word** (J478, closes #34): `MenuItem` and
+  `PopupMenuButton::entry`, with `icon_item`, `checked_item`, `item_widget` and `divider`
+  beside the unchanged `item`. A row can carry a picture, a tick, the keys that work it, a
+  caller's own widget, or say that it is unavailable while the rest of the menu is not.
+
+  The **leading column is the menu's, not the row's**: if any row has a mark, every row
+  keeps the room for one, so the marks line up and a tick that is off holds its place
+  instead of sliding its own label across.
+
+  The menu's width was a flat 220 for every menu; it is now a **floor**, with the panel
+  measuring its rows and taking the widest. A floor rather than a fit, so no menu already
+  drawn moved.
+
+- **`Widget::opaque`**: a press that lands on a widget and on nothing inside it stops
+  there. Registered before the widget's children, so everything inside still wins and only
+  the gaps between them are closed — unlike `AbsorbPointer`, which discards the subtree's
+  targets wholesale.
+
+### Fixed
+
+- **A press on an open menu's own surface closed it** (J478). `Panel::on_click` returned
+  `None` under a comment claiming it trapped the press; a widget with no message is not a
+  target at all, so a press on the panel's padding fell through to the region whose press
+  dismisses the overlay. Invisible until a row could say it was unavailable, because until
+  then every row in an open menu had a message.
+
+- **An overlay's dismissal barrier borrowed the overlay root's identity** (J478), so a root
+  that registered a target of its own left two different regions under one name — and
+  `Ui::hit` → `Ui::msg_for` is a round trip through that name. The barrier derives its own
+  now; it is not a widget.
 
 ### Added
 

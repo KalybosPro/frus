@@ -25,12 +25,12 @@ use frus_widgets::{
     Container, ControlAffinity, CustomPaint, Divider, Expanded, ExpansionTile, FittedBox, Flex,
     FloatingActionButton, FontWeight, FractionallySizedBox, GridTile, GridTileBar, GridView, Icon,
     IconData, Icons, Image, Intrinsic, Kbd, LinearProgressIndicator, ListTile, ListView,
-    MenuAnchor, NavigationBar, NavigationDestination, NavigationDrawer, NavigationRail, Offstage,
-    Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup, RadioListTile, RailLabels,
-    RichText, RotatedBox, SafeArea, SearchAnchor, SearchBar, SegmentedButton,
-    SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile,
-    TabBar, Theme, Timeline, ToggleButtons, Transform, TwoPane, UserAccountsDrawerHeader,
-    VerticalDivider, Visibility, Widget,
+    MenuAnchor, MenuItem, NavigationBar, NavigationDestination, NavigationDrawer, NavigationRail,
+    Offstage, Opacity, OverflowBox, OverlayPortal, Placement, PopupMenuButton, RadioGroup,
+    RadioListTile, RailLabels, RichText, RotatedBox, SafeArea, SearchAnchor, SearchBar,
+    SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch,
+    SwitchListTile, TabBar, Theme, Timeline, ToggleButtons, Transform, TwoPane,
+    UserAccountsDrawerHeader, VerticalDivider, Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -1171,4 +1171,53 @@ fn a_safe_area_with_a_minimum() {
             .minimum(Insets::uniform(16.0)),
         );
     check("safe_area_minimum", 200, 120, &root);
+}
+
+/// **A menu whose rows are not all labels.** A leading column of pictures and ticks, the
+/// keys that work each action on the right, a row that is not available, two rules, and a
+/// row of two lines the caller drew — every one of which the list could not hold before.
+///
+/// The three middle columns of it are the point: the marks line up down **one** column,
+/// which is decided for the menu rather than per row, and the row with nothing to put
+/// there keeps the room all the same. That is the part a test about the tree states and
+/// only a picture shows.
+#[test]
+fn a_menu_of_more_than_labels() {
+    let anchor: Container<()> = Container::new()
+        .width(40.0)
+        .height(24.0)
+        .color(Color::rgb8(60, 66, 80))
+        .radius(4.0);
+    let two_lines: Flex<()> = Flex::column()
+        .child(text("Paste special").size(14.0))
+        .child(
+            text("as plain text")
+                .size(11.0)
+                .color(Color::rgb8(150, 156, 170)),
+        );
+    // The button is held at the top left rather than stretched across the frame: an
+    // anchor the size of the window would put `Placement::Below` under the bottom edge.
+    let root: Container<()> = Container::new()
+        .width(320.0)
+        .height(400.0)
+        .color(Color::rgb8(20, 22, 28))
+        .padding(12.0)
+        .child(
+            Flex::column().align(Align::Start).child(
+                PopupMenuButton::new(anchor, true, ())
+                    .entry(MenuItem::icon(Icons::CONTENT_CUT, "Cut", ()).shortcut("Ctrl+X"))
+                    .entry(MenuItem::icon(Icons::CONTENT_COPY, "Copy", ()).shortcut("Ctrl+C"))
+                    .entry(
+                        MenuItem::icon(Icons::CONTENT_PASTE, "Paste", ())
+                            .shortcut("Ctrl+V")
+                            .enabled(false),
+                    )
+                    .divider()
+                    .checked_item("Word wrap", true, ())
+                    .checked_item("Show whitespace", false, ())
+                    .divider()
+                    .item_widget(two_lines, ()),
+            ),
+        );
+    check("popup_menu_rich", 320, 400, &root);
 }
