@@ -6,6 +6,19 @@ use frus_widgets::{column, row};
 
 /// Labels of the dropdown menu (the Settings screen).
 pub(crate) const MENU: [&str; 3] = ["Option A", "Option B", "Option C"];
+/// A list long enough that filtering is the point of it rather than a decoration — and
+/// with three names sharing a word that none of them starts with, so a substring rule and
+/// a prefix rule visibly disagree.
+pub(crate) const CITIES: [&str; 8] = [
+    "Cape Town",
+    "Kansas City",
+    "Lomé",
+    "Mexico City",
+    "New York City",
+    "Ouagadougou",
+    "Porto-Novo",
+    "Reykjavík",
+];
 
 /// The "Settings" screen: the card of controls (it demonstrates navigation + gesture + widgets).
 pub(crate) fn settings_screen(app: &TodoApp, theme: &Theme) -> Container<Msg> {
@@ -46,6 +59,22 @@ pub(crate) fn settings_screen(app: &TodoApp, theme: &Theme) -> Container<Msg> {
                 &MENU,
                 Msg::SetMenu,
             ),
+            // **The same closed set behind a field rather than a button** (milestone 479),
+            // which is worth having beside the one above: it filters as it is typed into,
+            // and it cannot be left showing something that is not one of the eight — shut,
+            // the field is drawn from `city_choice` and the query is not consulted at all.
+            DropdownMenu::new(
+                app.city_query.as_str(),
+                app.city_open,
+                Msg::CityQuery,
+                Msg::ToggleCity,
+            )
+            .label("City")
+            .placeholder("Start typing")
+            .width(240.0)
+            .selected(app.city_choice)
+            .max_visible(5)
+            .options(&CITIES, Msg::SetCity),
             row![
                 text("Your rating").size(18.0),
                 spacer(),

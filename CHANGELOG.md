@@ -8,10 +8,27 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 478 so far, each documenting the objective, the alternatives
+> record — one per step, 479 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **A dropdown's choices can be more than a word** (J479, part of #35): `DropdownOption`
+  and `DropdownButton::options_widgets`, beside the unchanged `options`. A choice can be a
+  swatch, a flag, two lines with a subtitle, or say that it is **there and cannot be
+  picked** — drawn greyed and still ticked if it is the one selected, because a list that
+  hides what it cannot offer cannot show what was already chosen.
+
+- **`DropdownMenu`** (J479, closes #35): the Material 3 control that looks like a text
+  field, filters as it is typed into, and drops its choices underneath. One rule shapes it:
+  **a shut field shows the selected choice and the query is displayed only while the menu is
+  open**, so a reader who types and then clicks away is looking at their real choice again
+  with nothing sent and nothing for an application to restore. The filter is a
+  case-insensitive substring rather than a prefix, and `on_select` is given the index into
+  the caller's own list — never into what the filter left showing, which is the bug this
+  control is famous for.
 
 ### Added
 

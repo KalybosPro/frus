@@ -25,6 +25,7 @@ use crate::icons::{IconData, Icons};
 use crate::interaction::Status;
 use crate::portal::Placement;
 use crate::theme::Theme;
+use crate::transparent::Shared;
 use crate::widget::Widget;
 
 const WIDTH: f32 = 220.0;
@@ -94,44 +95,6 @@ struct Measure {
     label: Option<String>,
     shortcut: Option<String>,
 }
-
-/// A row's child, held so the panel can be built **again** — which every builder on
-/// [`PopupMenuButton`] does — without asking the caller's widget to be cloneable.
-///
-/// It is a transparent wrapper and nothing else: the sharing is the whole of it.
-struct Shared<Msg> {
-    inner: Rc<dyn Widget<Msg>>,
-}
-
-impl<Msg> Shared<Msg> {
-    /// It changes nothing about the box: it *is* its child.
-    fn restyle(&self, base: Style) -> Style {
-        base
-    }
-}
-
-crate::transparent::forward_transparent!(Shared {
-    /// Every one of these is **forwarded**: holding a widget by a shared pointer is not
-    /// an identity, not a place, not a theme and not a surface.
-    fn key(&self) -> Option<u64> {
-        self.inner.key()
-    }
-    fn positioned(&self) -> Option<crate::positioned::Positioning> {
-        self.inner.positioned()
-    }
-    fn theme_override(
-        &self,
-        inherited: &crate::theme::Theme,
-    ) -> Option<Box<crate::theme::Theme>> {
-        self.inner.theme_override(inherited)
-    }
-    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
-        self.inner.media_override(inherited)
-    }
-    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
-        self.inner.scaffold_override()
-    }
-});
 
 /// One menu action, a clickable row.
 ///
@@ -845,7 +808,7 @@ impl<Msg: Clone + 'static> PopupMenuButton<Msg> {
                 children: item
                     .child
                     .clone()
-                    .map(|inner| Box::new(Shared { inner }) as Box<dyn Widget<Msg>>)
+                    .map(|inner| Box::new(Shared::new(inner)) as Box<dyn Widget<Msg>>)
                     .into_iter()
                     .collect(),
                 lead: item.lead,

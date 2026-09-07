@@ -32,6 +32,9 @@ pub(crate) enum Msg {
     SetRadio(usize),
     ToggleMenu,
     SetMenu(usize),
+    ToggleCity,
+    CityQuery(String),
+    SetCity(usize),
     Push(Route),
     Pop,
     /// Flips the log list between the two scroll behaviours, so the difference can

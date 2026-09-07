@@ -307,6 +307,7 @@ impl Application for TodoApp {
             && !self.confirm_clear
             && !self.data_confirm_delete
             && !self.menu_open
+            && !self.city_open
             && !self.drawer_open
             && !self.sheet_open
     }

@@ -22,15 +22,16 @@ use frus_widgets::{
     text, Alert, Align, AnimatedIcons, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar,
     BottomSheet, Breadcrumb, Card, CarouselView, Checkbox, CheckboxListTile, CircleAvatar,
     CircularProgressIndicator, ClipOval, ClipPath, ClipRRect, ColorPicker, ConstrainedBox,
-    Container, ControlAffinity, CustomPaint, Divider, Expanded, ExpansionTile, FittedBox, Flex,
-    FloatingActionButton, FontWeight, FractionallySizedBox, GridTile, GridTileBar, GridView, Icon,
-    IconData, Icons, Image, Intrinsic, Kbd, LinearProgressIndicator, ListTile, ListView,
-    MenuAnchor, MenuItem, NavigationBar, NavigationDestination, NavigationDrawer, NavigationRail,
-    Offstage, Opacity, OverflowBox, OverlayPortal, Placement, PopupMenuButton, RadioGroup,
-    RadioListTile, RailLabels, RichText, RotatedBox, SafeArea, SearchAnchor, SearchBar,
-    SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch,
-    SwitchListTile, TabBar, Theme, Timeline, ToggleButtons, Transform, TwoPane,
-    UserAccountsDrawerHeader, VerticalDivider, Visibility, Widget,
+    Container, ControlAffinity, CustomPaint, Divider, DropdownButton, DropdownMenu, DropdownOption,
+    Expanded, ExpansionTile, FittedBox, Flex, FloatingActionButton, FontWeight,
+    FractionallySizedBox, GridTile, GridTileBar, GridView, Icon, IconData, Icons, Image, Intrinsic,
+    Kbd, LinearProgressIndicator, ListTile, ListView, MenuAnchor, MenuItem, NavigationBar,
+    NavigationDestination, NavigationDrawer, NavigationRail, Offstage, Opacity, OverflowBox,
+    OverlayPortal, Placement, PopupMenuButton, RadioGroup, RadioListTile, RailLabels, RichText,
+    RotatedBox, SafeArea, SearchAnchor, SearchBar, SegmentedButton, SingleChildScrollView,
+    SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile, TabBar, Theme, Timeline,
+    ToggleButtons, Transform, TwoPane, UserAccountsDrawerHeader, VerticalDivider, Visibility,
+    Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -1220,4 +1221,81 @@ fn a_menu_of_more_than_labels() {
             ),
         );
     check("popup_menu_rich", 320, 400, &root);
+}
+
+/// **A dropdown whose choices are not words.** A colour swatch, a two-line entry with a
+/// subtitle, and a choice that is there and cannot be picked — none of which a `&str` can
+/// say, and all of which a list of choices is routinely asked for.
+///
+/// The tick's column is kept clear on every row rather than on the ticked one, so a choice
+/// the caller drew does not change width when it becomes the selected one; the greyed row
+/// is the third.
+#[test]
+fn a_dropdown_of_more_than_words() {
+    let swatch = |c: Color| {
+        Flex::<()>::row()
+            .align(Align::Center)
+            .gap(10.0)
+            .child(
+                Container::new()
+                    .width(16.0)
+                    .height(16.0)
+                    .color(c)
+                    .radius(3.0),
+            )
+            .child(text("Amber").size(15.0))
+    };
+    let two_lines: Flex<()> = Flex::column().child(text("Deep purple").size(15.0)).child(
+        text("out of the ordinary")
+            .size(11.0)
+            .color(Color::rgb8(150, 156, 170)),
+    );
+    let root: Container<()> = Container::new()
+        .width(300.0)
+        .height(280.0)
+        .color(Color::rgb8(20, 22, 28))
+        .padding(12.0)
+        .child(
+            Flex::column().align(Align::Start).child(
+                DropdownButton::<()>::new("Amber", ())
+                    .width(240.0)
+                    .selected(0)
+                    .options_widgets(
+                        true,
+                        vec![
+                            DropdownOption::widget(swatch(Color::rgb8(255, 193, 7))),
+                            DropdownOption::widget(two_lines),
+                            DropdownOption::new("Out of stock").enabled(false),
+                            DropdownOption::new("Blue"),
+                        ],
+                        |_| (),
+                    ),
+            ),
+        );
+    check("dropdown_widget_options", 300, 280, &root);
+}
+
+/// **A dropdown that looks like a field and filters as it is typed into.** Open, with
+/// `gre` in it: two of the four colours have `green` inside them and neither starts with
+/// it, so the picture is also what says the rule is a substring rather than a prefix.
+///
+/// The chevron is turned over, because on a shut field it is the only thing saying there
+/// is more of it.
+#[test]
+fn a_dropdown_menu_filtering() {
+    let root: Container<()> = Container::new()
+        .width(300.0)
+        .height(260.0)
+        .color(Color::rgb8(20, 22, 28))
+        .padding(12.0)
+        .child(
+            Flex::column().align(Align::Start).child(
+                DropdownMenu::<()>::new("gre", true, |_| (), ())
+                    .label("Colour")
+                    .width(240.0)
+                    .selected(Some(1))
+                    .options(&["Red", "Dark green", "Light green", "Blue"], |_| ()),
+            ),
+        );
+    check("dropdown_menu_filtering", 300, 260, &root);
 }
