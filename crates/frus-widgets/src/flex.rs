@@ -104,6 +104,23 @@ impl<Msg> Flex<Msg> {
         self.shrink(0.0)
     }
 
+    /// Lays the children out from the **far end** of the axis: a column from the bottom
+    /// up, a row from the end of the line back. Their order is unchanged — the first
+    /// child is simply placed last.
+    ///
+    /// It is what a transcript wants, where the newest line is at the bottom and the
+    /// column grows upwards from there, and it composes with a scroll region that starts
+    /// at its end.
+    pub fn reverse(mut self) -> Self {
+        self.direction = match self.direction {
+            FlexDirection::Row => FlexDirection::RowReverse,
+            FlexDirection::RowReverse => FlexDirection::Row,
+            FlexDirection::Column => FlexDirection::ColumnReverse,
+            FlexDirection::ColumnReverse => FlexDirection::Column,
+        };
+        self
+    }
+
     /// How the children are distributed along the main axis.
     pub fn justify(mut self, justify: Justify) -> Self {
         self.justify = justify;
@@ -225,6 +242,46 @@ impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+}
+
+/// A named entry point for the **body of a scrollable**: the reference's `ListBody`.
+///
+/// Children one after another along an axis, each at its natural extent on that axis and
+/// stretched across the other, starting at the beginning and never squashed. Its box grows
+/// to hold them all, which is why it belongs inside something that scrolls — a body taller
+/// than its parent with nowhere to go is an overflow, and says so.
+///
+/// It returns a [`Flex`], because in this framework that is already what a list body is:
+/// the flex defaults here are `flex_shrink: 0`, `align: Stretch` and `justify: Start` — a
+/// column that squashes nothing, stretches everything across, and packs from the top. What
+/// the name adds is the **statement**: this column is the content of a viewport, not a
+/// layout with opinions, and nothing in it is meant to flex. Every one of `Flex`'s
+/// settings is still there, `gap` and `padding` included.
+///
+/// ```ignore
+/// Scroll::new().child(
+///     ListBody::vertical()
+///         .gap(8.0)
+///         .child(header())
+///         .child(body()),
+/// )
+/// ```
+///
+/// [`ListBody::vertical`] is the reference's default. Its `reverse` is
+/// [`Flex::reverse`], which lays the children out from the far end — the shape a chat
+/// transcript wants, together with a scroll region that starts at the bottom.
+pub struct ListBody;
+
+impl ListBody {
+    /// Children stacked downwards — the usual one.
+    pub fn vertical<Msg>() -> Flex<Msg> {
+        Flex::with_direction(FlexDirection::Column)
+    }
+
+    /// Children laid out across, in the reading direction.
+    pub fn horizontal<Msg>() -> Flex<Msg> {
+        Flex::with_direction(FlexDirection::Row)
     }
 }
 
@@ -353,5 +410,91 @@ mod tests {
 
         let wrapped = Wrap::new::<()>().child(Flex::<()>::row());
         assert!(Widget::<()>::style(&wrapped).flex_wrap);
+    }
+
+    /// The boxes of `list`, laid out in a 100 × 100 window, in paint order.
+    fn laid_out(list: Flex<()>) -> Vec<Rect> {
+        let ui = build_ui(
+            &list,
+            Size::new(100.0, 100.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A row of `height` with no width of its own, red.
+    fn row_of(height: f32) -> Container<()> {
+        Container::<()>::new()
+            .height(height)
+            .color(Color::rgb(1.0, 0.0, 0.0))
+    }
+
+    /// The two halves of what a list body promises: each child at its own extent along
+    /// the axis, and the whole width across it.
+    #[test]
+    fn a_list_body_gives_each_child_its_own_extent_and_the_full_width() {
+        let boxes = laid_out(
+            ListBody::vertical()
+                .width(100.0)
+                .child(row_of(20.0))
+                .child(row_of(30.0)),
+        );
+        assert_eq!(boxes.len(), 2);
+        assert_eq!((boxes[0].y, boxes[0].height), (0.0, 20.0));
+        assert_eq!((boxes[1].y, boxes[1].height), (20.0, 30.0));
+        assert!(
+            boxes.iter().all(|r| (r.width - 100.0).abs() < 0.5),
+            "stretched across: {boxes:?}"
+        );
+    }
+
+    /// And the one that matters inside a viewport: children that do not fit are **not**
+    /// squashed to make them. A body taller than its box overflows it, which is what a
+    /// scroll region is for — and what the debug band says when there is no scroll region.
+    #[test]
+    fn a_list_body_never_squashes_a_child_that_does_not_fit() {
+        let boxes = laid_out(
+            ListBody::vertical()
+                .width(100.0)
+                .height(50.0)
+                .child(row_of(40.0))
+                .child(row_of(40.0)),
+        );
+        assert_eq!(boxes[0].height, 40.0);
+        assert_eq!(boxes[1].height, 40.0, "the second one absorbed the deficit");
+        assert_eq!(boxes[1].y, 40.0);
+    }
+
+    /// Reversed, the first child is placed last: a transcript grows from the bottom.
+    #[test]
+    fn a_reversed_column_lays_its_children_out_from_the_far_end() {
+        let boxes = laid_out(
+            ListBody::vertical()
+                .reverse()
+                .width(100.0)
+                .height(100.0)
+                .child(row_of(20.0))
+                .child(row_of(30.0)),
+        );
+        assert_eq!(boxes[0].y, 80.0, "the first child sits at the bottom");
+        assert_eq!(boxes[1].y, 50.0, "the second one above it");
+    }
+
+    /// Reversing twice is the direction it started with — the builder is a flip, not a
+    /// flag, so `ListBody::horizontal().reverse()` is a row from the end.
+    #[test]
+    fn reversing_a_row_twice_is_the_row_it_was() {
+        let there = Widget::<()>::style(&ListBody::horizontal::<()>().reverse()).flex_direction;
+        let back = Widget::<()>::style(&ListBody::horizontal::<()>().reverse().reverse());
+        assert_eq!(there, FlexDirection::RowReverse);
+        assert_eq!(back.flex_direction, FlexDirection::Row);
     }
 }

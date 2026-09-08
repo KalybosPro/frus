@@ -192,8 +192,9 @@ pub use clip::{ClipOval, ClipPath, ClipRRect};
 pub use collapsible::{ControlAffinity, ExpansionTile};
 pub use colorpicker::ColorPicker;
 pub use constraints::{
-    ConstrainedBox, Intrinsic, IntrinsicAxis, IntrinsicHeight, IntrinsicWidth, Overflow,
-    OverflowBox, SizedBox,
+    AxisConstraint, ConstrainedBox, ConstraintsTransform, ConstraintsTransformBox, Intrinsic,
+    IntrinsicAxis, IntrinsicHeight, IntrinsicWidth, Overflow, OverflowBox, SizedBox,
+    SizedOverflowBox, UnconstrainedBox,
 };
 pub use container::Container;
 pub use controltile::{CheckboxListTile, RadioListTile, SwitchListTile};
@@ -228,7 +229,7 @@ pub use expansionpanel::{ExpansionPanel, ExpansionPanelList};
 pub use fab::{FabSize, FloatingActionButton};
 pub use filters::{BackdropFilter, BackdropGroup, ColorFiltered, ImageFiltered, ShaderMask};
 pub use fittedbox::FittedBox;
-pub use flex::{Flex, Wrap};
+pub use flex::{Flex, ListBody, Wrap};
 pub use focus::{
     ExcludeFocus, ExcludeFocusTraversal, Focus, FocusTraversalGroup, FocusTraversalOrder,
 };
@@ -322,7 +323,7 @@ pub use skeleton::Skeleton;
 pub use slider::{RangeSlider, Slider};
 pub use spacer::Spacer;
 pub use spinner::CircularProgressIndicator;
-pub use stack::{Stack, StackFit};
+pub use stack::{IndexedStack, Stack, StackFit};
 pub use stepper::Stepper;
 pub use steps::Steps;
 pub use switch::Switch;
@@ -353,7 +354,7 @@ pub use togglebuttons::{
     ToggleAxis, ToggleButtons, TOGGLE_BUTTONS_BORDER_WIDTH, TOGGLE_BUTTON_MIN_SIZE,
 };
 pub use tooltip::Tooltip;
-pub use transform::Transform;
+pub use transform::{FractionalTranslation, Transform};
 pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use ui::{

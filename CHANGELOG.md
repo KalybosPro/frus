@@ -8,12 +8,40 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 486 so far, each documenting the objective, the alternatives
+> record — one per step, 487 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`IndexedStack`** (J487, closes #37): a stack that lays **every** child out and paints
+  one — what a tabbed screen wants, and the opposite of `Offstage`, which takes the branch
+  out of the tree and loses everything the runtime held for it. The unshown layers are
+  withdrawn by the **walk** rather than by a wrapper around each of them, because a wrapper
+  changes the layout the widget exists to preserve.
+
+- **`ConstraintsTransformBox` and `UnconstrainedBox`** (J487): what the child is given, per
+  axis — as it came, taken away, or a number of its own — with the box then sized to what
+  came back and the difference reported per edge with the debug band. `UnconstrainedBox` is
+  that with the constraint taken away; `UnconstrainedBox::axis` frees one axis and leaves
+  the other.
+
+- **`SizedOverflowBox`** (J487): `OverflowBox` with the hole given a size — a slot narrower
+  than the space around it, holding a child that spills past every edge.
+
+- **`FractionalTranslation`** (J487): a paint offset stated as a fraction of the child's
+  **own** size, for the shifts whose number the layout decides and the caller was never
+  told.
+
+- **`ListBody` and `Flex::reverse`** (J487): a named entry point for the body of a
+  scrollable — which in this framework is a `Flex` column, its defaults already being the
+  reference's list-body rules — and the one thing `Flex` could not say, a column laid out
+  from the far end.
+
+- **`Keyed::wrap`** (J487): keeps the key a child already has and falls back to its
+  position, for keying somebody else's children in bulk. `Keyed` **is** the reference's
+  `KeyedSubtree`; this was the constructor missing from it.
 
 - **`ExpansionPanelList`** (J486, closes #40): a column of panels drawn as **one card**
   that splits — adjacent shut panels merged and divided by a hairline, an open one lifted

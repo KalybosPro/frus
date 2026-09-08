@@ -434,6 +434,16 @@ struct Snapshot {
 /// point each is truncated back to on the way out. Distinct from [`XformBase`] because a
 /// barrier also covers the **scene** and the **scrollbars**, and distinct from [`Snapshot`]
 /// because it covers the registries that are never cached.
+/// What is withdrawn from a layer of an [`crate::IndexedStack`] that is not the shown one:
+/// its paint, its input and its place in the accessibility tree. Not `absorb` — the layer
+/// is not a scrim over what is behind it, it is simply not there for the reader.
+const HIDDEN_LAYER: crate::barrier::ModalBarrier = crate::barrier::ModalBarrier {
+    pointer: true,
+    absorb: false,
+    paint: true,
+    semantics: true,
+};
+
 struct BarrierBase {
     scene: usize,
     hits: usize,
@@ -481,6 +491,7 @@ fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
         || widget.virtual_list(Size::ZERO).is_some()
         || widget.page_view().is_some()
         || widget.overflow_box().is_some()
+        || widget.constraints_transform().is_some()
         || widget.layout_builder().is_some()
         || widget.stack()
         || widget.overlay().is_some()
@@ -1572,6 +1583,46 @@ fn build_layout_scoped<'a, Msg>(
             Fills::default(),
         );
     }
+    // A box that **transforms the space on offer**: its child is laid out in a box derived
+    // from this one's, in a tree of its own, and this box is then as big as what came back
+    // — held to what it was itself offered, which is the reference's
+    // `constraints.constrain(child.size)`. `UnconstrainedBox` is this branch with the
+    // constraint taken away.
+    if let Some(transform) = widget.constraints_transform() {
+        let style = effective_style(widget, id, runtime, theme);
+        let child = widget.children().first().map(|c| c.as_ref());
+        let owned = owned_theme(theme);
+        let measure: frus_layout::MeasureFn<'a> = Box::new(move |w, h| {
+            let Some(child) = child else {
+                return Size::new(0.0, 0.0);
+            };
+            let (aw, free_x) = transform.width.offered(w);
+            let (ah, free_y) = transform.height.offered(h);
+            let mut inner: Layout<BaselineData> = Layout::new();
+            let node = build_layout(child, child_id(id, 0, child), runtime, &owned, &mut inner);
+            // **Handed** every axis that has a number, **asked** about every axis that does
+            // not. `compute_scroll` already fills a lone constrained axis, for the reason a
+            // scrollable's cross axis needs it; with numbers on both, `compute_filled` is
+            // that same rule. Merely constraining them instead would leave a child with no
+            // size of its own — a plain container — hugging at nothing, and a box asked how
+            // big its child wanted to be would come back empty.
+            match (free_x, free_y) {
+                (false, false) => inner.compute_filled(node, aw, ah),
+                _ => inner.compute_scroll(node, aw, ah, free_x, free_y),
+            }
+            let size = inner.size_of(node);
+            // Held to the offer: a child too big for the room spills, and the box stays the
+            // size the room was.
+            Size::new(
+                size.width.min(w.unwrap_or(f32::INFINITY)),
+                size.height.min(h.unwrap_or(f32::INFINITY)),
+            )
+        });
+        return (
+            layout.measured_leaf(style, own_baseline, measure),
+            Fills::default(),
+        );
+    }
     // A `LayoutBuilder` **is measured**: it builds its content from the space offered and
     // is then as big as what it built, which is the reference's
     // `size = constraints.constrain(child.size)`. It cannot be a plain leaf, because a
@@ -2067,6 +2118,36 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// in its **own** coordinates: a scrollable's content, a page, a list item and a
     /// stack's layer each get their own taffy pass, and where that pass lands on screen is
     /// only known when the walk reaches it. [`Self::claim_overflows`] is the other half.
+    /// Records a child that came out **bigger than the box holding it**, one entry per
+    /// edge it ran past — the same yellow and black band a row too full of children gets,
+    /// from a box that laid its child out itself and so was never measured against it.
+    ///
+    /// The rectangle is already on the screen, this being the walk rather than a sub-root's
+    /// own pass, so it goes straight out rather than through [`Self::record_overflows`].
+    fn report_spill(&self, own: Rect, child: Rect) {
+        // Per edge, from where the child actually landed: a centred child that is too wide
+        // runs past **both** sides, and a band on one of them would be a half-truth.
+        let over = [
+            (Side::Left, own.x - child.x),
+            (Side::Top, own.y - child.y),
+            (Side::Right, (child.x + child.width) - (own.x + own.width)),
+            (
+                Side::Bottom,
+                (child.y + child.height) - (own.y + own.height),
+            ),
+        ];
+        let spills: Vec<Overflowing> = over
+            .into_iter()
+            .filter(|(_, amount)| *amount > 0.5)
+            .map(|(side, amount)| Overflowing {
+                rect: own,
+                side,
+                amount,
+            })
+            .collect();
+        self.overflows.borrow_mut().extend(spills);
+    }
+
     fn record_overflows(&self, key: WidgetId, mirrored: &[Rect], overflows: Vec<Overflowing>) {
         if overflows.is_empty() {
             return;
@@ -3688,6 +3769,37 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 let mut child_index = 0;
                 self.render_item(child, cid, origin, clip, &child_rects, &mut child_index);
             }
+        } else if let Some(transform) = widget.constraints_transform() {
+            // The child is laid out at **the same box the measurement gave it**, worked out
+            // again from what is left of that measurement — the box it produced. Each of
+            // the three things an axis can say survives the round trip; see
+            // `AxisConstraint::at`.
+            let own = draw_rect;
+            if let Some(child) = widget.children().first() {
+                let child = child.as_ref();
+                let cid = child_id(id, 0, child);
+                let (aw, free_x) = transform.width.at(own.width);
+                let (ah, free_y) = transform.height.at(own.height);
+                let constraints = match (free_x, free_y) {
+                    (false, false) => Constraints::filled(Size::new(aw, ah)),
+                    _ => Constraints::scroll(aw, ah, free_x, free_y),
+                };
+                let child_rects = self.cached_rects(cid, child, constraints);
+                let size = child_rects
+                    .first()
+                    .map(|r| Size::new(r.width, r.height))
+                    .unwrap_or(Size::new(0.0, 0.0));
+                let align = transform.alignment;
+                let origin = (
+                    own.x + (own.width - size.width) * align.fraction_x(),
+                    own.y + (own.height - size.height) * align.fraction_y(),
+                );
+                if transform.report {
+                    self.report_spill(own, Rect::new(origin.0, origin.1, size.width, size.height));
+                }
+                let mut child_index = 0;
+                self.render_item(child, cid, origin, clip, &child_rects, &mut child_index);
+            }
         } else if let Some(build) = widget.layout_builder() {
             // Builds the content from the actual box, then lays it out and renders it inside
             // (like a list item: with no retained state).
@@ -3788,6 +3900,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let bounds = draw_rect;
             let layer_clip = clip.intersect(bounds);
             let loose = widget.stack_loose();
+            // An **indexed** stack shows one layer and lays out the rest. Which is a
+            // question for here rather than for the widget: a layer that wrapped itself in
+            // something to keep quiet would no longer be laid out the way a bare layer is,
+            // and the layout is the whole promise.
+            let shown = widget.stack_visible();
             // Where a layer smaller than the stack sits. Resolved once, against the
             // reading direction, so a start-anchored badge follows the script.
             let align = widget
@@ -3871,6 +3988,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     ),
                 };
                 let mut layer_index = 0;
+                // A layer that is not the shown one is walked in full — so it is measured,
+                // and so the runtime keeps its scroll offset, its caret and its focus — and
+                // then everything it added is dropped again. The same withdrawal a
+                // `Visibility` that maintains its size performs, applied from outside.
+                let hidden = shown.is_some_and(|which| which != i);
+                let base = hidden.then(|| self.barrier_base());
                 self.walk(
                     layer.as_ref(),
                     cid,
@@ -3879,6 +4002,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     &layer_rects,
                     &mut layer_index,
                 );
+                if let Some(base) = base {
+                    self.apply_barrier(HIDDEN_LAYER, &base, cid, Rect::new(0.0, 0.0, 0.0, 0.0));
+                }
             }
         } else if let Some((content, placement)) = widget.overlay() {
             // The anchor (child 0) is rendered inline; the overlay (child 1) is deferred.
@@ -3985,6 +4111,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         if let Some((tx, ty)) = widget.transform_translate() {
             off.0 += if self.rtl() { -tx } else { tx };
             off.1 += ty;
+        }
+
+        // The same offset, given as a **fraction of the child's own box**
+        // (`FractionalTranslation`). The child's rectangle is the one thing this function
+        // has that the widget did not: a widget cannot multiply by a width it was never
+        // told.
+        if let Some((fx, fy)) = widget.translate_fraction() {
+            let child = rects.get(child_index).copied().unwrap_or(container);
+            let tx = child.width * fx;
+            off.0 += if self.rtl() { -tx } else { tx };
+            off.1 += child.height * fy;
         }
 
         off

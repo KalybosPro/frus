@@ -5,6 +5,10 @@
 //! shifts the identity of everything after it, and their retained state — hover, focus,
 //! caret, animations, the leaving fade — jumps. Wrapping each item in a `Keyed`, keyed
 //! on its stable domain id, fixes that.
+//!
+//! It is the reference's `KeyedSubtree` — a key around a subtree and nothing else — and
+//! [`Keyed::wrap`] is that widget's own constructor for the case where somebody else's
+//! children are being keyed in bulk.
 
 use std::hash::{Hash, Hasher};
 
@@ -24,6 +28,23 @@ impl<Msg> Keyed<Msg> {
         Self {
             key: hasher.finish(),
             inner: Box::new(inner),
+        }
+    }
+
+    /// Keeps the key `inner` **already has**, and falls back to `index` when it has
+    /// none — the reference's `KeyedSubtree.wrap`.
+    ///
+    /// It is for keying somebody else's children: a helper that wraps every item of a
+    /// list it was handed cannot use [`Keyed::new`], because that would overwrite the
+    /// keys the caller set on the items they cared about. A position is a poor identity,
+    /// and it is still better than none for the items nobody named.
+    pub fn wrap(index: usize, inner: impl Widget<Msg> + 'static) -> Self {
+        match inner.key() {
+            Some(key) => Self {
+                key,
+                inner: Box::new(inner),
+            },
+            None => Self::new(index, inner),
         }
     }
 
@@ -145,5 +166,27 @@ mod tests {
         let a: Keyed<()> = Keyed::new("todo-3", Container::new());
         let b: Keyed<()> = Keyed::new("todo-3", Container::new());
         assert_eq!(Widget::<()>::key(&a), Widget::<()>::key(&b));
+    }
+
+    /// Wrapping in bulk keeps the keys somebody already chose, and only names the ones
+    /// nobody did.
+    #[test]
+    fn wrapping_keeps_a_key_the_child_already_had() {
+        let named: Keyed<()> = Keyed::new("row-7", Text::new("seven"));
+        let key = Widget::<()>::key(&named).expect("a key of its own");
+        let wrapped = Keyed::wrap(3, named);
+        assert_eq!(
+            Widget::<()>::key(&wrapped),
+            Some(key),
+            "the position did not overwrite the name"
+        );
+
+        let plain: Keyed<()> = Keyed::wrap(3, Text::new("nobody named me"));
+        let other: Keyed<()> = Keyed::wrap(4, Text::new("nobody named me"));
+        assert_ne!(
+            Widget::<()>::key(&plain),
+            Widget::<()>::key(&other),
+            "and an unnamed child is at least distinguished by where it is"
+        );
     }
 }

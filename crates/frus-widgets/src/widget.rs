@@ -577,6 +577,14 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// The box this widget **gives its child** as a function of the box it was offered,
+    /// with the child laid out in it separately and the box then sized to what came
+    /// back. `None` — the default — means the child shares this node's layout, as
+    /// everything ordinary does. See [`crate::ConstraintsTransformBox`].
+    fn constraints_transform(&self) -> Option<crate::constraints::ConstraintsTransform> {
+        None
+    }
+
     /// If the widget builds its content **from its actual box**, returns the
     /// `size → widget` factory. The content is built on the fly: no retained state
     /// and no overlay (like a virtualised list item).
@@ -739,6 +747,20 @@ pub trait Widget<Msg> {
     /// the child may overflow its box). Continuous → a `Tween` read in `view()` slides
     /// the subtree. `None` = no offset. See [`crate::Transform`].
     fn transform_translate(&self) -> Option<(f32, f32)> {
+        None
+    }
+
+    /// **Paint offset as a fraction of the child's own size** `(fx, fy)`: `(0.5, 0.0)`
+    /// slides the subtree half its own width to the right. Added to
+    /// [`Widget::transform_translate`], and offsetting the render and the hit-test the
+    /// same way, without touching layout. `None` = no offset.
+    ///
+    /// A fraction rather than a number because the number is not known where the widget
+    /// is written: the child's size is decided by the layout, and something that has to
+    /// slide exactly clear of itself — a panel off the edge, a badge half outside its
+    /// anchor — would otherwise have to be told a width it was never given. See
+    /// [`crate::FractionalTranslation`].
+    fn translate_fraction(&self) -> Option<(f32, f32)> {
         None
     }
 
@@ -1008,6 +1030,18 @@ pub trait Widget<Msg> {
     /// See [`crate::StackFit`]. Meaningless unless [`Widget::stack`] is true.
     fn stack_loose(&self) -> bool {
         false
+    }
+
+    /// Which layer of this stack is **shown**: the one at that index paints and takes
+    /// input, and every other one is laid out and then silenced — not drawn, not
+    /// clickable, not read out. `None`, the default, shows all of them.
+    ///
+    /// This is [`crate::IndexedStack`], and it is a question for the walk rather than for
+    /// the widget: a layer that wrapped itself in something to stay quiet would no longer
+    /// be laid out the way a bare layer is, which is the one thing an indexed stack
+    /// promises. Meaningless unless [`Widget::stack`] is true.
+    fn stack_visible(&self) -> Option<usize> {
+        None
     }
 
     /// The box this widget asks the scroll region around it to **keep in view**, in its
@@ -1378,6 +1412,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn overflow_box(&self) -> Option<crate::constraints::Overflow> {
         (**self).overflow_box()
     }
+    fn constraints_transform(&self) -> Option<crate::constraints::ConstraintsTransform> {
+        (**self).constraints_transform()
+    }
     fn hero_tag(&self) -> Option<u64> {
         (**self).hero_tag()
     }
@@ -1468,6 +1505,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn transform_translate(&self) -> Option<(f32, f32)> {
         (**self).transform_translate()
     }
+    fn translate_fraction(&self) -> Option<(f32, f32)> {
+        (**self).translate_fraction()
+    }
     fn transform_scale(&self) -> Option<(f32, f32, frus_core::Alignment)> {
         (**self).transform_scale()
     }
@@ -1506,6 +1546,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn stack_loose(&self) -> bool {
         (**self).stack_loose()
+    }
+    fn stack_visible(&self) -> Option<usize> {
+        (**self).stack_visible()
     }
     fn scroll_reverse(&self) -> bool {
         (**self).scroll_reverse()

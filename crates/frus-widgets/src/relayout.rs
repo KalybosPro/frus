@@ -304,9 +304,11 @@ fn hash_node<Msg, H: Hasher>(
         effective_style(widget, id, runtime, theme).layout_hash(hasher);
         return;
     }
-    // A `LayoutBuilder` hashes like a leaf and poisons the entry: its style is all there
-    // is to hash, and since milestone 355 its style is no longer all there is to its box.
-    if widget.layout_builder().is_some() {
+    // A box that transforms its constraints hashes like a leaf and poisons the entry, for
+    // the same reason a `LayoutBuilder` does and one more: its box comes from a closure,
+    // and a closure cannot be hashed. Two frames whose trees fingerprint alike could ask
+    // two different questions of the same child.
+    if widget.constraints_transform().is_some() || widget.layout_builder().is_some() {
         1u8.hash(hasher);
         effective_style(widget, id, runtime, theme).layout_hash(hasher);
         *volatile = true;
