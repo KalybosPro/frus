@@ -257,7 +257,7 @@ pub use listtile::{
     LIST_TILE_TITLE_GAP,
 };
 pub use locale::Locale;
-pub use localizations::{English, Localizations};
+pub use localizations::{English, French, Localizations};
 pub use media::{
     Accessibility, AccessibilityOverrides, Brightness, Edges, MediaQuery, SurfaceGuard,
 };

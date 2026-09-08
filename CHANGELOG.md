@@ -8,10 +8,25 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 482 so far, each documenting the objective, the alternatives
+> record — one per step, 483 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **A second language** (J483, closes #26): `French`, beside `English` in
+  `frus_widgets::localizations`. Written rather than generated — the week starts on
+  **Monday**, the months are **lower case** as the language writes them, and the four
+  selection sentences are four sentences because *ligne* is feminine and a formula gluing
+  *row* to *selected* cannot agree. "OK", "Minute" and "AM"/"PM" are written out
+  identical to the English on purpose, with the reason beside them.
+
+- **Sixteen more entries in the table**, for the words five widgets used to say in English
+  where no table could reach them: the calendar's month arrows, the stepper's two buttons,
+  a table's four selection announcements, a data table's search field and empty state, and
+  the time picker's headings and clock halves. All have English bodies, so nothing already
+  written changed.
 
 ### Fixed
 

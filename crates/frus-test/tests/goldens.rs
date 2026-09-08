@@ -1049,6 +1049,33 @@ fn date_bounded_matches_golden() {
     snapshot.assert_golden(golden("date_bounded"));
 }
 
+/// **The same calendar in French (milestone 483)**: `janvier 2026`, in lower case as the
+/// language writes it, over columns that start on **lundi** rather than on Sunday.
+///
+/// The week's first day is the half of a translation that a translation leaves behind: it
+/// is not a word, and a calendar that always began on Sunday was not untranslated — it put
+/// every day in the wrong column. Worth a picture for that reason, since a unit test on an
+/// index proves the table says Monday and not that the grid moved.
+#[test]
+fn date_picker_in_french_matches_golden() {
+    use frus_widgets::{localizations, DatePicker, French};
+    let theme = Theme::dark();
+    // **Built inside the scope, not merely rendered inside it.** A picker composes its
+    // header and its weekday row when it is constructed, so the words it puts on screen
+    // are the ones in force at that moment — which in an application is every frame, the
+    // shell installing the table before the view is built.
+    let Some(snapshot) = localizations::scope(std::rc::Rc::new(French), || {
+        let picker = DatePicker::new(2026, 1, Some(15), |_| (), |_| ());
+        let root: Container<()> = Container::new().padding(16.0).child(picker);
+        render_widget(&root, 300, 340, &theme)
+    }) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "the calendar is drawn");
+    snapshot.assert_golden(golden("date_picker_french"));
+}
+
 /// **A bounded range calendar (milestone 234)**: July 2026, the 10th to the 15th
 /// selected within an allowed window of `[8, 20]` — the endpoints and the days between
 /// stand out, and anything outside the window is disabled and dimmed. Reproduces its

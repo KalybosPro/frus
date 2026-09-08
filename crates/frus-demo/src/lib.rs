@@ -232,6 +232,26 @@ impl Application for TodoApp {
         self.lang.map(|index| Locale::new(LANGS[index].1))
     }
 
+    /// **And the words the framework says on this application's behalf** — a calendar's
+    /// months, the label a screen reader announces on a back arrow, the word on the cross
+    /// that dismisses a notification.
+    ///
+    /// Answered per language rather than once, because it is not the same question as
+    /// [`locale`](Self::locale): that one picks which of *this application's* Fluent
+    /// resources to read, and this one hands the framework a table of its own words. The
+    /// shell installs it every frame, so the menu switches both together.
+    ///
+    /// **Arabic gets English here**, deliberately and not by omission: there is no Arabic
+    /// table in the framework yet, and a machine-translated one would be worse than none —
+    /// it silences the question for that language and leaves a native reader with something
+    /// subtly wrong and nobody looking at it. Its layout still mirrors.
+    fn localizations(&self) -> Option<std::rc::Rc<dyn frus_widgets::Localizations>> {
+        match LANGS[crate::l10n::lang_of(self)].1 {
+            "fr" => Some(std::rc::Rc::new(frus_widgets::French)),
+            _ => None,
+        }
+    }
+
     fn theme(&self) -> Theme {
         let dark = MediaQuery::of().platform_brightness == Brightness::Dark;
         theme_of(self, dark)

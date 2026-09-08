@@ -175,7 +175,7 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             query: None,
             on_query: None,
             bulk_actions: None,
-            empty_text: "No results".to_string(),
+            empty_text: crate::localizations::of().no_results_label().to_string(),
             inner: Box::new(Flex::<Msg>::column()),
         };
         me.rebuild();
@@ -482,7 +482,7 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         self.inner = if let Some(on_query) = &self.on_query {
             let on_query = on_query.clone();
             let field = TextField::new(self.query.clone().unwrap_or_default())
-                .placeholder("Search")
+                .placeholder(crate::localizations::of().search_field_label())
                 .width(240.0)
                 .on_input(move |s| on_query(s));
             Box::new(Flex::column().gap(12.0).child(field).child(block))
