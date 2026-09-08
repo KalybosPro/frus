@@ -8,12 +8,24 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 485 so far, each documenting the objective, the alternatives
+> record — one per step, 486 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`ExpansionPanelList`** (J486, closes #40): a column of panels drawn as **one card**
+  that splits — adjacent shut panels merged and divided by a hairline, an open one lifted
+  out with a gap either side and corners of its own. Two modes: the free one
+  (`on_toggle(index, now_open)`) and the exclusive one, whose message carries the
+  **resulting** choice rather than the index pressed, so *one at a time* is a property of
+  what the widget sends. Pressing the open panel shuts it, which the reference's radio list
+  cannot. The split is deliberately **not tweened** — see the module docs.
+
+- **`ExpansionTile::title_child`** (J486): a header as a widget, the reference's
+  `headerBuilder`. `ListTile` had taken one for its first line all along; the tile never
+  passed it on.
 
 - **`DataTable::lazy`** (J484, closes #41): rows supplied one at a time, so a table showing
   ten of four thousand builds ten. Sorting, searching and filtering belong to whoever owns

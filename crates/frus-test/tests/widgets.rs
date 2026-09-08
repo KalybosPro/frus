@@ -24,15 +24,16 @@ use frus_widgets::{
     BottomAppBar, BottomBar, BottomSheet, Breadcrumb, Card, CarouselView, Checkbox,
     CheckboxListTile, CircleAvatar, CircularProgressIndicator, ClipOval, ClipPath, ClipRRect,
     ColorPicker, ConstrainedBox, Container, ControlAffinity, CustomPaint, Divider, DropdownButton,
-    DropdownMenu, DropdownOption, Expanded, ExpansionTile, FittedBox, Flex, FloatingActionButton,
-    FontWeight, FractionallySizedBox, GridTile, GridTileBar, GridView, Icon, IconButton, IconData,
-    Icons, Image, ImageIcon, Intrinsic, Kbd, LinearProgressIndicator, ListTile, ListView,
-    MediaQuery, MenuAnchor, MenuItem, NavigationBar, NavigationDestination, NavigationDrawer,
-    NavigationRail, Offstage, Opacity, OverflowBox, OverlayPortal, Placement, PopupMenuButton,
-    RadioGroup, RadioListTile, RailLabels, RichText, RotatedBox, SafeArea, SearchAnchor, SearchBar,
-    SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Spacer, Stack, Stepper, Switch,
-    SwitchListTile, TabBar, TabItem, TabPageSelector, Theme, Timeline, ToggleButtons, Transform,
-    TwoPane, UserAccountsDrawerHeader, VerticalDivider, Visibility, Widget,
+    DropdownMenu, DropdownOption, Expanded, ExpansionPanel, ExpansionPanelList, ExpansionTile,
+    FittedBox, Flex, FloatingActionButton, FontWeight, FractionallySizedBox, GridTile, GridTileBar,
+    GridView, Icon, IconButton, IconData, Icons, Image, ImageIcon, Intrinsic, Kbd,
+    LinearProgressIndicator, ListTile, ListView, MediaQuery, MenuAnchor, MenuItem, NavigationBar,
+    NavigationDestination, NavigationDrawer, NavigationRail, Offstage, Opacity, OverflowBox,
+    OverlayPortal, Placement, PopupMenuButton, RadioGroup, RadioListTile, RailLabels, RichText,
+    RotatedBox, SafeArea, SearchAnchor, SearchBar, SegmentedButton, SingleChildScrollView,
+    SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile, TabBar, TabItem,
+    TabPageSelector, Theme, Timeline, ToggleButtons, Transform, TwoPane, UserAccountsDrawerHeader,
+    VerticalDivider, Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -1360,6 +1361,43 @@ fn tabs_carrying_more_than_a_label() {
                 .child(TabPageSelector::<()>::new(4, 0)),
         );
     check("tabs_widget_labels", 460, 200, &root);
+}
+
+/// **Three panels, the second open (milestone 486).**
+///
+/// The point of the picture is the **surface**, not the rows: the two shut panels of a run
+/// are one card divided by a hairline, and the open one is lifted out of it with a gap
+/// either side and four corners of its own. A column of `ExpansionTile`s draws the same
+/// words and reads as three unrelated rows.
+#[test]
+fn expansion_panels_are_one_card_that_splits() {
+    let list = ExpansionPanelList::<()>::radio(Some(1), |_| ())
+        .panel(ExpansionPanel::new(
+            "Delivery",
+            text("Two parcels, one signature.").size(13.0),
+        ))
+        .panel(
+            ExpansionPanel::new("Payment", text("Visa ending 4242.").size(13.0))
+                .subtitle("Card on file"),
+        )
+        .panel(ExpansionPanel::new(
+            "Gift options",
+            text("None chosen.").size(13.0),
+        ))
+        // A fourth, so the picture shows both halves of the claim: the two shut ones at
+        // the foot are **one card** with a hairline between them, and the open one is a
+        // card of its own.
+        .panel(ExpansionPanel::new(
+            "Notes",
+            text("Leave with a neighbour.").size(13.0),
+        ));
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(360.0)
+        .color(Color::rgb8(16, 18, 22))
+        .padding(16.0)
+        .child(list);
+    check("expansion_panels", 360, 360, &root);
 }
 
 /// **A scrollable tab bar with something under it (milestone 485, #65).**

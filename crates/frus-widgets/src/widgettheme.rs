@@ -76,6 +76,8 @@ pub struct WidgetThemes {
     pub dropdown: DropdownTheme,
     /// Defaults for [`ExpansionTile`](crate::ExpansionTile).
     pub expansion_tile: ExpansionTileTheme,
+    /// Defaults for [`ExpansionPanelList`](crate::ExpansionPanelList).
+    pub expansion_panel_list: ExpansionPanelListTheme,
     /// Defaults for [`FloatingActionButton`](crate::FloatingActionButton).
     pub fab: FabTheme,
     pub form: FormTheme,
@@ -562,6 +564,26 @@ pub struct TooltipTheme {
     pub radius: Option<f32>,
     /// How wide the bubble may get before the label wraps.
     pub max_width: Option<f32>,
+}
+
+/// Defaults for [`ExpansionPanelList`](crate::ExpansionPanelList).
+///
+/// A list of panels is one **surface** that splits, so what it needs said once is the
+/// surface: its tone, its corners, the room an open panel is lifted by, and the hairline
+/// between two shut ones.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ExpansionPanelListTheme {
+    /// The surface the panels are drawn on. Unset, the scheme's low container — the tone
+    /// a card takes, because that is what a run of shut panels is.
+    pub background: Option<Color>,
+    /// The corner radius of a card: the outer corners of a run, and all four of an open
+    /// panel's.
+    pub radius: Option<f32>,
+    /// The room an open panel is given either side of it, which is what makes it read as
+    /// lifted out of the card rather than merely coloured differently.
+    pub gap: Option<f32>,
+    /// The hairline between two shut panels of one card.
+    pub divider_color: Option<Color>,
 }
 
 /// Defaults for [`ExpansionTile`](crate::ExpansionTile) — the reference's

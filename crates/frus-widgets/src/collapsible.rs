@@ -50,6 +50,9 @@ const CHILDREN_PADDING: Insets = Insets::new(0.0, 16.0, 16.0, 16.0);
 /// ```
 pub struct ExpansionTile<Msg> {
     title: String,
+    /// A header **widget** in place of the title line; see
+    /// [`ExpansionTile::title_child`].
+    title_widget: RefCell<Option<Box<dyn Widget<Msg>>>>,
     open: bool,
     on_toggle: Msg,
     subtitle: Option<String>,
@@ -83,6 +86,7 @@ impl<Msg: Clone + 'static> ExpansionTile<Msg> {
     pub fn new(title: impl Into<String>, open: bool, on_toggle: Msg) -> Self {
         Self {
             title: title.into(),
+            title_widget: RefCell::new(None),
             open,
             on_toggle,
             subtitle: None,
@@ -104,6 +108,21 @@ impl<Msg: Clone + 'static> ExpansionTile<Msg> {
             collapsed_shape: None,
             built: OnceCell::new(),
         }
+    }
+
+    /// The first line as a **widget**, for a header the tile would not have made — a name
+    /// with a badge beside it, a row of chips. The reference's `headerBuilder`.
+    ///
+    /// The chevron, the tap target and the row around it stay the tile's: what this
+    /// replaces is the line of text, not the row it sits in.
+    pub fn title_child(self, title: impl Widget<Msg> + 'static) -> Self {
+        self.title_child_boxed(Box::new(title))
+    }
+
+    /// The same, taking an **already boxed** widget — what a list of panels has to hand.
+    pub fn title_child_boxed(self, title: Box<dyn Widget<Msg>>) -> Self {
+        *self.title_widget.borrow_mut() = Some(title);
+        self
     }
 
     /// The body, shown only while the tile is open.
@@ -269,9 +288,11 @@ impl<Msg: Clone + 'static> ExpansionTile<Msg> {
             ControlAffinity::Trailing => (given_leading, given_trailing.or(chevron)),
         };
 
-        let mut tile = ListTile::new()
-            .title(self.title.clone())
-            .on_tap(self.on_toggle.clone());
+        let mut tile = ListTile::new().on_tap(self.on_toggle.clone());
+        tile = match self.title_widget.borrow_mut().take() {
+            Some(header) => tile.title_child(crate::ConstrainedBox::new_boxed(header)),
+            None => tile.title(self.title.clone()),
+        };
         if let Some(subtitle) = &self.subtitle {
             tile = tile.subtitle(subtitle.clone());
         }

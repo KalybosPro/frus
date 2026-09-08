@@ -53,6 +53,7 @@ mod dropdown;
 mod dropdownmenu;
 mod dsl;
 mod expanded;
+mod expansionpanel;
 mod fab;
 mod filters;
 mod fittedbox;
@@ -223,6 +224,7 @@ pub use dropdown::{DropdownButton, DropdownOption};
 pub use dropdownmenu::DropdownMenu;
 pub use dsl::{button, expanded, flexible, keyed, spacer, text};
 pub use expanded::{Expanded, FlexFit, Flexible};
+pub use expansionpanel::{ExpansionPanel, ExpansionPanelList};
 pub use fab::{FabSize, FloatingActionButton};
 pub use filters::{BackdropFilter, BackdropGroup, ColorFiltered, ImageFiltered, ShaderMask};
 pub use fittedbox::FittedBox;
@@ -369,9 +371,9 @@ pub use widgetstate::{StateFilter, WidgetState, WidgetStateProperty, WidgetState
 pub use widgettheme::resolve_shape;
 pub use widgettheme::{
     AppBarTheme, BadgeTheme, ButtonTheme, CardTheme, CheckboxTheme, ChipTheme, DefaultTextStyle,
-    DividerTheme, DrawerTheme, GridTileBarTheme, IconButtonTheme, IconTheme, InkTheme,
-    PageSelectorTheme, RadioTheme, SegmentedTheme, SliderTheme, SwitchTheme, TabBarTheme,
-    TextFieldTheme, ToggleButtonsTheme, WidgetThemes,
+    DividerTheme, DrawerTheme, ExpansionPanelListTheme, GridTileBarTheme, IconButtonTheme,
+    IconTheme, InkTheme, PageSelectorTheme, RadioTheme, SegmentedTheme, SliderTheme, SwitchTheme,
+    TabBarTheme, TextFieldTheme, ToggleButtonsTheme, WidgetThemes,
 };
 
 // Convenience re-exports for callers.
