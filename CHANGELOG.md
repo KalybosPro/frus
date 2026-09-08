@@ -8,12 +8,23 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 483 so far, each documenting the objective, the alternatives
+> record — one per step, 484 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`DataTable::lazy`** (J484, closes #41): rows supplied one at a time, so a table showing
+  ten of four thousand builds ten. Sorting, searching and filtering belong to whoever owns
+  the data — the table draws the arrows and emits, and every index is an index into the set
+  as it stands. A page that no longer exists shows **the last one that does**, which is now
+  written down rather than being what the clamp happened to do.
+
+- **The table's footer speaks the reader's language** (J484): `page_range_label`,
+  `rows_per_page_label`, `selected_row_count_label` and `group_digits` — so "11–20 of 4,000"
+  becomes "11–20 sur 4 000", and the page-size chooser is named instead of being three bare
+  numbers in a corner.
 
 - **A second language** (J483, closes #26): `French`, beside `English` in
   `frus_widgets::localizations`. Written rather than generated — the week starts on
@@ -27,6 +38,11 @@ any release may break.
   a table's four selection announcements, a data table's search field and empty state, and
   the time picker's headings and clock halves. All have English bodies, so nothing already
   written changed.
+
+### Changed
+
+- **A `DataTable` composes itself when something looks at it**, not once per builder call
+  (J484). A chain of nine builders used to compose the whole widget nine times.
 
 ### Fixed
 

@@ -33,6 +33,22 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// Writes `number` with its thousands separated by `separator`, from the right.
+///
+/// Shared by the tables rather than written twice: what changes from one language to the
+/// next is the character, not the arithmetic.
+fn group_with(number: usize, separator: &str) -> String {
+    let digits = number.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (seen, ch) in digits.chars().enumerate() {
+        if seen > 0 && (digits.len() - seen).is_multiple_of(3) {
+            out.push_str(separator);
+        }
+        out.push(ch);
+    }
+    out
+}
+
 /// **What the framework says**, for one language.
 ///
 /// Every method has an English body, so implementing this means writing down only what
@@ -202,6 +218,49 @@ pub trait Localizations {
     /// See [`start_label`](Self::start_label).
     fn end_label(&self) -> &str {
         "End"
+    }
+
+    /// **The line under a paginated table**: which rows are showing, out of how many.
+    ///
+    /// `start` and `end` count from one and are inclusive, as the sentence reads. An empty
+    /// table says so rather than saying "1–0 of 0".
+    ///
+    /// A whole sentence rather than a separator and a word, because the pieces do not go in
+    /// the same order in every language, and because the numbers in it want grouping —
+    /// which is [`group_digits`](Self::group_digits), and is not the same character
+    /// everywhere.
+    fn page_range_label(&self, start: usize, end: usize, total: usize) -> String {
+        if total == 0 {
+            return "0 of 0".to_string();
+        }
+        format!(
+            "{}–{} of {}",
+            self.group_digits(start),
+            self.group_digits(end),
+            self.group_digits(total)
+        )
+    }
+
+    /// **The label beside a table's page-size chooser.**
+    fn rows_per_page_label(&self) -> &str {
+        "Rows per page"
+    }
+
+    /// **What a table's bulk-action bar says about how much is selected.**
+    ///
+    /// Takes the count because languages disagree about what a count does to the words
+    /// after it: English says "1 selected" and "3 selected", and French has to agree the
+    /// participle with the number.
+    fn selected_row_count_label(&self, count: usize) -> String {
+        format!("{} selected", self.group_digits(count))
+    }
+
+    /// **A number with its thousands grouped**, as the reader's language groups them: a
+    /// comma in English, a space in French, and a stop in a good many other places.
+    ///
+    /// Four thousand rows written `4000` is a number a reader has to count the digits of.
+    fn group_digits(&self, number: usize) -> String {
+        group_with(number, ",")
     }
 
     /// **What a reader hears on the arrows either side of a calendar's month.**
@@ -386,6 +445,40 @@ impl Localizations for French {
 
     fn end_label(&self) -> &str {
         "Fin"
+    }
+
+    /// « 11–20 sur 4 000 ». The word in the middle is *sur* and not *de*, and the numbers
+    /// are grouped with a space.
+    fn page_range_label(&self, start: usize, end: usize, total: usize) -> String {
+        if total == 0 {
+            return "0 sur 0".to_string();
+        }
+        format!(
+            "{}–{} sur {}",
+            self.group_digits(start),
+            self.group_digits(end),
+            self.group_digits(total)
+        )
+    }
+
+    fn rows_per_page_label(&self) -> &str {
+        "Lignes par page"
+    }
+
+    /// **Agreed with the count**, which is why this entry takes one: *ligne* is feminine,
+    /// so the participle is *sélectionnée*, and it takes an `s` from two upwards.
+    fn selected_row_count_label(&self, count: usize) -> String {
+        let plural = if count > 1 { "s" } else { "" };
+        format!("{} sélectionnée{plural}", self.group_digits(count))
+    }
+
+    /// **A no-break space**, which is how French groups a number — and no-break because a
+    /// line that broke between the 4 and the 000 would be two numbers.
+    ///
+    /// Typography asks for a *narrow* one (`U+202F`); this is the ordinary one
+    /// (`U+00A0`), which every font has and which no shaper draws as a missing glyph.
+    fn group_digits(&self, number: usize) -> String {
+        group_with(number, " ")
     }
 
     fn previous_month_label(&self) -> &str {
@@ -593,6 +686,11 @@ mod tests {
             ("start", en.start_label(), fr.start_label()),
             ("end", en.end_label(), fr.end_label()),
             (
+                "rows per page",
+                en.rows_per_page_label(),
+                fr.rows_per_page_label(),
+            ),
+            (
                 "previous month",
                 en.previous_month_label(),
                 fr.previous_month_label(),
@@ -606,6 +704,15 @@ mod tests {
             assert_ne!(english, french, "{what} was not translated");
         }
         assert_ne!(en.tab_label(1, 3), fr.tab_label(1, 3));
+        assert_ne!(
+            en.page_range_label(11, 20, 4000),
+            fr.page_range_label(11, 20, 4000)
+        );
+        assert_ne!(
+            en.selected_row_count_label(3),
+            fr.selected_row_count_label(3)
+        );
+        assert_ne!(en.group_digits(4000), fr.group_digits(4000));
         assert_ne!(en.months(), fr.months());
         assert_ne!(en.narrow_weekdays(), fr.narrow_weekdays());
     }

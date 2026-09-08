@@ -1491,6 +1491,34 @@ fn data_table_sorted_matches_golden() {
     snapshot.assert_golden(golden("data_table_sorted"));
 }
 
+/// **Page 2 of 400 (milestone 484)**: four thousand rows, ten to a page, supplied one at a
+/// time — the table asks for the ten it is showing and never sees the rest.
+///
+/// The footer is the point as much as the rows are: the line reads "11–20 of 4,000", with
+/// the thousand grouped as the reader's language groups it, and the page-size chooser has a
+/// name beside it instead of being three bare numbers in a corner.
+#[test]
+fn data_table_lazy_page_of_many_matches_golden() {
+    use frus_widgets::DataTable;
+    let theme = Theme::dark();
+    let table: DataTable<()> = DataTable::lazy(["#", "Name", "Score"], 4_000, |i| {
+        vec![
+            format!("{}", i + 1),
+            format!("Person {}", i + 1),
+            format!("{}", (i * 37) % 100),
+        ]
+    })
+    .paginated(2, 10, |_| ())
+    .page_sizes(&[10, 25, 50], |_| ());
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 700, 520, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 150, "the table is drawn");
+    snapshot.assert_golden(golden("data_table_lazy_page"));
+}
+
 /// **A paginated DataTable (milestones 233/236)**: seven rows sorted by "Score"
 /// descending, in pages of **3** — page 1, three rows, under an "N–M of T" footer plus
 /// [`Pagination`] and a page-size selector (3/5/10). Reproduces its golden.
