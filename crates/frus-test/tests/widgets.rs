@@ -1362,6 +1362,46 @@ fn tabs_carrying_more_than_a_label() {
     check("tabs_widget_labels", 460, 200, &root);
 }
 
+/// **A scrollable tab bar with something under it (milestone 485, #65).**
+///
+/// The picture is the whole bug. A scrollable bar wraps its strip in a horizontal viewport,
+/// and a viewport's two hundred pixel default — the height of a window onto something
+/// taller — belongs to the axis that scrolls. A horizontal one took it as well, so a bar
+/// forty-eight pixels tall claimed two hundred and the panel began a hundred and fifty
+/// pixels into empty space.
+///
+/// Nothing in the suite could have caught it, because nothing rendered a scrollable bar
+/// **with anything below it**: every test read the strip's own geometry, which was right
+/// whatever box the scroll claimed.
+#[test]
+fn a_scrollable_tab_bar_sits_on_its_panel() {
+    let panel = |name: &str| {
+        Container::<()>::new()
+            .height(64.0)
+            .color(Color::rgb8(32, 36, 46))
+            .padding(12.0)
+            .child(text(name).size(14.0))
+    };
+    let mut bar: TabBar<()> = TabBar::new(1, |_| ()).scrollable(true);
+    for name in [
+        "Overview",
+        "Activity",
+        "Members",
+        "Settings",
+        "Integrations",
+        "Billing",
+    ] {
+        bar = bar.tab(name, panel(name));
+    }
+    let root: Container<()> = Container::new()
+        .width(420.0)
+        .height(160.0)
+        .color(Color::rgb8(20, 22, 28))
+        .padding(12.0)
+        .child(bar);
+    check("tabs_scrollable_with_panel", 420, 160, &root);
+}
+
 /// **A picture where an icon goes.** A brand mark shipped as a bitmap, in an icon button
 /// beside two ordinary ones — the point of the picture being that all three marks are the
 /// same size without any of them being told, because a picture answers the same

@@ -1635,6 +1635,70 @@ fn build_layout_scoped<'a, Msg>(
             Fills::own(widget, theme),
         );
     }
+    // **A viewport is sized from its content on the axis it does not scroll.**
+    //
+    // A scrollable area declares a size on the axis it scrolls — that is what a viewport
+    // is, a window shorter than what is behind it. On the *other* axis there is nothing to
+    // choose: the content is as tall as it is, and the viewport is that tall. Until
+    // milestone 485 a horizontal strip took the 200 px that belongs to a vertical one, so a
+    // scrollable tab bar 48 px tall claimed 200 and pushed its panel a hundred and fifty
+    // pixels into empty space (#65).
+    //
+    // It cannot be answered by the widget alone, and that is the whole reason this lives
+    // here. A scroll host lays its content out **against** the viewport on the axis that
+    // does not scroll — the content of a horizontal strip is given the viewport's height —
+    // so a viewport that said `Auto` there would hand the content nothing and come back
+    // nothing tall, the circle closing at zero. Breaking it takes a measurement, at the one
+    // moment the runtime and the theme are both to hand.
+    if let Some(content) = widget.scroll_content() {
+        let style = effective_style(widget, id, runtime, theme);
+        let axis = widget.scroll_axis();
+        // Only an axis that **neither scrolls nor was given a size**. A caller's number is
+        // a caller's number, and an axis that scrolls has already answered.
+        let hug_x = !axis.free_x() && matches!(style.width, frus_layout::Dimension::Auto);
+        let hug_y = !axis.free_y() && matches!(style.height, frus_layout::Dimension::Auto);
+        if hug_x || hug_y {
+            let owned = owned_theme(theme);
+            let cid = child_id(id, 0, content);
+            let measure: frus_layout::MeasureFn<'a> = Box::new(move |w, h| {
+                let mut inner: Layout<BaselineData> = Layout::new();
+                let node = build_layout(content, cid, runtime, &owned, &mut inner);
+                // The content is unconstrained on every axis that scrolls — that is what
+                // scrolling means — and on the one being measured. What is left is an axis
+                // with a real number on it, and the content is held to it.
+                inner.compute_scroll(
+                    node,
+                    w.unwrap_or(0.0),
+                    h.unwrap_or(0.0),
+                    hug_x || axis.free_x() || w.is_none(),
+                    hug_y || axis.free_y() || h.is_none(),
+                );
+                let content = inner.size_of(node);
+                let pad = widget.scroll_padding();
+                // **Only the hugged axis is answered.** On the axis that scrolls, a
+                // viewport is precisely *not* as big as its content — answering with the
+                // content's size there would make a flexible viewport ask for the whole
+                // length of what is behind it as its basis, and a column holding one would
+                // overflow by however much there was to scroll. Nought is what a leaf
+                // answered before this branch existed, and it is still the right answer.
+                Size::new(
+                    match hug_x {
+                        true => content.width + pad.left + pad.right,
+                        false => 0.0,
+                    },
+                    match hug_y {
+                        true => content.height + pad.top + pad.bottom,
+                        false => 0.0,
+                    },
+                )
+            });
+            return (
+                layout.measured_leaf(style, own_baseline, measure),
+                Fills::own(widget, theme),
+            );
+        }
+    }
+
     // Scrollables, interactive viewports, fitters (`FittedBox`), navigators, virtualised
     // lists and stacks: their content is laid out separately (independent layers / screens /
     // items, or a child laid out at its natural size).

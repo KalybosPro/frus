@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 484 so far, each documenting the objective, the alternatives
+> record — one per step, 485 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -45,6 +45,14 @@ any release may break.
   (J484). A chain of nine builders used to compose the whole widget nine times.
 
 ### Fixed
+
+- **A scrollable tab bar no longer pushes its panel 200 pixels down** (J485, closes #65).
+  A viewport is sized from its **content** on the axis it does not scroll: the 200 px
+  default is the height of a window onto something taller and belongs to the axis that
+  scrolls, so a horizontal strip 48 px tall claimed 200. `Auto` on the still axis is now
+  the signal the layout reads, and the measurement happens where the runtime and the theme
+  are both to hand. A vertical area's width comes from its content the same way — in a row
+  it used to come out nothing wide.
 
 - **A dialog's buttons no longer run off its edge** (J482, closes #27): `AlertDialog`'s
   actions are an `OverflowBar` — one line while they fit, a column when they do not — and

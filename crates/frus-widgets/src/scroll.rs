@@ -214,6 +214,22 @@ impl<Msg: Clone> Widget<Msg> for SingleChildScrollView<Msg> {
         } else {
             self.width
         };
+        // **A size nobody asked for, on an axis that does not scroll, is not ours to
+        // invent.** The 200 is the default *viewport* — the height of a window onto
+        // something taller — and it belongs to the axis that scrolls. A horizontal strip
+        // took it too, and claimed two hundred pixels for a bar forty-eight tall (#65).
+        // `Auto` here is the signal the layout reads to size this axis from the content;
+        // see the scroll branch of `build_layout_scoped`.
+        let height = if !self.height_explicit && !self.axis.free_y() {
+            Dimension::Auto
+        } else {
+            height
+        };
+        let width = if !self.width_explicit && !self.axis.free_x() {
+            Dimension::Auto
+        } else {
+            width
+        };
         Style {
             width,
             height,
@@ -270,6 +286,73 @@ mod tests {
     use frus_core::{Color, Primitive};
 
     const MARK: Color = Color::rgb(1.0, 0.0, 0.0);
+
+    /// **A viewport is as big as its content on the axis it does not scroll.**
+    ///
+    /// The two hundred pixel default is the height of a *window onto something taller*, and
+    /// it belongs to the axis that scrolls. A horizontal area took it as well, which is how
+    /// a tab bar forty-eight pixels tall came to claim two hundred and push its panel down
+    /// the page (#65).
+    ///
+    /// It cannot be answered by this widget alone: a scroll host lays its content out
+    /// against the viewport on the axis that does not scroll, so an `Auto` here would hand
+    /// the content nothing and get nothing back. `Auto` is the *signal*; the measurement
+    /// happens in the layout, where the content can be laid out on its own first.
+    #[test]
+    fn a_viewport_takes_its_content_s_size_on_the_axis_it_does_not_scroll() {
+        let strip = SingleChildScrollView::<()>::new()
+            .axis(Axis::Horizontal)
+            .child(Container::new().width(900.0).height(48.0).color(MARK));
+        let ui = build_ui(
+            &strip,
+            Size::new(300.0, 400.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let box_ = ui.scene().primitives().iter().find_map(|p| match p {
+            Primitive::Rect { rect, .. } => Some(*rect),
+            _ => None,
+        });
+        assert_eq!(
+            box_.map(|r| r.height),
+            Some(48.0),
+            "the strip is its content's height, not the vertical default"
+        );
+
+        // And a caller's own number is still a caller's own number.
+        let told = SingleChildScrollView::<()>::new()
+            .axis(Axis::Horizontal)
+            .height(120.0)
+            .child(Container::new().width(900.0).height(48.0).color(MARK));
+        assert_eq!(
+            Widget::<()>::style(&told).height,
+            Dimension::Length(120.0),
+            "an explicit height is not measured away"
+        );
+    }
+
+    /// The vertical case of the same rule: an area that scrolls **down** takes its width
+    /// from what is in it. In a row it used to come out nothing wide, a leaf's content
+    /// being nothing at all.
+    #[test]
+    fn a_vertical_area_is_as_wide_as_its_content() {
+        let row = crate::Flex::<()>::row().child(
+            SingleChildScrollView::<()>::new()
+                .height(100.0)
+                .child(Container::new().width(160.0).height(400.0).color(MARK)),
+        );
+        let ui = build_ui(
+            &row,
+            Size::new(400.0, 400.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let drawn = ui.scene().primitives().iter().find_map(|p| match p {
+            Primitive::Rect { rect, .. } => Some(*rect),
+            _ => None,
+        });
+        assert_eq!(drawn.map(|r| r.width), Some(160.0));
+    }
 
     /// A scroll 100 tall holding `content_h` of content, at `offset`; returns the
     /// rectangle of the marker drawn at the very end of that content.

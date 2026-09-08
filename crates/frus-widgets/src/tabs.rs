@@ -1451,6 +1451,54 @@ mod tests {
         })
     }
 
+    /// **A scrollable bar's panel starts under its hairline**, not two hundred pixels
+    /// below it (#65).
+    ///
+    /// A scrollable bar wraps its strip in a horizontal viewport, and a viewport's default
+    /// height — two hundred pixels, the height of a window onto something taller — belongs
+    /// to the axis that scrolls. A horizontal one took it too, so a bar forty-eight pixels
+    /// tall claimed two hundred and everything under it began in empty space.
+    ///
+    /// The picture is the whole bug, which is why one was added with it; this pins the
+    /// arithmetic. Nothing in the suite caught it because nothing rendered a scrollable bar
+    /// **with something under it** — every test read the strip's own geometry, which was
+    /// right whatever box the scroll claimed.
+    #[test]
+    fn a_scrolling_bar_does_not_push_its_panel_down_the_page() {
+        let panel = crate::Container::new()
+            .height(30.0)
+            .color(Color::rgb(1.0, 0.0, 0.0));
+        let tabs = TabBar::new(0, Msg::Select)
+            .scrollable(true)
+            .tab("One", panel)
+            .tab("Two", crate::Container::new().height(30.0));
+        let ui = build_ui(
+            &tabs,
+            Size::new(400.0, 400.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let red = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.9 && color.g < 0.1 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("the panel is drawn");
+        // The bar is `tab_height + the hairline` tall, and the panel starts there. The
+        // measurement in the issue found it at y > 150 against a hairline at 48.
+        let bar = TAB_HEIGHT;
+        assert!(
+            (red.y - bar).abs() <= 4.0,
+            "the panel starts under the bar ({bar}), not at {}",
+            red.y
+        );
+    }
+
     /// A bar wider than its window **opens** on the selected tab. Before this, an
     /// application restored on its ninth tab showed the first three and nothing said
     /// where the selection had gone.
