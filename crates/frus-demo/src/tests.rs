@@ -1221,3 +1221,43 @@ fn no_screen_draws_outside_itself() {
     }
     assert!(worst.is_empty(), "{worst:#?}");
 }
+
+/// **The language menu switches the framework's words too**, not only the application's.
+///
+/// Two different mechanisms answer one gesture: this application's own strings come from
+/// its Fluent resources through `locale`, and the framework's — a calendar's months, the
+/// label on a back arrow — from a table through `localizations`. A reader who picks
+/// Français and gets a French interface around an English calendar has been told the
+/// switch did not work.
+#[test]
+fn choosing_french_hands_the_framework_a_french_table() {
+    use frus_shell::Application;
+    let mut app = TodoApp {
+        lang: Some(1),
+        ..Default::default()
+    };
+    assert_eq!(
+        app.locale()
+            .map(|l| l.language_code().to_string())
+            .as_deref(),
+        Some("fr")
+    );
+    let table = app.localizations().expect("a French table");
+    assert_eq!(table.months()[0], "janvier");
+    assert_eq!(
+        table.first_day_of_week_index(),
+        1,
+        "the week starts on Monday"
+    );
+
+    app.lang = Some(0);
+    assert!(
+        app.localizations().is_none(),
+        "English is the framework's own default, so there is nothing to install"
+    );
+
+    // **Arabic mirrors but is not translated**, deliberately: there is no Arabic table in
+    // the framework yet, and a machine-translated one would be worse than none.
+    app.lang = Some(2);
+    assert!(app.localizations().is_none());
+}

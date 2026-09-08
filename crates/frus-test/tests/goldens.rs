@@ -6,10 +6,11 @@ use frus_core::{Color, Point, Rect, Scene, TextAlign, TextOverflow, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
     Align, Autocomplete, BackdropFilter, BarChart, Button, Checkbox, Chip, CircleAvatar, ClipRRect,
-    ColorFiltered, Column, Container, DateTimePicker, DropdownButton, Flex, Icons, IgnoreBaseline,
-    ImageFiltered, Justify, LineChart, Pagination, PopupMenuButton, RadioGroup, RangeSlider,
-    Rating, RichText, Row, SegmentedButton, ShaderMask, Slider, Stack, Stepper, Switch, TabBar,
-    Table, Text, TextField, TextSpan, Theme, TimePicker, Variant,
+    ColorFiltered, Column, Container, DateTimePicker, DropdownButton, Flex, FractionalTranslation,
+    Icons, IgnoreBaseline, ImageFiltered, Justify, LineChart, Pagination, PopupMenuButton,
+    RadioGroup, RangeSlider, Rating, RichText, Row, SegmentedButton, ShaderMask, SizedOverflowBox,
+    Slider, Stack, StackFit, Stepper, Switch, TabBar, Table, Text, TextField, TextSpan, Theme,
+    TimePicker, UnconstrainedBox, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -1049,6 +1050,33 @@ fn date_bounded_matches_golden() {
     snapshot.assert_golden(golden("date_bounded"));
 }
 
+/// **The same calendar in French (milestone 483)**: `janvier 2026`, in lower case as the
+/// language writes it, over columns that start on **lundi** rather than on Sunday.
+///
+/// The week's first day is the half of a translation that a translation leaves behind: it
+/// is not a word, and a calendar that always began on Sunday was not untranslated — it put
+/// every day in the wrong column. Worth a picture for that reason, since a unit test on an
+/// index proves the table says Monday and not that the grid moved.
+#[test]
+fn date_picker_in_french_matches_golden() {
+    use frus_widgets::{localizations, DatePicker, French};
+    let theme = Theme::dark();
+    // **Built inside the scope, not merely rendered inside it.** A picker composes its
+    // header and its weekday row when it is constructed, so the words it puts on screen
+    // are the ones in force at that moment — which in an application is every frame, the
+    // shell installing the table before the view is built.
+    let Some(snapshot) = localizations::scope(std::rc::Rc::new(French), || {
+        let picker = DatePicker::new(2026, 1, Some(15), |_| (), |_| ());
+        let root: Container<()> = Container::new().padding(16.0).child(picker);
+        render_widget(&root, 300, 340, &theme)
+    }) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "the calendar is drawn");
+    snapshot.assert_golden(golden("date_picker_french"));
+}
+
 /// **A bounded range calendar (milestone 234)**: July 2026, the 10th to the 15th
 /// selected within an allowed window of `[8, 20]` — the endpoints and the days between
 /// stand out, and anything outside the window is disabled and dimmed. Reproduces its
@@ -1462,6 +1490,34 @@ fn data_table_sorted_matches_golden() {
         "the sorted DataTable is drawn"
     );
     snapshot.assert_golden(golden("data_table_sorted"));
+}
+
+/// **Page 2 of 400 (milestone 484)**: four thousand rows, ten to a page, supplied one at a
+/// time — the table asks for the ten it is showing and never sees the rest.
+///
+/// The footer is the point as much as the rows are: the line reads "11–20 of 4,000", with
+/// the thousand grouped as the reader's language groups it, and the page-size chooser has a
+/// name beside it instead of being three bare numbers in a corner.
+#[test]
+fn data_table_lazy_page_of_many_matches_golden() {
+    use frus_widgets::DataTable;
+    let theme = Theme::dark();
+    let table: DataTable<()> = DataTable::lazy(["#", "Name", "Score"], 4_000, |i| {
+        vec![
+            format!("{}", i + 1),
+            format!("Person {}", i + 1),
+            format!("{}", (i * 37) % 100),
+        ]
+    })
+    .paginated(2, 10, |_| ())
+    .page_sizes(&[10, 25, 50], |_| ());
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 700, 520, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 150, "the table is drawn");
+    snapshot.assert_golden(golden("data_table_lazy_page"));
 }
 
 /// **A paginated DataTable (milestones 233/236)**: seven rows sorted by "Score"
@@ -3214,4 +3270,65 @@ fn rich_text_alignment_and_limit_match_their_golden() {
         return;
     };
     snapshot.assert_golden(golden("rich_text_block"));
+}
+
+/// The three constraint boxes that can be photographed, each showing the one thing it
+/// does that the box above it cannot.
+///
+/// Top: an [`UnconstrainedBox`] holding a row wider than the column it is in. The row
+/// keeps the width it asked for, the box keeps the width it was offered, and the
+/// difference wears a band on **both** edges — it is centred, so it runs past both.
+///
+/// Middle: a [`SizedOverflowBox`] declaring a 40 px slot for a 140 px tile. The bright
+/// square to its right is a neighbour laid out immediately after it, and it is where it
+/// is because the slot really was 40 wide: the tile behind it is a spill, not a size.
+///
+/// Bottom: a [`FractionalTranslation`] of one whole width. The faint tile is where the
+/// layout put both of them; the bright one is the same box painted exactly clear of
+/// itself, which is what a fraction of a size the caller was never told buys.
+#[test]
+fn the_constraint_boxes_match_their_golden() {
+    let theme = Theme::dark();
+    let tile = |w: f32, h: f32, alpha: f32| {
+        Container::new()
+            .width(w)
+            .height(h)
+            .no_shrink()
+            .radius(6.0)
+            .color(Color::WHITE.fade(alpha))
+    };
+    let root: Container<()> = Container::new().padding(14.0).child(
+        Flex::column()
+            .width(232.0)
+            .gap(30.0)
+            .align(Align::Start)
+            .child(UnconstrainedBox::new(
+                Flex::row()
+                    .gap(8.0)
+                    .child(tile(100.0, 28.0, 0.25))
+                    .child(tile(100.0, 28.0, 0.25))
+                    .child(tile(100.0, 28.0, 0.25)),
+            ))
+            .child(
+                Flex::row()
+                    // An empty square, so the spill has room to be seen on both sides of
+                    // the slot rather than running off the picture.
+                    .child(Container::new().width(40.0).height(40.0))
+                    .child(SizedOverflowBox::new(40.0, 40.0, tile(110.0, 40.0, 0.2)))
+                    .child(tile(40.0, 40.0, 0.55)),
+            )
+            .child(
+                Stack::new()
+                    .fit(StackFit::Loose)
+                    .width(180.0)
+                    .height(28.0)
+                    .layer(tile(80.0, 28.0, 0.12))
+                    .layer(FractionalTranslation::new(1.0, 0.0).child(tile(80.0, 28.0, 0.5))),
+            ),
+    );
+    let Some(snapshot) = render_widget(&root, 260, 220, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("constraint_boxes"));
 }

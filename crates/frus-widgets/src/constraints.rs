@@ -438,10 +438,339 @@ impl Overflow {
     }
 }
 
+/// A box of a **stated size** whose child is laid out at another one, and spills.
+///
+/// The size given here is what the parent sees and what the neighbours make room for.
+/// The child is laid out separately — at the size it asks for, or at one stated with
+/// [`SizedOverflowBox::child_size`] — anchored in the box by its alignment, and allowed
+/// past every edge.
+///
+/// It is [`OverflowBox`] with the hole given a size: an overflow box fills whatever it is
+/// offered, because nothing else could anchor a child that contributes no size, and this
+/// is the form for a slot narrower than the space around it — a 24 px gap in a toolbar
+/// showing a 40 px control, a caption strip under an image that reaches past both sides.
+///
+/// It does **not** clip: put a [`crate::ClipRRect`] above it if the spill should stop.
+pub struct SizedOverflowBox<Msg> {
+    width: f32,
+    height: f32,
+    overflow: Overflow,
+    children: Vec<Box<dyn Widget<Msg>>>,
+}
+
+impl<Msg> SizedOverflowBox<Msg> {
+    /// A `width`×`height` box holding `child`, which is laid out at **its own** natural
+    /// size and centred.
+    pub fn new(width: f32, height: f32, child: impl Widget<Msg> + 'static) -> Self {
+        Self {
+            width,
+            height,
+            overflow: Overflow {
+                width: None,
+                height: None,
+                unconstrained: true,
+                alignment: Alignment::CENTER,
+            },
+            children: vec![Box::new(child)],
+        }
+    }
+
+    /// Lays the child out at a size of its own rather than at the one it asks for.
+    pub fn child_size(mut self, width: f32, height: f32) -> Self {
+        self.overflow.unconstrained = false;
+        self.overflow.width = Some(width);
+        self.overflow.height = Some(height);
+        self
+    }
+
+    /// Where the child sits in the box — and so which edges it spills past.
+    pub fn alignment(mut self, alignment: Alignment) -> Self {
+        self.overflow.alignment = alignment;
+        self
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for SizedOverflowBox<Msg> {
+    fn style(&self) -> Style {
+        Style {
+            width: Dimension::Length(self.width),
+            height: Dimension::Length(self.height),
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &self.children
+    }
+
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+
+    fn overflow_box(&self) -> Option<Overflow> {
+        Some(self.overflow)
+    }
+
+    fn debug_name(&self) -> &'static str {
+        "SizedOverflowBox"
+    }
+}
+
+/// What a [`ConstraintsTransformBox`] does to **one axis** of the space on offer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AxisConstraint {
+    /// As it came: the child is given the room the parent offered.
+    AsGiven,
+    /// Taken away: the child is asked how big it would like to be, and may come back
+    /// bigger than the room there was.
+    Unbounded,
+    /// A number of its own, whatever was offered.
+    Fixed(f32),
+}
+
+/// What a [`ConstraintsTransformBox`] gives its child, per axis, and what it does about a
+/// child that comes back too big.
+///
+/// It is a small vocabulary rather than an arbitrary function of the space on offer, and
+/// that is a decision worth stating. The layout and the paint walk are two passes over the
+/// same tree, and only the first is told what the parent offered: by the time the walk lays
+/// the child out, the box has been sized to the child and the offer is not recoverable from
+/// it. A function of the offer could not be run again there — and a function run again on
+/// the wrong input answers plausibly, which is worse than not answering at all. Each of
+/// these three **can** be run again: a fixed number is itself, an unbounded axis is a
+/// question with no input, and an axis given as it came produced a child of exactly the
+/// box's own size.
+///
+/// The reference's transform is a closure, and every transform the reference itself ships
+/// is one of these three.
+#[derive(Clone, Copy, Debug)]
+pub struct ConstraintsTransform {
+    /// What the child is given across.
+    pub width: AxisConstraint,
+    /// And down.
+    pub height: AxisConstraint,
+    /// Where a child smaller than the box sits in it.
+    pub alignment: Alignment,
+    /// Whether a child that came out **bigger** than the box is reported as an overflow —
+    /// the yellow and black band, in debug builds. On by default: a box that transforms its
+    /// constraints is asking a question about what fits, and a silent answer is no answer.
+    pub report: bool,
+}
+
+impl ConstraintsTransform {
+    /// Both axes as they came, which is the transform that does nothing.
+    pub fn new() -> Self {
+        Self {
+            width: AxisConstraint::AsGiven,
+            height: AxisConstraint::AsGiven,
+            alignment: Alignment::CENTER,
+            report: true,
+        }
+    }
+
+    /// What the child is given across.
+    pub fn width(mut self, width: AxisConstraint) -> Self {
+        self.width = width;
+        self
+    }
+
+    /// What the child is given down.
+    pub fn height(mut self, height: AxisConstraint) -> Self {
+        self.height = height;
+        self
+    }
+
+    /// Where a child smaller than the box sits in it.
+    pub fn alignment(mut self, alignment: Alignment) -> Self {
+        self.alignment = alignment;
+        self
+    }
+
+    /// Whether a child bigger than the box wears a band. Off is what a deliberate spill
+    /// wants.
+    pub fn report(mut self, report: bool) -> Self {
+        self.report = report;
+        self
+    }
+}
+
+impl Default for ConstraintsTransform {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AxisConstraint {
+    /// `(extent, free)` for the **measurement**, given what the layout offered on this
+    /// axis — `None` being no limit at all.
+    pub(crate) fn offered(self, offer: Option<f32>) -> (f32, bool) {
+        match self {
+            AxisConstraint::Unbounded => (0.0, true),
+            AxisConstraint::Fixed(extent) => (extent.max(0.0), false),
+            AxisConstraint::AsGiven => match offer {
+                Some(extent) => (extent.max(0.0), false),
+                None => (0.0, true),
+            },
+        }
+    }
+
+    /// `(extent, free)` for the **walk**, given the box the measurement produced.
+    ///
+    /// It answers the same thing the measurement did, from what is left of it: a fixed
+    /// number is itself, an unbounded axis is the same question either way, and an axis
+    /// given as it came produced a child of the box's own extent — the box being that child
+    /// held to what was offered.
+    pub(crate) fn at(self, own: f32) -> (f32, bool) {
+        match self {
+            AxisConstraint::Unbounded => (0.0, true),
+            AxisConstraint::Fixed(extent) => (extent.max(0.0), false),
+            AxisConstraint::AsGiven => (own.max(0.0), false),
+        }
+    }
+}
+
+/// A box that **changes the space on offer** before its child is laid out in it, and is
+/// then as big as what came back — never bigger than what it was itself offered.
+///
+/// This is the general form of the boxes above, and the one they are special cases of: what
+/// the child is given, per axis, said in [`AxisConstraint`]. Taking a ceiling away lets the
+/// child be its natural size ([`UnconstrainedBox`]); a fixed number lays it out in a room
+/// of that size whatever the parent offered.
+///
+/// ```ignore
+/// // "However tall you need to be" — and a band across the box if that was too tall.
+/// ConstraintsTransformBox::new(paragraph).height(AxisConstraint::Unbounded)
+/// ```
+///
+/// A child that comes out bigger than the box **overflows it**: painted past the edges, and
+/// reported with the debug band. That is the point of the widget — it asks what the space
+/// on offer is doing to the content, and answers on the screen. Turn the band off with
+/// [`ConstraintsTransformBox::report`] when the spill is deliberate.
+pub struct ConstraintsTransformBox<Msg> {
+    transform: ConstraintsTransform,
+    children: Vec<Box<dyn Widget<Msg>>>,
+}
+
+impl<Msg> ConstraintsTransformBox<Msg> {
+    /// A box holding `child`, with both axes still as they came.
+    pub fn new(child: impl Widget<Msg> + 'static) -> Self {
+        Self {
+            transform: ConstraintsTransform::new(),
+            children: vec![Box::new(child)],
+        }
+    }
+
+    /// What the child is given across.
+    pub fn width(mut self, width: AxisConstraint) -> Self {
+        self.transform.width = width;
+        self
+    }
+
+    /// What the child is given down.
+    pub fn height(mut self, height: AxisConstraint) -> Self {
+        self.transform.height = height;
+        self
+    }
+
+    /// Where a child smaller than the box sits in it.
+    pub fn alignment(mut self, alignment: Alignment) -> Self {
+        self.transform.alignment = alignment;
+        self
+    }
+
+    /// Whether a child bigger than the box wears a band.
+    pub fn report(mut self, report: bool) -> Self {
+        self.transform.report = report;
+        self
+    }
+
+    /// A box built from a transform prepared elsewhere.
+    pub fn with(child: impl Widget<Msg> + 'static, transform: ConstraintsTransform) -> Self {
+        Self {
+            transform,
+            children: vec![Box::new(child)],
+        }
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for ConstraintsTransformBox<Msg> {
+    fn style(&self) -> Style {
+        Style::default()
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &self.children
+    }
+
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+
+    fn constraints_transform(&self) -> Option<ConstraintsTransform> {
+        Some(self.transform)
+    }
+
+    fn debug_name(&self) -> &'static str {
+        "ConstraintsTransformBox"
+    }
+}
+
+/// Lets its child be its **natural size** even where the parent offers less — and says so
+/// when that does not fit.
+///
+/// The child is laid out as if nothing were constraining it, and the box is as big as the
+/// child, up to the space it was itself offered. Where the child fits, nothing is
+/// unusual — the box is simply the child's size, hugging it in a place that would have
+/// stretched it. Where it does not, the child is painted past the edges and a band says by
+/// how much, in debug builds.
+///
+/// ```ignore
+/// // A row of chips that must not be squashed: too many, and the overflow is visible.
+/// UnconstrainedBox::new(Flex::row().child(chip_a).child(chip_b))
+/// ```
+///
+/// That visible failure is the point, and the difference between this and [`OverflowBox`],
+/// which spills on purpose and quietly. It is [`ConstraintsTransformBox`] with the
+/// constraint taken away, and nothing more.
+///
+/// [`UnconstrainedBox::axis`] frees **one** axis and leaves the other as it was, which is
+/// usually what is wanted: a paragraph that may be as tall as it likes is still as wide as
+/// its column.
+pub struct UnconstrainedBox;
+
+impl UnconstrainedBox {
+    /// Frees both axes.
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new<Msg: Clone + 'static>(
+        child: impl Widget<Msg> + 'static,
+    ) -> ConstraintsTransformBox<Msg> {
+        ConstraintsTransformBox::new(child)
+            .width(AxisConstraint::Unbounded)
+            .height(AxisConstraint::Unbounded)
+    }
+
+    /// Frees the given axis, and leaves the other one as the parent offered it.
+    pub fn axis<Msg: Clone + 'static>(
+        child: impl Widget<Msg> + 'static,
+        axis: crate::scroll::Axis,
+    ) -> ConstraintsTransformBox<Msg> {
+        let freed = |free: bool| match free {
+            true => AxisConstraint::Unbounded,
+            false => AxisConstraint::AsGiven,
+        };
+        ConstraintsTransformBox::new(child)
+            .width(freed(axis.free_x()))
+            .height(freed(axis.free_y()))
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{build_ui, Container, Flex, Runtime, Text};
+    use crate::{build_ui, Container, Flex, InspectorNode, Runtime, Text};
     use frus_core::{Color, Primitive};
 
     const RED: Color = Color {
@@ -631,5 +960,151 @@ mod tests {
             (rect.width - 90.0).abs() < 0.5 && (rect.height - 30.0).abs() < 0.5,
             "unconstrained: {rect:?}"
         );
+    }
+
+    /// The scene and the inspector's boxes, for a tree laid out in `available`.
+    fn inspected(root: &dyn Widget<()>, available: Size) -> (crate::Ui<()>, Vec<InspectorNode>) {
+        crate::build_ui_inspected(root, available, &Runtime::default(), &Theme::dark())
+    }
+
+    /// The box the walk gave the widget named `name` — the box itself, which is the thing
+    /// these widgets are about and the one thing the scene does not show.
+    fn box_named(nodes: &[InspectorNode], name: &str) -> Rect {
+        nodes
+            .iter()
+            .find(|n| n.name == name)
+            .unwrap_or_else(|| panic!("no {name} in {}", crate::dump_tree(nodes)))
+            .rect
+    }
+
+    /// A red box of a stated size — laid out at whatever it is given, and visible.
+    fn red(width: f32, height: f32) -> Container<()> {
+        Container::new().width(width).height(height).color(RED)
+    }
+
+    /// A column that does **not** stretch its children, so a box that hugs can be seen
+    /// hugging.
+    fn narrow_column(width: f32) -> Flex<()> {
+        Flex::<()>::column()
+            .width(width)
+            .align(frus_layout::Align::Start)
+    }
+
+    #[test]
+    fn a_child_that_fits_gives_the_unconstrained_box_its_own_size() {
+        let root = narrow_column(400.0).child(UnconstrainedBox::new(red(90.0, 30.0)));
+        let (ui, nodes) = inspected(&root, Size::new(400.0, 200.0));
+        let own = box_named(&nodes, "ConstraintsTransformBox");
+        assert!(
+            (own.width - 90.0).abs() < 0.5 && (own.height - 30.0).abs() < 0.5,
+            "the box is the child's size: {own:?}"
+        );
+        assert!(ui.overflows().is_empty(), "nothing ran past anything");
+    }
+
+    /// The other half, and the reason the widget is worth having: the child keeps the
+    /// size it asked for, the box keeps the size it was offered, and the difference is
+    /// **reported** rather than quietly absorbed.
+    #[test]
+    fn an_unconstrained_child_that_does_not_fit_overflows_and_says_so() {
+        let root = narrow_column(100.0).child(UnconstrainedBox::new(red(300.0, 20.0)));
+        let (ui, nodes) = inspected(&root, Size::new(100.0, 200.0));
+        let child = red_box_in(&ui);
+        assert!(
+            (child.width - 300.0).abs() < 0.5,
+            "the child kept its size: {child:?}"
+        );
+        let own = box_named(&nodes, "ConstraintsTransformBox");
+        assert!(
+            (own.width - 100.0).abs() < 0.5,
+            "the box kept the room it was offered: {own:?}"
+        );
+        // Centred, it runs past **both** sides, and both are reported: a band on one of
+        // them would say the child was a hundred too wide rather than two.
+        let spills = ui.overflows();
+        let mut sides: Vec<_> = spills.iter().map(|o| (o.side, o.amount)).collect();
+        sides.sort_by_key(|(side, _)| format!("{side:?}"));
+        assert_eq!(sides.len(), 2, "two edges: {spills:?}");
+        assert_eq!(sides[0].0, frus_layout::Side::Left);
+        assert_eq!(sides[1].0, frus_layout::Side::Right);
+        assert!(
+            sides.iter().all(|(_, amount)| (amount - 100.0).abs() < 0.5),
+            "a hundred either side: {spills:?}"
+        );
+    }
+
+    /// One axis freed, the other left as it was: the child is as tall as it likes and no
+    /// wider than the column, which is what a paragraph wants.
+    #[test]
+    fn freeing_one_axis_leaves_the_other_one_alone() {
+        let root = narrow_column(100.0).child(UnconstrainedBox::axis(
+            Container::new().height(200.0).color(RED),
+            crate::scroll::Axis::Vertical,
+        ));
+        let (ui, _) = inspected(&root, Size::new(100.0, 80.0));
+        let child = red_box_in(&ui);
+        assert!(
+            (child.width - 100.0).abs() < 0.5,
+            "held to the column: {child:?}"
+        );
+        assert!(
+            (child.height - 200.0).abs() < 0.5,
+            "and as tall as it asked: {child:?}"
+        );
+    }
+
+    /// Unbounded is only one of the three things an axis can say: this one gives the
+    /// child a hundred pixels of room in a column twice that wide, and the box comes back
+    /// the size of what it asked for.
+    #[test]
+    fn a_transform_can_give_the_child_a_room_of_its_own() {
+        let root = narrow_column(200.0).child(
+            ConstraintsTransformBox::new(Container::new().height(20.0).color(RED))
+                .width(AxisConstraint::Fixed(100.0)),
+        );
+        let (ui, nodes) = inspected(&root, Size::new(200.0, 200.0));
+        let child = red_box_in(&ui);
+        assert!(
+            (child.width - 100.0).abs() < 0.5,
+            "the child was laid out in the room it was given: {child:?}"
+        );
+        assert!((box_named(&nodes, "ConstraintsTransformBox").width - 100.0).abs() < 0.5);
+        assert!(ui.overflows().is_empty(), "half of it fits in all of it");
+    }
+
+    #[test]
+    fn a_sized_overflow_box_reports_one_size_and_lays_its_child_out_at_another() {
+        let root = Flex::<()>::column()
+            .width(400.0)
+            .child(SizedOverflowBox::new(40.0, 40.0, red(100.0, 100.0)));
+        let (ui, nodes) = inspected(&root, Size::new(400.0, 300.0));
+        let own = box_named(&nodes, "SizedOverflowBox");
+        assert!(
+            (own.width - 40.0).abs() < 0.5 && (own.height - 40.0).abs() < 0.5,
+            "the box is the size it stated: {own:?}"
+        );
+        let child = red_box_in(&ui);
+        assert!(
+            (child.width - 100.0).abs() < 0.5,
+            "the child is not: {child:?}"
+        );
+        assert!(
+            (child.x + 30.0).abs() < 0.5 && (child.y + 30.0).abs() < 0.5,
+            "centred on the box it hangs out of: {child:?}"
+        );
+    }
+
+    /// The first red rectangle in a finished scene.
+    fn red_box_in(ui: &crate::Ui<()>) -> Rect {
+        ui.scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.5 && color.g < 0.5 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("the red box")
     }
 }

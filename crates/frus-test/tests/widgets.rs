@@ -15,23 +15,25 @@
 //! With no GPU adapter the tests skip themselves, the harness returning `None`.
 
 use frus_core::{
-    Alignment, BoxFit, Color, ImageData, ImageHandle, Insets, Path, Point, SizeClass, TextSpan,
+    Alignment, BoxFit, Color, ImageData, ImageHandle, Insets, Path, Point, Size, SizeClass,
+    TextSpan,
 };
 use frus_test::render_widget;
 use frus_widgets::{
-    text, Alert, Align, AnimatedIcons, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar,
-    BottomSheet, Breadcrumb, Card, CarouselView, Checkbox, CheckboxListTile, CircleAvatar,
-    CircularProgressIndicator, ClipOval, ClipPath, ClipRRect, ColorPicker, ConstrainedBox,
-    Container, ControlAffinity, CustomPaint, Divider, DropdownButton, DropdownMenu, DropdownOption,
-    Expanded, ExpansionTile, FittedBox, Flex, FloatingActionButton, FontWeight,
-    FractionallySizedBox, GridTile, GridTileBar, GridView, Icon, IconData, Icons, Image, Intrinsic,
-    Kbd, LinearProgressIndicator, ListTile, ListView, MenuAnchor, MenuItem, NavigationBar,
+    button, text, Alert, AlertDialog, Align, AnimatedIcons, AppBar, AspectRatio, Badge,
+    BottomAppBar, BottomBar, BottomSheet, Breadcrumb, Card, CarouselView, Checkbox,
+    CheckboxListTile, CircleAvatar, CircularProgressIndicator, ClipOval, ClipPath, ClipRRect,
+    ColorPicker, ConstrainedBox, Container, ControlAffinity, CustomPaint, Divider, DropdownButton,
+    DropdownMenu, DropdownOption, Expanded, ExpansionPanel, ExpansionPanelList, ExpansionTile,
+    FittedBox, Flex, FloatingActionButton, FontWeight, FractionallySizedBox, GridTile, GridTileBar,
+    GridView, Icon, IconButton, IconData, Icons, Image, ImageIcon, Intrinsic, Kbd,
+    LinearProgressIndicator, ListTile, ListView, MediaQuery, MenuAnchor, MenuItem, NavigationBar,
     NavigationDestination, NavigationDrawer, NavigationRail, Offstage, Opacity, OverflowBox,
     OverlayPortal, Placement, PopupMenuButton, RadioGroup, RadioListTile, RailLabels, RichText,
     RotatedBox, SafeArea, SearchAnchor, SearchBar, SegmentedButton, SingleChildScrollView,
-    SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile, TabBar, Theme, Timeline,
-    ToggleButtons, Transform, TwoPane, UserAccountsDrawerHeader, VerticalDivider, Visibility,
-    Widget,
+    SizedBox, Skeleton, Spacer, Stack, Stepper, Switch, SwitchListTile, TabBar, TabItem,
+    TabPageSelector, Theme, Timeline, ToggleButtons, Transform, TwoPane, UserAccountsDrawerHeader,
+    VerticalDivider, Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -1298,4 +1300,219 @@ fn a_dropdown_menu_filtering() {
             ),
         );
     check("dropdown_menu_filtering", 300, 260, &root);
+}
+
+/// **Tabs that are more than a label.** An unread count in a pill beside a word, a
+/// coloured dot beside another, and two ordinary tabs — none of the first two expressible
+/// before, and the first of them on half the tab bars ever shipped.
+///
+/// The bar paints nothing of its own on a tab the caller drew, so what is in the picture
+/// is exactly what was handed to it; the indicator, the hairline and the row's height are
+/// still the bar's. Underneath, the row of dots that says which page of several you are
+/// on — a read-out rather than a control, on the same fractional index the indicator
+/// slides along.
+#[test]
+fn tabs_carrying_more_than_a_label() {
+    let pill = |label: &str, count: &str| {
+        Flex::<()>::row()
+            .align(Align::Center)
+            .gap(6.0)
+            .child(text(label).size(14.0))
+            .child(Badge::new(count))
+    };
+    let dotted = |label: &str| {
+        Flex::<()>::row()
+            .align(Align::Center)
+            .gap(6.0)
+            .child(text(label).size(14.0))
+            .child(
+                Container::new()
+                    .width(8.0)
+                    .height(8.0)
+                    .color(TEAL)
+                    .radius(4.0),
+            )
+    };
+    let panel = |name: &str| {
+        Container::<()>::new()
+            .width(420.0)
+            .height(52.0)
+            .padding(12.0)
+            .child(text(name).size(14.0))
+    };
+    let bar: TabBar<()> = TabBar::new(0, |_| ())
+        .item(
+            TabItem::widget(pill("Inbox", "12"), "Inbox"),
+            panel("Inbox"),
+        )
+        .item(TabItem::widget(dotted("Live"), "Live"), panel("Live"))
+        .tab("Archive", panel("Archive"))
+        .icon_only_tab(Icons::STAR, "Starred", panel("Starred"));
+    let root: Container<()> = Container::new()
+        .width(460.0)
+        .height(200.0)
+        .color(Color::rgb8(20, 22, 28))
+        .padding(12.0)
+        .child(
+            Flex::column()
+                .gap(16.0)
+                .align(Align::Start)
+                .child(bar)
+                .child(TabPageSelector::<()>::new(4, 0)),
+        );
+    check("tabs_widget_labels", 460, 200, &root);
+}
+
+/// **Three panels, the second open (milestone 486).**
+///
+/// The point of the picture is the **surface**, not the rows: the two shut panels of a run
+/// are one card divided by a hairline, and the open one is lifted out of it with a gap
+/// either side and four corners of its own. A column of `ExpansionTile`s draws the same
+/// words and reads as three unrelated rows.
+#[test]
+fn expansion_panels_are_one_card_that_splits() {
+    let list = ExpansionPanelList::<()>::radio(Some(1), |_| ())
+        .panel(ExpansionPanel::new(
+            "Delivery",
+            text("Two parcels, one signature.").size(13.0),
+        ))
+        .panel(
+            ExpansionPanel::new("Payment", text("Visa ending 4242.").size(13.0))
+                .subtitle("Card on file"),
+        )
+        .panel(ExpansionPanel::new(
+            "Gift options",
+            text("None chosen.").size(13.0),
+        ))
+        // A fourth, so the picture shows both halves of the claim: the two shut ones at
+        // the foot are **one card** with a hairline between them, and the open one is a
+        // card of its own.
+        .panel(ExpansionPanel::new(
+            "Notes",
+            text("Leave with a neighbour.").size(13.0),
+        ));
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(360.0)
+        .color(Color::rgb8(16, 18, 22))
+        .padding(16.0)
+        .child(list);
+    check("expansion_panels", 360, 360, &root);
+}
+
+/// **A scrollable tab bar with something under it (milestone 485, #65).**
+///
+/// The picture is the whole bug. A scrollable bar wraps its strip in a horizontal viewport,
+/// and a viewport's two hundred pixel default — the height of a window onto something
+/// taller — belongs to the axis that scrolls. A horizontal one took it as well, so a bar
+/// forty-eight pixels tall claimed two hundred and the panel began a hundred and fifty
+/// pixels into empty space.
+///
+/// Nothing in the suite could have caught it, because nothing rendered a scrollable bar
+/// **with anything below it**: every test read the strip's own geometry, which was right
+/// whatever box the scroll claimed.
+#[test]
+fn a_scrollable_tab_bar_sits_on_its_panel() {
+    let panel = |name: &str| {
+        Container::<()>::new()
+            .height(64.0)
+            .color(Color::rgb8(32, 36, 46))
+            .padding(12.0)
+            .child(text(name).size(14.0))
+    };
+    let mut bar: TabBar<()> = TabBar::new(1, |_| ()).scrollable(true);
+    for name in [
+        "Overview",
+        "Activity",
+        "Members",
+        "Settings",
+        "Integrations",
+        "Billing",
+    ] {
+        bar = bar.tab(name, panel(name));
+    }
+    let root: Container<()> = Container::new()
+        .width(420.0)
+        .height(160.0)
+        .color(Color::rgb8(20, 22, 28))
+        .padding(12.0)
+        .child(bar);
+    check("tabs_scrollable_with_panel", 420, 160, &root);
+}
+
+/// **A picture where an icon goes.** A brand mark shipped as a bitmap, in an icon button
+/// beside two ordinary ones — the point of the picture being that all three marks are the
+/// same size without any of them being told, because a picture answers the same
+/// `caller ?? theme ?? the grid` chain a path does.
+///
+/// The mark on the right is **tinted**, which is the case that wants it: a monochrome glyph
+/// shipped as a bitmap. The one in the middle is not, and that is the default — a picture
+/// keeps its own colours, because a brand mark flattened to one grey the first time an
+/// application themes its icons is a brand mark nobody recognises.
+#[test]
+fn an_image_where_an_icon_goes() {
+    let root: Container<()> = Container::new()
+        .width(220.0)
+        .height(80.0)
+        .color(Color::rgb8(20, 22, 28))
+        .padding(12.0)
+        .child(
+            Flex::row()
+                .align(Align::Center)
+                .gap(8.0)
+                .child(IconButton::new(Icons::STAR).label("Starred").on_press(()))
+                .child(
+                    IconButton::image(ImageIcon::new(Image::new(mark_image())))
+                        .label("Brand")
+                        .on_press(()),
+                )
+                .child(
+                    IconButton::image(ImageIcon::new(Image::new(mark_image())).color(TEAL))
+                        .label("Tinted")
+                        .on_press(()),
+                )
+                .child(Icon::new(Icons::STAR)),
+        );
+    check("image_icon_in_a_button", 220, 80, &root);
+}
+
+/// A 16×16 mark: a white diamond on nothing, which is what a glyph shipped as a bitmap
+/// looks like — square, so it fills an icon's box, and monochrome, so a tint shows.
+fn mark_image() -> ImageHandle {
+    const N: i32 = 16;
+    let mut rgba = Vec::with_capacity((N * N * 4) as usize);
+    for y in 0..N {
+        for x in 0..N {
+            let inside = (x - N / 2).abs() + (y - N / 2).abs() < N / 2;
+            let a = if inside { 255 } else { 0 };
+            rgba.extend_from_slice(&[255, 255, 255, a]);
+        }
+    }
+    ImageData::from_rgba(N as u32, N as u32, rgba).into_handle()
+}
+
+/// **A dialog's two answers, at the ordinary text size and at twice it.**
+///
+/// The one on the right is the bug this closes: the buttons grow with the reader's font
+/// size, the surface does not grow with them, and a plain row neither wraps nor shrinks —
+/// so "Delete permanently" was drawn past the surface and off the screen entirely. Both
+/// pictures come from the same three lines of application code; only the ambient text
+/// scale is different.
+#[test]
+fn dialog_actions_fold_when_they_stop_fitting() {
+    let dialog = || {
+        AlertDialog::<()>::new(true)
+            .title("Delete this task?")
+            .content("This cannot be undone.")
+            .action(button("Cancel", ()))
+            .action(button("Delete permanently", ()))
+            .body(Container::new().color(Color::rgb8(20, 22, 28)))
+    };
+    // The same window and the same three lines of application code in both: only the
+    // reader's font size is different.
+    let window = Size::new(520.0, 340.0);
+    MediaQuery::new(window).scope(|| check("dialog_actions_on_one_line", 520, 340, &dialog()));
+    MediaQuery::new(window)
+        .with_text_scaler(2.0)
+        .scope(|| check("dialog_actions_stacked", 520, 340, &dialog()));
 }

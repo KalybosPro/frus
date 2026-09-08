@@ -10,13 +10,17 @@
 //! is square — and every measurement and colour in either is overridable, by the caller or
 //! by [`crate::TabBarTheme`].
 
+use std::rc::Rc;
+
 use frus_core::{BorderRadius, Color, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::disabled::disabled_content;
 use crate::icons::IconData;
 use crate::interaction::Status;
+use crate::pageview::PageView;
 use crate::theme::Theme;
+use crate::transparent::Shared;
 use crate::widget::Widget;
 
 /// The height of the tabs themselves, indicator excluded.
@@ -129,6 +133,12 @@ pub(crate) struct TabSpec {
     /// icon-only tab nameless and expects the caller to wrap it; asking for the word up
     /// front costs nothing and cannot be forgotten.
     pub show_label: bool,
+    /// Whether the caller draws this tab themselves, in which case the label and the icon
+    /// above are only what it is **called** and nothing is painted from them.
+    pub drawn: bool,
+    /// How wide this tab asks to be when the bar scrolls. `None` — the ordinary answer —
+    /// leaves it to the label and the icon.
+    pub width: Option<f32>,
 }
 
 impl TabSpec {
@@ -138,6 +148,8 @@ impl TabSpec {
             label: label.into(),
             icon: None,
             show_label: true,
+            drawn: false,
+            width: None,
         }
     }
 
@@ -279,6 +291,14 @@ impl TabStyle {
     /// measured one way and an indicator measured another would agree on every label
     /// until they did not.
     fn content_width(&self, theme: &Theme, spec: &TabSpec) -> f32 {
+        // A tab the caller drew cannot be asked how wide it would like to be
+        // ([#52](https://github.com/KalybosPro/frus/issues/52)), so it says. Unsaid, its
+        // name is the proxy — right for a label with a dot beside it, short for a label
+        // with a count in a pill, and never consulted at all on a bar that does not
+        // scroll, where the tabs share the width in equal parts.
+        if let Some(width) = spec.width {
+            return width;
+        }
         let text = match spec.show_label && !spec.label.is_empty() {
             true => {
                 let style = self.label_style(theme);
@@ -347,6 +367,8 @@ impl TabStyle {
 /// One tab: a label, a tap, and the ink a tap leaves.
 struct Tab<Msg> {
     spec: TabSpec,
+    /// `[the caller's widget]` for a tab they drew, empty otherwise.
+    children: Vec<Box<dyn Widget<Msg>>>,
     selected: bool,
     style: TabStyle,
     /// The bar's availability, handed down to every tab.
@@ -371,12 +393,23 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
         // Asked of the **theme**, here rather than once at build time: an application
         // that sets the alignment on its theme sets it for tabs that were built before
         // the theme was ever consulted.
+        // A tab the caller drew holds their widget as a child, centred in whatever room
+        // the tab ends up with — a row of one, rather than a slot the tab paints into.
+        let drawn = match self.spec.drawn {
+            true => Style {
+                flex_direction: FlexDirection::Row,
+                align: frus_layout::Align::Center,
+                justify: frus_layout::Justify::Center,
+                ..Default::default()
+            },
+            false => Style::default(),
+        };
         if self.style.alignment(theme, self.scrolls) == TabAlignment::Fill {
             return Style {
                 width: Dimension::Length(0.0),
                 flex_grow: 1.0,
                 padding: frus_core::Insets::new(0.0, pad, 0.0, pad),
-                ..Default::default()
+                ..drawn
             };
         }
         // Otherwise the tab takes the room its content needs and no more, which is the
@@ -392,15 +425,21 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
             flex_grow: 0.0,
             flex_shrink: 0.0,
             padding: frus_core::Insets::new(0.0, pad, 0.0, pad),
-            ..Default::default()
+            ..drawn
         }
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        &[]
+        &self.children
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        // A tab the caller drew paints **nothing** of its own. Its name is still its name
+        // — the semantics below say it — but a bar that painted a label under a caller's
+        // badge would be drawing the same thing twice.
+        if self.spec.drawn {
+            return;
+        }
         let o = status.opacity;
         let label_style = self.style.label_style(theme);
         // A label is content whichever tab it is on, so both the selected and the
@@ -656,15 +695,122 @@ impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
     }
 }
 
+/// **One tab of a [`TabBar`]**: what is drawn on it, and what it is called.
+///
+/// The four shorthands on the bar — [`tab`](TabBar::tab), [`icon_tab`](TabBar::icon_tab),
+/// [`icon_only_tab`](TabBar::icon_only_tab) and [`tab_widget`](TabBar::tab_widget) — each
+/// build one of these and are what most call sites should write. This is the door to the
+/// one thing they cannot carry: how wide a tab asks to be on a bar that **scrolls**.
+///
+/// **The label is never optional**, even on a tab that draws neither the word nor
+/// anything resembling one. It is what a screen reader says, and a tab nobody can name is
+/// a tab nobody can use. The reference leaves such a tab nameless and expects the caller
+/// to wrap it in something that names it; asking for the word here costs nothing and
+/// cannot be forgotten.
+///
+/// ```
+/// use frus_widgets::{Align, Badge, Container, Flex, TabBar, TabItem, text};
+///
+/// # #[derive(Clone)] enum Msg { Select(usize) }
+/// let unread: Flex<Msg> = Flex::row()
+///     .align(Align::Center)
+///     .gap(6.0)
+///     .child(text("Inbox").size(14.0))
+///     .child(Badge::new("12"));
+/// let bar = TabBar::new(0, Msg::Select)
+///     .scrollable(true)
+///     .item(
+///         TabItem::widget(unread, "Inbox").width(110.0),
+///         Container::<Msg>::new(),
+///     )
+///     .tab("Archive", Container::<Msg>::new());
+/// ```
+pub struct TabItem<Msg> {
+    spec: TabSpec,
+    child: Option<Rc<dyn Widget<Msg>>>,
+}
+
+impl<Msg> TabItem<Msg> {
+    /// A tab that is a word — what [`TabBar::tab`] builds.
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            spec: TabSpec::text(label),
+            child: None,
+        }
+    }
+
+    /// A tab with an **icon over its label**.
+    pub fn icon(icon: IconData, label: impl Into<String>) -> Self {
+        Self {
+            spec: TabSpec {
+                icon: Some(icon),
+                ..TabSpec::text(label)
+            },
+            child: None,
+        }
+    }
+
+    /// A tab showing **only** an icon, in a row of the ordinary height. The label is what
+    /// it is called, not what is drawn.
+    pub fn icon_only(icon: IconData, label: impl Into<String>) -> Self {
+        Self {
+            spec: TabSpec {
+                icon: Some(icon),
+                show_label: false,
+                ..TabSpec::text(label)
+            },
+            child: None,
+        }
+    }
+
+    /// A tab **the caller draws**: a label with an unread count beside it, a coloured dot,
+    /// two lines, rich text.
+    ///
+    /// `label` is what it is called. The bar paints nothing of its own on such a tab —
+    /// drawing a label under the caller's own would be drawing the same thing twice — but
+    /// the ink of a press, the indicator and the announcement are all still the bar's.
+    pub fn widget(child: impl Widget<Msg> + 'static, label: impl Into<String>) -> Self {
+        Self {
+            spec: TabSpec {
+                drawn: true,
+                ..TabSpec::text(label)
+            },
+            child: Some(Rc::new(child)),
+        }
+    }
+
+    /// How wide this tab asks to be **when the bar scrolls**, in logical pixels.
+    ///
+    /// A bar that does not scroll shares its width between its tabs in equal parts and
+    /// never asks, so this is meaningless there. When it does scroll, an ordinary tab is
+    /// measured from its label and a tab the caller drew cannot be measured at all — a
+    /// widget cannot be asked how wide it would like to be
+    /// ([#52](https://github.com/KalybosPro/frus/issues/52)) — so it falls back to its
+    /// name, which is right for a label with a dot beside it and short for a label with a
+    /// count in a pill. This is how the caller says.
+    #[must_use]
+    pub fn width(mut self, width: f32) -> Self {
+        self.spec.width = Some(width);
+        self
+    }
+}
+
 /// A tabbed view: the bar, and the selected tab's panel under it.
 pub struct TabBar<Msg> {
     selected: usize,
-    on_select: Box<dyn Fn(usize) -> Msg>,
+    on_select: Rc<dyn Fn(usize) -> Msg>,
     tabs: Vec<TabSpec>,
+    /// The widget on each tab the caller drew, by tab index.
+    drawn: Vec<Option<Rc<dyn Widget<Msg>>>>,
     enabled: bool,
     style: TabStyle,
     /// Whether the bar scrolls rather than sharing its width; see [`TabBar::scrollable`].
     scrollable: bool,
+    /// Whether a drag across the panel changes tab; see [`TabBar::swipeable`].
+    swipeable: bool,
+    /// Every tab's panel, kept only while [`swipeable`](TabBar::swipeable) — the page view
+    /// needs to be able to build any of them, not just the one showing.
+    panels: Vec<Rc<dyn Widget<Msg>>>,
     /// Either `[bar]` or `[bar, panel]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -674,11 +820,14 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
     pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
         let mut tabs = Self {
             selected,
-            on_select: Box::new(on_select),
+            on_select: Rc::new(on_select),
             tabs: Vec::new(),
+            drawn: Vec::new(),
             enabled: true,
             style: TabStyle::default(),
             scrollable: false,
+            swipeable: false,
+            panels: Vec::new(),
             children: Vec::new(),
         };
         tabs.rebuild_bar();
@@ -687,8 +836,27 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
 
     /// Adds a tab, a label plus content. The content is realised only when it belongs
     /// to the selected tab.
-    pub fn tab(mut self, label: impl Into<String>, content: impl Widget<Msg> + 'static) -> Self {
-        self.push(TabSpec::text(label), content);
+    pub fn tab(self, label: impl Into<String>, content: impl Widget<Msg> + 'static) -> Self {
+        self.item(TabItem::new(label), content)
+    }
+
+    /// Adds a tab **the caller draws** — a label with an unread count beside it, a
+    /// coloured dot, two lines, rich text — plus the word it is called by and its content.
+    ///
+    /// See [`TabItem::widget`], and [`TabItem::width`] for a bar that scrolls.
+    pub fn tab_widget(
+        self,
+        child: impl Widget<Msg> + 'static,
+        label: impl Into<String>,
+        content: impl Widget<Msg> + 'static,
+    ) -> Self {
+        self.item(TabItem::widget(child, label), content)
+    }
+
+    /// Adds a tab however it was built, plus its content — the door to
+    /// [`TabItem::width`], which no shorthand carries.
+    pub fn item(mut self, tab: TabItem<Msg>, content: impl Widget<Msg> + 'static) -> Self {
+        self.push(tab, content);
         self
     }
 
@@ -697,20 +865,12 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
     /// The whole row grows to [`TAB_ICON_HEIGHT`] as soon as one tab does this, because
     /// tabs of two heights in one bar would put their labels on two different lines.
     pub fn icon_tab(
-        mut self,
+        self,
         icon: IconData,
         label: impl Into<String>,
         content: impl Widget<Msg> + 'static,
     ) -> Self {
-        self.push(
-            TabSpec {
-                label: label.into(),
-                icon: Some(icon),
-                show_label: true,
-            },
-            content,
-        );
-        self
+        self.item(TabItem::icon(icon, label), content)
     }
 
     /// Adds a tab showing **only** an icon, in a row of the ordinary height.
@@ -720,34 +880,79 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
     /// icon-only tab nameless and expects the caller to wrap it in something that names
     /// it; asking for the word here costs nothing and cannot be forgotten.
     pub fn icon_only_tab(
-        mut self,
+        self,
         icon: IconData,
         label: impl Into<String>,
         content: impl Widget<Msg> + 'static,
     ) -> Self {
-        self.push(
-            TabSpec {
-                label: label.into(),
-                icon: Some(icon),
-                show_label: false,
-            },
-            content,
-        );
-        self
+        self.item(TabItem::icon_only(icon, label), content)
     }
 
-    /// Adds `spec` to the row, keeping `content` only when it is the selected tab's.
-    fn push(&mut self, spec: TabSpec, content: impl Widget<Msg> + 'static) {
+    /// Adds a tab to the row, keeping `content` only when it is the selected tab's —
+    /// unless the panel can be swiped, in which case every one of them is kept, because
+    /// the page view has to be able to build the tab you are dragging **towards**.
+    fn push(&mut self, tab: TabItem<Msg>, content: impl Widget<Msg> + 'static) {
         let index = self.tabs.len();
-        self.tabs.push(spec);
+        self.tabs.push(tab.spec);
+        self.drawn.push(tab.child);
+        self.panels.push(Rc::new(content));
         self.rebuild_bar();
-        if index == self.selected {
-            if self.children.len() > 1 {
-                self.children[1] = Box::new(content);
-            } else {
-                self.children.push(Box::new(content));
-            }
+        self.rebuild_panel(index);
+    }
+
+    /// Puts the panel in place: the selected tab's content, or the page view when the
+    /// panel can be swiped.
+    fn rebuild_panel(&mut self, added: usize) {
+        let panel: Option<Box<dyn Widget<Msg>>> = if self.swipeable {
+            let panels = self.panels.clone();
+            let on_select = self.on_select.clone();
+            Some(Box::new(
+                PageView::new(panels.len(), move |i| Shared::new(panels[i].clone()))
+                    .page(self.selected)
+                    // The page view reports where the finger left it; the bar's own
+                    // selection is still the application's, so this is the same message a
+                    // press on the tab sends. One rule, reached two ways.
+                    .on_page_changed(move |i| on_select(i))
+                    .flex(1.0),
+            ))
+        } else if added == self.selected {
+            Some(Box::new(Shared::new(self.panels[added].clone())))
+        } else {
+            None
+        };
+        let Some(panel) = panel else { return };
+        if self.children.len() > 1 {
+            self.children[1] = panel;
+        } else {
+            self.children.push(panel);
         }
+    }
+
+    /// **Whether a drag across the panel changes tab.**
+    ///
+    /// Off by default, and deliberately opt-in: it is a behaviour change for every bar
+    /// already written, and a panel that scrolls sideways of its own accord would fight
+    /// the gesture rather than answer it.
+    ///
+    /// On, the panel becomes a [`PageView`] over every tab's content — the milestone-277
+    /// physics, so the drag, the fling and the spring to rest are the ones a page view
+    /// already has — and the bar's indicator slides to the tab the finger settled on.
+    ///
+    /// Two things follow, and both are the point rather than side effects:
+    ///
+    /// - **Every tab's content is kept**, not only the showing one, because the page view
+    ///   has to be able to build the tab you are dragging *towards*. The panels were
+    ///   already built by the caller either way; what changes is that they are held.
+    /// - **The set takes the height it is offered**, as it already takes the width. A
+    ///   paged panel cannot be sized by whichever page happens to be longest, or the
+    ///   control would change height as you swiped through it.
+    pub fn swipeable(mut self, swipeable: bool) -> Self {
+        self.swipeable = swipeable;
+        self.children.truncate(1);
+        for index in 0..self.panels.len() {
+            self.rebuild_panel(index);
+        }
+        self
     }
 
     /// Whether the bar can be switched. Disabled every tab is **inert** - no press, no
@@ -878,6 +1083,11 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
             .map(|(i, spec)| {
                 Box::new(Tab {
                     spec: spec.clone(),
+                    children: self.drawn[i]
+                        .clone()
+                        .map(|inner| Box::new(Shared::new(inner)) as Box<dyn Widget<Msg>>)
+                        .into_iter()
+                        .collect(),
                     selected: i == self.selected,
                     style: self.style,
                     enabled: self.enabled,
@@ -934,7 +1144,13 @@ impl<Msg: Clone> Widget<Msg> for TabBar<Msg> {
     /// control is — so the bar jumps from tab to tab, and a panel that does not fit hangs
     /// out of whatever is centring it rather than being told to fit.
     fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
-        crate::widget::FillAxes::WIDTH
+        // And the **height** too once the panel can be swiped: a page view's pages fill
+        // its viewport, so a viewport sized by whichever page happens to be longest would
+        // make the control change height as the finger moved through it.
+        match self.swipeable {
+            true => crate::widget::FillAxes::BOTH,
+            false => crate::widget::FillAxes::WIDTH,
+        }
     }
 
     /// The hairline at the foot of the bar.
@@ -978,6 +1194,241 @@ mod tests {
         Select(usize),
     }
 
+    /// **A tab can be a widget the caller drew.** An unread count beside a label, a
+    /// coloured dot, two lines, rich text — none of which a `&str` can say, and the first
+    /// of which is on half the tab bars ever shipped.
+    ///
+    /// The bar paints **nothing** of its own on such a tab: a label under the caller's own
+    /// label would be drawing the same thing twice. What stays the bar's is the press, the
+    /// ink, the indicator — and the name, which is what a reader hears.
+    #[test]
+    fn a_tab_can_be_a_widget_the_caller_drew() {
+        let mark = Color::rgb(0.9, 0.1, 0.1);
+        let bar = TabBar::new(0, Msg::Select)
+            .tab_widget(
+                crate::Container::<Msg>::new()
+                    .width(40.0)
+                    .height(18.0)
+                    .color(mark),
+                "Inbox",
+                crate::Container::<Msg>::new(),
+            )
+            .tab("Archive", crate::Container::<Msg>::new());
+        let root = crate::flex::Flex::column()
+            .width(300.0)
+            .height(120.0)
+            .child(bar);
+        let ui = build_ui(
+            &root,
+            Size::new(300.0, 120.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        assert!(
+            rects(ui.scene()).iter().any(|(_, color)| *color == mark),
+            "the caller's own widget is drawn"
+        );
+        let drawn = texts(ui.scene());
+        assert!(
+            !drawn.iter().any(|t| t == "Inbox"),
+            "and the bar draws no label of its own under it: {drawn:?}"
+        );
+        assert!(
+            drawn.iter().any(|t| t == "Archive"),
+            "while an ordinary tab still does"
+        );
+    }
+
+    /// **A drawn tab is still named**, because a tab nobody can name is a tab nobody can
+    /// use — the same demand `icon_only_tab` has always made, for the same reason.
+    #[test]
+    fn a_drawn_tab_is_still_named_for_a_reader() {
+        let bar = TabBar::new(0, Msg::Select).tab_widget(
+            crate::Container::<Msg>::new().width(20.0).height(20.0),
+            "Inbox",
+            crate::Container::<Msg>::new(),
+        );
+        let strip = &Widget::<Msg>::children(&bar)[0];
+        let tab = &strip.children()[0];
+        let announced = tab.semantics().expect("announced");
+        assert_eq!(announced.label.as_deref(), Some("Inbox"));
+        assert!(tab.focusable(), "and it is still a tab");
+        assert_eq!(tab.on_click(), Some(Msg::Select(0)));
+    }
+
+    /// **A drawn tab says how wide it is when the bar scrolls**, because it cannot be
+    /// asked ([#52](https://github.com/KalybosPro/frus/issues/52)). Unsaid, its name is
+    /// the proxy — right for a label with a dot beside it, short for a label with a count
+    /// in a pill.
+    ///
+    /// Never consulted at all on a bar that does not scroll, where the tabs share the
+    /// width in equal parts: the second half of this is that the same two bars come out
+    /// identical when they do not scroll.
+    #[test]
+    fn a_drawn_tab_says_how_wide_it_is_when_the_bar_scrolls() {
+        let bar = |width: Option<f32>, scrollable: bool| {
+            let mut item = TabItem::widget(
+                crate::Container::<Msg>::new().width(20.0).height(20.0),
+                "Hi",
+            );
+            if let Some(width) = width {
+                item = item.width(width);
+            }
+            TabBar::new(0, Msg::Select)
+                .scrollable(scrollable)
+                .item(item, crate::Container::<Msg>::new())
+                .tab("Archive", crate::Container::<Msg>::new())
+        };
+        // The stated width reaches the tab's box: a press a hundred across lands on the
+        // first tab when it said a hundred and fifty, and on the second when it said
+        // nothing, since "Hi" measures nowhere near that.
+        let press = |bar: TabBar<Msg>| {
+            let root = crate::flex::Flex::column()
+                .width(400.0)
+                .height(120.0)
+                .child(bar);
+            let ui = build_ui(
+                &root,
+                Size::new(400.0, 120.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            ui.hit(crate::Point::new(100.0, 20.0))
+                .and_then(|id| ui.msg_for(id))
+        };
+        assert_eq!(press(bar(Some(150.0), true)), Some(Msg::Select(0)));
+        assert_eq!(press(bar(None, true)), Some(Msg::Select(1)));
+
+        // And on a bar that does not scroll the two come out identical, because the tabs
+        // share the width in equal parts and nobody is asked.
+        assert_eq!(press(bar(Some(150.0), false)), press(bar(None, false)));
+    }
+
+    /// **A drag across the panel lands on the next tab**, once the bar has been told the
+    /// panel can be swiped.
+    ///
+    /// Driven the way the shell drives it: the offset is moved one page across, and the
+    /// runtime is asked which paged regions have turned. The message that comes back is
+    /// the **same one a press on the tab sends** — one rule, reached two ways, rather than
+    /// a second path into the selection that can drift from the first.
+    #[test]
+    fn a_drag_across_the_panel_lands_on_the_next_tab() {
+        let bar = || {
+            TabBar::new(0, Msg::Select)
+                .swipeable(true)
+                .tab("One", crate::Container::<Msg>::new())
+                .tab("Two", crate::Container::<Msg>::new())
+                .tab("Three", crate::Container::<Msg>::new())
+        };
+        let root = |bar| {
+            crate::flex::Flex::column()
+                .width(300.0)
+                .height(400.0)
+                .child(bar)
+        };
+        let mut runtime = Runtime::default();
+        let ui = build_ui(
+            &root(bar()),
+            Size::new(300.0, 400.0),
+            &runtime,
+            &Theme::default(),
+        );
+        let region = ui
+            .scroll_regions()
+            .iter()
+            .find(|area| area.page.is_some())
+            .expect("the panel is paged");
+        let id = region.id;
+        let snap = region.page.expect("a paged region");
+        assert_eq!(snap.count, 3, "one page per tab");
+
+        // The first frame settles the runtime on the page it opened at, so the second is
+        // where a change can be seen at all.
+        runtime.page_changes(ui.scroll_regions());
+        runtime.scroll.insert(id, (snap.extent, 0.0));
+        let ui = build_ui(
+            &root(bar()),
+            Size::new(300.0, 400.0),
+            &runtime,
+            &Theme::default(),
+        );
+        let turned = runtime.page_changes(ui.scroll_regions());
+        assert_eq!(turned, vec![(id, 1)], "one page across");
+
+        let bar = bar();
+        let panel = &Widget::<Msg>::children(&bar)[1];
+        assert_eq!(
+            panel.on_page_changed(1),
+            Some(Msg::Select(1)),
+            "and it reports the tab a press would have"
+        );
+    }
+
+    /// **A bar that cannot be swiped keeps only the tab that is showing**, which is what
+    /// it has always done; one that can keeps them all, because the page view has to be
+    /// able to build the tab you are dragging towards.
+    #[test]
+    fn only_a_swipeable_bar_keeps_every_panel() {
+        let bar = |swipeable: bool| {
+            TabBar::new(0, Msg::Select)
+                .swipeable(swipeable)
+                .tab("One", crate::Container::<Msg>::new().width(11.0))
+                .tab("Two", crate::Container::<Msg>::new().width(22.0))
+        };
+        let plain = bar(false);
+        assert_eq!(
+            Widget::<Msg>::children(&plain).len(),
+            2,
+            "a bar and a panel"
+        );
+        let root = crate::flex::Flex::column()
+            .width(300.0)
+            .height(400.0)
+            .child(bar(true));
+        let ui = build_ui(
+            &root,
+            Size::new(300.0, 400.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        assert!(
+            ui.scroll_regions().iter().any(|area| area.page.is_some()),
+            "and the swipeable one has a paged panel instead"
+        );
+    }
+
+    /// Every filled rectangle in the frame, innermost layers included.
+    fn rects(scene: &frus_core::Scene) -> Vec<(Rect, Color)> {
+        fn walk(primitives: &[frus_core::Primitive], out: &mut Vec<(Rect, Color)>) {
+            for p in primitives {
+                match p {
+                    frus_core::Primitive::Rect { rect, color, .. } => out.push((*rect, *color)),
+                    frus_core::Primitive::Layer { primitives, .. } => walk(primitives, out),
+                    _ => {}
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(scene.primitives(), &mut out);
+        out
+    }
+
+    /// Every run of text in the frame.
+    fn texts(scene: &frus_core::Scene) -> Vec<String> {
+        fn walk(primitives: &[frus_core::Primitive], out: &mut Vec<String>) {
+            for p in primitives {
+                match p {
+                    frus_core::Primitive::Text { text, .. } => out.push(text.clone()),
+                    frus_core::Primitive::Layer { primitives, .. } => walk(primitives, out),
+                    _ => {}
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(scene.primitives(), &mut out);
+        out
+    }
+
     /// Ten tabs in a 300 px window: far more than fits, which is what `scrollable` is
     /// for and where the selected tab can go missing.
     fn wide(selected: usize) -> TabBar<Msg> {
@@ -998,6 +1449,54 @@ mod tests {
             Primitive::Text { position, text, .. } if text == label => Some(position.x),
             _ => None,
         })
+    }
+
+    /// **A scrollable bar's panel starts under its hairline**, not two hundred pixels
+    /// below it (#65).
+    ///
+    /// A scrollable bar wraps its strip in a horizontal viewport, and a viewport's default
+    /// height — two hundred pixels, the height of a window onto something taller — belongs
+    /// to the axis that scrolls. A horizontal one took it too, so a bar forty-eight pixels
+    /// tall claimed two hundred and everything under it began in empty space.
+    ///
+    /// The picture is the whole bug, which is why one was added with it; this pins the
+    /// arithmetic. Nothing in the suite caught it because nothing rendered a scrollable bar
+    /// **with something under it** — every test read the strip's own geometry, which was
+    /// right whatever box the scroll claimed.
+    #[test]
+    fn a_scrolling_bar_does_not_push_its_panel_down_the_page() {
+        let panel = crate::Container::new()
+            .height(30.0)
+            .color(Color::rgb(1.0, 0.0, 0.0));
+        let tabs = TabBar::new(0, Msg::Select)
+            .scrollable(true)
+            .tab("One", panel)
+            .tab("Two", crate::Container::new().height(30.0));
+        let ui = build_ui(
+            &tabs,
+            Size::new(400.0, 400.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let red = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.9 && color.g < 0.1 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("the panel is drawn");
+        // The bar is `tab_height + the hairline` tall, and the panel starts there. The
+        // measurement in the issue found it at y > 150 against a hairline at 48.
+        let bar = TAB_HEIGHT;
+        assert!(
+            (red.y - bar).abs() <= 4.0,
+            "the panel starts under the bar ({bar}), not at {}",
+            red.y
+        );
     }
 
     /// A bar wider than its window **opens** on the selected tab. Before this, an
@@ -1206,9 +1705,8 @@ mod tests {
         let style = TabStyle::default();
         let theme = Theme::default();
         let narrow = TabSpec {
-            label: "Hi".into(),
             icon: Some(Icons::STAR),
-            show_label: true,
+            ..TabSpec::text("Hi")
         };
         // "Hi" is narrower than a 24 px icon, so the icon decides.
         assert_eq!(
@@ -1217,9 +1715,8 @@ mod tests {
         );
         // A long label decides instead.
         let wide = TabSpec {
-            label: "Notifications".into(),
             icon: Some(Icons::STAR),
-            show_label: true,
+            ..TabSpec::text("Notifications")
         };
         assert!(
             style.scrolled_tab_width(&theme, &wide) > style.scrolled_tab_width(&theme, &narrow)

@@ -76,6 +76,8 @@ pub struct WidgetThemes {
     pub dropdown: DropdownTheme,
     /// Defaults for [`ExpansionTile`](crate::ExpansionTile).
     pub expansion_tile: ExpansionTileTheme,
+    /// Defaults for [`ExpansionPanelList`](crate::ExpansionPanelList).
+    pub expansion_panel_list: ExpansionPanelListTheme,
     /// Defaults for [`FloatingActionButton`](crate::FloatingActionButton).
     pub fab: FabTheme,
     pub form: FormTheme,
@@ -103,6 +105,7 @@ pub struct WidgetThemes {
     pub snack_bar: SnackBarTheme,
     pub steps: StepsTheme,
     pub switch: SwitchTheme,
+    pub page_selector: PageSelectorTheme,
     pub tab_bar: TabBarTheme,
     pub table: TableTheme,
     pub text: DefaultTextStyle,
@@ -563,6 +566,26 @@ pub struct TooltipTheme {
     pub max_width: Option<f32>,
 }
 
+/// Defaults for [`ExpansionPanelList`](crate::ExpansionPanelList).
+///
+/// A list of panels is one **surface** that splits, so what it needs said once is the
+/// surface: its tone, its corners, the room an open panel is lifted by, and the hairline
+/// between two shut ones.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ExpansionPanelListTheme {
+    /// The surface the panels are drawn on. Unset, the scheme's low container — the tone
+    /// a card takes, because that is what a run of shut panels is.
+    pub background: Option<Color>,
+    /// The corner radius of a card: the outer corners of a run, and all four of an open
+    /// panel's.
+    pub radius: Option<f32>,
+    /// The room an open panel is given either side of it, which is what makes it read as
+    /// lifted out of the card rather than merely coloured differently.
+    pub gap: Option<f32>,
+    /// The hairline between two shut panels of one card.
+    pub divider_color: Option<Color>,
+}
+
 /// Defaults for [`ExpansionTile`](crate::ExpansionTile) — the reference's
 /// `ExpansionTileThemeData`.
 ///
@@ -753,6 +776,20 @@ pub struct TabBarTheme {
     pub tab_height: Option<f32>,
     /// Where the tabs sit when they do not fill the bar.
     pub alignment: Option<crate::tabs::TabAlignment>,
+}
+
+/// Defaults for [`TabPageSelector`](crate::TabPageSelector) — the row of dots that says
+/// which page of several you are on.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PageSelectorTheme {
+    /// A dot's diameter.
+    pub size: Option<f32>,
+    /// The gap between two dots.
+    pub gap: Option<f32>,
+    /// What the dot you are on is filled with. Unset, the accent.
+    pub color: Option<Color>,
+    /// The ring every dot is drawn with.
+    pub border_color: Option<Color>,
 }
 
 /// Defaults for [`IconButton`](crate::IconButton).

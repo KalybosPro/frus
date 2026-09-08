@@ -8,10 +8,147 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 479 so far, each documenting the objective, the alternatives
+> record — one per step, 487 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`IndexedStack`** (J487, closes #37): a stack that lays **every** child out and paints
+  one — what a tabbed screen wants, and the opposite of `Offstage`, which takes the branch
+  out of the tree and loses everything the runtime held for it. The unshown layers are
+  withdrawn by the **walk** rather than by a wrapper around each of them, because a wrapper
+  changes the layout the widget exists to preserve.
+
+- **`ConstraintsTransformBox` and `UnconstrainedBox`** (J487): what the child is given, per
+  axis — as it came, taken away, or a number of its own — with the box then sized to what
+  came back and the difference reported per edge with the debug band. `UnconstrainedBox` is
+  that with the constraint taken away; `UnconstrainedBox::axis` frees one axis and leaves
+  the other.
+
+- **`SizedOverflowBox`** (J487): `OverflowBox` with the hole given a size — a slot narrower
+  than the space around it, holding a child that spills past every edge.
+
+- **`FractionalTranslation`** (J487): a paint offset stated as a fraction of the child's
+  **own** size, for the shifts whose number the layout decides and the caller was never
+  told.
+
+- **`ListBody` and `Flex::reverse`** (J487): a named entry point for the body of a
+  scrollable — which in this framework is a `Flex` column, its defaults already being the
+  reference's list-body rules — and the one thing `Flex` could not say, a column laid out
+  from the far end.
+
+- **`Keyed::wrap`** (J487): keeps the key a child already has and falls back to its
+  position, for keying somebody else's children in bulk. `Keyed` **is** the reference's
+  `KeyedSubtree`; this was the constructor missing from it.
+
+- **`ExpansionPanelList`** (J486, closes #40): a column of panels drawn as **one card**
+  that splits — adjacent shut panels merged and divided by a hairline, an open one lifted
+  out with a gap either side and corners of its own. Two modes: the free one
+  (`on_toggle(index, now_open)`) and the exclusive one, whose message carries the
+  **resulting** choice rather than the index pressed, so *one at a time* is a property of
+  what the widget sends. Pressing the open panel shuts it, which the reference's radio list
+  cannot. The split is deliberately **not tweened** — see the module docs.
+
+- **`ExpansionTile::title_child`** (J486): a header as a widget, the reference's
+  `headerBuilder`. `ListTile` had taken one for its first line all along; the tile never
+  passed it on.
+
+- **`DataTable::lazy`** (J484, closes #41): rows supplied one at a time, so a table showing
+  ten of four thousand builds ten. Sorting, searching and filtering belong to whoever owns
+  the data — the table draws the arrows and emits, and every index is an index into the set
+  as it stands. A page that no longer exists shows **the last one that does**, which is now
+  written down rather than being what the clamp happened to do.
+
+- **The table's footer speaks the reader's language** (J484): `page_range_label`,
+  `rows_per_page_label`, `selected_row_count_label` and `group_digits` — so "11–20 of 4,000"
+  becomes "11–20 sur 4 000", and the page-size chooser is named instead of being three bare
+  numbers in a corner.
+
+- **A second language** (J483, closes #26): `French`, beside `English` in
+  `frus_widgets::localizations`. Written rather than generated — the week starts on
+  **Monday**, the months are **lower case** as the language writes them, and the four
+  selection sentences are four sentences because *ligne* is feminine and a formula gluing
+  *row* to *selected* cannot agree. "OK", "Minute" and "AM"/"PM" are written out
+  identical to the English on purpose, with the reason beside them.
+
+- **Sixteen more entries in the table**, for the words five widgets used to say in English
+  where no table could reach them: the calendar's month arrows, the stepper's two buttons,
+  a table's four selection announcements, a data table's search field and empty state, and
+  the time picker's headings and clock halves. All have English bodies, so nothing already
+  written changed.
+
+### Changed
+
+- **A `DataTable` composes itself when something looks at it**, not once per builder call
+  (J484). A chain of nine builders used to compose the whole widget nine times.
+
+### Fixed
+
+- **A scrollable tab bar no longer pushes its panel 200 pixels down** (J485, closes #65).
+  A viewport is sized from its **content** on the axis it does not scroll: the 200 px
+  default is the height of a window onto something taller and belongs to the axis that
+  scrolls, so a horizontal strip 48 px tall claimed 200. `Auto` on the still axis is now
+  the signal the layout reads, and the measurement happens where the runtime and the theme
+  are both to hand. A vertical area's width comes from its content the same way — in a row
+  it used to come out nothing wide.
+
+- **A dialog's buttons no longer run off its edge** (J482, closes #27): `AlertDialog`'s
+  actions are an `OverflowBar` — one line while they fit, a column when they do not — and
+  the dialog takes the three pass-through overrides the reference has
+  (`actions_overflow_alignment`, `actions_overflow_direction`,
+  `actions_overflow_button_spacing`). `MaterialBanner`'s actions are a bar now too.
+
+- **A centred overlay is no longer laid out wider than the window.** One whose natural
+  width exceeds the room there is — the window less its own margin — is laid out again at
+  that room, so a dialog at a large text scale folds instead of spilling off both edges of
+  the screen. This is what makes `DIALOG_INSET_PADDING` mean what its test says it means.
+  The height is deliberately untouched: a dialog too tall wants its content to scroll.
+
+- **A squeezed button ellipsises its label** rather than painting the words out of both
+  ends of its pill.
+
+### Added
+
+- **`OverflowBar`** (J482): a row of children that folds into a column when they stop
+  fitting — all of them, never the last one stranded on a second line the way a `Wrap`
+  would leave it. The arrangement is chosen during layout, from the box actually offered
+  against the children's natural widths measured under the theme in force, which is what
+  lets a reader's font size reach it. No child is ever wider than the bar.
+
+- **A picture arrives instead of appearing** (J481, closes #42): `Image::placeholder` takes
+  a colour, a `Skeleton` or another `Image`, and the picture **crosses over** it in the
+  reference's 700 ms. The crossing has a duration in **one direction only** — instant on
+  the way back, because by then there is nothing left to cross from — and that one asymmetry
+  is what makes a rebuild not restart it while a source swapped at the same place in the
+  tree does. An image with no placeholder claims no animated value at all, so nothing
+  already written changed.
+
+- **`ImageIcon`** and **`IconButton::image`**: a picture where an icon goes, answering the
+  same `caller ?? theme ?? the grid` size chain a path icon answers. **Untinted by
+  default** — the one place it parts from `Icon`, because a brand mark flattened to one grey
+  the first time an application themes its icons is a brand mark nobody recognises.
+
+### Added
+
+- **A tab can be more than a label** (J480, closes #36): `TabBar::tab_widget` and `TabItem`.
+  A tab can carry an unread count in a pill, a coloured dot, two lines, rich text — and the
+  label stays mandatory, because it is what a screen reader says. `TabItem::width` is how a
+  tab the caller drew states its width on a bar that **scrolls**, since a widget cannot be
+  asked how wide it would like to be (#52); a bar that does not scroll shares its width
+  equally and never asks.
+
+- **`TabBar::swipeable`**: the panel becomes a `PageView` over every tab's content, on the
+  milestone-277 physics. Opt-in, because it is a behaviour change for every bar already
+  written. A swipe produces the **same message a press on the tab produces** — one rule
+  reached two ways.
+
+- **`TabPageSelector`**: the row of dots that says which page of several you are on, with
+  `PageSelectorTheme` behind it. The fill **crosses** rather than jumping, on the same
+  fractional index the tab indicator slides along, so two dots either side of a crossing
+  share exactly one dot's worth of ink. It takes no press — twelve pixels is not a target —
+  and it is announced, which the reference's is not.
 
 ### Added
 

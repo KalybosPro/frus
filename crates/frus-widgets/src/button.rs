@@ -403,14 +403,26 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
         // Centred, both ways: a label pinned to the padding drifts off centre the moment
         // the button is given a width of its own.
         let style = self.label_style_of(theme);
-        let measured = frus_text::measure_style(&self.label, style);
+        let resolved = style.resolved();
+        // **A box narrower than the label ellipsises it**, rather than painting the words
+        // straight out of the pill on both sides. A button asks for the width its label
+        // needs and almost always gets it, so this is the rare case — a layout that had to
+        // squeeze it, which is what a bar of actions folding into a column does to the
+        // longest answer at a reader's font size. What it must not do is come apart.
+        let room = bounds.width - self.padding_of(theme) * 2.0;
+        let mut label = self.label.clone();
+        let mut measured = frus_text::measure_style(&label, style);
+        if room > 0.0 && measured.width > room + 0.5 {
+            label = crate::text::ellipsise(&label, &resolved, room);
+            measured = frus_text::measure_resolved(&label, &resolved);
+        }
         scene.text(
             Point::new(
                 bounds.x + (bounds.width - measured.width) / 2.0,
                 bounds.y + (bounds.height - measured.height) / 2.0,
             ),
-            self.label.clone(),
-            &style.resolved(),
+            label,
+            &resolved,
             on_color.fade(o),
         );
     }
@@ -498,6 +510,38 @@ mod tests {
             &mut scene,
         );
         scene.primitives().to_vec()
+    }
+
+    /// **A box narrower than the label ellipsises it.** A button asks for the width its
+    /// words need and nearly always gets it; when a layout has to squeeze one — a bar of
+    /// actions folding into a column, at a reader's font size — the label used to be
+    /// painted at its full width straight out of both ends of the pill.
+    #[test]
+    fn a_squeezed_label_is_cut_rather_than_painted_out_of_the_pill() {
+        let button = crate::dsl::button("Delete permanently", Msg::Pressed);
+        let drawn = |width: f32| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                &button,
+                Rect::new(0.0, 0.0, width, BUTTON_HEIGHT),
+                Status::default(),
+                &Theme::default(),
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Text { text, position, .. } => Some((text.clone(), *position)),
+                    _ => None,
+                })
+                .expect("a label")
+        };
+        let (whole, _) = drawn(400.0);
+        assert_eq!(whole, "Delete permanently", "room enough: nothing is cut");
+        let (cut, at) = drawn(120.0);
+        assert!(cut.ends_with('…'), "cut short: {cut:?}");
+        assert!(at.x >= 0.0, "and it starts inside the pill: {at:?}");
     }
 
     /// **A button is a pill at any size** (`button_style.dart`), which it was not.

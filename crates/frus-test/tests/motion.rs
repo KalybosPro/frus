@@ -13,12 +13,12 @@
 //!
 //! With no GPU adapter the tests skip themselves, the harness returning `None`.
 
-use frus_core::{Color, Size, SizeClass};
+use frus_core::{Color, ImageData, ImageHandle, Size, SizeClass};
 use frus_test::{Snapshot, Stage};
 use frus_widgets::{
     text, Align, Button, Container, Dismissible, DragTarget, Draggable, Flex, GlowEdge, Hero,
-    Keyed, LayoutBuilder, NavScaffold, Navigator, PageView, Point, RefreshIndicator, Responsive,
-    SingleChildScrollView, Tooltip,
+    Image, Keyed, LayoutBuilder, NavScaffold, Navigator, PageView, Point, RefreshIndicator,
+    Responsive, SingleChildScrollView, Skeleton, Tooltip,
 };
 
 fn golden(name: &str) -> String {
@@ -504,4 +504,58 @@ fn the_stage_actually_advances_time() {
         bright.diff_count(&faded, 2) > 200,
         "the glow did not change over half a second: the loop is not running"
     );
+}
+
+/// A four-quadrant bitmap, so a crossing is visible as a picture rather than as a wash.
+fn quadrants(side: u32) -> ImageHandle {
+    let mut pixels = Vec::with_capacity((side * side * 4) as usize);
+    for y in 0..side {
+        for x in 0..side {
+            let (left, top) = (x < side / 2, y < side / 2);
+            let rgb: [u8; 3] = match (left, top) {
+                (true, true) => [232, 93, 88],
+                (false, true) => [244, 191, 79],
+                (true, false) => [86, 168, 220],
+                (false, false) => [104, 196, 148],
+            };
+            pixels.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
+        }
+    }
+    ImageData::from_rgba(side, side, pixels).into_handle()
+}
+
+/// **A picture caught half way over its placeholder.**
+///
+/// Not a function of its arguments either: the same `Image` draws the placeholder alone on
+/// one frame and the picture alone on another, and the frame worth photographing is neither
+/// — so it belongs here, driven through the frame loop the way the shell drives it.
+///
+/// The first frame is the widget **not ready**, which is what puts the crossing at nought;
+/// the picture then arrives at the same place in the tree and the loop is stepped a third
+/// of the fade. Both are drawn, and neither is whole.
+#[test]
+fn an_image_half_way_over_its_placeholder() {
+    let frame = |ready: bool| {
+        let picture = match ready {
+            true => Image::new(quadrants(64)),
+            // Nothing in a test resolves, so this stays on its way for ever — which is
+            // exactly the state wanted for the frame that sets the crossing at nought.
+            false => Image::network("https://example.invalid/quadrants.png"),
+        };
+        Container::<()>::new().padding(24.0).child(
+            // A **wide** box for a square picture, so `Contain` letterboxes it and the
+            // placeholder is visible either side of it. Same-sized, the two would be
+            // exactly on top of each other and a crossing would photograph as a picture
+            // in slightly the wrong colours.
+            picture
+                .size(180.0, 110.0)
+                .placeholder(Skeleton::new().height(110.0).radius(10.0)),
+        )
+    };
+    let mut stage = Stage::new(228, 158);
+    stage.settle(&frame(false));
+    // A fifth of the way, on an ease-out curve — which is most of the way up, since that
+    // curve spends its time arriving. Far enough that both are plainly there.
+    stage.advance(&frame(true), frus_widgets::IMAGE_FADE / 5.0);
+    accept("image_fading_in", stage.render(&frame(true)));
 }

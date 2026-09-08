@@ -26,6 +26,10 @@ type Comparator = Rc<dyn Fn(&str, &str) -> Ordering>;
 
 /// The buttons of the bulk-action bar, built on demand while a selection stands.
 type BulkActions<Msg> = Rc<dyn Fn() -> Vec<Box<dyn Widget<Msg>>>>;
+
+/// A **lazy row source**: how many rows there are, and how to build one — see
+/// [`DataTable::lazy`].
+type LazyRows = (usize, Rc<dyn Fn(usize) -> Vec<String>>);
 use crate::text::Text;
 use crate::textinput::TextField;
 use crate::theme::Theme;
@@ -84,16 +88,18 @@ pub fn page_rows(rows: &[Vec<String>], current: usize, per_page: usize) -> Vec<V
     rows[start..end].to_vec()
 }
 
-/// The "N–M of T" label of the current slice (`0 of 0` when empty) — milestone 236. Reusable.
+/// The "N-M of T" line under the current slice (`0 of 0` when empty) — milestone 236.
+///
+/// **The sentence comes from the reader's language**, and so do the numbers in it: a comma
+/// groups a thousand in English and a space does in French, and the word in the middle is
+/// not in the same place in every language. See
+/// [`Localizations::page_range_label`](crate::Localizations::page_range_label).
 pub fn page_range_label(current: usize, per_page: usize, total: usize) -> String {
-    if total == 0 {
-        return "0 of 0".to_string();
-    }
     let per = per_page.max(1);
     let current = current.clamp(1, page_count(total, per));
     let start = (current - 1) * per + 1;
     let end = (current * per).min(total);
-    format!("{start}\u{2013}{end} of {total}")
+    crate::localizations::of().page_range_label(start, end, total)
 }
 
 /// A **text** data table that sorts its own rows according to the sort state supplied, then
@@ -107,6 +113,10 @@ pub fn page_range_label(current: usize, per_page: usize, total: usize) -> String
 pub struct DataTable<Msg = ()> {
     headers: Vec<String>,
     rows: Vec<Vec<String>>,
+    /// **Rows asked for one at a time**, for a set too big to hold: `(how many, how to
+    /// build one)`. See [`DataTable::lazy`]. `None` is the ordinary table, whose rows are
+    /// in `rows`.
+    lazy: Option<LazyRows>,
     widths: Vec<f32>,
     sort: Option<(usize, bool)>,
     on_sort: Option<Rc<dyn Fn(usize) -> Msg>>,
@@ -145,7 +155,13 @@ pub struct DataTable<Msg = ()> {
     empty_text: String,
     /// The rendering: the `Table` (sorted and paginated rows), optionally capped by a footer
     /// (the slice label + `Pagination` + the size selector) beneath it.
-    inner: Box<dyn Widget<Msg>>,
+    ///
+    /// **Composed on the first ask, not on every builder call.** A table is built by a
+    /// chain of eight or nine methods, each of which used to compose the whole thing again
+    /// and throw the last one away — nine times over the rows for one table. It matters for
+    /// a lazy source, where composing means *building the rows*: `DataTable::lazy(…, 4_000,
+    /// …).paginated(2, 10, …)` would have asked for four thousand rows and then for ten.
+    inner: std::cell::OnceCell<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> DataTable<Msg> {
@@ -169,17 +185,55 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             on_page_size: None,
             on_select: None,
             selected: Vec::new(),
+            lazy: None,
             comparators: Vec::new(),
             on_check: None,
             on_check_all: None,
             query: None,
             on_query: None,
             bulk_actions: None,
-            empty_text: "No results".to_string(),
-            inner: Box::new(Flex::<Msg>::column()),
+            empty_text: crate::localizations::of().no_results_label().to_string(),
+            inner: std::cell::OnceCell::new(),
         };
         me.rebuild();
         me
+    }
+
+    /// A table whose rows are **asked for one at a time**: `count` of them, and
+    /// `row(index)` to build one.
+    ///
+    /// For a set too big to hold twice. An ordinary table is handed every row, so showing
+    /// ten of four thousand builds four thousand: this builds ten, and asks only for the
+    /// ones the current page shows.
+    ///
+    /// **What a lazy table gives up is the work it cannot do without the rows.** Sorting,
+    /// searching and the row filter belong to whoever owns the data:
+    ///
+    /// - [`sorted`](Self::sorted) still draws the arrow and [`on_sort`](Self::on_sort)
+    ///   still fires, but the table does **not** reorder anything. The application sorts
+    ///   its own set and hands back rows in the new order.
+    /// - [`searchable`](Self::searchable) still draws the field and still emits, and the
+    ///   application filters — which is what changes `count`.
+    /// - Every index — [`selected`](Self::selected), `on_select_row`, the checkboxes — is
+    ///   an index **into the set as it stands**, the one `row` was asked for. In an
+    ///   ordinary table it is the index of the row as it was given, before sorting; here
+    ///   there is no *before*, because the table never saw the other rows.
+    ///
+    /// ```ignore
+    /// DataTable::lazy(["Name", "Score"], people.len(), move |i| {
+    ///     vec![people[i].name.clone(), people[i].score.to_string()]
+    /// })
+    /// .paginated(page, 10, Msg::Page)
+    /// ```
+    pub fn lazy(
+        headers: impl IntoIterator<Item = impl Into<String>>,
+        count: usize,
+        row: impl Fn(usize) -> Vec<String> + 'static,
+    ) -> Self {
+        let mut table = Self::new(headers, Vec::new());
+        table.lazy = Some((count, Rc::new(row)));
+        table.rebuild();
+        table
     }
 
     /// The **fixed** width of each column, in pixels (`0` or less = a flexible column).
@@ -211,6 +265,15 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
     /// size of `per_page`, and places a [`Pagination`](crate::Pagination) selector beneath it.
     /// `on_page(page)` when a page is clicked (the application updates `current`). The slicing
     /// follows the **sort**.
+    ///
+    /// **A page that no longer exists shows the last one that does.** A filter that
+    /// shortens the set past the current page is the everyday way there — type a letter
+    /// into the search field on page 40 of 400 and there are two pages left — and the
+    /// alternatives are worse than the clamp: an empty table with a pager under it says
+    /// the filter matched nothing, which is a lie, and jumping to page 1 loses the reader's
+    /// place for a filter that shortened the set by one row. The label, the pager and the
+    /// slice all say the same clamped number, so nothing on screen disagrees with anything
+    /// else; the application's own `current` catches up on the next click.
     pub fn paginated(
         mut self,
         current: usize,
@@ -325,7 +388,23 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
     /// The order of the **source row indices** after **filtering** (search) then sorting
     /// (stable); the filtered identity when there is no sort. The sort uses the column's
     /// **custom** comparator when it has one, otherwise [`compare_cells`].
+    /// One row: held, or built on demand. **Only the rows of the current page** ever get
+    /// here, which is what a lazy source buys.
+    fn row(&self, index: usize) -> Vec<String> {
+        match &self.lazy {
+            Some((_, build)) => build(index),
+            None => self.rows.get(index).cloned().unwrap_or_default(),
+        }
+    }
+
     fn sorted_order(&self) -> Vec<usize> {
+        // **A lazy table is already in the order it is going to be shown in.** Neither the
+        // filter nor the sort can run here: both need every row, and the whole point of a
+        // lazy source is that the table has not got them. The application does both, and
+        // the result arrives as a different `count` and a different `row`.
+        if let Some((count, _)) = &self.lazy {
+            return (0..*count).collect();
+        }
         // The search filter, upstream: it keeps only the matching source rows.
         let mut order: Vec<usize> = (0..self.rows.len())
             .filter(|&i| match &self.query {
@@ -358,7 +437,18 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
     /// (Re)builds the rendering: rows sorted according to `sort`, cut to page `page` where
     /// applicable, in a `Table` (headers, widths, indicator) optionally capped by a
     /// `Pagination` beneath.
+    /// Throws away the rendering, so the next ask composes it again. Cheap: every builder
+    /// method calls it, and the work happens once, when someone finally looks.
     fn rebuild(&mut self) {
+        self.inner.take();
+    }
+
+    /// The rendering, composed if it has not been.
+    fn built(&self) -> &dyn Widget<Msg> {
+        self.inner.get_or_init(|| self.compose()).as_ref()
+    }
+
+    fn compose(&self) -> Box<dyn Widget<Msg>> {
         // The reasoning is in terms of **source row indices** (sorted, then sliced): that
         // preserves each row's original identity through the sort and the pagination, so the
         // selection can be translated (displayed index ↔ source index) both ways.
@@ -377,7 +467,8 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         let hrefs: Vec<&str> = self.headers.iter().map(|s| s.as_str()).collect();
         let mut t = Table::new(self.headers.len().max(1)).header(&hrefs);
         for &i in &page_indices {
-            let refs: Vec<&str> = self.rows[i].iter().map(|s| s.as_str()).collect();
+            let row = self.row(i);
+            let refs: Vec<&str> = row.iter().map(|s| s.as_str()).collect();
             t = t.row(&refs);
         }
         if self.widths.iter().any(|w| *w > 0.0) {
@@ -455,7 +546,14 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
                         for s in &self.page_sizes {
                             seg = seg.segment(s.to_string());
                         }
-                        footer = footer.child(seg);
+                        // **Named**, because a row of bare numbers in a footer is a row of
+                        // bare numbers: 10 · 25 · 50 says nothing about what it counts.
+                        footer = footer
+                            .child(
+                                Text::new(crate::localizations::of().rows_per_page_label())
+                                    .size(13.0),
+                            )
+                            .child(seg);
                     }
                     Box::new(Flex::column().gap(12.0).child(t).child(footer))
                 }
@@ -466,7 +564,10 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         let mut block = block;
         if let Some(make) = &self.bulk_actions {
             if !self.selected.is_empty() {
-                let label = Text::new(format!("{} selected", self.selected.len())).size(14.0);
+                let label = Text::new(
+                    crate::localizations::of().selected_row_count_label(self.selected.len()),
+                )
+                .size(14.0);
                 let mut bar = Flex::row()
                     .align(Align::Center)
                     .gap(8.0)
@@ -479,30 +580,30 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             }
         }
         // Search: it caps the table with a field (otherwise the block is kept as is).
-        self.inner = if let Some(on_query) = &self.on_query {
+        if let Some(on_query) = &self.on_query {
             let on_query = on_query.clone();
             let field = TextField::new(self.query.clone().unwrap_or_default())
-                .placeholder("Search")
+                .placeholder(crate::localizations::of().search_field_label())
                 .width(240.0)
                 .on_input(move |s| on_query(s));
             Box::new(Flex::column().gap(12.0).child(field).child(block))
         } else {
             block
-        };
+        }
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for DataTable<Msg> {
+impl<Msg: Clone + 'static> Widget<Msg> for DataTable<Msg> {
     fn style(&self) -> Style {
-        self.inner.style()
+        self.built().style()
     }
 
     fn style_themed(&self, theme: &Theme) -> Style {
-        self.inner.style_themed(theme)
+        self.built().style_themed(theme)
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        self.inner.children()
+        self.built().children()
     }
 
     fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
@@ -512,7 +613,7 @@ impl<Msg: Clone> Widget<Msg> for DataTable<Msg> {
     }
 
     fn stack(&self) -> bool {
-        self.inner.stack()
+        self.built().stack()
     }
 }
 
@@ -817,6 +918,110 @@ mod tests {
         );
     }
 
+    /// Collects the words a subtree draws, in paint order — what a reader would see.
+    fn collect_texts<Msg: Clone + 'static>(root: &dyn Widget<Msg>) -> Vec<String> {
+        let ui = crate::ui::build_ui(
+            root,
+            frus_core::Size::new(600.0, 600.0),
+            &crate::Runtime::default(),
+            &Theme::default(),
+        );
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// **Only the page's rows are built.** That is the whole of what a lazy source buys: an
+    /// ordinary table showing ten rows of four thousand builds four thousand.
+    #[test]
+    fn a_lazy_table_builds_only_the_page_it_shows() {
+        use std::cell::RefCell;
+        let asked: Rc<RefCell<Vec<usize>>> = Rc::new(RefCell::new(Vec::new()));
+        let seen = asked.clone();
+        let table = DataTable::<()>::lazy(["N"], 4_000, move |i| {
+            seen.borrow_mut().push(i);
+            vec![format!("row {i}")]
+        })
+        .paginated(2, 10, |_| ());
+        // Nothing yet: a table composes itself when someone looks at it, so a chain of
+        // builders costs one composition rather than one each.
+        assert!(asked.borrow().is_empty(), "not built until it is looked at");
+        let texts = collect_texts(&table);
+        assert_eq!(
+            *asked.borrow(),
+            (10..20).collect::<Vec<_>>(),
+            "page 2 of ten, and nothing else"
+        );
+        assert!(texts.contains(&"row 10".to_string()), "{texts:?}");
+        assert!(texts.contains(&"row 19".to_string()), "{texts:?}");
+        assert!(!texts.contains(&"row 20".to_string()), "{texts:?}");
+    }
+
+    /// **A page that no longer exists shows the last one that does**, and everything on
+    /// screen agrees about which page that is.
+    ///
+    /// The everyday way there is a filter: a reader on page 40 of 400 types a letter into
+    /// the search field and there are two pages left. This is where a hand-rolled pager goes
+    /// wrong — an empty table under a pager, which says the filter matched nothing.
+    #[test]
+    fn a_filter_that_shrinks_the_set_below_the_current_page_shows_the_last_one() {
+        // 400 rows cut ten to a page, the reader on page 40; then a filter leaves 12.
+        let shrunk = DataTable::<()>::lazy(["N"], 12, |i| vec![format!("row {i}")]).paginated(
+            40,
+            10,
+            |_| (),
+        );
+        let texts = collect_texts(&shrunk);
+        assert!(
+            texts.contains(&"row 10".to_string()) && texts.contains(&"row 11".to_string()),
+            "the last page's two rows, not an empty table: {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t == "11–12 of 12"),
+            "and the line says the same page the slice does: {texts:?}"
+        );
+    }
+
+    /// **The footer's line is the reader's language**, numbers included: the word in the
+    /// middle moves, and a thousand is grouped with a space rather than a comma.
+    #[test]
+    fn the_page_line_is_localised() {
+        assert_eq!(page_range_label(2, 10, 4_000), "11–20 of 4,000");
+        crate::localizations::scope(Rc::new(crate::French), || {
+            assert_eq!(page_range_label(2, 10, 4_000), "11–20 sur 4\u{a0}000");
+        });
+    }
+
+    /// **A selection survives a page change**, because every index the table takes and
+    /// gives back is an index into the set rather than into the slice: ticking a row on
+    /// page 1 and paging away must not silently drop it.
+    #[test]
+    fn a_selection_made_on_one_page_is_still_there_on_the_next() {
+        let rows: Vec<Vec<String>> = (0..30).map(|i| vec![format!("row {i}")]).collect();
+        // The pager's own messages are numbered from a thousand, so the rows' can be told
+        // from them without reaching into the footer's shape.
+        let table = DataTable::<usize>::new(["N"], rows)
+            .paginated(2, 10, |p| 1_000 + p)
+            .selected(&[3, 15])
+            .on_select_row(|i| i);
+        let mut clicks = Vec::new();
+        for child in Widget::<usize>::children(&table) {
+            collect_clicks(child.as_ref(), &mut clicks);
+        }
+        clicks.retain(|m| *m < 1_000);
+        clicks.dedup();
+        assert_eq!(
+            clicks,
+            (10..20).collect::<Vec<_>>(),
+            "a click on page 2 reports the set's index, not the slice's"
+        );
+    }
+
     #[test]
     fn page_size_selector_appears_in_the_footer() {
         let rows: Vec<Vec<String>> = (1..=7).map(|i| vec![i.to_string()]).collect();
@@ -827,6 +1032,10 @@ mod tests {
             .paginated(1, 3, |_| ())
             .page_sizes(&[3, 5], |_| ());
         assert_eq!(footer_len(&base), 3, "label + spacer + pager");
-        assert_eq!(footer_len(&sized), 4, "+ the size selector");
+        assert_eq!(
+            footer_len(&sized),
+            5,
+            "+ \"Rows per page\" and the selector"
+        );
     }
 }

@@ -27,6 +27,7 @@ use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::interaction::Status;
 use crate::portal::Placement;
+use crate::rowcolumn::VerticalDirection;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -411,6 +412,9 @@ pub struct AlertDialog<Msg> {
     content_text_style: Option<TextStyle>,
     actions: Vec<Box<dyn Widget<Msg>>>,
     actions_alignment: Option<ActionsAlignment>,
+    actions_overflow_alignment: Option<Align>,
+    actions_overflow_direction: Option<VerticalDirection>,
+    actions_overflow_button_spacing: Option<f32>,
 }
 
 impl<Msg: Clone + 'static> AlertDialog<Msg> {
@@ -426,6 +430,9 @@ impl<Msg: Clone + 'static> AlertDialog<Msg> {
             content_text_style: None,
             actions: Vec::new(),
             actions_alignment: None,
+            actions_overflow_alignment: None,
+            actions_overflow_direction: None,
+            actions_overflow_button_spacing: None,
         }
     }
 
@@ -508,6 +515,38 @@ impl<Msg: Clone + 'static> AlertDialog<Msg> {
         self
     }
 
+    /// Which edge the buttons line up on **once they have stacked** — see
+    /// [`OverflowBar::overflow_alignment`](crate::OverflowBar::overflow_alignment). The
+    /// trailing end by default, so a column of answers sits where the row of them was
+    /// (`dialog.dart:610`).
+    #[must_use]
+    pub fn actions_overflow_alignment(mut self, alignment: Align) -> Self {
+        self.actions_overflow_alignment = Some(alignment);
+        self
+    }
+
+    /// Which way that column runs — see
+    /// [`OverflowBar::overflow_direction`](crate::OverflowBar::overflow_direction).
+    /// Downwards by default, so the buttons stack in the order they were given.
+    ///
+    /// Worth saying for a destructive answer: last on a line is *first* in a column, so a
+    /// dialog that folds moves "Delete" to where the thumb was reaching for "Cancel".
+    /// [`VerticalDirection::Up`] is how an application says to keep it last.
+    #[must_use]
+    pub fn actions_overflow_direction(mut self, direction: VerticalDirection) -> Self {
+        self.actions_overflow_direction = Some(direction);
+        self
+    }
+
+    /// The space between the buttons **once they have stacked**, which is not the space
+    /// between them on one line (`dialog.dart:613`). Nothing by default, as in the
+    /// reference: buttons that already pad themselves need no more.
+    #[must_use]
+    pub fn actions_overflow_button_spacing(mut self, spacing: f32) -> Self {
+        self.actions_overflow_button_spacing = Some(spacing);
+        self
+    }
+
     /// The surface's colour — see [`Dialog::background`].
     #[must_use]
     pub fn background(mut self, color: Color) -> Self {
@@ -581,6 +620,9 @@ impl<Msg: Clone + 'static> AlertDialog<Msg> {
             content_text_style,
             actions,
             actions_alignment,
+            actions_overflow_alignment,
+            actions_overflow_direction,
+            actions_overflow_button_spacing,
         } = self;
         let has_icon = icon.is_some();
         let has_title = title.is_some();
@@ -664,9 +706,16 @@ impl<Msg: Clone + 'static> AlertDialog<Msg> {
             if !actions.is_empty() {
                 // 24 at the sides and the bottom, nothing on top: whatever is above has
                 // already spaced itself (`dialog.dart:1994`).
-                let mut row = crate::Flex::row()
-                    .justify(actions_alignment.unwrap_or(Justify::End))
-                    .gap(ACTION_GAP);
+                // **A bar, not a row** (`dialog.dart:606`): a row neither wraps nor
+                // shrinks, so two buttons that stopped fitting — which is what a reader
+                // who has turned their font size up has — were drawn straight past the
+                // surface holding them.
+                let mut row = crate::OverflowBar::new()
+                    .alignment(actions_alignment.unwrap_or(Justify::End))
+                    .spacing(ACTION_GAP)
+                    .overflow_alignment(actions_overflow_alignment.unwrap_or(Align::End))
+                    .overflow_direction(actions_overflow_direction.unwrap_or_default())
+                    .overflow_spacing(actions_overflow_button_spacing.unwrap_or(0.0));
                 for action in actions {
                     row = row.child_boxed(action);
                 }
@@ -1013,6 +1062,55 @@ mod tests {
         assert_eq!(panel.style().margin, DIALOG_INSET_PADDING);
     }
 
+    /// **Two long answers at a reader's font size stay inside the surface.**
+    ///
+    /// The everyday way to see the bug this closes is not a contrived label: it is a
+    /// system font size turned up. The buttons grow, the dialog does not grow with them,
+    /// and a plain row neither wraps nor shrinks — so "Delete permanently" was drawn at a
+    /// negative x, off the surface and off the screen, where nobody can press it.
+    #[test]
+    fn long_actions_at_a_large_text_scale_stack_inside_the_dialog() {
+        let window = Size::new(400.0, 800.0);
+        let _surface = crate::MediaQuery::new(window)
+            .with_text_scaler(2.0)
+            .install();
+        let dialog = AlertDialog::<Msg>::new(true)
+            .title("Delete this task?")
+            .content("This cannot be undone.")
+            .action(crate::dsl::button("Cancel", Msg::Close))
+            .action(crate::dsl::button("Delete permanently", Msg::Delete))
+            .body(Container::new());
+        let ui = build_ui(&dialog, window, &Runtime::default(), &Theme::default());
+        let theme = Theme::default();
+        let mut surface = None;
+        let mut buttons = Vec::new();
+        for p in ui.scene().primitives() {
+            if let frus_core::Primitive::Rect { rect, color, .. } = p {
+                if color.r == theme.scheme.primary.r && color.g == theme.scheme.primary.g {
+                    buttons.push(*rect);
+                } else if rect.width > 200.0 && rect.height > 100.0 && color.a == 1.0 {
+                    surface.get_or_insert(*rect);
+                }
+            }
+        }
+        let surface = surface.expect("the dialog's surface");
+        assert!(
+            surface.x >= 0.0 && surface.x + surface.width <= window.width,
+            "the surface itself is on the screen: {surface:?}"
+        );
+        assert_eq!(buttons.len(), 2, "both buttons: {buttons:?}");
+        for button in &buttons {
+            assert!(
+                button.x >= surface.x && button.x + button.width <= surface.x + surface.width,
+                "{button:?} is inside {surface:?}"
+            );
+        }
+        assert_ne!(
+            buttons[0].y, buttons[1].y,
+            "and they stacked rather than squashed: {buttons:?}"
+        );
+    }
+
     /// Everything the alert dialog was given is drawn.
     #[test]
     fn an_alert_dialog_shows_its_title_its_content_and_its_actions() {
@@ -1045,6 +1143,7 @@ mod tests {
         let dialog = AlertDialog::<Msg>::new(true)
             .title("Heading")
             .content("Body")
+            .max_width(340.0)
             .body(Container::new());
         let ui = build_ui(
             &dialog,

@@ -256,14 +256,14 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
             let ampm = Flex::row()
                 .gap(4.0)
                 .child(TimeCell {
-                    label: "AM".into(),
+                    label: crate::localizations::of().ante_meridiem_label().into(),
                     selected: !pm,
                     day_period: true,
                     text_style: cell,
                     message: Some((self.on_hour)(am_target)),
                 })
                 .child(TimeCell {
-                    label: "PM".into(),
+                    label: crate::localizations::of().post_meridiem_label().into(),
                     selected: pm,
                     day_period: true,
                     text_style: cell,
@@ -284,7 +284,10 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
             }
             Flex::column()
                 .gap(6.0)
-                .child(Text::styled("Hour", help_s))
+                .child(Text::styled(
+                    crate::localizations::of().hour_label(),
+                    help_s,
+                ))
                 .child(ampm)
                 .child(grid)
         } else {
@@ -300,7 +303,10 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
             }
             Flex::column()
                 .gap(6.0)
-                .child(Text::styled("Hour", help_s))
+                .child(Text::styled(
+                    crate::localizations::of().hour_label(),
+                    help_s,
+                ))
                 .child(grid)
         };
 
@@ -320,7 +326,10 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
         }
         let minutes_section = Flex::column()
             .gap(6.0)
-            .child(Text::styled("Minute", help_s))
+            .child(Text::styled(
+                crate::localizations::of().minute_label(),
+                help_s,
+            ))
             .child(minutes);
 
         self.children = vec![
@@ -459,11 +468,17 @@ impl<Msg: Clone + 'static> TimeRange<Msg> {
         let label_s = range_label_style(self.label_text_style, None);
         let start_col = Flex::column()
             .gap(8.0)
-            .child(Text::styled("Start", label_s))
+            .child(Text::styled(
+                crate::localizations::of().start_label(),
+                label_s,
+            ))
             .child(make(Endpoint::Start, self.start.0, self.start.1));
         let end_col = Flex::column()
             .gap(8.0)
-            .child(Text::styled("End", label_s))
+            .child(Text::styled(
+                crate::localizations::of().end_label(),
+                label_s,
+            ))
             .child(make(Endpoint::End, self.end.0, self.end.1));
         self.children = vec![Box::new(start_col), Box::new(end_col)];
     }

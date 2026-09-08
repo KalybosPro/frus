@@ -77,7 +77,7 @@ impl<Msg: Clone + 'static> Stepper<Msg> {
         self.children = vec![
             Box::new(
                 crate::IconButton::glyph("−")
-                    .label("Less")
+                    .label(crate::localizations::of().decrease_label())
                     .variant(crate::IconButtonVariant::Outlined)
                     .icon_size(20.0)
                     .enabled(can_dec)
@@ -100,7 +100,7 @@ impl<Msg: Clone + 'static> Stepper<Msg> {
             }),
             Box::new(
                 crate::IconButton::glyph("+")
-                    .label("More")
+                    .label(crate::localizations::of().increase_label())
                     .variant(crate::IconButtonVariant::Outlined)
                     .icon_size(20.0)
                     .enabled(can_inc)

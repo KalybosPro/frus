@@ -57,6 +57,8 @@ enum Content {
     /// A pair being crossed, and the end it is heading for — see
     /// [`IconButton::animated`].
     Morph(crate::icons::AnimatedIconData, f32),
+    /// A picture rather than a path — see [`IconButton::image`].
+    Image(crate::ImageIcon),
 }
 
 /// A button holding one glyph.
@@ -87,6 +89,19 @@ impl<Msg> IconButton<Msg> {
     /// the bundled set does not carry.
     pub fn glyph(glyph: impl Into<String>) -> Self {
         Self::of(Content::Glyph(glyph.into()))
+    }
+
+    /// A button showing a **picture**: a brand mark, a flag, a glyph that is artwork
+    /// rather than a path.
+    ///
+    /// It is drawn at the button's own glyph size, like every other kind of mark here, so
+    /// a picture and an icon in one bar are the same size without either being told.
+    ///
+    /// ```ignore
+    /// IconButton::image(ImageIcon::new(Image::memory(MARK))).label("Home").on_press(msg)
+    /// ```
+    pub fn image(icon: crate::ImageIcon) -> Self {
+        Self::of(Content::Image(icon))
     }
 
     /// **A button whose mark crosses between two**, at the end `on` names — a drawer's
@@ -381,6 +396,17 @@ impl<Msg: Clone> Widget<Msg> for IconButton<Msg> {
                 );
                 scene.fill_path(&path, glyph.fade(o));
             }
+            // The picture takes the button's glyph size, which is what makes a mark drawn
+            // from a bitmap and one drawn from a path interchangeable in a row of actions.
+            Content::Image(icon) => {
+                let square = Rect::new(
+                    bounds.x + (bounds.width - size) / 2.0,
+                    bounds.y + (bounds.height - size) / 2.0,
+                    size,
+                    size,
+                );
+                icon.paint_at(square, status, theme, scene);
+            }
             Content::Glyph(text) => {
                 let style = TextStyle::new(size);
                 let measured = frus_text::measure_styled(
@@ -444,7 +470,7 @@ impl<Msg: Clone> Widget<Msg> for IconButton<Msg> {
             // least something, an unnamed icon is silence.
             None => match &self.content {
                 Content::Glyph(text) => semantics.label(text.clone()),
-                Content::Icon(_) | Content::Morph(..) => semantics,
+                Content::Icon(_) | Content::Morph(..) | Content::Image(_) => semantics,
             },
         };
         Some(if self.enabled {

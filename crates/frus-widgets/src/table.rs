@@ -388,11 +388,12 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
         // unchecked). The header's box acts on **every** row.
         self.message.as_ref()?;
         let selecting = !self.checked;
+        let words = crate::localizations::of();
         Some(match (self.header, selecting) {
-            (true, true) => "All rows selected".into(),
-            (true, false) => "All rows deselected".into(),
-            (false, true) => "Row selected".into(),
-            (false, false) => "Row deselected".into(),
+            (true, true) => words.all_rows_selected_label().into(),
+            (true, false) => words.all_rows_deselected_label().into(),
+            (false, true) => words.row_selected_label().into(),
+            (false, false) => words.row_deselected_label().into(),
         })
     }
 }

@@ -1,4 +1,5 @@
-//! [`Transform`]: offsets its child at **paint** time, without touching layout.
+//! [`Transform`]: offsets its child at **paint** time, without touching layout, and
+//! [`FractionalTranslation`]: the same offset stated as a fraction of the child's own size.
 
 use frus_core::{Alignment, Curve, Rect, Scene};
 use frus_layout::Style;
@@ -217,6 +218,76 @@ impl<Msg: Clone> Widget<Msg> for Transform<Msg> {
 
     fn anim_curve(&self) -> Curve {
         self.anim.as_ref().map_or(Curve::Linear, |(_, c)| c.clone())
+    }
+}
+
+/// Offsets its child by a **fraction of the child's own size**, at paint time, without
+/// touching layout.
+///
+/// `FractionalTranslation::new(0.5, 0.0)` slides the subtree half its own width to the
+/// right; `(-1.0, 0.0)` slides it a whole width to the left, exactly clear of where it
+/// was. Like [`Transform::translate`], it moves the render **and** the hit-test, and it
+/// moves nothing else: the box stays where the layout put it and the siblings do not
+/// budge.
+///
+/// The reason it exists next to `Transform::translate` is that the number is not known
+/// where the widget is written. A panel that has to sit exactly off the edge of itself, a
+/// badge half outside its anchor, a row that slides its own width aside to uncover what is
+/// under it — each of those is a multiple of a size the layout decides, and a caller that
+/// had to pass pixels would be passing a guess.
+///
+/// ```ignore
+/// // A panel parked one full width off the left, sliding in as `open` runs 0 → 1.
+/// FractionalTranslation::new(open - 1.0, 0.0).child(panel())
+/// ```
+///
+/// In a right-to-left script the horizontal fraction follows the reading direction, as
+/// `Transform::translate` does: a positive `x` moves towards the end of the line.
+pub struct FractionalTranslation<Msg> {
+    fx: f32,
+    fy: f32,
+    children: Vec<Box<dyn Widget<Msg>>>,
+}
+
+impl<Msg> FractionalTranslation<Msg> {
+    /// A translation of `fx` widths across and `fy` heights down, with no child yet.
+    pub fn new(fx: f32, fy: f32) -> Self {
+        Self {
+            fx,
+            fy,
+            children: Vec::new(),
+        }
+    }
+
+    /// Sets the child, replacing any already there.
+    pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
+        self.children.clear();
+        self.children.push(Box::new(child));
+        self
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for FractionalTranslation<Msg> {
+    fn style(&self) -> Style {
+        Style::default()
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &self.children
+    }
+
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+
+    fn translate_fraction(&self) -> Option<(f32, f32)> {
+        Some((self.fx, self.fy))
+    }
+
+    fn debug_name(&self) -> &'static str {
+        "FractionalTranslation"
     }
 }
 
@@ -515,6 +586,91 @@ mod tests {
         assert!(
             ui.hit(Point::new(35.0, 10.0)).is_none(),
             "l'ancienne position rate"
+        );
+    }
+
+    /// A fraction is a multiple of the child's **own** box: half a width across and a
+    /// whole height down, from a 20 × 20 child, is (10, 20).
+    #[test]
+    fn a_fractional_translation_offsets_by_the_child_s_own_size() {
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let root = crate::Flex::<()>::column().width(100.0).child(
+            FractionalTranslation::new(0.5, 1.0)
+                .child(Container::new().width(20.0).height(20.0).color(red)),
+        );
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
+        let rect = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
+                _ => None,
+            })
+            .expect("the child's red background");
+        assert!(
+            (rect.x - 10.0).abs() < 0.5 && (rect.y - 20.0).abs() < 0.5,
+            "half a width across, a height down: {rect:?}"
+        );
+    }
+
+    /// And it moves the **hit test** with the paint, as `Transform::translate` does: a
+    /// widget you can see somewhere and click somewhere else is the bug this rules out.
+    #[test]
+    fn a_fractional_translation_moves_the_input_too() {
+        let root = crate::Flex::<i32>::column().width(100.0).child(
+            FractionalTranslation::new(1.0, 0.0).child(
+                Container::<i32>::new()
+                    .width(20.0)
+                    .height(20.0)
+                    .color(Color::rgb(1.0, 0.0, 0.0))
+                    .on_click(7),
+            ),
+        );
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
+        let at = |x: f32| {
+            ui.hit(frus_core::Point::new(x, 10.0))
+                .and_then(|id| ui.msg_for(id))
+        };
+        assert_eq!(at(30.0), Some(7), "where it is painted");
+        assert_eq!(at(10.0), None, "not where it was laid out");
+    }
+
+    /// The offset is a paint offset: the box does not move, so the sibling below it does
+    /// not either.
+    #[test]
+    fn a_fractional_translation_moves_nothing_else() {
+        let blue = Color::rgb(0.0, 0.0, 1.0);
+        let root = crate::Flex::<()>::column()
+            .width(100.0)
+            .child(
+                FractionalTranslation::new(0.0, 2.0).child(
+                    Container::new()
+                        .width(20.0)
+                        .height(20.0)
+                        .color(Color::rgb(1.0, 0.0, 0.0)),
+                ),
+            )
+            .child(Container::new().width(20.0).height(20.0).color(blue));
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
+        let sibling = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.b > 0.5 => Some(*rect),
+                _ => None,
+            })
+            .expect("the sibling");
+        assert!(
+            (sibling.y - 20.0).abs() < 0.5,
+            "the sibling stayed where the layout put it: {sibling:?}"
         );
     }
 }

@@ -53,6 +53,7 @@ mod dropdown;
 mod dropdownmenu;
 mod dsl;
 mod expanded;
+mod expansionpanel;
 mod fab;
 mod filters;
 mod fittedbox;
@@ -94,7 +95,9 @@ mod navdrawer;
 mod navigator;
 mod navrail;
 mod navscaffold;
+mod overflowbar;
 mod overscroll;
+mod pageselector;
 mod pageview;
 mod pagination;
 mod paintcache;
@@ -189,8 +192,9 @@ pub use clip::{ClipOval, ClipPath, ClipRRect};
 pub use collapsible::{ControlAffinity, ExpansionTile};
 pub use colorpicker::ColorPicker;
 pub use constraints::{
-    ConstrainedBox, Intrinsic, IntrinsicAxis, IntrinsicHeight, IntrinsicWidth, Overflow,
-    OverflowBox, SizedBox,
+    AxisConstraint, ConstrainedBox, ConstraintsTransform, ConstraintsTransformBox, Intrinsic,
+    IntrinsicAxis, IntrinsicHeight, IntrinsicWidth, Overflow, OverflowBox, SizedBox,
+    SizedOverflowBox, UnconstrainedBox,
 };
 pub use container::Container;
 pub use controltile::{CheckboxListTile, RadioListTile, SwitchListTile};
@@ -221,10 +225,11 @@ pub use dropdown::{DropdownButton, DropdownOption};
 pub use dropdownmenu::DropdownMenu;
 pub use dsl::{button, expanded, flexible, keyed, spacer, text};
 pub use expanded::{Expanded, FlexFit, Flexible};
+pub use expansionpanel::{ExpansionPanel, ExpansionPanelList};
 pub use fab::{FabSize, FloatingActionButton};
 pub use filters::{BackdropFilter, BackdropGroup, ColorFiltered, ImageFiltered, ShaderMask};
 pub use fittedbox::FittedBox;
-pub use flex::{Flex, Wrap};
+pub use flex::{Flex, ListBody, Wrap};
 pub use focus::{
     ExcludeFocus, ExcludeFocusTraversal, Focus, FocusTraversalGroup, FocusTraversalOrder,
 };
@@ -238,7 +243,7 @@ pub use iconbutton::{
     ICON_BUTTON_SIZE,
 };
 pub use icons::{AnimatedIconData, AnimatedIcons, IconData, IconStyle, Icons};
-pub use image::{Image, State as ImageState};
+pub use image::{Image, ImageIcon, ImagePlaceholder, State as ImageState, IMAGE_FADE};
 pub use ime::{Capitalization, Ime, KeyboardType, TextInputAction};
 pub use ink::{InkStyle, InkWell, Ripples};
 pub use inspector::{dump_tree, node_at, paint_overlay as paint_inspector_overlay, InspectorNode};
@@ -255,7 +260,7 @@ pub use listtile::{
     LIST_TILE_TITLE_GAP,
 };
 pub use locale::Locale;
-pub use localizations::{English, Localizations};
+pub use localizations::{English, French, Localizations};
 pub use media::{
     Accessibility, AccessibilityOverrides, Brightness, Edges, MediaQuery, SurfaceGuard,
 };
@@ -266,9 +271,11 @@ pub use navdrawer::NavigationDrawer;
 pub use navigator::Navigator;
 pub use navrail::{BottomBar, DestinationIcon, NavigationDestination, NavigationRail, RailLabels};
 pub use navscaffold::NavScaffold;
+pub use overflowbar::OverflowBar;
 pub use overscroll::{
     cross_axis as glow_cross_axis, edge_for, GlowEdge, OverscrollGlow, ScrollGlows,
 };
+pub use pageselector::{TabPageSelector, PAGE_DOT_GAP, PAGE_DOT_SIZE};
 pub use pageview::{PageSnap, PageView, PagedView};
 pub use pagination::Pagination;
 pub use paintcache::PaintCache;
@@ -316,13 +323,13 @@ pub use skeleton::Skeleton;
 pub use slider::{RangeSlider, Slider};
 pub use spacer::Spacer;
 pub use spinner::CircularProgressIndicator;
-pub use stack::{Stack, StackFit};
+pub use stack::{IndexedStack, Stack, StackFit};
 pub use stepper::Stepper;
 pub use steps::Steps;
 pub use switch::Switch;
 pub use table::Table;
 pub use tabs::{
-    TabAlignment, TabBar, TabBarVariant, TAB_DIVIDER_HEIGHT, TAB_HEIGHT, TAB_ICON_GAP,
+    TabAlignment, TabBar, TabBarVariant, TabItem, TAB_DIVIDER_HEIGHT, TAB_HEIGHT, TAB_ICON_GAP,
     TAB_ICON_HEIGHT, TAB_ICON_SIZE, TAB_INDICATOR_PRIMARY, TAB_INDICATOR_SECONDARY,
     TAB_LABEL_PADDING, TAB_START_OFFSET,
 };
@@ -347,7 +354,7 @@ pub use togglebuttons::{
     ToggleAxis, ToggleButtons, TOGGLE_BUTTONS_BORDER_WIDTH, TOGGLE_BUTTON_MIN_SIZE,
 };
 pub use tooltip::Tooltip;
-pub use transform::Transform;
+pub use transform::{FractionalTranslation, Transform};
 pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use ui::{
@@ -365,9 +372,9 @@ pub use widgetstate::{StateFilter, WidgetState, WidgetStateProperty, WidgetState
 pub use widgettheme::resolve_shape;
 pub use widgettheme::{
     AppBarTheme, BadgeTheme, ButtonTheme, CardTheme, CheckboxTheme, ChipTheme, DefaultTextStyle,
-    DividerTheme, DrawerTheme, GridTileBarTheme, IconButtonTheme, IconTheme, InkTheme, RadioTheme,
-    SegmentedTheme, SliderTheme, SwitchTheme, TabBarTheme, TextFieldTheme, ToggleButtonsTheme,
-    WidgetThemes,
+    DividerTheme, DrawerTheme, ExpansionPanelListTheme, GridTileBarTheme, IconButtonTheme,
+    IconTheme, InkTheme, PageSelectorTheme, RadioTheme, SegmentedTheme, SliderTheme, SwitchTheme,
+    TabBarTheme, TextFieldTheme, ToggleButtonsTheme, WidgetThemes,
 };
 
 // Convenience re-exports for callers.

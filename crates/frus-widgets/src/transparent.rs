@@ -318,6 +318,12 @@ macro_rules! forward_transparent {
                 self.inner.overflow_box()
             }
 
+            fn constraints_transform(
+                &self,
+            ) -> Option<$crate::constraints::ConstraintsTransform> {
+                self.inner.constraints_transform()
+            }
+
             fn hero_tag(&self) -> Option<u64> {
                 self.inner.hero_tag()
             }
@@ -445,6 +451,10 @@ macro_rules! forward_transparent {
                 self.inner.transform_translate()
             }
 
+            fn translate_fraction(&self) -> Option<(f32, f32)> {
+                self.inner.translate_fraction()
+            }
+
             fn transform_scale(&self) -> Option<(f32, f32, frus_core::Alignment)> {
                 self.inner.transform_scale()
             }
@@ -494,6 +504,10 @@ macro_rules! forward_transparent {
 
             fn stack_loose(&self) -> bool {
                 self.inner.stack_loose()
+            }
+
+            fn stack_visible(&self) -> Option<usize> {
+                self.inner.stack_visible()
             }
 
             fn scroll_reverse(&self) -> bool {

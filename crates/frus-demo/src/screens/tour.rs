@@ -69,10 +69,16 @@ pub(crate) fn tour_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     let position = text(format!("Panel {} of {}", page + 1, TOUR_PAGES.len()))
         .size(13.0)
         .color(theme.muted);
-    let footer = Container::new()
-        .width(width)
-        .padding(20.0)
-        .child(column![picker, position].gap(10.0).align(Align::Center));
+    // The dots (milestone 480) and the pager say the same thing and are not the same
+    // thing: the dots are a **read-out** — twelve pixels is not a target — and the pager
+    // is the control. Side by side is the point, and the dots cross with the swipe
+    // because they are on the same fractional index the page view settles on.
+    let dots = TabPageSelector::new(TOUR_PAGES.len(), page);
+    let footer = Container::new().width(width).padding(20.0).child(
+        column![dots, picker, position]
+            .gap(10.0)
+            .align(Align::Center),
+    );
 
     let screen = column![
         NavigationBar::new("Guided tour").on_back(Msg::Pop),
