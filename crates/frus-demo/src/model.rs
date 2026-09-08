@@ -282,6 +282,17 @@ pub(crate) fn filter_from_index(index: usize) -> Filter {
     }
 }
 
+/// The tasks the list is **showing**, in the order it shows them: the filter, in one
+/// place, because a screen that decides which rows to draw and an update that decides
+/// which row was moved have to agree on the answer.
+pub(crate) fn visible_todos(app: &TodoApp) -> impl Iterator<Item = &Todo> {
+    app.todos.iter().filter(|t| match app.filter {
+        Filter::All => true,
+        Filter::Active => !t.done,
+        Filter::Done => t.done,
+    })
+}
+
 /// Number of tasks that are not done.
 pub(crate) fn active_count(app: &TodoApp) -> usize {
     app.todos.iter().filter(|t| !t.done).count()

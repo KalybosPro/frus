@@ -1108,6 +1108,21 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, _)| *id)
     }
 
+    /// **Every** reorderable under `point`, topmost first.
+    ///
+    /// [`Self::reorderable_at`] answers *which one is on top*, which is the right question
+    /// for a press: whatever is nearest the finger is what the finger grabbed. A **drop**
+    /// asks a different one, because the thing on top may be a grip that nothing can be
+    /// dropped on — see [`Widget::reorder_droppable`] — and the row it belongs to, which
+    /// can, is the one behind it.
+    pub fn reorderables_at(&self, point: Point) -> impl Iterator<Item = WidgetId> + '_ {
+        self.reorderables
+            .iter()
+            .rev()
+            .filter(move |(_, rect)| rect.contains(point))
+            .map(|(id, _)| *id)
+    }
+
     /// Topmost **interactive** viewport (`InteractiveViewer`) under `point`: (id, its screen
     /// viewport). The shell routes panning and zooming to it.
     pub fn interactive_at(&self, point: Point) -> Option<(WidgetId, Rect)> {

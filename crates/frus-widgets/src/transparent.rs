@@ -291,6 +291,14 @@ macro_rules! forward_transparent {
                 self.inner.reorder_draggable()
             }
 
+            fn reorder_droppable(&self) -> bool {
+                self.inner.reorder_droppable()
+            }
+
+            fn reorder_announcement(&self, to: usize) -> Option<String> {
+                self.inner.reorder_announcement(to)
+            }
+
             fn announce(&self) -> Option<String> {
                 self.inner.announce()
             }

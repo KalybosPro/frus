@@ -8,10 +8,10 @@ use frus_widgets::{
     Align, Autocomplete, BackdropFilter, BarChart, Button, Checkbox, Chip, CircleAvatar, ClipRRect,
     ColorFiltered, Column, Container, DateTimePicker, DropdownButton, FadeTransition, Flex,
     FractionalTranslation, Icons, IgnoreBaseline, ImageFiltered, Justify, LineChart, Pagination,
-    PopupMenuButton, RadioGroup, RangeSlider, Rating, RichText, Row, ScaleTransition,
-    SegmentedButton, ShaderMask, SizedOverflowBox, SlideFrom, SlideTransition, Slider, Stack,
-    StackFit, Stepper, Switch, TabBar, Table, Text, TextField, TextSpan, Theme, TimePicker,
-    UnconstrainedBox, Variant,
+    PopupMenuButton, RadioGroup, RangeSlider, Rating, ReorderGrab, ReorderableList, RichText, Row,
+    ScaleTransition, SegmentedButton, ShaderMask, SizedOverflowBox, SlideFrom, SlideTransition,
+    Slider, Stack, StackFit, Stepper, Switch, TabBar, Table, Text, TextField, TextSpan, Theme,
+    TimePicker, UnconstrainedBox, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -3395,4 +3395,45 @@ fn the_explicit_transitions_match_their_golden() {
         return;
     };
     snapshot.assert_golden(golden("explicit_transitions"));
+}
+
+/// A list whose rows can be dragged into a new order, at rest.
+///
+/// At rest is the whole of what a picture can say about it: everything else this widget
+/// does happens under a finger — the ghost, the gap that opens, the list scrolling to meet
+/// a row carried past its end — and none of it is a function of the arguments the way a
+/// transition is.
+///
+/// What is worth seeing is what the widget **costs** a row that is not being dragged: the
+/// grip at the trailing edge in its own 40 px, and the row beside it ending where the grip
+/// starts rather than under it. A grip stacked on top of the row would look the same until
+/// the day the row's own trailing button ended up beneath it.
+#[test]
+fn the_reorderable_list_matches_its_golden() {
+    let theme = Theme::dark();
+    let row = |label: &str, alpha: f32| {
+        Container::new()
+            .height(34.0)
+            .radius(8.0)
+            .color(Color::WHITE.fade(alpha))
+            .padding_each(0.0, 12.0, 0.0, 12.0)
+            .child(
+                Flex::row()
+                    .align(Align::Center)
+                    .flex(1.0)
+                    .child(Text::new(label).size(15.0)),
+            )
+    };
+    let list: ReorderableList<()> = ReorderableList::new(|_, _| ())
+        .grab(ReorderGrab::Handle)
+        .gap(8.0)
+        .keyed_row(1, row("Bring the milk in", 0.16))
+        .keyed_row(2, row("Feed the cat", 0.10))
+        .keyed_row(3, row("Write the milestone", 0.16));
+    let root: Container<()> = Container::new().padding(16.0).child(list);
+    let Some(snapshot) = render_widget(&root, 260, 150, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("reorderable_list"));
 }

@@ -452,6 +452,10 @@ pub trait Widget<Msg> {
 
     /// Does this item lift on a **long press** rather than on the first movement?
     /// The answer inside a scrollable, where a plain drag belongs to the scroll.
+    ///
+    /// It is asked of both kinds of lift — a [`crate::Draggable`] carrying a payload, and a
+    /// [`crate::ReorderableList`] row carrying itself — because the question is the same
+    /// one: a list that stops scrolling is a worse bug than an item that does not move.
     fn drag_needs_long_press(&self) -> bool {
         false
     }
@@ -507,6 +511,28 @@ pub trait Widget<Msg> {
     /// drag would raise an empty ghost that moves nothing).
     fn reorder_draggable(&self) -> bool {
         true
+    }
+
+    /// Can this reorderable be **dropped onto**? `true` by default, and the mirror image of
+    /// [`reorder_draggable`](Self::reorder_draggable): a **source-only** grip — a list row's
+    /// drag handle — returns `false`.
+    ///
+    /// A handle is a small box inside a much larger row, and the drop is aimed at whatever
+    /// is topmost under the pointer. Without this, carrying a row over another row's handle
+    /// would aim at the handle: the insertion line would be drawn across the grip instead of
+    /// across the row, which is a promise about where the row is going that is not true.
+    fn reorder_droppable(&self) -> bool {
+        true
+    }
+
+    /// What to **say** to a screen reader once this reorderable has been moved to `to` — the
+    /// spoken counterpart of the ghost, for someone who cannot see it land.
+    ///
+    /// `None` leaves the shell its own wording, which can only speak of the axis: the index
+    /// a `Kanban` card is dropped at is a flat `column × stride + position` that means
+    /// nothing read out loud. A widget whose index **is** a position says so itself.
+    fn reorder_announcement(&self, _to: usize) -> Option<String> {
+        None
     }
 
     /// Text to **announce** to the screen reader when this widget is **activated** (mouse
@@ -1395,6 +1421,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn reorder_draggable(&self) -> bool {
         (**self).reorder_draggable()
+    }
+    fn reorder_droppable(&self) -> bool {
+        (**self).reorder_droppable()
+    }
+    fn reorder_announcement(&self, to: usize) -> Option<String> {
+        (**self).reorder_announcement(to)
     }
     fn reorder_axis(&self) -> ReorderAxis {
         (**self).reorder_axis()

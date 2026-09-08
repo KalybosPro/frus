@@ -8,12 +8,29 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 489 so far, each documenting the objective, the alternatives
+> record — one per step, 490 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`ReorderableList`** (J490, #44): a list whose rows can be **dragged into a new
+  order**, which is what reordering looked like everywhere except a board. The gesture was
+  already the shell's and works for anything that declares a vertical reorder index, so what
+  this adds is the two decisions a list leaves open: **who may be grabbed** — a grip on a
+  desktop, a hold on a phone, the reference's own rule read from the platform — and **what
+  index comes back**, which is the index the row *ends up at* rather than the raw slot the
+  reference deprecated its own callback over. `Widget::reorder_droppable` came with it, so a
+  grip can be a source that is not a target, and `Widget::reorder_announcement`, so a drop
+  can be spoken as a position instead of "Card moved". The demo's task list reorders by its
+  grip — its hold and its sideways swipe are already spoken for.
+
+- **A carried item scrolls the list under it** (J490): while a row is being reordered or an
+  item carried, the area under it scrolls when what is being carried hangs past an edge —
+  the reference's law, speed proportional to the overhang and capped. This was the last
+  listed gap of `Draggable` (J285), and it closes for both because both hand the same
+  helper the same box.
 
 - **`FadeTransition`, `SlideTransition` and `ScaleTransition`** (J489, #32): the **explicit**
   animations — driven by a value the application owns rather than by the framework's clock.

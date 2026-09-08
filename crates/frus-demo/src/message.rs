@@ -16,6 +16,9 @@ pub(crate) enum Msg {
     /// A task dropped on one of the two state zones: set it done, or set it active.
     SetTodoDone(u64, bool),
     DeleteTodo(u64),
+    /// A task dragged into a new place in the list: `(from, to)`, counted in the rows
+    /// **on screen** — which under a filter are not the rows in the model.
+    MoveTodo(usize, usize),
     SetFilter(Filter),
     AskClearDone,
     ConfirmClearDone,

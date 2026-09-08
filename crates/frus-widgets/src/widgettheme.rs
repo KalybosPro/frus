@@ -87,6 +87,8 @@ pub struct WidgetThemes {
     pub icon_button: IconButtonTheme,
     pub ink: InkTheme,
     pub kanban: KanbanTheme,
+    /// Defaults for [`ReorderableList`](crate::ReorderableList).
+    pub reorderable: ReorderableTheme,
     pub kbd: KbdTheme,
     pub menu: MenuTheme,
     /// Defaults for [`NavigationBar`](crate::NavigationBar).
@@ -1292,6 +1294,20 @@ pub struct TimelineTheme {
 pub struct BreadcrumbTheme {
     /// The segments' type, the separators included.
     pub text_style: Option<TextStyle>,
+}
+
+/// Defaults for [`ReorderableList`](crate::ReorderableList)'s grip.
+///
+/// The grip is the one part of a reorderable list the framework draws itself, so it is the
+/// one part a theme has anything to say about — the rows are the application's.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ReorderableTheme {
+    /// The glyph the grip carries.
+    pub handle_icon: Option<crate::IconData>,
+    /// Its colour, over the muted foreground.
+    pub handle_color: Option<Color>,
+    /// Its size.
+    pub handle_icon_size: Option<f32>,
 }
 
 /// Defaults for [`Kanban`](crate::Kanban).

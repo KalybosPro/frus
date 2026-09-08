@@ -3,7 +3,7 @@
 
 use crate::prelude::*;
 use crate::screens::*;
-use frus_widgets::{build_ui, Point, Runtime, Size};
+use frus_widgets::{build_ui, build_ui_inspected, find_widget, Point, Runtime, Size};
 
 /// An app whose editable grid is already filled — the shape half of these tests
 /// start from.
@@ -309,6 +309,167 @@ fn toggle_delete_and_clear_done() {
     reduce(&mut app, Msg::ConfirmClearDone);
     assert_eq!(app.todos.len(), 1);
     assert_eq!(app.todos[0].text, "c");
+}
+
+/// A task dragged into a new place, under the filter that makes the two indices
+/// disagree.
+///
+/// The rows on screen are the filtered ones, so `MoveTodo(0, 1)` under *Active* means
+/// *the first active task goes after the second active task* — and the done tasks
+/// between them, which the list is not showing, must not be stepped over as though they
+/// were. Reordering by index in the model would do exactly that, and the list would look
+/// haunted: a row dropped on its neighbour landing three places away.
+#[test]
+fn moving_a_task_reorders_what_the_list_is_showing() {
+    let mut app = TodoApp::default();
+    for t in ["a", "b", "c", "d"] {
+        add(&mut app, t);
+    }
+    let labels =
+        |app: &TodoApp| -> Vec<String> { app.todos.iter().map(|t| t.text.clone()).collect() };
+
+    // Unfiltered, the two agree: the first row is carried to the end.
+    reduce(&mut app, Msg::MoveTodo(0, 3));
+    assert_eq!(labels(&app), ["b", "c", "d", "a"]);
+    // And back up: a move towards the head lands **before** the row it was dropped on.
+    reduce(&mut app, Msg::MoveTodo(3, 1));
+    assert_eq!(labels(&app), ["b", "a", "c", "d"]);
+
+    // Now with two of them out of sight. Showing only the active ones, the list is
+    // [b, d]: moving row 0 after row 1 means b goes after d, and the two done tasks stay
+    // exactly where they were.
+    let id_a = app.todos[1].id;
+    let id_c = app.todos[2].id;
+    reduce(&mut app, Msg::ToggleTodo(id_a));
+    reduce(&mut app, Msg::ToggleTodo(id_c));
+    reduce(&mut app, Msg::SetFilter(Filter::Active));
+    assert_eq!(
+        visible_todos(&app)
+            .map(|t| t.text.as_str())
+            .collect::<Vec<_>>(),
+        ["b", "d"]
+    );
+    reduce(&mut app, Msg::MoveTodo(0, 1));
+    assert_eq!(
+        visible_todos(&app)
+            .map(|t| t.text.as_str())
+            .collect::<Vec<_>>(),
+        ["d", "b"],
+        "the two visible rows swapped"
+    );
+    assert_eq!(app.todos.len(), 4, "and nothing was lost on the way");
+    assert!(
+        labels(&app).contains(&"a".to_string()) && labels(&app).contains(&"c".to_string()),
+        "the hidden tasks are still there: {:?}",
+        labels(&app)
+    );
+
+    // An index the list never emitted asks for nothing rather than panicking.
+    let before = labels(&app);
+    reduce(&mut app, Msg::MoveTodo(0, 9));
+    assert_eq!(labels(&app), before);
+}
+
+/// **The whole route a reorder takes, driven through the demo's own view.**
+///
+/// The unit tests read the hooks off a widget in isolation; this one builds the
+/// application's real tree, lays it out, and asks the registries the questions the shell
+/// asks in the order the shell asks them — which is where a grip that shadows its row, or
+/// a row that never registers at all, would show up. It is as close to the device as this
+/// repository can get without one, and it exists because everything else about this
+/// gesture only happens while a finger is down.
+#[test]
+fn a_grip_grabs_its_row_and_the_drop_routes_to_a_position() {
+    let mut app = TodoApp::default();
+    for t in ["one", "two", "three"] {
+        add(&mut app, t);
+    }
+    let theme = Theme::dark();
+    let size = Size::new(424.0, 918.0);
+    let tree = root_for(&app, &theme, size);
+    let (ui, nodes) = MediaQuery::new(size)
+        .scope(|| build_ui_inspected(tree.as_ref(), size, &Runtime::default(), &theme));
+    let boxes = |name: &str| -> Vec<frus_widgets::Rect> {
+        nodes
+            .iter()
+            .filter(|n| n.name == name)
+            .map(|n| n.rect)
+            .collect()
+    };
+    let rows = boxes("ReorderRow");
+    let grips = boxes("ReorderHandle");
+    assert_eq!(rows.len(), 3, "one wrapper per visible task");
+    assert_eq!(grips.len(), 3, "and a grip in each");
+
+    // 1) A press on the first row's grip grabs **the grip** — it is the topmost
+    //    reorderable there, which is what makes the rest of the row still scroll.
+    let middle = |r: frus_widgets::Rect| Point::new(r.x + r.width * 0.5, r.y + r.height * 0.5);
+    let grabbed = ui
+        .reorderables_at(middle(grips[0]))
+        .next()
+        .expect("something to grab on the grip");
+    let grip = find_widget(tree.as_ref(), grabbed).expect("the grabbed widget");
+    assert!(grip.reorder_draggable(), "the grip is a source");
+    assert!(!grip.reorder_droppable(), "and not a target");
+    assert_eq!(grip.reorder_index(), Some(0));
+
+    // 2) What the drag actually moves is the row behind it, found the way the shell finds
+    //    it: the droppable reorderable of the same index under the grip's own middle.
+    let source = ui
+        .reorderables_at(middle(grips[0]))
+        .find(|id| {
+            find_widget(tree.as_ref(), *id)
+                .is_some_and(|w| w.reorder_droppable() && w.reorder_index() == Some(0))
+        })
+        .expect("the grip sits inside its row");
+    let source_rect = ui.widget_rect(source).expect("the row has a box");
+    assert!(
+        source_rect.width > grips[0].width * 4.0,
+        "the row is much wider than the grip that moves it: {source_rect:?}"
+    );
+
+    // 3) Dropped **over the last row's own grip**, in the lower half of that row: the
+    //    case `reorder_droppable` exists for. The grip is on top there and cannot be
+    //    dropped on, so what the drop aims at is the row behind it — and the box the
+    //    insertion line is drawn across, and the half the insertion is decided by, are
+    //    the row's. Were the grip a target, both would be a 40-pixel gutter.
+    let last = rows[2];
+    let last_grip = grips[2];
+    let over_grip = Point::new(
+        last_grip.x + last_grip.width * 0.5,
+        last_grip.y + last_grip.height * 0.9,
+    );
+    assert!(
+        last_grip.contains(over_grip) && over_grip.y > last.y + last.height * 0.5,
+        "the point is on the grip and in the row's lower half: {over_grip:?} in {last_grip:?}"
+    );
+    let target = ui
+        .reorderables_at(over_grip)
+        .find(|id| find_widget(tree.as_ref(), *id).is_some_and(|w| w.reorder_droppable()))
+        .expect("a row to drop on");
+    let target_rect = ui.widget_rect(target).expect("the target has a box");
+    assert!(
+        (target_rect.width - last.width).abs() < 0.5,
+        "the drop aims at the row and not at the grip on top of it: {target_rect:?}"
+    );
+    let base = find_widget(tree.as_ref(), target)
+        .and_then(|w| w.reorder_index())
+        .expect("the row's index");
+    assert_eq!(base, 2);
+    // The half is measured against that box, which is the shell's `reorder_insert_after`.
+    let raw = base + usize::from(over_grip.y > target_rect.y + target_rect.height * 0.5);
+    assert_eq!(raw, 3, "the lower half means the slot after it");
+    // 4) And the message the shell would dispatch: the first row ends up **last**, index
+    //    2 and not the raw 3, because it is no longer in the list it is being counted in.
+    match grip.on_reorder(raw) {
+        Some(Msg::MoveTodo(from, to)) => assert_eq!((from, to), (0, 2)),
+        other => panic!("expected a move from 0 to 2, got {:?}", other.is_some()),
+    }
+    // Dropped back on its own lower half, the same arithmetic asks for nothing.
+    assert!(
+        grip.on_reorder(1).is_none(),
+        "a row dropped where it already is moves nothing"
+    );
 }
 
 /// The device finding of milestone 327, closed in 334. A task label long enough to
