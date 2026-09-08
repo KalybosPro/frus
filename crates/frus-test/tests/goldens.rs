@@ -6,11 +6,12 @@ use frus_core::{Color, Point, Rect, Scene, TextAlign, TextOverflow, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
     Align, Autocomplete, BackdropFilter, BarChart, Button, Checkbox, Chip, CircleAvatar, ClipRRect,
-    ColorFiltered, Column, Container, DateTimePicker, DropdownButton, Flex, FractionalTranslation,
-    Icons, IgnoreBaseline, ImageFiltered, Justify, LineChart, Pagination, PopupMenuButton,
-    RadioGroup, RangeSlider, Rating, RichText, Row, SegmentedButton, ShaderMask, SizedOverflowBox,
-    Slider, Stack, StackFit, Stepper, Switch, TabBar, Table, Text, TextField, TextSpan, Theme,
-    TimePicker, UnconstrainedBox, Variant,
+    ColorFiltered, Column, Container, DateTimePicker, DropdownButton, FadeTransition, Flex,
+    FractionalTranslation, Icons, IgnoreBaseline, ImageFiltered, Justify, LineChart, Pagination,
+    PopupMenuButton, RadioGroup, RangeSlider, Rating, RichText, Row, ScaleTransition,
+    SegmentedButton, ShaderMask, SizedOverflowBox, SlideFrom, SlideTransition, Slider, Stack,
+    StackFit, Stepper, Switch, TabBar, Table, Text, TextField, TextSpan, Theme, TimePicker,
+    UnconstrainedBox, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -3331,4 +3332,67 @@ fn the_constraint_boxes_match_their_golden() {
         return;
     };
     snapshot.assert_golden(golden("constraint_boxes"));
+}
+
+/// The three explicit transitions, all at **35 %** of the way, each over a ghost of where
+/// it will be at rest.
+///
+/// It belongs here, beside the settled widgets, and not with the gestures in `motion.rs` —
+/// which is the point of the family. An explicit transition takes the number itself, so its
+/// picture **is** a function of its arguments: there is no runtime to prime and no frame
+/// loop to step, only a value the caller passed in.
+///
+/// Top: a fade at 0.35. Middle: a slide from the left at 0.35 — two thirds of a width still
+/// short of the slot it is heading for, and drawn straddling its edge, since a slide moves
+/// the paint and not the box. Bottom: a scale at 0.35, small in the middle of the box it
+/// will grow to fill.
+#[test]
+fn the_explicit_transitions_match_their_golden() {
+    let theme = Theme::dark();
+    let progress = 0.35_f32;
+    let box_of = |alpha: f32| {
+        Container::new()
+            .width(120.0)
+            .height(28.0)
+            .radius(6.0)
+            .color(Color::WHITE.fade(alpha))
+    };
+    // The ghost is the **background** of the slot rather than a layer under it, because a
+    // stack clips its layers to its own box and the half of a slide that is still outside
+    // is the half worth seeing.
+    let over_ghost = |moving: Box<dyn frus_widgets::Widget<()>>| {
+        Container::new()
+            .width(120.0)
+            .height(28.0)
+            .radius(6.0)
+            .color(Color::WHITE.fade(0.10))
+            .child(moving)
+    };
+    let root: Container<()> = Container::new()
+        // The left inset is what keeps the slid box on the picture: at 35 % of the way in
+        // from the left it is two thirds of its own width outside where it is going.
+        .padding_each(14.0, 14.0, 14.0, 94.0)
+        .child(
+            Flex::column()
+                .gap(18.0)
+                .align(Align::Start)
+                .child(over_ghost(Box::new(FadeTransition::new(
+                    progress,
+                    box_of(0.55),
+                ))))
+                .child(over_ghost(Box::new(SlideTransition::from_edge(
+                    SlideFrom::Left,
+                    progress,
+                    box_of(0.55),
+                ))))
+                .child(over_ghost(Box::new(ScaleTransition::new(
+                    progress,
+                    box_of(0.55),
+                )))),
+        );
+    let Some(snapshot) = render_widget(&root, 240, 150, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("explicit_transitions"));
 }

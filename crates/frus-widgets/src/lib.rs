@@ -150,6 +150,7 @@ mod toasthost;
 mod togglebuttons;
 mod tooltip;
 mod transform;
+mod transitions;
 pub(crate) mod transparent;
 mod tree;
 mod twopane;
@@ -356,6 +357,7 @@ pub use togglebuttons::{
 };
 pub use tooltip::Tooltip;
 pub use transform::{FractionalTranslation, Transform};
+pub use transitions::{eased, FadeTransition, ScaleTransition, SlideFrom, SlideTransition};
 pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use ui::{

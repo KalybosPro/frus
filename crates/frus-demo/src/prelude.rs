@@ -21,20 +21,21 @@ pub(crate) use frus_shell::{
 // to be imported by name in each module, not carried in through a glob.
 pub(crate) use frus_widgets::form::{Form, Rule};
 pub(crate) use frus_widgets::{
-    bar_spacer, button, disabled_content, fab_button, keyed, spacer, text, Alert, Align,
+    bar_spacer, button, disabled_content, eased, fab_button, keyed, spacer, text, Alert, Align,
     AnimatedIcons, AnimatedPadding, AnimatedSlide, AnimationController, AppBar, Autocomplete, Axis,
     BarChart, BottomAppBar, BoxFit, Breadcrumb, Card, CarouselView, CellFn, Checkbox, Chip,
     CircleAvatar, Color, ColorPicker, ConstrainedBox, Container, Curve, CustomPaint, DataTable,
     DatePicker, Dismissible, Divider, DragTarget, Draggable, DropdownButton, DropdownMenu,
-    ErrorSummary, Expanded, ExpansionTile, FabLocation, Flex, FontWeight, GridView, Hero, Icon,
-    IconButton, Icons, Image, ImageData, ImageHandle, ImageIcon, Insets, Justify, Kanban, Kbd,
-    LayoutBuilder, LineChart, LinearProgressIndicator, ListView, MediaQuery, MenuAnchor,
-    NavigationBar, NavigationDestination, Navigator, Orientation, OverlayPortal, PageView,
-    Pagination, Placement, RadioGroup, Rating, Rect, RefreshIndicator, RichText, SafeArea,
-    Scaffold, ScaffoldMessenger, ScrollPhysics, SegmentedButton, SingleChildScrollView, Size,
-    SizeClass, SizedBox, Skeleton, Slider, SnackBar, SnackBarPosition, SnackBarQueue,
-    SpringDescription, Stack, Stepper, Steps, Switch, TabBar, TabPageSelector, Table, TextField,
-    TextSpan, Theme, Timeline, Tree, TwoPane, Variant, Widget, WindowInsets,
+    ErrorSummary, Expanded, ExpansionTile, FabLocation, FadeTransition, Flex, FontWeight, GridView,
+    Hero, Icon, IconButton, Icons, Image, ImageData, ImageHandle, ImageIcon, Insets, Justify,
+    Kanban, Kbd, LayoutBuilder, LineChart, LinearProgressIndicator, ListView, MediaQuery,
+    MenuAnchor, NavigationBar, NavigationDestination, Navigator, Orientation, OverlayPortal,
+    PageView, Pagination, Placement, RadioGroup, Rating, Rect, RefreshIndicator, RichText,
+    SafeArea, Scaffold, ScaffoldMessenger, ScrollPhysics, SegmentedButton, SingleChildScrollView,
+    Size, SizeClass, SizedBox, Skeleton, SlideFrom, SlideTransition, Slider, SnackBar,
+    SnackBarPosition, SnackBarQueue, SpringDescription, Stack, Stepper, Steps, Switch, TabBar,
+    TabPageSelector, Table, TextField, TextSpan, Theme, Timeline, Tree, TwoPane, Variant, Widget,
+    WindowInsets,
 };
 
 // The application's own vocabulary: its state, its messages, and the small modules

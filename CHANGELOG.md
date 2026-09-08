@@ -8,12 +8,24 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 488 so far, each documenting the objective, the alternatives
+> record — one per step, 489 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`FadeTransition`, `SlideTransition` and `ScaleTransition`** (J489, #32): the **explicit**
+  animations — driven by a value the application owns rather than by the framework's clock.
+  Each is a thin wrapper, because this framework's widgets already take numbers; what the
+  names buy is that the rule is written once, `SlideTransition::from_edge` above all. `eased`
+  comes with them. The other twelve of the reference's family map onto widgets that are
+  already here, are meaningless without a retained tree, or are their own milestone — the
+  table is in the module's documentation.
+
+- **Every demo screen is told how far in it is** (J489): the route's progress, which the
+  application owns and hands to the navigator at the same time. The task screen's words
+  slide up and fade in behind its avatar as the screen arrives.
 
 - **`AnimatedAlign` and `AnimatedSlide`** (J488, #30): a child that slides through the free
   space to its new anchor, and one that slides by a multiple of its own box. They are one
