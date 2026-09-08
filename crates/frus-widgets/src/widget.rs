@@ -733,6 +733,17 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// The pair of fractions this node's **offset rule** is made of, animated: an
+    /// alignment's two fractions, or a slide's. `None` — the default — leaves the rule
+    /// reading the widget's own numbers.
+    ///
+    /// One quantity serves both rules because a node has one of them. See
+    /// [`crate::AnimatedAlign`] and [`crate::AnimatedSlide`], each of which gives the
+    /// rule it animates a node of its own.
+    fn anim_offset(&self) -> Option<(f32, f32)> {
+        None
+    }
+
     /// **Alignment** of the single child within the box: the walk offsets the child
     /// through the free space according to the alignment's fractions, resolved
     /// against the reading direction (physical or directional — see
@@ -1498,6 +1509,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn anim_padding(&self) -> Option<frus_core::Insets> {
         (**self).anim_padding()
+    }
+    fn anim_offset(&self) -> Option<(f32, f32)> {
+        (**self).anim_offset()
     }
     fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
         (**self).alignment_geometry()

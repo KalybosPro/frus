@@ -246,6 +246,8 @@ impl<Msg: Clone> Widget<Msg> for Transform<Msg> {
 pub struct FractionalTranslation<Msg> {
     fx: f32,
     fy: f32,
+    /// `(duration, curve)` — `None` = the offset jumps to whatever it is told.
+    anim: Option<(f32, Curve)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -255,8 +257,16 @@ impl<Msg> FractionalTranslation<Msg> {
         Self {
             fx,
             fy,
+            anim: None,
             children: Vec::new(),
         }
+    }
+
+    /// **Slides** to each new fraction over `duration` instead of jumping to it, on the
+    /// framework's own clock. See [`crate::AnimatedSlide`], which is this and a name.
+    pub fn animated(mut self, duration: f32, curve: Curve) -> Self {
+        self.anim = Some((duration, curve));
+        self
     }
 
     /// Sets the child, replacing any already there.
@@ -284,6 +294,18 @@ impl<Msg: Clone> Widget<Msg> for FractionalTranslation<Msg> {
 
     fn translate_fraction(&self) -> Option<(f32, f32)> {
         Some((self.fx, self.fy))
+    }
+
+    fn anim_offset(&self) -> Option<(f32, f32)> {
+        self.anim.as_ref().map(|_| (self.fx, self.fy))
+    }
+
+    fn anim_duration(&self) -> f32 {
+        self.anim.as_ref().map_or(0.0, |(d, _)| *d)
+    }
+
+    fn anim_curve(&self) -> Curve {
+        self.anim.as_ref().map_or(Curve::Linear, |(_, c)| c.clone())
     }
 
     fn debug_name(&self) -> &'static str {

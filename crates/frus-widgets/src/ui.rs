@@ -4084,6 +4084,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // would shift twice.
         if let (Some(geo), 1, false) = (widget.alignment_geometry(), children.len(), widget.stack())
         {
+            // An **animated** anchor moves through the runtime's pair rather than the
+            // widget's own numbers, in the anchor's own coordinates — so the reading
+            // direction is applied to the interpolated anchor below, and not to the two
+            // it came from.
+            let geo = match self.runtime.anim_offset(id) {
+                Some((x, y)) => geo.with_fractions(x, y),
+                None => geo,
+            };
             // Resolves the alignment (physical or directional) against the reading direction;
             // `resolve` produces a physical `Alignment` that the rest (with its RTL correction)
             // handles uniformly.
@@ -4118,6 +4126,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // has that the widget did not: a widget cannot multiply by a width it was never
         // told.
         if let Some((fx, fy)) = widget.translate_fraction() {
+            // The same tween, on the other offset rule: a slide that animates reads the
+            // runtime's pair, and one that does not reads its own.
+            let (fx, fy) = self.runtime.anim_offset(id).unwrap_or((fx, fy));
             let child = rects.get(child_index).copied().unwrap_or(container);
             let tx = child.width * fx;
             off.0 += if self.rtl() { -tx } else { tx };

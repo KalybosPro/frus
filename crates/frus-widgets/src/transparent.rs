@@ -439,6 +439,10 @@ macro_rules! forward_transparent {
                 self.inner.anim_padding()
             }
 
+            fn anim_offset(&self) -> Option<(f32, f32)> {
+                self.inner.anim_offset()
+            }
+
             fn anim_transform(&self) -> Option<$crate::runtime::TransformValues> {
                 self.inner.anim_transform()
             }

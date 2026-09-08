@@ -148,6 +148,7 @@ impl Stage {
             | self.runtime.advance_sizes(root, dt)
             | self.runtime.advance_radii(root, dt)
             | self.runtime.advance_paddings(root, dt)
+            | self.runtime.advance_offsets(root, dt)
             | self.runtime.advance_transforms(root, dt)
             | self
                 .runtime

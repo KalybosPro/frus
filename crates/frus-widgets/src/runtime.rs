@@ -281,6 +281,28 @@ impl PaddingAnim {
     }
 }
 
+/// Timeline of an animated **offset pair** (`Container::animated_alignment`,
+/// `FractionalTranslation::animated`): the two fractions a node's offset rule is made of,
+/// interpolated together so a child moving diagonally arrives on both axes at once.
+#[derive(Copy, Clone, Debug, PartialEq)]
+struct OffsetAnim {
+    current: (f32, f32),
+    from: (f32, f32),
+    to: (f32, f32),
+    elapsed: f32,
+}
+
+impl OffsetAnim {
+    fn settled(o: (f32, f32)) -> Self {
+        Self {
+            current: o,
+            from: o,
+            to: o,
+            elapsed: 0.0,
+        }
+    }
+}
+
 /// **The numbers a paint-time transform is made of** that can sensibly be interpolated:
 /// a scale on each axis and a turn.
 ///
@@ -520,6 +542,8 @@ pub struct Runtime {
     radii: HashMap<WidgetId, RadiusAnim>,
     /// Animated paddings (`Container::animated_padding`), per widget — injected at layout.
     paddings: HashMap<WidgetId, PaddingAnim>,
+    /// Animated offset pairs (an alignment, a slide), per widget — read at paint.
+    offsets: HashMap<WidgetId, OffsetAnim>,
     /// Animated transforms (`Transform::animated`), per widget — read at paint.
     transforms: HashMap<WidgetId, TransformAnim>,
     /// Widgets present at the previous frame (to detect mounts).
@@ -995,6 +1019,90 @@ impl Runtime {
     /// A widget's animated padding, if in transition (`None` otherwise).
     pub fn anim_padding(&self, id: WidgetId) -> Option<Insets> {
         self.paddings.get(&id).map(|p| p.current)
+    }
+
+    /// A widget's animated offset pair, if in transition (`None` otherwise).
+    pub fn anim_offset(&self, id: WidgetId) -> Option<(f32, f32)> {
+        self.offsets.get(&id).map(|o| o.current)
+    }
+
+    /// Drives every animated offset pair towards the target its widget declares
+    /// (`Widget::anim_offset`), following its duration/curve. On mount: adopts the target
+    /// with no transition. Returns `true` if one is still moving.
+    ///
+    /// The pair belongs to whichever **offset rule** the node declares — its alignment,
+    /// or its slide — which is why one quantity serves both: a node has one of those
+    /// rules, and the wrappers in `animated.rs` each give it a node of its own.
+    pub fn advance_offsets<Msg>(&mut self, root: &dyn crate::widget::Widget<Msg>, dt: f32) -> bool {
+        fn collect<Msg>(
+            widget: &dyn crate::widget::Widget<Msg>,
+            id: WidgetId,
+            still: bool,
+            out: &mut Vec<(WidgetId, (f32, f32), f32, Curve)>,
+        ) {
+            if let Some(target) = widget.anim_offset() {
+                out.push((
+                    id,
+                    target,
+                    if still {
+                        0.0
+                    } else {
+                        widget.anim_duration().max(0.0)
+                    },
+                    widget.anim_curve(),
+                ));
+            }
+            for (index, child) in widget.children().iter().enumerate() {
+                collect(
+                    child.as_ref(),
+                    crate::ui::child_id(id, index, child.as_ref()),
+                    still,
+                    out,
+                );
+            }
+        }
+        let mut targets: Vec<(WidgetId, (f32, f32), f32, Curve)> = Vec::new();
+        collect(root, WidgetId::ROOT, self.still, &mut targets);
+
+        let present: std::collections::HashSet<WidgetId> =
+            targets.iter().map(|(id, ..)| *id).collect();
+        self.offsets.retain(|id, _| present.contains(id));
+
+        let mut animating = false;
+        for (id, target, duration, curve) in targets {
+            match self.offsets.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    let o = e.get_mut();
+                    if o.to != target {
+                        o.from = o.current;
+                        o.to = target;
+                        o.elapsed = 0.0;
+                    }
+                    if o.from == o.to {
+                        o.current = o.to;
+                    } else {
+                        o.elapsed += dt;
+                        let t = if duration > 0.0 {
+                            (o.elapsed / duration).clamp(0.0, 1.0)
+                        } else {
+                            1.0
+                        };
+                        let e = curve.transform(t);
+                        o.current = (
+                            o.from.0 + (o.to.0 - o.from.0) * e,
+                            o.from.1 + (o.to.1 - o.from.1) * e,
+                        );
+                        if t < 1.0 {
+                            animating = true;
+                        }
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(OffsetAnim::settled(target));
+                }
+            }
+        }
+        animating
     }
 
     /// Drives every animated padding towards the target its widget declares

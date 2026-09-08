@@ -63,6 +63,8 @@ pub struct Container<Msg> {
     /// When the **padding** is animated: `(duration, curve)` — the target is
     /// `self.padding`, interpolated at layout time. `None` = fixed padding.
     padding_anim: Option<(f32, Curve)>,
+    /// `(duration, curve)` of an **animated anchor**; `None` = the anchor is fixed.
+    alignment_anim: Option<(f32, Curve)>,
     /// The child's anchoring within the box, physical or directional (resolved for
     /// RTL at render time). `None` = the default flex behaviour, in which the child
     /// stretches to fill.
@@ -99,6 +101,7 @@ impl<Msg> Container<Msg> {
             size_anim: None,
             radius_anim: None,
             padding_anim: None,
+            alignment_anim: None,
             alignment: None,
             children: Vec::new(),
         }
@@ -340,6 +343,23 @@ impl<Msg> Container<Msg> {
         self
     }
 
+    /// A box whose **anchor** animates toward `alignment` on every change, with
+    /// `duration` and `curve`: the child slides through the free space instead of
+    /// jumping across it. On mount it adopts the anchor with no transition.
+    ///
+    /// It interpolates the anchor's own two fractions, so a **directional** anchor stays
+    /// directional the whole way and mirrors as a whole in a right-to-left script.
+    pub fn animated_alignment(
+        mut self,
+        alignment: impl Into<AlignmentGeometry>,
+        duration: f32,
+        curve: Curve,
+    ) -> Self {
+        self.alignment = Some(alignment.into());
+        self.alignment_anim = Some((duration, curve));
+        self
+    }
+
     /// **Anchors the child** within the box: centred, in a corner, against an edge…
     /// Accepts a **physical** anchor ([`Alignment`](frus_core::Alignment)) or a
     /// **directional** one
@@ -547,6 +567,15 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         self.alignment
     }
 
+    fn anim_offset(&self) -> Option<(f32, f32)> {
+        // The target = the anchor's own fractions, which is what the walk puts back into
+        // an anchor of the same kind.
+        self.alignment_anim
+            .as_ref()
+            .and(self.alignment)
+            .map(|a| a.fractions())
+    }
+
     fn anim_duration(&self) -> f32 {
         // One box's animations (opacity/color/size/radius/padding) share a single
         // duration (in the order: opacity, color, size, radius, padding).
@@ -557,6 +586,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             .or(self.size_anim.as_ref().map(|(_, d, _)| *d))
             .or(self.radius_anim.as_ref().map(|(_, d, _)| *d))
             .or(self.padding_anim.as_ref().map(|(d, _)| *d))
+            .or(self.alignment_anim.as_ref().map(|(d, _)| *d))
             .unwrap_or(crate::runtime::ANIM_DURATION)
     }
 
@@ -568,6 +598,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             .or(self.size_anim.as_ref().map(|(_, _, c)| c.clone()))
             .or(self.radius_anim.as_ref().map(|(_, _, c)| c.clone()))
             .or(self.padding_anim.as_ref().map(|(_, c)| c.clone()))
+            .or(self.alignment_anim.as_ref().map(|(_, c)| c.clone()))
             .unwrap_or(Curve::Linear)
     }
 }

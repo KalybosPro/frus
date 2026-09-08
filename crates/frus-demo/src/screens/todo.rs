@@ -447,7 +447,18 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
         // its top edge lands on one of them. Docking is for a bar cut with a notch to
         // receive it, which frus has not got yet.
         .fab_location(FabLocation::EndFloat)
-        .fab(fab_button("+", Msg::AddTodo))
+        // **The button gets out of the way of the sheet**, rather than sitting on top of
+        // it or blinking out. Two heights down is clear of the bar it floats over, and
+        // the number is a multiple of the button's own box — so nobody here has to know
+        // how big a floating action button is, which is the whole point of a slide being
+        // stated as a fraction (milestone 488).
+        .fab(AnimatedSlide::new(
+            0.0,
+            if app.sheet_open { 2.0 } else { 0.0 },
+            0.22,
+            Curve::ease_out(),
+            fab_button("+", Msg::AddTodo),
+        ))
         .bottom_sheet(quick_actions_sheet(theme), app.sheet_open, Msg::ToggleSheet)
         .build();
 

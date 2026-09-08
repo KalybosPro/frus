@@ -8,12 +8,20 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 487 so far, each documenting the objective, the alternatives
+> record — one per step, 488 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`AnimatedAlign` and `AnimatedSlide`** (J488, #30): a child that slides through the free
+  space to its new anchor, and one that slides by a multiple of its own box. They are one
+  mechanism — a node's box is offset by a pair of fractions, whichever of the two rules it
+  declares — so they share a timeline and a child moving diagonally arrives on both axes at
+  once. An anchor is interpolated in **its own** coordinates, so a directional one mirrors
+  as a whole in a right-to-left script rather than at its two ends. The demo's floating
+  action button slides out of the way of the quick-actions sheet.
 
 - **`IndexedStack`** (J487, closes #37): a stack that lays **every** child out and paints
   one — what a tabbed screen wants, and the opposite of `Offstage`, which takes the branch
