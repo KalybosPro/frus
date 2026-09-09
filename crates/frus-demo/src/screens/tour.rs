@@ -65,6 +65,31 @@ pub(crate) fn tour_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     .page(page)
     .on_page_changed(Msg::TourPage);
 
+    // **A rail that fills as the panels go by.** The quantity is a *fraction* and not a
+    // width: nobody here knows how wide the footer comes out, and a window resized in the
+    // middle of the movement is answered by the layout rather than by a number that was
+    // right when it was written (milestone 495).
+    let rail = Container::new()
+        .width(width - 40.0)
+        .height(4.0)
+        .radius(2.0)
+        .color(theme.border)
+        .child(
+            AnimatedFractionallySizedBox::new(
+                0.25,
+                Curve::ease_out(),
+                // A fractional box sizes **itself** as a share of its parent and leaves
+                // its child to fill it, so the child has to say it fills: a bare box
+                // here is a rail nought pixels tall.
+                Container::new()
+                    .flex(1.0)
+                    .height(4.0)
+                    .radius(2.0)
+                    .color(theme.primary),
+            )
+            .width_factor((page + 1) as f32 / TOUR_PAGES.len() as f32),
+        );
+
     let picker = Pagination::new(page + 1, TOUR_PAGES.len(), |p| Msg::TourPage(p - 1));
     let position = text(format!("Panel {} of {}", page + 1, TOUR_PAGES.len()))
         .size(13.0)
@@ -75,14 +100,31 @@ pub(crate) fn tour_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     // because they are on the same fractional index the page view settles on.
     let dots = TabPageSelector::new(TOUR_PAGES.len(), page);
     let footer = Container::new().width(width).padding(20.0).child(
-        column![dots, picker, position]
+        column![rail, dots, picker, position]
             .gap(10.0)
             .align(Align::Center),
     );
 
+    // **The way out leaves once there is nothing left to skip.** Both ends of the
+    // movement pin the same edge — `top`, at 12 and then above the panel entirely — which
+    // is what makes it a movement at all: a pin that is set at one end and unset at the
+    // other changes what the layer *is*, and takes effect at once rather than travelling
+    // (milestone 495).
+    let skip = AnimatedPositioned::new(
+        0.25,
+        Curve::ease_out(),
+        button("Skip", Msg::TourPage(last))
+            .variant(Variant::Text)
+            .size(14.0),
+    )
+    .top(if page == last { -56.0 } else { 12.0 })
+    .right(12.0)
+    .height(40.0);
+    let panels = Stack::new().layer(pages).layer(skip).flex(1.0);
+
     let screen = column![
         NavigationBar::new("Guided tour").on_back(Msg::Pop),
-        pages,
+        panels,
         footer
     ]
     .flex(1.0);

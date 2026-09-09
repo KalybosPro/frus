@@ -8,12 +8,49 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 494 so far, each documenting the objective, the alternatives
+> record — one per step, 495 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **A layer that moves, and a box that grows its share of its parent** (J495, part of #30):
+  `AnimatedPositioned` and `AnimatedFractionallySizedBox`. Two of the eleven implicit
+  animations the issue lists, taken together because they are **one mechanism**: both
+  animate a bundle of *optional* numbers a node hands to whatever lays it out — four edges
+  and two extents for a stack layer, two factors for a share of the parent — and both raise
+  the question nothing animated here had raised before, which is what it means to animate
+  to or from a number that is not there. The answer is that **an unset slot does not
+  travel**: `None` on an edge is not nought on that edge, it is a layer not pinned on that
+  side at all, and the two are different arrangements rather than two values of one
+  quantity. So a slot arriving takes hold at once, a slot leaving lets go at once, and only
+  a slot set at both ends moves — which means a panel that slides away goes to a negative
+  top and not to no top at all. The six pins share one clock, so a layer changing two edges
+  arrives on both at the same moment. Pins are read where the stack lays its layers out;
+  fractions are injected at layout beside the animated size, as a **percentage** and not a
+  length, which is the whole reason to reach for this rather than an animated size: neither
+  end knows what it comes to, and a window resized mid-movement is answered by the layout.
+  `AnimatedPositioned` is a **node of its own** rather than a transparent wrapper like
+  `Positioned`, because an animated value belongs to a node and a wrapper fused with its
+  child would put two timelines on one.
+- **`FractionallySizedBox::animated`**, the entry point the named widget covers.
+
+### Fixed
+
+- **`Responsive` swallowed three hooks.** The size-class selector forwarded twenty-odd and
+  not `anim_offset`, not `positioned`: an `AnimatedAlign` or `AnimatedSlide` behind one
+  declared its target to nobody and **jumped** between anchors, and a `Positioned` behind
+  one lost its pins entirely and became an ordinary layer filling the stack. Both had been
+  true since those widgets existed, and nothing had noticed because nothing put either
+  behind a selector. `anim_pins` and `anim_fractions` are forwarded beside them.
+- **A length in bytes cannot survive a checkout that rewrote them.** The generated licence
+  list is byte-framed data, and a Windows checkout converts line endings by default, so
+  every length fell short of its own text and four hundred and forty-two packages read as
+  **no notices at all** — an empty licence page on one platform. `.gitattributes` keeps the
+  bytes; `parse` repairs a file that arrived rewritten anyway, taking the header line as
+  the witness rather than a carriage return anywhere, since one inside a licence text is
+  the licence's own and counts towards its length.
 
 - **A header that collapses as the page scrolls** (J494, answers #29): `ScrollOverlay`,
   and `CollapsingHeader` over it. The issue put two shapes — the scrolling **protocol**, a

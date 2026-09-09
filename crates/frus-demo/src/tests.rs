@@ -472,6 +472,43 @@ fn a_grip_grabs_its_row_and_the_drop_routes_to_a_position() {
     );
 }
 
+/// **The panels still swipe with a button floating over them.** Milestone 495 put the
+/// tour's way-out chip in a `Stack` above the page view so it could slide off the top,
+/// and a page view that stopped registering as a paged region would still draw four
+/// panels, still lay out, still pass the overflow test — and would not turn.
+///
+/// That is milestone 477's failure mode exactly: a structural answer lost on the way
+/// through a wrapper, invisible to everything but the finger. So the frame is asked
+/// whether it registered a paged region at all.
+#[test]
+fn the_tour_panels_still_turn_under_the_button_that_floats_over_them() {
+    let theme = Theme::dark();
+    let size = Size::new(420.0, 900.0);
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::Push(Route::Tour));
+    let tree = view_for(&app, &theme, size);
+    let ui = build_ui(&tree, size, &Runtime::default(), &theme);
+    let paged: Vec<_> = ui
+        .scroll_regions()
+        .iter()
+        .filter(|area| area.page.is_some())
+        .collect();
+    assert_eq!(
+        paged.len(),
+        1,
+        "the stack kept the page view a paged region: {:#?}",
+        ui.scroll_regions()
+            .iter()
+            .map(|a| (a.id, a.page.is_some()))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        paged[0].max_x > size.width,
+        "and four panels of it still have somewhere to go: {}",
+        paged[0].max_x
+    );
+}
+
 /// **The licence list is generated, and this is what generated has to mean**: it parses,
 /// it covers what this application actually links, and every notice has a text.
 ///

@@ -816,6 +816,28 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// **Target pins** of an animated stack layer ([`crate::AnimatedPositioned`]): the
+    /// runtime tweens them and the interpolated pins are read where the stack lays its
+    /// layers out. `None` — the default — leaves [`Widget::positioned`] alone.
+    ///
+    /// A pin that is **unset does not animate**: `None` on an edge is not nought there,
+    /// it is a box not pinned on that side at all, and moving between the two would be
+    /// interpolating between two arrangements rather than two values.
+    fn anim_pins(&self) -> Option<crate::positioned::Positioning> {
+        None
+    }
+
+    /// **Target fractions** of an animated share of the parent
+    /// (`FractionallySizedBox::animated`), as `(width factor, height factor)`: the
+    /// runtime tweens them and the interpolated pair is injected **at layout** (see
+    /// `effective_style`), like the size and the padding. `None` = fixed factors.
+    ///
+    /// An axis whose factor is unset follows its content, and the same rule applies:
+    /// it does not travel to or from a factor, it changes what the axis is doing.
+    fn anim_fractions(&self) -> Option<(Option<f32>, Option<f32>)> {
+        None
+    }
+
     /// **Alignment** of the single child within the box: the walk offsets the child
     /// through the free space according to the alignment's fractions, resolved
     /// against the reading direction (physical or directional — see
@@ -1602,6 +1624,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn anim_offset(&self) -> Option<(f32, f32)> {
         (**self).anim_offset()
+    }
+    fn anim_pins(&self) -> Option<crate::positioned::Positioning> {
+        (**self).anim_pins()
+    }
+    fn anim_fractions(&self) -> Option<(Option<f32>, Option<f32>)> {
+        (**self).anim_fractions()
     }
     fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
         (**self).alignment_geometry()

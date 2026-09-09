@@ -303,6 +303,126 @@ impl OffsetAnim {
     }
 }
 
+/// Timeline of a bundle of **optional** numbers a node hands to whatever lays it out —
+/// the four edges and two extents of a [`crate::Positioned`], the two factors of a
+/// [`crate::FractionallySizedBox`]. One timeline for the whole bundle, so a box that
+/// changes two of its edges arrives on both at once, the way a scale and a turn do.
+///
+/// **A slot that is unset is not a number, and so is not animated.** `None` on an edge
+/// does not mean nought there — it means the box is not pinned on that side at all, and
+/// the two are different arrangements rather than two values of one. So a slot arriving
+/// takes effect at once, a slot leaving goes at once, and only a slot set at both ends
+/// travels. The reference does exactly this and for the same reason: its tween for such
+/// a value is dropped the moment the value is null.
+#[derive(Copy, Clone, Debug, PartialEq)]
+struct SlotsAnim<const N: usize> {
+    current: [Option<f32>; N],
+    from: [Option<f32>; N],
+    to: [Option<f32>; N],
+    elapsed: f32,
+}
+
+impl<const N: usize> SlotsAnim<N> {
+    fn settled(v: [Option<f32>; N]) -> Self {
+        Self {
+            current: v,
+            from: v,
+            to: v,
+            elapsed: 0.0,
+        }
+    }
+}
+
+/// Walks the tree collecting one family of slot bundles, following the walk's own
+/// identity scheme (`child_id`) exactly — an id computed any other way is an animation
+/// the paint never finds.
+fn collect_slots<Msg, const N: usize>(
+    widget: &dyn crate::widget::Widget<Msg>,
+    id: WidgetId,
+    still: bool,
+    out: &mut Vec<(WidgetId, [Option<f32>; N], f32, Curve)>,
+    read: impl Fn(&dyn crate::widget::Widget<Msg>) -> Option<[Option<f32>; N]> + Copy,
+) {
+    if let Some(target) = read(widget) {
+        out.push((
+            id,
+            target,
+            if still {
+                0.0
+            } else {
+                widget.anim_duration().max(0.0)
+            },
+            widget.anim_curve(),
+        ));
+    }
+    for (index, child) in widget.children().iter().enumerate() {
+        collect_slots(
+            child.as_ref(),
+            crate::ui::child_id(id, index, child.as_ref()),
+            still,
+            out,
+            read,
+        );
+    }
+}
+
+/// Steps one family of slot bundles towards the targets their widgets declare. Shared by
+/// every quantity made of optional numbers, so the rule about an unset slot is written
+/// once and cannot come out differently in two places.
+fn advance_slot_family<const N: usize>(
+    map: &mut HashMap<WidgetId, SlotsAnim<N>>,
+    targets: Vec<(WidgetId, [Option<f32>; N], f32, Curve)>,
+    dt: f32,
+) -> bool {
+    let present: std::collections::HashSet<WidgetId> = targets.iter().map(|(id, ..)| *id).collect();
+    map.retain(|id, _| present.contains(id));
+
+    let mut animating = false;
+    for (id, target, duration, curve) in targets {
+        match map.entry(id) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                let s = e.get_mut();
+                if s.to != target {
+                    s.from = s.current;
+                    s.to = target;
+                    s.elapsed = 0.0;
+                    // A slot with nothing at one end has nowhere to travel from or to, so
+                    // it is already where it is going.
+                    for i in 0..N {
+                        if s.from[i].is_none() || s.to[i].is_none() {
+                            s.from[i] = s.to[i];
+                        }
+                    }
+                }
+                if s.from == s.to {
+                    s.current = s.to;
+                } else {
+                    s.elapsed += dt;
+                    let t = if duration > 0.0 {
+                        (s.elapsed / duration).clamp(0.0, 1.0)
+                    } else {
+                        1.0
+                    };
+                    let e = curve.transform(t);
+                    for i in 0..N {
+                        s.current[i] = match (s.from[i], s.to[i]) {
+                            (Some(a), Some(b)) => Some(a + (b - a) * e),
+                            _ => s.to[i],
+                        };
+                    }
+                    if t < 1.0 {
+                        animating = true;
+                    }
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(SlotsAnim::settled(target));
+            }
+        }
+    }
+    animating
+}
+
 /// **The numbers a paint-time transform is made of** that can sensibly be interpolated:
 /// a scale on each axis and a turn.
 ///
@@ -558,6 +678,12 @@ pub struct Runtime {
     offsets: HashMap<WidgetId, OffsetAnim>,
     /// Animated transforms (`Transform::animated`), per widget — read at paint.
     transforms: HashMap<WidgetId, TransformAnim>,
+    /// Animated stack pins (`AnimatedPositioned`), per widget — read where the stack
+    /// lays its layers out. Six slots: left, top, right, bottom, width, height.
+    pins: HashMap<WidgetId, SlotsAnim<6>>,
+    /// Animated fractions of the parent (`FractionallySizedBox::animated`), per widget —
+    /// injected at layout. Two slots: the width factor and the height factor.
+    fractions: HashMap<WidgetId, SlotsAnim<2>>,
     /// Widgets present at the previous frame (to detect mounts).
     pub mounted: std::collections::HashSet<WidgetId>,
     /// Snapshots of outgoing subtrees, fading out: event key → (captured
@@ -1191,6 +1317,64 @@ impl Runtime {
             }
         }
         animating
+    }
+
+    /// A widget's animated stack pins, if it has any (`None` otherwise).
+    pub fn anim_pins(&self, id: WidgetId) -> Option<crate::positioned::Positioning> {
+        self.pins.get(&id).map(|p| {
+            let [left, top, right, bottom, width, height] = p.current;
+            crate::positioned::Positioning {
+                left,
+                top,
+                right,
+                bottom,
+                width,
+                height,
+            }
+        })
+    }
+
+    /// A widget's animated fractions of its parent, if it has any (`None` otherwise), as
+    /// `(width factor, height factor)`.
+    pub fn anim_fractions(&self, id: WidgetId) -> Option<(Option<f32>, Option<f32>)> {
+        self.fractions
+            .get(&id)
+            .map(|f| (f.current[0], f.current[1]))
+    }
+
+    /// Drives every animated set of stack pins towards the target its widget declares
+    /// (`Widget::anim_pins`), following its duration/curve. On mount: adopts the target
+    /// with no transition. Returns `true` if a layer is still moving.
+    ///
+    /// The output is consumed where the **stack** lays its layers out, which is the only
+    /// place pins mean anything — a pin is a request to a parent of one particular kind,
+    /// not a property of the box.
+    pub fn advance_pins<Msg>(&mut self, root: &dyn crate::widget::Widget<Msg>, dt: f32) -> bool {
+        let mut targets = Vec::new();
+        collect_slots(root, WidgetId::ROOT, self.still, &mut targets, |w| {
+            w.anim_pins()
+                .map(|p| [p.left, p.top, p.right, p.bottom, p.width, p.height])
+        });
+        advance_slot_family(&mut self.pins, targets, dt)
+    }
+
+    /// Drives every animated pair of fractions towards the target its widget declares
+    /// (`Widget::anim_fractions`), following its duration/curve. On mount: adopts the
+    /// target with no transition. Returns `true` if a box is still growing or shrinking.
+    ///
+    /// Like the size and the padding, the output is **consumed at layout**
+    /// (`effective_style`): a share of the parent is a claim on room, and a claim on room
+    /// is settled before anything is drawn.
+    pub fn advance_fractions<Msg>(
+        &mut self,
+        root: &dyn crate::widget::Widget<Msg>,
+        dt: f32,
+    ) -> bool {
+        let mut targets = Vec::new();
+        collect_slots(root, WidgetId::ROOT, self.still, &mut targets, |w| {
+            w.anim_fractions().map(|(width, height)| [width, height])
+        });
+        advance_slot_family(&mut self.fractions, targets, dt)
     }
 
     /// Advances the transitions (hover/focus/press) by `dt` seconds towards their
