@@ -3657,3 +3657,62 @@ fn the_animated_layout_values_match_their_golden() {
     shots[1].assert_golden(golden("animated_layout_middle"));
     shots[2].assert_golden(golden("animated_layout_end"));
 }
+
+/// **A wheel, with the chosen row across the middle and the rest curving away.**
+///
+/// The picture is the whole of the claim here: the geometry is an affine's worth of a
+/// cylinder, not a cylinder, and whether that reads is not a thing a number can answer.
+#[test]
+fn the_picker_wheel_matches_its_golden() {
+    use frus_test::Stage;
+    use frus_widgets::{text, ListWheel};
+
+    let theme = Theme::dark();
+    let t = theme.clone();
+    let wheel = ListWheel::<()>::new(60, 34.0, move |i| {
+        Flex::<()>::column()
+            .width(160.0)
+            .height(34.0)
+            .align(Align::Center)
+            .justify(frus_widgets::Justify::Center)
+            .child(text(format!("{i:02}")).size(20.0).color(t.on_surface))
+    })
+    .width(160.0)
+    .height(200.0)
+    .selected(30)
+    .label(|i| format!("{i} minutes"));
+    // The band across the middle is a **layer of a stack**, not something the wheel
+    // draws — which is the composition the docs claim, so the picture had better be of
+    // that and not of something easier.
+    let tree = Container::<()>::new()
+        .width(160.0)
+        .height(200.0)
+        .color(theme.surface)
+        .child(
+            frus_widgets::Stack::new()
+                .width(160.0)
+                .height(200.0)
+                .layer(
+                    frus_widgets::Positioned::new(
+                        Container::<()>::new()
+                            .height(34.0)
+                            .radius(8.0)
+                            .color(Color {
+                                a: 0.12,
+                                ..theme.primary
+                            }),
+                    )
+                    .left(0.0)
+                    .right(0.0)
+                    .top((200.0 - 34.0) / 2.0),
+                )
+                .layer(wheel),
+        );
+
+    let mut stage = Stage::new(160, 200).theme(theme.clone());
+    stage.settle(&tree);
+    match stage.render(&tree) {
+        Some(shot) => shot.assert_golden(golden("picker_wheel")),
+        None => eprintln!("no GPU adapter available: test skipped"),
+    }
+}

@@ -90,6 +90,8 @@ pub(crate) fn settings_screen(app: &TodoApp, theme: &Theme) -> Container<Msg> {
             .align(Align::Center)
             .gap(12.0),
             Divider::new(),
+            reminder_wheel(app, theme),
+            Divider::new(),
             // **A setting that depends on another** (milestone 322): scheduling which days
             // to be notified on means nothing while notifications are off, so the switch
             // goes unavailable rather than staying live and doing nothing visible. This is
@@ -294,4 +296,58 @@ pub(crate) fn settings_screen(app: &TodoApp, theme: &Theme) -> Container<Msg> {
         // the intrusions from the surface description, so a screen with no `Scaffold` to
         // do it for it still keeps clear of the notch.
         .child(SafeArea::new(screen))
+}
+
+/// **A wheel to pick a number of minutes** (milestone 496), beside the stepper above so
+/// that the two can be read against each other: a stepper is for a number you nudge, a
+/// wheel is for one you spin past sixty of.
+///
+/// The band across the middle is a **layer of a stack**, not something the wheel draws.
+/// A wheel is a cylinder of rows and nothing else; what marks the chosen one is a
+/// decision about this screen — a band here, two rules elsewhere, a tinted panel on a
+/// dark page — and a widget that drew it would be a widget every one of those had to
+/// argue with.
+fn reminder_wheel(app: &TodoApp, theme: &Theme) -> Container<Msg> {
+    const ROW: f32 = 34.0;
+    const HEIGHT: f32 = 150.0;
+    let ink = theme.on_surface;
+    let wheel = ListWheel::new(60, ROW, move |minutes| {
+        Flex::column()
+            .width(120.0)
+            .height(ROW)
+            .align(Align::Center)
+            .justify(Justify::Center)
+            .child(text(format!("{minutes}")).size(20.0).color(ink))
+    })
+    .width(120.0)
+    .height(HEIGHT)
+    .selected(app.reminder)
+    .on_selected(Msg::SetReminder)
+    // Words, not an index: a reader is owed "seven minutes", and only this screen knows
+    // that is what row seven means.
+    .label(|minutes| format!("{minutes} minutes"));
+    Container::new().child(
+        row![
+            text("Remind me in").size(18.0),
+            spacer(),
+            Stack::new()
+                .width(120.0)
+                .height(HEIGHT)
+                .layer(
+                    Positioned::new(Container::new().height(ROW).radius(8.0).color(Color {
+                        a: 0.10,
+                        ..theme.primary
+                    }),)
+                    .left(0.0)
+                    .right(0.0)
+                    .top((HEIGHT - ROW) / 2.0),
+                )
+                .layer(wheel),
+            text(format!("{} min", app.reminder))
+                .size(14.0)
+                .color(theme.muted),
+        ]
+        .align(Align::Center)
+        .gap(12.0),
+    )
 }

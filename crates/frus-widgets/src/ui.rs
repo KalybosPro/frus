@@ -3731,12 +3731,40 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     as usize)
                     .min(pages.count)
                     .max(first + 1);
+                // A wheel shows **more** rows than a flat strip would: the ones a quarter
+                // turn away are compressed into the last few pixels at either end, and
+                // their flat positions are a whole quarter-circumference outside the
+                // viewport. Widening the window in both directions keeps the reversed
+                // arithmetic above untouched, and the rows that turn out to have gone
+                // over the horizon are dropped below — before they are built.
+                let (first, last) = match pages.wheel {
+                    Some(wheel) => {
+                        let span = wheel.radius(viewport_along) * std::f32::consts::FRAC_PI_2;
+                        let extra = (span / snap.extent).ceil().max(0.0) as usize + 1;
+                        (first.saturating_sub(extra), (last + extra).min(pages.count))
+                    }
+                    None => (first, last),
+                };
                 for index in first..last.min(pages.count) {
-                    let page = (pages.build)(index);
                     let start = match reverse {
                         true => viewport_along - pad - (index + 1) as f32 * snap.extent + along,
                         false => pad + index as f32 * snap.extent - along,
                     };
+                    // Where this row's centre would sit on the unrolled strip, measured
+                    // from the middle of the viewport — which is the whole of what the
+                    // cylinder needs to know about it.
+                    let on_wheel = match pages.wheel {
+                        Some(wheel) => {
+                            let flat = start + snap.extent / 2.0 - viewport_along / 2.0;
+                            match wheel.row(viewport_along, flat) {
+                                // Past the horizon: not drawn, and not built either.
+                                None => continue,
+                                Some(row) => Some((row, flat)),
+                            }
+                        }
+                        None => None,
+                    };
+                    let page = (pages.build)(index);
                     let (size, origin) = if snap.horizontal {
                         (
                             Size::new(snap.extent, page_across),
@@ -3758,6 +3786,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     );
 
                     let mut page_index = 0;
+                    // The row is drawn **flat**, then the whole of it is composited on
+                    // the cylinder — one layer per row, the way `Transform` does it, so
+                    // the text, the rules and the backgrounds all turn together instead
+                    // of each primitive having to know it is on a wheel.
+                    let before = self.scene.primitives().len();
+                    let base = self.xform_base();
                     self.render_item(
                         page.as_ref(),
                         id.child(index),
@@ -3766,6 +3800,29 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                         &page_rects,
                         &mut page_index,
                     );
+                    if let Some((row, flat)) = on_wheel {
+                        // The row's own centre on screen: the scale is about it, so a row
+                        // shrinks in place rather than creeping towards a corner.
+                        let centre = Point::new(
+                            viewport.x + viewport.width / 2.0,
+                            viewport.y + viewport_along / 2.0 + flat,
+                        );
+                        let matrix = Affine::scale(row.scale_x, row.scale_y)
+                            .about(centre)
+                            // And then up or down to where the cylinder actually put it.
+                            .then(Affine::translation(0.0, row.offset - flat));
+                        let group = self.scene.split_off(before);
+                        self.scene.push_primitive(Primitive::Layer {
+                            primitives: group,
+                            opacity: row.opacity.clamp(0.0, 1.0),
+                            clip: content_clip,
+                            clip_shape: ClipShape::Rect,
+                            transform: Some(LayerTransform::new(matrix)),
+                            filter: LayerFilter::NONE,
+                            owner: id.child(index).as_u64(),
+                        });
+                        self.transform_interaction_registries(&base, matrix);
+                    }
                 }
             }
 

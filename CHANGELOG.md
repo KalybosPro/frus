@@ -8,12 +8,37 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 495 so far, each documenting the objective, the alternatives
+> record — one per step, 496 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **A picker wheel** (J496, answers #48): `ListWheel`, the scrolling cylinder of values you
+  spin to pick one. The issue asked a question before any code — whether the perspective is
+  expressible without a full 3D matrix — and the answer is **no**: a row on a cylinder is
+  tipped about a horizontal axis and divided by its depth, which makes it a trapezoid, and
+  the paint applies an `Affine`, which by construction maps parallel lines to parallel
+  lines. So this is not a cylinder and says so at the top of its own module. What it is, is
+  every part of one a reader notices and an affine can express: rows packing together
+  towards the ends at `r·sin θ`, squashing by `cos θ`, narrowing as they recede, and dimming
+  by the same `cos θ` — the fade being where the missing taper's share of the illusion goes.
+  Past a quarter turn a row has gone over the horizon and is not drawn. Underneath it is the
+  **paged scrollable**, one row to a page, so the release that springs to the nearest row,
+  the virtualised window, the opening-on-the-asked-for-row and the overscroll are all
+  inherited rather than written twice. The window is widened beyond the viewport because a
+  row a quarter turn away is compressed into the last pixels at the edge while its flat
+  position is a quarter of a circumference outside — and the rows past the horizon are
+  dropped before they are built. It is announced as a **selector**, not a list to walk row by
+  row: the role a platform's own picker reports, the value in the caller's words through
+  `ListWheel::label`, and the position as the range — which is also what makes the selection
+  announced as it changes, along the path a slider's value already travels. The band across
+  the middle is **not** the wheel's: it is a layer of a stack, four lines, because what marks
+  a chosen row is a decision about the screen it is on.
+- **`PagedView::extent`**, a page extent in pixels beside the viewport fraction. A page is a
+  share of the window it is read in; a row of a wheel is a line of text, which is not a share
+  of anything.
 
 - **A layer that moves, and a box that grows its share of its parent** (J495, part of #30):
   `AnimatedPositioned` and `AnimatedFractionallySizedBox`. Two of the eleven implicit

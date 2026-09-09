@@ -285,7 +285,11 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.count = c;
             Command::none()
         }
-        // --- Effets ---
+        Msg::SetReminder(minutes) => {
+            app.reminder = minutes;
+            Command::none()
+        }
+        // --- Effects ---
         Msg::Save => {
             app.sheet_open = false;
             // Takes a serialisable snapshot; the writing happens outside update.
