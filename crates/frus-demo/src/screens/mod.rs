@@ -6,6 +6,7 @@ mod charts;
 mod data;
 mod grid;
 mod journal;
+mod licenses;
 mod settings;
 mod task;
 mod todo;
@@ -17,6 +18,7 @@ pub(crate) use charts::*;
 pub(crate) use data::*;
 pub(crate) use grid::*;
 pub(crate) use journal::*;
+pub(crate) use licenses::licenses_screen;
 pub(crate) use settings::*;
 pub(crate) use task::*;
 pub(crate) use todo::*;
@@ -76,5 +78,6 @@ pub(crate) fn screen(
         Route::Board => board_screen(app, theme),
         Route::Tour => tour_screen(app, theme),
         Route::Task(id) => task_screen(app, theme, id, entering),
+        Route::Licenses => Box::new(licenses_screen(app, theme)),
     }
 }

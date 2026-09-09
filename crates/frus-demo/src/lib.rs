@@ -36,6 +36,14 @@ impl Application for TodoApp {
     }
 
     fn init(&mut self) -> Command<Msg> {
+        // **The licences of everything this binary links**, generated from its own
+        // dependency graph by `scripts/gen_licenses.py` and embedded. One call, and the
+        // list cannot drift from what is linked without the file changing — which is the
+        // one failure mode that matters for a licence list.
+        //
+        // Here rather than in `main`, because there are three entry points (desktop,
+        // Android, web) and only one of them is a `main`.
+        frus_widgets::licenses::add_all(include_str!("../assets/licenses.txt"));
         // Starts the stopwatch and loads the persisted tasks at start-up.
         self.running = true;
         self.page = 1;
@@ -88,6 +96,8 @@ impl Application for TodoApp {
             // A task screen is not restored: the task it names may not exist any more,
             // and reopening a screen about nothing is worse than opening the list.
             Route::Task(_) => 0,
+            // Nor a licence page: it is somewhere you go on purpose, once.
+            Route::Licenses => 0,
         };
         out.push_str(&format!("route {route}\n"));
         out.push_str(&format!("draft {}\n", self.draft));

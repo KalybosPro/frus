@@ -472,6 +472,73 @@ fn a_grip_grabs_its_row_and_the_drop_routes_to_a_position() {
     );
 }
 
+/// **The licence list is generated, and this is what generated has to mean**: it parses,
+/// it covers what this application actually links, and every notice has a text.
+///
+/// The one failure mode that matters for a licence list is a list that does not match what
+/// was linked. Nothing here can prove the file was regenerated after the last dependency
+/// changed — that is what running `scripts/gen_licenses.py` is for — but a list that has
+/// lost `wgpu`, or `winit`, or the framework itself is a list that is wrong in the way
+/// somebody would notice in court rather than in a test, so it is worth one.
+#[test]
+fn the_generated_licences_cover_what_the_demo_links() {
+    let notices = frus_widgets::licenses::parse(include_str!("../assets/licenses.txt"));
+    assert!(
+        notices.len() > 100,
+        "four hundred packages do not fit in {} notices",
+        notices.len()
+    );
+    let packages: Vec<String> = notices
+        .iter()
+        .flat_map(|n| n.packages.iter().map(|p| p.name.clone()))
+        .collect();
+    // A sample across the graph: the renderer, the window, the layout, the text shaper,
+    // and the framework's own crates, which an application links as surely as the rest —
+    // and which are here under the workspace's own two licence files, since a crate of a
+    // workspace keeps them at the root rather than beside its manifest.
+    for linked in [
+        "wgpu",
+        "winit",
+        "taffy",
+        "cosmic-text",
+        "frus-shell",
+        "frus-widgets",
+    ] {
+        assert!(
+            packages.iter().any(|p| p == linked),
+            "{linked} is linked and is not in the list"
+        );
+    }
+    for notice in &notices {
+        assert!(!notice.packages.is_empty(), "a notice covering nothing");
+        assert!(
+            !notice.text.trim().is_empty(),
+            "no text for {:?}",
+            notice.packages
+        );
+    }
+    // And the page shows them: the list is what the screen puts on screen.
+    let theme = Theme::dark();
+    let size = Size::new(420.0, 900.0);
+    let page = LicensePage::new(None, Msg::OpenLicence)
+        .notices(notices)
+        .build();
+    let ui = build_ui(page.as_ref(), size, &Runtime::default(), &theme);
+    let words: Vec<String> = ui
+        .scene()
+        .primitives()
+        .iter()
+        .filter_map(|p| match p {
+            frus_widgets::Primitive::Text { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        words.iter().any(|w| w.starts_with("wgpu ")),
+        "the page lists wgpu"
+    );
+}
+
 /// The device finding of milestone 327, closed in 334. A task label long enough to
 /// overflow the row used to be laid out at its own content width, which pushed the delete
 /// button off the card, out of the window, and — the part that mattered — out of the hit
@@ -1350,6 +1417,7 @@ fn no_screen_draws_outside_itself() {
         Route::Data,
         Route::Board,
         Route::Tour,
+        Route::Licenses,
     ];
     let mut worst: Vec<String> = Vec::new();
     for route in routes {

@@ -39,6 +39,10 @@ pub(crate) enum Msg {
     CityQuery(String),
     SetCity(usize),
     Push(Route),
+    /// Opens or closes the about box.
+    ToggleAbout,
+    /// Opens one package's licence on the licence page, or goes back to the list.
+    OpenLicence(Option<usize>),
     Pop,
     /// Flips the log list between the two scroll behaviours, so the difference can
     /// be felt side by side on one device.

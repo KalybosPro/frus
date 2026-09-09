@@ -113,6 +113,14 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.todos.insert(target.min(app.todos.len()), task);
             Command::none()
         }
+        Msg::ToggleAbout => {
+            app.about_open = !app.about_open;
+            Command::none()
+        }
+        Msg::OpenLicence(which) => {
+            app.licence_open = which;
+            Command::none()
+        }
         Msg::SetFilter(filter) => {
             app.filter = filter;
             Command::none()

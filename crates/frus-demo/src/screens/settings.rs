@@ -236,6 +236,13 @@ pub(crate) fn settings_screen(app: &TodoApp, theme: &Theme) -> Container<Msg> {
         ]
         .gap(8.0),
         Divider::new(),
+        // The row every application writes and every application gets slightly
+        // differently — and the licences behind it, which every application shipping
+        // anywhere owes and this framework had nothing to show with until milestone 492.
+        AboutListTile::new(Msg::ToggleAbout)
+            .application("frus demo")
+            .subtitle(format!("Version {}", env!("CARGO_PKG_VERSION")))
+            .build(),
         ExpansionTile::new("Advanced options", app.advanced_open, Msg::ToggleAdvanced).content(
             column![
                 text("Explorer, palette, timeline:")
@@ -268,6 +275,17 @@ pub(crate) fn settings_screen(app: &TodoApp, theme: &Theme) -> Container<Msg> {
         .flex(1.0)
         .child(content);
     let screen = column![NavigationBar::new("Settings").on_back(Msg::Pop), body].flex(1.0);
+    // The about box, over the screen. It is a dialog like any other: the screen is its
+    // body, and it is shut by the same message that opened it — including a tap outside,
+    // which is what `on_close` is given to.
+    let screen = AboutDialog::new(app.about_open)
+        .application("frus demo")
+        .version(format!("Version {}", env!("CARGO_PKG_VERSION")))
+        .legalese("A demonstration application, MIT OR Apache-2.0.")
+        .icon(Icon::new(Icons::INFO))
+        .on_licences(Msg::Push(Route::Licenses))
+        .on_close(Msg::ToggleAbout)
+        .body(screen);
     Container::new()
         .width(width)
         .height(height)

@@ -8,12 +8,27 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 491 so far, each documenting the objective, the alternatives
+> record — one per step, 492 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`LicensePage`, `AboutDialog` and `AboutListTile`** (J492, closes #43), and
+  `scripts/gen_licenses.py` behind them. Every application distributed anywhere has to show
+  the licences of what it links, and this framework gave it nothing to show them with. The
+  part with the decision in it is where the text comes from: the reference's registry that
+  packages add themselves to has no equivalent in Rust, so the list is read from **cargo** —
+  `cargo tree -e no-dev --target all` for what is linked, and the licence files each package
+  actually ships — and written to a file the application embeds and registers in one line.
+  It cannot then drift from what is linked without the file changing. Notices are grouped by
+  **text** rather than by licence, deliberately: collapsing forty Apache-2.0 files to one
+  canonical copy would save 340 KB and is the first step towards a list that does not say
+  what the application ships. Packages that declare a licence and ship no file are reported
+  as exactly that rather than dropped. Nothing is registered by default and an empty page
+  says so — a token entry for the framework would be a list that looks complete and is not.
+  The demo's settings screen has the row, the box and the page, over its own 442 packages.
 
 - **Undo and redo in a text field** (J491, closes #28): Ctrl+Z, and both spellings of redo
   — Ctrl+Y and Ctrl+Shift+Z. The stack is the small half; the milestone is **what counts as

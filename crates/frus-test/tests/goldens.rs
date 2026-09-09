@@ -7,11 +7,11 @@ use frus_test::{render_scene, render_widget};
 use frus_widgets::{
     Align, Autocomplete, BackdropFilter, BarChart, Button, Checkbox, Chip, CircleAvatar, ClipRRect,
     ColorFiltered, Column, Container, DateTimePicker, DropdownButton, FadeTransition, Flex,
-    FractionalTranslation, Icons, IgnoreBaseline, ImageFiltered, Justify, LineChart, Pagination,
-    PopupMenuButton, RadioGroup, RangeSlider, Rating, ReorderGrab, ReorderableList, RichText, Row,
-    ScaleTransition, SegmentedButton, ShaderMask, SizedOverflowBox, SlideFrom, SlideTransition,
-    Slider, Stack, StackFit, Stepper, Switch, TabBar, Table, Text, TextField, TextSpan, Theme,
-    TimePicker, UnconstrainedBox, Variant,
+    FractionalTranslation, Icons, IgnoreBaseline, ImageFiltered, Justify, LicenseNotice,
+    LicensePage, LineChart, Package, Pagination, PopupMenuButton, RadioGroup, RangeSlider, Rating,
+    ReorderGrab, ReorderableList, RichText, Row, ScaleTransition, SegmentedButton, ShaderMask,
+    SizedOverflowBox, SlideFrom, SlideTransition, Slider, Stack, StackFit, Stepper, Switch, TabBar,
+    Table, Text, TextField, TextSpan, Theme, TimePicker, UnconstrainedBox, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -3436,4 +3436,49 @@ fn the_reorderable_list_matches_its_golden() {
         return;
     };
     snapshot.assert_golden(golden("reorderable_list"));
+}
+
+/// The licence page, both ways round: the list of packages, and one of them open.
+///
+/// It is a picture of an obligation. Every application distributed anywhere has to show
+/// this, and what it has to show is not decorative — the point of the golden is that the
+/// **text is all there**, re-flowed to the width it was given rather than to somebody
+/// else's eighty columns, and that a page of four hundred packages is a list of names with
+/// a count beside each rather than four hundred licences at once.
+#[test]
+fn the_licence_page_matches_its_golden() {
+    let theme = Theme::dark();
+    let notices = vec![
+        LicenseNotice {
+            packages: vec![Package::new("cosmic-text", "0.12.1"), Package::new("wgpu", "22.1.0")],
+            text: "Apache License, Version 2.0\n\nLicensed under the Apache License, Version \n2.0 (the \"License\"); you may not use this \nfile except in compliance with it."
+                .to_string(),
+        },
+        LicenseNotice {
+            packages: vec![Package::new("wgpu", "22.1.0")],
+            text: "MIT\n\nPermission is hereby granted, free of charge.".to_string(),
+        },
+    ];
+    let list = Container::new().padding(12.0).child(
+        LicensePage::<()>::new(None, |_| ())
+            .application("Tasks")
+            .version("Version 1.4.0")
+            .notices(notices.clone())
+            .build(),
+    );
+    let open = Container::new().padding(12.0).child(
+        LicensePage::<()>::new(Some(1), |_| ())
+            .notices(notices)
+            .build(),
+    );
+    let root: Container<()> = Container::new().child(
+        Row::new()
+            .child(Container::new().width(230.0).child(list))
+            .child(Container::new().width(230.0).child(open)),
+    );
+    let Some(snapshot) = render_widget(&root, 470, 240, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("licence_page"));
 }

@@ -45,6 +45,8 @@ pub(crate) enum Route {
     /// One task, on its own screen. Its avatar is a **shared element** with the row it
     /// was opened from, and flies between the two (milestone 286).
     Task(u64),
+    /// The licences of everything this application links (milestone 492).
+    Licenses,
 }
 
 /// The back gesture: the progress follows the finger, then a spring settle (commit/cancel)
@@ -120,6 +122,11 @@ pub(crate) struct TodoApp {
     pub(crate) elapsed: u32,
     /// The Settings screen's active tab.
     pub(crate) settings_tab: usize,
+    /// Is the about box open?
+    pub(crate) about_open: bool,
+    /// Which package's licence is open on the licence page, as an index into the page's
+    /// own list. `None` is the list itself.
+    pub(crate) licence_open: Option<usize>,
     /// Is the (header) actions menu open?
     pub(crate) actions_open: bool,
     /// Is the "Advanced options" section expanded?

@@ -80,6 +80,7 @@ mod kanban;
 mod kbd;
 mod keyed;
 mod layoutbuilder;
+pub mod licenses;
 mod list;
 mod listtile;
 /// Which language the interface is in: [`locale::Locale`], [`locale::resolve`] and
@@ -257,6 +258,7 @@ pub use kanban::{kanban_slot, Kanban};
 pub use kbd::Kbd;
 pub use keyed::Keyed;
 pub use layoutbuilder::LayoutBuilder;
+pub use licenses::{AboutDialog, AboutListTile, LicenseNotice, LicensePage, Package};
 pub use list::{ListView, VirtualList};
 pub use listtile::{
     ListTile, LIST_TILE_DENSE_HEIGHTS, LIST_TILE_HEIGHTS, LIST_TILE_MIN_LEADING_WIDTH,
