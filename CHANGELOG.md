@@ -8,12 +8,33 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 492 so far, each documenting the objective, the alternatives
+> record — one per step, 493 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **An application can read a scroll position and command one** (J493, closes #25):
+  `ScrollPosition`, `Widget::on_scroll`, `ScrollTo` and `Command::scroll`. An offset could
+  be moved by a finger, a wheel, a fling and a spring, and by nothing an application could
+  write — so a "back to top" button, a chat that opens at its newest message, load-more at
+  the end of a long list and anything that reacts to how far a page has gone down were all
+  inexpressible. The part with the decision in it is the **shape**: the reference's
+  controller does not cross, since the offset belongs to the runtime and a view is rebuilt
+  from state every frame. What crosses is the split — reading is a **notification**
+  (`on_scroll`, a message when the offset changes) and commanding is a **request**
+  (`Command::scroll`, an effect), each taking the form this framework already has for
+  things of its kind. Both name a region by **key**, the same `keyed(k, …)` a focus request
+  uses, because the framework's own identities are hashes an application cannot know.
+  Reading is silent by default, so a fling over an ordinary list costs exactly what it did;
+  a listening region reports every frame it moves, which is what a fading bar needs, and
+  `notify_every(px)` is for the listeners that do not — suppressing the steps in between and
+  never the last one, so a coarse grain costs frames and never accuracy. A request needs no
+  storage to survive a rebuild: it is spent into an offset indistinguishable from one a
+  finger left, and a finger holding the content refuses it outright. The demo's log screen
+  says which of its five thousand rows is at the top, how far down it is, and offers the way
+  back once there is one worth offering.
 
 - **`LicensePage`, `AboutDialog` and `AboutListTile`** (J492, closes #43), and
   `scripts/gen_licenses.py` behind them. Every application distributed anywhere has to show

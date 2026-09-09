@@ -601,6 +601,31 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Message sent by a **scroll region** when its offset changes — the reading half
+    /// of [`crate::ScrollPosition`].
+    ///
+    /// Silent by default, and that is the answer to what it costs: a region nobody is
+    /// listening to reports nothing, so a fling over an ordinary list is exactly as
+    /// cheap as it was. A region somebody *is* listening to sends a message per frame
+    /// while it moves, because a bar that fades in as the page goes down needs every
+    /// frame of it — and a region that only wants to know when the end is near says so
+    /// through [`Widget::scroll_grain`] rather than by being reported less honestly.
+    fn on_scroll(&self, _position: crate::scrollposition::ScrollPosition) -> Option<Msg> {
+        None
+    }
+
+    /// How far this region must move before it says so again, in pixels; `0` — the
+    /// default — reports **every** change.
+    ///
+    /// A grain suppresses the reports in between, never the last one: a region that
+    /// comes to rest anywhere other than where it was last reported reports that,
+    /// whatever the grain. Otherwise a coarse grain would leave the application
+    /// believing a list was at 1 200 when it settled at 1 247, which is a worse answer
+    /// than a slower one.
+    fn scroll_grain(&self) -> f32 {
+        0.0
+    }
+
     /// If the widget takes one axis from its content's **preferred** size, returns
     /// that axis and the step its measurement is rounded up to. See
     /// [`crate::Intrinsic`].
@@ -1498,6 +1523,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_page_changed(&self, page: usize) -> Option<Msg> {
         (**self).on_page_changed(page)
+    }
+    fn on_scroll(&self, position: crate::scrollposition::ScrollPosition) -> Option<Msg> {
+        (**self).on_scroll(position)
+    }
+    fn scroll_grain(&self) -> f32 {
+        (**self).scroll_grain()
     }
     fn layout_builder(&self) -> Option<&dyn Fn(Size) -> Box<dyn Widget<Msg>>> {
         (**self).layout_builder()

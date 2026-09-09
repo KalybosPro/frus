@@ -539,6 +539,105 @@ fn the_generated_licences_cover_what_the_demo_links() {
     );
 }
 
+/// Milestone 493: the log screen **answers its own scroll offset**, and offers the way
+/// back only once there is one worth offering.
+///
+/// Driven through the screen rather than through the widget, because the thing being
+/// checked is the loop — the list reports, the application keeps, the next build reads —
+/// and any one of the three could be right on its own while the loop did nothing.
+#[test]
+fn the_log_says_where_it_is_and_offers_the_way_back() {
+    let theme = Theme::dark();
+    let size = Size::new(420.0, 900.0);
+    let words = |app: &TodoApp| -> Vec<String> {
+        let tree = view_for(app, &theme, size);
+        build_ui(&tree, size, &Runtime::default(), &theme)
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_widgets::Primitive::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::Push(Route::Journal));
+
+    // Nothing has moved, so nothing has been measured: a row number here would be the
+    // screen guessing rather than the list reporting, and there is nowhere to go back to.
+    let quiet = words(&app);
+    assert!(quiet.iter().any(|w| w == "5000 rows"), "{quiet:?}");
+    assert!(!quiet.iter().any(|w| w == "Top"), "{quiet:?}");
+
+    // A hundred pixels down is still a flick from the top: the number moves, the button
+    // stays away.
+    reduce(&mut app, Msg::JournalScrolled(at(100.0)));
+    let near = words(&app);
+    assert!(near.iter().any(|w| w == "Row 3 of 5000"), "{near:?}");
+    assert!(!near.iter().any(|w| w == "Top"), "{near:?}");
+
+    // Twenty thousand pixels down — row 455 — and the way back is worth a button.
+    reduce(&mut app, Msg::JournalScrolled(at(20_000.0)));
+    let far = words(&app);
+    assert!(far.iter().any(|w| w == "Row 455 of 5000"), "{far:?}");
+    assert!(far.iter().any(|w| w == "Top"), "{far:?}");
+
+    // And the button is an **effect**, not a change of state: the offset it moves lives
+    // in the runtime, and pressing it twice from the same place means it twice.
+    let before = app.journal_scroll;
+    assert!(!reduce(&mut app, Msg::JournalToTop).is_empty());
+    assert_eq!(
+        app.journal_scroll, before,
+        "the request moves a list, not the application's idea of one"
+    );
+}
+
+/// The wiring, through the real screen: **the name the button commands is the region the
+/// frame registers**.
+///
+/// The failure this exists to catch is milestone 477's — a hook declared on one side and
+/// never reached on the other — and it is invisible from either end alone. The screen can
+/// name its list, the update can command that name, every unit test can pass, and the
+/// request can still resolve to nothing because the key stopped at a wrapper.
+#[test]
+fn the_log_list_is_reachable_by_the_name_the_button_commands() {
+    use std::hash::{Hash, Hasher};
+
+    let theme = Theme::dark();
+    let size = Size::new(420.0, 900.0);
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::Push(Route::Journal));
+    let tree = view_for(&app, &theme, size);
+    // Built first, in the order the shell does it: a deferred subtree has no children at
+    // all until something asks for them, and a key inside one is unreachable before that.
+    let ui = build_ui(&tree, size, &Runtime::default(), &theme);
+
+    let key = {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        JOURNAL_LIST.hash(&mut hasher);
+        hasher.finish()
+    };
+    let id = frus_widgets::find_by_key(&tree, key).expect("the screen named its list");
+    let area = ui
+        .scroll_region(id)
+        .expect("and the name reaches the region the frame registered, not a wrapper");
+    assert!(
+        area.max_y > 100_000.0,
+        "five thousand rows of 44 px have somewhere to go: {}",
+        area.max_y
+    );
+}
+
+/// The log list resting `offset` pixels down, as the region itself would report it.
+fn at(offset: f32) -> frus_widgets::ScrollPosition {
+    frus_widgets::ScrollPosition {
+        offset: (0.0, offset),
+        max: (0.0, 5000.0 * 44.0 - 700.0),
+        viewport: Size::new(372.0, 700.0),
+    }
+}
+
 /// The device finding of milestone 327, closed in 334. A task label long enough to
 /// overflow the row used to be laid out at its own content width, which pushed the delete
 /// button off the card, out of the window, and — the part that mattered — out of the hit

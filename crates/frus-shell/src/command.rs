@@ -29,6 +29,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
+use frus_widgets::ScrollTo;
+
 /// A command taken apart, for the shell to run. A struct rather than a tuple: there
 /// are four kinds of effect now, and a four-tuple at a call site says nothing about
 /// which is which.
@@ -37,6 +39,7 @@ pub(crate) struct Parts<Msg> {
     pub(crate) async_tasks: Vec<AsyncTask<Msg>>,
     pub(crate) timers: Vec<(Duration, Msg)>,
     pub(crate) focus: Vec<u64>,
+    pub(crate) scrolls: Vec<(u64, ScrollTo)>,
 }
 
 /// A **synchronous** task: work that may produce a message.
@@ -53,7 +56,7 @@ type AsyncTask<Msg> = Pin<Box<dyn Future<Output = Option<Msg>> + Send + 'static>
 type AsyncTask<Msg> = Pin<Box<dyn Future<Output = Option<Msg>> + 'static>>;
 
 /// A batch of effects to run, possibly empty: background **tasks**, synchronous or
-/// asynchronous, and **focus** requests addressed by widget key.
+/// asynchronous, and **focus** and **scroll** requests addressed by widget key.
 pub struct Command<Msg> {
     tasks: Vec<Task<Msg>>,
     async_tasks: Vec<AsyncTask<Msg>>,
@@ -64,10 +67,13 @@ pub struct Command<Msg> {
     /// The keys of widgets to focus — the key's hash, as in [`crate::Subscription`]
     /// and the widgets' `keyed(...)`. The shell resolves them after the next build.
     focus: Vec<u64>,
+    /// The scroll regions to move, by the same kind of key. Resolved against the frame
+    /// the request is returned into.
+    scrolls: Vec<(u64, ScrollTo)>,
 }
 
-/// A focus key's hash — **identical** to the hash the widgets' `keyed(key, …)` uses,
-/// so that `Command::focus(k)` targets the `keyed(k, …)` widget.
+/// A key's hash — **identical** to the hash the widgets' `keyed(key, …)` uses, so that
+/// `Command::focus(k)` and `Command::scroll(k, …)` both target the `keyed(k, …)` widget.
 fn focus_key(key: impl std::hash::Hash) -> u64 {
     use std::hash::Hasher;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -83,6 +89,7 @@ impl<Msg: Send + 'static> Command<Msg> {
             async_tasks: Vec::new(),
             timers: Vec::new(),
             focus: Vec::new(),
+            scrolls: Vec::new(),
         }
     }
 
@@ -92,17 +99,20 @@ impl<Msg: Send + 'static> Command<Msg> {
         let mut async_tasks = Vec::new();
         let mut timers = Vec::new();
         let mut focus = Vec::new();
+        let mut scrolls = Vec::new();
         for command in commands {
             tasks.extend(command.tasks);
             async_tasks.extend(command.async_tasks);
             timers.extend(command.timers);
             focus.extend(command.focus);
+            scrolls.extend(command.scrolls);
         }
         Self {
             tasks,
             async_tasks,
             timers,
             focus,
+            scrolls,
         }
     }
 
@@ -210,12 +220,44 @@ impl<Msg: Send + 'static> Command<Msg> {
         }
     }
 
-    /// `true` when the command has neither an effect nor a focus request.
+    /// **Moves a scroll region**: the one named `key` goes where `to` says.
+    ///
+    /// A scroll is not a function of the state — the same list, the same offset, and yet
+    /// "go back to the top" happens once — so it is an effect and belongs here rather
+    /// than on a widget. The offset it changes *is* state, and it stays where it was: in
+    /// the runtime, beside every other offset, written by the frame this request is
+    /// resolved into.
+    ///
+    /// Named the way a focus request is named: the region is wrapped in `keyed(k, …)`
+    /// and addressed by `k`. The framework's own identities are hashes of a position in
+    /// a tree, which an application cannot know and should not have to.
+    ///
+    /// Resolved against the **frame that follows**, once and once only — the same rule
+    /// as [`Command::focus`]. A request naming a region that frame has not got is
+    /// dropped rather than kept waiting: an effect that outlived the state it was
+    /// written for would arrive at a list that had since become somebody else's.
+    ///
+    /// ```no_run
+    /// # use frus_shell::Command;
+    /// # use frus_widgets::ScrollTo;
+    /// # fn f() -> Command<()> {
+    /// Command::scroll("journal", ScrollTo::start())
+    /// # }
+    /// ```
+    pub fn scroll(key: impl std::hash::Hash, to: ScrollTo) -> Self {
+        Self {
+            scrolls: vec![(focus_key(key), to)],
+            ..Self::none()
+        }
+    }
+
+    /// `true` when the command has no effect, no focus request and no scroll request.
     pub fn is_empty(&self) -> bool {
         self.tasks.is_empty()
             && self.async_tasks.is_empty()
             && self.timers.is_empty()
             && self.focus.is_empty()
+            && self.scrolls.is_empty()
     }
 
     /// Takes the command apart for the framework to run.
@@ -225,6 +267,7 @@ impl<Msg: Send + 'static> Command<Msg> {
             async_tasks: self.async_tasks,
             timers: self.timers,
             focus: self.focus,
+            scrolls: self.scrolls,
         }
     }
 }

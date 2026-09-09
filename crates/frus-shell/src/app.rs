@@ -16,8 +16,9 @@ use frus_widgets::{
     build_deferred, build_ui, collect_ids, find_by_key, find_path, find_widget,
     reflow_reorder_cards, reflow_reorder_columns, subtree_ids, Accessibility, Brightness, Color,
     Cursor as UiCursor, Edit, EditKind, EditSnapshot, FocusDirection, Insets, Key, KeyResponse,
-    KeyStroke, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, ShortcutKey, Size,
-    Theme, Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
+    KeyStroke, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, ScrollTo,
+    Scrollable, ShortcutKey, Size, Theme, Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId,
+    WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -513,6 +514,14 @@ pub struct App<A: Application> {
     /// Pending focus requests — the keys `Command::focus` produced — resolved against
     /// the **freshly built** tree on the next frame.
     pending_focus: Vec<u64>,
+    /// Pending **scroll** requests — the `(key, ScrollTo)` pairs `Command::scroll`
+    /// produced — resolved against the frame that follows, and dropped whether or not
+    /// the key named anything (see `Command::scroll`).
+    pending_scroll: Vec<(u64, ScrollTo)>,
+    /// The requests of the frame in progress that the **previous** frame's registry
+    /// could not place — a region that has only just appeared. Tried once more against
+    /// the registry this frame builds, and then gone: a request gets one frame.
+    retry_scroll: Vec<(u64, ScrollTo)>,
     /// The **focus history** of triggers, for returning focus when an overlay closes:
     /// on every focus change the old one, if still present, is pushed; when focus
     /// **vanishes** because a menu or modal closed, we go back to the most recent
@@ -609,6 +618,8 @@ impl<A: Application> App<A> {
             leaving_counter: 0,
             running_subs: HashMap::new(),
             pending_focus: Vec::new(),
+            pending_scroll: Vec::new(),
+            retry_scroll: Vec::new(),
             focus_history: Vec::new(),
             prev_focus: None,
             occluded: false,
@@ -2091,8 +2102,17 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // to it. Same moment, same reason: the request is honoured in the frame
                 // it arrives rather than the one after.
                 self.runtime.sync_visible(&scroll_regions);
+                // And the scroll requests an application has just returned. Same moment
+                // and the same reason, with one addition: a region that has only just
+                // appeared is not in the registry above, which was built last frame, so
+                // what does not resolve here is tried again below against this frame's.
+                let requests = std::mem::take(&mut self.pending_scroll);
+                let (retry, scrolled) =
+                    apply_scroll_requests(&mut self.runtime, tree, requests, &scroll_regions);
+                self.retry_scroll = retry;
 
-                let animating = self.runtime.advance(dt)
+                let animating = scrolled
+                    | self.runtime.advance(dt)
                     | self.runtime.advance_leaving(dt)
                     | self.runtime.advance_values(tree, dt)
                     | self.runtime.advance_colors(tree, dt)
@@ -2209,11 +2229,42 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     })
                     .collect();
 
-                // The rows whose gap has just finished closing, and the pages that have
-                // turned: the tree is no longer borrowed, so the application can be told
-                // — and rebuild.
-                for message in dismissed.into_iter().chain(turned) {
+                // The scroll requests the previous frame's registry could not place:
+                // tried once against **this** frame's, which is where a region that has
+                // only just appeared turns up. This is the last chance they get.
+                let (_, moved_late) = apply_scroll_requests(
+                    &mut self.runtime,
+                    tree,
+                    std::mem::take(&mut self.retry_scroll),
+                    &paged,
+                );
+
+                // The regions that have moved since they last said so, read off **this**
+                // frame's registry so that the offset and the extents reported together
+                // come from the same frame. A region nobody is listening to costs the
+                // comparison and nothing else.
+                let scrolled: Vec<A::Message> = {
+                    let grain =
+                        |id| find_widget(tree, id).map_or(0.0, |widget| widget.scroll_grain());
+                    self.runtime
+                        .scroll_changes(&paged, grain)
+                        .into_iter()
+                        .filter_map(|(id, position)| {
+                            find_widget(tree, id).and_then(|widget| widget.on_scroll(position))
+                        })
+                        .collect()
+                };
+
+                // The rows whose gap has just finished closing, the pages that have
+                // turned and the regions that have moved: the tree is no longer
+                // borrowed, so the application can be told — and rebuild.
+                for message in dismissed.into_iter().chain(turned).chain(scrolled) {
                     self.dispatch(message);
+                }
+                if moved_late {
+                    // Nothing else this frame knows the offset changed: the springs ran
+                    // before the request was placed.
+                    self.request_redraw();
                 }
 
                 // Focus return: when the focused widget has **vanished**, an overlay
@@ -3071,6 +3122,7 @@ impl<A: Application> App<A> {
     fn run_command(&mut self, command: crate::command::Command<A::Message>) {
         let parts = command.into_parts();
         self.pending_focus.extend(parts.focus);
+        self.pending_scroll.extend(parts.scrolls);
         for task in parts.tasks {
             let proxy = self.proxy.clone();
             #[cfg(not(web))]
@@ -4473,6 +4525,36 @@ const AUTOSCROLL_VELOCITY: f32 = 50.0;
 /// of one nobody can aim with.
 const AUTOSCROLL_MAX_OVERHANG: f32 = 20.0;
 
+/// Places the scroll requests it can against `regions`, and hands back the ones whose
+/// region that registry does not name, along with whether anything moved.
+///
+/// A request names its region by **key**, the way a focus request does: the application
+/// wrapped it in `keyed(k, …)` and the tree is what turns that back into an identity.
+/// The framework's own identities are hashes of a position in a tree — an application
+/// cannot know one, and should not have to.
+///
+/// Nothing is *stored* here. The request is spent the moment its region is found, and
+/// what it leaves behind is an offset in the runtime, indistinguishable from an offset a
+/// finger left there. That is what makes it survive a rebuild: there is nothing to
+/// survive.
+fn apply_scroll_requests<Msg>(
+    runtime: &mut Runtime,
+    tree: &dyn Widget<Msg>,
+    requests: Vec<(u64, ScrollTo)>,
+    regions: &[Scrollable],
+) -> (Vec<(u64, ScrollTo)>, bool) {
+    let mut unplaced = Vec::new();
+    let mut moved = false;
+    for (key, to) in requests {
+        let area = find_by_key(tree, key).and_then(|id| regions.iter().find(|a| a.id == id));
+        match area {
+            Some(area) => moved |= runtime.scroll_to(area, to),
+            None => unplaced.push((key, to)),
+        }
+    }
+    (unplaced, moved)
+}
+
 /// One axis of the auto-scroll: how far the **content** has to move this frame so that an
 /// item held past a viewport's edge brings the rest of the list into view.
 ///
@@ -5156,6 +5238,129 @@ mod tests {
         let mut scene = Scene::new();
         draw_ghost_card(&mut scene, &theme, card, &[]);
         assert_eq!(scene.primitives().len(), 2, "shadow plus solid card");
+    }
+}
+
+/// The half of a scroll request that belongs to the shell: turning the **name** an
+/// application wrote into the region a frame actually has.
+#[cfg(test)]
+mod scroll_request_tests {
+    use super::{apply_scroll_requests, Rect, Runtime, Scrollable, Widget, WidgetId};
+    use crate::command::Command;
+    use frus_widgets::{keyed, Container, ScrollTo, SingleChildScrollView};
+
+    /// A view with one named scroll region in it, and nothing else of interest.
+    fn view() -> Box<dyn Widget<()>> {
+        Box::new(Container::<()>::new().child(keyed(
+            "log",
+            SingleChildScrollView::<()>::new().height(200.0),
+        )))
+    }
+
+    /// The region as the frame would register it: a 200-tall window over 1 000 of content.
+    fn region(id: WidgetId) -> Scrollable {
+        Scrollable {
+            id,
+            viewport: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 300.0,
+                height: 200.0,
+            },
+            max_x: 0.0,
+            max_y: 1000.0,
+            physics: None,
+            refresh: None,
+            page: None,
+            reverse_x: false,
+            reverse_y: false,
+            keep_visible: None,
+            host: None,
+        }
+    }
+
+    /// The key a request carries and the key the view declared are the **same hash** —
+    /// which is the whole of the identity design, and the one thing that cannot be
+    /// checked on either side alone.
+    #[test]
+    fn a_request_reaches_the_region_the_view_named() {
+        let tree = view();
+        let requests = Command::<()>::scroll("log", ScrollTo::end().instant())
+            .into_parts()
+            .scrolls;
+        let id = frus_widgets::find_by_key(tree.as_ref(), requests[0].0)
+            .expect("the view named it, so the tree knows it");
+        let mut runtime = Runtime::default();
+        let (unplaced, moved) =
+            apply_scroll_requests(&mut runtime, tree.as_ref(), requests, &[region(id)]);
+        assert!(unplaced.is_empty());
+        assert!(moved);
+        assert_eq!(runtime.scroll.get(&id), Some(&(0.0, 1000.0)));
+    }
+
+    /// A region that has only just appeared is not in the registry the request is first
+    /// tried against — that one was built last frame — so it is handed back rather than
+    /// thrown away. Coming back to a screen and being put where you left off depends on
+    /// exactly this.
+    #[test]
+    fn a_region_this_registry_has_not_got_is_handed_back() {
+        let tree = view();
+        let requests = Command::<()>::scroll("log", ScrollTo::y(120.0))
+            .into_parts()
+            .scrolls;
+        let mut runtime = Runtime::default();
+        let (unplaced, moved) = apply_scroll_requests(&mut runtime, tree.as_ref(), requests, &[]);
+        assert_eq!(unplaced.len(), 1, "kept for the second attempt");
+        assert!(!moved);
+        assert!(runtime.scroll_target.is_empty());
+    }
+
+    /// A key naming nothing at all leaves no trace: the caller drops what comes back,
+    /// so a typo costs one frame's lookup and never accumulates.
+    #[test]
+    fn a_name_the_view_does_not_use_moves_nothing() {
+        let tree = view();
+        let requests = Command::<()>::scroll("ledger", ScrollTo::start())
+            .into_parts()
+            .scrolls;
+        let mut runtime = Runtime::default();
+        let id = frus_widgets::find_by_key(
+            tree.as_ref(),
+            Command::<()>::scroll("log", ScrollTo::start())
+                .into_parts()
+                .scrolls[0]
+                .0,
+        )
+        .expect("the real one is there");
+        let (unplaced, moved) =
+            apply_scroll_requests(&mut runtime, tree.as_ref(), requests, &[region(id)]);
+        assert_eq!(unplaced.len(), 1);
+        assert!(!moved);
+        assert!(runtime.scroll.is_empty() && runtime.scroll_target.is_empty());
+    }
+
+    /// Two requests in one batch, both placed, and the batch is what `Command::batch`
+    /// produces — a screen that restores both axes writes two and means two.
+    #[test]
+    fn a_batch_places_every_request_it_carries() {
+        let tree = view();
+        let requests = Command::<()>::batch([
+            Command::scroll("log", ScrollTo::y(400.0).instant()),
+            Command::scroll("log", ScrollTo::y(600.0).instant()),
+        ])
+        .into_parts()
+        .scrolls;
+        assert_eq!(requests.len(), 2);
+        let id = frus_widgets::find_by_key(tree.as_ref(), requests[0].0).expect("named");
+        let mut runtime = Runtime::default();
+        let (unplaced, moved) =
+            apply_scroll_requests(&mut runtime, tree.as_ref(), requests, &[region(id)]);
+        assert!(unplaced.is_empty() && moved);
+        assert_eq!(
+            runtime.scroll.get(&id),
+            Some(&(0.0, 600.0)),
+            "the last request is the current statement"
+        );
     }
 }
 

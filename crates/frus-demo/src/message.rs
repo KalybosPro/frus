@@ -49,6 +49,10 @@ pub(crate) enum Msg {
     ToggleScrollPhysics,
     /// The log list was pulled past its top edge: reload it.
     ReloadJournal,
+    /// The log list has moved: where it is now, straight from the region that moved.
+    JournalScrolled(ScrollPosition),
+    /// Back to the top of the log list, with an animation.
+    JournalToTop,
     /// A tick of the stopwatch (the timer subscription).
     Tick,
     /// Starts/stops the stopwatch.

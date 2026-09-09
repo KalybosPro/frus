@@ -124,6 +124,7 @@ mod safearea;
 mod scaffold;
 mod scaffoldinfo;
 mod scroll;
+pub mod scrollposition;
 mod searchbar;
 mod searchview;
 mod segmented;
@@ -312,6 +313,7 @@ pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};
 pub use scaffoldinfo::{ScaffoldGuard, ScaffoldInfo, ScaffoldScope};
 pub use scroll::{Axis, SingleChildScrollView};
+pub use scrollposition::{ScrollPosition, ScrollTarget, ScrollTo};
 pub use searchbar::{SearchBar, SEARCH_BAR_HEIGHT, SEARCH_BAR_MAX_WIDTH, SEARCH_BAR_MIN_WIDTH};
 pub use searchview::{
     SearchAnchor, SEARCH_VIEW_FULL_SCREEN_HEADER, SEARCH_VIEW_MIN_HEIGHT, SEARCH_VIEW_MIN_WIDTH,

@@ -372,6 +372,17 @@ macro_rules! forward_transparent {
                 self.inner.on_page_changed(page)
             }
 
+            fn on_scroll(
+                &self,
+                position: $crate::scrollposition::ScrollPosition,
+            ) -> Option<Msg> {
+                self.inner.on_scroll(position)
+            }
+
+            fn scroll_grain(&self) -> f32 {
+                self.inner.scroll_grain()
+            }
+
             fn layout_builder(
                 &self,
             ) -> Option<&dyn Fn(frus_core::Size) -> Box<dyn $crate::widget::Widget<Msg>>> {

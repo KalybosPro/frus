@@ -507,6 +507,12 @@ pub struct Runtime {
     /// The page each paged view was last **reported as showing**, so that
     /// `on_page_changed` fires on a change and not on every frame of the motion.
     pub page_shown: HashMap<WidgetId, usize>,
+    /// The offset each scroll region was last **reported at**, so that
+    /// [`crate::Widget::on_scroll`] fires on a change and not on every frame, and so
+    /// that a region's grain is measured from what the application was actually told
+    /// rather than from the previous frame — otherwise a slow drag would never travel
+    /// a whole grain in one frame and would never be reported at all.
+    pub scroll_reported: HashMap<WidgetId, (f32, f32)>,
     /// The drop target a drag is currently **over**, when it would accept it. The
     /// target paints its own "drop it here" state from this, through
     /// [`crate::interaction::Status::drag_over`] — the shell decides *which* target,
@@ -1615,6 +1621,100 @@ impl Runtime {
             }
         }
         changed
+    }
+
+    /// Is region `id` **still**? Nothing is driving it: no finger, no fling, and no
+    /// spring left to run.
+    ///
+    /// The three writers of an offset, asked in one place. A caller that asked only two
+    /// of them would call a region at rest in the middle of a fling.
+    pub fn scroll_at_rest(&self, id: WidgetId) -> bool {
+        self.scroll_held != Some(id)
+            && !self.scroll_ballistic.contains_key(&id)
+            && !self.scroll_target.contains_key(&id)
+    }
+
+    /// The scroll regions whose offset is worth reporting this frame, and where each is
+    /// — the regions' half of [`crate::Widget::on_scroll`]. `grain` answers
+    /// [`crate::Widget::scroll_grain`] for a region; a caller turns each result into a
+    /// message, the runtime holding none of its own.
+    ///
+    /// Three rules, and each of them is a decision:
+    ///
+    /// - **A region appearing is not a movement** — as long as it appears where an
+    ///   application would assume it is. A region seen for the first time at rest at
+    ///   `(0, 0)` is recorded silently: telling an application on the first frame of
+    ///   every screen that its list is at the top would only invite it to answer, and it
+    ///   already knew. A region that appears **somewhere else** — restored, or opened at
+    ///   a box it was asked to keep in view — is reported, because that one is news.
+    /// - **A grain suppresses the reports in between, never the last one.** While the
+    ///   region is moving, nothing under `grain` pixels from the last report is sent; the
+    ///   moment it comes to rest, a position different from the last reported one is sent
+    ///   whatever the distance. A coarse grain therefore costs frames, never accuracy.
+    /// - **The baseline is what was reported**, not the previous frame. Measuring
+    ///   against the previous frame would let a slow drag creep the whole way down a
+    ///   list, a fraction of a grain at a time, without ever saying so.
+    pub fn scroll_changes(
+        &mut self,
+        regions: &[Scrollable],
+        grain: impl Fn(WidgetId) -> f32,
+    ) -> Vec<(WidgetId, crate::scrollposition::ScrollPosition)> {
+        let mut changed = Vec::new();
+        for area in regions {
+            let offset = self.scroll.get(&area.id).copied().unwrap_or((0.0, 0.0));
+            let previous = self.scroll_reported.get(&area.id).copied();
+            let report = match previous {
+                None => offset != (0.0, 0.0),
+                Some(previous) if previous == offset => false,
+                Some(previous) => {
+                    let grain = grain(area.id).max(0.0);
+                    let moved = (offset.0 - previous.0)
+                        .abs()
+                        .max((offset.1 - previous.1).abs());
+                    moved >= grain || self.scroll_at_rest(area.id)
+                }
+            };
+            if report {
+                changed.push((
+                    area.id,
+                    crate::scrollposition::ScrollPosition::of(area, offset),
+                ));
+            }
+            if report || previous.is_none() {
+                self.scroll_reported.insert(area.id, offset);
+            }
+        }
+        self.scroll_reported
+            .retain(|id, _| regions.iter().any(|area| area.id == *id));
+        changed
+    }
+
+    /// Moves region `area` where `request` asks. `true` when it was acted on.
+    ///
+    /// **A finger refuses it.** An offset has one owner at a time, and while a hand is
+    /// on the content that owner is the hand — a list that jumped out from under a
+    /// finger because a timer fired would be the framework overruling the reader.
+    pub fn scroll_to(
+        &mut self,
+        area: &Scrollable,
+        request: crate::scrollposition::ScrollTo,
+    ) -> bool {
+        if request.is_empty() || self.scroll_held == Some(area.id) {
+            return false;
+        }
+        let current = self.scroll.get(&area.id).copied().unwrap_or((0.0, 0.0));
+        let to = request.resolve(area, current);
+        // A fling in flight has just been overruled, animated or not: the request is
+        // the more recent statement of where this list should be.
+        self.scroll_ballistic.remove(&area.id);
+        if request.animate {
+            self.scroll_target.insert(area.id, to);
+        } else {
+            self.scroll.insert(area.id, to);
+            self.scroll_target.remove(&area.id);
+            self.scroll_velocity.remove(&area.id);
+        }
+        true
     }
 
     /// A finger takes hold of `id`: from now until [`Runtime::release_scroll`],

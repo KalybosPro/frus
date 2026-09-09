@@ -32,10 +32,11 @@ pub(crate) use frus_widgets::{
     LinearProgressIndicator, ListView, MediaQuery, MenuAnchor, NavigationBar,
     NavigationDestination, Navigator, Orientation, OverlayPortal, PageView, Pagination, Placement,
     RadioGroup, Rating, Rect, RefreshIndicator, ReorderGrab, ReorderableList, RichText, SafeArea,
-    Scaffold, ScaffoldMessenger, ScrollPhysics, SegmentedButton, SingleChildScrollView, Size,
-    SizeClass, SizedBox, Skeleton, SlideFrom, SlideTransition, Slider, SnackBar, SnackBarPosition,
-    SnackBarQueue, SpringDescription, Stack, Stepper, Steps, Switch, TabBar, TabPageSelector,
-    Table, TextField, TextSpan, Theme, Timeline, Tree, TwoPane, Variant, Widget, WindowInsets,
+    Scaffold, ScaffoldMessenger, ScrollPhysics, ScrollPosition, ScrollTo, SegmentedButton,
+    SingleChildScrollView, Size, SizeClass, SizedBox, Skeleton, SlideFrom, SlideTransition, Slider,
+    SnackBar, SnackBarPosition, SnackBarQueue, SpringDescription, Stack, Stepper, Steps, Switch,
+    TabBar, TabPageSelector, Table, TextField, TextSpan, Theme, Timeline, Tree, TwoPane, Variant,
+    Widget, WindowInsets,
 };
 
 // The application's own vocabulary: its state, its messages, and the small modules
@@ -45,6 +46,7 @@ pub(crate) use crate::l10n::*;
 pub(crate) use crate::message::Msg;
 pub(crate) use crate::model::*;
 pub(crate) use crate::parts::*;
+pub(crate) use crate::screens::JOURNAL_LIST;
 pub(crate) use crate::storage::*;
 pub(crate) use crate::theme::*;
 pub(crate) use crate::update::*;

@@ -86,6 +86,11 @@ pub(crate) struct TodoApp {
     pub(crate) journal_reloading: f32,
     /// How many times the log has been reloaded, so a completed pull leaves a trace.
     pub(crate) journal_reloads: usize,
+    /// **Where the log list is**, as the list itself last said. `None` until it has
+    /// moved at all — which is not the same as resting at the top, and the header says
+    /// so: a list that has never moved shows no row number, because nothing has been
+    /// measured yet.
+    pub(crate) journal_scroll: Option<ScrollPosition>,
     /// The walkthrough's page. The application owns it: the finger reports its changes
     /// here, and the buttons write to it, so both drive the same one value.
     pub(crate) tour_page: usize,

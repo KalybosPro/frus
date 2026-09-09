@@ -155,6 +155,19 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.journal_bounces = !app.journal_bounces;
             Command::none()
         }
+        Msg::JournalScrolled(position) => {
+            // The whole of what the application does with it: keep it. Everything the
+            // header and the button show is derived from this one value at build time,
+            // so there is one place where "where is the list" is answered.
+            app.journal_scroll = Some(position);
+            Command::none()
+        }
+        Msg::JournalToTop => {
+            // Not a change of state: the same list at the same offset, and yet this
+            // happens once. So it is an effect, and it names the region the way a focus
+            // request names a field.
+            Command::scroll(JOURNAL_LIST, ScrollTo::start())
+        }
         Msg::ReloadJournal => {
             // A stand-in for the request a real application would fire here: the
             // indicator spins for as long as `journal_reloading` counts down in `tick`.

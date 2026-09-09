@@ -80,6 +80,10 @@ pub struct GridView<Msg> {
     /// The `row → widget` closure a windowed grid hands the list machinery, composed on
     /// first use for the same reason as `composed` above.
     rows: OnceCell<RowAt<Msg>>,
+    /// Told where this grid is whenever it moves; see [`GridView::on_scroll`].
+    on_scroll: Option<Box<dyn Fn(crate::ScrollPosition) -> Msg>>,
+    /// How far it must move before it says so again; see [`GridView::notify_every`].
+    grain: f32,
 }
 
 impl<Msg> GridView<Msg> {
@@ -98,6 +102,8 @@ impl<Msg> GridView<Msg> {
             cells: Cells::Given(Vec::new()),
             composed: OnceCell::new(),
             rows: OnceCell::new(),
+            on_scroll: None,
+            grain: 0.0,
         }
     }
 
@@ -150,6 +156,8 @@ impl<Msg> GridView<Msg> {
             },
             composed: OnceCell::new(),
             rows: OnceCell::new(),
+            on_scroll: None,
+            grain: 0.0,
         }
     }
 
@@ -207,6 +215,8 @@ impl<Msg> GridView<Msg> {
             },
             composed: OnceCell::new(),
             rows: OnceCell::new(),
+            on_scroll: None,
+            grain: 0.0,
         }
     }
 
@@ -280,6 +290,25 @@ impl<Msg> GridView<Msg> {
     /// Flex growth factor along the parent's main axis.
     pub fn flex(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
+        self
+    }
+
+    /// **Says where this grid is** whenever it moves. A gallery that fetches the next
+    /// page when the end comes into view is what a grid wants it for; see
+    /// [`crate::ScrollPosition::remaining_y`], and [`GridView::notify_every`] for how
+    /// often that question is worth asking.
+    ///
+    /// A windowed grid only builds the tiles on screen, so what this reports is where the
+    /// window is over the whole content — not over what happens to be built.
+    pub fn on_scroll(mut self, on_scroll: impl Fn(crate::ScrollPosition) -> Msg + 'static) -> Self {
+        self.on_scroll = Some(Box::new(on_scroll));
+        self
+    }
+
+    /// Reports no more often than every `px` of movement — and **always** reports where
+    /// it comes to rest, however short the last step was.
+    pub fn notify_every(mut self, px: f32) -> Self {
+        self.grain = px.max(0.0);
         self
     }
 
@@ -426,6 +455,14 @@ impl<Msg: Clone + 'static> Widget<Msg> for GridView<Msg> {
 
     fn scroll_physics(&self) -> Option<crate::physics::ScrollPhysics> {
         None
+    }
+
+    fn on_scroll(&self, position: crate::ScrollPosition) -> Option<Msg> {
+        self.on_scroll.as_ref().map(|report| report(position))
+    }
+
+    fn scroll_grain(&self) -> f32 {
+        self.grain
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
