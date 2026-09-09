@@ -31,8 +31,13 @@
 //! It does not make a page out of a list, a grid and another list scrolling as one. That
 //! wants a viewport laying out a sequence of scrollable pieces, each given a remaining
 //! extent and each reporting what it consumed, and it is a much larger piece of work —
-//! see the roadmap. This is the answer to the two results that do not need one, chosen as
-//! an answer rather than as a down payment on that.
+//! see the roadmap.
+//!
+//! Nor is it a **sticky section header**, the other thing people reach for: one header per
+//! section, each pinned until the next pushes it off. That is expressible on
+//! [`ScrollOverlay`](crate::ScrollOverlay) — work out which section the offset is in and
+//! draw that one's header — and it is not written here. This widget is the answer to one
+//! of the three, chosen as an answer rather than as a down payment on the rest.
 
 use frus_core::{Rect, Size};
 

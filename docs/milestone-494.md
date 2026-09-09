@@ -33,9 +33,15 @@ ScrollOverlay::new(list, |(_, y), box_| header(y, box_.width))
 `CollapsingHeader` is then thirty lines over it, and so is a progress rule, and so is a
 shadow. That is the property option 1 was praised for, at option 2's cost.
 
-**What it does not buy is the third result** — a page that is a list, then a grid, then a
-list, scrolling as one. That still wants the protocol, and nothing here is a step towards
-it. The roadmap says so.
+**What is delivered is one of the three results the issue named**, and it is worth being
+exact about which:
+
+- a bar that is tall at the top of a page and shrinks to a toolbar, then stays there — **done**;
+- a section header that sticks until the next pushes it off — **not built.** It is
+  expressible on `ScrollOverlay` (work out which section the offset is in, draw that one's
+  header) and nobody has written it;
+- a list, then a grid, then a list, scrolling as one — **not possible here.** That wants
+  the protocol, and nothing in this milestone is a step towards it.
 
 ## Identity: the region is the child
 
