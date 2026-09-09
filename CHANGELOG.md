@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 498 so far, each documenting the objective, the alternatives
+> record — one per step, 499 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -28,12 +28,37 @@ any release may break.
 
 ### Changed
 
+- **`ScrollPhysics::Bouncing` carries a deceleration rate** (J499) and is therefore a
+  data-carrying variant. `ScrollPhysics::BOUNCING` is the constant that means what the bare
+  variant meant before.
+
 - **`build_deferred` takes a runtime** (J498). It is where a `ThemeBuilder`'s subtree is
   built, once, into a `OnceCell` — and it always arrives first — so without one, a builder
   inside a moving text style composed against the target for the whole of the movement while
   everything around it used the value in flight.
 
 ### Added
+
+- **The bouncing physics' second deceleration profile** (J499, half of #55):
+  `ScrollDecelerationRate`, and `ScrollPhysics::Bouncing` now carries one.
+  **The issue's premise was wrong and the correction is the work.** It said the reference
+  switches between its two profiles *by velocity*; it does not, and never has — it switches
+  by **what is doing the scrolling**, once, when the physics are built. A finger throws a
+  surface and lets go of it; a trackpad or a wheel is a hand resting on a device that
+  reports motion, and no amount of speed turns one into the other. Done as asked, a hard
+  fling and a gentle one on the same device would have ended differently, with a seam at
+  whatever threshold was picked; a test now says the opposite out loud. It is also **four
+  differences, not a constant**: the fling carries a constant deceleration (1400 px·s⁻²) so
+  that it actually stops rather than coasting to a halt at infinity, the overscroll band is
+  twice as stiff (0.26 against 0.52), the fling cap is eight times higher, and **easing back
+  out of an overscroll is not resisted at all** — a behaviour rather than a number, and the
+  one a reader notices. The constant term costs the closed forms: neither the stopping time
+  nor the instant the motion passes a given point survives it, so both are solved by ten
+  steps of Newton's method, as the reference does. The finger profile is unchanged bit for
+  bit, and a test compares the two at six instants with `assert_eq!` rather than a
+  tolerance. **Not verified in the hand**, and the milestone says so: the fast profile is
+  the desktop-bouncing one, which the platform default picks on macOS and nowhere else,
+  while this repo is built and tested on Windows, Android and Linux.
 
 - **A text style that moves** (J498, eight of eleven on #30): `AnimatedDefaultTextStyle`,
   and with it `TextStyle::lerp` and `FontWeight::lerp`. A heading that shrinks, a label

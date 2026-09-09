@@ -292,8 +292,8 @@ pub use pageview::{PageSnap, PageView, PagedView};
 pub use pagination::Pagination;
 pub use paintcache::PaintCache;
 pub use physics::{
-    page_of, page_target, Ballistic, ScrollMetrics, ScrollPhysics, Scrollbars, MAX_FLING_VELOCITY,
-    MIN_FLING_VELOCITY,
+    page_of, page_target, Ballistic, ScrollDecelerationRate, ScrollMetrics, ScrollPhysics,
+    Scrollbars, CONSTANT_DECELERATION_FAST, MAX_FLING_VELOCITY, MIN_FLING_VELOCITY,
 };
 pub use placeholder::{Placeholder, PLACEHOLDER_COLOR, PLACEHOLDER_FALLBACK, PLACEHOLDER_STROKE};
 pub use popover::MenuAnchor;

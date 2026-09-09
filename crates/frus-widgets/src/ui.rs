@@ -6966,14 +6966,14 @@ mod tests {
         let bouncy = SingleChildScrollView::new()
             .width(200.0)
             .height(100.0)
-            .physics(ScrollPhysics::Bouncing)
+            .physics(ScrollPhysics::BOUNCING)
             .child(Container::<Msg>::new().width(100.0).height(400.0));
         let ui = build_ui(&bouncy, Size::new(200.0, 100.0), &rt, &Theme::default());
         let area = ui.scroll_regions()[0];
-        assert_eq!(area.physics, Some(ScrollPhysics::Bouncing));
+        assert_eq!(area.physics, Some(ScrollPhysics::BOUNCING));
         assert_eq!(
             area.physics_or(ScrollPhysics::Clamping),
-            ScrollPhysics::Bouncing
+            ScrollPhysics::BOUNCING
         );
         // And the metrics it hands the physics describe the right axis.
         let metrics = area.metrics_y(10.0);

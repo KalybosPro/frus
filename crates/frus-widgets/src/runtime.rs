@@ -3080,7 +3080,7 @@ mod tests {
     #[test]
     fn a_bouncing_fling_overshoots_then_settles_back_on_the_edge() {
         let id = WidgetId::ROOT;
-        let physics = ScrollPhysics::Bouncing;
+        let physics = ScrollPhysics::BOUNCING;
         let mut rt = Runtime::default();
         let area = region(id, 400.0);
         rt.scroll.insert(id, (0.0, 300.0));
@@ -3107,7 +3107,7 @@ mod tests {
     #[test]
     fn an_overscrolled_offset_comes_home_even_without_a_fling() {
         // A release too slow to fling still owes the content its edge back.
-        for physics in [ScrollPhysics::Bouncing, ScrollPhysics::Clamping] {
+        for physics in [ScrollPhysics::BOUNCING, ScrollPhysics::Clamping] {
             let rest = settle(physics, 400.0, 460.0, 5.0);
             assert!(
                 (rest - 400.0).abs() < 1.0,
@@ -3131,7 +3131,7 @@ mod tests {
         // the edge spring kept retracting it between two moves, so a rubber band
         // was pulled back as fast as it was stretched and never appeared.
         let id = WidgetId::ROOT;
-        let physics = ScrollPhysics::Bouncing;
+        let physics = ScrollPhysics::BOUNCING;
         let area = region(id, 400.0);
         let pulled = -60.0;
 
@@ -3201,7 +3201,7 @@ mod tests {
         // The bounce *is* the feedback: a glow on top of it would say the same
         // thing twice.
         let id = WidgetId::ROOT;
-        let physics = ScrollPhysics::Bouncing;
+        let physics = ScrollPhysics::BOUNCING;
         let mut rt = Runtime::default();
         let area = region(id, 400.0);
         rt.fling_scroll(area, physics, (0.0, 6000.0));
