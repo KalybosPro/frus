@@ -134,6 +134,29 @@ pub fn clear() {
 /// The length prefix is what makes it safe: a licence text can contain any line at all,
 /// including one that looks like a separator, and several of them do.
 pub fn parse(generated: &str) -> Vec<LicenseNotice> {
+    // A file whose line endings were rewritten on the way out of version control — which
+    // is what a Windows checkout does by default — carries two bytes where the generator
+    // wrote one, so every length in it falls short of its own text and the file reads as
+    // **no notices at all**: not a wrong page, an empty one. `.gitattributes` is what
+    // stops that here; this is what happens when it does anyway, in a repository where
+    // that file does not reach.
+    //
+    // The **header line is the witness**, rather than a carriage return anywhere: the
+    // generator writes `frus-licenses 1` and one on the end of that can only have been
+    // added on the way here, while one inside a licence text is the licence's own and
+    // counts towards its length. Undoing those would break exactly what this repairs.
+    let repaired;
+    let generated = if generated
+        .split('\n')
+        .next()
+        .is_some_and(|h| h.ends_with('\r'))
+    {
+        repaired = generated.replace("\r\n", "\n");
+        repaired.as_str()
+    } else {
+        generated
+    };
+
     /// The next line, and what follows it.
     fn line<'a>(rest: &mut &'a str) -> Option<&'a str> {
         if rest.is_empty() {
@@ -720,6 +743,19 @@ mod tests {
             notices[0].text
         );
         assert_eq!(notices[1].text, "last");
+    }
+
+    /// **The same file with its line endings rewritten reads the same.** A length in
+    /// bytes cannot survive a checkout that adds a byte to every line: each entry's text
+    /// then ends before its length says it does, the walk loses its place at the first
+    /// one, and the page shows nothing at all. That is what happened on Windows, and no
+    /// test running on Linux could have seen it. `.gitattributes` keeps the bytes; this
+    /// keeps the page in a repository where nobody thought to.
+    #[test]
+    fn a_checkout_that_rewrote_the_line_endings_still_reads() {
+        let notices = parse(&AWKWARD.replace('\n', "\r\n"));
+        assert_eq!(notices, parse(AWKWARD), "the same file, read the same");
+        assert_eq!(notices.len(), 2);
     }
 
     /// A file cut off mid-entry gives back what was read rather than panicking: a page
