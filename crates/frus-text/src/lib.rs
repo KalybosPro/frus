@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 
 use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping, Style, Weight};
-use frus_core::{FontWeight, Point, Rect, ResolvedTextStyle, Size, TextRun, TextStyle};
+use frus_core::{fits, FontWeight, Point, Rect, ResolvedTextStyle, Size, TextRun, TextStyle};
 
 /// The default line-height to font-size ratio.
 ///
@@ -475,7 +475,7 @@ pub fn measure_resolved(text: &str, style: &ResolvedTextStyle) -> Size {
 pub fn line_box(min: f32, style: &ResolvedTextStyle, padding: f32) -> f32 {
     // Rounded **up**. The layout works in whole pixels, and a box that came out at 43 for
     // a line needing 43.2 clips it — by a fifth of a pixel, which is still a clip.
-    min.max((style.line_height() + padding).ceil())
+    min.max(fits(style.line_height() + padding))
 }
 
 /// Measures `text` under an already-resolved style, **wrapping** at `max_width`. The
@@ -542,7 +542,10 @@ fn measure_at(
     family: Option<frus_core::FontFamily>,
 ) -> Size {
     if text.is_empty() {
-        return Size::new(0.0, line_h);
+        // Whole, like every other measurement here: a line height is a fraction of a
+        // size — 19.2 for a 16 px label — and an empty label reserving 19.2 is handed a
+        // box of 19, which clips the caret and any text put there later.
+        return Size::new(0.0, fits(line_h));
     }
 
     // The key records the **resolved** weight and style, and resolving reads state
@@ -600,10 +603,15 @@ fn measure_at(
     // Under a constraint the ceiling is clamped back to it: the text did fit that
     // width, and a box a fraction wider than allowed is a different bug.
     let width = match max_width {
-        Some(max) => width.ceil().min(max),
-        None => width.ceil(),
+        Some(max) => fits(width).min(max),
+        None => fits(width),
     };
-    let measured = Size::new(width, lines.max(1.0) * line_h);
+    // **And the height too**, which milestone 289 did not do: it fixed the width the
+    // wrapping bug presented on and left the other axis fractional. A line height is
+    // typically not whole — 14.4 for a 12 px line — so a two-line paragraph measured
+    // itself at 28.8 and, at a top edge that rounded up, was handed 28. The same bug, the
+    // same function, the axis nobody looked at (issue #54).
+    let measured = Size::new(width, fits(lines.max(1.0) * line_h));
     remember_measurement(key, measured);
     measured
 }
@@ -747,10 +755,12 @@ pub fn measure_runs_wrapped(runs: &[TextRun], max_width: Option<f32>) -> Size {
     // the width the text asked for makes the text wrap when it is painted, on a height
     // that says it did not.
     let width = match max_width {
-        Some(max) => width.ceil().min(max),
-        None => width.ceil(),
+        Some(max) => fits(width).min(max),
+        None => fits(width),
     };
-    Size::new(width, height)
+    // The height as well, for the reason above: a run's line height is a fraction of its
+    // size and lands whole only by accident.
+    Size::new(width, fits(height))
 }
 
 /// The byte offset at which a rich text runs past `max_lines` visual lines, and how many
@@ -1432,6 +1442,36 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// **And the height, which milestone 289 left fractional.** It fixed the axis the
+    /// wrapping bug presented on and no more: a line height is a fraction of a size —
+    /// 14.4 for a 12 px line — so a two-line paragraph measured itself at 28.8 and, at a
+    /// top edge that rounded the other way, was handed 28.
+    ///
+    /// The same bug, in the same function, on the axis nobody looked at. It was found by
+    /// the rule this milestone put in rather than by a screen, which is the argument for
+    /// having the rule (issue #54).
+    #[test]
+    fn the_natural_height_is_a_whole_number_too() {
+        for text in ["Write code", "one two three four five six seven eight", "A"] {
+            for size in [12.0_f32, 15.0, 20.0, 24.0] {
+                for width in [None, Some(60.0), Some(120.0)] {
+                    let measured = measure_wrapped(text, size, FontWeight::Bold, false, width);
+                    assert_eq!(
+                        measured.height,
+                        measured.height.ceil(),
+                        "a whole number for {text:?} at {size} in {width:?}: {}",
+                        measured.height
+                    );
+                }
+            }
+        }
+        // An empty label reserves a whole line as well: it is where a caret goes, and
+        // where text put there later has to fit.
+        let empty = measure_styled("", 16.0, FontWeight::Regular, false);
+        assert_eq!(empty.height, empty.height.ceil(), "{}", empty.height);
+        assert!(empty.height >= line_height(16.0));
     }
 
     /// Under a constraint the ceiling is clamped back to it: a box wider than allowed

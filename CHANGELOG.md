@@ -8,12 +8,27 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 496 so far, each documenting the objective, the alternatives
+> record — one per step, 497 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Half a pixel, in four more places** (J497, answers #54). The layout rounds every box to
+  whole pixels, so anything that measures itself must round **up** or be handed a box it no
+  longer fits in — milestone 289's bug, which presented as a line of text that vanished.
+  Nothing enforced that rule. It is now `frus_core::fits`, plus a debug assertion where
+  every measurement passes, and arming it found four places already breaking it: 289 fixed
+  `measure_wrapped`'s **width** and left its height, so a two-line paragraph measured itself
+  at 28.8 and could be handed 28; rich text had the same; an empty label reserved a raw 19.2
+  and was handed 19; and `Text`/`RichText` clamped to `max_lines × line_height`, which is
+  fractional by construction. Thirty goldens move by one pixel each — a box a pixel taller
+  because the text in it was asking for a pixel more than it was given.
+
 ### Added
+
+- **`frus_core::fits`**, the rounding rule for anything that measures itself, in one place.
 
 - **A picker wheel** (J496, answers #48): `ListWheel`, the scrolling cylinder of values you
   spin to pick one. The issue asked a question before any code — whether the perspective is

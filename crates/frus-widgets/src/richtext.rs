@@ -154,7 +154,11 @@ impl RichText {
     /// A line limit is a height cap and nothing else.
     fn capped(&self, height: f32) -> f32 {
         match self.max_lines {
-            Some(max) => height.min(self.base.resolved().line_height() * max as f32),
+            // Rounded up for the reason `Text`'s own clamp is (issue #54): the pixels
+            // the allowed lines occupy are pixels a layout will round.
+            Some(max) => height.min(frus_core::fits(
+                self.base.resolved().line_height() * max as f32,
+            )),
             None => height,
         }
     }
@@ -266,7 +270,10 @@ impl<Msg> Widget<Msg> for RichText {
             let mut size =
                 frus_text::measure_runs_wrapped(&runs, if wrap { max_width } else { None });
             if let Some(max) = max_lines {
-                size.height = size.height.min(frus_text::line_height(base) * max as f32);
+                // Same clamp as `capped`, and rounded up for the same reason (issue #54).
+                size.height = size
+                    .height
+                    .min(frus_core::fits(frus_text::line_height(base) * max as f32));
             }
             size
         }))

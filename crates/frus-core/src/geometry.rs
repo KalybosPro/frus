@@ -614,6 +614,35 @@ impl Rect {
     }
 }
 
+/// **The rule for anything that measures itself**: report a *whole* number of pixels,
+/// rounded **up**.
+///
+/// The layout engine rounds every box to whole pixels, and it is right to: two boxes that
+/// abut on a fractional edge each anti-alias into the pixel they share, and what shows
+/// through between them is the background — a bright hairline seam, not a soft join.
+/// Milestone 496's measurement of it is `(136, 187, 136)` where red met blue over green.
+///
+/// The price of that rounding is this rule. A widget that measures itself at `146.4` and
+/// says so is given a box of `146`, and `146 < 146.4` — so at paint time, where it is
+/// measured again, it no longer fits and wraps, clips or overflows. That is milestone
+/// 289, and it presented as a mysteriously missing line of text rather than as
+/// arithmetic.
+///
+/// So a measurement goes through here, and the box it is rounded to is one it still fits
+/// in. Where the measurement is then clamped to a constraint, clamp **after**: a box a
+/// fraction wider than it was allowed is a different bug.
+///
+/// ```
+/// use frus_core::fits;
+/// assert_eq!(fits(146.4), 147.0);
+/// assert_eq!(fits(146.0), 146.0);
+/// ```
+pub fn fits(extent: f32) -> f32 {
+    // `ceil` and not `round`: rounding to nearest is the bug this exists to prevent, and
+    // it is the one a new measurer will write by reflex.
+    extent.ceil()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
