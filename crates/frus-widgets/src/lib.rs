@@ -169,8 +169,9 @@ mod widgettheme;
 pub use actionbutton::{BackButton, CloseButton, DrawerButton, EndDrawerButton};
 pub use alert::{Alert, AlertKind};
 pub use animated::{
-    AnimatedAlign, AnimatedContainer, AnimatedFractionallySizedBox, AnimatedOpacity,
-    AnimatedPadding, AnimatedPositioned, AnimatedRotation, AnimatedScale, AnimatedSlide, Opacity,
+    AnimatedAlign, AnimatedContainer, AnimatedDefaultTextStyle, AnimatedFractionallySizedBox,
+    AnimatedOpacity, AnimatedPadding, AnimatedPositioned, AnimatedRotation, AnimatedScale,
+    AnimatedSlide, Opacity,
 };
 pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT, APP_BAR_MAX_TITLE_SCALE};
 pub use aspectratio::AspectRatio;

@@ -1510,7 +1510,7 @@ fn build_layout_scoped<'a, Msg>(
     // sizes and spacing (milestone 309), so this has to happen here and not only at paint
     // time. `hash_node`, which fingerprints this same walk for the relayout cache, makes
     // the same swap — the two staying in step is what keeps the cache honest.
-    let scoped = widget.theme_override(theme);
+    let scoped = scoped_theme(widget, id, runtime, theme);
     let theme = scoped.as_deref().unwrap_or(theme);
     // And a **scoped surface**, the same idea one milestone later: a shell that hands a slot
     // a narrowed description narrows it for everything the slot builds, the deferred build
@@ -2990,8 +2990,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             .get(*index)
             .copied()
             .map(|r| r.translate(translation.0, translation.1));
-        let outer = widget
-            .theme_override(&self.theme)
+        let outer = scoped_theme(widget, id, self.runtime, &self.theme)
             .map(|theme| std::mem::replace(&mut self.theme, std::rc::Rc::from(theme)));
         // The scoped surface, held for this subtree exactly as the layout walk holds it —
         // a widget that paints from `MediaQuery::of()` must see the same description it
@@ -5114,6 +5113,40 @@ pub fn find_path<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Vec<&dyn Widg
     path
 }
 
+/// The theme a subtree inherits at this node — the widget's own override, with any
+/// **animated text style** the runtime is holding for it laid on top.
+///
+/// The one place the theme swap happens, and it is one place on purpose. The swap is made
+/// four times over a frame — by the layout pass, by the relayout fingerprint that has to
+/// agree with it or the cache lies, by the paint walk, and by [`build_deferred`] before
+/// any of them — and every animated value in this framework is read from the runtime by
+/// whoever consumes it. This one's consumer is the swap itself, so a copy of the rule at
+/// each of the four sites is four chances to drift. `Responsive` cost three silent bugs
+/// that way (milestone 495); this is the same lesson written down as a function.
+///
+/// Cheap where nothing is animated: no `anim_text_style`, no clone, and the widget's own
+/// `theme_override` is returned untouched — which is every node but the rare one.
+pub(crate) fn scoped_theme<Msg>(
+    widget: &dyn Widget<Msg>,
+    id: WidgetId,
+    runtime: &Runtime,
+    inherited: &Theme,
+) -> Option<Box<Theme>> {
+    let own = widget.theme_override(inherited);
+    let Some(target) = widget.anim_text_style() else {
+        return own;
+    };
+    // Mid-flight if the runtime has a value for this node, and the target otherwise —
+    // which is the first frame, before the family has been advanced over this tree.
+    let style = runtime.anim_text_style(id).unwrap_or(target);
+    let mut theme = own.map_or_else(|| inherited.clone(), |boxed| *boxed);
+    // **Merged over**, not assigned: the node's own `theme_override` has already put the
+    // target style and the four unanimated answers (alignment, wrapping, overflow, line
+    // count) in place, and this replaces field by field exactly what is moving.
+    theme.widgets.text.style = theme.widgets.text.style.merge(style);
+    Some(Box::new(theme))
+}
+
 /// Runs the **deferred builds** over a tree, the way the layout pass does on its way down.
 ///
 /// A [`ThemeBuilder`](crate::ThemeBuilder) — and everything built on one, an
@@ -5132,20 +5165,34 @@ pub fn find_path<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Vec<&dyn Widg
 /// builder inside a [`Themed`](crate::Themed) has to see its own subtree's theme, and a
 /// preparation that is *nearly* the walk is worse than none, because what it builds is wrong
 /// rather than absent.
-pub fn build_deferred<Msg>(root: &dyn Widget<Msg>, theme: &Theme) {
-    fn walk<Msg>(widget: &dyn Widget<Msg>, theme: &Theme) {
-        let scoped = widget.theme_override(theme);
+///
+/// **Which is why it takes a runtime.** A subtree under an animated text style
+/// (`AnimatedDefaultTextStyle`) inherits a theme that is moving, and a builder inside one
+/// composes against whatever theme reaches it *first* — this walk. Preparing it against
+/// the target instead of the value in flight is the same failure as skipping the swap: what
+/// it builds is wrong rather than absent, and only for as long as the movement lasts, which
+/// is the hardest kind to see. The runtime is one frame behind here, because this runs
+/// before the frame advances its animations, and one frame behind is the whole tree agreeing
+/// with itself rather than a builder disagreeing with the layout around it.
+pub fn build_deferred<Msg>(root: &dyn Widget<Msg>, theme: &Theme, runtime: &Runtime) {
+    fn walk<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, runtime: &Runtime, theme: &Theme) {
+        let scoped = scoped_theme(widget, id, runtime, theme);
         let theme = scoped.as_deref().unwrap_or(theme);
         let _surface = widget
             .media_override(crate::MediaQuery::of())
             .map(crate::MediaQuery::install);
         let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
         widget.build_themed(theme);
-        for child in widget.children() {
-            walk(child.as_ref(), theme);
+        for (index, child) in widget.children().iter().enumerate() {
+            walk(
+                child.as_ref(),
+                child_id(id, index, child.as_ref()),
+                runtime,
+                theme,
+            );
         }
     }
-    walk(root, theme);
+    walk(root, WidgetId::ROOT, runtime, theme);
 }
 
 pub fn find_widget<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Option<&dyn Widget<Msg>> {
@@ -6685,7 +6732,7 @@ mod tests {
             .width(300.0)
             .height(80.0)
             .child(deferred("hi"));
-        build_deferred(&fresh, &Theme::default());
+        build_deferred(&fresh, &Theme::default(), &Runtime::default());
         assert!(
             find_widget(&fresh, id).is_some(),
             "prepared the same way, the same traversal reaches the same widget"
@@ -6727,7 +6774,7 @@ mod tests {
             ..Theme::default()
         };
         let tree = Flex::<Msg>::column().child(crate::Themed::new(inner, recorder));
-        build_deferred(&tree, &Theme::default());
+        build_deferred(&tree, &Theme::default(), &Runtime::default());
         assert_eq!(seen.get(), 99.0, "the subtree's theme, not the frame's");
     }
 

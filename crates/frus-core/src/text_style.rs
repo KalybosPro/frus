@@ -75,6 +75,52 @@ impl FontWeight {
             FontWeight::Bold => 700,
         }
     }
+
+    /// The weight `t` of the way from `self` to `other` — **the nearest of the four**,
+    /// not a number between them.
+    ///
+    /// A weight is drawn with a face, and there are four faces. Interpolating the
+    /// *number* would ask for a 437 that no font has, so what moves is the choice: the
+    /// numeric weights are interpolated and the result snaps to whichever of the four is
+    /// closest. Halfway from regular to bold is semi-bold, and a run of words thickens in
+    /// steps rather than gliding.
+    ///
+    /// The reference does exactly this over its nine weights, and this is its method
+    /// rather than a lookalike: the **position in the list** is interpolated and rounded,
+    /// not the OpenType number. The two agree here because the four are evenly spaced,
+    /// and the list is what stays right if a fifth face is ever added between two of them.
+    ///
+    /// **A tie goes to the heavier face.** Exactly halfway from regular to bold is 550,
+    /// which has no nearest — rounding a half up the list answers semi-bold, going in
+    /// either direction, so a run of words thickening and one thinning pass through the
+    /// same face at the same moment instead of missing each other by one step.
+    ///
+    /// Four steps make the stepping easier to see than nine would. That is a reason to
+    /// say so here, not a reason to do something else: a variable-font axis is the thing
+    /// that would make a weight glide, and this framework does not have one yet.
+    #[must_use]
+    pub fn lerp(self, other: FontWeight, t: f32) -> FontWeight {
+        const FACES: [FontWeight; 4] = [
+            FontWeight::Regular,
+            FontWeight::Medium,
+            FontWeight::SemiBold,
+            FontWeight::Bold,
+        ];
+        fn place(weight: FontWeight) -> f32 {
+            match weight {
+                FontWeight::Regular => 0.0,
+                FontWeight::Medium => 1.0,
+                FontWeight::SemiBold => 2.0,
+                FontWeight::Bold => 3.0,
+            }
+        }
+        let a = place(self);
+        let b = place(other);
+        // `round` takes a half away from zero and every place is positive, so a tie goes
+        // up the list — to the heavier face, as documented above.
+        let step = (a + (b - a) * t.clamp(0.0, 1.0)).round().clamp(0.0, 3.0);
+        FACES[step as usize]
+    }
 }
 
 /// A text's **decoration** lines, which combine with one another. They have no
@@ -378,6 +424,74 @@ impl TextStyle {
             decoration_color: over.decoration_color.or(self.decoration_color),
             height: over.height.or(self.height),
             family: over.family.or(self.family),
+        }
+    }
+
+    /// The style `t` of the way from `self` to `other` — what an animated default text
+    /// style hands its subtree mid-flight.
+    ///
+    /// Three rules, one per kind of field, and the kinds are not a taxonomy — each is a
+    /// different answer to *what is halfway between these two*:
+    ///
+    /// - **Sizes and ratios travel** (`size`, `height`): a number between the two.
+    /// - **A field set at only one end does not travel.** It holds the one value it has,
+    ///   from the first frame to the last. `None` here means *unset* — a question passed
+    ///   further up the cascade — and there is no number between "18 pixels" and "ask
+    ///   somebody else". Interpolating towards a value nobody has stated would be
+    ///   interpolating towards whatever the theme happens to say, which changes what the
+    ///   movement looks like when the theme changes and is not what either end asked for.
+    ///   The reference lands on the same rule from the other end, taking the stated value
+    ///   for *both* of its own, and it is the rule an animated pin follows for the same
+    ///   reason: **a movement needs both ends to say where they are.**
+    /// - **Faces and lines swap at the halfway point** (`italic`, `decoration`, `family`):
+    ///   there is no half-italic face and no two-thirds of an underline, so the change
+    ///   happens once, in the middle, where it is least noticeable. The reference's rule
+    ///   again, and `weight` is the near miss — see [`FontWeight::lerp`], which steps
+    ///   through the four faces rather than swapping once.
+    ///
+    /// **The colours diverge from the reference deliberately.** It fades an unset colour
+    /// to transparent, because there `null` means *no colour was painted*. Here `None`
+    /// means *the widget resolves it against the theme at paint* — `on_surface`, a
+    /// perfectly visible colour — so fading it out would make a run of words vanish
+    /// halfway through a movement that was only ever about its size. An unset colour
+    /// therefore follows the rule above: it does not travel.
+    #[must_use]
+    pub fn lerp(self, other: TextStyle, t: f32) -> TextStyle {
+        let t = t.clamp(0.0, 1.0);
+        /// A number, where both ends stated one. Where only one did, that one — held.
+        fn number(a: Option<f32>, b: Option<f32>, t: f32) -> Option<f32> {
+            match (a, b) {
+                (Some(a), Some(b)) => Some(a + (b - a) * t),
+                (a, b) => a.or(b),
+            }
+        }
+        /// The same rule for a colour, and for the same reason.
+        fn color(a: Option<Color>, b: Option<Color>, t: f32) -> Option<Color> {
+            match (a, b) {
+                (Some(a), Some(b)) => Some(a.lerp(b, t)),
+                (a, b) => a.or(b),
+            }
+        }
+        /// A choice, not a quantity: the near side until halfway, the far side after.
+        fn swap<T>(a: Option<T>, b: Option<T>, t: f32) -> Option<T> {
+            if t < 0.5 {
+                a
+            } else {
+                b
+            }
+        }
+        TextStyle {
+            size: number(self.size, other.size, t),
+            weight: match (self.weight, other.weight) {
+                (Some(a), Some(b)) => Some(a.lerp(b, t)),
+                (a, b) => a.or(b),
+            },
+            italic: swap(self.italic, other.italic, t),
+            color: color(self.color, other.color, t),
+            decoration: swap(self.decoration, other.decoration, t),
+            decoration_color: color(self.decoration_color, other.decoration_color, t),
+            height: number(self.height, other.height, t),
+            family: swap(self.family, other.family, t),
         }
     }
 
@@ -943,5 +1057,105 @@ mod tests {
             handed_down.merge(asks_for_both).resolved().line_height(),
             10.0
         );
+    }
+
+    // --- Interpolation (milestone 498) ---
+
+    /// **A size travels.** The plain case, and the only field of a style for which
+    /// "halfway between" is an obvious answer.
+    #[test]
+    fn a_size_travels() {
+        let a = TextStyle::NONE.size(12.0);
+        let b = TextStyle::NONE.size(24.0);
+        assert_eq!(a.lerp(b, 0.0).size, Some(12.0));
+        assert_eq!(a.lerp(b, 0.5).size, Some(18.0));
+        assert_eq!(a.lerp(b, 1.0).size, Some(24.0));
+    }
+
+    /// **A field only one end states does not travel** — it holds the one value it has,
+    /// from the first frame to the last.
+    ///
+    /// `None` is not nought and not transparent: it means *this style does not say*, and
+    /// the question passes further up the cascade. There is no number between "24 pixels"
+    /// and "ask somebody else", and interpolating towards whatever the theme happens to
+    /// answer would make the movement depend on the theme, which neither end asked for.
+    #[test]
+    fn a_field_only_one_end_states_holds_still() {
+        let unset = TextStyle::NONE;
+        let stated = TextStyle::NONE.size(24.0);
+        for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            assert_eq!(unset.lerp(stated, t).size, Some(24.0), "arriving, at {t}");
+            assert_eq!(stated.lerp(unset, t).size, Some(24.0), "leaving, at {t}");
+        }
+        assert_eq!(
+            unset.lerp(unset, 0.5).size,
+            None,
+            "and unset at both ends stays so"
+        );
+    }
+
+    /// **An unset colour does not fade out**, which is where this diverges from the
+    /// reference on purpose.
+    ///
+    /// There, a null colour means *nothing was painted*, so fading towards it is right.
+    /// Here it means *the widget resolves it against the theme* — `on_surface`, a
+    /// perfectly visible colour — so fading it out would make a run of words disappear
+    /// halfway through a movement that was only ever about its size.
+    #[test]
+    fn an_unset_colour_does_not_fade_out() {
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let stated = TextStyle::NONE.color(red);
+        let mid = TextStyle::NONE.lerp(stated, 0.5).color.expect("a colour");
+        assert_eq!(mid, red, "held whole, not at half alpha");
+        assert_eq!(TextStyle::NONE.lerp(TextStyle::NONE, 0.5).color, None);
+    }
+
+    /// **A colour stated at both ends travels**, on the same path an animated background
+    /// takes, so two things changing colour together stay together.
+    #[test]
+    fn a_colour_stated_at_both_ends_travels() {
+        let a = TextStyle::NONE.color(Color::rgb(0.0, 0.0, 0.0));
+        let b = TextStyle::NONE.color(Color::rgb(1.0, 1.0, 1.0));
+        let mid = a.lerp(b, 0.5).color.expect("a colour");
+        assert_eq!(
+            mid,
+            Color::rgb(0.0, 0.0, 0.0).lerp(Color::rgb(1.0, 1.0, 1.0), 0.5)
+        );
+    }
+
+    /// **Faces and lines swap at the halfway point.** There is no half-italic face and no
+    /// two-thirds of an underline, so the change happens once, in the middle.
+    #[test]
+    fn faces_and_lines_swap_in_the_middle() {
+        let upright = TextStyle {
+            italic: Some(false),
+            ..TextStyle::NONE.decoration(TextDecoration::NONE)
+        };
+        let slanted = TextStyle::NONE
+            .italic()
+            .decoration(TextDecoration::UNDERLINE);
+        assert_eq!(upright.lerp(slanted, 0.49).italic, Some(false));
+        assert_eq!(upright.lerp(slanted, 0.51).italic, Some(true));
+        assert_eq!(
+            upright.lerp(slanted, 0.49).decoration,
+            Some(TextDecoration::NONE)
+        );
+        assert_eq!(
+            upright.lerp(slanted, 0.51).decoration,
+            Some(TextDecoration::UNDERLINE)
+        );
+    }
+
+    /// **A weight steps through the faces it has.** Interpolating the number would ask
+    /// for a 437 no font can draw, so what moves is the choice of face: regular to bold
+    /// passes through semi-bold in the middle rather than gliding.
+    #[test]
+    fn a_weight_steps_through_the_faces() {
+        use FontWeight::{Bold, Medium, Regular, SemiBold};
+        assert_eq!(Regular.lerp(Bold, 0.0), Regular);
+        assert_eq!(Regular.lerp(Bold, 0.5), SemiBold, "550 is nearest 600");
+        assert_eq!(Regular.lerp(Bold, 1.0), Bold);
+        assert_eq!(Regular.lerp(Bold, 0.2), Medium, "460 is nearest 500");
+        assert_eq!(Bold.lerp(Regular, 0.5), SemiBold, "and the same going back");
     }
 }

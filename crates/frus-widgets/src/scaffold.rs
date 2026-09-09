@@ -1742,7 +1742,7 @@ mod tests {
     /// Every message a click anywhere in `tree` would emit, the deferred subtrees built
     /// first — an app bar is composed there, which is the whole point here.
     fn click_messages(tree: &dyn Widget<Msg>) -> Vec<Msg> {
-        crate::build_deferred(tree, &Theme::default());
+        crate::build_deferred(tree, &Theme::default(), &crate::Runtime::default());
         fn walk(widget: &dyn Widget<Msg>, out: &mut Vec<Msg>) {
             if let Some(message) = widget.on_click() {
                 out.push(message);

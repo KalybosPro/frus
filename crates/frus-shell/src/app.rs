@@ -385,13 +385,17 @@ fn install_ambient<A: Application>(
     }
 }
 
-fn build_view<A: Application>(app: &A, theme: &Theme) -> Box<dyn Widget<A::Message>> {
+fn build_view<A: Application>(
+    app: &A,
+    theme: &Theme,
+    runtime: &frus_widgets::Runtime,
+) -> Box<dyn Widget<A::Message>> {
     debug_assert!(
         frus_widgets::MediaQuery::of().is_described(),
         "a view is being built with no surface described: install one first — milestone 416"
     );
     let tree = app.view(theme);
-    build_deferred(tree.as_ref(), theme);
+    build_deferred(tree.as_ref(), theme, runtime);
     tree
 }
 
@@ -1954,7 +1958,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     // the layout pass has been down it, so an unprepared tree would report
                     // no identities at all inside a deferred subtree — and everything in an
                     // `AppBar` would silently never mount, never fade in and never fade out.
-                    let tree = build_view(&self.app, &theme);
+                    let tree = build_view(&self.app, &theme, &self.runtime);
                     let ids = collect_ids(tree.as_ref());
                     let present: std::collections::HashSet<_> = ids.iter().copied().collect();
 
@@ -2122,6 +2126,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     | self.runtime.advance_offsets(tree, dt)
                     | self.runtime.advance_pins(tree, dt)
                     | self.runtime.advance_fractions(tree, dt)
+                    | self.runtime.advance_text_styles(tree, dt)
                     | self.runtime.advance_transforms(tree, dt)
                     | self
                         .runtime
@@ -4335,7 +4340,7 @@ impl<A: Application> App<A> {
             // key in the burst reads this tree straight away.
             let tree = self
                 .media_query(width, height)
-                .scope(|| build_view(&self.app, &theme));
+                .scope(|| build_view(&self.app, &theme, &self.runtime));
             self.tree = Some(tree);
         }
     }
@@ -4954,7 +4959,8 @@ mod tests {
     #[test]
     fn a_view_is_built_ready_to_be_read() {
         let theme = Theme::default();
-        let prepared = surfaced(|| build_view(&Deferred, &theme));
+        let prepared =
+            surfaced(|| build_view(&Deferred, &theme, &frus_widgets::Runtime::default()));
         let ids = collect_ids(prepared.as_ref());
         assert!(
             ids.len() > 1,

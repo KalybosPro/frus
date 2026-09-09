@@ -479,6 +479,9 @@ macro_rules! forward_transparent {
             fn anim_fractions(&self) -> Option<(Option<f32>, Option<f32>)> {
                 self.inner.anim_fractions()
             }
+            fn anim_text_style(&self) -> Option<frus_core::TextStyle> {
+                self.inner.anim_text_style()
+            }
 
             fn anim_transform(&self) -> Option<$crate::runtime::TransformValues> {
                 self.inner.anim_transform()

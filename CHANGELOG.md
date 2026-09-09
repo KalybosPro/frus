@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 497 so far, each documenting the objective, the alternatives
+> record — one per step, 498 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -26,7 +26,31 @@ any release may break.
   fractional by construction. Thirty goldens move by one pixel each — a box a pixel taller
   because the text in it was asking for a pixel more than it was given.
 
+### Changed
+
+- **`build_deferred` takes a runtime** (J498). It is where a `ThemeBuilder`'s subtree is
+  built, once, into a `OnceCell` — and it always arrives first — so without one, a builder
+  inside a moving text style composed against the target for the whole of the movement while
+  everything around it used the value in flight.
+
 ### Added
+
+- **A text style that moves** (J498, eight of eleven on #30): `AnimatedDefaultTextStyle`,
+  and with it `TextStyle::lerp` and `FontWeight::lerp`. A heading that shrinks, a label
+  going from muted to emphatic, a task's words being struck through when it is ticked —
+  each is a run of words whose *type* changes, and each of them jumped before this. It is
+  the odd one of the eleven: what the runtime drives is not the node's box or its paint but
+  **the theme its subtree inherits**, so the value is consumed by the walk's theme swap
+  rather than by the node. That swap is made four times over a frame — the layout pass, the
+  relayout fingerprint that must agree with it or the cache lies, the paint, and
+  `build_deferred` before all of them — and they now all go through one function,
+  `ui::scoped_theme`, so they cannot answer differently. Three rules inside a style: sizes
+  and ratios travel; a field only one end states holds still, because `None` means *this
+  style does not say* and there is no number between "24 pixels" and "ask somebody else";
+  and faces and lines swap at the halfway point, there being no half-italic face. Weight
+  steps through the four faces it has, tie to the heavier. **Colours diverge from the
+  reference on purpose**: it fades an unset colour to transparent, which here would make a
+  run of words disappear halfway through a movement that was only ever about its size.
 
 - **`frus_core::fits`**, the rounding rule for anything that measures itself, in one place.
 

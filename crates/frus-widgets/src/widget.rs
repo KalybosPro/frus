@@ -838,6 +838,19 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// **Target text style** an animated subtree is heading for
+    /// (`AnimatedDefaultTextStyle`). `None` = the subtree inherits whatever it inherits.
+    ///
+    /// The odd one out of the animated family: what the runtime tweens here is not this
+    /// node's box or its paint but **the theme everything below it reads**, so the value
+    /// is consumed by the theme swap rather than by the node. That swap happens at four
+    /// points of the walk — the layout pass, the relayout fingerprint, the paint, and
+    /// [`crate::build_deferred`] — and they all go through `crate::ui::scoped_theme`
+    /// so that they cannot answer differently.
+    fn anim_text_style(&self) -> Option<frus_core::TextStyle> {
+        None
+    }
+
     /// **Alignment** of the single child within the box: the walk offsets the child
     /// through the free space according to the alignment's fractions, resolved
     /// against the reading direction (physical or directional — see
@@ -1630,6 +1643,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn anim_fractions(&self) -> Option<(Option<f32>, Option<f32>)> {
         (**self).anim_fractions()
+    }
+    fn anim_text_style(&self) -> Option<frus_core::TextStyle> {
+        (**self).anim_text_style()
     }
     fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
         (**self).alignment_geometry()

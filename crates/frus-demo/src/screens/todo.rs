@@ -44,17 +44,36 @@ pub(crate) const TODO_ROW_HEIGHT: f32 = 66.0;
 
 /// One task row: a checkbox, the label (dimmed **and struck through** when done) and a delete
 /// button.
+///
+/// The label's **type is handed down rather than stated on it**, and it moves. Ticking a
+/// task changes its colour and strikes it through, and until milestone 498 both happened
+/// between one frame and the next — the row read as a different row rather than as the
+/// same one, answered. The colour glides; the line, which cannot be half-drawn, appears at
+/// the middle of the movement.
+///
+/// It has to be handed down, not set on the text: a field the caller states on a
+/// particular run of words wins over what its subtree says, so a `.color()` here would
+/// quietly ignore the animation. What the label still states for itself is what does not
+/// change with the task's state.
 pub(crate) fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
     let id = todo.id;
-    let label_color = if todo.done {
-        theme.muted
-    } else {
-        theme.on_surface
-    };
-    let mut label = text(todo.text.clone()).size(18.0).color(label_color);
-    if todo.done {
-        label = label.strikethrough();
-    }
+    let done_style = frus_widgets::TextStyle::NONE
+        .color(if todo.done {
+            theme.muted
+        } else {
+            theme.on_surface
+        })
+        .decoration(if todo.done {
+            frus_widgets::TextDecoration::STRIKETHROUGH
+        } else {
+            frus_widgets::TextDecoration::NONE
+        });
+    let label = AnimatedDefaultTextStyle::new(
+        0.2,
+        Curve::ease_out(),
+        done_style,
+        text(todo.text.clone()).size(18.0).ellipsis(),
+    );
     let line = row![
         // The shared element: the same avatar, tagged by the task's id, appears bigger
         // on the task's own screen and flies between the two.
@@ -70,7 +89,7 @@ pub(crate) fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
         // the delete button off the card and out of the hit registry: the task could no
         // longer be deleted (milestones 333 and 334). No `spacer()` is needed — the
         // expanding label is what pushes the button to the right edge.
-        Expanded::new(label.ellipsis()),
+        Expanded::new(label),
         IconButton::new(Icons::CLOSE)
             .label("Delete task")
             .icon_color(theme.error)

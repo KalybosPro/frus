@@ -536,7 +536,7 @@ mod tests {
     /// first — a walk that reaches a deferred node before any layout pass has is exactly
     /// what milestone 415 made say so out loud.
     fn nodes_of(root: &dyn Widget<Msg>) -> Vec<&dyn Widget<Msg>> {
-        crate::build_deferred(root, &Theme::dark());
+        crate::build_deferred(root, &Theme::dark(), &crate::Runtime::default());
         let mut out: Vec<&dyn Widget<Msg>> = vec![root];
         let mut i = 0;
         while i < out.len() {
