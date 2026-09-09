@@ -3573,3 +3573,87 @@ fn the_collapsing_header_matches_its_golden() {
     shots[0].assert_golden(golden("collapsing_header_open"));
     shots[1].assert_golden(golden("collapsing_header_collapsed"));
 }
+
+/// **A layer travelling between two sets of pins, and a box growing its share of its
+/// parent** — three frames of one movement rather than its two ends, because two ends are
+/// exactly what a jump also produces.
+///
+/// The middle frame is the one worth looking at: the panel is neither up nor down and the
+/// rail is neither a quarter nor full, which is a picture no amount of value testing can
+/// stand in for.
+#[test]
+fn the_animated_layout_values_match_their_golden() {
+    use frus_core::Curve;
+    use frus_test::Stage;
+    use frus_widgets::{text, AnimatedFractionallySizedBox, AnimatedPositioned, Stack};
+
+    const DURATION: f32 = 0.20;
+    let theme = Theme::dark();
+    // `top` at 170 is a panel resting near the bottom of the stack; at 40 it is open.
+    // Both ends pin the same edge, which is what makes this a movement at all.
+    let page = |open: bool| {
+        let t = theme.clone();
+        let panel = AnimatedPositioned::<()>::new(
+            DURATION,
+            Curve::Linear,
+            Container::new()
+                .color(t.primary)
+                .radius(10.0)
+                .padding(12.0)
+                .child(text("Quick actions").size(14.0).color(t.on_primary)),
+        )
+        .left(12.0)
+        .right(12.0)
+        .top(if open { 40.0 } else { 170.0 })
+        .bottom(12.0);
+        let stack = Stack::new()
+            .width(220.0)
+            .height(200.0)
+            .layer(Container::new().color(t.surface))
+            .layer(panel);
+        let rail = Container::new()
+            .width(196.0)
+            .height(8.0)
+            .radius(4.0)
+            .color(t.border)
+            .child(
+                AnimatedFractionallySizedBox::new(
+                    DURATION,
+                    Curve::Linear,
+                    // `flex` and a height, not a bare box: a fractional box sizes
+                    // **itself** as a share of its parent and leaves its child to fill
+                    // it, so a child that stated neither came out nothing at all. The
+                    // picture is what said so; every value test passed either way.
+                    Container::new()
+                        .flex(1.0)
+                        .height(8.0)
+                        .radius(4.0)
+                        .color(t.primary),
+                )
+                .width_factor(if open { 1.0 } else { 0.25 }),
+            );
+        Column::new()
+            .child(stack)
+            .child(Container::new().padding(12.0).child(rail))
+    };
+
+    // Settled shut, then a fifth, a half and the whole of the way open — the same tree
+    // each time, only further along.
+    let mut stage = Stage::new(220, 240).theme(theme.clone());
+    stage.settle(&page(false));
+    let mut shots = Vec::new();
+    for dt in [DURATION * 0.2, DURATION * 0.3, DURATION] {
+        let tree = page(true);
+        stage.advance(&tree, dt);
+        match stage.render(&tree) {
+            Some(shot) => shots.push(shot),
+            None => {
+                eprintln!("no GPU adapter available: test skipped");
+                return;
+            }
+        }
+    }
+    shots[0].assert_golden(golden("animated_layout_start"));
+    shots[1].assert_golden(golden("animated_layout_middle"));
+    shots[2].assert_golden(golden("animated_layout_end"));
+}

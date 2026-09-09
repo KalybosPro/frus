@@ -472,6 +472,14 @@ macro_rules! forward_transparent {
                 self.inner.anim_offset()
             }
 
+            fn anim_pins(&self) -> Option<$crate::positioned::Positioning> {
+                self.inner.anim_pins()
+            }
+
+            fn anim_fractions(&self) -> Option<(Option<f32>, Option<f32>)> {
+                self.inner.anim_fractions()
+            }
+
             fn anim_transform(&self) -> Option<$crate::runtime::TransformValues> {
                 self.inner.anim_transform()
             }

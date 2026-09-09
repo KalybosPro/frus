@@ -1345,6 +1345,20 @@ pub(crate) fn effective_style<Msg>(
             style.padding = padding;
         }
     }
+    // A share of the parent, growing or shrinking. `Percent` and not `Length`, because
+    // the whole point of the quantity is that it does not know what it will come to — and
+    // an axis whose factor is unset goes back to following its content rather than to
+    // nought, which is what "unset" has always meant here.
+    if widget.anim_fractions().is_some() {
+        if let Some((width, height)) = runtime.anim_fractions(id) {
+            let dim = |factor: Option<f32>| match factor {
+                Some(f) => frus_layout::Dimension::Percent(f),
+                None => frus_layout::Dimension::Auto,
+            };
+            style.width = dim(width);
+            style.height = dim(height);
+        }
+    }
     // A dismissed item closing its gap. It collapses along the axis it was **not**
     // swiped along — a row swiped sideways loses its height — which is what makes the
     // neighbours slide up rather than the row narrow to a sliver. Only an explicit
@@ -3987,7 +4001,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 // What this layer asks for on each axis: a pinned pair gives a number, a
                 // lone pin plus an explicit extent gives one, and neither leaves the axis
                 // to the layer itself — or, under `Expand`, to the stack.
-                let pins = layer.positioned();
+                // A layer moving between two sets of pins is read from the runtime rather
+                // than from the widget: the widget carries where it is **going**, and a
+                // layer that jumped there would be the whole bug this animates away.
+                // Both the size and the place come from the one value, so a box cannot be
+                // measured against one frame's pins and placed against another's.
+                let pins = match layer.positioned() {
+                    Some(spec) if layer.anim_pins().is_some() => {
+                        Some(self.runtime.anim_pins(cid).unwrap_or(spec))
+                    }
+                    other => other,
+                };
                 let (want_w, want_h) = match pins {
                     Some(p) => (
                         p.resolved_width(bounds.width),

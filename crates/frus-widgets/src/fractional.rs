@@ -1,7 +1,7 @@
 //! [`FractionallySizedBox`]: sizes its box to a **fraction** of the space the
 //! parent offers.
 
-use frus_core::{Rect, Scene};
+use frus_core::{Curve, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
@@ -16,9 +16,13 @@ use crate::widget::Widget;
 /// Rather than constraining the child, the box **sizes itself** as a percentage
 /// of the parent (via `Dimension::Percent`). In the common case — a child that
 /// fills — that gives the same visual result, and it fits the flex model.
+///
+/// [`FractionallySizedBox::animated`] makes each change of factor a movement instead of a
+/// jump; [`crate::AnimatedFractionallySizedBox`] is the name for the same thing.
 pub struct FractionallySizedBox<Msg> {
     width_factor: Option<f32>,
     height_factor: Option<f32>,
+    animated: Option<(f32, Curve)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -29,6 +33,7 @@ impl<Msg> FractionallySizedBox<Msg> {
         Self {
             width_factor: None,
             height_factor: None,
+            animated: None,
             children: Vec::new(),
         }
     }
@@ -42,6 +47,17 @@ impl<Msg> FractionallySizedBox<Msg> {
     /// Fraction `0.0..=1.0` of the parent's **height** (clamped to `>= 0`).
     pub fn height_factor(mut self, factor: f32) -> Self {
         self.height_factor = Some(factor.max(0.0));
+        self
+    }
+
+    /// **Grows and shrinks to each new factor** over `duration` seconds on `curve`,
+    /// instead of arriving at it between one frame and the next.
+    ///
+    /// An axis whose factor is **unset** does not travel: it follows its content, which
+    /// is a different arrangement rather than a different number, and interpolating
+    /// towards it would be interpolating towards a size nobody has computed yet.
+    pub fn animated(mut self, duration: f32, curve: Curve) -> Self {
+        self.animated = Some((duration, curve));
         self
     }
 
@@ -84,6 +100,28 @@ impl<Msg: Clone> Widget<Msg> for FractionallySizedBox<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+
+    fn anim_fractions(&self) -> Option<(Option<f32>, Option<f32>)> {
+        self.animated
+            .as_ref()
+            .map(|_| (self.width_factor, self.height_factor))
+    }
+
+    fn anim_duration(&self) -> f32 {
+        self.animated
+            .as_ref()
+            .map_or(crate::runtime::ANIM_DURATION, |(d, _)| *d)
+    }
+
+    fn anim_curve(&self) -> Curve {
+        self.animated
+            .as_ref()
+            .map_or(Curve::Linear, |(_, c)| c.clone())
+    }
+
+    fn debug_name(&self) -> &'static str {
+        "FractionallySizedBox"
     }
 }
 

@@ -395,6 +395,27 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.anim_transform())
     }
 
+    // The three below were **missing**, and milestone 477 predicted exactly this: a hook
+    // this forwarder does not list is a value the runtime never finds, on a widget that
+    // passes every test it has because nobody put it inside a `Responsive`. An
+    // `AnimatedAlign` behind one jumped instead of sliding, and a `Positioned` behind one
+    // lost its place in the stack entirely.
+    fn anim_offset(&self) -> Option<(f32, f32)> {
+        self.inner.as_ref().and_then(|w| w.anim_offset())
+    }
+
+    fn anim_pins(&self) -> Option<crate::positioned::Positioning> {
+        self.inner.as_ref().and_then(|w| w.anim_pins())
+    }
+
+    fn anim_fractions(&self) -> Option<(Option<f32>, Option<f32>)> {
+        self.inner.as_ref().and_then(|w| w.anim_fractions())
+    }
+
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        self.inner.as_ref().and_then(|w| w.positioned())
+    }
+
     fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
         self.inner.as_ref().and_then(|w| w.alignment_geometry())
     }
@@ -516,5 +537,44 @@ mod tests {
             .compact(Container::new().width(100.0))
             .expanded(Container::new().width(300.0));
         assert_eq!(chosen_width(&two), Dimension::Length(100.0));
+    }
+
+    /// **A selector must not swallow a place.** A `Responsive` inside a stack answers for
+    /// the variant it chose, and a layer's pins are the first thing the stack asks about:
+    /// a selector that did not forward them turned every pinned layer behind one into an
+    /// ordinary layer filling the stack, silently.
+    ///
+    /// This was missing until milestone 495, and had never been noticed because nothing
+    /// in the framework or the demo had put a `Positioned` behind a `Responsive`. The
+    /// same shape as the transparent wrapper's own rule, and the same failure.
+    #[test]
+    fn a_selector_keeps_the_layers_place_in_the_stack() {
+        let pinned = responsive::<()>(400.0).compact(
+            crate::Positioned::new(Container::new().width(20.0).height(20.0))
+                .top(8.0)
+                .right(12.0),
+        );
+        let spec = Widget::<()>::positioned(&pinned).expect("the pins reached through");
+        assert_eq!((spec.top, spec.right), (Some(8.0), Some(12.0)));
+    }
+
+    /// **And it must not swallow a movement.** The same hole, one hook along: an
+    /// `AnimatedAlign` behind a selector declared its target to nobody, so the runtime
+    /// found nothing to drive and the child jumped between anchors instead of sliding.
+    #[test]
+    fn a_selector_keeps_the_childs_animated_offset() {
+        let sliding = responsive::<()>(400.0).compact(crate::AnimatedAlign::new(
+            frus_core::Alignment::CENTER_RIGHT,
+            0.2,
+            frus_core::Curve::Linear,
+            Container::new().width(20.0).height(20.0),
+        ));
+        assert_eq!(
+            Widget::<()>::anim_offset(&sliding),
+            // The anchor in its own coordinates, where the middle is nought and an edge
+            // is one — not a share of the box.
+            Some((1.0, 0.0)),
+            "the anchor's two fractions reached through"
+        );
     }
 }

@@ -633,6 +633,219 @@ impl<Msg: Clone + 'static> AnimatedPadding<Msg> {
 
 forward_to_container!(AnimatedPadding);
 
+/// **Moves a stack layer between two sets of pins** instead of letting it appear at the
+/// new ones. The reference's `AnimatedPositioned`.
+///
+/// A panel that slides in from an edge, a sheet that grows to fill the page, a card that
+/// travels to a corner: each is a layer of a [`crate::Stack`] whose distances from the
+/// stack's own edges change, and each of them jumped before this.
+///
+/// ```
+/// use frus_core::Curve;
+/// use frus_widgets::{AnimatedPositioned, Container, Stack};
+///
+/// let open = true;
+/// let _sheet: Stack<()> = Stack::new().layer(
+///     AnimatedPositioned::new(0.25, Curve::ease_out(), Container::new())
+///         .left(0.0)
+///         .right(0.0)
+///         .bottom(0.0)
+///         .height(if open { 320.0 } else { 0.0 }),
+/// );
+/// ```
+///
+/// **A pin that is unset does not animate.** `None` on an edge is not nought there: it is
+/// a layer not pinned on that side, sized by itself and placed by the stack's alignment,
+/// which is a different arrangement rather than a different number. So an edge arriving
+/// takes hold at once, an edge leaving lets go at once, and only an edge set at both ends
+/// travels. Where a movement is wanted, both ends must say where they are.
+///
+/// The six pins share **one timeline**, as a scale and a turn do: a layer changing two of
+/// its edges arrives on both at the same moment rather than on two clocks that happen to
+/// agree.
+///
+/// Unlike [`crate::Positioned`], which is a transparent wrapper, this is a **node of its
+/// own** with the child beneath it. An animated value belongs to a node, and a wrapper
+/// that fused with its child would put the layer's timeline and the child's on the same
+/// one — the rule the whole of this module is built on.
+pub struct AnimatedPositioned<Msg> {
+    children: Vec<Box<dyn Widget<Msg>>>,
+    spec: crate::positioned::Positioning,
+    duration: f32,
+    curve: Curve,
+}
+
+impl<Msg> AnimatedPositioned<Msg> {
+    /// A layer holding `child`, pinned nowhere yet, moving to each new set of pins over
+    /// `duration` seconds on `curve`.
+    pub fn new(duration: f32, curve: Curve, child: impl Widget<Msg> + 'static) -> Self {
+        Self {
+            children: vec![Box::new(child)],
+            spec: crate::positioned::Positioning::default(),
+            duration,
+            curve,
+        }
+    }
+
+    /// Distance from the stack's left edge.
+    pub fn left(mut self, px: f32) -> Self {
+        self.spec.left = Some(px);
+        self
+    }
+
+    /// Distance from the stack's top edge.
+    pub fn top(mut self, px: f32) -> Self {
+        self.spec.top = Some(px);
+        self
+    }
+
+    /// Distance from the stack's right edge.
+    pub fn right(mut self, px: f32) -> Self {
+        self.spec.right = Some(px);
+        self
+    }
+
+    /// Distance from the stack's bottom edge.
+    pub fn bottom(mut self, px: f32) -> Self {
+        self.spec.bottom = Some(px);
+        self
+    }
+
+    /// An explicit width, used when only one horizontal edge is pinned.
+    pub fn width(mut self, px: f32) -> Self {
+        self.spec.width = Some(px);
+        self
+    }
+
+    /// An explicit height, used when only one vertical edge is pinned.
+    pub fn height(mut self, px: f32) -> Self {
+        self.spec.height = Some(px);
+        self
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for AnimatedPositioned<Msg> {
+    fn style(&self) -> Style {
+        // Nothing of its own: the stack forces a pinned layer into what its edges say,
+        // and an axis nobody pinned is left to the child underneath.
+        Style::default()
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &self.children
+    }
+
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {
+        // A pure layout widget: no decoration of its own.
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+
+    /// Where it is **going**. The stack reads the runtime's interpolated pins instead
+    /// wherever there are any, which is what makes the difference between the two.
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        Some(self.spec)
+    }
+
+    fn anim_pins(&self) -> Option<crate::positioned::Positioning> {
+        Some(self.spec)
+    }
+
+    fn anim_duration(&self) -> f32 {
+        self.duration
+    }
+
+    fn anim_curve(&self) -> Curve {
+        self.curve.clone()
+    }
+
+    fn debug_name(&self) -> &'static str {
+        "AnimatedPositioned"
+    }
+}
+
+/// **Grows and shrinks its share of the parent** rather than taking the new share at
+/// once. The reference's `AnimatedFractionallySizedBox`, and a name over
+/// [`crate::FractionallySizedBox::animated`].
+///
+/// The quantity is a fraction and not a length, which is the reason to reach for this
+/// rather than an animated size: a bar filling half its row, a panel taking two thirds of
+/// a page, a sheet at a third of the height — none of them knows what those come to, and
+/// a resize of the window during the movement is answered by the layout rather than by
+/// a number that was right when it was written.
+///
+/// ```
+/// use frus_core::Curve;
+/// use frus_widgets::{AnimatedFractionallySizedBox, Container};
+///
+/// let full = true;
+/// let _bar: AnimatedFractionallySizedBox<()> =
+///     AnimatedFractionallySizedBox::new(0.3, Curve::ease_out(), Container::new())
+///         .width_factor(if full { 1.0 } else { 0.25 });
+/// ```
+///
+/// An axis whose factor is **unset** follows its content, and does not travel to or from
+/// a factor: that is a change of arrangement, not of value.
+pub struct AnimatedFractionallySizedBox<Msg> {
+    inner: crate::fractional::FractionallySizedBox<Msg>,
+}
+
+impl<Msg: Clone + 'static> AnimatedFractionallySizedBox<Msg> {
+    /// A fractional box holding `child`, with no factor yet, moving to each new one over
+    /// `duration` seconds on `curve`.
+    pub fn new(duration: f32, curve: Curve, child: impl Widget<Msg> + 'static) -> Self {
+        Self {
+            inner: crate::fractional::FractionallySizedBox::new()
+                .animated(duration, curve)
+                .child(child),
+        }
+    }
+
+    /// Fraction `0.0..=1.0` of the parent's **width** (clamped to `>= 0`).
+    pub fn width_factor(mut self, factor: f32) -> Self {
+        self.inner = self.inner.width_factor(factor);
+        self
+    }
+
+    /// Fraction `0.0..=1.0` of the parent's **height** (clamped to `>= 0`).
+    pub fn height_factor(mut self, factor: f32) -> Self {
+        self.inner = self.inner.height_factor(factor);
+        self
+    }
+}
+
+// Written out rather than macro-forwarded: the inner widget is a `FractionallySizedBox`
+// and not a `Container`, and it overrides seven hooks — the four a layout widget has and
+// the three this one is for.
+impl<Msg: Clone + 'static> Widget<Msg> for AnimatedFractionallySizedBox<Msg> {
+    fn style(&self) -> Style {
+        Widget::style(&self.inner)
+    }
+    fn style_themed(&self, theme: &Theme) -> Style {
+        Widget::style_themed(&self.inner, theme)
+    }
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        Widget::children(&self.inner)
+    }
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        Widget::paint(&self.inner, bounds, status, theme, scene)
+    }
+    fn on_click(&self) -> Option<Msg> {
+        Widget::on_click(&self.inner)
+    }
+    fn anim_fractions(&self) -> Option<(Option<f32>, Option<f32>)> {
+        Widget::anim_fractions(&self.inner)
+    }
+    fn anim_duration(&self) -> f32 {
+        Widget::anim_duration(&self.inner)
+    }
+    fn anim_curve(&self) -> Curve {
+        Widget::anim_curve(&self.inner)
+    }
+}
+
 #[cfg(test)]
 mod implicit_tests {
     use super::*;
@@ -924,6 +1137,196 @@ mod implicit_tests {
         assert!(
             (rtl - 60.0).abs() < 0.5,
             "and the same quarter from the right: {rtl}"
+        );
+    }
+
+    /// A stack with one animated layer on it, pinned at `left` and 20 px wide.
+    fn pinned_at(left: f32) -> crate::Stack<()> {
+        crate::Stack::new().layer(
+            AnimatedPositioned::new(
+                0.10,
+                Curve::Linear,
+                crate::Container::<()>::new()
+                    .color(frus_core::Color::rgb(1.0, 0.0, 0.0))
+                    .child(Text::new("x")),
+            )
+            .left(left)
+            .top(0.0)
+            .width(20.0)
+            .height(20.0),
+        )
+    }
+
+    /// **Mounted, mid-flight, at rest** for a layer's pins.
+    ///
+    /// A layer that appears already pinned somewhere **adopts** its pins rather than
+    /// travelling to them from the last place a stack would have put it — the same mount
+    /// rule as every other implicit animation here, and the reason a page does not
+    /// rearrange itself when it opens.
+    #[test]
+    fn a_layer_mounts_settled_moves_and_arrives() {
+        let mut rt = Runtime::default();
+        assert!(
+            !rt.advance_pins(&pinned_at(0.0), 1.0),
+            "a mount is not a transition"
+        );
+        // Child 0 of the stack, which is the layer.
+        let id = WidgetId::ROOT.child(0);
+        assert_eq!(rt.anim_pins(id).and_then(|p| p.left), Some(0.0));
+
+        // Halfway along a linear curve of 0.10 s: halfway between 0 and 80.
+        assert!(rt.advance_pins(&pinned_at(80.0), 0.05));
+        let mid = rt.anim_pins(id).expect("in flight");
+        assert!(
+            mid.left.is_some_and(|l| (l - 40.0).abs() < 1e-3),
+            "halfway between the two: {mid:?}"
+        );
+        assert_eq!(
+            mid.width,
+            Some(20.0),
+            "and the extents it never asked to move stayed"
+        );
+
+        rt.advance_pins(&pinned_at(80.0), 1.0);
+        assert_eq!(rt.anim_pins(id).and_then(|p| p.left), Some(80.0));
+        assert!(
+            !rt.advance_pins(&pinned_at(80.0), 0.05),
+            "and stops asking for frames once it is there"
+        );
+    }
+
+    /// **A pin that is unset does not travel**, in either direction.
+    ///
+    /// `None` on an edge is not nought there — it is a layer not pinned on that side at
+    /// all, sized by itself and placed by the stack's alignment. Sliding between the two
+    /// would be interpolating between two arrangements, and the number it passed through
+    /// on the way would mean neither of them.
+    #[test]
+    fn a_pin_that_is_unset_takes_hold_and_lets_go_at_once() {
+        let layer = |left: Option<f32>, right: Option<f32>| {
+            let mut l: AnimatedPositioned<()> =
+                AnimatedPositioned::new(0.10, Curve::Linear, Text::new("x")).top(0.0);
+            if let Some(px) = left {
+                l = l.left(px);
+            }
+            if let Some(px) = right {
+                l = l.right(px);
+            }
+            crate::Stack::<()>::new().layer(l)
+        };
+        let id = WidgetId::ROOT.child(0);
+        let mut rt = Runtime::default();
+        rt.advance_pins(&layer(Some(0.0), None), 1.0);
+
+        // Swap which edge is pinned, and step a fifth of the way in.
+        rt.advance_pins(&layer(None, Some(10.0)), 0.02);
+        let mid = rt.anim_pins(id).expect("present");
+        assert_eq!(
+            mid.left, None,
+            "the edge that let go let go at once: {mid:?}"
+        );
+        assert_eq!(
+            mid.right,
+            Some(10.0),
+            "and the edge that took hold took hold at once: {mid:?}"
+        );
+    }
+
+    /// **And the stack lays the layer out where the tween says.** The value tests above
+    /// cannot ask this: pins that move correctly and are read from the widget instead of
+    /// the runtime give a layer that jumps, and every one of them still passes.
+    #[test]
+    fn the_stack_places_the_layer_by_the_tween_and_not_the_target() {
+        let mut rt = Runtime::default();
+        rt.advance_pins(&pinned_at(0.0), 1.0);
+        rt.advance_pins(&pinned_at(80.0), 0.05);
+        let ui = build_ui(
+            &pinned_at(80.0),
+            Size::new(100.0, 40.0),
+            &rt,
+            &Theme::default(),
+        );
+        let x = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(rect.x),
+                _ => None,
+            })
+            .expect("the layer");
+        assert!(
+            (x - 40.0).abs() < 0.5,
+            "halfway across, not at either end: {x}"
+        );
+    }
+
+    /// A box taking half its parent, then all of it.
+    fn share(width_factor: f32) -> crate::Flex<()> {
+        crate::Flex::column().width(100.0).height(40.0).child(
+            AnimatedFractionallySizedBox::new(
+                0.10,
+                Curve::Linear,
+                crate::Container::<()>::new()
+                    .flex(1.0)
+                    .height(20.0)
+                    .color(frus_core::Color::rgb(1.0, 0.0, 0.0)),
+            )
+            .width_factor(width_factor),
+        )
+    }
+
+    /// **Mounted, mid-flight, at rest** for a share of the parent.
+    #[test]
+    fn a_share_of_the_parent_mounts_settled_moves_and_arrives() {
+        let mut rt = Runtime::default();
+        assert!(
+            !rt.advance_fractions(&share(0.25), 1.0),
+            "a mount is not a transition"
+        );
+        let id = WidgetId::ROOT.child(0);
+        assert_eq!(rt.anim_fractions(id), Some((Some(0.25), None)));
+
+        assert!(rt.advance_fractions(&share(0.75), 0.05));
+        let (width, height) = rt.anim_fractions(id).expect("in flight");
+        assert!(
+            width.is_some_and(|w| (w - 0.5).abs() < 1e-3),
+            "halfway between a quarter and three quarters: {width:?}"
+        );
+        assert_eq!(
+            height, None,
+            "and the axis nobody set still follows its content"
+        );
+
+        rt.advance_fractions(&share(0.75), 1.0);
+        assert_eq!(rt.anim_fractions(id), Some((Some(0.75), None)));
+        assert!(
+            !rt.advance_fractions(&share(0.75), 0.05),
+            "and stops asking for frames once it is there"
+        );
+    }
+
+    /// **And the layout reads it.** A fraction is consumed while the tree is measured, so
+    /// the check is the width the child actually came out — half of a hundred, halfway
+    /// between a quarter of it and three quarters.
+    #[test]
+    fn the_layout_uses_the_tweened_fraction_and_not_the_target() {
+        let mut rt = Runtime::default();
+        rt.advance_fractions(&share(0.25), 1.0);
+        rt.advance_fractions(&share(0.75), 0.05);
+        let ui = build_ui(&share(0.75), Size::new(100.0, 40.0), &rt, &Theme::default());
+        let width = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(rect.width),
+                _ => None,
+            })
+            .expect("the child's background");
+        assert!(
+            (width - 50.0).abs() < 0.5,
+            "half the parent, on the way from a quarter to three quarters: {width}"
         );
     }
 }
