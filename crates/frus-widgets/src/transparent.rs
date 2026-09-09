@@ -186,6 +186,10 @@ macro_rules! forward_transparent {
                 self.inner.text_value()
             }
 
+            fn replace_value(&self, value: String) -> Option<Msg> {
+                self.inner.replace_value(value)
+            }
+
             fn word_at(&self, index: usize) -> Option<(usize, usize)> {
                 self.inner.word_at(index)
             }

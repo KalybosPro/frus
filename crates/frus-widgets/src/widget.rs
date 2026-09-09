@@ -317,6 +317,17 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// The message that puts `value` in this field: the one typing would have produced,
+    /// for a value the **framework** restores rather than the user typing it.
+    ///
+    /// Undo needs it and nothing else does. The value is the application's — a field owns
+    /// its caret and not its text — so an undo cannot reach in and set what is on screen;
+    /// it has to go back through a message like any other edit, or the next frame would
+    /// paint the value the application still holds.
+    fn replace_value(&self, _value: String) -> Option<Msg> {
+        None
+    }
+
     /// Range `(start, end)` of the word around the given index (for double-click).
     fn word_at(&self, _index: usize) -> Option<(usize, usize)> {
         None
@@ -1350,6 +1361,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn text_value(&self) -> Option<&str> {
         (**self).text_value()
+    }
+    fn replace_value(&self, value: String) -> Option<Msg> {
+        (**self).replace_value(value)
     }
     fn word_at(&self, index: usize) -> Option<(usize, usize)> {
         (**self).word_at(index)

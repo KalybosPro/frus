@@ -15,9 +15,9 @@ use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_deferred, build_ui, collect_ids, find_by_key, find_path, find_widget,
     reflow_reorder_cards, reflow_reorder_columns, subtree_ids, Accessibility, Brightness, Color,
-    Cursor as UiCursor, Edit, FocusDirection, Insets, Key, KeyResponse, KeyStroke, MediaQuery,
-    Point, Primitive, Rect, ReorderAxis, Runtime, Scene, ShortcutKey, Size, Theme, Ui,
-    VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
+    Cursor as UiCursor, Edit, EditKind, EditSnapshot, FocusDirection, Insets, Key, KeyResponse,
+    KeyStroke, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, ShortcutKey, Size,
+    Theme, Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -488,6 +488,10 @@ pub struct App<A: Application> {
     press: PressRecognizer,
     /// The pressed target's long-press message, captured on the press.
     long_press_msg: Option<A::Message>,
+    /// When the last **recorded** edit happened, for the pause that breaks a run of
+    /// typing into two steps of undo. One field and not one per text field, because only
+    /// the focused one is being typed into, and leaving a field ends its run anyway.
+    last_edit_at: Option<Instant>,
     /// A [`frus_widgets::Draggable`] that asked to be lifted by a **hold**, waiting
     /// for the long-press deadline. Inside a scrollable this is the only way up: the
     /// plain drag belongs to the scroll, and a hold is the one signal it cannot claim.
@@ -598,6 +602,7 @@ impl<A: Application> App<A> {
             announce: String::new(),
             press: PressRecognizer::new(),
             long_press_msg: None,
+            last_edit_at: None,
             pending_lift: None,
             pending_reorder: None,
             last_click_time: None,
@@ -1592,6 +1597,25 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                                     composing: None,
                                 },
                             );
+                            // A selection is a caret move: what is typed over it is a step
+                            // of its own, not more of whatever was being typed before.
+                            self.runtime.close_edit_run(focused);
+                            self.request_redraw();
+                            return;
+                        }
+                        // Undo, and redo under both its spellings — Ctrl+Y on Windows,
+                        // Ctrl+Shift+Z everywhere else, and people bring the one their
+                        // hands already know.
+                        WinitKey::Character(c) if c.eq_ignore_ascii_case("z") && !self.shift => {
+                            self.step_history(focused, false);
+                            self.request_redraw();
+                            return;
+                        }
+                        WinitKey::Character(c)
+                            if c.eq_ignore_ascii_case("y")
+                                || (c.eq_ignore_ascii_case("z") && self.shift) =>
+                        {
+                            self.step_history(focused, true);
                             self.request_redraw();
                             return;
                         }
@@ -2582,6 +2606,9 @@ impl<A: Application> App<A> {
                     },
                 );
                 self.drag = Some(Drag::TextSelect { id, rect });
+                // The caret moved, so the run of typing ends here: typing at one place,
+                // then at another, then Ctrl+Z should take back only the second.
+                self.runtime.close_edit_run(id);
                 // Tapping in a field **reopens** the keyboard, even one the app already
                 // considers shown but which the system back closed — see
                 // `request_soft_input`.
@@ -4195,33 +4222,137 @@ impl<A: Application> App<A> {
     fn apply_key(&mut self, id: WidgetId, key: Key) {
         // Any horizontal move, or any keystroke, forgets the vertical goal column.
         self.goal_x = None;
-        let mut edit = self.runtime.edits.get(&id).copied().unwrap_or_default();
-        let message = self
+        let was = self.runtime.edits.get(&id).copied().unwrap_or_default();
+        let mut edit = was;
+        let widget = self
             .tree
             .as_ref()
-            .and_then(|tree| find_widget(tree.as_ref(), id))
-            .and_then(|widget| widget.on_edit(&mut edit, &key));
+            .and_then(|tree| find_widget(tree.as_ref(), id));
+        // What the field held before the key: half of an undo step, and the half the
+        // application owns.
+        let before = widget
+            .and_then(|widget| widget.text_value())
+            .map(str::to_owned);
+        let message = widget.and_then(|widget| widget.on_edit(&mut edit, &key));
         self.runtime.edits.insert(id, edit);
         // In a multi-line field, make the retained scroll follow the caret and reveal it.
         self.reveal_caret(id, edit.cursor);
         if let Some(message) = message {
-            self.dispatch(message);
-            // Keys can arrive in **bursts**, faster than a frame — a software
-            // keyboard, `adb input text`, auto-repeat — and the next one must see the
-            // CURRENT value, not the retained tree's, or it would overwrite the previous
-            // keystroke. So we refresh the tree right away; `build_dirty` stays raised
-            // and the next frame redoes the full pass: mounts, leaving fades and all.
-            if let Some((width, height)) = self.last_size {
-                let theme = self.themes.displayed(&self.app);
-                // A surface of its own, because this build happens between frames rather
-                // than inside one — and the same `build_view` as the frame path, because
-                // the next key in the burst reads this tree straight away.
-                let tree = self
-                    .media_query(width, height)
-                    .scope(|| build_view(&self.app, &theme));
-                self.tree = Some(tree);
-            }
+            self.dispatch_edit(message);
         }
+        // The history, recorded on the **evidence** of a changed value rather than on the
+        // intent of a key that usually changes one: a filter may have refused the
+        // character, a length limit may have swallowed it, a read-only field ignores it,
+        // and an Enter submits instead of typing. The value is read again from the tree
+        // the dispatch has just rebuilt, so what is recorded is what happened.
+        let after = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.text_value())
+            .map(str::to_owned);
+        match (before, after) {
+            (Some(before), Some(after)) if before != after => {
+                let kind = EditKind::of(&key, was.selection_range().is_some(), self.composing());
+                let since = self.since_last_edit();
+                self.runtime
+                    .record_edit(id, EditSnapshot::new(before, was), kind, since);
+            }
+            // A key that moved only the caret ends the run: what is typed next is a step
+            // of its own, or one undo would take back two visits to the field at once.
+            (Some(_), _) => self.runtime.close_edit_run(id),
+            _ => {}
+        }
+    }
+
+    /// Dispatches a message that changed a field's value, and refreshes the tree at once.
+    ///
+    /// Keys can arrive in **bursts**, faster than a frame — a software keyboard, `adb
+    /// input text`, auto-repeat — and the next one must see the CURRENT value, not the
+    /// retained tree's, or it would overwrite the previous keystroke. So the tree is
+    /// refreshed right away; `build_dirty` stays raised and the next frame redoes the full
+    /// pass: mounts, leaving fades and all.
+    fn dispatch_edit(&mut self, message: A::Message) {
+        self.dispatch(message);
+        if let Some((width, height)) = self.last_size {
+            let theme = self.themes.displayed(&self.app);
+            // A surface of its own, because this build happens between frames rather than
+            // inside one — and the same `build_view` as the frame path, because the next
+            // key in the burst reads this tree straight away.
+            let tree = self
+                .media_query(width, height)
+                .scope(|| build_view(&self.app, &theme));
+            self.tree = Some(tree);
+        }
+    }
+
+    /// Seconds since the last recorded edit, and stamps this one. The first edit is
+    /// infinitely far from the one before it, which is to say it starts a run.
+    fn since_last_edit(&mut self) -> f32 {
+        let now = Instant::now();
+        let since = self
+            .last_edit_at
+            .map(|then| now.duration_since(then).as_secs_f32())
+            .unwrap_or(f32::INFINITY);
+        self.last_edit_at = Some(now);
+        since
+    }
+
+    /// Whether an input method is in the middle of composing a word.
+    fn composing(&self) -> bool {
+        #[cfg(android)]
+        {
+            self.ime_composing > 0
+        }
+        #[cfg(not(android))]
+        {
+            self.runtime
+                .input
+                .focused
+                .and_then(|id| self.runtime.edits.get(&id))
+                .is_some_and(|edit| edit.composing.is_some())
+        }
+    }
+
+    /// Steps a text field's value back one change, or forward again. `true` when something
+    /// moved — Ctrl+Z on anything that is not a field, or with nothing left to undo, moves
+    /// nothing and says so.
+    fn step_history(&mut self, id: WidgetId, forward: bool) -> bool {
+        let value = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.text_value())
+            .map(str::to_owned);
+        let Some(value) = value else {
+            return false;
+        };
+        let edit = self.runtime.edits.get(&id).copied().unwrap_or_default();
+        let current = EditSnapshot::new(value, edit);
+        let target = if forward {
+            self.runtime.redo_edit(id, current)
+        } else {
+            self.runtime.undo_edit(id, current)
+        };
+        let Some(target) = target else {
+            return false;
+        };
+        let message = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.replace_value(target.value.clone()));
+        // The caret goes back with the text — an undo that restores the value and leaves
+        // the caret at the end has done half the job.
+        self.runtime.edits.insert(id, target.edit);
+        self.reveal_caret(id, target.edit.cursor);
+        if let Some(message) = message {
+            self.dispatch_edit(message);
+        }
+        // An undo is not a keystroke: what is typed after it starts a run of its own,
+        // however quickly it follows.
+        self.last_edit_at = None;
+        true
     }
 
     /// Brings the focused widget **into view**, gliding every scroll region around it.

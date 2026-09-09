@@ -156,6 +156,7 @@ pub(crate) mod transparent;
 mod tree;
 mod twopane;
 mod ui;
+mod undo;
 mod widget;
 mod widgetstate;
 mod widgettheme;
@@ -366,6 +367,7 @@ pub use ui::{
     build_deferred, build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget,
     subtree_ids, FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
 };
+pub use undo::{EditKind, EditSnapshot, UndoHistory, RUN_PAUSE};
 pub use widget::{CellFn, FillAxes, FilterContext, ReorderAxis, Widget};
 pub use widgetstate::{StateFilter, WidgetState, WidgetStateProperty, WidgetStates};
 // **Every** one of them, and not only the ones a doc link happened to need. A theme

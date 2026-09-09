@@ -529,6 +529,12 @@ pub struct Runtime {
     pub interactive_velocity: HashMap<WidgetId, (f32, f32)>,
     /// Edit state, per input field.
     pub edits: HashMap<WidgetId, Edit>,
+    /// **Undo history**, per input field: what it was, and what it was about to be.
+    ///
+    /// Beside `edits` rather than inside it, because they are different things kept for
+    /// different reasons — a caret is where the field is now, a history is everywhere it
+    /// has been — and because `Edit` is `Copy` and a history is not.
+    pub undo: HashMap<WidgetId, crate::undo::UndoHistory>,
     /// Animation progresses (hover/focus/opacity), per widget.
     pub anims: HashMap<WidgetId, Anim>,
     /// The widgets' own animated values (`Widget::anim_target`), per widget — each
@@ -1614,6 +1620,45 @@ impl Runtime {
     /// A finger takes hold of `id`: from now until [`Runtime::release_scroll`],
     /// this region's offset moves only when the finger says so. Any fling in
     /// flight is caught, since the finger has just overruled it.
+    /// Records a change to field `id`, which **was** `before`, `since` seconds after the
+    /// last one — see [`crate::UndoHistory::record`] for what counts as one step.
+    pub fn record_edit(
+        &mut self,
+        id: WidgetId,
+        before: crate::undo::EditSnapshot,
+        kind: crate::undo::EditKind,
+        since: f32,
+    ) {
+        self.undo.entry(id).or_default().record(before, kind, since);
+    }
+
+    /// Ends the run in progress in field `id`: the caret moved, so what is typed next is a
+    /// step of its own.
+    pub fn close_edit_run(&mut self, id: WidgetId) {
+        if let Some(history) = self.undo.get_mut(&id) {
+            history.close_run();
+        }
+    }
+
+    /// Steps field `id` back one change, `current` being where it is now. `None` when
+    /// there is nothing to undo.
+    pub fn undo_edit(
+        &mut self,
+        id: WidgetId,
+        current: crate::undo::EditSnapshot,
+    ) -> Option<crate::undo::EditSnapshot> {
+        self.undo.get_mut(&id)?.undo(current)
+    }
+
+    /// Steps field `id` forward again. `None` when nothing was undone.
+    pub fn redo_edit(
+        &mut self,
+        id: WidgetId,
+        current: crate::undo::EditSnapshot,
+    ) -> Option<crate::undo::EditSnapshot> {
+        self.undo.get_mut(&id)?.redo(current)
+    }
+
     pub fn hold_scroll(&mut self, id: WidgetId) {
         self.scroll_held = Some(id);
     }

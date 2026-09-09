@@ -8,12 +8,26 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 490 so far, each documenting the objective, the alternatives
+> record — one per step, 491 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **Undo and redo in a text field** (J491, closes #28): Ctrl+Z, and both spellings of redo
+  — Ctrl+Y and Ctrl+Shift+Z. The stack is the small half; the milestone is **what counts as
+  one step**, since a history that steps back one character at a time is nobody's idea of
+  undo. A run of the same kind of change, closed by a word boundary, by a pause of half a
+  second (the reference's number and the reference's reasoning), by moving the caret, or by
+  a chunk — a paste, a cut, a selection replaced, a line break — which is always its own
+  step. A composition is one step for the whole word, and the clock does not apply to it.
+  Each step carries the caret as well as the value, because an undo that leaves the caret at
+  the end has done half the job. Entries are recorded on the **evidence** of a changed
+  value, not on a key that usually changes one: a filter may refuse the character, a limit
+  swallow it, and an Enter submit instead of typing. `Widget::replace_value` came with it —
+  the value is the application's, so an undo goes back through a message like any other
+  edit.
 
 - **`ReorderableList`** (J490, #44): a list whose rows can be **dragged into a new
   order**, which is what reordering looked like everywhere except a board. The gesture was
