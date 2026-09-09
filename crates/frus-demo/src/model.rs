@@ -45,6 +45,8 @@ pub(crate) enum Route {
     /// One task, on its own screen. Its avatar is a **shared element** with the row it
     /// was opened from, and flies between the two (milestone 286).
     Task(u64),
+    /// The licences of everything this application links (milestone 492).
+    Licenses,
 }
 
 /// The back gesture: the progress follows the finger, then a spring settle (commit/cancel)
@@ -84,6 +86,11 @@ pub(crate) struct TodoApp {
     pub(crate) journal_reloading: f32,
     /// How many times the log has been reloaded, so a completed pull leaves a trace.
     pub(crate) journal_reloads: usize,
+    /// **Where the log list is**, as the list itself last said. `None` until it has
+    /// moved at all — which is not the same as resting at the top, and the header says
+    /// so: a list that has never moved shows no row number, because nothing has been
+    /// measured yet.
+    pub(crate) journal_scroll: Option<ScrollPosition>,
     /// The walkthrough's page. The application owns it: the finger reports its changes
     /// here, and the buttons write to it, so both drive the same one value.
     pub(crate) tour_page: usize,
@@ -120,6 +127,11 @@ pub(crate) struct TodoApp {
     pub(crate) elapsed: u32,
     /// The Settings screen's active tab.
     pub(crate) settings_tab: usize,
+    /// Is the about box open?
+    pub(crate) about_open: bool,
+    /// Which package's licence is open on the licence page, as an index into the page's
+    /// own list. `None` is the list itself.
+    pub(crate) licence_open: Option<usize>,
     /// Is the (header) actions menu open?
     pub(crate) actions_open: bool,
     /// Is the "Advanced options" section expanded?
@@ -280,6 +292,17 @@ pub(crate) fn filter_from_index(index: usize) -> Filter {
         2 => Filter::Done,
         _ => Filter::All,
     }
+}
+
+/// The tasks the list is **showing**, in the order it shows them: the filter, in one
+/// place, because a screen that decides which rows to draw and an update that decides
+/// which row was moved have to agree on the answer.
+pub(crate) fn visible_todos(app: &TodoApp) -> impl Iterator<Item = &Todo> {
+    app.todos.iter().filter(|t| match app.filter {
+        Filter::All => true,
+        Filter::Active => !t.done,
+        Filter::Done => t.done,
+    })
 }
 
 /// Number of tasks that are not done.

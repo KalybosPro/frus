@@ -253,25 +253,32 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     ]
     .gap(8.0);
 
-    // The filtered list (or the empty state).
-    let mut list = Flex::column().gap(8.0);
+    // The filtered list (or the empty state), whose rows can be **dragged into a new
+    // order**.
+    //
+    // By the grip, not by a hold, and not because a phone would rather have a hold: this
+    // row already answers to a hold, which lifts it towards the two state zones. Three
+    // gestures on one row is what the grip is for — it is the one that takes nothing away
+    // from the others, and the reference's two listeners exist for exactly this choice.
+    let mut list = ReorderableList::new(Msg::MoveTodo)
+        .grab(ReorderGrab::Handle)
+        .gap(8.0);
     let mut shown = 0;
-    for todo in app.todos.iter().filter(|t| match app.filter {
-        Filter::All => true,
-        Filter::Active => !t.done,
-        Filter::Done => t.done,
-    }) {
+    for todo in visible_todos(app) {
         // A stable identity by `id`: the retained state (hover/animations) does not jump when a
-        // task in the middle is deleted.
-        list = list.child(keyed(todo.id, todo_row_draggable(todo, theme)));
+        // task in the middle is deleted — or moved past its neighbour, which is the same
+        // question asked twice as often.
+        list = list.keyed_row(todo.id, todo_row_draggable(todo, theme));
         shown += 1;
     }
-    if shown == 0 {
-        list = column![text("Nothing to show for this filter.")
+    let list: Box<dyn Widget<Msg>> = if shown == 0 {
+        Box::new(column![text("Nothing to show for this filter.")
             .size(18.0)
             .italic()
-            .color(theme.muted)];
-    }
+            .color(theme.muted)])
+    } else {
+        Box::new(list)
+    };
     // **Vertical** responsiveness: in a short window the hint is hidden to preserve the usable
     // height. The scrolling is handled by the Scaffold.
     let short = SizeClass::from_height(surface.size.height) == SizeClass::Compact;
@@ -447,7 +454,18 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
         // its top edge lands on one of them. Docking is for a bar cut with a notch to
         // receive it, which frus has not got yet.
         .fab_location(FabLocation::EndFloat)
-        .fab(fab_button("+", Msg::AddTodo))
+        // **The button gets out of the way of the sheet**, rather than sitting on top of
+        // it or blinking out. Two heights down is clear of the bar it floats over, and
+        // the number is a multiple of the button's own box — so nobody here has to know
+        // how big a floating action button is, which is the whole point of a slide being
+        // stated as a fraction (milestone 488).
+        .fab(AnimatedSlide::new(
+            0.0,
+            if app.sheet_open { 2.0 } else { 0.0 },
+            0.22,
+            Curve::ease_out(),
+            fab_button("+", Msg::AddTodo),
+        ))
         .bottom_sheet(quick_actions_sheet(theme), app.sheet_open, Msg::ToggleSheet)
         .build();
 

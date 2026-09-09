@@ -43,6 +43,10 @@ pub struct ListView<Msg> {
     reverse: bool,
     /// Room around the items, inside the viewport; see [`ListView::padding`].
     padding: Insets,
+    /// Told where this list is whenever it moves; see [`ListView::on_scroll`].
+    on_scroll: Option<Box<dyn Fn(crate::ScrollPosition) -> Msg>>,
+    /// How far it must move before it says so again; see [`ListView::notify_every`].
+    grain: f32,
     build: Box<dyn Fn(usize) -> Box<dyn Widget<Msg>>>,
 }
 
@@ -68,6 +72,8 @@ impl<Msg> ListView<Msg> {
             physics: None,
             reverse: false,
             padding: Insets::ZERO,
+            on_scroll: None,
+            grain: 0.0,
             build: Box::new(move |index| Box::new(build(index)) as Box<dyn Widget<Msg>>),
         }
     }
@@ -160,6 +166,29 @@ impl<Msg> ListView<Msg> {
         self.flex_grow = grow;
         self
     }
+
+    /// **Says where this list is** whenever it moves — a "back to top" button that
+    /// appears once it has gone down, a "row 1 240 of 5 000", a load-more when the end
+    /// comes into view.
+    ///
+    /// The list has to be reachable by name for a request to come back the other way:
+    /// wrap it in `keyed(k, …)` and address `k`, exactly as a focus request does.
+    ///
+    /// A message per frame while it moves. For a list of five thousand rows that is a
+    /// rebuild per frame of a fling, which is the honest cost of a view that reacts to
+    /// the offset — and [`ListView::notify_every`] is how a list that only wants to know
+    /// roughly where it is stops paying it.
+    pub fn on_scroll(mut self, on_scroll: impl Fn(crate::ScrollPosition) -> Msg + 'static) -> Self {
+        self.on_scroll = Some(Box::new(on_scroll));
+        self
+    }
+
+    /// Reports no more often than every `px` of movement — and **always** reports where
+    /// it comes to rest, however short the last step was.
+    pub fn notify_every(mut self, px: f32) -> Self {
+        self.grain = px.max(0.0);
+        self
+    }
 }
 
 impl<Msg> Widget<Msg> for ListView<Msg> {
@@ -205,6 +234,14 @@ impl<Msg> Widget<Msg> for ListView<Msg> {
 
     fn scroll_padding(&self) -> Insets {
         self.padding
+    }
+
+    fn on_scroll(&self, position: crate::ScrollPosition) -> Option<Msg> {
+        self.on_scroll.as_ref().map(|report| report(position))
+    }
+
+    fn scroll_grain(&self) -> f32 {
+        self.grain
     }
 }
 

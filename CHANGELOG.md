@@ -8,12 +8,121 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 487 so far, each documenting the objective, the alternatives
+> record — one per step, 494 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **A header that collapses as the page scrolls** (J494, answers #29): `ScrollOverlay`,
+  and `CollapsingHeader` over it. The issue put two shapes — the scrolling **protocol**, a
+  viewport laying out a sequence of pieces each given a remaining extent, or **one widget**
+  holding a header and a body — and asked for a decision. The answer is neither, because
+  the second one's real defect is not its size: a widget holding a header and a body cannot
+  be asked for a rule that fills, a shadow that appears, or a title that changes, and every
+  one of those would be another widget with another body inside it. So what was built is the
+  primitive that failure points at. `ScrollOverlay` is a scroll region with something drawn
+  over it, **built from where that region has got to**, and `CollapsingHeader` is thirty
+  lines over it. The region is the overlay's own **child**, so nothing is named or looked
+  up — a builder floating free of the region it watches would need a key, a lookup and an
+  order the walk happens to run in. It is handed the offset and not the extents, which are a
+  fact about a layout that has not finished, and it pays `LayoutBuilder`'s price: rebuilt
+  every frame the region moves, so no retained state. The header's expanded height is the
+  **body's own top padding** — the room a list was going to reserve anyway — rather than a
+  second number that has to agree with the first, and it gives way pixel for pixel with the
+  content rather than on a curve, because a header moving at another rate reads as two pages
+  sliding over each other. What this does **not** buy is a page that is a list, then a grid,
+  then a list, scrolling as one: that still wants the protocol, and nothing here is a step
+  towards it. The demo's licence screen — four hundred and forty-two packages, the longest
+  list here — has the header.
+
+- **An application can read a scroll position and command one** (J493, closes #25):
+  `ScrollPosition`, `Widget::on_scroll`, `ScrollTo` and `Command::scroll`. An offset could
+  be moved by a finger, a wheel, a fling and a spring, and by nothing an application could
+  write — so a "back to top" button, a chat that opens at its newest message, load-more at
+  the end of a long list and anything that reacts to how far a page has gone down were all
+  inexpressible. The part with the decision in it is the **shape**: the reference's
+  controller does not cross, since the offset belongs to the runtime and a view is rebuilt
+  from state every frame. What crosses is the split — reading is a **notification**
+  (`on_scroll`, a message when the offset changes) and commanding is a **request**
+  (`Command::scroll`, an effect), each taking the form this framework already has for
+  things of its kind. Both name a region by **key**, the same `keyed(k, …)` a focus request
+  uses, because the framework's own identities are hashes an application cannot know.
+  Reading is silent by default, so a fling over an ordinary list costs exactly what it did;
+  a listening region reports every frame it moves, which is what a fading bar needs, and
+  `notify_every(px)` is for the listeners that do not — suppressing the steps in between and
+  never the last one, so a coarse grain costs frames and never accuracy. A request needs no
+  storage to survive a rebuild: it is spent into an offset indistinguishable from one a
+  finger left, and a finger holding the content refuses it outright. The demo's log screen
+  says which of its five thousand rows is at the top, how far down it is, and offers the way
+  back once there is one worth offering.
+
+- **`LicensePage`, `AboutDialog` and `AboutListTile`** (J492, closes #43), and
+  `scripts/gen_licenses.py` behind them. Every application distributed anywhere has to show
+  the licences of what it links, and this framework gave it nothing to show them with. The
+  part with the decision in it is where the text comes from: the reference's registry that
+  packages add themselves to has no equivalent in Rust, so the list is read from **cargo** —
+  `cargo tree -e no-dev --target all` for what is linked, and the licence files each package
+  actually ships — and written to a file the application embeds and registers in one line.
+  It cannot then drift from what is linked without the file changing. Notices are grouped by
+  **text** rather than by licence, deliberately: collapsing forty Apache-2.0 files to one
+  canonical copy would save 340 KB and is the first step towards a list that does not say
+  what the application ships. Packages that declare a licence and ship no file are reported
+  as exactly that rather than dropped. Nothing is registered by default and an empty page
+  says so — a token entry for the framework would be a list that looks complete and is not.
+  The demo's settings screen has the row, the box and the page, over its own 442 packages.
+
+- **Undo and redo in a text field** (J491, closes #28): Ctrl+Z, and both spellings of redo
+  — Ctrl+Y and Ctrl+Shift+Z. The stack is the small half; the milestone is **what counts as
+  one step**, since a history that steps back one character at a time is nobody's idea of
+  undo. A run of the same kind of change, closed by a word boundary, by a pause of half a
+  second (the reference's number and the reference's reasoning), by moving the caret, or by
+  a chunk — a paste, a cut, a selection replaced, a line break — which is always its own
+  step. A composition is one step for the whole word, and the clock does not apply to it.
+  Each step carries the caret as well as the value, because an undo that leaves the caret at
+  the end has done half the job. Entries are recorded on the **evidence** of a changed
+  value, not on a key that usually changes one: a filter may refuse the character, a limit
+  swallow it, and an Enter submit instead of typing. `Widget::replace_value` came with it —
+  the value is the application's, so an undo goes back through a message like any other
+  edit.
+
+- **`ReorderableList`** (J490, #44): a list whose rows can be **dragged into a new
+  order**, which is what reordering looked like everywhere except a board. The gesture was
+  already the shell's and works for anything that declares a vertical reorder index, so what
+  this adds is the two decisions a list leaves open: **who may be grabbed** — a grip on a
+  desktop, a hold on a phone, the reference's own rule read from the platform — and **what
+  index comes back**, which is the index the row *ends up at* rather than the raw slot the
+  reference deprecated its own callback over. `Widget::reorder_droppable` came with it, so a
+  grip can be a source that is not a target, and `Widget::reorder_announcement`, so a drop
+  can be spoken as a position instead of "Card moved". The demo's task list reorders by its
+  grip — its hold and its sideways swipe are already spoken for.
+
+- **A carried item scrolls the list under it** (J490): while a row is being reordered or an
+  item carried, the area under it scrolls when what is being carried hangs past an edge —
+  the reference's law, speed proportional to the overhang and capped. This was the last
+  listed gap of `Draggable` (J285), and it closes for both because both hand the same
+  helper the same box.
+
+- **`FadeTransition`, `SlideTransition` and `ScaleTransition`** (J489, #32): the **explicit**
+  animations — driven by a value the application owns rather than by the framework's clock.
+  Each is a thin wrapper, because this framework's widgets already take numbers; what the
+  names buy is that the rule is written once, `SlideTransition::from_edge` above all. `eased`
+  comes with them. The other twelve of the reference's family map onto widgets that are
+  already here, are meaningless without a retained tree, or are their own milestone — the
+  table is in the module's documentation.
+
+- **Every demo screen is told how far in it is** (J489): the route's progress, which the
+  application owns and hands to the navigator at the same time. The task screen's words
+  slide up and fade in behind its avatar as the screen arrives.
+
+- **`AnimatedAlign` and `AnimatedSlide`** (J488, #30): a child that slides through the free
+  space to its new anchor, and one that slides by a multiple of its own box. They are one
+  mechanism — a node's box is offset by a pair of fractions, whichever of the two rules it
+  declares — so they share a timeline and a child moving diagonally arrives on both axes at
+  once. An anchor is interpolated in **its own** coordinates, so a directional one mirrors
+  as a whole in a right-to-left script rather than at its two ends. The demo's floating
+  action button slides out of the way of the quick-actions sheet.
 
 - **`IndexedStack`** (J487, closes #37): a stack that lays **every** child out and paints
   one — what a tabbed screen wants, and the opposite of `Offstage`, which takes the branch

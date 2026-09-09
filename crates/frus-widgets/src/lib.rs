@@ -31,6 +31,7 @@ mod checkbox;
 mod chip;
 mod clip;
 mod collapsible;
+mod collapsingheader;
 mod colorpicker;
 mod constraints;
 mod container;
@@ -80,6 +81,7 @@ mod kanban;
 mod kbd;
 mod keyed;
 mod layoutbuilder;
+pub mod licenses;
 mod list;
 mod listtile;
 /// Which language the interface is in: [`locale::Locale`], [`locale::resolve`] and
@@ -113,6 +115,7 @@ mod rating;
 pub mod refresh;
 mod relayout;
 mod reorder;
+mod reorderable;
 mod responsive;
 mod richtext;
 mod rotatedbox;
@@ -122,6 +125,8 @@ mod safearea;
 mod scaffold;
 mod scaffoldinfo;
 mod scroll;
+pub mod scrolloverlay;
+pub mod scrollposition;
 mod searchbar;
 mod searchview;
 mod segmented;
@@ -150,10 +155,12 @@ mod toasthost;
 mod togglebuttons;
 mod tooltip;
 mod transform;
+mod transitions;
 pub(crate) mod transparent;
 mod tree;
 mod twopane;
 mod ui;
+mod undo;
 mod widget;
 mod widgetstate;
 mod widgettheme;
@@ -161,7 +168,8 @@ mod widgettheme;
 pub use actionbutton::{BackButton, CloseButton, DrawerButton, EndDrawerButton};
 pub use alert::{Alert, AlertKind};
 pub use animated::{
-    AnimatedContainer, AnimatedOpacity, AnimatedPadding, AnimatedRotation, AnimatedScale, Opacity,
+    AnimatedAlign, AnimatedContainer, AnimatedOpacity, AnimatedPadding, AnimatedRotation,
+    AnimatedScale, AnimatedSlide, Opacity,
 };
 pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT, APP_BAR_MAX_TITLE_SCALE};
 pub use aspectratio::AspectRatio;
@@ -190,6 +198,7 @@ pub use chip::{
 };
 pub use clip::{ClipOval, ClipPath, ClipRRect};
 pub use collapsible::{ControlAffinity, ExpansionTile};
+pub use collapsingheader::{header_rect, CollapsingHeader, HeaderState, COLLAPSED_HEIGHT};
 pub use colorpicker::ColorPicker;
 pub use constraints::{
     AxisConstraint, ConstrainedBox, ConstraintsTransform, ConstraintsTransformBox, Intrinsic,
@@ -253,6 +262,7 @@ pub use kanban::{kanban_slot, Kanban};
 pub use kbd::Kbd;
 pub use keyed::Keyed;
 pub use layoutbuilder::LayoutBuilder;
+pub use licenses::{AboutDialog, AboutListTile, LicenseNotice, LicensePage, Package};
 pub use list::{ListView, VirtualList};
 pub use listtile::{
     ListTile, LIST_TILE_DENSE_HEIGHTS, LIST_TILE_HEIGHTS, LIST_TILE_MIN_LEADING_WIDTH,
@@ -293,6 +303,7 @@ pub use rating::Rating;
 pub use refresh::{RefreshIndicator, RefreshPhase, RefreshPull, RefreshSpec, Refreshable};
 pub use relayout::LayoutCache;
 pub use reorder::{reflow_reorder_cards, reflow_reorder_columns};
+pub use reorderable::{settled_index, ReorderGrab, ReorderableList};
 pub use responsive::{responsive, Responsive};
 pub use richtext::RichText;
 pub use rotatedbox::RotatedBox;
@@ -305,6 +316,8 @@ pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};
 pub use scaffoldinfo::{ScaffoldGuard, ScaffoldInfo, ScaffoldScope};
 pub use scroll::{Axis, SingleChildScrollView};
+pub use scrolloverlay::{OverlayBuilder, ScrollOverlay};
+pub use scrollposition::{ScrollPosition, ScrollTarget, ScrollTo};
 pub use searchbar::{SearchBar, SEARCH_BAR_HEIGHT, SEARCH_BAR_MAX_WIDTH, SEARCH_BAR_MIN_WIDTH};
 pub use searchview::{
     SearchAnchor, SEARCH_VIEW_FULL_SCREEN_HEADER, SEARCH_VIEW_MIN_HEIGHT, SEARCH_VIEW_MIN_WIDTH,
@@ -355,12 +368,14 @@ pub use togglebuttons::{
 };
 pub use tooltip::Tooltip;
 pub use transform::{FractionalTranslation, Transform};
+pub use transitions::{eased, FadeTransition, ScaleTransition, SlideFrom, SlideTransition};
 pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use ui::{
     build_deferred, build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget,
     subtree_ids, FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
 };
+pub use undo::{EditKind, EditSnapshot, UndoHistory, RUN_PAUSE};
 pub use widget::{CellFn, FillAxes, FilterContext, ReorderAxis, Widget};
 pub use widgetstate::{StateFilter, WidgetState, WidgetStateProperty, WidgetStates};
 // **Every** one of them, and not only the ones a doc link happened to need. A theme

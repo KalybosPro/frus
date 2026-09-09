@@ -86,6 +86,41 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.todos.retain(|t| t.id != id);
             Command::none()
         }
+        Msg::MoveTodo(from, to) => {
+            // The list showed the **filtered** rows, so the two indices count rows the
+            // model does not have side by side. They are turned back into identities
+            // before anything moves: the row that was carried, and the row it landed on.
+            // Moving by index in the model instead would put a task somewhere else
+            // entirely as soon as a filter was on — the failure that makes a reordering
+            // list feel haunted.
+            let shown: Vec<u64> = visible_todos(app).map(|t| t.id).collect();
+            let (Some(&moved), Some(&landed)) = (shown.get(from), shown.get(to)) else {
+                return Command::none();
+            };
+            let Some(source) = app.todos.iter().position(|t| t.id == moved) else {
+                return Command::none();
+            };
+            let task = app.todos.remove(source);
+            // The destination is found **after** the removal, in the list as it now is,
+            // for the same reason the widget hands over an index that already counts the
+            // row as gone.
+            let target = app
+                .todos
+                .iter()
+                .position(|t| t.id == landed)
+                .map(|at| if to > from { at + 1 } else { at })
+                .unwrap_or(app.todos.len());
+            app.todos.insert(target.min(app.todos.len()), task);
+            Command::none()
+        }
+        Msg::ToggleAbout => {
+            app.about_open = !app.about_open;
+            Command::none()
+        }
+        Msg::OpenLicence(which) => {
+            app.licence_open = which;
+            Command::none()
+        }
         Msg::SetFilter(filter) => {
             app.filter = filter;
             Command::none()
@@ -119,6 +154,19 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         Msg::ToggleScrollPhysics => {
             app.journal_bounces = !app.journal_bounces;
             Command::none()
+        }
+        Msg::JournalScrolled(position) => {
+            // The whole of what the application does with it: keep it. Everything the
+            // header and the button show is derived from this one value at build time,
+            // so there is one place where "where is the list" is answered.
+            app.journal_scroll = Some(position);
+            Command::none()
+        }
+        Msg::JournalToTop => {
+            // Not a change of state: the same list at the same offset, and yet this
+            // happens once. So it is an effect, and it names the region the way a focus
+            // request names a field.
+            Command::scroll(JOURNAL_LIST, ScrollTo::start())
         }
         Msg::ReloadJournal => {
             // A stand-in for the request a real application would fire here: the

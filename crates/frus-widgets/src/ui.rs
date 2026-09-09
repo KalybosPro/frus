@@ -1108,6 +1108,21 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, _)| *id)
     }
 
+    /// **Every** reorderable under `point`, topmost first.
+    ///
+    /// [`Self::reorderable_at`] answers *which one is on top*, which is the right question
+    /// for a press: whatever is nearest the finger is what the finger grabbed. A **drop**
+    /// asks a different one, because the thing on top may be a grip that nothing can be
+    /// dropped on — see [`Widget::reorder_droppable`] — and the row it belongs to, which
+    /// can, is the one behind it.
+    pub fn reorderables_at(&self, point: Point) -> impl Iterator<Item = WidgetId> + '_ {
+        self.reorderables
+            .iter()
+            .rev()
+            .filter(move |(_, rect)| rect.contains(point))
+            .map(|(id, _)| *id)
+    }
+
     /// Topmost **interactive** viewport (`InteractiveViewer`) under `point`: (id, its screen
     /// viewport). The shell routes panning and zooming to it.
     pub fn interactive_at(&self, point: Point) -> Option<(WidgetId, Rect)> {
@@ -3828,6 +3843,56 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 &child_rects,
                 &mut child_index,
             );
+        } else if let Some(build) = widget.scroll_overlay() {
+            // The **body first**, exactly as an ordinary single child: it keeps its own
+            // identity, registers itself as a scroll region in its own right, and consumes
+            // its rects from this array the way the generic walk would. Nothing about it
+            // changes for being watched.
+            let children = widget.children();
+            for (child_index, child) in children.iter().enumerate() {
+                self.walk(
+                    child.as_ref(),
+                    child_id(id, child_index, child.as_ref()),
+                    translation,
+                    clip,
+                    rects,
+                    index,
+                );
+            }
+            // Then the overlay, built from **where the body has got to this frame**. Read
+            // from the retained offset rather than from the registry the walk is still
+            // filling: the offset is written before the frame is drawn, so it is current,
+            // where the extents beside it are not yet known — which is why the builder is
+            // handed the one and not the other.
+            let offset = children
+                .first()
+                .map(|body| child_id(id, 0, body.as_ref()))
+                .and_then(|body| self.runtime.scroll.get(&body).copied())
+                .unwrap_or((0.0, 0.0));
+            let bounds = draw_rect;
+            let over = build(offset, Size::new(bounds.width, bounds.height));
+            // `child(1)`, beside the body's `child(0)` — or beside its key, which cannot
+            // collide with a positional identity. The overlay is laid out in a tree of its
+            // own, so it needs an identity of its own for hover, ink and the paint cache.
+            let over_id = id.child(1);
+            let over_rects = self.cached_rects(
+                over_id,
+                over.as_ref(),
+                // **Filled**, not constrained: an overlay covers the region it is over, and
+                // where inside that box its content sits is the caller's business — a
+                // column pins it to the top, an `Align` puts it anywhere else. The same
+                // rule a `layout_builder`'s content is given.
+                Constraints::filled(Size::new(bounds.width, bounds.height)),
+            );
+            let mut over_index = 0;
+            self.render_item(
+                over.as_ref(),
+                over_id,
+                (bounds.x, bounds.y),
+                clip.intersect(bounds),
+                &over_rects,
+                &mut over_index,
+            );
         } else if let Some(spec) = widget.dismissible() {
             // A dismissible item is a stack whose **last** layer — the item itself — is
             // offset by however far it has been swiped, and whose earlier layers, the
@@ -4084,6 +4149,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // would shift twice.
         if let (Some(geo), 1, false) = (widget.alignment_geometry(), children.len(), widget.stack())
         {
+            // An **animated** anchor moves through the runtime's pair rather than the
+            // widget's own numbers, in the anchor's own coordinates — so the reading
+            // direction is applied to the interpolated anchor below, and not to the two
+            // it came from.
+            let geo = match self.runtime.anim_offset(id) {
+                Some((x, y)) => geo.with_fractions(x, y),
+                None => geo,
+            };
             // Resolves the alignment (physical or directional) against the reading direction;
             // `resolve` produces a physical `Alignment` that the rest (with its RTL correction)
             // handles uniformly.
@@ -4118,6 +4191,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // has that the widget did not: a widget cannot multiply by a width it was never
         // told.
         if let Some((fx, fy)) = widget.translate_fraction() {
+            // The same tween, on the other offset rule: a slide that animates reads the
+            // runtime's pair, and one that does not reads its own.
+            let (fx, fy) = self.runtime.anim_offset(id).unwrap_or((fx, fy));
             let child = rects.get(child_index).copied().unwrap_or(container);
             let tx = child.width * fx;
             off.0 += if self.rtl() { -tx } else { tx };

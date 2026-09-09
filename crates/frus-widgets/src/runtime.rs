@@ -281,6 +281,28 @@ impl PaddingAnim {
     }
 }
 
+/// Timeline of an animated **offset pair** (`Container::animated_alignment`,
+/// `FractionalTranslation::animated`): the two fractions a node's offset rule is made of,
+/// interpolated together so a child moving diagonally arrives on both axes at once.
+#[derive(Copy, Clone, Debug, PartialEq)]
+struct OffsetAnim {
+    current: (f32, f32),
+    from: (f32, f32),
+    to: (f32, f32),
+    elapsed: f32,
+}
+
+impl OffsetAnim {
+    fn settled(o: (f32, f32)) -> Self {
+        Self {
+            current: o,
+            from: o,
+            to: o,
+            elapsed: 0.0,
+        }
+    }
+}
+
 /// **The numbers a paint-time transform is made of** that can sensibly be interpolated:
 /// a scale on each axis and a turn.
 ///
@@ -485,6 +507,12 @@ pub struct Runtime {
     /// The page each paged view was last **reported as showing**, so that
     /// `on_page_changed` fires on a change and not on every frame of the motion.
     pub page_shown: HashMap<WidgetId, usize>,
+    /// The offset each scroll region was last **reported at**, so that
+    /// [`crate::Widget::on_scroll`] fires on a change and not on every frame, and so
+    /// that a region's grain is measured from what the application was actually told
+    /// rather than from the previous frame — otherwise a slow drag would never travel
+    /// a whole grain in one frame and would never be reported at all.
+    pub scroll_reported: HashMap<WidgetId, (f32, f32)>,
     /// The drop target a drag is currently **over**, when it would accept it. The
     /// target paints its own "drop it here" state from this, through
     /// [`crate::interaction::Status::drag_over`] — the shell decides *which* target,
@@ -507,6 +535,12 @@ pub struct Runtime {
     pub interactive_velocity: HashMap<WidgetId, (f32, f32)>,
     /// Edit state, per input field.
     pub edits: HashMap<WidgetId, Edit>,
+    /// **Undo history**, per input field: what it was, and what it was about to be.
+    ///
+    /// Beside `edits` rather than inside it, because they are different things kept for
+    /// different reasons — a caret is where the field is now, a history is everywhere it
+    /// has been — and because `Edit` is `Copy` and a history is not.
+    pub undo: HashMap<WidgetId, crate::undo::UndoHistory>,
     /// Animation progresses (hover/focus/opacity), per widget.
     pub anims: HashMap<WidgetId, Anim>,
     /// The widgets' own animated values (`Widget::anim_target`), per widget — each
@@ -520,6 +554,8 @@ pub struct Runtime {
     radii: HashMap<WidgetId, RadiusAnim>,
     /// Animated paddings (`Container::animated_padding`), per widget — injected at layout.
     paddings: HashMap<WidgetId, PaddingAnim>,
+    /// Animated offset pairs (an alignment, a slide), per widget — read at paint.
+    offsets: HashMap<WidgetId, OffsetAnim>,
     /// Animated transforms (`Transform::animated`), per widget — read at paint.
     transforms: HashMap<WidgetId, TransformAnim>,
     /// Widgets present at the previous frame (to detect mounts).
@@ -995,6 +1031,90 @@ impl Runtime {
     /// A widget's animated padding, if in transition (`None` otherwise).
     pub fn anim_padding(&self, id: WidgetId) -> Option<Insets> {
         self.paddings.get(&id).map(|p| p.current)
+    }
+
+    /// A widget's animated offset pair, if in transition (`None` otherwise).
+    pub fn anim_offset(&self, id: WidgetId) -> Option<(f32, f32)> {
+        self.offsets.get(&id).map(|o| o.current)
+    }
+
+    /// Drives every animated offset pair towards the target its widget declares
+    /// (`Widget::anim_offset`), following its duration/curve. On mount: adopts the target
+    /// with no transition. Returns `true` if one is still moving.
+    ///
+    /// The pair belongs to whichever **offset rule** the node declares — its alignment,
+    /// or its slide — which is why one quantity serves both: a node has one of those
+    /// rules, and the wrappers in `animated.rs` each give it a node of its own.
+    pub fn advance_offsets<Msg>(&mut self, root: &dyn crate::widget::Widget<Msg>, dt: f32) -> bool {
+        fn collect<Msg>(
+            widget: &dyn crate::widget::Widget<Msg>,
+            id: WidgetId,
+            still: bool,
+            out: &mut Vec<(WidgetId, (f32, f32), f32, Curve)>,
+        ) {
+            if let Some(target) = widget.anim_offset() {
+                out.push((
+                    id,
+                    target,
+                    if still {
+                        0.0
+                    } else {
+                        widget.anim_duration().max(0.0)
+                    },
+                    widget.anim_curve(),
+                ));
+            }
+            for (index, child) in widget.children().iter().enumerate() {
+                collect(
+                    child.as_ref(),
+                    crate::ui::child_id(id, index, child.as_ref()),
+                    still,
+                    out,
+                );
+            }
+        }
+        let mut targets: Vec<(WidgetId, (f32, f32), f32, Curve)> = Vec::new();
+        collect(root, WidgetId::ROOT, self.still, &mut targets);
+
+        let present: std::collections::HashSet<WidgetId> =
+            targets.iter().map(|(id, ..)| *id).collect();
+        self.offsets.retain(|id, _| present.contains(id));
+
+        let mut animating = false;
+        for (id, target, duration, curve) in targets {
+            match self.offsets.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    let o = e.get_mut();
+                    if o.to != target {
+                        o.from = o.current;
+                        o.to = target;
+                        o.elapsed = 0.0;
+                    }
+                    if o.from == o.to {
+                        o.current = o.to;
+                    } else {
+                        o.elapsed += dt;
+                        let t = if duration > 0.0 {
+                            (o.elapsed / duration).clamp(0.0, 1.0)
+                        } else {
+                            1.0
+                        };
+                        let e = curve.transform(t);
+                        o.current = (
+                            o.from.0 + (o.to.0 - o.from.0) * e,
+                            o.from.1 + (o.to.1 - o.from.1) * e,
+                        );
+                        if t < 1.0 {
+                            animating = true;
+                        }
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(OffsetAnim::settled(target));
+                }
+            }
+        }
+        animating
     }
 
     /// Drives every animated padding towards the target its widget declares
@@ -1503,9 +1623,142 @@ impl Runtime {
         changed
     }
 
+    /// Is region `id` **still**? Nothing is driving it: no finger, no fling, and no
+    /// spring left to run.
+    ///
+    /// The three writers of an offset, asked in one place. A caller that asked only two
+    /// of them would call a region at rest in the middle of a fling.
+    pub fn scroll_at_rest(&self, id: WidgetId) -> bool {
+        self.scroll_held != Some(id)
+            && !self.scroll_ballistic.contains_key(&id)
+            && !self.scroll_target.contains_key(&id)
+    }
+
+    /// The scroll regions whose offset is worth reporting this frame, and where each is
+    /// — the regions' half of [`crate::Widget::on_scroll`]. `grain` answers
+    /// [`crate::Widget::scroll_grain`] for a region; a caller turns each result into a
+    /// message, the runtime holding none of its own.
+    ///
+    /// Three rules, and each of them is a decision:
+    ///
+    /// - **A region appearing is not a movement** — as long as it appears where an
+    ///   application would assume it is. A region seen for the first time at rest at
+    ///   `(0, 0)` is recorded silently: telling an application on the first frame of
+    ///   every screen that its list is at the top would only invite it to answer, and it
+    ///   already knew. A region that appears **somewhere else** — restored, or opened at
+    ///   a box it was asked to keep in view — is reported, because that one is news.
+    /// - **A grain suppresses the reports in between, never the last one.** While the
+    ///   region is moving, nothing under `grain` pixels from the last report is sent; the
+    ///   moment it comes to rest, a position different from the last reported one is sent
+    ///   whatever the distance. A coarse grain therefore costs frames, never accuracy.
+    /// - **The baseline is what was reported**, not the previous frame. Measuring
+    ///   against the previous frame would let a slow drag creep the whole way down a
+    ///   list, a fraction of a grain at a time, without ever saying so.
+    pub fn scroll_changes(
+        &mut self,
+        regions: &[Scrollable],
+        grain: impl Fn(WidgetId) -> f32,
+    ) -> Vec<(WidgetId, crate::scrollposition::ScrollPosition)> {
+        let mut changed = Vec::new();
+        for area in regions {
+            let offset = self.scroll.get(&area.id).copied().unwrap_or((0.0, 0.0));
+            let previous = self.scroll_reported.get(&area.id).copied();
+            let report = match previous {
+                None => offset != (0.0, 0.0),
+                Some(previous) if previous == offset => false,
+                Some(previous) => {
+                    let grain = grain(area.id).max(0.0);
+                    let moved = (offset.0 - previous.0)
+                        .abs()
+                        .max((offset.1 - previous.1).abs());
+                    moved >= grain || self.scroll_at_rest(area.id)
+                }
+            };
+            if report {
+                changed.push((
+                    area.id,
+                    crate::scrollposition::ScrollPosition::of(area, offset),
+                ));
+            }
+            if report || previous.is_none() {
+                self.scroll_reported.insert(area.id, offset);
+            }
+        }
+        self.scroll_reported
+            .retain(|id, _| regions.iter().any(|area| area.id == *id));
+        changed
+    }
+
+    /// Moves region `area` where `request` asks. `true` when it was acted on.
+    ///
+    /// **A finger refuses it.** An offset has one owner at a time, and while a hand is
+    /// on the content that owner is the hand — a list that jumped out from under a
+    /// finger because a timer fired would be the framework overruling the reader.
+    pub fn scroll_to(
+        &mut self,
+        area: &Scrollable,
+        request: crate::scrollposition::ScrollTo,
+    ) -> bool {
+        if request.is_empty() || self.scroll_held == Some(area.id) {
+            return false;
+        }
+        let current = self.scroll.get(&area.id).copied().unwrap_or((0.0, 0.0));
+        let to = request.resolve(area, current);
+        // A fling in flight has just been overruled, animated or not: the request is
+        // the more recent statement of where this list should be.
+        self.scroll_ballistic.remove(&area.id);
+        if request.animate {
+            self.scroll_target.insert(area.id, to);
+        } else {
+            self.scroll.insert(area.id, to);
+            self.scroll_target.remove(&area.id);
+            self.scroll_velocity.remove(&area.id);
+        }
+        true
+    }
+
     /// A finger takes hold of `id`: from now until [`Runtime::release_scroll`],
     /// this region's offset moves only when the finger says so. Any fling in
     /// flight is caught, since the finger has just overruled it.
+    /// Records a change to field `id`, which **was** `before`, `since` seconds after the
+    /// last one — see [`crate::UndoHistory::record`] for what counts as one step.
+    pub fn record_edit(
+        &mut self,
+        id: WidgetId,
+        before: crate::undo::EditSnapshot,
+        kind: crate::undo::EditKind,
+        since: f32,
+    ) {
+        self.undo.entry(id).or_default().record(before, kind, since);
+    }
+
+    /// Ends the run in progress in field `id`: the caret moved, so what is typed next is a
+    /// step of its own.
+    pub fn close_edit_run(&mut self, id: WidgetId) {
+        if let Some(history) = self.undo.get_mut(&id) {
+            history.close_run();
+        }
+    }
+
+    /// Steps field `id` back one change, `current` being where it is now. `None` when
+    /// there is nothing to undo.
+    pub fn undo_edit(
+        &mut self,
+        id: WidgetId,
+        current: crate::undo::EditSnapshot,
+    ) -> Option<crate::undo::EditSnapshot> {
+        self.undo.get_mut(&id)?.undo(current)
+    }
+
+    /// Steps field `id` forward again. `None` when nothing was undone.
+    pub fn redo_edit(
+        &mut self,
+        id: WidgetId,
+        current: crate::undo::EditSnapshot,
+    ) -> Option<crate::undo::EditSnapshot> {
+        self.undo.get_mut(&id)?.redo(current)
+    }
+
     pub fn hold_scroll(&mut self, id: WidgetId) {
         self.scroll_held = Some(id);
     }

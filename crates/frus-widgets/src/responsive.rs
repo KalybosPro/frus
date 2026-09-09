@@ -260,8 +260,20 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_page_changed(page))
     }
 
+    fn on_scroll(&self, position: crate::ScrollPosition) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_scroll(position))
+    }
+
+    fn scroll_grain(&self) -> f32 {
+        self.inner.as_ref().map_or(0.0, |w| w.scroll_grain())
+    }
+
     fn layout_builder(&self) -> Option<&dyn Fn(frus_core::Size) -> Box<dyn Widget<Msg>>> {
         self.inner.as_ref().and_then(|w| w.layout_builder())
+    }
+
+    fn scroll_overlay(&self) -> Option<&crate::scrolloverlay::OverlayBuilder<Msg>> {
+        self.inner.as_ref().and_then(|w| w.scroll_overlay())
     }
 
     fn draggable(&self) -> bool {

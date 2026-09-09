@@ -13,12 +13,12 @@
 //!
 //! With no GPU adapter the tests skip themselves, the harness returning `None`.
 
-use frus_core::{Color, ImageData, ImageHandle, Size, SizeClass};
+use frus_core::{Alignment, Color, Curve, ImageData, ImageHandle, Size, SizeClass};
 use frus_test::{Snapshot, Stage};
 use frus_widgets::{
-    text, Align, Button, Container, Dismissible, DragTarget, Draggable, Flex, GlowEdge, Hero,
-    Image, Keyed, LayoutBuilder, NavScaffold, Navigator, PageView, Point, RefreshIndicator,
-    Responsive, SingleChildScrollView, Skeleton, Tooltip,
+    text, Align, AnimatedSlide, Button, Container, Dismissible, DragTarget, Draggable, Flex,
+    GlowEdge, Hero, Image, Keyed, LayoutBuilder, NavScaffold, Navigator, PageView, Point,
+    RefreshIndicator, Responsive, SingleChildScrollView, Skeleton, Tooltip,
 };
 
 fn golden(name: &str) -> String {
@@ -558,4 +558,78 @@ fn an_image_half_way_over_its_placeholder() {
     // curve spends its time arriving. Far enough that both are plainly there.
     stage.advance(&frame(true), frus_widgets::IMAGE_FADE / 5.0);
     accept("image_fading_in", stage.render(&frame(true)));
+}
+
+/// **The two offset animations, caught halfway.** Their picture is not a function of their
+/// arguments either: both endpoints are perfectly ordinary boxes, and everything the
+/// milestone is about happens between them.
+///
+/// Top: an anchor crossing its box. The mark is settled against the start edge and then
+/// asked for the end one, and the frame is taken at half the duration — so it is in the
+/// middle, which is a place neither endpoint puts it.
+///
+/// Bottom: a panel sliding by its own width, half done, inside a box that clips. Half of
+/// it is off the left edge; the number that put it there is `-0.5`, and nothing in the
+/// test knows how wide the panel ended up.
+#[test]
+fn two_offsets_caught_half_way() {
+    let mark = || {
+        Container::<()>::new()
+            .width(56.0)
+            .height(28.0)
+            .radius(6.0)
+            .color(Color::WHITE.fade(0.55))
+    };
+    let panel = || {
+        Container::<()>::new()
+            .width(200.0)
+            .height(28.0)
+            .radius(6.0)
+            .color(Color::WHITE.fade(0.35))
+    };
+    let screen = |open: bool| {
+        Container::<()>::new().padding(14.0).child(
+            Flex::column()
+                .gap(16.0)
+                .align(Align::Start)
+                .child(
+                    Container::new()
+                        .width(200.0)
+                        .height(40.0)
+                        .radius(10.0)
+                        .color(Color::WHITE.fade(0.10))
+                        .animated_alignment(
+                            if open {
+                                Alignment::CENTER_RIGHT
+                            } else {
+                                Alignment::CENTER_LEFT
+                            },
+                            0.20,
+                            Curve::Linear,
+                        )
+                        .child(mark()),
+                )
+                .child(
+                    Container::new()
+                        .width(200.0)
+                        .height(28.0)
+                        .radius(6.0)
+                        .color(Color::WHITE.fade(0.10))
+                        .clip()
+                        .child(AnimatedSlide::new(
+                            if open { 0.0 } else { -1.0 },
+                            0.0,
+                            0.20,
+                            Curve::Linear,
+                            panel(),
+                        )),
+                ),
+        )
+    };
+
+    let mut stage = Stage::new(230, 120);
+    stage.settle(&screen(false));
+    // Half of the two-tenths of a second both of them run for.
+    stage.advance(&screen(true), 0.10);
+    accept("offsets_half_way", stage.render(&screen(true)));
 }

@@ -57,6 +57,11 @@ pub struct SingleChildScrollView<Msg> {
     reverse: bool,
     /// Room around the content, inside the viewport; see [`SingleChildScrollView::padding`].
     padding: Insets,
+    /// Told where this area is whenever it moves; see [`SingleChildScrollView::on_scroll`].
+    on_scroll: Option<Box<dyn Fn(crate::ScrollPosition) -> Msg>>,
+    /// How far it must move before it says so again; see
+    /// [`SingleChildScrollView::notify_every`].
+    grain: f32,
     content: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -75,6 +80,8 @@ impl<Msg> SingleChildScrollView<Msg> {
             thumb_visibility: None,
             reverse: false,
             padding: Insets::ZERO,
+            on_scroll: None,
+            grain: 0.0,
             content: Vec::new(),
         }
     }
@@ -182,6 +189,27 @@ impl<Msg> SingleChildScrollView<Msg> {
         self
     }
 
+    /// **Says where this area is** whenever it moves — a "back to top" button that
+    /// appears once the page has gone down, a rule that fills as it goes, a load-more
+    /// when the end comes into view.
+    ///
+    /// The area has to be reachable by name for a request to come back the other way:
+    /// wrap it in `keyed(k, …)` and address `k`, exactly as a focus request does.
+    ///
+    /// A message per frame while it moves, which is what a bar fading in needs and what
+    /// a load-more does not; [`SingleChildScrollView::notify_every`] is for the second.
+    pub fn on_scroll(mut self, on_scroll: impl Fn(crate::ScrollPosition) -> Msg + 'static) -> Self {
+        self.on_scroll = Some(Box::new(on_scroll));
+        self
+    }
+
+    /// Reports no more often than every `px` of movement — and **always** reports where
+    /// it comes to rest, however short the last step was.
+    pub fn notify_every(mut self, px: f32) -> Self {
+        self.grain = px.max(0.0);
+        self
+    }
+
     /// Sets the scrollable content.
     pub fn child(mut self, content: impl Widget<Msg> + 'static) -> Self {
         self.content.clear();
@@ -276,6 +304,14 @@ impl<Msg: Clone> Widget<Msg> for SingleChildScrollView<Msg> {
 
     fn scroll_padding(&self) -> Insets {
         self.padding
+    }
+
+    fn on_scroll(&self, position: crate::ScrollPosition) -> Option<Msg> {
+        self.on_scroll.as_ref().map(|report| report(position))
+    }
+
+    fn scroll_grain(&self) -> f32 {
+        self.grain
     }
 }
 

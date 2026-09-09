@@ -1,0 +1,13 @@
+# The licence list is **data, not source**: each notice is a byte length followed by
+# exactly that many bytes, so a checkout that rewrote its line endings would move every
+# entry's text off its own length and the file would read as no notices at all. That is
+# what it did on Windows, silently, until a test said four hundred packages do not fit in
+# zero notices. It must arrive exactly as `scripts/gen_licenses.py` wrote it.
+crates/frus-demo/assets/licenses.txt -text
+
+# Said rather than detected: a golden that a checkout touched is a golden that fails for a
+# reason nobody would look for in the rasteriser.
+*.png binary
+*.ttf binary
+*.otf binary
+*.dex binary

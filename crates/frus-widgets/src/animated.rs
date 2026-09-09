@@ -73,6 +73,12 @@ macro_rules! forward_to_container {
             fn anim_padding(&self) -> Option<frus_core::Insets> {
                 Widget::anim_padding(&self.inner)
             }
+            // And this one is why that comment is here: `AnimatedAlign` is the first
+            // wrapper to set an offset, and a hook the macro does not forward is a value
+            // the runtime never finds.
+            fn anim_offset(&self) -> Option<(f32, f32)> {
+                Widget::anim_offset(&self.inner)
+            }
             fn anim_duration(&self) -> f32 {
                 Widget::anim_duration(&self.inner)
             }
@@ -228,6 +234,135 @@ impl<Msg: Clone + 'static> AnimatedContainer<Msg> {
 }
 
 forward_to_container!(AnimatedContainer);
+
+/// **Slides its child** to each new anchor instead of letting it jump across the box. The
+/// reference's `AnimatedAlign`.
+///
+/// The anchor is where the child sits in the free space around it, so this is the widget
+/// for a thing that moves *within* something — a thumb crossing a track, a badge changing
+/// corner, a label that settles against the other edge when a panel opens.
+///
+/// ```
+/// use frus_core::{Alignment, Curve};
+/// use frus_widgets::{AnimatedAlign, Container};
+///
+/// let on = true;
+/// let _thumb: AnimatedAlign<()> = AnimatedAlign::new(
+///     if on { Alignment::CENTER_RIGHT } else { Alignment::CENTER_LEFT },
+///     0.15,
+///     Curve::ease_out(),
+///     Container::new().width(20.0).height(20.0),
+/// );
+/// ```
+///
+/// The **kind** of anchor is kept the whole way: a directional one stays directional, so
+/// in a right-to-left script the whole movement mirrors rather than the two ends
+/// mirroring separately and the child crossing the box the wrong way.
+///
+/// Unlike a scale's pivot, an anchor **is** the quantity here — it says where the child
+/// is, not where the maths starts from — which is why this one animates and that one does
+/// not.
+pub struct AnimatedAlign<Msg> {
+    inner: Container<Msg>,
+}
+
+impl<Msg: Clone + 'static> AnimatedAlign<Msg> {
+    /// Anchors `child` at `alignment`, moving there over `duration`.
+    pub fn new(
+        alignment: impl Into<frus_core::AlignmentGeometry>,
+        duration: f32,
+        curve: Curve,
+        child: impl Widget<Msg> + 'static,
+    ) -> Self {
+        Self {
+            inner: Container::new()
+                .animated_alignment(alignment, duration, curve)
+                .child(child),
+        }
+    }
+}
+
+forward_to_container!(AnimatedAlign);
+
+/// **Slides its child by a fraction of its own size**, at paint time, moving there rather
+/// than jumping. The reference's `AnimatedSlide`.
+///
+/// `(1.0, 0.0)` is one whole width to the right — exactly clear of where the child was,
+/// whatever that width turns out to be. That is the difference between this and an
+/// animated `Transform::translate`: the number the caller writes is a multiple of a size
+/// the **layout** decides, so a panel can be parked off its own edge without anybody
+/// having to know how wide it ended up.
+///
+/// ```
+/// use frus_core::Curve;
+/// use frus_widgets::{AnimatedSlide, Text};
+///
+/// let open = true;
+/// let _panel: AnimatedSlide<()> = AnimatedSlide::new(
+///     if open { 0.0 } else { -1.0 },
+///     0.0,
+///     0.25,
+///     Curve::ease_out(),
+///     Text::new("Filters"),
+/// );
+/// ```
+///
+/// Layout is untouched: the box stays where it was put and the neighbours do not move, so
+/// a child sliding out leaves its space behind rather than dragging the page after it.
+pub struct AnimatedSlide<Msg> {
+    inner: Box<dyn Widget<Msg>>,
+}
+
+impl<Msg: Clone + 'static> AnimatedSlide<Msg> {
+    /// Slides `child` towards `fx` widths across and `fy` heights down.
+    pub fn new(
+        fx: f32,
+        fy: f32,
+        duration: f32,
+        curve: Curve,
+        child: impl Widget<Msg> + 'static,
+    ) -> Self {
+        Self {
+            inner: Box::new(
+                crate::FractionalTranslation::new(fx, fy)
+                    .animated(duration, curve)
+                    .child(child),
+            ),
+        }
+    }
+}
+
+impl<Msg> AnimatedSlide<Msg> {
+    /// A transparent wrapper: the box is the child's. In an impl with no bounds, because
+    /// the forwarding macro's own impl has none — a `restyle` declared beside the
+    /// constructors could not be reached from it.
+    fn restyle(&self, base: Style) -> Style {
+        base
+    }
+}
+
+crate::transparent::forward_transparent!(AnimatedSlide {
+    /// Every one of these is **forwarded**: a paint-time slide is not an identity, not a
+    /// place, not a theme and not a surface. It is its child, moving.
+    fn key(&self) -> Option<u64> {
+        self.inner.key()
+    }
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        self.inner.positioned()
+    }
+    fn theme_override(
+        &self,
+        inherited: &crate::theme::Theme,
+    ) -> Option<Box<crate::theme::Theme>> {
+        self.inner.theme_override(inherited)
+    }
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        self.inner.media_override(inherited)
+    }
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        self.inner.scaffold_override()
+    }
+});
 
 #[cfg(test)]
 mod tests {
@@ -627,5 +762,168 @@ mod implicit_tests {
         let fresh = Runtime::default();
         let painted = matrix_of(&fresh, &scaled(3.0)).expect("a transformed layer");
         assert!((painted - 3.0).abs() < 1e-2, "the target: {painted}");
+    }
+
+    /// A tree with one animated anchor on it, so the runtime has a pair to drive.
+    fn anchored(to: frus_core::Alignment) -> AnimatedAlign<()> {
+        AnimatedAlign::new(to, 0.10, Curve::Linear, Text::new("x"))
+    }
+
+    /// **Mounted, mid-flight, at rest**, for the anchor.
+    #[test]
+    fn an_anchor_mounts_settled_moves_and_arrives() {
+        let mut rt = Runtime::default();
+        assert!(
+            !rt.advance_offsets(&anchored(frus_core::Alignment::CENTER_LEFT), 1.0),
+            "a mount is not a transition"
+        );
+        let id = WidgetId::ROOT;
+        assert_eq!(
+            rt.anim_offset(id),
+            Some((-1.0, 0.0)),
+            "and it adopts the anchor whole"
+        );
+
+        // Halfway along a linear curve of 0.10 s: halfway from the left edge to the right.
+        assert!(rt.advance_offsets(&anchored(frus_core::Alignment::CENTER_RIGHT), 0.05));
+        let mid = rt.anim_offset(id).expect("in flight");
+        assert!(mid.0.abs() < 1e-3, "at the centre on the way past: {mid:?}");
+        assert_eq!(mid.1, 0.0, "and it did not drift vertically");
+
+        rt.advance_offsets(&anchored(frus_core::Alignment::CENTER_RIGHT), 1.0);
+        assert_eq!(rt.anim_offset(id), Some((1.0, 0.0)));
+        assert!(
+            !rt.advance_offsets(&anchored(frus_core::Alignment::CENTER_RIGHT), 0.05),
+            "and stops asking for frames once it is there"
+        );
+    }
+
+    /// And for the slide, whose pair is a multiple of the child's own box rather than a
+    /// share of the free space around it.
+    #[test]
+    fn a_slide_mounts_settled_moves_and_arrives() {
+        let slid = |fx: f32| -> AnimatedSlide<()> {
+            AnimatedSlide::new(fx, 0.0, 0.10, Curve::Linear, Text::new("x"))
+        };
+        let mut rt = Runtime::default();
+        assert!(!rt.advance_offsets(&slid(-1.0), 1.0));
+        let id = WidgetId::ROOT;
+        assert_eq!(rt.anim_offset(id), Some((-1.0, 0.0)));
+
+        assert!(rt.advance_offsets(&slid(0.0), 0.05));
+        let mid = rt.anim_offset(id).expect("in flight");
+        assert!((mid.0 + 0.5).abs() < 1e-3, "halfway back: {mid:?}");
+
+        rt.advance_offsets(&slid(0.0), 1.0);
+        assert_eq!(rt.anim_offset(id), Some((0.0, 0.0)));
+    }
+
+    /// **And the paint reads it** — the question the value tests above cannot ask. A
+    /// tween the walk never consults moves correctly and changes nothing on the screen,
+    /// and this framework has shipped that bug before.
+    ///
+    /// Both rules are checked, because they are two separate lines in the walk: an
+    /// anchor's box slides through the free space, and a slide's box moves by its own
+    /// width.
+    #[test]
+    fn the_paint_uses_the_tweened_offset_and_not_the_target() {
+        let mark = |root: &dyn Widget<()>, rt: &Runtime| {
+            let ui = build_ui(root, Size::new(100.0, 40.0), rt, &Theme::default());
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(rect.x),
+                    _ => None,
+                })
+                .expect("the mark")
+        };
+        let red = frus_core::Color::rgb(1.0, 0.0, 0.0);
+        let mark_widget = || {
+            crate::Container::<()>::new()
+                .width(20.0)
+                .height(20.0)
+                .color(red)
+        };
+
+        // An anchor crossing a 100 px box: at the halfway point the 20 px mark sits at 40,
+        // the middle of the 80 px of free space — not at 0 and not at 80.
+        let aligned = |to: frus_core::Alignment| {
+            crate::Container::<()>::new()
+                .width(100.0)
+                .height(40.0)
+                .animated_alignment(to, 0.10, Curve::Linear)
+                .child(mark_widget())
+        };
+        let mut rt = Runtime::default();
+        rt.advance_offsets(&aligned(frus_core::Alignment::CENTER_LEFT), 1.0);
+        rt.advance_offsets(&aligned(frus_core::Alignment::CENTER_RIGHT), 0.05);
+        let x = mark(&aligned(frus_core::Alignment::CENTER_RIGHT), &rt);
+        assert!(
+            (x - 40.0).abs() < 0.5,
+            "the anchor's tween reached the paint: {x}"
+        );
+
+        // A slide of one whole width, half done: the 20 px mark has moved 10.
+        let slid = |fx: f32| AnimatedSlide::new(fx, 0.0, 0.10, Curve::Linear, mark_widget());
+        let mut rt = Runtime::default();
+        rt.advance_offsets(&slid(0.0), 1.0);
+        rt.advance_offsets(&slid(1.0), 0.05);
+        let x = mark(&slid(1.0), &rt);
+        assert!(
+            (x - 10.0).abs() < 0.5,
+            "the slide's tween reached the paint: {x}"
+        );
+    }
+
+    /// The anchor is interpolated in **its own** coordinates, so a directional one stays
+    /// directional the whole way: in a right-to-left script the mirrored movement is the
+    /// mirror of the movement, rather than a slide between two already-mirrored ends.
+    #[test]
+    fn a_directional_anchor_mirrors_as_a_whole() {
+        let start = frus_core::AlignmentDirectional::CENTER_START;
+        let end = frus_core::AlignmentDirectional::CENTER_END;
+        let aligned = |to: frus_core::AlignmentDirectional| {
+            crate::Container::<()>::new()
+                .width(100.0)
+                .height(40.0)
+                .animated_alignment(to, 0.10, Curve::Linear)
+                .child(
+                    crate::Container::<()>::new()
+                        .width(20.0)
+                        .height(20.0)
+                        .color(frus_core::Color::rgb(1.0, 0.0, 0.0)),
+                )
+        };
+        let mut rt = Runtime::default();
+        rt.advance_offsets(&aligned(start), 1.0);
+        // A quarter of the way from the start edge towards the end one.
+        rt.advance_offsets(&aligned(end), 0.025);
+
+        let x_in = |rtl: bool| {
+            let theme = match rtl {
+                true => Theme::default().rtl(),
+                false => Theme::default(),
+            };
+            let ui = build_ui(&aligned(end), Size::new(100.0, 40.0), &rt, &theme);
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(rect.x),
+                    _ => None,
+                })
+                .expect("the mark")
+        };
+        let ltr = x_in(false);
+        let rtl = x_in(true);
+        assert!(
+            (ltr - 20.0).abs() < 0.5,
+            "a quarter across, from the left: {ltr}"
+        );
+        assert!(
+            (rtl - 60.0).abs() < 0.5,
+            "and the same quarter from the right: {rtl}"
+        );
     }
 }

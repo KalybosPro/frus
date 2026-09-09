@@ -16,6 +16,9 @@ pub(crate) enum Msg {
     /// A task dropped on one of the two state zones: set it done, or set it active.
     SetTodoDone(u64, bool),
     DeleteTodo(u64),
+    /// A task dragged into a new place in the list: `(from, to)`, counted in the rows
+    /// **on screen** — which under a filter are not the rows in the model.
+    MoveTodo(usize, usize),
     SetFilter(Filter),
     AskClearDone,
     ConfirmClearDone,
@@ -36,12 +39,20 @@ pub(crate) enum Msg {
     CityQuery(String),
     SetCity(usize),
     Push(Route),
+    /// Opens or closes the about box.
+    ToggleAbout,
+    /// Opens one package's licence on the licence page, or goes back to the list.
+    OpenLicence(Option<usize>),
     Pop,
     /// Flips the log list between the two scroll behaviours, so the difference can
     /// be felt side by side on one device.
     ToggleScrollPhysics,
     /// The log list was pulled past its top edge: reload it.
     ReloadJournal,
+    /// The log list has moved: where it is now, straight from the region that moved.
+    JournalScrolled(ScrollPosition),
+    /// Back to the top of the log list, with an animation.
+    JournalToTop,
     /// A tick of the stopwatch (the timer subscription).
     Tick,
     /// Starts/stops the stopwatch.

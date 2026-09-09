@@ -354,6 +354,33 @@ impl AlignmentGeometry {
     }
 }
 
+impl AlignmentGeometry {
+    /// This anchor's two fractions, **in its own coordinates**: `x` for a physical
+    /// anchor, start-to-end for a directional one.
+    pub fn fractions(self) -> (f32, f32) {
+        match self {
+            AlignmentGeometry::Physical(a) => (a.x, a.y),
+            AlignmentGeometry::Directional(d) => (d.x_start, d.y),
+        }
+    }
+
+    /// The same **kind** of anchor with different fractions.
+    ///
+    /// This is what an animation between two anchors interpolates. It stays in the
+    /// anchor's own coordinates, so the reading direction is applied to the result rather
+    /// than to the endpoints — a directional anchor sliding from start to end mirrors as a
+    /// whole in a right-to-left script, instead of interpolating between two physical
+    /// points that were already mirrored and crossing in the middle.
+    pub fn with_fractions(self, x: f32, y: f32) -> Self {
+        match self {
+            AlignmentGeometry::Physical(_) => AlignmentGeometry::Physical(Alignment::new(x, y)),
+            AlignmentGeometry::Directional(_) => {
+                AlignmentGeometry::Directional(AlignmentDirectional::new(x, y))
+            }
+        }
+    }
+}
+
 impl From<Alignment> for AlignmentGeometry {
     fn from(a: Alignment) -> Self {
         AlignmentGeometry::Physical(a)

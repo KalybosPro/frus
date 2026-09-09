@@ -6,11 +6,12 @@ use frus_core::{Color, Point, Rect, Scene, TextAlign, TextOverflow, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
     Align, Autocomplete, BackdropFilter, BarChart, Button, Checkbox, Chip, CircleAvatar, ClipRRect,
-    ColorFiltered, Column, Container, DateTimePicker, DropdownButton, Flex, FractionalTranslation,
-    Icons, IgnoreBaseline, ImageFiltered, Justify, LineChart, Pagination, PopupMenuButton,
-    RadioGroup, RangeSlider, Rating, RichText, Row, SegmentedButton, ShaderMask, SizedOverflowBox,
-    Slider, Stack, StackFit, Stepper, Switch, TabBar, Table, Text, TextField, TextSpan, Theme,
-    TimePicker, UnconstrainedBox, Variant,
+    ColorFiltered, Column, Container, DateTimePicker, DropdownButton, FadeTransition, Flex,
+    FractionalTranslation, Icons, IgnoreBaseline, ImageFiltered, Justify, LicenseNotice,
+    LicensePage, LineChart, Package, Pagination, PopupMenuButton, RadioGroup, RangeSlider, Rating,
+    ReorderGrab, ReorderableList, RichText, Row, ScaleTransition, SegmentedButton, ShaderMask,
+    SizedOverflowBox, SlideFrom, SlideTransition, Slider, Stack, StackFit, Stepper, Switch, TabBar,
+    Table, Text, TextField, TextSpan, Theme, TimePicker, UnconstrainedBox, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -3331,4 +3332,244 @@ fn the_constraint_boxes_match_their_golden() {
         return;
     };
     snapshot.assert_golden(golden("constraint_boxes"));
+}
+
+/// The three explicit transitions, all at **35 %** of the way, each over a ghost of where
+/// it will be at rest.
+///
+/// It belongs here, beside the settled widgets, and not with the gestures in `motion.rs` —
+/// which is the point of the family. An explicit transition takes the number itself, so its
+/// picture **is** a function of its arguments: there is no runtime to prime and no frame
+/// loop to step, only a value the caller passed in.
+///
+/// Top: a fade at 0.35. Middle: a slide from the left at 0.35 — two thirds of a width still
+/// short of the slot it is heading for, and drawn straddling its edge, since a slide moves
+/// the paint and not the box. Bottom: a scale at 0.35, small in the middle of the box it
+/// will grow to fill.
+#[test]
+fn the_explicit_transitions_match_their_golden() {
+    let theme = Theme::dark();
+    let progress = 0.35_f32;
+    let box_of = |alpha: f32| {
+        Container::new()
+            .width(120.0)
+            .height(28.0)
+            .radius(6.0)
+            .color(Color::WHITE.fade(alpha))
+    };
+    // The ghost is the **background** of the slot rather than a layer under it, because a
+    // stack clips its layers to its own box and the half of a slide that is still outside
+    // is the half worth seeing.
+    let over_ghost = |moving: Box<dyn frus_widgets::Widget<()>>| {
+        Container::new()
+            .width(120.0)
+            .height(28.0)
+            .radius(6.0)
+            .color(Color::WHITE.fade(0.10))
+            .child(moving)
+    };
+    let root: Container<()> = Container::new()
+        // The left inset is what keeps the slid box on the picture: at 35 % of the way in
+        // from the left it is two thirds of its own width outside where it is going.
+        .padding_each(14.0, 14.0, 14.0, 94.0)
+        .child(
+            Flex::column()
+                .gap(18.0)
+                .align(Align::Start)
+                .child(over_ghost(Box::new(FadeTransition::new(
+                    progress,
+                    box_of(0.55),
+                ))))
+                .child(over_ghost(Box::new(SlideTransition::from_edge(
+                    SlideFrom::Left,
+                    progress,
+                    box_of(0.55),
+                ))))
+                .child(over_ghost(Box::new(ScaleTransition::new(
+                    progress,
+                    box_of(0.55),
+                )))),
+        );
+    let Some(snapshot) = render_widget(&root, 240, 150, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("explicit_transitions"));
+}
+
+/// A list whose rows can be dragged into a new order, at rest.
+///
+/// At rest is the whole of what a picture can say about it: everything else this widget
+/// does happens under a finger — the ghost, the gap that opens, the list scrolling to meet
+/// a row carried past its end — and none of it is a function of the arguments the way a
+/// transition is.
+///
+/// What is worth seeing is what the widget **costs** a row that is not being dragged: the
+/// grip at the trailing edge in its own 40 px, and the row beside it ending where the grip
+/// starts rather than under it. A grip stacked on top of the row would look the same until
+/// the day the row's own trailing button ended up beneath it.
+#[test]
+fn the_reorderable_list_matches_its_golden() {
+    let theme = Theme::dark();
+    let row = |label: &str, alpha: f32| {
+        Container::new()
+            .height(34.0)
+            .radius(8.0)
+            .color(Color::WHITE.fade(alpha))
+            .padding_each(0.0, 12.0, 0.0, 12.0)
+            .child(
+                Flex::row()
+                    .align(Align::Center)
+                    .flex(1.0)
+                    .child(Text::new(label).size(15.0)),
+            )
+    };
+    let list: ReorderableList<()> = ReorderableList::new(|_, _| ())
+        .grab(ReorderGrab::Handle)
+        .gap(8.0)
+        .keyed_row(1, row("Bring the milk in", 0.16))
+        .keyed_row(2, row("Feed the cat", 0.10))
+        .keyed_row(3, row("Write the milestone", 0.16));
+    let root: Container<()> = Container::new().padding(16.0).child(list);
+    let Some(snapshot) = render_widget(&root, 260, 150, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("reorderable_list"));
+}
+
+/// The licence page, both ways round: the list of packages, and one of them open.
+///
+/// It is a picture of an obligation. Every application distributed anywhere has to show
+/// this, and what it has to show is not decorative — the point of the golden is that the
+/// **text is all there**, re-flowed to the width it was given rather than to somebody
+/// else's eighty columns, and that a page of four hundred packages is a list of names with
+/// a count beside each rather than four hundred licences at once.
+#[test]
+fn the_licence_page_matches_its_golden() {
+    let theme = Theme::dark();
+    let notices = vec![
+        LicenseNotice {
+            packages: vec![Package::new("cosmic-text", "0.12.1"), Package::new("wgpu", "22.1.0")],
+            text: "Apache License, Version 2.0\n\nLicensed under the Apache License, Version \n2.0 (the \"License\"); you may not use this \nfile except in compliance with it."
+                .to_string(),
+        },
+        LicenseNotice {
+            packages: vec![Package::new("wgpu", "22.1.0")],
+            text: "MIT\n\nPermission is hereby granted, free of charge.".to_string(),
+        },
+    ];
+    let list = Container::new().padding(12.0).child(
+        LicensePage::<()>::new(None, |_| ())
+            .application("Tasks")
+            .version("Version 1.4.0")
+            .notices(notices.clone())
+            .build(),
+    );
+    let open = Container::new().padding(12.0).child(
+        LicensePage::<()>::new(Some(1), |_| ())
+            .notices(notices)
+            .build(),
+    );
+    let root: Container<()> = Container::new().child(
+        Row::new()
+            .child(Container::new().width(230.0).child(list))
+            .child(Container::new().width(230.0).child(open)),
+    );
+    let Some(snapshot) = render_widget(&root, 470, 240, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("licence_page"));
+}
+
+/// Milestone 494: a header that gives way to the list under it.
+///
+/// Both ends of the travel in one picture, because what this widget *is* is the
+/// difference between them: a tall header with a subtitle at rest on the left, the same
+/// header shrunk to a toolbar with the subtitle gone and a rule under it on the right —
+/// and, in both, the list starting under the header's full height because the room it
+/// occupies is the list's own top padding.
+#[test]
+fn the_collapsing_header_matches_its_golden() {
+    use frus_test::Stage;
+    use frus_widgets::{text, CollapsingHeader, Expanded, HeaderState, ListView};
+
+    const EXPANDED: f32 = 120.0;
+    let theme = Theme::dark();
+    let page = |offset: f32| {
+        let t = theme.clone();
+        let rows = t.clone();
+        let list = ListView::<()>::new(20, 34.0, move |i| {
+            Container::<()>::new()
+                .height(34.0)
+                .color(if i % 2 == 0 {
+                    rows.surface
+                } else {
+                    rows.background
+                })
+                .padding_each(8.0, 10.0, 8.0, 10.0)
+                .child(text(format!("Row {}", i + 1)).size(13.0))
+        })
+        .width(200.0)
+        .height(260.0)
+        .padding_each(EXPANDED, 0.0, 0.0, 0.0);
+        let header = CollapsingHeader::new(list, move |state: HeaderState| {
+            let f = state.fraction;
+            let subtitle = frus_core::Color {
+                a: (1.0 - f * 2.0).clamp(0.0, 1.0),
+                ..t.muted
+            };
+            let edge = frus_core::Color { a: f, ..t.border };
+            Container::<()>::new()
+                .width(state.width)
+                .height(state.height)
+                .color(t.surface)
+                .child(
+                    Column::new()
+                        .child(Expanded::new(Container::new()))
+                        .child(
+                            Container::new().padding_each(0.0, 10.0, 8.0, 10.0).child(
+                                Column::new()
+                                    .child(text("Licences").size(18.0 + (1.0 - f) * 12.0))
+                                    .child(
+                                        text("Everything this links").size(11.0).color(subtitle),
+                                    ),
+                            ),
+                        )
+                        .child(Container::new().height(1.0).color(edge)),
+                )
+        })
+        .collapsed_height(44.0)
+        .build();
+        (header, offset)
+    };
+    // The two states, each rendered with the offset its own body is resting at.
+    let mut shots = Vec::new();
+    for offset in [0.0_f32, 200.0] {
+        let (tree, offset) = page(offset);
+        let mut stage = Stage::new(220, 280).theme(theme.clone());
+        stage.settle(&tree);
+        // The one region in this tree is the header's body. Its offset is what the
+        // overlay reads, and setting it here is exactly what a finger would have done.
+        let regions: Vec<_> = stage
+            .build(&tree)
+            .scroll_regions()
+            .iter()
+            .map(|area| area.id)
+            .collect();
+        for id in regions {
+            stage.runtime.scroll.insert(id, (0.0, offset));
+        }
+        stage.settle(&tree);
+        match stage.render(&tree) {
+            Some(shot) => shots.push(shot),
+            None => {
+                eprintln!("no GPU adapter available: test skipped");
+                return;
+            }
+        }
+    }
+    shots[0].assert_golden(golden("collapsing_header_open"));
+    shots[1].assert_golden(golden("collapsing_header_collapsed"));
 }

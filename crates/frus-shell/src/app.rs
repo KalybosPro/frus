@@ -15,9 +15,10 @@ use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_deferred, build_ui, collect_ids, find_by_key, find_path, find_widget,
     reflow_reorder_cards, reflow_reorder_columns, subtree_ids, Accessibility, Brightness, Color,
-    Cursor as UiCursor, Edit, FocusDirection, Insets, Key, KeyResponse, KeyStroke, MediaQuery,
-    Point, Primitive, Rect, ReorderAxis, Runtime, Scene, ShortcutKey, Size, Theme, Ui,
-    VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
+    Cursor as UiCursor, Edit, EditKind, EditSnapshot, FocusDirection, Insets, Key, KeyResponse,
+    KeyStroke, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, ScrollTo,
+    Scrollable, ShortcutKey, Size, Theme, Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId,
+    WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -488,10 +489,22 @@ pub struct App<A: Application> {
     press: PressRecognizer,
     /// The pressed target's long-press message, captured on the press.
     long_press_msg: Option<A::Message>,
+    /// When the last **recorded** edit happened, for the pause that breaks a run of
+    /// typing into two steps of undo. One field and not one per text field, because only
+    /// the focused one is being typed into, and leaving a field ends its run anyway.
+    last_edit_at: Option<Instant>,
     /// A [`frus_widgets::Draggable`] that asked to be lifted by a **hold**, waiting
     /// for the long-press deadline. Inside a scrollable this is the only way up: the
     /// plain drag belongs to the scroll, and a hold is the one signal it cannot claim.
     pending_lift: Option<frus_widgets::DragSource>,
+    /// A **reorderable row** that asked to be lifted by a hold, waiting for the same
+    /// deadline: `(the row, its index, where the finger landed)`.
+    ///
+    /// Its own field rather than a second use of `pending_lift`, because what the two
+    /// become at the deadline is different — one carries a payload to a drop target, the
+    /// other carries itself to a slot — but the reason they wait is the same, and it is
+    /// the reason a list can still be scrolled.
+    pending_reorder: Option<(WidgetId, usize, Point)>,
     /// The last click's instant, for double-click detection.
     last_click_time: Option<Instant>,
     /// A counter for the keys of leaving events, which fade out.
@@ -501,6 +514,14 @@ pub struct App<A: Application> {
     /// Pending focus requests — the keys `Command::focus` produced — resolved against
     /// the **freshly built** tree on the next frame.
     pending_focus: Vec<u64>,
+    /// Pending **scroll** requests — the `(key, ScrollTo)` pairs `Command::scroll`
+    /// produced — resolved against the frame that follows, and dropped whether or not
+    /// the key named anything (see `Command::scroll`).
+    pending_scroll: Vec<(u64, ScrollTo)>,
+    /// The requests of the frame in progress that the **previous** frame's registry
+    /// could not place — a region that has only just appeared. Tried once more against
+    /// the registry this frame builds, and then gone: a request gets one frame.
+    retry_scroll: Vec<(u64, ScrollTo)>,
     /// The **focus history** of triggers, for returning focus when an overlay closes:
     /// on every focus change the old one, if still present, is pushed; when focus
     /// **vanishes** because a menu or modal closed, we go back to the most recent
@@ -590,11 +611,15 @@ impl<A: Application> App<A> {
             announce: String::new(),
             press: PressRecognizer::new(),
             long_press_msg: None,
+            last_edit_at: None,
             pending_lift: None,
+            pending_reorder: None,
             last_click_time: None,
             leaving_counter: 0,
             running_subs: HashMap::new(),
             pending_focus: Vec::new(),
+            pending_scroll: Vec::new(),
+            retry_scroll: Vec::new(),
             focus_history: Vec::new(),
             prev_focus: None,
             occluded: false,
@@ -1118,7 +1143,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             // from the same gesture, which is never what anyone meant. **The lift
             // wins** — it changes what the rest of the gesture means, and the message
             // would be acting on something the finger is still holding.
-            let lifting = self.pending_lift.is_some();
+            let lifting = self.pending_lift.is_some() || self.pending_reorder.is_some();
             if let Some(message) = self.long_press_msg.take() {
                 if !lifting {
                     self.dispatch(message);
@@ -1137,6 +1162,23 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     moved: true,
                     over: None,
                 });
+            } else if let Some((id, from, start)) = self.pending_reorder.take() {
+                // A row lifted by a hold, and the same hand-over: the scroll gives the
+                // gesture back and the row is already up — `moved` is true because the
+                // hold *was* the threshold, and asking for a movement as well would mean
+                // a row that was held and then carried straight out of the list never
+                // engaged at all.
+                if let Some(Drag::Scroll { id, .. }) = self.drag {
+                    self.runtime.release_scroll(id);
+                }
+                self.drag = Some(Drag::Reorder {
+                    id,
+                    from,
+                    start,
+                    moved: true,
+                });
+                self.reorder_x = self.cursor.x;
+                self.reorder_y = self.cursor.y;
             } else {
                 self.drag = None;
             }
@@ -1566,6 +1608,25 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                                     composing: None,
                                 },
                             );
+                            // A selection is a caret move: what is typed over it is a step
+                            // of its own, not more of whatever was being typed before.
+                            self.runtime.close_edit_run(focused);
+                            self.request_redraw();
+                            return;
+                        }
+                        // Undo, and redo under both its spellings — Ctrl+Y on Windows,
+                        // Ctrl+Shift+Z everywhere else, and people bring the one their
+                        // hands already know.
+                        WinitKey::Character(c) if c.eq_ignore_ascii_case("z") && !self.shift => {
+                            self.step_history(focused, false);
+                            self.request_redraw();
+                            return;
+                        }
+                        WinitKey::Character(c)
+                            if c.eq_ignore_ascii_case("y")
+                                || (c.eq_ignore_ascii_case("z") && self.shift) =>
+                        {
+                            self.step_history(focused, true);
                             self.request_redraw();
                             return;
                         }
@@ -1963,6 +2024,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // The retained tree is (re)painted. Layout goes through the relayout
                 // cache (milestone 55: taffy is called again only when the structure
                 // changed); painting goes through the repaint cache (milestone 88: a
+                // A row carried past the end of the list: the list comes to meet it.
+                // Before the tree is borrowed for the rest of the frame, because it moves
+                // an offset the build below is about to read — and this frame, not the
+                // next one, or the content would lag a frame behind the finger.
+                let autoscrolling = self.autoscroll_carried(dt);
+
                 // static `RepaintBoundary` subtree is replayed without repainting while
                 // its geometry and the interaction state hold still).
                 let tree = self
@@ -2035,14 +2102,24 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // to it. Same moment, same reason: the request is honoured in the frame
                 // it arrives rather than the one after.
                 self.runtime.sync_visible(&scroll_regions);
+                // And the scroll requests an application has just returned. Same moment
+                // and the same reason, with one addition: a region that has only just
+                // appeared is not in the registry above, which was built last frame, so
+                // what does not resolve here is tried again below against this frame's.
+                let requests = std::mem::take(&mut self.pending_scroll);
+                let (retry, scrolled) =
+                    apply_scroll_requests(&mut self.runtime, tree, requests, &scroll_regions);
+                self.retry_scroll = retry;
 
-                let animating = self.runtime.advance(dt)
+                let animating = scrolled
+                    | self.runtime.advance(dt)
                     | self.runtime.advance_leaving(dt)
                     | self.runtime.advance_values(tree, dt)
                     | self.runtime.advance_colors(tree, dt)
                     | self.runtime.advance_sizes(tree, dt)
                     | self.runtime.advance_radii(tree, dt)
                     | self.runtime.advance_paddings(tree, dt)
+                    | self.runtime.advance_offsets(tree, dt)
                     | self.runtime.advance_transforms(tree, dt)
                     | self
                         .runtime
@@ -2063,6 +2140,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     | self.runtime.advance_interactive(&interactive_bounds, dt)
                     | self.runtime.advance_ink(dt)
                     | reorder_animating
+                    | autoscrolling
                     | app_animating;
                 // With the inspector on, the same build collects the observed nodes,
                 // and the overlay — outlines plus a card for the hovered widget — is
@@ -2151,11 +2229,42 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     })
                     .collect();
 
-                // The rows whose gap has just finished closing, and the pages that have
-                // turned: the tree is no longer borrowed, so the application can be told
-                // — and rebuild.
-                for message in dismissed.into_iter().chain(turned) {
+                // The scroll requests the previous frame's registry could not place:
+                // tried once against **this** frame's, which is where a region that has
+                // only just appeared turns up. This is the last chance they get.
+                let (_, moved_late) = apply_scroll_requests(
+                    &mut self.runtime,
+                    tree,
+                    std::mem::take(&mut self.retry_scroll),
+                    &paged,
+                );
+
+                // The regions that have moved since they last said so, read off **this**
+                // frame's registry so that the offset and the extents reported together
+                // come from the same frame. A region nobody is listening to costs the
+                // comparison and nothing else.
+                let scrolled: Vec<A::Message> = {
+                    let grain =
+                        |id| find_widget(tree, id).map_or(0.0, |widget| widget.scroll_grain());
+                    self.runtime
+                        .scroll_changes(&paged, grain)
+                        .into_iter()
+                        .filter_map(|(id, position)| {
+                            find_widget(tree, id).and_then(|widget| widget.on_scroll(position))
+                        })
+                        .collect()
+                };
+
+                // The rows whose gap has just finished closing, the pages that have
+                // turned and the regions that have moved: the tree is no longer
+                // borrowed, so the application can be told — and rebuild.
+                for message in dismissed.into_iter().chain(turned).chain(scrolled) {
                     self.dispatch(message);
+                }
+                if moved_late {
+                    // Nothing else this frame knows the offset changed: the springs ran
+                    // before the request was placed.
+                    self.request_redraw();
                 }
 
                 // Focus return: when the focused widget has **vanished**, an overlay
@@ -2277,7 +2386,9 @@ impl<A: Application> App<A> {
                             .and_then(|tree| find_widget(tree.as_ref(), source.id))
                             .is_some_and(|widget| widget.drag_needs_long_press())
                     });
-                let interested = self.long_press_msg.is_some() || self.pending_lift.is_some();
+                let interested = self.long_press_msg.is_some()
+                    || self.pending_lift.is_some()
+                    || self.pending_reorder.is_some();
                 self.press.down(self.cursor, Instant::now(), interested);
             }
             PointerKind::Move => {
@@ -2294,7 +2405,15 @@ impl<A: Application> App<A> {
                 // long press that started it must not also eat its ending.
                 let swallow = self.press.up();
                 self.pending_lift = None;
-                if swallow && !matches!(self.drag, Some(Drag::Item { moved: true, .. })) {
+                self.pending_reorder = None;
+                // A row lifted by the hold owes its drop for the same reason a lifted
+                // item does: the release is what says where it goes.
+                if swallow
+                    && !matches!(
+                        self.drag,
+                        Some(Drag::Item { moved: true, .. } | Drag::Reorder { moved: true, .. })
+                    )
+                {
                     // The long press evicted the tap, so the release is swallowed.
                     self.drag = None;
                     self.runtime.input.pressed = None;
@@ -2306,6 +2425,7 @@ impl<A: Application> App<A> {
             PointerKind::Cancel => {
                 self.press.cancel();
                 self.pending_lift = None;
+                self.pending_reorder = None;
                 // A cancelled gesture still owes the offset back, or the region
                 // would stay frozen under a finger that is no longer there.
                 if let Some(Drag::Dismiss { item, .. }) = self.drag {
@@ -2463,18 +2583,27 @@ impl<A: Application> App<A> {
             return;
         }
 
-        // 1c) A column reorder: a press on a reorderable header. We do not `return` —
-        // focus and `pressed`, where a tap means sort, are settled below; the drag
-        // engages only past the threshold, and otherwise the release sorts.
-        if let Some((id, from)) = self.reorderable_at(self.cursor) {
-            self.drag = Some(Drag::Reorder {
-                id,
-                from,
-                start: self.cursor,
-                moved: false,
-            });
-            self.reorder_x = self.cursor.x; // starts glued to the pointer, with no jerk
-            self.reorder_y = self.cursor.y; // likewise for the vertical insertion line
+        // 1c) A reorder: a press on a reorderable — a table header, a Kanban card, a
+        // list's grip. We do not `return` — focus and `pressed`, where a tap means sort,
+        // are settled below; the drag engages only past the threshold, and otherwise the
+        // release sorts.
+        //
+        // A row that asked for a **hold** takes nothing now. The press is left to
+        // whatever else wants it, which inside a list is the scroll, and the deadline
+        // below decides between them: a finger that stays put was never scrolling.
+        if let Some((id, from, hold)) = self.reorderable_at(self.cursor) {
+            if hold {
+                self.pending_reorder = Some((id, from, self.cursor));
+            } else {
+                self.drag = Some(Drag::Reorder {
+                    id,
+                    from,
+                    start: self.cursor,
+                    moved: false,
+                });
+                self.reorder_x = self.cursor.x; // starts glued to the pointer, with no jerk
+                self.reorder_y = self.cursor.y; // likewise for the vertical insertion line
+            }
         }
 
         self.runtime.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
@@ -2528,6 +2657,9 @@ impl<A: Application> App<A> {
                     },
                 );
                 self.drag = Some(Drag::TextSelect { id, rect });
+                // The caret moved, so the run of typing ends here: typing at one place,
+                // then at another, then Ctrl+Z should take back only the second.
+                self.runtime.close_edit_run(id);
                 // Tapping in a field **reopens** the keyboard, even one the app already
                 // considers shown but which the system back closed — see
                 // `request_soft_input`.
@@ -2704,10 +2836,7 @@ impl<A: Application> App<A> {
             ..
         }) = &ended
         {
-            let target = self
-                .ui
-                .as_ref()
-                .and_then(|ui| ui.reorderable_at(self.cursor));
+            let target = self.reorder_target_at(self.cursor);
             let tree = self.tree.as_ref();
             let base = target
                 .and_then(|tid| tree.and_then(|t| find_widget(t.as_ref(), tid)))
@@ -2739,20 +2868,22 @@ impl<A: Application> App<A> {
             };
             if let Some(message) = message {
                 let to = to.unwrap_or(*from);
-                let axis = tree
-                    .and_then(|t| find_widget(t.as_ref(), *id))
+                let widget = tree.and_then(|t| find_widget(t.as_ref(), *id));
+                let axis = widget
                     .map(|w| w.reorder_axis())
                     .unwrap_or(ReorderAxis::Horizontal);
-                self.dispatch(message);
                 // The move is spoken to the screen reader — the ghost's counterpart for
-                // a blind user. The index depends on the axis: horizontally `to` is the
-                // **column position**, 1-based; vertically it is a **flat** index
-                // (col×STRIDE+pos) that means nothing read aloud, so we announce the move
-                // without a number.
-                let announcement = match axis {
-                    ReorderAxis::Horizontal => format!("Column moved to position {}", to + 1),
-                    ReorderAxis::Vertical => "Card moved".to_string(),
-                };
+                // a blind user. A widget whose index **is** a position says so itself; a
+                // `Kanban` card's is a flat `column × stride + position` that means
+                // nothing read aloud, so the fallback speaks of the axis and gives no
+                // number at all.
+                let announcement = widget
+                    .and_then(|w| w.reorder_announcement(to))
+                    .unwrap_or_else(|| match axis {
+                        ReorderAxis::Horizontal => format!("Column moved to position {}", to + 1),
+                        ReorderAxis::Vertical => "Card moved".to_string(),
+                    });
+                self.dispatch(message);
                 self.set_announcement(announcement);
             }
         }
@@ -2991,6 +3122,7 @@ impl<A: Application> App<A> {
     fn run_command(&mut self, command: crate::command::Command<A::Message>) {
         let parts = command.into_parts();
         self.pending_focus.extend(parts.focus);
+        self.pending_scroll.extend(parts.scrolls);
         for task in parts.tasks {
             let proxy = self.proxy.clone();
             #[cfg(not(web))]
@@ -3539,7 +3671,7 @@ impl<A: Application> App<A> {
     /// The topmost **reorderable** widget under `point`, as `(id, flat index)`. It
     /// uses the reorderables' registry, which is independent of clicking, and so covers
     /// the Kanban cards and drop zones, which are not clickable.
-    fn reorderable_at(&self, point: Point) -> Option<(WidgetId, usize)> {
+    fn reorderable_at(&self, point: Point) -> Option<(WidgetId, usize, bool)> {
         let id = self.ui.as_ref()?.reorderable_at(point)?;
         let widget = self
             .tree
@@ -3551,7 +3683,159 @@ impl<A: Application> App<A> {
             return None;
         }
         let from = widget.reorder_index()?;
-        Some((id, from))
+        Some((id, from, widget.drag_needs_long_press()))
+    }
+
+    /// **What is actually moving**, given what was grabbed: its id and its box.
+    ///
+    /// Usually they are the same widget. They are not when what was grabbed is a **grip**
+    /// — a source that is not a target — because a grip is a 40-pixel gutter inside a much
+    /// larger row, and everything the preview is made of is the row's: the ghost is the
+    /// row lifted out of the frame, the gap that closes behind it is the row's height, and
+    /// the band the neighbours are matched against is the row's width. Taking the grip's
+    /// box instead would lift an icon and open a slot two centimetres too narrow.
+    ///
+    /// The row is found by the index the two share, among the reorderables under the
+    /// grip's own middle — which is inside its row by construction.
+    fn reorder_source(&self, id: WidgetId, from: usize) -> Option<(WidgetId, Rect)> {
+        let ui = self.ui.as_ref()?;
+        let tree = self.tree.as_ref()?;
+        let own = ui.widget_rect(id)?;
+        let grabbed = find_widget(tree.as_ref(), id)?;
+        if grabbed.reorder_droppable() {
+            return Some((id, own));
+        }
+        let middle = Point::new(own.x + own.width * 0.5, own.y + own.height * 0.5);
+        let slot = ui.reorderables_at(middle).find(|other| {
+            find_widget(tree.as_ref(), *other)
+                .is_some_and(|w| w.reorder_droppable() && w.reorder_index() == Some(from))
+        })?;
+        // A grip whose row is nowhere to be found still moves something: itself, which is
+        // wrong-looking but not a crash, and cannot happen while the two are built
+        // together.
+        Some((slot, ui.widget_rect(slot).unwrap_or(own)))
+    }
+
+    /// The topmost reorderable under `point` that something can actually be **dropped**
+    /// on. It is not always the topmost reorderable: a list row's grip is a source and
+    /// not a target, and what is under it is the row the drop is really aimed at.
+    fn reorder_target_at(&self, point: Point) -> Option<WidgetId> {
+        let ui = self.ui.as_ref()?;
+        let tree = self.tree.as_ref()?;
+        ui.reorderables_at(point)
+            .find(|id| find_widget(tree.as_ref(), *id).is_some_and(|w| w.reorder_droppable()))
+    }
+
+    /// What is being **carried** this frame, where it is now: the box the ghost is drawn
+    /// at, for a reorder or for a lifted item. `None` when nothing is engaged.
+    ///
+    /// It is the ghost's box and not the pointer, because the reference scrolls when the
+    /// *item* reaches the edge, and that is the honest moment: a row half off the bottom
+    /// is already asking to go further, whatever the finger holding it is over.
+    fn carried_rect(&self) -> Option<Rect> {
+        match &self.drag {
+            Some(Drag::Reorder {
+                id,
+                from,
+                start,
+                moved: true,
+            }) => {
+                let (_, src) = self.reorder_source(*id, *from)?;
+                // The same offsets the ghost is painted at, and for the same reason a
+                // column's ghost only rises: it moves along its own axis.
+                let (gx, gy) = match self.dragged_reorder_axis() {
+                    Some(ReorderAxis::Vertical) => {
+                        (self.cursor.x - start.x, self.cursor.y - start.y)
+                    }
+                    _ => (self.cursor.x - start.x, drag_preview::LIFT_Y),
+                };
+                Some(src.translate(gx, gy))
+            }
+            Some(Drag::Item {
+                source,
+                start,
+                moved: true,
+                ..
+            }) => Some(
+                source
+                    .rect
+                    .translate(self.cursor.x - start.x, self.cursor.y - start.y),
+            ),
+            _ => None,
+        }
+    }
+
+    /// Scrolls the area under the pointer while what is being carried hangs past one of
+    /// its edges — the gap `Draggable` has had since milestone 285, and what a list longer
+    /// than a screen needs before it can be reordered at all.
+    ///
+    /// The area is the innermost one under the **pointer** that a user could move by
+    /// hand: an area that refuses a finger refuses this too, so a list that fits its
+    /// viewport never twitches.
+    fn autoscroll_carried(&mut self, dt: f32) -> bool {
+        let Some(carried) = self.carried_rect() else {
+            return false;
+        };
+        let area = {
+            let scroll = &self.runtime.scroll;
+            self.ui.as_ref().and_then(|ui| {
+                ui.scroll_chain(self.cursor).find(|area| {
+                    area.accepts_user_offset(scroll.get(&area.id).copied().unwrap_or((0.0, 0.0)))
+                })
+            })
+        };
+        let Some(area) = area else {
+            return false;
+        };
+        let offset = self
+            .runtime
+            .scroll
+            .get(&area.id)
+            .copied()
+            .unwrap_or((0.0, 0.0));
+        // What is still hidden on either side, in **screen** terms: on a reversed axis
+        // the offset is measured from the other end, so the two swap over.
+        let room = |offset: f32, max: f32, reverse: bool| {
+            if reverse {
+                (max - offset, offset)
+            } else {
+                (offset, max - offset)
+            }
+        };
+        let view = area.viewport;
+        let dx = edge_autoscroll(
+            (carried.x, carried.x + carried.width),
+            (view.x, view.x + view.width),
+            room(offset.0, area.max_x, area.reverse_x),
+            dt,
+        )
+        .unwrap_or(0.0);
+        let dy = edge_autoscroll(
+            (carried.y, carried.y + carried.height),
+            (view.y, view.y + view.height),
+            room(offset.1, area.max_y, area.reverse_y),
+            dt,
+        )
+        .unwrap_or(0.0);
+        if dx == 0.0 && dy == 0.0 {
+            return false;
+        }
+        // A movement of the content becomes a change of offset the area's own way, which
+        // is the one place the sign of a reversed axis is decided.
+        let delta = area.offset_delta((dx, dy));
+        let next = (
+            (offset.0 + delta.0).clamp(0.0, area.max_x),
+            (offset.1 + delta.1).clamp(0.0, area.max_y),
+        );
+        if next == offset {
+            return false;
+        }
+        self.runtime.scroll.insert(area.id, next);
+        // The target follows, or the inertia the area was resting at would spring the
+        // list straight back out from under the row.
+        self.runtime.scroll_target.insert(area.id, next);
+        self.runtime.scroll_velocity.remove(&area.id);
+        true
     }
 
     /// The axis of the reorderable currently **grabbed**, if a drag is under way. It
@@ -3661,14 +3945,15 @@ impl<A: Application> App<A> {
     fn paint_reorder_preview(&self, ui: &Ui<A::Message>, theme: &Theme, scene: &mut Scene) {
         let Some(Drag::Reorder {
             id,
-            from: _,
+            from,
             start,
             moved: true,
         }) = self.drag
         else {
             return;
         };
-        let Some(src) = ui.widget_rect(id) else {
+        // What moves is the row, even when what was grabbed is the grip inside it.
+        let Some((id, src)) = self.reorder_source(id, from) else {
             return;
         };
         let axis = self
@@ -3820,8 +4105,9 @@ impl<A: Application> App<A> {
     /// pointer is in its upper half (inserting **before**), the **bottom** edge in its
     /// lower half (inserting **after**). `None` when the pointer is not over a target.
     fn reorder_drop_line(&self, thickness: f32) -> Option<Rect> {
-        // The reorderable slot — card or drop zone — under the pointer, via its registry.
-        let target = self.ui.as_ref()?.reorderable_at(self.cursor)?;
+        // The reorderable slot — card, row or drop zone — under the pointer, via its
+        // registry, skipping whatever cannot be dropped on.
+        let target = self.reorder_target_at(self.cursor)?;
         let rect = self.ui.as_ref()?.widget_rect(target)?;
         Some(drop_insertion_line(
             rect,
@@ -3988,33 +4274,137 @@ impl<A: Application> App<A> {
     fn apply_key(&mut self, id: WidgetId, key: Key) {
         // Any horizontal move, or any keystroke, forgets the vertical goal column.
         self.goal_x = None;
-        let mut edit = self.runtime.edits.get(&id).copied().unwrap_or_default();
-        let message = self
+        let was = self.runtime.edits.get(&id).copied().unwrap_or_default();
+        let mut edit = was;
+        let widget = self
             .tree
             .as_ref()
-            .and_then(|tree| find_widget(tree.as_ref(), id))
-            .and_then(|widget| widget.on_edit(&mut edit, &key));
+            .and_then(|tree| find_widget(tree.as_ref(), id));
+        // What the field held before the key: half of an undo step, and the half the
+        // application owns.
+        let before = widget
+            .and_then(|widget| widget.text_value())
+            .map(str::to_owned);
+        let message = widget.and_then(|widget| widget.on_edit(&mut edit, &key));
         self.runtime.edits.insert(id, edit);
         // In a multi-line field, make the retained scroll follow the caret and reveal it.
         self.reveal_caret(id, edit.cursor);
         if let Some(message) = message {
-            self.dispatch(message);
-            // Keys can arrive in **bursts**, faster than a frame — a software
-            // keyboard, `adb input text`, auto-repeat — and the next one must see the
-            // CURRENT value, not the retained tree's, or it would overwrite the previous
-            // keystroke. So we refresh the tree right away; `build_dirty` stays raised
-            // and the next frame redoes the full pass: mounts, leaving fades and all.
-            if let Some((width, height)) = self.last_size {
-                let theme = self.themes.displayed(&self.app);
-                // A surface of its own, because this build happens between frames rather
-                // than inside one — and the same `build_view` as the frame path, because
-                // the next key in the burst reads this tree straight away.
-                let tree = self
-                    .media_query(width, height)
-                    .scope(|| build_view(&self.app, &theme));
-                self.tree = Some(tree);
-            }
+            self.dispatch_edit(message);
         }
+        // The history, recorded on the **evidence** of a changed value rather than on the
+        // intent of a key that usually changes one: a filter may have refused the
+        // character, a length limit may have swallowed it, a read-only field ignores it,
+        // and an Enter submits instead of typing. The value is read again from the tree
+        // the dispatch has just rebuilt, so what is recorded is what happened.
+        let after = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.text_value())
+            .map(str::to_owned);
+        match (before, after) {
+            (Some(before), Some(after)) if before != after => {
+                let kind = EditKind::of(&key, was.selection_range().is_some(), self.composing());
+                let since = self.since_last_edit();
+                self.runtime
+                    .record_edit(id, EditSnapshot::new(before, was), kind, since);
+            }
+            // A key that moved only the caret ends the run: what is typed next is a step
+            // of its own, or one undo would take back two visits to the field at once.
+            (Some(_), _) => self.runtime.close_edit_run(id),
+            _ => {}
+        }
+    }
+
+    /// Dispatches a message that changed a field's value, and refreshes the tree at once.
+    ///
+    /// Keys can arrive in **bursts**, faster than a frame — a software keyboard, `adb
+    /// input text`, auto-repeat — and the next one must see the CURRENT value, not the
+    /// retained tree's, or it would overwrite the previous keystroke. So the tree is
+    /// refreshed right away; `build_dirty` stays raised and the next frame redoes the full
+    /// pass: mounts, leaving fades and all.
+    fn dispatch_edit(&mut self, message: A::Message) {
+        self.dispatch(message);
+        if let Some((width, height)) = self.last_size {
+            let theme = self.themes.displayed(&self.app);
+            // A surface of its own, because this build happens between frames rather than
+            // inside one — and the same `build_view` as the frame path, because the next
+            // key in the burst reads this tree straight away.
+            let tree = self
+                .media_query(width, height)
+                .scope(|| build_view(&self.app, &theme));
+            self.tree = Some(tree);
+        }
+    }
+
+    /// Seconds since the last recorded edit, and stamps this one. The first edit is
+    /// infinitely far from the one before it, which is to say it starts a run.
+    fn since_last_edit(&mut self) -> f32 {
+        let now = Instant::now();
+        let since = self
+            .last_edit_at
+            .map(|then| now.duration_since(then).as_secs_f32())
+            .unwrap_or(f32::INFINITY);
+        self.last_edit_at = Some(now);
+        since
+    }
+
+    /// Whether an input method is in the middle of composing a word.
+    fn composing(&self) -> bool {
+        #[cfg(android)]
+        {
+            self.ime_composing > 0
+        }
+        #[cfg(not(android))]
+        {
+            self.runtime
+                .input
+                .focused
+                .and_then(|id| self.runtime.edits.get(&id))
+                .is_some_and(|edit| edit.composing.is_some())
+        }
+    }
+
+    /// Steps a text field's value back one change, or forward again. `true` when something
+    /// moved — Ctrl+Z on anything that is not a field, or with nothing left to undo, moves
+    /// nothing and says so.
+    fn step_history(&mut self, id: WidgetId, forward: bool) -> bool {
+        let value = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.text_value())
+            .map(str::to_owned);
+        let Some(value) = value else {
+            return false;
+        };
+        let edit = self.runtime.edits.get(&id).copied().unwrap_or_default();
+        let current = EditSnapshot::new(value, edit);
+        let target = if forward {
+            self.runtime.redo_edit(id, current)
+        } else {
+            self.runtime.undo_edit(id, current)
+        };
+        let Some(target) = target else {
+            return false;
+        };
+        let message = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.replace_value(target.value.clone()));
+        // The caret goes back with the text — an undo that restores the value and leaves
+        // the caret at the end has done half the job.
+        self.runtime.edits.insert(id, target.edit);
+        self.reveal_caret(id, target.edit.cursor);
+        if let Some(message) = message {
+            self.dispatch_edit(message);
+        }
+        // An undo is not a keystroke: what is typed after it starts a run of its own,
+        // however quickly it follows.
+        self.last_edit_at = None;
+        true
     }
 
     /// Brings the focused widget **into view**, gliding every scroll region around it.
@@ -4123,6 +4513,74 @@ fn gesture_was_a_tap(ended: Option<&Drag>) -> bool {
                 | Drag::Dismiss { moved: false, .. }
         )
     )
+}
+
+/// How fast an area scrolls under a carried item, in pixels per second **per pixel** the
+/// item hangs over the edge: the further out it is, the faster the list comes to meet it.
+/// The reference's number, and the reference's law.
+const AUTOSCROLL_VELOCITY: f32 = 50.0;
+
+/// The overhang that speed is worked out from is capped here, so that carrying a row far
+/// past the edge — or off the window entirely — settles at a fast but usable speed instead
+/// of one nobody can aim with.
+const AUTOSCROLL_MAX_OVERHANG: f32 = 20.0;
+
+/// Places the scroll requests it can against `regions`, and hands back the ones whose
+/// region that registry does not name, along with whether anything moved.
+///
+/// A request names its region by **key**, the way a focus request does: the application
+/// wrapped it in `keyed(k, …)` and the tree is what turns that back into an identity.
+/// The framework's own identities are hashes of a position in a tree — an application
+/// cannot know one, and should not have to.
+///
+/// Nothing is *stored* here. The request is spent the moment its region is found, and
+/// what it leaves behind is an offset in the runtime, indistinguishable from an offset a
+/// finger left there. That is what makes it survive a rebuild: there is nothing to
+/// survive.
+fn apply_scroll_requests<Msg>(
+    runtime: &mut Runtime,
+    tree: &dyn Widget<Msg>,
+    requests: Vec<(u64, ScrollTo)>,
+    regions: &[Scrollable],
+) -> (Vec<(u64, ScrollTo)>, bool) {
+    let mut unplaced = Vec::new();
+    let mut moved = false;
+    for (key, to) in requests {
+        let area = find_by_key(tree, key).and_then(|id| regions.iter().find(|a| a.id == id));
+        match area {
+            Some(area) => moved |= runtime.scroll_to(area, to),
+            None => unplaced.push((key, to)),
+        }
+    }
+    (unplaced, moved)
+}
+
+/// One axis of the auto-scroll: how far the **content** has to move this frame so that an
+/// item held past a viewport's edge brings the rest of the list into view.
+///
+/// Everything is in screen coordinates and along one axis: `item` and `view` are
+/// `(start, end)` pairs, `room` is what is left to scroll that way (nought at the end of
+/// the content). The answer is a movement of the content, which the area then turns into
+/// an offset of its own — signs and reversed axes belong to `Scrollable::offset_delta`,
+/// not here.
+///
+/// `None` means *not now*: the item is inside, or the edge it hangs over is the end of the
+/// content, where there is nothing left to reveal and the list should stay still rather
+/// than fight.
+fn edge_autoscroll(item: (f32, f32), view: (f32, f32), room: (f32, f32), dt: f32) -> Option<f32> {
+    let before = view.0 - item.0; // above the top edge
+    let after = item.1 - view.1; // below the bottom edge
+                                 // The leading edge is asked first, and both are never obeyed at once: an item taller
+                                 // than the viewport hangs over both, and an item pulled two ways scrolls nowhere.
+    let overhang = if before > 0.0 && room.0 > 0.0 {
+        before.min(AUTOSCROLL_MAX_OVERHANG)
+    } else if after > 0.0 && room.1 > 0.0 {
+        -after.min(AUTOSCROLL_MAX_OVERHANG)
+    } else {
+        return None;
+    };
+    let travel = overhang * AUTOSCROLL_VELOCITY * dt;
+    (travel != 0.0).then_some(travel)
 }
 
 /// Moves `current` toward `target` by one **exponential** spring step, with time
@@ -4780,5 +5238,206 @@ mod tests {
         let mut scene = Scene::new();
         draw_ghost_card(&mut scene, &theme, card, &[]);
         assert_eq!(scene.primitives().len(), 2, "shadow plus solid card");
+    }
+}
+
+/// The half of a scroll request that belongs to the shell: turning the **name** an
+/// application wrote into the region a frame actually has.
+#[cfg(test)]
+mod scroll_request_tests {
+    use super::{apply_scroll_requests, Rect, Runtime, Scrollable, Widget, WidgetId};
+    use crate::command::Command;
+    use frus_widgets::{keyed, Container, ScrollTo, SingleChildScrollView};
+
+    /// A view with one named scroll region in it, and nothing else of interest.
+    fn view() -> Box<dyn Widget<()>> {
+        Box::new(Container::<()>::new().child(keyed(
+            "log",
+            SingleChildScrollView::<()>::new().height(200.0),
+        )))
+    }
+
+    /// The region as the frame would register it: a 200-tall window over 1 000 of content.
+    fn region(id: WidgetId) -> Scrollable {
+        Scrollable {
+            id,
+            viewport: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 300.0,
+                height: 200.0,
+            },
+            max_x: 0.0,
+            max_y: 1000.0,
+            physics: None,
+            refresh: None,
+            page: None,
+            reverse_x: false,
+            reverse_y: false,
+            keep_visible: None,
+            host: None,
+        }
+    }
+
+    /// The key a request carries and the key the view declared are the **same hash** —
+    /// which is the whole of the identity design, and the one thing that cannot be
+    /// checked on either side alone.
+    #[test]
+    fn a_request_reaches_the_region_the_view_named() {
+        let tree = view();
+        let requests = Command::<()>::scroll("log", ScrollTo::end().instant())
+            .into_parts()
+            .scrolls;
+        let id = frus_widgets::find_by_key(tree.as_ref(), requests[0].0)
+            .expect("the view named it, so the tree knows it");
+        let mut runtime = Runtime::default();
+        let (unplaced, moved) =
+            apply_scroll_requests(&mut runtime, tree.as_ref(), requests, &[region(id)]);
+        assert!(unplaced.is_empty());
+        assert!(moved);
+        assert_eq!(runtime.scroll.get(&id), Some(&(0.0, 1000.0)));
+    }
+
+    /// A region that has only just appeared is not in the registry the request is first
+    /// tried against — that one was built last frame — so it is handed back rather than
+    /// thrown away. Coming back to a screen and being put where you left off depends on
+    /// exactly this.
+    #[test]
+    fn a_region_this_registry_has_not_got_is_handed_back() {
+        let tree = view();
+        let requests = Command::<()>::scroll("log", ScrollTo::y(120.0))
+            .into_parts()
+            .scrolls;
+        let mut runtime = Runtime::default();
+        let (unplaced, moved) = apply_scroll_requests(&mut runtime, tree.as_ref(), requests, &[]);
+        assert_eq!(unplaced.len(), 1, "kept for the second attempt");
+        assert!(!moved);
+        assert!(runtime.scroll_target.is_empty());
+    }
+
+    /// A key naming nothing at all leaves no trace: the caller drops what comes back,
+    /// so a typo costs one frame's lookup and never accumulates.
+    #[test]
+    fn a_name_the_view_does_not_use_moves_nothing() {
+        let tree = view();
+        let requests = Command::<()>::scroll("ledger", ScrollTo::start())
+            .into_parts()
+            .scrolls;
+        let mut runtime = Runtime::default();
+        let id = frus_widgets::find_by_key(
+            tree.as_ref(),
+            Command::<()>::scroll("log", ScrollTo::start())
+                .into_parts()
+                .scrolls[0]
+                .0,
+        )
+        .expect("the real one is there");
+        let (unplaced, moved) =
+            apply_scroll_requests(&mut runtime, tree.as_ref(), requests, &[region(id)]);
+        assert_eq!(unplaced.len(), 1);
+        assert!(!moved);
+        assert!(runtime.scroll.is_empty() && runtime.scroll_target.is_empty());
+    }
+
+    /// Two requests in one batch, both placed, and the batch is what `Command::batch`
+    /// produces — a screen that restores both axes writes two and means two.
+    #[test]
+    fn a_batch_places_every_request_it_carries() {
+        let tree = view();
+        let requests = Command::<()>::batch([
+            Command::scroll("log", ScrollTo::y(400.0).instant()),
+            Command::scroll("log", ScrollTo::y(600.0).instant()),
+        ])
+        .into_parts()
+        .scrolls;
+        assert_eq!(requests.len(), 2);
+        let id = frus_widgets::find_by_key(tree.as_ref(), requests[0].0).expect("named");
+        let mut runtime = Runtime::default();
+        let (unplaced, moved) =
+            apply_scroll_requests(&mut runtime, tree.as_ref(), requests, &[region(id)]);
+        assert!(unplaced.is_empty() && moved);
+        assert_eq!(
+            runtime.scroll.get(&id),
+            Some(&(0.0, 600.0)),
+            "the last request is the current statement"
+        );
+    }
+}
+
+#[cfg(test)]
+mod autoscroll_tests {
+    use super::{edge_autoscroll, AUTOSCROLL_MAX_OVERHANG, AUTOSCROLL_VELOCITY};
+
+    /// A viewport from 100 to 500, with room to scroll either way.
+    const VIEW: (f32, f32) = (100.0, 500.0);
+    const ROOM: (f32, f32) = (1000.0, 1000.0);
+    /// A sixtieth of a second, which is the frame this is asked on.
+    const DT: f32 = 1.0 / 60.0;
+
+    #[test]
+    fn a_row_inside_the_viewport_scrolls_nothing() {
+        assert_eq!(edge_autoscroll((200.0, 260.0), VIEW, ROOM, DT), None);
+        // Touching the edge exactly is still inside: the row has not asked for anything.
+        assert_eq!(edge_autoscroll((440.0, 500.0), VIEW, ROOM, DT), None);
+    }
+
+    /// The law: pixels per second per pixel of overhang, so ten pixels out is ten times
+    /// the speed of one pixel out — the row is not dragged along by a fixed nudge.
+    #[test]
+    fn the_speed_follows_how_far_out_the_row_is() {
+        let near = edge_autoscroll((460.0, 501.0), VIEW, ROOM, DT).expect("one pixel out");
+        let far = edge_autoscroll((460.0, 510.0), VIEW, ROOM, DT).expect("ten pixels out");
+        assert!(
+            near < 0.0,
+            "the content moves up to reveal what is below: {near}"
+        );
+        assert!(
+            (far / near - 10.0).abs() < 0.01,
+            "ten times as far, ten times as fast: {near} vs {far}"
+        );
+        assert!(
+            (near + 1.0 * AUTOSCROLL_VELOCITY * DT).abs() < 1e-4,
+            "one pixel out, at the stated velocity: {near}"
+        );
+    }
+
+    /// Carrying a row right off the window is not a request to scroll a thousand times
+    /// faster; past the cap the speed stops growing.
+    #[test]
+    fn the_overhang_is_capped() {
+        let far = edge_autoscroll((460.0, 520.0), VIEW, ROOM, DT).expect("twenty out");
+        let absurd = edge_autoscroll((460.0, 5000.0), VIEW, ROOM, DT).expect("off the window");
+        assert!((far - absurd).abs() < 1e-4, "{far} vs {absurd}");
+        assert!((absurd + AUTOSCROLL_MAX_OVERHANG * AUTOSCROLL_VELOCITY * DT).abs() < 1e-4);
+    }
+
+    /// Above the top the content moves the other way, and the sign is the whole of the
+    /// difference between the two edges.
+    #[test]
+    fn above_the_top_the_content_comes_down() {
+        let up = edge_autoscroll((90.0, 150.0), VIEW, ROOM, DT).expect("ten above");
+        assert!(up > 0.0, "{up}");
+    }
+
+    /// At the end of the content there is nothing left to reveal, so the list stays where
+    /// it is instead of straining against its own end.
+    #[test]
+    fn an_exhausted_edge_stays_still() {
+        assert_eq!(
+            edge_autoscroll((460.0, 520.0), VIEW, (1000.0, 0.0), DT),
+            None
+        );
+        assert_eq!(
+            edge_autoscroll((90.0, 150.0), VIEW, (0.0, 1000.0), DT),
+            None
+        );
+    }
+
+    /// A row taller than the viewport hangs over both edges at once. Pulled two ways it
+    /// would scroll nowhere, or jitter between them; the leading edge decides.
+    #[test]
+    fn a_row_taller_than_the_viewport_follows_its_leading_edge() {
+        let both = edge_autoscroll((50.0, 900.0), VIEW, ROOM, DT).expect("over both edges");
+        assert!(both > 0.0, "the top edge wins: {both}");
     }
 }

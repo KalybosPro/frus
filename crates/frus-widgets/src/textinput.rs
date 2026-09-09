@@ -1561,6 +1561,18 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         Some(&self.value)
     }
 
+    fn replace_value(&self, value: String) -> Option<Msg> {
+        // The same two refusals `on_edit` makes, for the same reason: a field the caller
+        // has declared untouchable does not become touchable because the value being put
+        // back came out of it. No filter and no length limit, though — this value passed
+        // both on its way in, and running it through them again would let an undo land
+        // somewhere the field has never been.
+        if !self.enabled || self.read_only {
+            return None;
+        }
+        self.on_input.as_ref().map(|make| make(value))
+    }
+
     fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         let mut s = frus_core::SemanticsProperties::new(frus_core::Role::TextInput)
             .value(self.value.clone());

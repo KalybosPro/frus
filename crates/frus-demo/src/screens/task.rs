@@ -14,7 +14,12 @@ use frus_widgets::column;
 /// The avatar carries the **same** `Hero` tag as the one on the row this screen was
 /// opened from, so the two are understood to be one thing and the transition flies it
 /// from the row into place instead of fading one out and the other in.
-pub(crate) fn task_screen(app: &TodoApp, theme: &Theme, id: u64) -> Box<dyn Widget<Msg>> {
+pub(crate) fn task_screen(
+    app: &TodoApp,
+    theme: &Theme,
+    id: u64,
+    entering: f32,
+) -> Box<dyn Widget<Msg>> {
     let todo = app.todos.iter().find(|t| t.id == id);
     let (label, done) = match todo {
         Some(todo) => (todo.text.clone(), todo.done),
@@ -23,15 +28,42 @@ pub(crate) fn task_screen(app: &TodoApp, theme: &Theme, id: u64) -> Box<dyn Widg
     };
     let avatar = Hero::new(id, CircleAvatar::new(label.clone()).size(96.0));
     let state = if done { "Done" } else { "Still to do" };
-    let body = column![
-        avatar,
-        text(label).size(24.0).weight(FontWeight::Bold).wrap(),
-        text(state).size(15.0).color(theme.muted),
-    ]
-    .gap(18.0)
-    .align(Align::Center)
-    .justify(Justify::Center)
-    .flex(1.0);
+    // **The words follow the picture in.** `entering` is the route's own progress, which
+    // the application owns and hands to the navigator at the same time — an explicit
+    // transition, driven by a number nothing in the framework had to be asked for
+    // (milestone 489). Eased here rather than in the state, because the curve is a
+    // property of this movement and not of the route.
+    let arriving = eased(entering, &Curve::ease_out());
+    //
+    // The **full width** is the box the words are given, and it has to be said here: the
+    // column below centres its children, so anything with no width of its own comes out at
+    // the width of its own content — and a title that wraps needs a box to wrap inside.
+    // Without this the title measured at its natural length, which is one long line, and
+    // ran under the label below it (the failure milestone 334 first caught, and the test
+    // that has watched for it since).
+    let words = Container::new()
+        .width_fraction(1.0)
+        .child(SlideTransition::from_edge(
+            SlideFrom::Bottom,
+            arriving,
+            FadeTransition::new(
+                arriving,
+                column![
+                    text(label).size(24.0).weight(FontWeight::Bold).wrap(),
+                    text(state).size(15.0).color(theme.muted),
+                ]
+                .gap(18.0)
+                .align(Align::Center),
+            ),
+        ));
+    // The avatar is deliberately **not** in there: it is a shared element, and the
+    // framework is already flying it from the row this screen was opened from. A second
+    // animation on top would be two hands on the same object.
+    let body = column![avatar, words]
+        .gap(18.0)
+        .align(Align::Center)
+        .justify(Justify::Center)
+        .flex(1.0);
 
     // A bottom app bar and a **docked** button (milestone 291): the screen's own
     // actions along the bottom, and the one that matters most astride the bar's top

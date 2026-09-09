@@ -3,7 +3,7 @@
 
 use crate::prelude::*;
 use crate::screens::*;
-use frus_widgets::{build_ui, Point, Runtime, Size};
+use frus_widgets::{build_ui, build_ui_inspected, find_widget, Point, Runtime, Size};
 
 /// An app whose editable grid is already filled — the shape half of these tests
 /// start from.
@@ -309,6 +309,333 @@ fn toggle_delete_and_clear_done() {
     reduce(&mut app, Msg::ConfirmClearDone);
     assert_eq!(app.todos.len(), 1);
     assert_eq!(app.todos[0].text, "c");
+}
+
+/// A task dragged into a new place, under the filter that makes the two indices
+/// disagree.
+///
+/// The rows on screen are the filtered ones, so `MoveTodo(0, 1)` under *Active* means
+/// *the first active task goes after the second active task* — and the done tasks
+/// between them, which the list is not showing, must not be stepped over as though they
+/// were. Reordering by index in the model would do exactly that, and the list would look
+/// haunted: a row dropped on its neighbour landing three places away.
+#[test]
+fn moving_a_task_reorders_what_the_list_is_showing() {
+    let mut app = TodoApp::default();
+    for t in ["a", "b", "c", "d"] {
+        add(&mut app, t);
+    }
+    let labels =
+        |app: &TodoApp| -> Vec<String> { app.todos.iter().map(|t| t.text.clone()).collect() };
+
+    // Unfiltered, the two agree: the first row is carried to the end.
+    reduce(&mut app, Msg::MoveTodo(0, 3));
+    assert_eq!(labels(&app), ["b", "c", "d", "a"]);
+    // And back up: a move towards the head lands **before** the row it was dropped on.
+    reduce(&mut app, Msg::MoveTodo(3, 1));
+    assert_eq!(labels(&app), ["b", "a", "c", "d"]);
+
+    // Now with two of them out of sight. Showing only the active ones, the list is
+    // [b, d]: moving row 0 after row 1 means b goes after d, and the two done tasks stay
+    // exactly where they were.
+    let id_a = app.todos[1].id;
+    let id_c = app.todos[2].id;
+    reduce(&mut app, Msg::ToggleTodo(id_a));
+    reduce(&mut app, Msg::ToggleTodo(id_c));
+    reduce(&mut app, Msg::SetFilter(Filter::Active));
+    assert_eq!(
+        visible_todos(&app)
+            .map(|t| t.text.as_str())
+            .collect::<Vec<_>>(),
+        ["b", "d"]
+    );
+    reduce(&mut app, Msg::MoveTodo(0, 1));
+    assert_eq!(
+        visible_todos(&app)
+            .map(|t| t.text.as_str())
+            .collect::<Vec<_>>(),
+        ["d", "b"],
+        "the two visible rows swapped"
+    );
+    assert_eq!(app.todos.len(), 4, "and nothing was lost on the way");
+    assert!(
+        labels(&app).contains(&"a".to_string()) && labels(&app).contains(&"c".to_string()),
+        "the hidden tasks are still there: {:?}",
+        labels(&app)
+    );
+
+    // An index the list never emitted asks for nothing rather than panicking.
+    let before = labels(&app);
+    reduce(&mut app, Msg::MoveTodo(0, 9));
+    assert_eq!(labels(&app), before);
+}
+
+/// **The whole route a reorder takes, driven through the demo's own view.**
+///
+/// The unit tests read the hooks off a widget in isolation; this one builds the
+/// application's real tree, lays it out, and asks the registries the questions the shell
+/// asks in the order the shell asks them — which is where a grip that shadows its row, or
+/// a row that never registers at all, would show up. It is as close to the device as this
+/// repository can get without one, and it exists because everything else about this
+/// gesture only happens while a finger is down.
+#[test]
+fn a_grip_grabs_its_row_and_the_drop_routes_to_a_position() {
+    let mut app = TodoApp::default();
+    for t in ["one", "two", "three"] {
+        add(&mut app, t);
+    }
+    let theme = Theme::dark();
+    let size = Size::new(424.0, 918.0);
+    let tree = root_for(&app, &theme, size);
+    let (ui, nodes) = MediaQuery::new(size)
+        .scope(|| build_ui_inspected(tree.as_ref(), size, &Runtime::default(), &theme));
+    let boxes = |name: &str| -> Vec<frus_widgets::Rect> {
+        nodes
+            .iter()
+            .filter(|n| n.name == name)
+            .map(|n| n.rect)
+            .collect()
+    };
+    let rows = boxes("ReorderRow");
+    let grips = boxes("ReorderHandle");
+    assert_eq!(rows.len(), 3, "one wrapper per visible task");
+    assert_eq!(grips.len(), 3, "and a grip in each");
+
+    // 1) A press on the first row's grip grabs **the grip** — it is the topmost
+    //    reorderable there, which is what makes the rest of the row still scroll.
+    let middle = |r: frus_widgets::Rect| Point::new(r.x + r.width * 0.5, r.y + r.height * 0.5);
+    let grabbed = ui
+        .reorderables_at(middle(grips[0]))
+        .next()
+        .expect("something to grab on the grip");
+    let grip = find_widget(tree.as_ref(), grabbed).expect("the grabbed widget");
+    assert!(grip.reorder_draggable(), "the grip is a source");
+    assert!(!grip.reorder_droppable(), "and not a target");
+    assert_eq!(grip.reorder_index(), Some(0));
+
+    // 2) What the drag actually moves is the row behind it, found the way the shell finds
+    //    it: the droppable reorderable of the same index under the grip's own middle.
+    let source = ui
+        .reorderables_at(middle(grips[0]))
+        .find(|id| {
+            find_widget(tree.as_ref(), *id)
+                .is_some_and(|w| w.reorder_droppable() && w.reorder_index() == Some(0))
+        })
+        .expect("the grip sits inside its row");
+    let source_rect = ui.widget_rect(source).expect("the row has a box");
+    assert!(
+        source_rect.width > grips[0].width * 4.0,
+        "the row is much wider than the grip that moves it: {source_rect:?}"
+    );
+
+    // 3) Dropped **over the last row's own grip**, in the lower half of that row: the
+    //    case `reorder_droppable` exists for. The grip is on top there and cannot be
+    //    dropped on, so what the drop aims at is the row behind it — and the box the
+    //    insertion line is drawn across, and the half the insertion is decided by, are
+    //    the row's. Were the grip a target, both would be a 40-pixel gutter.
+    let last = rows[2];
+    let last_grip = grips[2];
+    let over_grip = Point::new(
+        last_grip.x + last_grip.width * 0.5,
+        last_grip.y + last_grip.height * 0.9,
+    );
+    assert!(
+        last_grip.contains(over_grip) && over_grip.y > last.y + last.height * 0.5,
+        "the point is on the grip and in the row's lower half: {over_grip:?} in {last_grip:?}"
+    );
+    let target = ui
+        .reorderables_at(over_grip)
+        .find(|id| find_widget(tree.as_ref(), *id).is_some_and(|w| w.reorder_droppable()))
+        .expect("a row to drop on");
+    let target_rect = ui.widget_rect(target).expect("the target has a box");
+    assert!(
+        (target_rect.width - last.width).abs() < 0.5,
+        "the drop aims at the row and not at the grip on top of it: {target_rect:?}"
+    );
+    let base = find_widget(tree.as_ref(), target)
+        .and_then(|w| w.reorder_index())
+        .expect("the row's index");
+    assert_eq!(base, 2);
+    // The half is measured against that box, which is the shell's `reorder_insert_after`.
+    let raw = base + usize::from(over_grip.y > target_rect.y + target_rect.height * 0.5);
+    assert_eq!(raw, 3, "the lower half means the slot after it");
+    // 4) And the message the shell would dispatch: the first row ends up **last**, index
+    //    2 and not the raw 3, because it is no longer in the list it is being counted in.
+    match grip.on_reorder(raw) {
+        Some(Msg::MoveTodo(from, to)) => assert_eq!((from, to), (0, 2)),
+        other => panic!("expected a move from 0 to 2, got {:?}", other.is_some()),
+    }
+    // Dropped back on its own lower half, the same arithmetic asks for nothing.
+    assert!(
+        grip.on_reorder(1).is_none(),
+        "a row dropped where it already is moves nothing"
+    );
+}
+
+/// **The licence list is generated, and this is what generated has to mean**: it parses,
+/// it covers what this application actually links, and every notice has a text.
+///
+/// The one failure mode that matters for a licence list is a list that does not match what
+/// was linked. Nothing here can prove the file was regenerated after the last dependency
+/// changed — that is what running `scripts/gen_licenses.py` is for — but a list that has
+/// lost `wgpu`, or `winit`, or the framework itself is a list that is wrong in the way
+/// somebody would notice in court rather than in a test, so it is worth one.
+#[test]
+fn the_generated_licences_cover_what_the_demo_links() {
+    let notices = frus_widgets::licenses::parse(include_str!("../assets/licenses.txt"));
+    assert!(
+        notices.len() > 100,
+        "four hundred packages do not fit in {} notices",
+        notices.len()
+    );
+    let packages: Vec<String> = notices
+        .iter()
+        .flat_map(|n| n.packages.iter().map(|p| p.name.clone()))
+        .collect();
+    // A sample across the graph: the renderer, the window, the layout, the text shaper,
+    // and the framework's own crates, which an application links as surely as the rest —
+    // and which are here under the workspace's own two licence files, since a crate of a
+    // workspace keeps them at the root rather than beside its manifest.
+    for linked in [
+        "wgpu",
+        "winit",
+        "taffy",
+        "cosmic-text",
+        "frus-shell",
+        "frus-widgets",
+    ] {
+        assert!(
+            packages.iter().any(|p| p == linked),
+            "{linked} is linked and is not in the list"
+        );
+    }
+    for notice in &notices {
+        assert!(!notice.packages.is_empty(), "a notice covering nothing");
+        assert!(
+            !notice.text.trim().is_empty(),
+            "no text for {:?}",
+            notice.packages
+        );
+    }
+    // And the page shows them: the list is what the screen puts on screen.
+    let theme = Theme::dark();
+    let size = Size::new(420.0, 900.0);
+    let page = LicensePage::new(None, Msg::OpenLicence)
+        .notices(notices)
+        .build();
+    let ui = build_ui(page.as_ref(), size, &Runtime::default(), &theme);
+    let words: Vec<String> = ui
+        .scene()
+        .primitives()
+        .iter()
+        .filter_map(|p| match p {
+            frus_widgets::Primitive::Text { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        words.iter().any(|w| w.starts_with("wgpu ")),
+        "the page lists wgpu"
+    );
+}
+
+/// Milestone 493: the log screen **answers its own scroll offset**, and offers the way
+/// back only once there is one worth offering.
+///
+/// Driven through the screen rather than through the widget, because the thing being
+/// checked is the loop — the list reports, the application keeps, the next build reads —
+/// and any one of the three could be right on its own while the loop did nothing.
+#[test]
+fn the_log_says_where_it_is_and_offers_the_way_back() {
+    let theme = Theme::dark();
+    let size = Size::new(420.0, 900.0);
+    let words = |app: &TodoApp| -> Vec<String> {
+        let tree = view_for(app, &theme, size);
+        build_ui(&tree, size, &Runtime::default(), &theme)
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_widgets::Primitive::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::Push(Route::Journal));
+
+    // Nothing has moved, so nothing has been measured: a row number here would be the
+    // screen guessing rather than the list reporting, and there is nowhere to go back to.
+    let quiet = words(&app);
+    assert!(quiet.iter().any(|w| w == "5000 rows"), "{quiet:?}");
+    assert!(!quiet.iter().any(|w| w == "Top"), "{quiet:?}");
+
+    // A hundred pixels down is still a flick from the top: the number moves, the button
+    // stays away.
+    reduce(&mut app, Msg::JournalScrolled(at(100.0)));
+    let near = words(&app);
+    assert!(near.iter().any(|w| w == "Row 3 of 5000"), "{near:?}");
+    assert!(!near.iter().any(|w| w == "Top"), "{near:?}");
+
+    // Twenty thousand pixels down — row 455 — and the way back is worth a button.
+    reduce(&mut app, Msg::JournalScrolled(at(20_000.0)));
+    let far = words(&app);
+    assert!(far.iter().any(|w| w == "Row 455 of 5000"), "{far:?}");
+    assert!(far.iter().any(|w| w == "Top"), "{far:?}");
+
+    // And the button is an **effect**, not a change of state: the offset it moves lives
+    // in the runtime, and pressing it twice from the same place means it twice.
+    let before = app.journal_scroll;
+    assert!(!reduce(&mut app, Msg::JournalToTop).is_empty());
+    assert_eq!(
+        app.journal_scroll, before,
+        "the request moves a list, not the application's idea of one"
+    );
+}
+
+/// The wiring, through the real screen: **the name the button commands is the region the
+/// frame registers**.
+///
+/// The failure this exists to catch is milestone 477's — a hook declared on one side and
+/// never reached on the other — and it is invisible from either end alone. The screen can
+/// name its list, the update can command that name, every unit test can pass, and the
+/// request can still resolve to nothing because the key stopped at a wrapper.
+#[test]
+fn the_log_list_is_reachable_by_the_name_the_button_commands() {
+    use std::hash::{Hash, Hasher};
+
+    let theme = Theme::dark();
+    let size = Size::new(420.0, 900.0);
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::Push(Route::Journal));
+    let tree = view_for(&app, &theme, size);
+    // Built first, in the order the shell does it: a deferred subtree has no children at
+    // all until something asks for them, and a key inside one is unreachable before that.
+    let ui = build_ui(&tree, size, &Runtime::default(), &theme);
+
+    let key = {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        JOURNAL_LIST.hash(&mut hasher);
+        hasher.finish()
+    };
+    let id = frus_widgets::find_by_key(&tree, key).expect("the screen named its list");
+    let area = ui
+        .scroll_region(id)
+        .expect("and the name reaches the region the frame registered, not a wrapper");
+    assert!(
+        area.max_y > 100_000.0,
+        "five thousand rows of 44 px have somewhere to go: {}",
+        area.max_y
+    );
+}
+
+/// The log list resting `offset` pixels down, as the region itself would report it.
+fn at(offset: f32) -> frus_widgets::ScrollPosition {
+    frus_widgets::ScrollPosition {
+        offset: (0.0, offset),
+        max: (0.0, 5000.0 * 44.0 - 700.0),
+        viewport: Size::new(372.0, 700.0),
+    }
 }
 
 /// The device finding of milestone 327, closed in 334. A task label long enough to
@@ -1189,6 +1516,7 @@ fn no_screen_draws_outside_itself() {
         Route::Data,
         Route::Board,
         Route::Tour,
+        Route::Licenses,
     ];
     let mut worst: Vec<String> = Vec::new();
     for route in routes {

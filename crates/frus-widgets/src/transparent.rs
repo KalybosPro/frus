@@ -186,6 +186,10 @@ macro_rules! forward_transparent {
                 self.inner.text_value()
             }
 
+            fn replace_value(&self, value: String) -> Option<Msg> {
+                self.inner.replace_value(value)
+            }
+
             fn word_at(&self, index: usize) -> Option<(usize, usize)> {
                 self.inner.word_at(index)
             }
@@ -291,6 +295,14 @@ macro_rules! forward_transparent {
                 self.inner.reorder_draggable()
             }
 
+            fn reorder_droppable(&self) -> bool {
+                self.inner.reorder_droppable()
+            }
+
+            fn reorder_announcement(&self, to: usize) -> Option<String> {
+                self.inner.reorder_announcement(to)
+            }
+
             fn announce(&self) -> Option<String> {
                 self.inner.announce()
             }
@@ -360,10 +372,27 @@ macro_rules! forward_transparent {
                 self.inner.on_page_changed(page)
             }
 
+            fn on_scroll(
+                &self,
+                position: $crate::scrollposition::ScrollPosition,
+            ) -> Option<Msg> {
+                self.inner.on_scroll(position)
+            }
+
+            fn scroll_grain(&self) -> f32 {
+                self.inner.scroll_grain()
+            }
+
             fn layout_builder(
                 &self,
             ) -> Option<&dyn Fn(frus_core::Size) -> Box<dyn $crate::widget::Widget<Msg>>> {
                 self.inner.layout_builder()
+            }
+
+            fn scroll_overlay(
+                &self,
+            ) -> Option<&$crate::scrolloverlay::OverlayBuilder<Msg>> {
+                self.inner.scroll_overlay()
             }
 
             fn scroll_axis(&self) -> $crate::scroll::Axis {
@@ -437,6 +466,10 @@ macro_rules! forward_transparent {
 
             fn anim_padding(&self) -> Option<frus_core::Insets> {
                 self.inner.anim_padding()
+            }
+
+            fn anim_offset(&self) -> Option<(f32, f32)> {
+                self.inner.anim_offset()
             }
 
             fn anim_transform(&self) -> Option<$crate::runtime::TransformValues> {
