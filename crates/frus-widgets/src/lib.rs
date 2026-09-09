@@ -31,6 +31,7 @@ mod checkbox;
 mod chip;
 mod clip;
 mod collapsible;
+mod collapsingheader;
 mod colorpicker;
 mod constraints;
 mod container;
@@ -124,6 +125,7 @@ mod safearea;
 mod scaffold;
 mod scaffoldinfo;
 mod scroll;
+pub mod scrolloverlay;
 pub mod scrollposition;
 mod searchbar;
 mod searchview;
@@ -196,6 +198,7 @@ pub use chip::{
 };
 pub use clip::{ClipOval, ClipPath, ClipRRect};
 pub use collapsible::{ControlAffinity, ExpansionTile};
+pub use collapsingheader::{header_rect, CollapsingHeader, HeaderState, COLLAPSED_HEIGHT};
 pub use colorpicker::ColorPicker;
 pub use constraints::{
     AxisConstraint, ConstrainedBox, ConstraintsTransform, ConstraintsTransformBox, Intrinsic,
@@ -313,6 +316,7 @@ pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};
 pub use scaffoldinfo::{ScaffoldGuard, ScaffoldInfo, ScaffoldScope};
 pub use scroll::{Axis, SingleChildScrollView};
+pub use scrolloverlay::{OverlayBuilder, ScrollOverlay};
 pub use scrollposition::{ScrollPosition, ScrollTarget, ScrollTo};
 pub use searchbar::{SearchBar, SEARCH_BAR_HEIGHT, SEARCH_BAR_MAX_WIDTH, SEARCH_BAR_MIN_WIDTH};
 pub use searchview::{

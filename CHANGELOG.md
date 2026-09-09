@@ -8,12 +8,34 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 493 so far, each documenting the objective, the alternatives
+> record — one per step, 494 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **A header that collapses as the page scrolls** (J494, answers #29): `ScrollOverlay`,
+  and `CollapsingHeader` over it. The issue put two shapes — the scrolling **protocol**, a
+  viewport laying out a sequence of pieces each given a remaining extent, or **one widget**
+  holding a header and a body — and asked for a decision. The answer is neither, because
+  the second one's real defect is not its size: a widget holding a header and a body cannot
+  be asked for a rule that fills, a shadow that appears, or a title that changes, and every
+  one of those would be another widget with another body inside it. So what was built is the
+  primitive that failure points at. `ScrollOverlay` is a scroll region with something drawn
+  over it, **built from where that region has got to**, and `CollapsingHeader` is thirty
+  lines over it. The region is the overlay's own **child**, so nothing is named or looked
+  up — a builder floating free of the region it watches would need a key, a lookup and an
+  order the walk happens to run in. It is handed the offset and not the extents, which are a
+  fact about a layout that has not finished, and it pays `LayoutBuilder`'s price: rebuilt
+  every frame the region moves, so no retained state. The header's expanded height is the
+  **body's own top padding** — the room a list was going to reserve anyway — rather than a
+  second number that has to agree with the first, and it gives way pixel for pixel with the
+  content rather than on a curve, because a header moving at another rate reads as two pages
+  sliding over each other. What this does **not** buy is a page that is a list, then a grid,
+  then a list, scrolling as one: that still wants the protocol, and nothing here is a step
+  towards it. The demo's licence screen — four hundred and forty-two packages, the longest
+  list here — has the header.
 
 - **An application can read a scroll position and command one** (J493, closes #25):
   `ScrollPosition`, `Widget::on_scroll`, `ScrollTo` and `Command::scroll`. An offset could

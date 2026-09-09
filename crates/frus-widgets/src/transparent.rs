@@ -389,6 +389,12 @@ macro_rules! forward_transparent {
                 self.inner.layout_builder()
             }
 
+            fn scroll_overlay(
+                &self,
+            ) -> Option<&$crate::scrolloverlay::OverlayBuilder<Msg>> {
+                self.inner.scroll_overlay()
+            }
+
             fn scroll_axis(&self) -> $crate::scroll::Axis {
                 self.inner.scroll_axis()
             }

@@ -654,6 +654,16 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// If the widget draws something **over its scroll region**, returns the
+    /// `offset → overlay` factory. See [`crate::ScrollOverlay`].
+    ///
+    /// The region is this widget's first child, so the offset the walk hands over is its
+    /// own child's and nothing has to be named. Like a `layout_builder`'s content, the
+    /// overlay is built on the fly and has no retained state.
+    fn scroll_overlay(&self) -> Option<&crate::scrolloverlay::OverlayBuilder<Msg>> {
+        None
+    }
+
     /// SingleChildScrollView axis (or axes), for a scrollable container.
     fn scroll_axis(&self) -> crate::scroll::Axis {
         crate::scroll::Axis::Vertical
@@ -1532,6 +1542,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn layout_builder(&self) -> Option<&dyn Fn(Size) -> Box<dyn Widget<Msg>>> {
         (**self).layout_builder()
+    }
+    fn scroll_overlay(&self) -> Option<&crate::scrolloverlay::OverlayBuilder<Msg>> {
+        (**self).scroll_overlay()
     }
     fn scroll_axis(&self) -> Axis {
         (**self).scroll_axis()

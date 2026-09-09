@@ -3843,6 +3843,56 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 &child_rects,
                 &mut child_index,
             );
+        } else if let Some(build) = widget.scroll_overlay() {
+            // The **body first**, exactly as an ordinary single child: it keeps its own
+            // identity, registers itself as a scroll region in its own right, and consumes
+            // its rects from this array the way the generic walk would. Nothing about it
+            // changes for being watched.
+            let children = widget.children();
+            for (child_index, child) in children.iter().enumerate() {
+                self.walk(
+                    child.as_ref(),
+                    child_id(id, child_index, child.as_ref()),
+                    translation,
+                    clip,
+                    rects,
+                    index,
+                );
+            }
+            // Then the overlay, built from **where the body has got to this frame**. Read
+            // from the retained offset rather than from the registry the walk is still
+            // filling: the offset is written before the frame is drawn, so it is current,
+            // where the extents beside it are not yet known — which is why the builder is
+            // handed the one and not the other.
+            let offset = children
+                .first()
+                .map(|body| child_id(id, 0, body.as_ref()))
+                .and_then(|body| self.runtime.scroll.get(&body).copied())
+                .unwrap_or((0.0, 0.0));
+            let bounds = draw_rect;
+            let over = build(offset, Size::new(bounds.width, bounds.height));
+            // `child(1)`, beside the body's `child(0)` — or beside its key, which cannot
+            // collide with a positional identity. The overlay is laid out in a tree of its
+            // own, so it needs an identity of its own for hover, ink and the paint cache.
+            let over_id = id.child(1);
+            let over_rects = self.cached_rects(
+                over_id,
+                over.as_ref(),
+                // **Filled**, not constrained: an overlay covers the region it is over, and
+                // where inside that box its content sits is the caller's business — a
+                // column pins it to the top, an `Align` puts it anywhere else. The same
+                // rule a `layout_builder`'s content is given.
+                Constraints::filled(Size::new(bounds.width, bounds.height)),
+            );
+            let mut over_index = 0;
+            self.render_item(
+                over.as_ref(),
+                over_id,
+                (bounds.x, bounds.y),
+                clip.intersect(bounds),
+                &over_rects,
+                &mut over_index,
+            );
         } else if let Some(spec) = widget.dismissible() {
             // A dismissible item is a stack whose **last** layer — the item itself — is
             // offset by however far it has been swiped, and whose earlier layers, the

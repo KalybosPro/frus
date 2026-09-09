@@ -3482,3 +3482,94 @@ fn the_licence_page_matches_its_golden() {
     };
     snapshot.assert_golden(golden("licence_page"));
 }
+
+/// Milestone 494: a header that gives way to the list under it.
+///
+/// Both ends of the travel in one picture, because what this widget *is* is the
+/// difference between them: a tall header with a subtitle at rest on the left, the same
+/// header shrunk to a toolbar with the subtitle gone and a rule under it on the right —
+/// and, in both, the list starting under the header's full height because the room it
+/// occupies is the list's own top padding.
+#[test]
+fn the_collapsing_header_matches_its_golden() {
+    use frus_test::Stage;
+    use frus_widgets::{text, CollapsingHeader, Expanded, HeaderState, ListView};
+
+    const EXPANDED: f32 = 120.0;
+    let theme = Theme::dark();
+    let page = |offset: f32| {
+        let t = theme.clone();
+        let rows = t.clone();
+        let list = ListView::<()>::new(20, 34.0, move |i| {
+            Container::<()>::new()
+                .height(34.0)
+                .color(if i % 2 == 0 {
+                    rows.surface
+                } else {
+                    rows.background
+                })
+                .padding_each(8.0, 10.0, 8.0, 10.0)
+                .child(text(format!("Row {}", i + 1)).size(13.0))
+        })
+        .width(200.0)
+        .height(260.0)
+        .padding_each(EXPANDED, 0.0, 0.0, 0.0);
+        let header = CollapsingHeader::new(list, move |state: HeaderState| {
+            let f = state.fraction;
+            let subtitle = frus_core::Color {
+                a: (1.0 - f * 2.0).clamp(0.0, 1.0),
+                ..t.muted
+            };
+            let edge = frus_core::Color { a: f, ..t.border };
+            Container::<()>::new()
+                .width(state.width)
+                .height(state.height)
+                .color(t.surface)
+                .child(
+                    Column::new()
+                        .child(Expanded::new(Container::new()))
+                        .child(
+                            Container::new().padding_each(0.0, 10.0, 8.0, 10.0).child(
+                                Column::new()
+                                    .child(text("Licences").size(18.0 + (1.0 - f) * 12.0))
+                                    .child(
+                                        text("Everything this links").size(11.0).color(subtitle),
+                                    ),
+                            ),
+                        )
+                        .child(Container::new().height(1.0).color(edge)),
+                )
+        })
+        .collapsed_height(44.0)
+        .build();
+        (header, offset)
+    };
+    // The two states, each rendered with the offset its own body is resting at.
+    let mut shots = Vec::new();
+    for offset in [0.0_f32, 200.0] {
+        let (tree, offset) = page(offset);
+        let mut stage = Stage::new(220, 280).theme(theme.clone());
+        stage.settle(&tree);
+        // The one region in this tree is the header's body. Its offset is what the
+        // overlay reads, and setting it here is exactly what a finger would have done.
+        let regions: Vec<_> = stage
+            .build(&tree)
+            .scroll_regions()
+            .iter()
+            .map(|area| area.id)
+            .collect();
+        for id in regions {
+            stage.runtime.scroll.insert(id, (0.0, offset));
+        }
+        stage.settle(&tree);
+        match stage.render(&tree) {
+            Some(shot) => shots.push(shot),
+            None => {
+                eprintln!("no GPU adapter available: test skipped");
+                return;
+            }
+        }
+    }
+    shots[0].assert_golden(golden("collapsing_header_open"));
+    shots[1].assert_golden(golden("collapsing_header_collapsed"));
+}
