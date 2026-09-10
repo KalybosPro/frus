@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 499 so far, each documenting the objective, the alternatives
+> record — one per step, 500 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -27,6 +27,28 @@ any release may break.
   because the text in it was asking for a pixel more than it was given.
 
 ### Changed
+
+- **The batch planner is linear, and not one plan changed** (J500, answers #16). It gave
+  each primitive a level by testing every member of a level in turn, and a long list puts
+  nearly every row on one level, so every primitive met every row before it. A level is now
+  indexed by **horizontal bands** once it holds 128 members: 1102 primitives plan about
+  **four times faster**, and sixteen times the primitives now cost sixteen to twenty-one
+  times the time instead of sixty-seven to eighty-four. **The plan is bit for bit what it was**, and that is an argument
+  rather than a hope: what a level is asked is two *existence* questions, which a structure
+  asking fewer of them answers identically provided it never omits a member that would have
+  said yes — and two overlapping rectangles share a point of height, which lies in one band
+  inside both their ranges. The old planner is kept verbatim in the tests and the index is
+  checked against it over three hundred scenes, NaN, infinities, negative extents and
+  `UNBOUNDED` included. **Three things were found by measuring and breaking rather than by
+  reading.** The same untouched code measured anywhere from 351 to 579 µs across four runs,
+  so every number is an A/B taken back to back, in both orders. The first tests could not
+  fail — two deliberate off-by-ones left them green, because one generated footprint in
+  eight covered everything and answered every query itself — so a sparse generator was
+  added, and a test that counts how often its answer hung on a single member. And a first,
+  two-dimensional grid lost to the plain scan below four hundred primitives. **On small scenes
+  it is a wash too fine to measure here**: at 68 primitives the new planner came out anywhere
+  from 35% faster to 17% slower, and which of the two ran second moved the result by more
+  than that — under a microsecond either way.
 
 - **`ScrollPhysics::Bouncing` carries a deceleration rate** (J499) and is therefore a
   data-carrying variant. `ScrollPhysics::BOUNCING` is the constant that means what the bare
