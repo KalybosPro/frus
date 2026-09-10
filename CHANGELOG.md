@@ -8,13 +8,20 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 508 so far, each documenting the objective, the alternatives
+> record — one per step, 509 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **The clipboard did nothing on Android** (J509, answers #22). It was `arboard` on the
+  desktop and an empty struct elsewhere, so a copy dropped its text and a paste found none,
+  silently. It is now the platform's `ClipboardManager`, through the bridge's dex, behind
+  the same interface — no caller changed. A read that finds nothing that reads as text is
+  `None`, and nothing on the path can panic. Android's own Copy, Cut and Paste keys, which
+  winit reports by physical code alone, now work too. Verified on a device: a word copied,
+  the application killed and restarted, the word pasted back.
 - **An emoji was an empty box on Android** (J506, towards #56). The font system's "system
   fonts" were none there — fontdb reads no directory on Android and cosmic-text has no
   fallback list for it — so a character the bundled faces lack had nowhere to come from:
