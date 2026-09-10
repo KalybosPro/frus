@@ -137,6 +137,22 @@ impl From<f32> for BorderRadiusDirectional {
 }
 
 impl BorderRadius {
+    /// Each corner `t` of the way from `self` to `other`.
+    ///
+    /// Not clamped: a corner past its target is what a spring asks for at the end of its
+    /// travel, and the one rule for a radius in flight is this one — an animated container
+    /// and a decoration transition both go through it.
+    #[must_use]
+    pub fn lerp(self, other: BorderRadius, t: f32) -> BorderRadius {
+        let mix = |a: f32, b: f32| a + (b - a) * t;
+        BorderRadius {
+            top_left: mix(self.top_left, other.top_left),
+            top_right: mix(self.top_right, other.top_right),
+            bottom_right: mix(self.bottom_right, other.bottom_right),
+            bottom_left: mix(self.bottom_left, other.bottom_left),
+        }
+    }
+
     /// No rounding at all.
     pub const ZERO: Self = Self::uniform(0.0);
 
@@ -341,6 +357,120 @@ pub struct BoxDecoration {
     pub radius: BorderRadius,
     /// Drop shadow.
     pub shadow: Option<BoxShadow>,
+}
+
+/// A colour that may be absent on either side, `t` of the way across.
+///
+/// Absent means **nothing painted**, so a colour on one side only fades: it keeps its hue
+/// and only its alpha travels. Interpolating towards `Color::TRANSPARENT` instead would be
+/// interpolating towards transparent *black* — a red fill fading out would go dark red on
+/// the way, in a movement that was only ever about disappearing.
+fn fade_between(a: Option<Color>, b: Option<Color>, t: f32) -> Option<Color> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.lerp(b, t)),
+        (Some(a), None) => Some(a.fade(1.0 - t)),
+        (None, Some(b)) => Some(b.fade(t)),
+        (None, None) => None,
+    }
+}
+
+impl BoxDecoration {
+    /// The decoration `t` of the way from `self` to `other` — what a decoration transition
+    /// paints mid-flight. Each part has its own rule, and the rules are the point:
+    ///
+    /// - **Colours mix** where both sides have one, in the space colours are stated in,
+    ///   as every animated colour in this framework does.
+    /// - **A part on one side only arrives or leaves; it does not come from nowhere.** A
+    ///   fill fades, keeping its hue. A border thickens from nought in its own colour. A
+    ///   shadow grows from under the box as it fades in. Each is the part scaled by how far
+    ///   along it is, which is also what the reference does with a part one side lacks.
+    /// - **A flat fill is a gradient whose two ends agree**, so flat to graded spreads the
+    ///   far end out of the fill rather than laying a gradient over it. Here a gradient
+    ///   *starts* at the fill colour, so the two always arrive and leave together.
+    /// - **Corners** travel one by one.
+    ///
+    /// The absent colour here is **not** the absent colour of a text style, and the two
+    /// rules differ for that reason. A text style that names no colour is asking the theme
+    /// for one — a real, visible colour — so it holds still rather than fade. A decoration
+    /// that names no fill paints nothing, so fading is exactly what reaching it means.
+    ///
+    /// `t` is clamped to `0..=1`, and a `t` that is not a number is no progress: past its
+    /// ends a colour has nowhere to go, and a decoration whose colours stopped at the end
+    /// while its corners kept going would be two clocks. At `0` and `1` the answer is the
+    /// end itself, exactly.
+    #[must_use]
+    pub fn lerp(self, other: BoxDecoration, t: f32) -> BoxDecoration {
+        if t.is_nan() || t <= 0.0 {
+            return self;
+        }
+        if t >= 1.0 {
+            return other;
+        }
+        let mix = |a: f32, b: f32| a + (b - a) * t;
+        let gradient = match (self.gradient, other.gradient) {
+            (Some(a), Some(b)) => Some(LinearGradient {
+                end: a.end.lerp(b.end, t),
+                direction: [
+                    mix(a.direction[0], b.direction[0]),
+                    mix(a.direction[1], b.direction[1]),
+                ],
+            }),
+            // The side without a gradient is a flat fill: its far end is its own colour.
+            (Some(a), None) => {
+                fade_between(Some(a.end), other.color, t).map(|end| LinearGradient {
+                    end,
+                    direction: a.direction,
+                })
+            }
+            (None, Some(b)) => fade_between(self.color, Some(b.end), t).map(|end| LinearGradient {
+                end,
+                direction: b.direction,
+            }),
+            (None, None) => None,
+        };
+        let border = match (self.border, other.border) {
+            (Some(a), Some(b)) => Some(Border {
+                width: mix(a.width, b.width),
+                color: a.color.lerp(b.color, t),
+            }),
+            (Some(a), None) => Some(Border {
+                width: a.width * (1.0 - t),
+                ..a
+            }),
+            (None, Some(b)) => Some(Border {
+                width: b.width * t,
+                ..b
+            }),
+            (None, None) => None,
+        };
+        // A shadow on one side only, scaled: it grows out from under the box as it fades
+        // in. Scaling the geometry alone would leave a hard-edged block of shadow colour
+        // under a box whose own fill may be fading too.
+        let grown = |s: BoxShadow, f: f32| BoxShadow {
+            color: s.color.fade(f),
+            offset: (s.offset.0 * f, s.offset.1 * f),
+            blur: s.blur * f,
+            spread: s.spread * f,
+        };
+        let shadow = match (self.shadow, other.shadow) {
+            (Some(a), Some(b)) => Some(BoxShadow {
+                color: a.color.lerp(b.color, t),
+                offset: (mix(a.offset.0, b.offset.0), mix(a.offset.1, b.offset.1)),
+                blur: mix(a.blur, b.blur),
+                spread: mix(a.spread, b.spread),
+            }),
+            (Some(a), None) => Some(grown(a, 1.0 - t)),
+            (None, Some(b)) => Some(grown(b, t)),
+            (None, None) => None,
+        };
+        BoxDecoration {
+            color: fade_between(self.color, other.color, t),
+            gradient,
+            border,
+            radius: self.radius.lerp(other.radius, t),
+            shadow,
+        }
+    }
 }
 
 impl BoxDecoration {
@@ -590,5 +720,115 @@ mod tests {
         let b = s.bounds(Rect::new(0.0, 0.0, 10.0, 10.0));
         // grow = blur + spread = 6 on every side.
         assert_eq!(b, Rect::new(-6.0, -6.0, 22.0, 22.0));
+    }
+}
+
+/// The decoration in flight (milestone 501): one rule per part, and the ends exact.
+#[cfg(test)]
+mod lerp_tests {
+    use super::*;
+
+    const RED: Color = Color {
+        r: 1.0,
+        g: 0.0,
+        b: 0.0,
+        a: 1.0,
+    };
+    const BLUE: Color = Color {
+        r: 0.0,
+        g: 0.0,
+        b: 1.0,
+        a: 1.0,
+    };
+
+    /// **The ends are the ends, exactly** — and past them, and at a progress that is not a
+    /// number, the nearer end.
+    #[test]
+    fn the_ends_are_the_ends_exactly() {
+        let a = BoxDecoration::filled(RED).radius(4.0);
+        let b = BoxDecoration::filled(BLUE).border(Border::new(2.0, RED));
+        assert_eq!(a.lerp(b, 0.0), a);
+        assert_eq!(a.lerp(b, 1.0), b);
+        assert_eq!(a.lerp(b, -0.5), a, "an undershoot stops at the start");
+        assert_eq!(a.lerp(b, 1.5), b, "an overshoot stops at the end");
+        assert_eq!(a.lerp(b, f32::NAN), a, "and no progress is no progress");
+    }
+
+    /// **A fill fading out keeps its hue.** The obvious interpolation — towards
+    /// `Color::TRANSPARENT` — is towards transparent *black*, and half-way there a red is a
+    /// half-opaque dark red: a movement that was only about disappearing darkens on the way.
+    #[test]
+    fn a_fill_fading_out_does_not_pass_through_black() {
+        let mid = BoxDecoration::filled(RED).lerp(BoxDecoration::default(), 0.5);
+        let c = mid.color.expect("still painted, half faded");
+        assert_eq!((c.r, c.g, c.b), (1.0, 0.0, 0.0), "the same red");
+        assert!((c.a - 0.5).abs() < 1e-6, "at half its opacity: {c:?}");
+        let naive = RED.lerp(Color::TRANSPARENT, 0.5);
+        assert!(naive.r < 0.6, "the trap this avoids: {naive:?}");
+    }
+
+    /// And one fading in arrives in its own colour, only fainter.
+    #[test]
+    fn a_fill_fading_in_arrives_in_its_own_colour() {
+        let c = BoxDecoration::default()
+            .lerp(BoxDecoration::filled(BLUE), 0.25)
+            .color
+            .expect("already there, faintly");
+        assert_eq!((c.r, c.g, c.b), (0.0, 0.0, 1.0));
+        assert!((c.a - 0.25).abs() < 1e-6, "{c:?}");
+    }
+
+    /// **A flat fill is a gradient whose two ends agree**, so flat to graded spreads the
+    /// far end out of the fill: the start does not move and the end travels.
+    #[test]
+    fn a_flat_fill_spreads_into_a_gradient() {
+        let flat = BoxDecoration::filled(RED);
+        let graded = BoxDecoration::filled(RED).gradient(LinearGradient::new(BLUE, [0.0, 1.0]));
+        let mid = flat.lerp(graded, 0.5);
+        assert_eq!(mid.color, Some(RED), "the start does not move");
+        let g = mid.gradient.expect("a gradient half-way to its far colour");
+        assert_eq!(g.end, RED.lerp(BLUE, 0.5));
+        assert_eq!(g.direction, [0.0, 1.0]);
+    }
+
+    /// **A border arrives by thickening, in its own colour** — not as a colour on its way
+    /// from nowhere.
+    #[test]
+    fn a_border_arrives_by_thickening_in_its_own_colour() {
+        let lined = BoxDecoration::filled(RED).border(Border::new(4.0, BLUE));
+        let quarter = BoxDecoration::filled(RED)
+            .lerp(lined, 0.25)
+            .border
+            .expect("a line already");
+        assert_eq!(quarter.width, 1.0);
+        assert_eq!(quarter.color, BLUE);
+    }
+
+    /// **A shadow arrives by growing out from under the box as it fades in.**
+    #[test]
+    fn a_shadow_grows_and_fades_in() {
+        let raised = BoxDecoration::filled(RED).shadow(BoxShadow::new(
+            0.0,
+            8.0,
+            16.0,
+            Color::rgba(0.0, 0.0, 0.0, 0.4),
+        ));
+        let half = BoxDecoration::filled(RED)
+            .lerp(raised, 0.5)
+            .shadow
+            .expect("a shadow already");
+        assert_eq!(half.offset, (0.0, 4.0));
+        assert_eq!(half.blur, 8.0);
+        assert!((half.color.a - 0.2).abs() < 1e-6, "{:?}", half.color);
+    }
+
+    /// Corners travel one by one, each from its own start.
+    #[test]
+    fn corners_travel_one_by_one() {
+        let r = BoxDecoration::default()
+            .radius(BorderRadius::top(8.0))
+            .lerp(BoxDecoration::default().radius(16.0), 0.5)
+            .radius;
+        assert_eq!((r.top_left, r.bottom_left), (12.0, 8.0));
     }
 }

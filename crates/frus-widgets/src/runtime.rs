@@ -528,15 +528,10 @@ fn lerp_insets(a: Insets, b: Insets, t: f32) -> Insets {
     )
 }
 
-/// Linear interpolation of two radii (per corner).
+/// Linear interpolation of two radii (per corner) — the one rule, `BorderRadius::lerp`,
+/// so that an animated container and a decoration transition cannot round differently.
 fn lerp_radius(a: BorderRadius, b: BorderRadius, t: f32) -> BorderRadius {
-    let mix = |x: f32, y: f32| x + (y - x) * t;
-    BorderRadius {
-        top_left: mix(a.top_left, b.top_left),
-        top_right: mix(a.top_right, b.top_right),
-        bottom_right: mix(a.bottom_right, b.bottom_right),
-        bottom_left: mix(a.bottom_left, b.bottom_left),
-    }
+    a.lerp(b, t)
 }
 
 /// One damped-spring step (semi-implicit Euler) driving `progress` towards
