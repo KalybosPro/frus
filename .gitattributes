@@ -11,3 +11,7 @@ crates/frus-demo/assets/licenses.txt -text
 *.ttf binary
 *.otf binary
 *.dex binary
+
+# Shell scripts run under bash — in CI, and in WSL straight from a Windows checkout — and
+# bash reads a carriage return as part of the command. Always LF (milestone 508).
+*.sh text eol=lf

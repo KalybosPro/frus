@@ -1,0 +1,23 @@
+# The size budget for the smallest frus application (milestone 508, #9).
+#
+# What is measured: `frus-hello`, the counter, built for aarch64-linux-android with the
+# workspace's release profile -- the stripped `libfrus_hello.so` an APK ships. Checked by
+# the `size` job in .github/workflows/ci.yml through scripts/check-size.sh, which prints
+# the size and this budget on every run.
+#
+# Where the number comes from:
+#
+#   milestone 292 (the first measurement)   10,012,520 bytes
+#   milestone 508 (this budget set)         10,427,568 bytes   -- +4% in 216 milestones
+#
+# The budget is about 25% over the measurement. It is there to catch a jump, not drift:
+# the release profile going missing (the debug library was 300 MB), LTO or stripping
+# turned off, a dependency that brings half an ecosystem with it, a font bundled by
+# default. Ordinary growth has been 4% in two hundred milestones, so this leaves years
+# of it -- and a single change that adds 2.5 MB to a counter is a change worth stopping
+# to look at.
+#
+# Raising it is allowed, and meant to be deliberate: in the change that needs it, with
+# the reason in the commit.
+
+budget_bytes = 13000000
