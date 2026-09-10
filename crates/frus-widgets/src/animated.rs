@@ -6,7 +6,9 @@
 //! animated values never collide. The identities (`child_id`), and therefore the
 //! animations, line up exactly with the paint walk.
 
-use frus_core::{BorderRadius, Color, Curve, Rect, Scene, Size};
+use frus_core::{
+    BorderRadius, Color, Curve, Rect, Scene, Size, TextAlign, TextOverflow, TextStyle,
+};
 use frus_layout::Style;
 
 use crate::container::Container;
@@ -766,6 +768,169 @@ impl<Msg: Clone> Widget<Msg> for AnimatedPositioned<Msg> {
     }
 }
 
+/// **Hands a moving text style down to everything below it** rather than restyling the
+/// subtree at once. The reference's `AnimatedDefaultTextStyle`.
+///
+/// A heading that shrinks as a page scrolls, a label that goes from muted to emphatic when
+/// its row is selected, a caption thickening as it becomes the thing being edited: each is
+/// a run of words whose *type* changes, and each of them jumped before this.
+///
+/// ```
+/// use frus_core::{Curve, TextStyle};
+/// use frus_widgets::{AnimatedDefaultTextStyle, Text};
+///
+/// let selected = true;
+/// let _row: AnimatedDefaultTextStyle<()> = AnimatedDefaultTextStyle::new(
+///     0.2,
+///     Curve::ease_out(),
+///     TextStyle::NONE.size(if selected { 22.0 } else { 16.0 }),
+///     Text::new("Reminders"),
+/// );
+/// ```
+///
+/// It reaches the subtree through the **theme**, the way
+/// [`DefaultTextStyle::around`](crate::DefaultTextStyle::around) does: a
+/// [`Text`](crate::Text) resolves *what the caller said ?? what the subtree hands down ??
+/// what the framework ships*, so this styles the words a caller passed in already
+/// assembled and never has to be threaded through them. A field the caller set on a
+/// particular text still wins — an inherited style is the answer to a question, not an
+/// instruction.
+///
+/// **It is the only animated value in this framework that layout reads through the
+/// theme**, which is why it is the only one whose consumer is the walk's theme swap
+/// rather than the node. That swap is made four times over a frame, and all four go
+/// through one function so they cannot answer differently.
+///
+/// **Only the type moves.** Alignment, wrapping, overflow and the line count take effect
+/// the moment they change, exactly as the reference says of its own: they are
+/// arrangements rather than quantities, and there is nothing between wrapping and not.
+/// What travels, what holds and what swaps at the halfway point within the type itself is
+/// [`TextStyle::lerp`]'s business — in short, sizes travel, a field only one end states
+/// holds still, and faces swap in the middle.
+///
+/// Like [`AnimatedPositioned`], and unlike the transparent
+/// [`Themed`](crate::Themed) it is built on the same idea as, this is a **node of its
+/// own**. Two of these nested — an outer one moving the colour, an inner one the size,
+/// which is a thing the cascade positively invites — would otherwise fuse into one node
+/// and put two timelines on it.
+pub struct AnimatedDefaultTextStyle<Msg> {
+    children: Vec<Box<dyn Widget<Msg>>>,
+    style: TextStyle,
+    align: Option<TextAlign>,
+    soft_wrap: Option<bool>,
+    overflow: Option<TextOverflow>,
+    max_lines: Option<usize>,
+    duration: f32,
+    curve: Curve,
+}
+
+impl<Msg> AnimatedDefaultTextStyle<Msg> {
+    /// A subtree wearing `style`, moving to each new one over `duration` seconds on
+    /// `curve`.
+    pub fn new(
+        duration: f32,
+        curve: Curve,
+        style: TextStyle,
+        child: impl Widget<Msg> + 'static,
+    ) -> Self {
+        Self {
+            children: vec![Box::new(child)],
+            style,
+            align: None,
+            soft_wrap: None,
+            overflow: None,
+            max_lines: None,
+            duration,
+            curve,
+        }
+    }
+
+    /// Where the lines sit inside their box. **Not animated** — it takes effect at once.
+    pub fn align(mut self, align: TextAlign) -> Self {
+        self.align = Some(align);
+        self
+    }
+
+    /// Whether the text wraps at the width it is given. **Not animated.**
+    pub fn soft_wrap(mut self, wrap: bool) -> Self {
+        self.soft_wrap = Some(wrap);
+        self
+    }
+
+    /// What becomes of text that does not fit. **Not animated.**
+    pub fn overflow(mut self, overflow: TextOverflow) -> Self {
+        self.overflow = Some(overflow);
+        self
+    }
+
+    /// At most this many lines. **Not animated.**
+    pub fn max_lines(mut self, lines: usize) -> Self {
+        self.max_lines = Some(lines);
+        self
+    }
+
+    /// The style this subtree hands down, as a whole.
+    fn handed_down(&self) -> crate::widgettheme::DefaultTextStyle {
+        crate::widgettheme::DefaultTextStyle {
+            style: self.style,
+            align: self.align,
+            soft_wrap: self.soft_wrap,
+            overflow: self.overflow,
+            max_lines: self.max_lines,
+        }
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for AnimatedDefaultTextStyle<Msg> {
+    fn style(&self) -> Style {
+        // Nothing of its own: it is a style handed down, not a box. The child's box is
+        // this node's box.
+        Style::default()
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &self.children
+    }
+
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {
+        // Nothing of its own: what it does, it does to the theme.
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+
+    /// Where it is **going**, plus the four answers that are not going anywhere.
+    ///
+    /// The walk lays the runtime's interpolated style over this wherever there is one
+    /// (`crate::ui::scoped_theme`), which is what makes the difference between this and a
+    /// plain [`DefaultTextStyle::around`](crate::DefaultTextStyle::around). On the frame
+    /// this node mounts there is no interpolated style yet, and the target is the right
+    /// answer: an implicit animation adopts its target on mount rather than playing from
+    /// nowhere.
+    fn theme_override(&self, inherited: &Theme) -> Option<Box<Theme>> {
+        let mut theme = inherited.clone();
+        theme.widgets.text = theme.widgets.text.merge(self.handed_down());
+        Some(Box::new(theme))
+    }
+
+    fn anim_text_style(&self) -> Option<TextStyle> {
+        Some(self.style)
+    }
+
+    fn anim_duration(&self) -> f32 {
+        self.duration
+    }
+
+    fn anim_curve(&self) -> Curve {
+        self.curve.clone()
+    }
+
+    fn debug_name(&self) -> &'static str {
+        "AnimatedDefaultTextStyle"
+    }
+}
+
 /// **Grows and shrinks its share of the parent** rather than taking the new share at
 /// once. The reference's `AnimatedFractionallySizedBox`, and a name over
 /// [`crate::FractionallySizedBox::animated`].
@@ -1328,5 +1493,135 @@ mod implicit_tests {
             (width - 50.0).abs() < 0.5,
             "half the parent, on the way from a quarter to three quarters: {width}"
         );
+    }
+
+    // --- The inherited text style (milestone 498) ---
+
+    /// A subtree wearing a style that moves, over a linear tenth of a second.
+    fn styled(size: f32) -> AnimatedDefaultTextStyle<()> {
+        AnimatedDefaultTextStyle::new(
+            0.10,
+            Curve::Linear,
+            TextStyle::NONE.size(size),
+            Text::new("Ag"),
+        )
+    }
+
+    /// **Mounted, mid-flight, at rest** — the three the issue asks each of these to pin.
+    #[test]
+    fn a_default_text_style_mounts_settled_moves_and_arrives() {
+        let mut rt = Runtime::default();
+        assert!(
+            !rt.advance_text_styles(&styled(24.0), 1.0),
+            "a mount is not a transition"
+        );
+        let id = WidgetId::ROOT;
+        assert_eq!(
+            rt.anim_text_style(id).and_then(|s| s.size),
+            Some(24.0),
+            "and it adopts the target whole"
+        );
+
+        assert!(rt.advance_text_styles(&styled(12.0), 0.05));
+        let mid = rt.anim_text_style(id).expect("in flight").size.unwrap();
+        assert!((mid - 18.0).abs() < 1e-3, "halfway between the two: {mid}");
+
+        rt.advance_text_styles(&styled(12.0), 1.0);
+        assert_eq!(rt.anim_text_style(id).and_then(|s| s.size), Some(12.0));
+        assert!(
+            !rt.advance_text_styles(&styled(12.0), 0.05),
+            "and stops asking for frames once it is there"
+        );
+    }
+
+    /// **And the moving style reaches the words**, which is a different question from
+    /// whether the number moves — milestone 477's fourth test, and the one that has
+    /// caught something every time it has been asked.
+    ///
+    /// This family is the one where it matters most: the value is consumed by the walk's
+    /// **theme swap** rather than by the node, so a correct tween and a correct target can
+    /// sit either side of a subtree that never reads either. Take the merge out of
+    /// `crate::ui::scoped_theme` and the test above still passes; this one paints the
+    /// target from the first frame.
+    #[test]
+    fn the_moving_style_reaches_the_words() {
+        fn painted_size(rt: &Runtime, tree: &AnimatedDefaultTextStyle<()>) -> f32 {
+            fn walk(primitives: &[Primitive], out: &mut Vec<f32>) {
+                for p in primitives {
+                    match p {
+                        Primitive::Text { size, .. } => out.push(*size),
+                        Primitive::Layer { primitives, .. } => walk(primitives, out),
+                        _ => {}
+                    }
+                }
+            }
+            let ui = build_ui(tree, Size::new(400.0, 200.0), rt, &Theme::default());
+            let mut sizes = Vec::new();
+            walk(ui.scene().primitives(), &mut sizes);
+            assert_eq!(sizes.len(), 1, "one run of words: {sizes:?}");
+            sizes[0]
+        }
+
+        let mut rt = Runtime::default();
+        rt.advance_text_styles(&styled(24.0), 1.0);
+        assert_eq!(
+            painted_size(&rt, &styled(24.0)),
+            24.0,
+            "mounted at its target"
+        );
+
+        rt.advance_text_styles(&styled(12.0), 0.05);
+        let mid = painted_size(&rt, &styled(12.0));
+        assert!(
+            (mid - 18.0).abs() < 1e-3,
+            "the words are drawn at the style in flight, not at the one it is heading              for: {mid}"
+        );
+    }
+
+    /// **The four unanimated answers take effect at once**, as the reference says of its
+    /// own: there is nothing between wrapping and not, so they are not quantities and do
+    /// not travel. They still have to *arrive*, which is what this checks — they reach
+    /// the subtree through the same theme the style does.
+    #[test]
+    fn the_answers_that_are_not_quantities_take_effect_at_once() {
+        let tree = AnimatedDefaultTextStyle::<()>::new(
+            0.10,
+            Curve::Linear,
+            TextStyle::NONE.size(16.0),
+            Text::new("Ag"),
+        )
+        .align(TextAlign::Center)
+        .max_lines(2);
+        let handed = Widget::<()>::theme_override(&tree, &Theme::default()).expect("a theme");
+        assert_eq!(handed.widgets.text.align, Some(TextAlign::Center));
+        assert_eq!(handed.widgets.text.max_lines, Some(2));
+    }
+
+    /// **Two nested ones are two nodes**, which is the reason this is not a transparent
+    /// wrapper. An outer one moving the colour and an inner one the size is a thing the
+    /// cascade positively invites; fused into one node they would be two timelines on one
+    /// identity, and the second would overwrite the first every frame.
+    #[test]
+    fn two_nested_styles_are_two_timelines() {
+        let nested = AnimatedDefaultTextStyle::<()>::new(
+            0.10,
+            Curve::Linear,
+            TextStyle::NONE.color(frus_core::Color::rgb(1.0, 0.0, 0.0)),
+            AnimatedDefaultTextStyle::new(
+                0.10,
+                Curve::Linear,
+                TextStyle::NONE.size(20.0),
+                Text::new("Ag"),
+            ),
+        );
+        let mut rt = Runtime::default();
+        rt.advance_text_styles(&nested, 1.0);
+        let outer = rt.anim_text_style(WidgetId::ROOT).expect("the outer one");
+        let inner_id = crate::ui::child_id(WidgetId::ROOT, 0, nested.children()[0].as_ref());
+        let inner = rt.anim_text_style(inner_id).expect("the inner one");
+        assert_ne!(inner_id, WidgetId::ROOT, "two nodes, not one");
+        assert_eq!(outer.size, None, "the outer one says nothing about size");
+        assert_eq!(inner.size, Some(20.0), "and the inner one does");
+        assert!(outer.color.is_some() && inner.color.is_none());
     }
 }

@@ -1626,3 +1626,69 @@ fn choosing_french_hands_the_framework_a_french_table() {
     app.lang = Some(2);
     assert!(app.localizations().is_none());
 }
+
+/// **A ticked task still reads as ticked**, which stopped being obvious in milestone 498.
+///
+/// Its label's colour and its line through were stated on the text itself until that
+/// milestone and are now *handed down* to it, so that both can move when a task is ticked
+/// rather than jumping. The failure mode of getting that wrong is silence: a done task
+/// that looks exactly like an active one, on a screen where every row still lays out,
+/// still paints and still passes every count. So the row is asked what it actually drew.
+///
+/// The active row beside it is the control — it is the same code path with the other
+/// answer, and a test that only looked at the done one would pass just as well if the
+/// style reached every row alike.
+#[test]
+fn a_ticked_task_is_still_muted_and_struck_through() {
+    fn label_of(done: bool) -> (frus_widgets::Color, bool) {
+        let theme = Theme::dark();
+        let todo = Todo {
+            id: 1,
+            text: "Buy milk".to_string(),
+            done,
+        };
+        let row = todo_row(&todo, &theme);
+        let size = Size::new(400.0, 120.0);
+        // Settled, so what is painted is the target rather than a frame of a movement:
+        // this is about where the style arrives, not how it gets there.
+        let mut runtime = Runtime::default();
+        runtime.advance_text_styles(&row, 1.0);
+        let ui = build_ui(&row, size, &runtime, &theme);
+        fn walk(
+            primitives: &[frus_widgets::Primitive],
+            out: &mut Vec<(frus_widgets::Color, bool)>,
+        ) {
+            for p in primitives {
+                match p {
+                    frus_widgets::Primitive::Text {
+                        text,
+                        color,
+                        decoration,
+                        ..
+                    } if text == "Buy milk" => out.push((*color, decoration.strikethrough)),
+                    frus_widgets::Primitive::Layer { primitives, .. } => walk(primitives, out),
+                    _ => {}
+                }
+            }
+        }
+        let mut found = Vec::new();
+        walk(ui.scene().primitives(), &mut found);
+        assert_eq!(found.len(), 1, "one label: {found:?}");
+        found[0]
+    }
+
+    let theme = Theme::dark();
+    let (active_color, active_line) = label_of(false);
+    let (done_color, done_line) = label_of(true);
+    assert!(!active_line, "an active task is not struck through");
+    assert!(done_line, "a ticked one is");
+    assert_eq!(
+        active_color, theme.on_surface,
+        "an active task reads as ink"
+    );
+    assert_eq!(done_color, theme.muted, "and a ticked one as muted");
+    assert_ne!(
+        active_color, done_color,
+        "the two states must not look alike"
+    );
+}

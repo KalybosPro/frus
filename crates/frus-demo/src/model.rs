@@ -140,6 +140,8 @@ pub(crate) struct TodoApp {
     pub(crate) rating: u32,
     /// The stepper's counter (Settings).
     pub(crate) count: i32,
+    /// How many minutes the reminder wheel is resting on (Settings, milestone 496).
+    pub(crate) reminder: usize,
     /// The notification (Snackbar) queue: one at a time, with an animated exit (milestone 193).
     pub(crate) snackbars: SnackBarQueue<String>,
     /// The pagination selector's current page (a demo).

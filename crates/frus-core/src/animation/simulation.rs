@@ -213,6 +213,33 @@ impl Simulation for SpringSimulation {
     }
 }
 
+/// The sign of `v`, with nought counting as positive — `f32::signum` answers `-0.0`
+/// for a negative zero and `1.0` for a positive one, and a deceleration that flipped
+/// direction on the sign of a zero velocity would be a bug nobody could reproduce.
+fn sign_of(v: f32) -> f32 {
+    if v < 0.0 {
+        -1.0
+    } else {
+        1.0
+    }
+}
+
+/// Ten steps of Newton's method towards `f(t) = target`, from `guess`.
+///
+/// Ten, not "until it converges": a fixed count cannot hang, and this runs while a
+/// finger is still on the glass. It is the reference's own iteration count.
+fn newtons_method(guess: f32, target: f32, f: impl Fn(f32) -> f32, df: impl Fn(f32) -> f32) -> f32 {
+    let mut t = guess;
+    for _ in 0..10 {
+        let slope = df(t);
+        if slope == 0.0 {
+            break;
+        }
+        t -= (f(t) - target) / slope;
+    }
+    t
+}
+
 /// Friction deceleration — scroll and fling momentum — in closed form.
 ///
 /// `drag ∈ (0, 1)`: the closer to 1, the longer the motion keeps rolling.
@@ -222,19 +249,66 @@ pub struct FrictionSimulation {
     drag_log: f32,
     x0: f32,
     v0: f32,
+    /// A **constant** deceleration on top of the drag, already signed by the
+    /// direction of travel. Nought for a finger; a real number for a trackpad.
+    ///
+    /// Drag alone never quite stops: the velocity decays geometrically and only
+    /// reaches nought at infinity, which is right for a flick that coasts. A
+    /// trackpad is not a flick — it is a hand that let go of a surface it was
+    /// touching — and a constant term is what gives the motion an actual end.
+    constant_deceleration: f32,
+    /// When the motion stops. `∞` unless there is a constant deceleration, which
+    /// is the only thing that brings the velocity to nought in finite time.
+    final_time: f32,
     tolerance: Tolerance,
 }
 
 impl FrictionSimulation {
     /// Friction from `position` at `velocity`, with the coefficient `drag`.
     pub fn new(drag: f32, position: f32, velocity: f32, tolerance: Tolerance) -> Self {
-        Self {
+        Self::with_constant_deceleration(drag, position, velocity, tolerance, 0.0)
+    }
+
+    /// Friction with a **constant deceleration** on top of the drag.
+    ///
+    /// `constant_deceleration` is given unsigned and applied against the direction
+    /// of travel. Nought gives exactly [`Self::new`]; anything else brings the
+    /// motion to a stop in finite time, which drag alone never does.
+    ///
+    /// The closed forms stop working here. With drag alone, `dx(t) = v₀·D^t` is
+    /// invertible and the instant the motion passes a given point can be written
+    /// down; add `−c·t` and neither the stopping time nor the crossing time has a
+    /// closed form at all. Both are found by Newton's method, which is what the
+    /// reference does and for the same reason.
+    pub fn with_constant_deceleration(
+        drag: f32,
+        position: f32,
+        velocity: f32,
+        tolerance: Tolerance,
+        constant_deceleration: f32,
+    ) -> Self {
+        let drag_log = drag.ln();
+        let constant_deceleration = constant_deceleration * sign_of(velocity);
+        let mut sim = Self {
             drag,
-            drag_log: drag.ln(),
+            drag_log,
             x0: position,
             v0: velocity,
+            constant_deceleration,
+            // Infinite while the solve below reads `dx`, which is what makes that
+            // read the unbounded velocity rather than the clamped one.
+            final_time: f32::INFINITY,
             tolerance,
+        };
+        if constant_deceleration != 0.0 {
+            sim.final_time = newtons_method(
+                0.0,
+                0.0,
+                |t| sim.dx(t),
+                |t| sim.v0 * sim.drag.powf(t) * sim.drag_log - sim.constant_deceleration,
+            );
         }
+        sim
     }
 
     /// A friction calibrated to pass through `start` (at `start_velocity`) **and**
@@ -251,9 +325,14 @@ impl FrictionSimulation {
         Self::new(drag, start, start_velocity, tolerance)
     }
 
-    /// The final position — the limit as `t → ∞`.
+    /// The final position — the limit as `t → ∞`, or the place the motion
+    /// actually stops when a constant deceleration gives it an end.
     pub fn final_x(&self) -> f32 {
-        self.x0 - self.v0 / self.drag_log
+        if self.constant_deceleration == 0.0 {
+            self.x0 - self.v0 / self.drag_log
+        } else {
+            self.x(self.final_time)
+        }
     }
 
     /// The instant at which the motion passes through `x`, or `∞` when it never
@@ -272,17 +351,27 @@ impl FrictionSimulation {
         if self.v0 == 0.0 || unreachable {
             return f32::INFINITY;
         }
-        (self.drag_log * (x - self.x0) / self.v0 + 1.0).ln() / self.drag_log
+        if self.constant_deceleration == 0.0 {
+            return (self.drag_log * (x - self.x0) / self.v0 + 1.0).ln() / self.drag_log;
+        }
+        newtons_method(0.0, x, |t| self.x(t), |t| self.dx(t))
     }
 }
 
 impl Simulation for FrictionSimulation {
     fn x(&self, time: f32) -> f32 {
+        if time > self.final_time {
+            return self.final_x();
+        }
         self.x0 + (self.v0 / self.drag_log) * (self.drag.powf(time) - 1.0)
+            - 0.5 * self.constant_deceleration * time * time
     }
 
     fn dx(&self, time: f32) -> f32 {
-        self.v0 * self.drag.powf(time)
+        if time > self.final_time {
+            return 0.0;
+        }
+        self.v0 * self.drag.powf(time) - self.constant_deceleration * time
     }
 
     fn is_done(&self, time: f32) -> bool {
@@ -444,8 +533,35 @@ impl BouncingScrollSimulation {
         spring: SpringDescription,
         tolerance: Tolerance,
     ) -> Self {
+        Self::with_constant_deceleration(
+            position, velocity, leading, trailing, spring, tolerance, 0.0,
+        )
+    }
+
+    /// The same fling with a **constant deceleration** on top of the drag — the
+    /// second deceleration profile, for input that is not a finger.
+    ///
+    /// Nought gives exactly [`Self::new`]. See
+    /// [`FrictionSimulation::with_constant_deceleration`] for what the term does and
+    /// why the closed forms stop working.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_constant_deceleration(
+        position: f32,
+        velocity: f32,
+        leading: f32,
+        trailing: f32,
+        spring: SpringDescription,
+        tolerance: Tolerance,
+        constant_deceleration: f32,
+    ) -> Self {
         debug_assert!(leading <= trailing);
-        let friction = FrictionSimulation::new(BOUNCING_DRAG, position, velocity, tolerance);
+        let friction = FrictionSimulation::with_constant_deceleration(
+            BOUNCING_DRAG,
+            position,
+            velocity,
+            tolerance,
+            constant_deceleration,
+        );
         let to =
             |edge: f32, from: f32, v: f32| SpringSimulation::new(spring, from, edge, v, tolerance);
 
@@ -842,5 +958,131 @@ mod tests {
         assert_eq!(clamped.x(10.0), 100.0, "position pinned to the maximum");
         // The velocity stays that of the free motion, non-zero near the edge.
         assert!(clamped.dx(0.1) > 0.0);
+    }
+
+    // --- Constant deceleration (milestone 499) ---
+
+    /// **Nought changes nothing.** The whole point of adding the term this way: a
+    /// finger's fling has to come out bit for bit what it was before.
+    #[test]
+    fn no_constant_deceleration_is_the_old_motion_exactly() {
+        let plain = FrictionSimulation::new(0.135, 0.0, 2000.0, Tolerance::PIXELS);
+        let with_none = FrictionSimulation::with_constant_deceleration(
+            0.135,
+            0.0,
+            2000.0,
+            Tolerance::PIXELS,
+            0.0,
+        );
+        for t in [0.0, 0.05, 0.2, 0.5, 1.0, 3.0] {
+            assert_eq!(plain.x(t), with_none.x(t), "position at {t}");
+            assert_eq!(plain.dx(t), with_none.dx(t), "velocity at {t}");
+        }
+        assert_eq!(plain.final_x(), with_none.final_x());
+    }
+
+    /// **Drag alone never stops; a constant term does.** This is the difference the
+    /// second profile exists for: a flick coasts to a halt asymptotically, and a
+    /// trackpad gesture is a hand letting go of a surface, which ends.
+    #[test]
+    fn a_constant_deceleration_brings_the_motion_to_an_actual_stop() {
+        let coasting = FrictionSimulation::new(0.135, 0.0, 2000.0, Tolerance::PIXELS);
+        let stopping = FrictionSimulation::with_constant_deceleration(
+            0.135,
+            0.0,
+            2000.0,
+            Tolerance::PIXELS,
+            1400.0,
+        );
+        // Drag alone: still moving, however slightly, however long you wait.
+        assert!(
+            coasting.dx(5.0) > 0.0,
+            "drag alone only reaches nought at infinity"
+        );
+        // With the constant term: stopped, and stopped for good.
+        assert_eq!(stopping.dx(5.0), 0.0);
+        let rest = stopping.final_x();
+        assert_eq!(stopping.x(5.0), rest, "and it stays where it stopped");
+        assert_eq!(stopping.x(50.0), rest);
+        assert!(
+            rest < coasting.final_x(),
+            "and it stops short of where coasting would have carried it: {rest} vs {}",
+            coasting.final_x()
+        );
+    }
+
+    /// The stop is where the velocity reaches nought, which is what Newton was
+    /// solving for. Checked from the other side: a hair before it the motion is
+    /// still going, a hair after it is not.
+    #[test]
+    fn the_stopping_time_is_where_the_velocity_runs_out() {
+        let sim = FrictionSimulation::with_constant_deceleration(
+            0.135,
+            0.0,
+            2000.0,
+            Tolerance::PIXELS,
+            1400.0,
+        );
+        let rest = sim.final_x();
+        // Walk forward until the motion has stopped, and check it was still moving
+        // one step earlier — the stop is a point, not a plateau.
+        let mut t = 0.0;
+        while sim.dx(t) > 0.0 && t < 5.0 {
+            t += 0.001;
+        }
+        assert!(t > 0.0 && t < 5.0, "it stops, and not immediately: {t}");
+        assert!(sim.dx(t - 0.002) > 0.0, "still moving a step before");
+        assert!((sim.x(t) - rest).abs() < 1.0, "and it is at rest there");
+    }
+
+    /// **Newton still finds a crossing.** The closed form for *when the motion
+    /// passes a given point* does not survive the constant term, and this is what
+    /// hands a fling over to the edge spring at the right instant — so if it were
+    /// wrong, a bounce would start early or late and nothing else would complain.
+    #[test]
+    fn the_crossing_instant_survives_the_constant_term() {
+        let sim = FrictionSimulation::with_constant_deceleration(
+            0.135,
+            0.0,
+            2000.0,
+            Tolerance::PIXELS,
+            1400.0,
+        );
+        let target = sim.final_x() * 0.5;
+        let t = sim.time_at_x(target);
+        assert!(t.is_finite() && t > 0.0, "reached, at {t}");
+        assert!(
+            (sim.x(t) - target).abs() < 0.5,
+            "and x({t}) is {target}: got {}",
+            sim.x(t)
+        );
+    }
+
+    /// It works going backwards too, the constant term being applied against the
+    /// direction of travel rather than in a fixed one.
+    #[test]
+    fn a_backward_fling_decelerates_backwards() {
+        let sim = FrictionSimulation::with_constant_deceleration(
+            0.135,
+            0.0,
+            -2000.0,
+            Tolerance::PIXELS,
+            1400.0,
+        );
+        assert!(sim.final_x() < 0.0, "it travelled backwards");
+        assert_eq!(sim.dx(5.0), 0.0, "and it stopped");
+        let forward = FrictionSimulation::with_constant_deceleration(
+            0.135,
+            0.0,
+            2000.0,
+            Tolerance::PIXELS,
+            1400.0,
+        );
+        assert!(
+            (sim.final_x() + forward.final_x()).abs() < 0.5,
+            "the same distance either way: {} vs {}",
+            sim.final_x(),
+            forward.final_x()
+        );
     }
 }

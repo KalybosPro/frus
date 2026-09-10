@@ -56,7 +56,7 @@ pub(crate) fn journal_screen(app: &TodoApp, theme: &Theme) -> Container<Msg> {
     // Unset, the list follows the platform. The toggle overrides it, which is the
     // point of the demonstration: fling to an end and feel the difference.
     if app.journal_bounces {
-        list = list.physics(ScrollPhysics::Bouncing);
+        list = list.physics(ScrollPhysics::BOUNCING);
     }
     let label = if app.journal_bounces {
         "Edges: bounce"

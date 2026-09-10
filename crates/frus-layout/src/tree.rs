@@ -58,11 +58,55 @@ pub struct Layout<'a, T> {
     measures: HashMap<NodeId, MeasureFn<'a>>,
 }
 
+/// **The rule a self-measuring widget has to keep**, checked where every measurement
+/// passes through — in debug builds only, the cost in release being a rule nobody can
+/// see broken.
+///
+/// **A measurement is a whole number of pixels.** The boxes this engine hands out are
+/// rounded, so a widget that measures itself at `146.4` and says so is given `146`, and
+/// `146 < 146.4` — at paint time, where it is measured again, it no longer fits and
+/// wraps, clips or overflows. That is milestone 289, and it presented as a line of text
+/// that vanished rather than as arithmetic. The cure is [`frus_core::fits`]; this is what
+/// says so when a new measurer rounds to nearest instead, which is what anyone writing
+/// one does by reflex.
+///
+/// **Two things it deliberately does not check.**
+///
+/// A measurement *larger than the space it was offered* is not a violation here. This
+/// framework lets content overflow and reports it ([`crate::Overflowing`], milestones
+/// 327–334) rather than crushing it, so a measurer answering with its natural size is
+/// doing its job; a box too small for it is a fact about the layout, not about the
+/// measurement.
+///
+/// And a measurement that came back **exactly** at its bound is exempt from the rule
+/// above: it was clamped there, the bound is the caller's number rather than the
+/// measurer's, and rounding it up would make a box a fraction wider than it was allowed
+/// — which is a different bug. Clamp after rounding up, never before.
+#[inline]
+fn debug_assert_measurement(measured: f32, bound: Option<f32>, axis: &str) {
+    #[cfg(debug_assertions)]
+    {
+        const EPSILON: f32 = 1e-3;
+        if bound.is_some_and(|bound| (measured - bound).abs() <= EPSILON) {
+            return;
+        }
+        debug_assert!(
+            (measured - measured.ceil()).abs() <= EPSILON,
+            "a measured {axis} of {measured} is not a whole number of pixels, so the box              it is rounded to is one it no longer fits in — go through `frus_core::fits`              (milestone 289, issue #54)"
+        );
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (measured, bound, axis);
+    }
+}
+
 impl<'a, T> Layout<'a, T> {
     /// Creates an empty tree.
     pub fn new() -> Self {
+        let tree = TaffyTree::new();
         Self {
-            tree: TaffyTree::new(),
+            tree,
             measures: HashMap::new(),
         }
     }
@@ -405,10 +449,13 @@ impl<'a, T> Layout<'a, T> {
                             AvailableSpace::MaxContent => None,
                         })
                     };
-                    let size = measure(
+                    let (bw, bh) = (
                         bound(known.width, space.width),
                         bound(known.height, space.height),
                     );
+                    let size = measure(bw, bh);
+                    debug_assert_measurement(size.width, bw, "width");
+                    debug_assert_measurement(size.height, bh, "height");
                     taffy::Size {
                         width: size.width,
                         height: size.height,
@@ -831,5 +878,71 @@ mod tests {
 
         // A child centred on the main axis: x = (400 - 100) / 2 = 150.
         assert_eq!(rects[1].0, Rect::new(150.0, 0.0, 100.0, 40.0));
+    }
+
+    /// **A measurer that rounds to nearest is caught.** This is the whole point of the
+    /// rule: the failure it prevents is a clipped glyph three crates away, and the thing
+    /// that reintroduces it is one `round()` written by reflex where a `ceil()` belonged.
+    ///
+    /// Debug builds only, which is where tests run.
+    #[test]
+    #[should_panic(expected = "not a whole number of pixels")]
+    fn a_measurement_that_is_not_whole_is_caught() {
+        let mut layout: Layout<'_, ()> = Layout::new();
+        let node = layout.measured_leaf(
+            Style::default(),
+            (),
+            // 146.4, the number from milestone 289, reported as it came.
+            Box::new(|_, _| Size::new(146.4, 20.0)),
+        );
+        layout.compute(node, Size::new(400.0, 400.0));
+    }
+
+    /// And one that goes through the helper is not. The pair is the test: an assertion
+    /// that fired on everything would be turned off within a week.
+    #[test]
+    fn a_measurement_put_through_the_helper_passes() {
+        let mut layout: Layout<'_, ()> = Layout::new();
+        let node = layout.measured_leaf(
+            Style::default(),
+            (),
+            Box::new(|_, _| Size::new(frus_core::fits(146.4), frus_core::fits(20.0))),
+        );
+        layout.compute(node, Size::new(400.0, 400.0));
+        let size = layout.size_of(node);
+        assert_eq!(size.width, 147.0, "rounded up, so the box still fits it");
+    }
+
+    /// **A measurement clamped to its constraint is exempt.** The bound is the caller's
+    /// number, not the measurer's: rounding it up would hand back a box a fraction wider
+    /// than the space offered, which is a different bug. Clamp after rounding up, never
+    /// before — and this is what says the rule knows the difference.
+    #[test]
+    fn a_measurement_clamped_to_a_fractional_bound_is_not_a_violation() {
+        let mut layout: Layout<'_, ()> = Layout::new();
+        let node = layout.measured_leaf(
+            Style::default(),
+            (),
+            Box::new(|w, _| Size::new(frus_core::fits(500.0).min(w.unwrap_or(0.0)), 20.0)),
+        );
+        // A fractional offer, which is what an intermediate flex computation hands down.
+        layout.compute(node, Size::new(146.4, 400.0));
+    }
+
+    /// **A measurement larger than the space it was offered is not a violation either.**
+    /// This framework lets content overflow and reports it (`Overflowing`) rather than
+    /// crushing it, so a measurer answering with its natural size is doing its job. Said
+    /// as a test because the obvious assertion to add here is the one that would break
+    /// every screen with a line too long for its column.
+    #[test]
+    fn a_measurement_bigger_than_the_offer_is_reported_not_forbidden() {
+        let mut layout: Layout<'_, ()> = Layout::new();
+        let node = layout.measured_leaf(
+            Style::default(),
+            (),
+            Box::new(|_, _| Size::new(500.0, 20.0)),
+        );
+        layout.compute(node, Size::new(100.0, 100.0));
+        assert_eq!(layout.size_of(node).width, 500.0);
     }
 }

@@ -37,8 +37,8 @@ pub use filter::{
     ShaderMask,
 };
 pub use geometry::{
-    Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Insets, InsetsDirectional, Point,
-    Rect, Size, TextDirection, WindowInsets,
+    fits, Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Insets, InsetsDirectional,
+    Point, Rect, Size, TextDirection, WindowInsets,
 };
 pub use hct::{Hct, TonalPalette};
 pub use image::{

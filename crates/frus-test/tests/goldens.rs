@@ -3657,3 +3657,128 @@ fn the_animated_layout_values_match_their_golden() {
     shots[1].assert_golden(golden("animated_layout_middle"));
     shots[2].assert_golden(golden("animated_layout_end"));
 }
+
+/// **A wheel, with the chosen row across the middle and the rest curving away.**
+///
+/// The picture is the whole of the claim here: the geometry is an affine's worth of a
+/// cylinder, not a cylinder, and whether that reads is not a thing a number can answer.
+#[test]
+fn the_picker_wheel_matches_its_golden() {
+    use frus_test::Stage;
+    use frus_widgets::{text, ListWheel};
+
+    let theme = Theme::dark();
+    let t = theme.clone();
+    let wheel = ListWheel::<()>::new(60, 34.0, move |i| {
+        Flex::<()>::column()
+            .width(160.0)
+            .height(34.0)
+            .align(Align::Center)
+            .justify(frus_widgets::Justify::Center)
+            .child(text(format!("{i:02}")).size(20.0).color(t.on_surface))
+    })
+    .width(160.0)
+    .height(200.0)
+    .selected(30)
+    .label(|i| format!("{i} minutes"));
+    // The band across the middle is a **layer of a stack**, not something the wheel
+    // draws — which is the composition the docs claim, so the picture had better be of
+    // that and not of something easier.
+    let tree = Container::<()>::new()
+        .width(160.0)
+        .height(200.0)
+        .color(theme.surface)
+        .child(
+            frus_widgets::Stack::new()
+                .width(160.0)
+                .height(200.0)
+                .layer(
+                    frus_widgets::Positioned::new(
+                        Container::<()>::new()
+                            .height(34.0)
+                            .radius(8.0)
+                            .color(Color {
+                                a: 0.12,
+                                ..theme.primary
+                            }),
+                    )
+                    .left(0.0)
+                    .right(0.0)
+                    .top((200.0 - 34.0) / 2.0),
+                )
+                .layer(wheel),
+        );
+
+    let mut stage = Stage::new(160, 200).theme(theme.clone());
+    stage.settle(&tree);
+    match stage.render(&tree) {
+        Some(shot) => shot.assert_golden(golden("picker_wheel")),
+        None => eprintln!("no GPU adapter available: test skipped"),
+    }
+}
+
+/// **A run of words changing what it is** — three frames of one movement rather than its
+/// two ends, because two ends are exactly what a jump also produces.
+///
+/// A task being ticked, which is where the demo reaches for this: the label goes from ink
+/// to muted and gains a line through it. The two halves of that behave differently on
+/// purpose, and the middle frame is where you can see it — the colour is between the two
+/// and the strikethrough is not between anything, because a line cannot be half-drawn. It
+/// appears at the halfway point, once, and that decision is a picture rather than a number.
+///
+/// The second row never changes and is here as the control: whatever the first row is
+/// doing, the second is what it started from.
+#[test]
+fn a_moving_text_style_matches_its_golden() {
+    use frus_core::{Curve, TextDecoration, TextStyle};
+    use frus_test::Stage;
+    use frus_widgets::{text, AnimatedDefaultTextStyle};
+
+    const DURATION: f32 = 0.20;
+    let theme = Theme::dark();
+    let row = |label: &'static str, done: bool, t: Theme| {
+        Container::new()
+            .width(240.0)
+            .padding(12.0)
+            .child(AnimatedDefaultTextStyle::new(
+                DURATION,
+                Curve::Linear,
+                TextStyle::NONE
+                    .color(if done { t.muted } else { t.on_surface })
+                    .decoration(if done {
+                        TextDecoration::STRIKETHROUGH
+                    } else {
+                        TextDecoration::NONE
+                    }),
+                text(label).size(18.0),
+            ))
+    };
+    let page = |done: bool| {
+        Column::<()>::new()
+            .child(row("Buy milk", done, theme.clone()))
+            .child(row("Water the plants", false, theme.clone()))
+    };
+
+    let mut stage = Stage::new(240, 100).theme(theme.clone());
+    stage.settle(&page(false));
+    let mut shots = Vec::new();
+    // A fifth of the way, then three fifths, then the whole of it: one frame either side
+    // of the halfway point where the line appears, and one at rest. **Not** a frame landing
+    // on the halfway point itself — the strikethrough swaps exactly there, so a golden taken
+    // at 0.5 would turn on whether two floats added up to a fraction under or over, and
+    // would flip on a machine that rounded the other way.
+    for dt in [DURATION * 0.2, DURATION * 0.4, DURATION] {
+        let tree = page(true);
+        stage.advance(&tree, dt);
+        match stage.render(&tree) {
+            Some(shot) => shots.push(shot),
+            None => {
+                eprintln!("no GPU adapter available: test skipped");
+                return;
+            }
+        }
+    }
+    shots[0].assert_golden(golden("moving_text_style_start"));
+    shots[1].assert_golden(golden("moving_text_style_middle"));
+    shots[2].assert_golden(golden("moving_text_style_end"));
+}

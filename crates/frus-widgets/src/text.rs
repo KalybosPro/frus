@@ -1,8 +1,8 @@
 //! [`Text`]: a widget that displays a line of text.
 
 use frus_core::{
-    Color, FontWeight, MaskShader, Point, Rect, ResolvedTextStyle, Scene, ShaderMask, TextAlign,
-    TextBlock, TextOverflow, TextStyle,
+    fits, Color, FontWeight, MaskShader, Point, Rect, ResolvedTextStyle, Scene, ShaderMask,
+    TextAlign, TextBlock, TextOverflow, TextStyle,
 };
 use frus_layout::{Dimension, Style};
 
@@ -587,7 +587,12 @@ impl<Msg> Widget<Msg> for Text {
                 if wrap { max_width } else { None },
             );
             if let Some(max) = max_lines {
-                size.height = size.height.min(style.line_height() * max as f32);
+                // **Rounded up, like the measurement it clamps** (issue #54): a line
+                // height is a fraction of a size, so two allowed lines come to 28.8, and
+                // a box rounded to 28 is one the second line no longer fits in. The
+                // clamp says *how many lines*; the pixels those lines occupy are still
+                // pixels a layout will round.
+                size.height = size.height.min(fits(style.line_height() * max as f32));
             }
             size
         }))
@@ -814,8 +819,14 @@ mod tests {
             // What the box it was given really costs, shaped at that width.
             let painted =
                 frus_text::measure_wrapped(label, 24.0, FontWeight::Bold, false, Some(paragraph.1));
+            // Against the **whole** height those lines occupy, which is what a
+            // measurement reports since milestone 497: a height of `lines × line_height`
+            // is fractional and would be shaved by the layout's rounding, so it is
+            // rounded up before it leaves. Dividing the rounded height back by the line
+            // height gives 2.014 lines, which is arithmetic rather than a wrap.
+            let want = frus_core::fits(lines * frus_text::line_height(24.0));
             assert!(
-                (painted.height / frus_text::line_height(24.0) - lines).abs() < 0.01,
+                (painted.height - want).abs() < 0.01,
                 "{label:?} wrapped onto {} lines in a box of {}",
                 painted.height / frus_text::line_height(24.0),
                 paragraph.1

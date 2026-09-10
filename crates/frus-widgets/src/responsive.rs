@@ -411,6 +411,9 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
     fn anim_fractions(&self) -> Option<(Option<f32>, Option<f32>)> {
         self.inner.as_ref().and_then(|w| w.anim_fractions())
     }
+    fn anim_text_style(&self) -> Option<frus_core::TextStyle> {
+        self.inner.as_ref().and_then(|w| w.anim_text_style())
+    }
 
     fn positioned(&self) -> Option<crate::positioned::Positioning> {
         self.inner.as_ref().and_then(|w| w.positioned())

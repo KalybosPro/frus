@@ -245,7 +245,7 @@ fn hash_node<Msg, H: Hasher>(
     // against its own theme, so the fingerprint is taken against that one too. A
     // fingerprint that skipped the swap would hash one geometry and the cache would
     // store another.
-    let scoped = widget.theme_override(theme);
+    let scoped = crate::ui::scoped_theme(widget, id, runtime, theme);
     let theme = scoped.as_deref().unwrap_or(theme);
     // The same for the **surface**: a scoped description changes what the subtree measures
     // with, so it has to be in force here as well — and hashed, or two different surfaces
@@ -478,5 +478,38 @@ mod tests {
         cache.end_frame();
         assert_eq!(cache.entries.len(), 1);
         assert!(cache.entries.contains_key(&WidgetId::ROOT));
+    }
+
+    /// **A style in flight moves the fingerprint.** The same tree twice, at two points of
+    /// one movement: nothing differs but the runtime.
+    ///
+    /// This is the cache's half of milestone 498, and it is not a formality. A font size
+    /// reaches *layout* — the box a run of words is measured into — so a fingerprint
+    /// blind to the style the theme swap put in force would answer every frame of the
+    /// movement with the first frame's geometry. The words would grow inside a box that
+    /// did not, and the layout would snap into place at the end. That failure is exactly
+    /// what this cache's contract forbids: a hit must be bit-for-bit what the full
+    /// computation would have produced.
+    #[test]
+    fn a_text_style_in_flight_moves_the_signature() {
+        let tree = |size: f32| {
+            crate::AnimatedDefaultTextStyle::<()>::new(
+                0.10,
+                frus_core::Curve::Linear,
+                frus_core::TextStyle::NONE.size(size),
+                crate::Text::new("Ag"),
+            )
+        };
+        let theme = crate::theme::Theme::default();
+        let mut rt = Runtime::default();
+        rt.advance_text_styles(&tree(24.0), 1.0);
+        rt.advance_text_styles(&tree(12.0), 0.02);
+        let early = signature_of(&tree(12.0), WidgetId::ROOT, &rt, &theme).0;
+        rt.advance_text_styles(&tree(12.0), 0.04);
+        let later = signature_of(&tree(12.0), WidgetId::ROOT, &rt, &theme).0;
+        assert_ne!(
+            early, later,
+            "the same tree at two points of one movement must not share a fingerprint"
+        );
     }
 }

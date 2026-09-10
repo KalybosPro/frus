@@ -69,6 +69,15 @@ pub struct PagedView<'a, Msg> {
     pub axis: Axis,
     /// The fraction of the viewport one page occupies along that axis.
     pub viewport_fraction: f32,
+    /// A page extent in **pixels**, overriding the fraction when set.
+    ///
+    /// A page view states a fraction because a page is a share of the window it is read
+    /// in. A [`crate::ListWheel`] states pixels, because a row of a wheel is a line of
+    /// text and a line of text is not a share of anything.
+    pub extent: Option<f32>,
+    /// The cylinder the pages are laid on, when they are laid on one at all — a
+    /// [`crate::ListWheel`] and nothing else. See [`crate::WheelGeometry`].
+    pub wheel: Option<crate::wheel::WheelGeometry>,
     /// The page asked for by the application.
     pub requested: usize,
     /// Room at both ends, so a page narrower than the viewport rests centred in
@@ -90,7 +99,10 @@ impl<Msg> PagedView<'_, Msg> {
             viewport.height
         };
         PageSnap {
-            extent: (along * self.viewport_fraction).max(1.0),
+            extent: self
+                .extent
+                .unwrap_or(along * self.viewport_fraction)
+                .max(1.0),
             count: self.count,
             requested: self.requested,
             horizontal,
@@ -322,6 +334,8 @@ impl<Msg> Widget<Msg> for PageView<Msg> {
             count: self.count,
             axis: self.axis,
             viewport_fraction: self.viewport_fraction,
+            extent: None,
+            wheel: None,
             requested: self.requested,
             pad_ends: self.pad_ends,
             snapping: self.snapping,

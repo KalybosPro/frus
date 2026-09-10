@@ -3,7 +3,7 @@
 //!
 //! Two families, because the platforms disagree and users notice:
 //!
-//! - [`ScrollPhysics::Bouncing`] — dragging past the end is allowed but grows
+//! - [`ScrollPhysics::BOUNCING`] — dragging past the end is allowed but grows
 //!   progressively harder, and letting go springs the content back. A fling rolls
 //!   on friction and hands over to that spring at the edge.
 //! - [`ScrollPhysics::Clamping`] — the offset never leaves the content at all. A
@@ -105,13 +105,51 @@ impl Scrollbars {
     }
 }
 
+/// **How fast a fling's momentum is taken away** — the bouncing family's second
+/// deceleration profile.
+///
+/// It is chosen by **what is doing the scrolling**, not by how fast. A finger
+/// throws a surface and lets go of it; a trackpad or a wheel is a hand resting on a
+/// device that reports motion, and the two want different endings. So this is a
+/// property of the physics a scrollable is built with — settled once, from the
+/// platform — and not something recomputed per fling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum ScrollDecelerationRate {
+    /// A finger's. What a touch screen expects, and the default.
+    #[default]
+    Normal,
+    /// A trackpad's or a wheel's — what desktop software expects from a pointing
+    /// device more precise than a fingertip.
+    ///
+    /// Four things differ, not one: the fling carries a constant deceleration so
+    /// that it actually stops rather than coasting to a halt at infinity, the
+    /// rubber band is twice as stiff, a fling may be twice again as fast, and
+    /// **easing back out of an overscroll is not resisted at all** — which is a
+    /// behaviour rather than a number, and the one a reader notices.
+    Fast,
+}
+
 /// The behaviour of a scrollable at its edges and after a fling.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ScrollPhysics {
-    /// Overscroll is allowed, resisted, and springs back.
-    Bouncing,
+    /// Overscroll is allowed, resisted, and springs back — at the given rate.
+    Bouncing(ScrollDecelerationRate),
     /// Overscroll is refused; a fling stops at the edge.
     Clamping,
+}
+
+impl ScrollPhysics {
+    /// Bouncing physics at a finger's deceleration — the common case, and what
+    /// `ScrollPhysics::BOUNCING` meant before there were two.
+    pub const BOUNCING: Self = Self::Bouncing(ScrollDecelerationRate::Normal);
+
+    /// The deceleration profile in force, or `None` for a family that has none.
+    pub fn deceleration_rate(self) -> Option<ScrollDecelerationRate> {
+        match self {
+            ScrollPhysics::Bouncing(rate) => Some(rate),
+            ScrollPhysics::Clamping => None,
+        }
+    }
 }
 
 impl Default for ScrollPhysics {
@@ -128,9 +166,17 @@ impl ScrollPhysics {
     /// build is for one platform, and a constant keeps the choice out of the frame
     /// loop.
     pub const fn platform_default() -> Self {
-        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        // A hand-held screen is scrolled with a finger; a desktop one with a
+        // trackpad or a wheel. That, and not the operating system's name, is what
+        // the two profiles are about — which is why the two bouncing platforms
+        // answer differently here.
+        #[cfg(target_os = "ios")]
         {
-            ScrollPhysics::Bouncing
+            ScrollPhysics::Bouncing(ScrollDecelerationRate::Normal)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast)
         }
         #[cfg(not(any(target_os = "ios", target_os = "macos")))]
         {
@@ -154,14 +200,22 @@ impl ScrollPhysics {
     /// deliberate gesture before it commits to a fling.
     pub fn min_fling_velocity(self) -> f32 {
         match self {
-            ScrollPhysics::Bouncing => MIN_FLING_VELOCITY * 2.0,
+            ScrollPhysics::Bouncing(_) => MIN_FLING_VELOCITY * 2.0,
             ScrollPhysics::Clamping => MIN_FLING_VELOCITY,
         }
     }
 
     /// The cap on a release speed.
+    ///
+    /// A pointing device can be flicked far harder than a finger can — a wheel
+    /// notch or a two-finger flick on a trackpad reports speeds no fingertip
+    /// reaches — so the fast profile lifts the ceiling eightfold rather than
+    /// clipping what the hardware actually said.
     pub fn max_fling_velocity(self) -> f32 {
-        MAX_FLING_VELOCITY
+        match self {
+            ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast) => MAX_FLING_VELOCITY * 8.0,
+            _ => MAX_FLING_VELOCITY,
+        }
     }
 
     /// The distance a finger must cover before the content starts to move, in px.
@@ -170,7 +224,7 @@ impl ScrollPhysics {
     /// motion of a finger lifting off.
     pub fn drag_start_distance_threshold(self) -> f32 {
         match self {
-            ScrollPhysics::Bouncing => 3.5,
+            ScrollPhysics::Bouncing(_) => 3.5,
             ScrollPhysics::Clamping => 0.0,
         }
     }
@@ -182,7 +236,7 @@ impl ScrollPhysics {
     /// fling from the gesture alone.
     pub fn carried_momentum(self, existing_velocity: f32) -> f32 {
         match self {
-            ScrollPhysics::Bouncing => {
+            ScrollPhysics::Bouncing(_) => {
                 existing_velocity.signum()
                     * (0.000_816 * existing_velocity.abs().powf(1.967)).min(40_000.0)
             }
@@ -198,7 +252,10 @@ impl ScrollPhysics {
     /// band. Easing back towards the content is measured at the position the
     /// gesture is heading *to*, so releasing tension is easier than adding it.
     pub fn apply_user_offset(self, metrics: ScrollMetrics, delta: f32) -> f32 {
-        if delta == 0.0 || self != ScrollPhysics::Bouncing || !metrics.out_of_range() {
+        let Some(rate) = self.deceleration_rate() else {
+            return delta;
+        };
+        if delta == 0.0 || !metrics.out_of_range() {
             return delta;
         }
         let past_start = (metrics.min - metrics.pixels).max(0.0);
@@ -208,12 +265,20 @@ impl ScrollPhysics {
         // positive delta walks back towards the content, and past the end a
         // negative one does. Those are the directions that release the band.
         let easing = (past_start > 0.0 && delta > 0.0) || (past_end > 0.0 && delta < 0.0);
+        // **Easing out of an overscroll is unresisted on the fast profile**, and
+        // that is the difference a reader actually notices. A finger that pulled a
+        // list past its end is still holding the band and lets it back gradually; a
+        // trackpad has nothing to hold, so making the return sticky reads as the
+        // content refusing to come back rather than as tension.
+        if easing && rate == ScrollDecelerationRate::Fast {
+            return delta;
+        }
         let fraction = if easing {
             (past - delta.abs()) / metrics.viewport
         } else {
             past / metrics.viewport
         };
-        delta.signum() * apply_friction(past, delta.abs(), friction_factor(fraction))
+        delta.signum() * apply_friction(past, delta.abs(), friction_factor(rate, fraction))
     }
 
     /// The part of a proposed move that must be **refused**, so that the caller
@@ -243,7 +308,7 @@ impl ScrollPhysics {
 
     /// May the content be dragged past its edges at all?
     pub fn allows_overscroll(self) -> bool {
-        matches!(self, ScrollPhysics::Bouncing)
+        matches!(self, ScrollPhysics::Bouncing(_))
     }
 
     /// The motion that follows the finger lifting off at `velocity` (px/s, positive
@@ -252,16 +317,22 @@ impl ScrollPhysics {
         let tolerance = self.tolerance();
         let velocity = velocity.clamp(-self.max_fling_velocity(), self.max_fling_velocity());
         match self {
-            ScrollPhysics::Bouncing => {
+            ScrollPhysics::Bouncing(rate) => {
                 if velocity.abs() >= tolerance.velocity || metrics.out_of_range() {
-                    Some(Ballistic::Bouncing(BouncingScrollSimulation::new(
-                        metrics.pixels,
-                        velocity,
-                        metrics.min,
-                        metrics.max,
-                        self.spring(),
-                        tolerance,
-                    )))
+                    Some(Ballistic::Bouncing(
+                        BouncingScrollSimulation::with_constant_deceleration(
+                            metrics.pixels,
+                            velocity,
+                            metrics.min,
+                            metrics.max,
+                            self.spring(),
+                            tolerance,
+                            match rate {
+                                ScrollDecelerationRate::Normal => 0.0,
+                                ScrollDecelerationRate::Fast => CONSTANT_DECELERATION_FAST,
+                            },
+                        ),
+                    ))
                 } else {
                     None
                 }
@@ -364,10 +435,27 @@ pub fn page_target(metrics: ScrollMetrics, extent: f32, velocity: f32, tolerance
     (page.round() * extent.max(1.0)).clamp(metrics.min, metrics.max)
 }
 
+/// The constant deceleration the **fast** profile adds on top of the drag, in
+/// px·s⁻² — the reference's own figure.
+///
+/// Drag alone is geometric: the velocity is multiplied down each second and reaches
+/// nought only at infinity, which is exactly right for a surface that was thrown.
+/// A trackpad gesture is not a throw, and a motion that never quite settles under
+/// one reads as the content drifting. This term is what gives it an end.
+pub const CONSTANT_DECELERATION_FAST: f32 = 1400.0;
+
 /// The friction applied to the first pixels of overscroll, before the band
 /// stiffens. It falls off quadratically with how far out the drag already is.
-fn friction_factor(overscroll_fraction: f32) -> f32 {
-    (1.0 - overscroll_fraction).powi(2) * 0.52
+///
+/// The **fast** profile halves the starting figure, which is to say it doubles the
+/// stiffness: a trackpad reports a great deal of motion for a small gesture, and a
+/// band as slack as a finger's would let a flick throw the content a long way out.
+fn friction_factor(rate: ScrollDecelerationRate, overscroll_fraction: f32) -> f32 {
+    let base = match rate {
+        ScrollDecelerationRate::Normal => 0.52,
+        ScrollDecelerationRate::Fast => 0.26,
+    };
+    (1.0 - overscroll_fraction).powi(2) * base
 }
 
 /// Applies `gamma` to the part of `delta` that is spent outside the content, and
@@ -441,7 +529,7 @@ mod tests {
     #[test]
     fn inside_the_content_every_pixel_of_finger_reaches_the_offset() {
         let metrics = ScrollMetrics::new(120.0, 400.0, 600.0);
-        for physics in [ScrollPhysics::Bouncing, ScrollPhysics::Clamping] {
+        for physics in [ScrollPhysics::BOUNCING, ScrollPhysics::Clamping] {
             assert_eq!(physics.apply_user_offset(metrics, 25.0), 25.0);
             assert_eq!(physics.apply_user_offset(metrics, -25.0), -25.0);
         }
@@ -454,8 +542,8 @@ mod tests {
         let far = ScrollMetrics::new(-200.0, 400.0, viewport);
         // Pulling further out (a negative delta past the start) is resisted, and
         // resisted harder the further out we already are.
-        let a = ScrollPhysics::Bouncing.apply_user_offset(near, -20.0);
-        let b = ScrollPhysics::Bouncing.apply_user_offset(far, -20.0);
+        let a = ScrollPhysics::BOUNCING.apply_user_offset(near, -20.0);
+        let b = ScrollPhysics::BOUNCING.apply_user_offset(far, -20.0);
         assert!(a < 0.0 && b < 0.0);
         assert!(a.abs() < 20.0, "the band already resists: {a}");
         assert!(b.abs() < a.abs(), "further out must be harder: {b} vs {a}");
@@ -466,8 +554,8 @@ mod tests {
     #[test]
     fn bouncing_lets_you_ease_back_more_easily_than_you_pulled() {
         let metrics = ScrollMetrics::new(-100.0, 400.0, 600.0);
-        let out = ScrollPhysics::Bouncing.apply_user_offset(metrics, -20.0);
-        let back = ScrollPhysics::Bouncing.apply_user_offset(metrics, 20.0);
+        let out = ScrollPhysics::BOUNCING.apply_user_offset(metrics, -20.0);
+        let back = ScrollPhysics::BOUNCING.apply_user_offset(metrics, 20.0);
         assert!(
             back.abs() > out.abs(),
             "releasing the band ({back}) should be easier than loading it ({out})"
@@ -490,7 +578,7 @@ mod tests {
         assert_eq!(physics.apply_boundary_conditions(near_start, -15.0), -15.0);
         // Bouncing physics refuses nothing.
         assert_eq!(
-            ScrollPhysics::Bouncing.apply_boundary_conditions(at_end, 420.0),
+            ScrollPhysics::BOUNCING.apply_boundary_conditions(at_end, 420.0),
             0.0
         );
     }
@@ -499,7 +587,7 @@ mod tests {
     fn a_slow_release_flings_nothing() {
         let metrics = ScrollMetrics::new(100.0, 400.0, 600.0);
         assert!(ScrollPhysics::Clamping.ballistic(metrics, 1.0).is_none());
-        assert!(ScrollPhysics::Bouncing.ballistic(metrics, 1.0).is_none());
+        assert!(ScrollPhysics::BOUNCING.ballistic(metrics, 1.0).is_none());
     }
 
     #[test]
@@ -540,7 +628,7 @@ mod tests {
     #[test]
     fn bouncing_overscroll_springs_back_even_with_no_velocity() {
         let past = ScrollMetrics::new(-40.0, 400.0, 600.0);
-        let sim = ScrollPhysics::Bouncing.ballistic(past, 0.0).unwrap();
+        let sim = ScrollPhysics::BOUNCING.ballistic(past, 0.0).unwrap();
         assert!((sim.x(2.0) - 0.0).abs() < 0.5, "settles at {}", sim.x(2.0));
         assert!(sim.is_done(2.0));
     }
@@ -561,15 +649,15 @@ mod tests {
     #[test]
     fn bouncing_asks_for_a_more_deliberate_gesture() {
         assert!(
-            ScrollPhysics::Bouncing.min_fling_velocity()
+            ScrollPhysics::BOUNCING.min_fling_velocity()
                 > ScrollPhysics::Clamping.min_fling_velocity()
         );
         // Repeated swipes build speed only where the platform does.
-        assert!(ScrollPhysics::Bouncing.carried_momentum(1000.0) > 0.0);
+        assert!(ScrollPhysics::BOUNCING.carried_momentum(1000.0) > 0.0);
         assert_eq!(ScrollPhysics::Clamping.carried_momentum(1000.0), 0.0);
         // …and the carry is signed like the motion it continues, and capped.
-        assert!(ScrollPhysics::Bouncing.carried_momentum(-1000.0) < 0.0);
-        assert!(ScrollPhysics::Bouncing.carried_momentum(100_000.0) <= 40_000.0);
+        assert!(ScrollPhysics::BOUNCING.carried_momentum(-1000.0) < 0.0);
+        assert!(ScrollPhysics::BOUNCING.carried_momentum(100_000.0) <= 40_000.0);
     }
 
     #[test]
@@ -619,7 +707,7 @@ mod tests {
 
     #[test]
     fn a_paged_release_always_settles_on_a_page() {
-        for physics in [ScrollPhysics::Bouncing, ScrollPhysics::Clamping] {
+        for physics in [ScrollPhysics::BOUNCING, ScrollPhysics::Clamping] {
             // Released mid-page with no speed at all: it still has to go somewhere.
             let sim = physics.page_ballistic(paged(190.0), 0.0, 300.0).unwrap();
             assert!(
@@ -648,7 +736,7 @@ mod tests {
     fn past_an_edge_the_ordinary_physics_takes_the_content_home() {
         // No page out there: bouncing springs back, clamping has nothing to do.
         let out = ScrollMetrics::new(-40.0, 600.0, 300.0);
-        let sim = ScrollPhysics::Bouncing
+        let sim = ScrollPhysics::BOUNCING
             .page_ballistic(out, -50.0, 300.0)
             .unwrap();
         assert!((sim.x(3.0) - 0.0).abs() < 1.0, "settled at {}", sim.x(3.0));
@@ -660,11 +748,154 @@ mod tests {
     #[test]
     fn the_platform_default_is_the_one_this_build_targets() {
         let expected = if cfg!(any(target_os = "ios", target_os = "macos")) {
-            ScrollPhysics::Bouncing
+            ScrollPhysics::BOUNCING
         } else {
             ScrollPhysics::Clamping
         };
         assert_eq!(ScrollPhysics::platform_default(), expected);
         assert_eq!(ScrollPhysics::default(), expected);
+    }
+
+    // --- The second deceleration profile (milestone 499) ---
+
+    /// **The profile is a property of the device, not of the speed** — which is
+    /// the decision this milestone turns on, and the opposite of what #55 asked for.
+    ///
+    /// A finger's fling coasts: drag multiplies the velocity down each second and
+    /// only reaches nought at infinity, which is exactly what a thrown surface does.
+    /// A trackpad's stops. If the two were chosen by velocity, a hard fling and a
+    /// gentle one on the same device would end differently — so this asks the same
+    /// physics at two speeds three orders of magnitude apart and requires the same
+    /// kind of ending from both.
+    #[test]
+    fn the_profile_is_the_devices_and_never_the_speeds() {
+        // Content long enough that no fling here reaches an edge: what is being
+        // compared is the deceleration, and a spring taking over would be a
+        // different motion answering a different question.
+        let metrics = ScrollMetrics::new(200.0, 200_000.0, 600.0);
+        // Five seconds: long past where the fast profile has come to rest, and
+        // short of where `0.135^t` underflows a 32-bit float — which it does around
+        // twenty, and which would make a coasting fling look stopped for a reason
+        // that is about the arithmetic rather than about the physics.
+        let still_moving = |physics: ScrollPhysics, v: f32| {
+            let sim = physics.ballistic(metrics, v).expect("a fling");
+            sim.dx(5.0).abs() > 0.0
+        };
+        // Both within the finger cap, so the two speeds differ by nothing but
+        // themselves — the cap is one of the things the profiles disagree about.
+        for velocity in [300.0, 7000.0] {
+            assert!(
+                still_moving(ScrollPhysics::BOUNCING, velocity),
+                "a finger coasts, at {velocity} as at any other speed"
+            );
+            assert!(
+                !still_moving(
+                    ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast),
+                    velocity
+                ),
+                "and a trackpad stops, at {velocity} as at any other speed"
+            );
+        }
+    }
+
+    /// And the stop is not merely eventual: the fast profile comes to rest **short
+    /// of** where coasting would have carried it, which is the whole reason a
+    /// desktop list does not drift on after the hand has left the trackpad.
+    #[test]
+    fn a_trackpad_fling_stops_short_of_where_a_finger_would_coast() {
+        let metrics = ScrollMetrics::new(200.0, 40_000.0, 600.0);
+        let travel = |physics: ScrollPhysics| {
+            let sim = physics.ballistic(metrics, 3000.0).expect("a fling");
+            sim.x(30.0) - 200.0
+        };
+        let finger = travel(ScrollPhysics::BOUNCING);
+        let trackpad = travel(ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast));
+        assert!(finger > 0.0 && trackpad > 0.0, "both travel forwards");
+        assert!(
+            trackpad < finger,
+            "the trackpad stops short: {trackpad} vs {finger}"
+        );
+    }
+
+    /// **The fast band is twice as stiff.** A trackpad reports a great deal of
+    /// motion for a small gesture, and a band as slack as a finger's would let one
+    /// flick throw the content a long way out of its content.
+    #[test]
+    fn the_fast_band_resists_twice_as_hard() {
+        let metrics = ScrollMetrics::new(-10.0, 400.0, 600.0);
+        let finger = ScrollPhysics::BOUNCING.apply_user_offset(metrics, -20.0);
+        let trackpad =
+            ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast).apply_user_offset(metrics, -20.0);
+        assert!(finger < 0.0 && trackpad < 0.0, "both pull further out");
+        assert!(
+            (trackpad / finger - 0.5).abs() < 0.05,
+            "half as much movement for the same gesture: {trackpad} vs {finger}"
+        );
+    }
+
+    /// **Easing back out of an overscroll is free on a trackpad**, and this is the
+    /// one difference that is a behaviour rather than a number.
+    ///
+    /// A finger that pulled a list past its end is still holding the band, and
+    /// letting it back gradually is what tension feels like. A trackpad is holding
+    /// nothing; the same stickiness reads as the content refusing to come back.
+    #[test]
+    fn easing_out_of_an_overscroll_is_unresisted_on_a_trackpad() {
+        let metrics = ScrollMetrics::new(-100.0, 400.0, 600.0);
+        // Past the start, a positive delta walks back towards the content.
+        let finger = ScrollPhysics::BOUNCING.apply_user_offset(metrics, 20.0);
+        let trackpad =
+            ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast).apply_user_offset(metrics, 20.0);
+        assert_eq!(trackpad, 20.0, "every pixel of the gesture comes back");
+        assert!(
+            finger < 20.0,
+            "where a finger still meets some resistance: {finger}"
+        );
+        // And tensioning is still resisted on both — it is the direction that
+        // differs, not the family.
+        assert!(
+            ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast)
+                .apply_user_offset(metrics, -20.0)
+                .abs()
+                < 20.0,
+            "pulling further out is still resisted"
+        );
+    }
+
+    /// A pointing device reports speeds no fingertip reaches, so the fast profile
+    /// lifts the ceiling rather than clipping what the hardware actually said.
+    #[test]
+    fn a_trackpad_may_be_flung_eight_times_as_hard() {
+        assert_eq!(
+            ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast).max_fling_velocity(),
+            ScrollPhysics::BOUNCING.max_fling_velocity() * 8.0
+        );
+        assert_eq!(
+            ScrollPhysics::Clamping.max_fling_velocity(),
+            ScrollPhysics::BOUNCING.max_fling_velocity(),
+            "and the clamping family is untouched"
+        );
+    }
+
+    /// **The finger profile is exactly what it always was.** Everything above adds
+    /// a second answer; none of it may change the first, which is what every
+    /// hand-held build of this framework runs.
+    #[test]
+    fn the_finger_profile_is_unchanged() {
+        assert_eq!(friction_factor(ScrollDecelerationRate::Normal, 0.0), 0.52);
+        assert_eq!(
+            ScrollPhysics::BOUNCING.max_fling_velocity(),
+            MAX_FLING_VELOCITY
+        );
+        // Its fling carries no constant deceleration, so it coasts — the property
+        // the closed-form friction has always had.
+        let metrics = ScrollMetrics::new(200.0, 200_000.0, 600.0);
+        let sim = ScrollPhysics::BOUNCING
+            .ballistic(metrics, 3000.0)
+            .expect("a fling");
+        assert!(
+            sim.dx(5.0).abs() > 0.0,
+            "still creeping at five seconds, as before"
+        );
     }
 }

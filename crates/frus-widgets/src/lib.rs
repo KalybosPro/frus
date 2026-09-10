@@ -161,6 +161,7 @@ mod tree;
 mod twopane;
 mod ui;
 mod undo;
+mod wheel;
 mod widget;
 mod widgetstate;
 mod widgettheme;
@@ -168,8 +169,9 @@ mod widgettheme;
 pub use actionbutton::{BackButton, CloseButton, DrawerButton, EndDrawerButton};
 pub use alert::{Alert, AlertKind};
 pub use animated::{
-    AnimatedAlign, AnimatedContainer, AnimatedFractionallySizedBox, AnimatedOpacity,
-    AnimatedPadding, AnimatedPositioned, AnimatedRotation, AnimatedScale, AnimatedSlide, Opacity,
+    AnimatedAlign, AnimatedContainer, AnimatedDefaultTextStyle, AnimatedFractionallySizedBox,
+    AnimatedOpacity, AnimatedPadding, AnimatedPositioned, AnimatedRotation, AnimatedScale,
+    AnimatedSlide, Opacity,
 };
 pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT, APP_BAR_MAX_TITLE_SCALE};
 pub use aspectratio::AspectRatio;
@@ -290,8 +292,8 @@ pub use pageview::{PageSnap, PageView, PagedView};
 pub use pagination::Pagination;
 pub use paintcache::PaintCache;
 pub use physics::{
-    page_of, page_target, Ballistic, ScrollMetrics, ScrollPhysics, Scrollbars, MAX_FLING_VELOCITY,
-    MIN_FLING_VELOCITY,
+    page_of, page_target, Ballistic, ScrollDecelerationRate, ScrollMetrics, ScrollPhysics,
+    Scrollbars, CONSTANT_DECELERATION_FAST, MAX_FLING_VELOCITY, MIN_FLING_VELOCITY,
 };
 pub use placeholder::{Placeholder, PLACEHOLDER_COLOR, PLACEHOLDER_FALLBACK, PLACEHOLDER_STROKE};
 pub use popover::MenuAnchor;
@@ -376,6 +378,7 @@ pub use ui::{
     subtree_ids, FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
 };
 pub use undo::{EditKind, EditSnapshot, UndoHistory, RUN_PAUSE};
+pub use wheel::{ListWheel, RowOnWheel, WheelGeometry};
 pub use widget::{CellFn, FillAxes, FilterContext, ReorderAxis, Widget};
 pub use widgetstate::{StateFilter, WidgetState, WidgetStateProperty, WidgetStates};
 // **Every** one of them, and not only the ones a doc link happened to need. A theme

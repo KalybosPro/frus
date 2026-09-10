@@ -71,6 +71,8 @@ pub(crate) enum Msg {
     SetRating(u32),
     /// The stepper's new value.
     SetCount(i32),
+    /// The row the reminder wheel came to rest on.
+    SetReminder(usize),
     /// Starts the head notification's **exit** (a fade) before it is removed.
     SnackBarExpire,
     /// Removes the current notification (end of its exit / a click) and moves on to the next.

@@ -8,7 +8,9 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use frus_core::{BorderRadius, Color, Curve, Insets, Point, Primitive, Rect, Simulation, Size};
+use frus_core::{
+    BorderRadius, Color, Curve, Insets, Point, Primitive, Rect, Simulation, Size, TextStyle,
+};
 
 use crate::interaction::{InputState, WidgetId};
 use crate::overscroll::{edge_for, GlowEdge, ScrollGlows};
@@ -202,6 +204,31 @@ impl ColorAnim {
             current: c,
             from: c,
             to: c,
+            elapsed: 0.0,
+        }
+    }
+}
+
+/// Timeline of an animated **text style** (`AnimatedDefaultTextStyle`): interpolates
+/// `from → to` field by field, according to the widget's curve and duration.
+///
+/// Unlike every other family here, what it drives is not the node's own box or paint but
+/// **the theme its subtree inherits** — so it is consumed by the theme swap, at every
+/// point of the walk that makes one. See `crate::ui::scoped_theme`.
+#[derive(Copy, Clone, Debug, PartialEq)]
+struct TextStyleAnim {
+    current: TextStyle,
+    from: TextStyle,
+    to: TextStyle,
+    elapsed: f32,
+}
+
+impl TextStyleAnim {
+    fn settled(style: TextStyle) -> Self {
+        Self {
+            current: style,
+            from: style,
+            to: style,
             elapsed: 0.0,
         }
     }
@@ -668,6 +695,9 @@ pub struct Runtime {
     pub values: HashMap<WidgetId, ValueAnim>,
     /// Animated background colours (`Container::animated_color`), per widget.
     colors: HashMap<WidgetId, ColorAnim>,
+    /// Animated inherited text styles (`AnimatedDefaultTextStyle`), per widget — read by
+    /// the **theme swap**, which is why this one is consumed nowhere near the others.
+    text_styles: HashMap<WidgetId, TextStyleAnim>,
     /// Animated sizes (`Container::animated_size`), per widget — injected at layout.
     sizes: HashMap<WidgetId, SizeAnim>,
     /// Animated corner radii (`Container::animated_radius`), per widget.
@@ -911,6 +941,93 @@ impl Runtime {
                 }
                 std::collections::hash_map::Entry::Vacant(e) => {
                     e.insert(ColorAnim::settled(target));
+                }
+            }
+        }
+        animating
+    }
+
+    /// A widget's animated inherited text style, if in transition (`None` otherwise).
+    ///
+    /// Read by the theme swap rather than by the node itself: see
+    /// `crate::ui::scoped_theme`, which is the one place the value is consumed and the
+    /// reason there is one place at all.
+    pub fn anim_text_style(&self, id: WidgetId) -> Option<TextStyle> {
+        self.text_styles.get(&id).map(|s| s.current)
+    }
+
+    /// Drives every animated inherited text style towards the target its widget declares
+    /// (`Widget::anim_text_style`), following its duration/curve. On mount: adopts the
+    /// target with no transition. Returns `true` if a style is still moving.
+    ///
+    /// Same model as [`Self::advance_colors`], over [`TextStyle::lerp`] — which is where
+    /// the rules live for what travels, what holds and what swaps at the halfway point.
+    pub fn advance_text_styles<Msg>(
+        &mut self,
+        root: &dyn crate::widget::Widget<Msg>,
+        dt: f32,
+    ) -> bool {
+        fn collect<Msg>(
+            widget: &dyn crate::widget::Widget<Msg>,
+            id: WidgetId,
+            still: bool,
+            out: &mut Vec<(WidgetId, TextStyle, f32, Curve)>,
+        ) {
+            if let Some(target) = widget.anim_text_style() {
+                out.push((
+                    id,
+                    target,
+                    if still {
+                        0.0
+                    } else {
+                        widget.anim_duration().max(0.0)
+                    },
+                    widget.anim_curve(),
+                ));
+            }
+            for (index, child) in widget.children().iter().enumerate() {
+                collect(
+                    child.as_ref(),
+                    crate::ui::child_id(id, index, child.as_ref()),
+                    still,
+                    out,
+                );
+            }
+        }
+        let mut targets: Vec<(WidgetId, TextStyle, f32, Curve)> = Vec::new();
+        collect(root, WidgetId::ROOT, self.still, &mut targets);
+
+        let present: std::collections::HashSet<WidgetId> =
+            targets.iter().map(|(id, ..)| *id).collect();
+        self.text_styles.retain(|id, _| present.contains(id));
+
+        let mut animating = false;
+        for (id, target, duration, curve) in targets {
+            match self.text_styles.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    let s = e.get_mut();
+                    if s.to != target {
+                        s.from = s.current;
+                        s.to = target;
+                        s.elapsed = 0.0;
+                    }
+                    if s.from == s.to {
+                        s.current = s.to;
+                    } else {
+                        s.elapsed += dt;
+                        let t = if duration > 0.0 {
+                            (s.elapsed / duration).clamp(0.0, 1.0)
+                        } else {
+                            1.0
+                        };
+                        s.current = s.from.lerp(s.to, curve.transform(t));
+                        if t < 1.0 {
+                            animating = true;
+                        }
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(TextStyleAnim::settled(target));
                 }
             }
         }
@@ -2963,7 +3080,7 @@ mod tests {
     #[test]
     fn a_bouncing_fling_overshoots_then_settles_back_on_the_edge() {
         let id = WidgetId::ROOT;
-        let physics = ScrollPhysics::Bouncing;
+        let physics = ScrollPhysics::BOUNCING;
         let mut rt = Runtime::default();
         let area = region(id, 400.0);
         rt.scroll.insert(id, (0.0, 300.0));
@@ -2990,7 +3107,7 @@ mod tests {
     #[test]
     fn an_overscrolled_offset_comes_home_even_without_a_fling() {
         // A release too slow to fling still owes the content its edge back.
-        for physics in [ScrollPhysics::Bouncing, ScrollPhysics::Clamping] {
+        for physics in [ScrollPhysics::BOUNCING, ScrollPhysics::Clamping] {
             let rest = settle(physics, 400.0, 460.0, 5.0);
             assert!(
                 (rest - 400.0).abs() < 1.0,
@@ -3014,7 +3131,7 @@ mod tests {
         // the edge spring kept retracting it between two moves, so a rubber band
         // was pulled back as fast as it was stretched and never appeared.
         let id = WidgetId::ROOT;
-        let physics = ScrollPhysics::Bouncing;
+        let physics = ScrollPhysics::BOUNCING;
         let area = region(id, 400.0);
         let pulled = -60.0;
 
@@ -3084,7 +3201,7 @@ mod tests {
         // The bounce *is* the feedback: a glow on top of it would say the same
         // thing twice.
         let id = WidgetId::ROOT;
-        let physics = ScrollPhysics::Bouncing;
+        let physics = ScrollPhysics::BOUNCING;
         let mut rt = Runtime::default();
         let area = region(id, 400.0);
         rt.fling_scroll(area, physics, (0.0, 6000.0));

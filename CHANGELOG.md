@@ -8,12 +8,123 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 495 so far, each documenting the objective, the alternatives
+> record — one per step, 500 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Half a pixel, in four more places** (J497, answers #54). The layout rounds every box to
+  whole pixels, so anything that measures itself must round **up** or be handed a box it no
+  longer fits in — milestone 289's bug, which presented as a line of text that vanished.
+  Nothing enforced that rule. It is now `frus_core::fits`, plus a debug assertion where
+  every measurement passes, and arming it found four places already breaking it: 289 fixed
+  `measure_wrapped`'s **width** and left its height, so a two-line paragraph measured itself
+  at 28.8 and could be handed 28; rich text had the same; an empty label reserved a raw 19.2
+  and was handed 19; and `Text`/`RichText` clamped to `max_lines × line_height`, which is
+  fractional by construction. Thirty goldens move by one pixel each — a box a pixel taller
+  because the text in it was asking for a pixel more than it was given.
+
+### Changed
+
+- **The batch planner is linear, and not one plan changed** (J500, answers #16). It gave
+  each primitive a level by testing every member of a level in turn, and a long list puts
+  nearly every row on one level, so every primitive met every row before it. A level is now
+  indexed by **horizontal bands** once it holds 128 members: 1102 primitives plan about
+  **four times faster**, and sixteen times the primitives now cost sixteen to twenty-one
+  times the time instead of sixty-seven to eighty-four. **The plan is bit for bit what it was**, and that is an argument
+  rather than a hope: what a level is asked is two *existence* questions, which a structure
+  asking fewer of them answers identically provided it never omits a member that would have
+  said yes — and two overlapping rectangles share a point of height, which lies in one band
+  inside both their ranges. The old planner is kept verbatim in the tests and the index is
+  checked against it over three hundred scenes, NaN, infinities, negative extents and
+  `UNBOUNDED` included. **Three things were found by measuring and breaking rather than by
+  reading.** The same untouched code measured anywhere from 351 to 579 µs across four runs,
+  so every number is an A/B taken back to back, in both orders. The first tests could not
+  fail — two deliberate off-by-ones left them green, because one generated footprint in
+  eight covered everything and answered every query itself — so a sparse generator was
+  added, and a test that counts how often its answer hung on a single member. And a first,
+  two-dimensional grid lost to the plain scan below four hundred primitives. **On small scenes
+  it is a wash too fine to measure here**: at 68 primitives the new planner came out anywhere
+  from 35% faster to 17% slower, and which of the two ran second moved the result by more
+  than that — under a microsecond either way.
+
+- **`ScrollPhysics::Bouncing` carries a deceleration rate** (J499) and is therefore a
+  data-carrying variant. `ScrollPhysics::BOUNCING` is the constant that means what the bare
+  variant meant before.
+
+- **`build_deferred` takes a runtime** (J498). It is where a `ThemeBuilder`'s subtree is
+  built, once, into a `OnceCell` — and it always arrives first — so without one, a builder
+  inside a moving text style composed against the target for the whole of the movement while
+  everything around it used the value in flight.
+
 ### Added
+
+- **The bouncing physics' second deceleration profile** (J499, half of #55):
+  `ScrollDecelerationRate`, and `ScrollPhysics::Bouncing` now carries one.
+  **The issue's premise was wrong and the correction is the work.** It said the reference
+  switches between its two profiles *by velocity*; it does not, and never has — it switches
+  by **what is doing the scrolling**, once, when the physics are built. A finger throws a
+  surface and lets go of it; a trackpad or a wheel is a hand resting on a device that
+  reports motion, and no amount of speed turns one into the other. Done as asked, a hard
+  fling and a gentle one on the same device would have ended differently, with a seam at
+  whatever threshold was picked; a test now says the opposite out loud. It is also **four
+  differences, not a constant**: the fling carries a constant deceleration (1400 px·s⁻²) so
+  that it actually stops rather than coasting to a halt at infinity, the overscroll band is
+  twice as stiff (0.26 against 0.52), the fling cap is eight times higher, and **easing back
+  out of an overscroll is not resisted at all** — a behaviour rather than a number, and the
+  one a reader notices. The constant term costs the closed forms: neither the stopping time
+  nor the instant the motion passes a given point survives it, so both are solved by ten
+  steps of Newton's method, as the reference does. The finger profile is unchanged bit for
+  bit, and a test compares the two at six instants with `assert_eq!` rather than a
+  tolerance. **Not verified in the hand**, and the milestone says so: the fast profile is
+  the desktop-bouncing one, which the platform default picks on macOS and nowhere else,
+  while this repo is built and tested on Windows, Android and Linux.
+
+- **A text style that moves** (J498, eight of eleven on #30): `AnimatedDefaultTextStyle`,
+  and with it `TextStyle::lerp` and `FontWeight::lerp`. A heading that shrinks, a label
+  going from muted to emphatic, a task's words being struck through when it is ticked —
+  each is a run of words whose *type* changes, and each of them jumped before this. It is
+  the odd one of the eleven: what the runtime drives is not the node's box or its paint but
+  **the theme its subtree inherits**, so the value is consumed by the walk's theme swap
+  rather than by the node. That swap is made four times over a frame — the layout pass, the
+  relayout fingerprint that must agree with it or the cache lies, the paint, and
+  `build_deferred` before all of them — and they now all go through one function,
+  `ui::scoped_theme`, so they cannot answer differently. Three rules inside a style: sizes
+  and ratios travel; a field only one end states holds still, because `None` means *this
+  style does not say* and there is no number between "24 pixels" and "ask somebody else";
+  and faces and lines swap at the halfway point, there being no half-italic face. Weight
+  steps through the four faces it has, tie to the heavier. **Colours diverge from the
+  reference on purpose**: it fades an unset colour to transparent, which here would make a
+  run of words disappear halfway through a movement that was only ever about its size.
+
+- **`frus_core::fits`**, the rounding rule for anything that measures itself, in one place.
+
+- **A picker wheel** (J496, answers #48): `ListWheel`, the scrolling cylinder of values you
+  spin to pick one. The issue asked a question before any code — whether the perspective is
+  expressible without a full 3D matrix — and the answer is **no**: a row on a cylinder is
+  tipped about a horizontal axis and divided by its depth, which makes it a trapezoid, and
+  the paint applies an `Affine`, which by construction maps parallel lines to parallel
+  lines. So this is not a cylinder and says so at the top of its own module. What it is, is
+  every part of one a reader notices and an affine can express: rows packing together
+  towards the ends at `r·sin θ`, squashing by `cos θ`, narrowing as they recede, and dimming
+  by the same `cos θ` — the fade being where the missing taper's share of the illusion goes.
+  Past a quarter turn a row has gone over the horizon and is not drawn. Underneath it is the
+  **paged scrollable**, one row to a page, so the release that springs to the nearest row,
+  the virtualised window, the opening-on-the-asked-for-row and the overscroll are all
+  inherited rather than written twice. The window is widened beyond the viewport because a
+  row a quarter turn away is compressed into the last pixels at the edge while its flat
+  position is a quarter of a circumference outside — and the rows past the horizon are
+  dropped before they are built. It is announced as a **selector**, not a list to walk row by
+  row: the role a platform's own picker reports, the value in the caller's words through
+  `ListWheel::label`, and the position as the range — which is also what makes the selection
+  announced as it changes, along the path a slider's value already travels. The band across
+  the middle is **not** the wheel's: it is a layer of a stack, four lines, because what marks
+  a chosen row is a decision about the screen it is on.
+- **`PagedView::extent`**, a page extent in pixels beside the viewport fraction. A page is a
+  share of the window it is read in; a row of a wheel is a line of text, which is not a share
+  of anything.
 
 - **A layer that moves, and a box that grows its share of its parent** (J495, part of #30):
   `AnimatedPositioned` and `AnimatedFractionallySizedBox`. Two of the eleven implicit
