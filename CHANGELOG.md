@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 506 so far, each documenting the objective, the alternatives
+> record — one per step, 507 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -79,6 +79,13 @@ any release may break.
 
 ### Changed
 
+- **A minimum supported Rust version: 1.88** (J507, answers #8). No manifest carried a
+  `rust-version` and nothing older than current stable had ever built the workspace. The
+  dependencies set the floor — `image` 0.25 and the `icu` 2.3 crates behind `url` ask for
+  1.88, and 1.87 refuses the lockfile before compiling anything — and the framework does
+  not raise it: 1.88 checks every target. `rust-version` is in `[workspace.package]` and
+  inherited by every crate, and a CI job checks the workspace on 1.88, without
+  `-D warnings` since lints move between releases.
 - **The batch planner is linear, and not one plan changed** (J500, answers #16). It gave
   each primitive a level by testing every member of a level in turn, and a long list puts
   nearly every row on one level, so every primitive met every row before it. A level is now

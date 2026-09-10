@@ -2,6 +2,7 @@
 name = "frus-bench"
 description = "frus performance harness: what a frame costs on the CPU"
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 license.workspace = true
 # A measuring instrument, not a shipped crate.

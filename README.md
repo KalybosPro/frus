@@ -10,7 +10,7 @@ One codebase → desktop, Android, and the web. GPU-rendered. Elm-shaped. No DSL
 
 [![CI](https://github.com/KalybosPro/frus/actions/workflows/ci.yml/badge.svg)](https://github.com/KalybosPro/frus/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
-[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 [![Status](https://img.shields.io/badge/status-pre--alpha-yellow.svg)](#project-status)
 
 [Quick start](#quick-start) · [Gallery](#what-it-looks-like) · [Architecture](#architecture) · [Status](#project-status) · [Contributing](CONTRIBUTING.md) · [Français](README.fr.md)
@@ -119,7 +119,7 @@ They are regenerated after a change rather than slowly going stale.</sub>
 
 ## Quick start
 
-**Prerequisites:** a recent stable Rust toolchain and a GPU with Vulkan, Metal, or DX12 drivers. (No minimum supported Rust version has been pinned yet — development happens on current stable.)
+**Prerequisites:** Rust **1.88** or newer — the minimum supported version, checked in CI — and a GPU with Vulkan, Metal, or DX12 drivers.
 
 ```sh
 git clone https://github.com/KalybosPro/frus
@@ -240,7 +240,6 @@ real, open, and written up with where to look and how to know you are done:
 | | |
 |---|---|
 | 🟢 [Give every crate a README](https://github.com/KalybosPro/frus/labels/good%20first%20issue) | Fifteen crates, no front page. **One crate is a perfectly good PR.** |
-| 🟢 Pin a minimum supported Rust version | Nobody knows what the floor is. Find it, pin it, add it to CI. |
 | 🟢 Turn on `missing_docs`, crate by crate | Start with the small crates. **One crate is a whole PR.** |
 | 🟡 [Publish to crates.io](https://github.com/KalybosPro/frus/labels/help%20wanted) | The single biggest thing between the project and anyone trying it. |
 | 🟡 The overscroll stretch effect | Current Android stretches the content instead of glowing. A render-target effect, and where to start reading is written down. |

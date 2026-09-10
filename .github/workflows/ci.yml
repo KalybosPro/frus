@@ -199,6 +199,31 @@ jobs:
         run: cargo build -p frus-hello --target ${{ matrix.target }}
 
   # ---------------------------------------------------------------------------
+  # The minimum supported Rust version (milestone 507): the workspace must keep
+  # compiling on the toolchain `rust-version` names in the root manifest. Raising
+  # the floor is a deliberate edit of both, never something a dependency bump does
+  # quietly.
+  #
+  # Checked, not tested — the suite runs on stable above — and without
+  # `-D warnings`: lints move between releases, and an older compiler's opinion is
+  # not the gate (1.88 calls a constant read only by a compile-time assertion dead;
+  # stable does not). The clippy job below is where warnings are enforced.
+  # ---------------------------------------------------------------------------
+  msrv:
+    name: MSRV (1.88)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libx11-dev
+      - run: cargo check --workspace --all-targets
+
+  # ---------------------------------------------------------------------------
   # Style. Both are blocking as of milestone 298: the tree is rustfmt-clean and
   # carries no clippy warnings, so a new one is a regression rather than a
   # pre-existing debt.

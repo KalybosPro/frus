@@ -10,7 +10,7 @@ Un seul code → bureau, Android et le Web. Rendu GPU. Architecture Elm. Pas de 
 
 [![CI](https://github.com/KalybosPro/frus/actions/workflows/ci.yml/badge.svg)](https://github.com/KalybosPro/frus/actions/workflows/ci.yml)
 [![Licence](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-blue.svg)](#licence)
-[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 [![Statut](https://img.shields.io/badge/statut-pré--alpha-yellow.svg)](#état-du-projet)
 
 [Démarrer](#démarrer) · [Galerie](#à-quoi-ça-ressemble) · [Architecture](#architecture) · [État](#état-du-projet) · [Contribuer](CONTRIBUTING.md) · [English](README.md)
@@ -119,7 +119,7 @@ On les régénère après un changement au lieu de les laisser se périmer.</sub
 
 ## Démarrer
 
-**Prérequis :** une toolchain Rust stable récente et un GPU avec des pilotes Vulkan, Metal ou DX12. (Aucune version minimale de Rust n'est encore fixée — le développement se fait sur la stable courante.)
+**Prérequis :** Rust **1.88** ou plus récent — la version minimale prise en charge, vérifiée en CI — et un GPU avec des pilotes Vulkan, Metal ou DX12.
 
 ```sh
 git clone https://github.com/KalybosPro/frus
@@ -241,7 +241,6 @@ c'est fini :
 | | |
 |---|---|
 | 🟢 [Un README par crate](https://github.com/KalybosPro/frus/labels/good%20first%20issue) | Quinze crates, aucune page d'accueil. **Une seule crate fait une très bonne PR.** |
-| 🟢 Fixer une version minimale de Rust | Personne ne sait où est le plancher. Le trouver, le fixer, l'ajouter à la CI. |
 | 🟢 Activer `missing_docs`, crate par crate | Commencer par les petites crates. **Une seule crate fait une PR entière.** |
 | 🟡 [Publier sur crates.io](https://github.com/KalybosPro/frus/labels/help%20wanted) | Le principal obstacle entre le projet et quiconque voudrait l'essayer. |
 | 🟡 L'effet d'étirement en bout de défilement | Les Android récents étirent le contenu au lieu de le faire luire. Un effet par rendu vers texture, et le point de départ est écrit. |

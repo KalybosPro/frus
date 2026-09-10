@@ -7,6 +7,11 @@ exclude = ["templates"]
 
 [workspace.package]
 edition = "2021"
+# The minimum supported Rust version (milestone 507), checked in CI by the `msrv` job.
+# The dependencies set it, not the framework: `image` and the `icu` crates behind
+# `url` ask for 1.88, and 1.87 refuses the lockfile before compiling anything. Raising
+# it is a decision, made here and in that job together.
+rust-version = "1.88"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 

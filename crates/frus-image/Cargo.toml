@@ -2,6 +2,7 @@
 name = "frus-image"
 description = "frus — image decoding (PNG/JPEG) into ImageData"
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 license.workspace = true
 

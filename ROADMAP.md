@@ -132,7 +132,7 @@ The things standing between frus and someone else being able to use it.
 
 - 🟡 **Publish to crates.io.** Everything resolves through local `path` dependencies today. This needs real versions, per-crate `README`s, metadata (`repository`, `keywords`, `categories`, `documentation`), a publish order that respects the dependency graph, and a release script. Once done, the `cargo generate` template drops `{{frus_path}}` and becomes `frus = "0.1"`.
 - 🟢 **Per-crate `README.md`.** Each crate needs a short one for its crates.io page.
-- 🟢 **Pin an MSRV.** There is no `rust-version` in any manifest and no minimum supported Rust version has ever been tested. Find the oldest stable that builds the workspace, put `rust-version` in `[workspace.package]`, and add that toolchain to the CI matrix.
+- 🟢 **Pin an MSRV — done, milestone 507 (#8): Rust 1.88.** The floor is the dependencies', not the framework's: `image` 0.25 and the `icu` 2.3 crates behind `url` (reached through `ureq`) ask for 1.88, and 1.87 refuses the lockfile before compiling a line. 1.88 builds the whole workspace, every target. `rust-version` is in `[workspace.package]` and inherited by all fifteen crates, and a CI job checks the workspace on that toolchain — a check rather than the test suite, and without `-D warnings`, because lints move between releases (1.88 calls a constant that only a compile-time assertion reads dead; stable does not). Raising the floor is now an edit of the manifest and that job together.
 - 🟡 **docs.rs-quality rustdoc.** Crate-level docs with a runnable example on every public crate, and `#![warn(missing_docs)]` turned on crate by crate.
 
 ### Web parity

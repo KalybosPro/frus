@@ -45,7 +45,7 @@ Browse [good first issues](https://github.com/KalybosPro/frus/labels/good%20firs
 
 **Required:**
 
-- Rust **current stable** (`rustup update stable`). No MSRV is pinned yet — establishing one is [on the roadmap](ROADMAP.md).
+- Rust **1.88** or newer to build — the minimum supported version, pinned as `rust-version` in the root `Cargo.toml` and checked in CI. Work on **current stable** (`rustup update stable`) all the same: the lints CI enforces are stable's, and a newer compiler finds warnings an older one does not.
 - A GPU with Vulkan, Metal, or DX12 drivers — frus renders through `wgpu`, there is no software fallback for the demos
 - `rustfmt` and `clippy` components: `rustup component add rustfmt clippy`
 

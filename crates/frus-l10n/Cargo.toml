@@ -2,6 +2,7 @@
 name = "frus-l10n"
 description = "frus — localisation (i18n/l10n): Fluent bundles + locale negotiation"
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 license.workspace = true
 

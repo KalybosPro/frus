@@ -2,6 +2,7 @@
 name = "frus-test"
 description = "frus test tooling: headless rendering, snapshots, goldens"
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 license.workspace = true
 
