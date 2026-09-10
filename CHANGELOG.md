@@ -8,12 +8,24 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 503 so far, each documenting the objective, the alternatives
+> record — one per step, 504 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
+
+- **`NavigationBar` drew under the status bar** (J504). At the head of a screen its title
+  and back button sat behind the clock: the scaffold told its app-bar slot what the status
+  bar took, `AppBar` read it, and this bar never did. It now clears the ambient top and
+  side intrusions itself, **adding** them to its height so the background runs behind the
+  status bar and the content keeps its full height below. Found on a device while checking
+  the system bars (#46).
+- **`SafeArea::new` padded without consuming** (J504). Only `SafeArea::build` told its
+  subtree the edges were taken, so a widget that clears the status bar on its own — the bar
+  above, a drawer header — was pushed down twice inside one. The child is now wrapped in a
+  scope that removes the edges it pads, as the reference's safe area does; an edge left
+  free is still there for a descendant.
 
 - **The Android system bars followed the phone, not the screen** (J503, answers #46).
   Nothing set their colour or their icons, so they kept the launch theme's — the platform's,
