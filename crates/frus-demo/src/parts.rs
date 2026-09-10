@@ -91,9 +91,17 @@ pub(crate) fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> T
 
     // The detail pane: the selected metric.
     let (label, value) = metrics[app.stat_sel.min(metrics.len() - 1)];
+    // The number **changes in place** rather than jumping — a task ticked, another metric
+    // picked — and the old figure shrinks away as the new one grows in over it.
+    let primary = theme.primary;
+    let figure = AnimatedSwitcher::new(0.25, value, move |n: &usize| {
+        text(n.to_string()).size(44.0).color(primary)
+    })
+    .switch_in_curve(Curve::ease_out())
+    .transition(|child, t| ScaleTransition::new(0.6 + 0.4 * t, FadeTransition::new(t, child)));
     let mut detail_col = column![
         text(label).size(22.0),
-        text(value.to_string()).size(44.0).color(theme.primary),
+        figure,
         text("Detail for the selected metric.")
             .size(14.0)
             .color(theme.muted),

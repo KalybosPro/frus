@@ -62,6 +62,7 @@ mod flex;
 mod focus;
 /// Form validation, pure and application-side: [`form::Rule`] and [`form::Form`].
 pub mod form;
+mod switcher;
 pub use form::ErrorSummary;
 mod fractional;
 mod grid;
@@ -342,6 +343,7 @@ pub use stack::{IndexedStack, Stack, StackFit};
 pub use stepper::Stepper;
 pub use steps::Steps;
 pub use switch::Switch;
+pub use switcher::AnimatedSwitcher;
 pub use table::Table;
 pub use tabs::{
     TabAlignment, TabBar, TabBarVariant, TabItem, TAB_DIVIDER_HEIGHT, TAB_HEIGHT, TAB_ICON_GAP,

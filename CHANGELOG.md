@@ -8,13 +8,20 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 501 so far, each documenting the objective, the alternatives
+> record — one per step, 502 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **`Responsive` never forwarded the deferred build** (J502). The size-class selector reads
+  its children straight through from the variant it chose, but did not pass on the walk's
+  request to compose them, so a deferred subtree behind one — an application bar — was read
+  before anyone had built it. The fourth hook this hand-written forwarder has missed.
+- **The macOS scroll-physics default test** (after J499). Milestone 499 gave macOS the fast
+  deceleration profile and iOS the normal one; the test still expected one `BOUNCING` for
+  both and failed on the macOS runner only.
 - **Half a pixel, in four more places** (J497, answers #54). The layout rounds every box to
   whole pixels, so anything that measures itself must round **up** or be handed a box it no
   longer fits in — milestone 289's bug, which presented as a line of text that vanished.
@@ -61,6 +68,18 @@ any release may break.
 
 ### Added
 
+- **Two different children, both on the screen for a moment** (J502, part of #30):
+  `AnimatedSwitcher`. The old child leaves as the new one arrives — a fade by default, any
+  explicit transition through `.transition`, placed by `.layout`, on separate in and out
+  curves. A boxed widget cannot outlive its frame here, so the switcher is handed **a value
+  and a way to build a child from it**, and the runtime keeps the values: the child on its
+  way out is rebuilt from its value every frame it is shown, a live subtree rather than a
+  snapshot. Each child has its own clock and turns round from wherever it had got to; the
+  leaving ones take no input and are not announced. Walks now call `Widget::build_in`
+  (identity and runtime, defaulting to `build_themed`), and `frus-layout` gained
+  `Style::overlap` — every child in one cell as big as the largest — because a `Stack` here
+  lays its layers out apart from itself and cannot size to them. While a switch is in
+  flight the shell rebuilds the tree each frame, as it does for a route transition.
 - **A decoration and a text style driven by the caller's number** (J501, part of #32):
   `DecoratedBoxTransition` and `DefaultTextStyleTransition`, the two rows of the explicit
   animation library that milestone 489 left as real work, plus `BoxDecoration::lerp` and

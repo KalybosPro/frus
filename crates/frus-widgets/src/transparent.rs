@@ -76,6 +76,22 @@ macro_rules! forward_transparent {
                 self.inner.build_themed(theme)
             }
 
+            fn build_in(
+                &self,
+                id: $crate::interaction::WidgetId,
+                runtime: &$crate::runtime::Runtime,
+                theme: &$crate::theme::Theme,
+            ) {
+                // The same identity: a wrapper has none of its own. Without this an
+                // `AnimatedSwitcher` behind a `Keyed` is built by `build_themed` and never
+                // finds what it was showing.
+                self.inner.build_in(id, runtime, theme)
+            }
+
+            fn switches(&self) -> bool {
+                self.inner.switches()
+            }
+
             fn debug_name(&self) -> &'static str {
                 // A transparent wrapper: the inspector shows the wrapped widget.
                 self.inner.debug_name()

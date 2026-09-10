@@ -296,6 +296,24 @@ impl<'a, T> Layout<'a, T> {
 
     /// Adds a container — a node with children — with no associated data.
     pub fn container(&mut self, style: Style, children: &[NodeId]) -> NodeId {
+        // An **overlapping** container puts every child in its one cell ([`Style::overlap`]).
+        // A placement belongs to the child's taffy style, and a child's style is its own,
+        // so it is added here: the only point where a parent and its children meet.
+        if style.overlap {
+            use taffy::style_helpers::{line, span};
+            for &child in children {
+                let mut placed = self.tree.style(child).expect("a node we made").clone();
+                placed.grid_row = taffy::Line {
+                    start: line(1),
+                    end: span(1),
+                };
+                placed.grid_column = taffy::Line {
+                    start: line(1),
+                    end: span(1),
+                };
+                self.tree.set_style(child, placed).expect("setting a style");
+            }
+        }
         self.tree
             .new_with_children(style.to_taffy(), children)
             .expect("creating a layout container")
@@ -944,5 +962,61 @@ mod tests {
         );
         layout.compute(node, Size::new(100.0, 100.0));
         assert_eq!(layout.size_of(node).width, 500.0);
+    }
+
+    /// **Overlapping children share one cell**: the box is the largest of them on each
+    /// axis — not their sum, as a line would make it — and a smaller one is centred in it.
+    /// Handed a bigger box, the cell fills it and centres both in that.
+    #[test]
+    fn overlapping_children_share_one_cell_the_size_of_the_largest() {
+        let place = |width: Dimension| {
+            let mut layout: Layout<'_, u8> = Layout::new();
+            let wide = layout.leaf(
+                Style {
+                    width: Dimension::Length(80.0),
+                    height: Dimension::Length(20.0),
+                    ..Default::default()
+                },
+                1,
+            );
+            let tall = layout.leaf(
+                Style {
+                    width: Dimension::Length(30.0),
+                    height: Dimension::Length(50.0),
+                    ..Default::default()
+                },
+                2,
+            );
+            let cell = layout.container(
+                Style {
+                    width,
+                    overlap: true,
+                    align: crate::style::Align::Center,
+                    ..Default::default()
+                },
+                &[wide, tall],
+            );
+            layout.compute(cell, Size::new(400.0, 400.0));
+            let rects = layout.absolute_rects(cell);
+            let at = |tag: u8| {
+                let r = rects.iter().find(|(_, d)| *d == Some(&tag)).unwrap().0;
+                (r.x, r.y)
+            };
+            (layout.size_of(cell), at(1), at(2))
+        };
+
+        let (size, wide, tall) = place(Dimension::Auto);
+        assert_eq!(
+            (size.width, size.height),
+            (80.0, 50.0),
+            "the largest, per axis"
+        );
+        assert_eq!(wide, (0.0, 15.0), "the wide one centred down the cell");
+        assert_eq!(tall, (25.0, 0.0), "the tall one centred across it");
+
+        let (size, wide, tall) = place(Dimension::Length(200.0));
+        assert_eq!(size.width, 200.0);
+        assert_eq!(wide.0, 60.0, "a box handed over is filled, and centred in");
+        assert_eq!(tall.0, 85.0);
     }
 }

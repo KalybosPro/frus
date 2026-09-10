@@ -1949,7 +1949,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     Some(Drag::Scrollbar { id, .. }) => Some(id),
                     _ => None,
                 };
-                let need_build = self.build_dirty || app_animating || self.tree.is_none();
+                // A switcher in flight carries each child's progress as a number built into
+                // the tree, so it is rebuilt — not only repainted — until the switch settles.
+                let need_build = self.build_dirty
+                    || app_animating
+                    || self.tree.is_none()
+                    || self.runtime.switching();
                 if need_build {
                     // No scope of its own: the surface above is already installed, and
                     // covers the layout and the paint that follow as well.
@@ -2118,6 +2123,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 let animating = scrolled
                     | self.runtime.advance(dt)
                     | self.runtime.advance_leaving(dt)
+                    | self.runtime.advance_switchers(tree, dt)
                     | self.runtime.advance_values(tree, dt)
                     | self.runtime.advance_colors(tree, dt)
                     | self.runtime.advance_sizes(tree, dt)

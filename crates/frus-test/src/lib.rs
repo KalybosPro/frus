@@ -143,6 +143,7 @@ impl Stage {
         // answered. This is the shell's own list, in the shell's own order.
         self.runtime.advance(dt)
             | self.runtime.advance_leaving(dt)
+            | self.runtime.advance_switchers(root, dt)
             | self.runtime.advance_values(root, dt)
             | self.runtime.advance_colors(root, dt)
             | self.runtime.advance_sizes(root, dt)
