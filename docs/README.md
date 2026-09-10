@@ -1,6 +1,6 @@
 # Design notes
 
-This directory is the project's memory: **305 milestone notes**, one per step of
+This directory is the project's memory: **501 milestone notes**, one per step of
 frus's construction. Each records the objective, the alternatives that were weighed, the
 decision and its reasoning, the implementation, how it was verified, and what was
 deliberately left for later.
@@ -313,3 +313,227 @@ If you're new to the codebase, these are the notes worth reading first:
 | [274](milestone-274.md) | `RemoteData<T, E>`: the Elm idiom for asynchronous data |
 | [275](milestone-275.md) | Typed JSON on `Request` (`json` feature) |
 | [276](milestone-276.md) | Clearing the ground for iOS: named platform `cfg`s |
+| [277](milestone-277.md) | Scroll physics, per platform |
+| [278](milestone-278.md) | How fast was the finger going? |
+| [279](milestone-279.md) | The overscroll glow, and the bug a device found |
+| [280](milestone-280.md) | An ambient surface, and widgets that withhold |
+| [281](milestone-281.md) | Pull to refresh, from a measurement already being thrown away |
+| [282](milestone-282.md) | Swipe to dismiss, and who owns a gesture |
+| [283](milestone-283.md) | A paged view, and where a release is allowed to stop |
+| [284](milestone-284.md) | The constraint boxes, and the two that could not be built |
+| [285](milestone-285.md) | Drag and drop, and three gestures on one row |
+| [286](milestone-286.md) | The shared element, and the frame that already knows both answers |
+| [287](milestone-287.md) | The app bar, reviewed against Flutter's |
+| [288](milestone-288.md) | The scaffold and the body, and who owns the bottom edge |
+| [289](milestone-289.md) | Half a pixel, and the line that was never reserved |
+| [290](milestone-290.md) | The button has a place, not a corner |
+| [291](milestone-291.md) | The bar that receives the button |
+| [292](milestone-292.md) | What an application weighs |
+| [293](milestone-293.md) | The demo was one file, and it taught that |
+| [294](milestone-294.md) | Drawing in the order the scene asked for |
+| [295](milestone-295.md) | Text is not above the frame any more |
+| [296](milestone-296.md) | The goldens cover the widgets, not just the tables |
+| [297](milestone-297.md) | A harness that can run the clock |
+| [298](milestone-298.md) | The advisory checks become real |
+| [299](milestone-299.md) | What a frame actually costs |
+| [300](milestone-300.md) | Not measuring the same string twice |
+| [301](milestone-301.md) | A glow that is light, not a dent |
+| [302](milestone-302.md) | A fade that follows the shape |
+| [303](milestone-303.md) | Async that is actually asynchronous |
+| [304](milestone-304.md) | Pictures, and somewhere to start |
+| [305](milestone-305.md) | A scaffold that does not change its mind |
+| [306](milestone-306.md) | Ink, and a title that knows where it is |
+| [307](milestone-307.md) | A sweep for what does not match, and the first two it found |
+| [308](milestone-308.md) | The card was three cards at once |
+| [309](milestone-309.md) | The middle term |
+| [310](milestone-310.md) | A theme for one subtree |
+| [311](milestone-311.md) | A tab bar, not a row of buttons |
+| [312](milestone-312.md) | The chip was a pill with nothing to say |
+| [313](milestone-313.md) | Five buttons, one of which had a shadow |
+| [314](milestone-314.md) | One control, not three buttons touching |
+| [315](milestone-315.md) | The widget the last three milestones kept asking for |
+| [316](milestone-316.md) | One gesture, one axis, one area |
+| [317](milestone-317.md) | The field everybody types into |
+| [318](milestone-318.md) | Chrome that changed shape, and the middle term that could not be added |
+| [319](milestone-319.md) | Building from the theme, not merely painting with it |
+| [320](milestone-320.md) | The gap three milestones wrote down |
+| [321](milestone-321.md) | Scrolling belongs to the content |
+| [322](milestone-322.md) | One disabled state, and a guard that reads the source |
+| [323](milestone-323.md) | Finishing the sentence milestone 322 started |
+| [324](milestone-324.md) | The rest of the controls, and what the picture found |
+| [325](milestone-325.md) | Two tokens, and the assertion that was left out |
+| [326](milestone-326.md) | An overlay belongs to its screen |
+| [327](milestone-327.md) | A swipe that never started is still a tap |
+| [328](milestone-328.md) | Twelve per cent of what |
+| [329](milestone-329.md) | A disabled control flattens; it does not fade |
+| [330](milestone-330.md) | Every glyph in the framework was too dark |
+| [331](milestone-331.md) | Render a known colour and read the pixel back |
+| [332](milestone-332.md) | A mark, not a container's edge |
+| [333](milestone-333.md) | Half a fix, and the other half named |
+| [334](milestone-334.md) | The child that takes what is left |
+| [335](milestone-335.md) | A box that does not fit now says so |
+| [336](milestone-336.md) | The catalogue, counted; and the three largest gaps closed |
+| [337](milestone-337.md) | Focus, said out loud |
+| [338](milestone-338.md) | Shortcuts, actions, and the key that means something |
+| [339](milestone-339.md) | Three filters, and the coverage that was counted twice |
+| [340](milestone-340.md) | The backdrop, and the layer that was never drawn |
+| [341](milestone-341.md) | The line text sits on |
+| [342](milestone-342.md) | Row and Column |
+| [343](milestone-343.md) | What text does about a box it does not fit |
+| [344](milestone-344.md) | Text wraps |
+| [345](milestone-345.md) | The band, and the four things it found |
+| [346](milestone-346.md) | Rich text catches up |
+| [347](milestone-347.md) | Two warts in the text layer |
+| [348](milestone-348.md) | The band learns to write |
+| [349](milestone-349.md) | Nothing is squeezed unless it says so |
+| [350](milestone-350.md) | A layer goes where it was put |
+| [351](milestone-351.md) | A list hands its children a box |
+| [352](milestone-352.md) | The first pixel |
+| [353](milestone-353.md) | A grid's tile has a shape |
+| [354](milestone-354.md) | `Flexible` by name |
+| [355](milestone-355.md) | A `LayoutBuilder` is as big as what it built |
+| [356](milestone-356.md) | As many columns as fit |
+| [357](milestone-357.md) | A stack that can place a layer |
+| [358](milestone-358.md) | An image knows how big it is |
+| [359](milestone-359.md) | A scroll that runs from the far end |
+| [360](milestone-360.md) | A list that counts from the bottom |
+| [361](milestone-361.md) | The edge an axis starts at, and a box that confines |
+| [362](milestone-362.md) | A decoration over the child |
+| [363](milestone-363.md) | Room around the content, and which side scrolls with it |
+| [364](milestone-364.md) | A slider over a range, in steps, saying where it is |
+| [365](milestone-365.md) | The selection controls, themed and overridable |
+| [366](milestone-366.md) | A field with a limit, and one that is read but not written |
+| [367](milestone-367.md) | The names the reference uses |
+| [368](milestone-368.md) | An expansion tile that is a tile |
+| [369](milestone-369.md) | `Icons`, because that is what it is called |
+| [370](milestone-370.md) | A checkbox that can answer "some of them" |
+| [371](milestone-371.md) | An image nobody could hear |
+| [372](milestone-372.md) | An image an application can actually load |
+| [373](milestone-373.md) | A response is bytes |
+| [374](milestone-374.md) | An image from somewhere else |
+| [375](milestone-375.md) | A list that runs the other way |
+| [376](milestone-376.md) | A grid that builds what you can see |
+| [377](milestone-377.md) | A tab bar with more tabs than fit |
+| [378](milestone-378.md) | A badge that is more than one colour |
+| [379](milestone-379.md) | A drawer nobody could recolour |
+| [380](milestone-380.md) | A keyboard that knows what it is typing into |
+| [381](milestone-381.md) | A drag with a beginning and an end |
+| [382](milestone-382.md) | A wrap where the lines are a decision too |
+| [383](milestone-383.md) | An image cache that lets go |
+| [384](milestone-384.md) | A field whose text can sit somewhere else |
+| [385](milestone-385.md) | A page view's ends, its direction, and its right not to snap |
+| [386](milestone-386.md) | Tab could not reach what was scrolled out of sight |
+| [387](milestone-387.md) | A bar wide enough to lose the selected tab in |
+| [388](milestone-388.md) | A tab that can show as well as say |
+| [389](milestone-389.md) | What a field lets through, and what the keyboard offers |
+| [390](milestone-390.md) | Where the tabs sit in a bar with room to spare |
+| [391](milestone-391.md) | The third inset, and the strip of nothing above the keyboard |
+| [392](milestone-392.md) | One child was deciding how wide the screen was |
+| [393](milestone-393.md) | Nobody hands the framework the screen |
+| [394](milestone-394.md) | Four properties the shell did not have |
+| [395](milestone-395.md) | The bar has a surface, and Material 3 tints it |
+| [396](milestone-396.md) | What is behind the bar, and what colours what is on it |
+| [397](milestone-397.md) | A heading nothing emitted, marked done on the roadmap |
+| [398](milestone-398.md) | The pages went past the edge of the thing holding them |
+| [399](milestone-399.md) | The settings a screen reports about its user |
+| [400](milestone-400.md) | A text style a subtree hands down |
+| [401](milestone-401.md) | Saying what a widget is, from outside it |
+| [402](milestone-402.md) | A style that can say nothing |
+| [403](milestone-403.md) | The reader's font size, obeyed |
+| [404](milestone-404.md) | "Full width", said the one way that cannot work |
+| [405](milestone-405.md) | A widget can ask for both axes |
+| [406](milestone-406.md) | Forty-seven ways to ignore the reader |
+| [407](milestone-407.md) | The platform reports its user, and two bugs a compiler could not see |
+| [408](milestone-408.md) | One guard, and a tripwire that caught its own tests |
+| [409](milestone-409.md) | A line's height, said as a multiple |
+| [410](milestone-410.md) | A style can name its font |
+| [412](milestone-412.md) | Twenty-four places that recomputed a line's height |
+| [413](milestone-413.md) | Twelve widgets that decided their own type |
+| [414](milestone-414.md) | The last seven, and the note that was wrong about them |
+| [415](milestone-415.md) | A tree built two ways, and the traversals that arrive first |
+| [416](milestone-416.md) | The same bug, in the place I had not looked |
+| [417](milestone-417.md) | A surface could only be narrowed where a widget was built |
+| [418](milestone-418.md) | The bottom slot was padded from outside, so its surface stopped short |
+| [419](milestone-419.md) | A footer alone held nothing off the bottom edge |
+| [420](milestone-420.md) | A rule that stopped at the notch |
+| [421](milestone-421.md) | The body was padded for intrusions it was never told about |
+| [422](milestone-422.md) | The bar could not see the screen it was standing on |
+| [423](milestone-423.md) | The shell was spending the notch on the body's behalf |
+| [424](milestone-424.md) | The name was taken by something that was not a dialog |
+| [425](milestone-425.md) | The two the family was missing |
+| [426](milestone-426.md) | Two names for five rungs |
+| [427](milestone-427.md) | Every panel onto its rung, and two that had none |
+| [428](milestone-428.md) | A switch is not a pill with a dot in it |
+| [429](milestone-429.md) | The families the scheme was without |
+| [430](milestone-430.md) | The role was written for this widget and this widget never used it |
+| [431](milestone-431.md) | Two badges, two reds |
+| [432](milestone-432.md) | When a destination says what it is |
+| [433](milestone-433.md) | A rail is a column, and a column can do three things a row cannot |
+| [434](milestone-434.md) | A door into the widget the shell builds for you |
+| [435](milestone-435.md) | Three bands, two answers |
+| [436](milestone-436.md) | What a destination could not say about itself |
+| [437](milestone-437.md) | Three mistakes in one line |
+| [438](milestone-438.md) | A button that cannot say what it does |
+| [439](milestone-439.md) | Roles nothing asked for |
+| [440](milestone-440.md) | A switch that never answered |
+| [441](milestone-441.md) | A press was a flag |
+| [442](milestone-442.md) | Nothing here reserved a tap target |
+| [443](milestone-443.md) | A short rail could not scroll |
+| [444](milestone-444.md) | A scrollbar on a phone |
+| [445](milestone-445.md) | A bar that never went away |
+| [446](milestone-446.md) | A snack bar has one behaviour where the reference has two |
+| [447](milestone-447.md) | A value that depends on what a widget is doing |
+| [448](milestone-448.md) | A theme is eight kilobytes, and it was `Copy` |
+| [449](milestone-449.md) | No widget could name itself in the reader's language |
+| [450](milestone-450.md) | A box could not say what shape it was |
+| [451](milestone-451.md) | Six widgets that took a corner now take a shape |
+| [452](milestone-452.md) | An application configures itself the way the reference's does |
+| [453](milestone-453.md) | A theme could not say whether it was light or dark |
+| [454](milestone-454.md) | The device's language never reached the application |
+| [455](milestone-455.md) | The shapes milestone 451 said it had done |
+| [456](milestone-456.md) | A radius that follows the reading direction |
+| [457](milestone-457.md) | Properties a list tile and a divider did not have |
+| [458](milestone-458.md) | A list tile's theme, and a sheet that takes a shape |
+| [459](milestone-459.md) | Twelve colours that promise not to move |
+| [460](milestone-460.md) | A menu was a stack of buttons, not a panel |
+| [461](milestone-461.md) | A progress indicator was drawn to no specification |
+| [462](milestone-462.md) | The place a tooltip goes, and no tooltip |
+| [463](milestone-463.md) | An expansion tile could not be themed, and had no shape |
+| [464](milestone-464.md) | A floating action button was a helper that returned a button |
+| [465](milestone-465.md) | A row whose whole width works one control |
+| [466](milestone-466.md) | Four buttons whose meaning is fixed and whose name is not |
+| [467](milestone-467.md) | The third navigation form, and the two that nobody could hear |
+| [468](milestone-468.md) | The top of the panel, a rule that goes the other way, and a gap that is not a guess |
+| [469](milestone-469.md) | A field with no container, inside a container |
+| [470](milestone-470.md) | The other half of the search bar |
+| [471](milestone-471.md) | Buttons that share their edges, and words that take no room |
+| [472](milestone-472.md) | Every colour has a name, and so does every icon |
+| [473](milestone-473.md) | One navigation, whichever chrome the width called for |
+| [474](milestone-474.md) | A mark that changes its mind |
+| [475](milestone-475.md) | The bar that hugged its own back button |
+| [476](milestone-476.md) | The last two widgets that could not be themed |
+| [477](milestone-477.md) | Three of the fifteen that should move rather than jump |
+| [478](milestone-478.md) | A menu whose rows can be more than a word |
+| [479](milestone-479.md) | A dropdown's choices, and the control that was missing beside it |
+| [480](milestone-480.md) | Tabs that are more than a label, and the dots beside them |
+| [481](milestone-481.md) | A picture that arrives instead of appearing |
+| [482](milestone-482.md) | A dialog's answers, when they stop fitting |
+| [483](milestone-483.md) | A second language, and the words that could not reach one |
+| [484](milestone-484.md) | Four thousand rows, ten of them built |
+| [485](milestone-485.md) | Two hundred pixels of nothing under a tab bar |
+| [486](milestone-486.md) | Three panels that are one card |
+| [487](milestone-487.md) | The boxes that were left |
+| [488](milestone-488.md) | Two more implicit animations, and one quantity under both |
+| [489](milestone-489.md) | The explicit transitions, and the twelve that were not missing |
+| [490](milestone-490.md) | A list whose rows can be dragged into a new order |
+| [491](milestone-491.md) | Ctrl+Z in a text field |
+| [492](milestone-492.md) | An application's licences |
+| [493](milestone-493.md) | Reading a scroll position, and moving one |
+| [494](milestone-494.md) | A header that collapses as the page scrolls |
+| [495](milestone-495.md) | A layer that moves, and a box that grows its share |
+| [496](milestone-496.md) | A picker wheel |
+| [497](milestone-497.md) | Half a pixel, made impossible to get wrong |
+| [498](milestone-498.md) | A style handed down, moving |
+| [499](milestone-499.md) | The second deceleration profile, and what chooses it |
+| [500](milestone-500.md) | The batch planner, made linear without changing a single plan |
+| [501](milestone-501.md) | A decoration and a text style, driven by the caller's number |
