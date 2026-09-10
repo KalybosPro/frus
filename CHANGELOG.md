@@ -8,12 +8,21 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 504 so far, each documenting the objective, the alternatives
+> record — one per step, 505 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
+
+- **A finger went on hovering after it lifted** (J505). Touch went through the mouse's
+  path, so the last place a finger touched stayed hovered — and since a widget id is a
+  position in the tree, a tap that opened a screen left the widget at the same position on
+  the new one hovered: a "Back" tooltip stood over the status bar of a screen nobody had
+  pressed anything on. The shell now keeps the hovering pointer as a **place** — a mouse
+  once it has moved, a finger only while it touches — and asks each frame what is under
+  it, after every rebuild as well as every move. A finger's press shows at once, without a
+  move first; a mouse leaving the window hovers nothing.
 
 - **`NavigationBar` drew under the status bar** (J504). At the head of a screen its title
   and back button sat behind the clock: the scaffold told its app-bar slot what the status

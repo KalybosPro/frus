@@ -21,6 +21,7 @@ mod app;
 mod application;
 mod command;
 mod gesture;
+mod hover;
 /// Cross-platform `fetch` HTTP helper (behind the `net` feature).
 #[cfg(feature = "net")]
 pub mod net;
