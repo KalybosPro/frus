@@ -8,12 +8,20 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 505 so far, each documenting the objective, the alternatives
+> record — one per step, 506 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
+
+- **An emoji was an empty box on Android** (J506, towards #56). The font system's "system
+  fonts" were none there — fontdb reads no directory on Android and cosmic-text has no
+  fallback list for it — so a character the bundled faces lack had nowhere to come from:
+  the demo's guided tour opened on a box where its wave should be. The platform's emoji
+  faces (`/system/fonts/*Emoji*`) are now loaded explicitly, and nothing else from that
+  directory; cosmic-text's last fallback pass takes any face named for emoji whatever the
+  style, so an emoji in bold or italic text is found as well.
 
 - **A finger went on hovering after it lifted** (J505). Touch went through the mouse's
   path, so the last place a finger touched stayed hovered — and since a widget id is a
