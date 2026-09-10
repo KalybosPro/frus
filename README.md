@@ -74,7 +74,7 @@ That is a complete, runnable application. `cargo run` on desktop, `cargo apk run
 | | |
 |---|---|
 | **One language, top to bottom** | App logic, widgets, layout, and the renderer are all Rust. No FFI boundary in the hot path, no serialization across a bridge. |
-| **Pure `update`, testable core** | The Elm architecture means your state machine is a pure function. ~970 of this repo's tests run with no GPU and no window. |
+| **Pure `update`, testable core** | The Elm architecture means your state machine is a pure function. More than 1,900 of this repo's tests run with no GPU and no window. |
 | **GPU-native rendering** | `wgpu` targets Vulkan, Metal, DX12, and WebGPU from one backend. Vector paths are tessellated with `lyon`; text is shaped by `cosmic-text`. |
 | **Everything is overridable** | Widgets ship themed defaults, never hardcoded ones. If a widget paints it, you can restyle it or swap the slot. |
 | **cargo-native** | No `frus doctor`, no custom package manager, no generated build directory. `cargo build`, `cargo test`, `cargo apk run`. |
@@ -128,7 +128,7 @@ cd frus
 cargo run -p frus-hello        # the counter above
 cargo run -p frus-demo         # a larger todo/kanban app
 cargo run -p frus-transforms   # animation and transform showcase
-cargo test --workspace         # ~970 tests
+cargo test --workspace         # ~2,180 tests; the rendering ones need a GPU
 ```
 
 ### Start your own app
@@ -199,7 +199,7 @@ Four layers. Dependencies only ever point downward, and only `frus-shell` knows 
 | [`frus-gpu`](crates/frus-gpu) | `wgpu` device, 2D painter, path tessellation, glyph atlas, compositor, offscreen rendering. |
 | [`frus-image`](crates/frus-image) | PNG/JPEG decoding to `ImageData`. |
 | [`frus-l10n`](crates/frus-l10n) | i18n via Fluent bundles + locale negotiation. |
-| [`frus-widgets`](crates/frus-widgets) | The widget library and interaction model (~80 modules). |
+| [`frus-widgets`](crates/frus-widgets) | The widget library and interaction model (~150 modules). |
 | [`frus-shell`](crates/frus-shell) | Window, event loop, lifecycle, `Command`/`Subscription`, IME, AccessKit, `fetch`. |
 | [`frus-test`](crates/frus-test) | Headless rendering, snapshots, golden-image comparison. |
 | [`frus-hello`](crates/frus-hello) | The canonical minimal app. Source of the `cargo generate` template. |
@@ -220,7 +220,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 | **Web** (wasm + WebGPU) | Functional | Rendering, input, animation, subscriptions, async effects & `fetch`. Clipboard, a11y and live-reload are not wired up |
 | **iOS / macOS native** | Not started | The shell layer is isolated, so adding a target is a contained job |
 
-**What works today:** flex/grid/wrap layout, 1D & 2D scrolling with fill-then-scroll, text input with IME, drag-and-drop reordering with live reflow, data tables, editable grids, charts, date/time pickers, dropdowns, trees, toasts, modals, drawers, navigation with spring transitions and back-gesture, an overridable theme, RTL and i18n, spring animations, lifecycle, effects and subscriptions, async HTTP with typed JSON, and golden-image testing.
+**What works today:** flex/grid/wrap layout, 1D & 2D scrolling with fill-then-scroll, text input with IME, drag-and-drop reordering with live reflow, data tables, editable grids, charts, date/time pickers, dropdowns, trees, toasts, modals, drawers, navigation with spring transitions and back-gesture, an overridable theme, RTL and i18n, spring, implicit and explicit animations, a wheel picker, lifecycle, effects and subscriptions, async HTTP with typed JSON, and golden-image testing (169 reference images).
 
 **Known gaps** — these are the best places to help:
 
@@ -241,9 +241,9 @@ real, open, and written up with where to look and how to know you are done:
 |---|---|
 | 🟢 [Give every crate a README](https://github.com/KalybosPro/frus/labels/good%20first%20issue) | Fifteen crates, no front page. **One crate is a perfectly good PR.** |
 | 🟢 Pin a minimum supported Rust version | Nobody knows what the floor is. Find it, pin it, add it to CI. |
-| 🟢 `NavigationBar` collapses around its back button | A small, real, already-diagnosed bug, with a way to see it. |
+| 🟢 Turn on `missing_docs`, crate by crate | Start with the small crates. **One crate is a whole PR.** |
 | 🟡 [Publish to crates.io](https://github.com/KalybosPro/frus/labels/help%20wanted) | The single biggest thing between the project and anyone trying it. |
-| 🟡 The batch planner is O(n²) | 16× the primitives costs 127× the time. Benchmark included. |
+| 🟡 The overscroll stretch effect | Current Android stretches the content instead of glowing. A render-target effect, and where to start reading is written down. |
 | 🟡 Clipboard and accessibility on the web | Both exist on desktop; the web drops them on the floor. |
 | 🔴 [An iOS shell](https://github.com/KalybosPro/frus/labels/design%20first) | The architecture bets this is a contained job. Nobody has tested the bet. |
 
@@ -272,7 +272,7 @@ By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 - [Structuring an application](docs/app-structure.md) — splitting a growing app across modules
 - [Architecture](ARCHITECTURE.md) — how the crates fit together
 - [Roadmap](ROADMAP.md) — what's next and where help is wanted
-- [Design notes index](docs/README.md) — 305 notes, one per milestone: the analysis, the alternatives considered, the decision, and why. This is the project's real memory.
+- [Design notes index](docs/README.md) — 501 notes, one per milestone: the analysis, the alternatives considered, the decision, and why. This is the project's real memory.
 
 ## License
 

@@ -74,7 +74,7 @@ C'est une application complète et exécutable. `cargo run` sur bureau, `cargo a
 | | |
 |---|---|
 | **Un seul langage, de bout en bout** | Logique applicative, widgets, layout et moteur de rendu sont tous en Rust. Pas de frontière FFI dans le chemin chaud, pas de sérialisation à travers un pont. |
-| **`update` pur, cœur testable** | L'architecture Elm fait de votre machine à états une fonction pure. ~970 tests de ce dépôt tournent sans GPU ni fenêtre. |
+| **`update` pur, cœur testable** | L'architecture Elm fait de votre machine à états une fonction pure. Plus de 1 900 tests de ce dépôt tournent sans GPU ni fenêtre. |
 | **Rendu GPU natif** | `wgpu` vise Vulkan, Metal, DX12 et WebGPU depuis un seul backend. Les chemins vectoriels sont tessellés par `lyon`, le texte façonné par `cosmic-text`. |
 | **Tout est surchargeable** | Les widgets fournissent des valeurs par défaut *thémées*, jamais codées en dur. Si un widget le dessine, vous pouvez le restyler ou remplacer l'emplacement. |
 | **cargo-natif** | Pas de `frus doctor`, pas de gestionnaire de paquets maison, pas de dossier de build généré. `cargo build`, `cargo test`, `cargo apk run`. |
@@ -128,7 +128,7 @@ cd frus
 cargo run -p frus-hello        # le compteur ci-dessus
 cargo run -p frus-demo         # une app plus large (todo / kanban)
 cargo run -p frus-transforms   # vitrine d'animations et de transforms
-cargo test --workspace         # ~970 tests
+cargo test --workspace         # ~2 180 tests ; ceux du rendu demandent un GPU
 ```
 
 ### Créer votre propre application
@@ -199,7 +199,7 @@ Quatre couches. Les dépendances ne pointent que vers le bas, et seul `frus-shel
 | [`frus-gpu`](crates/frus-gpu) | Device `wgpu`, peintre 2D, tessellation de chemins, atlas de glyphes, compositeur, rendu hors écran. |
 | [`frus-image`](crates/frus-image) | Décodage PNG/JPEG vers `ImageData`. |
 | [`frus-l10n`](crates/frus-l10n) | i18n via bundles Fluent + négociation de locale. |
-| [`frus-widgets`](crates/frus-widgets) | La bibliothèque de widgets et le modèle d'interaction (~80 modules). |
+| [`frus-widgets`](crates/frus-widgets) | La bibliothèque de widgets et le modèle d'interaction (~150 modules). |
 | [`frus-shell`](crates/frus-shell) | Fenêtre, boucle d'événements, cycle de vie, `Command`/`Subscription`, IME, AccessKit, `fetch`. |
 | [`frus-test`](crates/frus-test) | Rendu headless, snapshots, comparaison d'images de référence. |
 | [`frus-hello`](crates/frus-hello) | L'application minimale canonique. Source du template `cargo generate`. |
@@ -220,7 +220,7 @@ Lisez [ARCHITECTURE.md](ARCHITECTURE.md) avant votre première modification non 
 | **Web** (wasm + WebGPU) | Fonctionnel | Rendu, entrée, animations, souscriptions, effets async et `fetch`. Presse-papier, a11y et live-reload non câblés |
 | **iOS / macOS natif** | Non démarré | La couche shell est isolée : ajouter une cible reste un chantier circonscrit |
 
-**Ce qui marche aujourd'hui :** mise en page flex/grille/wrap, défilement 1D et 2D avec fill-then-scroll, saisie de texte avec IME, glisser-déposer avec reflow en direct, tables de données, grilles éditables, graphiques, sélecteurs de date/heure, listes déroulantes, arbres, toasts, modales, tiroirs, navigation à transitions ressort et geste de retour, thème surchargeable, RTL et i18n, animations à ressort, cycle de vie, effets et souscriptions, HTTP asynchrone avec JSON typé, et tests par images de référence.
+**Ce qui marche aujourd'hui :** mise en page flex/grille/wrap, défilement 1D et 2D avec fill-then-scroll, saisie de texte avec IME, glisser-déposer avec reflow en direct, tables de données, grilles éditables, graphiques, sélecteurs de date/heure, listes déroulantes, arbres, toasts, modales, tiroirs, navigation à transitions ressort et geste de retour, thème surchargeable, RTL et i18n, animations à ressort, implicites et explicites, un sélecteur à roue, cycle de vie, effets et souscriptions, HTTP asynchrone avec JSON typé, et tests par images de référence (169 images).
 
 **Manques connus** — les meilleurs points d'entrée pour aider :
 
@@ -242,9 +242,9 @@ c'est fini :
 |---|---|
 | 🟢 [Un README par crate](https://github.com/KalybosPro/frus/labels/good%20first%20issue) | Quinze crates, aucune page d'accueil. **Une seule crate fait une très bonne PR.** |
 | 🟢 Fixer une version minimale de Rust | Personne ne sait où est le plancher. Le trouver, le fixer, l'ajouter à la CI. |
-| 🟢 `NavigationBar` se recroqueville sur son bouton retour | Un petit bug réel, déjà diagnostiqué, avec de quoi le voir. |
+| 🟢 Activer `missing_docs`, crate par crate | Commencer par les petites crates. **Une seule crate fait une PR entière.** |
 | 🟡 [Publier sur crates.io](https://github.com/KalybosPro/frus/labels/help%20wanted) | Le principal obstacle entre le projet et quiconque voudrait l'essayer. |
-| 🟡 Le planificateur de lots est en O(n²) | 16× les primitives coûtent 127× le temps. Le benchmark est fourni. |
+| 🟡 L'effet d'étirement en bout de défilement | Les Android récents étirent le contenu au lieu de le faire luire. Un effet par rendu vers texture, et le point de départ est écrit. |
 | 🟡 Presse-papiers et accessibilité sur le Web | Les deux existent sur bureau ; le Web les laisse tomber. |
 | 🔴 [Une couche iOS](https://github.com/KalybosPro/frus/labels/design%20first) | L'architecture parie que c'est un travail circonscrit. Personne n'a testé le pari. |
 
@@ -273,7 +273,7 @@ En participant, vous acceptez le [Code de conduite](CODE_OF_CONDUCT.md).
 - [Structurer une application](docs/app-structure.md) — découper une application qui grandit en modules
 - [Architecture](ARCHITECTURE.md) — comment les crates s'assemblent
 - [Feuille de route](ROADMAP.md) — la suite, et où l'aide est souhaitée
-- [Index des notes de conception](docs/README.md) — 305 notes, une par jalon : l'analyse, les alternatives, la décision et ses raisons. C'est la mémoire réelle du projet.
+- [Index des notes de conception](docs/README.md) — 501 notes, une par jalon : l'analyse, les alternatives, la décision et ses raisons. C'est la mémoire réelle du projet.
 
 ## Licence
 
