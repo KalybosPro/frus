@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 507 so far, each documenting the objective, the alternatives
+> record — one per step, 508 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -119,6 +119,12 @@ any release may break.
 
 ### Added
 
+- **A size budget for the smallest application** (J508, answers #9). Nothing in CI would
+  notice if the counter doubled. A `size` job builds `frus-hello` for aarch64 Android in
+  release and `scripts/check-size.sh` compares the stripped `.so` with
+  `ci/size-budget.toml`, printing the size and the budget on every run. Today: 10,427,568
+  bytes, 4% over milestone 292's; the budget is 13,000,000, headroom for drift and not for
+  a jump. Blocking.
 - **Two different children, both on the screen for a moment** (J502, part of #30):
   `AnimatedSwitcher`. The old child leaves as the new one arrives — a fade by default, any
   explicit transition through `.transition`, placed by `.layout`, on separate in and out

@@ -150,7 +150,7 @@ The web target renders and animates but is missing its platform integrations. Ea
 Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` at all. What is left is real work, not settings.
 
 - 🟡 **Subset the bundled faces at build time.** DejaVu covers far more of Unicode than any one application draws, and the four `bundled-*` features are a coarse instrument next to a `pyftsubset` step over the glyphs a build actually references. This is where the next megabyte is, and it needs a tool in the build.
-- 🟢 **A size regression check in CI.** Nothing notices today if the floor doubles. Build `frus-hello` for `aarch64-linux-android` in release, compare the stripped `.so` against a committed budget, fail on a jump.
+- 🟢 **A size regression check in CI — done, milestone 508 (#9).** A `size` job builds `frus-hello` for `aarch64-linux-android` in release — the NDK's linker directly, since a release APK would need a signing key and the `.so` is what is measured — and `scripts/check-size.sh` compares the stripped library with `ci/size-budget.toml`, printing the size, the compressed size and the budget on every run, a passing one included. Today's counter is **10,427,568 bytes**, 4% more than milestone 292's first measurement; the budget is 13,000,000, about 25% over — there to catch a jump (the release profile gone, LTO or stripping off, a dependency that brings an ecosystem, a font bundled by default), not the 4% two hundred milestones of drift came to. Blocking, and raised deliberately, in the change that needs it.
 - 🟢 **Document `--split-per-abi`-style packaging.** The examples build `aarch64` only; an application targeting more than one ABI wants a split rather than a fat APK, and nothing says so.
 
 ### Quality

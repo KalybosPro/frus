@@ -170,6 +170,45 @@ jobs:
           cargo apk build -p frus-hello --lib
 
   # ---------------------------------------------------------------------------
+  # The size of the smallest application (milestone 508, #9): `frus-hello` built
+  # in release for aarch64 Android, its stripped `.so` measured against the budget
+  # in ci/size-budget.toml. Nothing else in CI would notice if it doubled.
+  #
+  # The library is built with the NDK's linker directly rather than through
+  # cargo-apk: the `.so` is what is measured, and a release APK would need a
+  # signing key. API 24 is frus-hello's `min_sdk_version`.
+  #
+  # Blocking, unlike the build above: it catches a jump, not drift (the budget
+  # file argues the headroom), so a red run is a change to look at.
+  # ---------------------------------------------------------------------------
+  size:
+    name: Size budget (Android)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r26d
+
+      - name: Build frus-hello (release, aarch64 Android)
+        env:
+          NDK_BIN: ${{ steps.ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin
+        run: |
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android24-clang"
+          export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
+          cargo build --release -p frus-hello --lib --target aarch64-linux-android
+
+      - name: Compare with the budget
+        run: bash scripts/check-size.sh target/aarch64-linux-android/release/libfrus_hello.so
+
+  # ---------------------------------------------------------------------------
   # iOS target. `frus-shell` has explicit platform cfg aliases (`desktop` /
   # `android` / `ios` / `web`, see its build.rs) so that iOS does not fall into the
   # desktop branch and inherit arboard, env_logger and AccessKit.
