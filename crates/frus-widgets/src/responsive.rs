@@ -113,6 +113,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().is_some_and(|w| w.switches())
     }
 
+    fn system_ui_style(&self) -> Option<crate::SystemUiOverlayStyle> {
+        self.inner.as_ref().and_then(|w| w.system_ui_style())
+    }
+
     fn debug_name(&self) -> &'static str {
         // A transparent wrapper: the inspector shows the realised widget.
         self.inner

@@ -406,6 +406,7 @@ struct BoundaryData<Msg> {
     drop_zones: Vec<DropZone>,
     inks: Vec<(WidgetId, Rect)>,
     semantics: Vec<(WidgetId, Rect, frus_core::SemanticsProperties)>,
+    system_ui: Vec<(Rect, crate::SystemUiOverlayStyle)>,
 }
 
 /// Lengths of the builder's collections on entering a boundary: the lower bounds of the
@@ -422,6 +423,7 @@ struct Snapshot {
     drop_zones: usize,
     inks: usize,
     semantics: usize,
+    system_ui: usize,
     overlays: usize,
     focus_scope_start: Option<usize>,
 }
@@ -612,6 +614,8 @@ pub struct Ui<Msg> {
     /// The accessibility tree: semantic nodes (id, bounds, annotation), in paint order. The
     /// shell maps it onto AccessKit.
     semantics: Vec<(WidgetId, Rect, frus_core::SemanticsProperties)>,
+    /// The regions saying what the system bars over them should look like (paint order).
+    system_ui: Vec<(Rect, crate::SystemUiOverlayStyle)>,
     /// Boxes whose children ran outside them, with the edge and the amount.
     overflows: Vec<Overflowing>,
     /// Shortcut and action scopes, in the order the walk closed them — innermost first
@@ -652,6 +656,21 @@ impl<Msg: Clone> Ui<Msg> {
     /// pushes it to AccessKit.
     pub fn semantics(&self) -> &[(WidgetId, Rect, frus_core::SemanticsProperties)] {
         &self.semantics
+    }
+
+    /// What the system bars should look like over this frame (#46): the regions under
+    /// `status_bar` answer for the status bar and those under `navigation_bar` for the
+    /// other, the one drawn last first and field by field. What none states is left
+    /// `None`, for [`crate::SystemUiOverlayStyle::resolve`] to take from the theme.
+    ///
+    /// The shell picks the two points: the first row of the screen's content under the
+    /// status bar, and the last one above the navigation bar.
+    pub fn system_ui_style(
+        &self,
+        status_bar: Point,
+        navigation_bar: Point,
+    ) -> crate::SystemUiOverlayStyle {
+        crate::system_ui::style_under(&self.system_ui, status_bar, navigation_bar)
     }
 
     /// `true` when a widget animates continuously (the framework must redraw).
@@ -2111,6 +2130,9 @@ struct Builder<'a, Msg> {
     dismissables: Vec<Dismissable>,
     /// Accessibility nodes collected during the walk (paint order).
     semantics: Vec<(WidgetId, Rect, frus_core::SemanticsProperties)>,
+    /// The parts of the screen saying what the system bars over them should look like,
+    /// with their boxes, in paint order.
+    system_ui: Vec<(Rect, crate::SystemUiOverlayStyle)>,
     /// Boxes whose children did not fit, screen-positioned, from every sub-root walked
     /// this frame.
     overflows: std::cell::RefCell<Vec<Overflowing>>,
@@ -2300,6 +2322,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drop_zones: self.drop_zones.len(),
             inks: self.inks.len(),
             semantics: self.semantics.len(),
+            system_ui: self.system_ui.len(),
             overlays: self.overlays.len(),
             focus_scope_start: self.focus_scope_start,
         }
@@ -2325,6 +2348,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drop_zones: self.drop_zones[snap.drop_zones..].to_vec(),
             inks: self.inks[snap.inks..].to_vec(),
             semantics: self.semantics[snap.semantics..].to_vec(),
+            system_ui: self.system_ui[snap.system_ui..].to_vec(),
         })
     }
 
@@ -2344,6 +2368,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.drop_zones.extend(data.drop_zones);
         self.inks.extend(data.inks);
         self.semantics.extend(data.semantics);
+        self.system_ui.extend(data.system_ui);
     }
 
     /// Lengths of every registry a [`ModalBarrier`] can withhold from, taken before its subtree
@@ -3048,6 +3073,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         widget.paint(draw_rect, status, &self.theme, &mut self.scene);
         // A widget may have tightened the clip (TextField, for one): it is restored here.
         self.scene.set_clip(clip);
+        // A part of the screen saying what the system bars over it should look like, kept
+        // with its box: the shell asks which ones lie under each bar (#46).
+        if let Some(style) = widget.system_ui_style() {
+            self.system_ui.push((draw_rect, style));
+        }
         // The ink a tap left on this surface: over the surface's own paint, under its
         // children — where a material surface puts it. The box is recorded too, so the
         // shell can start the next splash at the right place, in the right size.
@@ -4959,6 +4989,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         refreshes: Vec::new(),
         dismissables: Vec::new(),
         semantics: Vec::new(),
+        system_ui: Vec::new(),
         focus_excluded: false,
         backdrop_group: None,
         focus_skipped: false,
@@ -5022,6 +5053,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         dismissables: builder.dismissables,
         wants_animation: builder.wants_animation,
         semantics: builder.semantics,
+        system_ui: builder.system_ui,
         overflows: builder.overflows.into_inner(),
         scopes: builder.scopes,
         listeners: builder.listeners,

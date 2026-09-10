@@ -1,7 +1,7 @@
 //! One task's own screen, with a bottom app bar and a docked action.
 
 use crate::prelude::*;
-use frus_widgets::column;
+use frus_widgets::{column, AnnotatedRegion, SystemUiOverlayStyle};
 
 /// A paged walkthrough: the finger and the picker drive **one** page number, held by
 /// the application (milestone 283).
@@ -78,7 +78,7 @@ pub(crate) fn task_screen(
     // A bottom app bar and a **docked** button (milestone 291): the screen's own
     // actions along the bottom, and the one that matters most astride the bar's top
     // edge, in a notch cut to receive it.
-    Scaffold::new()
+    let screen = Scaffold::new()
         .background(theme.background)
         .app_bar(NavigationBar::new("Task").on_back(Msg::Pop))
         // No scroller: this screen's content is centred in whatever room it is given, so
@@ -120,5 +120,13 @@ pub(crate) fn task_screen(
             if done { "↺" } else { "✓" },
             Msg::ToggleTodo(id),
         ))
-        .build()
+        .build();
+    // The bottom app bar **continues into the system's navigation bar** under it, rather
+    // than stopping at a line where the platform's own colour starts (#46). The screen asks
+    // for the navigation bar in the bar's colour and says nothing of the status bar, which
+    // stays the theme's.
+    Box::new(AnnotatedRegion::new(
+        SystemUiOverlayStyle::NONE.navigation_bar_color(theme.surface),
+        screen,
+    ))
 }

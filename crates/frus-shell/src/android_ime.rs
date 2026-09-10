@@ -135,6 +135,10 @@ fn try_install(app: &AndroidApp) -> Result<Bridge, jni::errors::Error> {
         "(Ljava/nio/ByteBuffer;Ljava/lang/ClassLoader;)V",
         &[JValue::Object(&buffer), JValue::Object(&parent)],
     )?;
+    // The same dex carries the system bars' half (#46). Loaded through the same loader, and
+    // on its own terms: a failure there must not cost the keyboard.
+    crate::android_system_bars::install(&mut env, &loader, &activity);
+
     let name = env.new_string("dev.frus.input.FrusTextBridge")?;
     let class_obj = env
         .call_method(
