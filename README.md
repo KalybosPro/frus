@@ -216,7 +216,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 | Platform | State | Notes |
 |---|---|---|
 | **Desktop** (Windows / Linux / macOS) | Working | winit + wgpu, clipboard, screen-reader a11y via AccessKit, dev live-reload |
-| **Android** | Working | Native activity, Vulkan, real IME (composition & swipe), insets, lifecycle — validated on device |
+| **Android** | Working | Native activity, Vulkan, real IME (composition & swipe), insets, system bars, the system clipboard, lifecycle — validated on device |
 | **Web** (wasm + WebGPU) | Functional | Rendering, input, animation, subscriptions, async effects & `fetch`. Clipboard, a11y and live-reload are not wired up |
 | **iOS / macOS native** | Not started | The shell layer is isolated, so adding a target is a contained job |
 

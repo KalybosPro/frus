@@ -25,7 +25,7 @@ use winit::event::{
     ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent,
 };
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
-use winit::keyboard::{Key as WinitKey, NamedKey};
+use winit::keyboard::{Key as WinitKey, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{CursorIcon, Window, WindowId};
 
 use crate::application::{Application, Lifecycle};
@@ -61,10 +61,52 @@ impl Default for PlatformSettings {
 }
 use crate::gesture::{PointerEvent, PointerKind, PressRecognizer};
 
-/// The clipboard: `arboard` on the desktop platforms, a no-op **everywhere else**
-/// (Android, iOS, Web — `arboard` does not compile there and is not a dependency).
-/// The stub is gated on `not(desktop)` rather than on a list of the other platforms:
-/// that is what makes adding a target never leave this type undefined.
+/// What a key asks of the clipboard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClipCommand {
+    Copy,
+    Cut,
+    Paste,
+}
+
+/// The clipboard command a key press means, if any: Ctrl+C/X/V, and the Copy, Cut and
+/// Paste keys a keyboard may have for them (milestone 509).
+///
+/// Both halves of the key are asked. A desktop keyboard's Copy key arrives as a named
+/// logical key; Android's arrives by **physical code only** — winit gives it no logical
+/// key at all — so a check of the logical key alone would ignore it on the one platform
+/// that has it as a keycode of its own.
+fn clipboard_command(logical: &WinitKey, physical: PhysicalKey, ctrl: bool) -> Option<ClipCommand> {
+    match logical {
+        WinitKey::Named(NamedKey::Copy) => return Some(ClipCommand::Copy),
+        WinitKey::Named(NamedKey::Cut) => return Some(ClipCommand::Cut),
+        WinitKey::Named(NamedKey::Paste) => return Some(ClipCommand::Paste),
+        WinitKey::Character(c) if ctrl => {
+            if c.eq_ignore_ascii_case("c") {
+                return Some(ClipCommand::Copy);
+            }
+            if c.eq_ignore_ascii_case("x") {
+                return Some(ClipCommand::Cut);
+            }
+            if c.eq_ignore_ascii_case("v") {
+                return Some(ClipCommand::Paste);
+            }
+        }
+        _ => {}
+    }
+    match physical {
+        PhysicalKey::Code(KeyCode::Copy) => Some(ClipCommand::Copy),
+        PhysicalKey::Code(KeyCode::Cut) => Some(ClipCommand::Cut),
+        PhysicalKey::Code(KeyCode::Paste) => Some(ClipCommand::Paste),
+        _ => None,
+    }
+}
+
+/// The clipboard: `arboard` on the desktop platforms, the platform's own on Android
+/// (`ClipboardManager`, through the bundled dex — milestone 509, #22), and a no-op on
+/// the rest (iOS, Web — `arboard` does not compile there and is not a dependency).
+/// The stub is gated on what is *not* implemented rather than on a list of the other
+/// platforms: that is what makes adding a target never leave this type undefined.
 /// One uniform API, so the driver's body stays free of `cfg`.
 mod clip {
     #[cfg(desktop)]
@@ -85,10 +127,26 @@ mod clip {
         }
     }
 
-    #[cfg(not(desktop))]
+    #[cfg(android)]
     pub struct Clipboard;
 
-    #[cfg(not(desktop))]
+    #[cfg(android)]
+    impl Clipboard {
+        pub fn new() -> Self {
+            Self
+        }
+        pub fn get_text(&mut self) -> Option<String> {
+            crate::android_clipboard::get_text()
+        }
+        pub fn set_text(&mut self, text: String) {
+            crate::android_clipboard::set_text(&text);
+        }
+    }
+
+    #[cfg(not(any(desktop, android)))]
+    pub struct Clipboard;
+
+    #[cfg(not(any(desktop, android)))]
     impl Clipboard {
         pub fn new() -> Self {
             Self
@@ -452,7 +510,8 @@ pub struct App<A: Application> {
     /// lines keeps the original column, the way an editor does. Cleared as soon as any
     /// other caret movement happens.
     goal_x: Option<f32>,
-    /// Clipboard access; a no-op on Android.
+    /// Clipboard access: `arboard` on the desktop, the platform's on Android, nothing yet
+    /// on iOS and the web.
     clipboard: clip::Clipboard,
     /// Has the startup effect (`init`) already run? This keeps it from being replayed
     /// when the surface is recreated, as it is when Android returns from background.
@@ -1634,26 +1693,30 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     }
                 }
 
-                // The clipboard shortcuts, Ctrl+C/X/V/A.
-                if self.ctrl {
-                    match &event.logical_key {
-                        WinitKey::Character(c) if c.eq_ignore_ascii_case("c") => {
-                            self.copy_selection(focused);
-                            return;
-                        }
-                        WinitKey::Character(c) if c.eq_ignore_ascii_case("x") => {
+                // The clipboard: Ctrl+C/X/V, and a keyboard's own Copy, Cut and Paste.
+                if let Some(command) =
+                    clipboard_command(&event.logical_key, event.physical_key, self.ctrl)
+                {
+                    match command {
+                        ClipCommand::Copy => self.copy_selection(focused),
+                        ClipCommand::Cut => {
                             self.copy_selection(focused);
                             self.apply_key(focused, Key::Backspace);
                             self.request_redraw();
-                            return;
                         }
-                        WinitKey::Character(c) if c.eq_ignore_ascii_case("v") => {
+                        ClipCommand::Paste => {
                             if let Some(text) = self.clipboard.get_text() {
                                 self.apply_key(focused, Key::Text(text));
                                 self.request_redraw();
                             }
-                            return;
                         }
+                    }
+                    return;
+                }
+
+                // The other editing shortcuts, Ctrl+A/Z/Y.
+                if self.ctrl {
+                    match &event.logical_key {
                         WinitKey::Character(c) if c.eq_ignore_ascii_case("a") => {
                             self.runtime.edits.insert(
                                 focused,
@@ -4871,8 +4934,62 @@ mod tests {
         gesture_was_a_tap, install_ambient, resolve_focus, spring_toward, Drag, Point, Rect, Scene,
         Theme, VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
     };
+    use super::{clipboard_command, ClipCommand, KeyCode, PhysicalKey, WinitKey};
     use super::{collect_ids, find_widget, MediaQuery};
     use frus_widgets::Locale;
+
+    fn character(c: &str) -> WinitKey {
+        WinitKey::Character(c.into())
+    }
+
+    /// Ctrl+C/X/V are the clipboard, in either case — Caps Lock or Shift is still a
+    /// copy — and the same letters without Ctrl are only letters.
+    #[test]
+    fn ctrl_c_x_v_are_the_clipboard_and_the_letters_alone_are_not() {
+        let any = PhysicalKey::Code(KeyCode::KeyQ);
+        for (letter, command) in [
+            ("c", ClipCommand::Copy),
+            ("X", ClipCommand::Cut),
+            ("v", ClipCommand::Paste),
+        ] {
+            assert_eq!(
+                clipboard_command(&character(letter), any, true),
+                Some(command)
+            );
+            assert_eq!(
+                clipboard_command(&character(letter), any, false),
+                None,
+                "{letter}"
+            );
+        }
+        assert_eq!(clipboard_command(&character("a"), any, true), None);
+    }
+
+    /// **Android's Copy, Cut and Paste keys arrive by physical code alone** — winit gives
+    /// them no logical key — and they are the clipboard with no modifier held. A check
+    /// of the logical key alone ignored them (milestone 509).
+    #[test]
+    fn a_keyboards_own_clipboard_keys_work_by_their_physical_code() {
+        let unidentified = WinitKey::Unidentified(winit::keyboard::NativeKey::Unidentified);
+        for (code, command) in [
+            (KeyCode::Copy, ClipCommand::Copy),
+            (KeyCode::Cut, ClipCommand::Cut),
+            (KeyCode::Paste, ClipCommand::Paste),
+        ] {
+            assert_eq!(
+                clipboard_command(&unidentified, PhysicalKey::Code(code), false),
+                Some(command),
+                "{code:?}"
+            );
+        }
+        // And the named keys a desktop keyboard reports for the same thing.
+        let named = WinitKey::Named(super::NamedKey::Paste);
+        let any = PhysicalKey::Code(KeyCode::KeyQ);
+        assert_eq!(
+            clipboard_command(&named, any, false),
+            Some(ClipCommand::Paste)
+        );
+    }
 
     /// An application whose whole interface lives **inside a deferred subtree** — which is
     /// what any application with an `AppBar` is, since a bar defers its own composition
