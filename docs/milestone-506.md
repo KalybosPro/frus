@@ -54,6 +54,10 @@ A missing directory, or one with no emoji file in it, loads nothing and costs no
 - `frus-text` checked for `aarch64-linux-android`, where the loading is compiled.
 - Two mutations, each failing the loader's test: taking every font file, and taking a file
   whatever its extension.
+- **On the device** — Huawei STK-L21, Android 10 — once it was back on the wire: the
+  guided tour opens on the wave **in colour, at the size asked for**, centred over its
+  title. That settles the one thing no test here could: the platform's emoji font is made
+  of colour bitmaps, not outlines, and the renderer scales and draws them.
 
 ## What stays open in #56
 

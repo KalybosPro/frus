@@ -21,7 +21,9 @@ any release may break.
   the demo's guided tour opened on a box where its wave should be. The platform's emoji
   faces (`/system/fonts/*Emoji*`) are now loaded explicitly, and nothing else from that
   directory; cosmic-text's last fallback pass takes any face named for emoji whatever the
-  style, so an emoji in bold or italic text is found as well.
+  style, so an emoji in bold or italic text is found as well. Verified on a device: the
+  wave in colour, at the size asked for — the platform's emoji are colour bitmaps, and the
+  renderer draws them.
 
 - **A finger went on hovering after it lifted** (J505). Touch went through the mouse's
   path, so the last place a finger touched stayed hovered — and since a widget id is a
