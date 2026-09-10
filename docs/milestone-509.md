@@ -49,8 +49,25 @@ function of the key alone, it is tested without a window.
   taken for the clipboard without Ctrl, the named Paste key ignored.
 - `frus-shell` checked and linted for `aarch64-linux-android`; the dex rebuilt with the new
   class; the APK built.
-- **On the device: outstanding.** The phone came off the wire before the APK could be
-  installed. What is owed is the issue's own test — a selection copied in the demo and
-  pasted back after the application has been closed and reopened, which only the system
-  clipboard survives, and text copied in another application pasting into a field. Recorded
-  as owed rather than done: the device has overturned a green suite in this project before.
+- **On the device** — Huawei STK-L21, Android 10, once it was back on the wire. A word
+  typed into the home screen's field, selected by a finger dragged across it, copied with
+  Android's own **Copy** key (`KEYCODE_COPY`, sent by `adb shell input keyevent 278`);
+  the application **force-stopped and started again**; the field tapped and Android's
+  **Paste** key sent: the word came back. Only the system clipboard survives the process
+  being killed, so this is the round trip through it — and the physical keys, which the
+  logical-key check used to ignore, driving both ends. Before pasting, the log was read
+  for the bridge's failure lines (none) and the process's own log checked to reach
+  logcat at all, so that a failed copy could not have put someone else's clipboard on the
+  screen.
+
+  The issue also asks for text copied in *another application*. That was not done on a
+  phone that is somebody's own; the restart is the same test of the same thing — the
+  text living in the platform's clipboard rather than in the process.
+
+## Found on the way
+
+Typing `frusclip` into the field through `adb shell input text`, with SwiftKey as the
+keyboard, left **`FFFrusclip`** in the field while the keyboard's own suggestion strip read
+`FFrusclip`: the field holds one character more than the keyboard believes it wrote. That
+may be the keyboard re-composing injected key events, or the field applying a composition
+twice. Either way it is a disagreement between the two, and it is its own investigation.
