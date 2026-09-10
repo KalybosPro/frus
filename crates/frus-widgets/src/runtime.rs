@@ -714,6 +714,10 @@ pub struct Runtime {
     /// Snapshots of outgoing subtrees, fading out: event key → (captured
     /// primitives, remaining opacity `1 → 0`).
     pub leaving: HashMap<u64, (Vec<Primitive>, f32)>,
+    /// What each [`AnimatedSwitcher`](crate::AnimatedSwitcher) is showing and letting go
+    /// of, per widget. Interior mutability, like the caches below: a switcher meets a new
+    /// value while the tree is being **built**, which is the only time it has one.
+    pub(crate) switchers: RefCell<HashMap<WidgetId, crate::switcher::Switch>>,
     /// Time elapsed (seconds) since start-up, for continuous animations.
     pub time: f32,
     /// Was the last interaction a **keyboard** one? The generic focus ring is only

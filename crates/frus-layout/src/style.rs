@@ -248,6 +248,15 @@ pub struct Style {
     /// following its content — the reference's per-tile main-axis extent. Ignored
     /// outside a grid.
     pub grid_row_height: Option<f32>,
+    /// When `true`, the children **overlap**: all of them share one cell, which is as big
+    /// as the largest, and each is placed in it by [`Style::align`] on both axes.
+    ///
+    /// It is how a box sizes itself to the biggest of several things drawn on top of one
+    /// another — a picture on its way out under the one coming in — which a flex line
+    /// cannot say (it adds its children up) and a stack here does not (its layers are laid
+    /// out apart from it, so an unsized stack is nothing). Handed a box by its parent, the
+    /// cell fills it, as the reference's stack fills a tight constraint.
+    pub overlap: bool,
 }
 
 impl Default for Style {
@@ -284,6 +293,7 @@ impl Default for Style {
             flex_wrap: false,
             grid_columns: None,
             grid_row_height: None,
+            overlap: false,
         }
     }
 }
@@ -350,6 +360,7 @@ impl Style {
         self.flex_wrap.hash(hasher);
         self.grid_columns.hash(hasher);
         self.grid_row_height.map(f32::to_bits).hash(hasher);
+        self.overlap.hash(hasher);
     }
 
     pub(crate) fn to_taffy(self) -> taffy::Style {
@@ -414,6 +425,19 @@ impl Style {
             if let Some(height) = self.grid_row_height {
                 style.grid_auto_rows = vec![taffy::style_helpers::length(height)];
             }
+        }
+
+        // Overlap: a grid of one cell. The children are put in it by `Layout::container`,
+        // the one place that sees a parent and its children together; this is the cell.
+        // Its track is `auto`, so it is as big as the largest child, and **stretched** to a
+        // box the parent hands over — without that, a switcher in a stretching column would
+        // centre its children on the widest of them and sit at the start of its own box.
+        if self.overlap {
+            style.display = taffy::Display::Grid;
+            style.justify_content = Some(taffy::JustifyContent::Stretch);
+            style.align_content = Some(taffy::AlignContent::Stretch);
+            // `align_items` already carries `align`; the other axis gets the same.
+            style.justify_items = Some(self.align.to_taffy());
         }
 
         style

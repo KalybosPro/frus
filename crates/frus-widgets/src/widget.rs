@@ -1006,6 +1006,33 @@ pub trait Widget<Msg> {
     /// "once per frame" are the same thing.
     fn build_themed(&self, _theme: &Theme) {}
 
+    /// [`Self::build_themed`], for the few widgets that also need **who they are** and
+    /// **what the frame remembers** to compose their subtree. An
+    /// [`AnimatedSwitcher`](crate::AnimatedSwitcher) keeps what it is letting go of in the
+    /// runtime, under its own identity, and that is reachable nowhere else before its
+    /// children are read.
+    ///
+    /// The walks call this one, and its default is `build_themed`, so a deferred widget that
+    /// needs neither keeps implementing only that. A **transparent** wrapper must forward it
+    /// with the identity untouched — it has none of its own — or the widget inside is built
+    /// through `build_themed` and never learns where it is.
+    fn build_in(
+        &self,
+        _id: crate::interaction::WidgetId,
+        _runtime: &crate::runtime::Runtime,
+        theme: &Theme,
+    ) {
+        self.build_themed(theme)
+    }
+
+    /// Whether this node is an [`AnimatedSwitcher`](crate::AnimatedSwitcher). An identity
+    /// is a position, so a switcher and the widget that comes to stand where it stood have
+    /// the same one: this is how the runtime tells the switcher still being there from its
+    /// having gone, and forgets what it kept for it.
+    fn switches(&self) -> bool {
+        false
+    }
+
     /// If the widget takes **ink** — the splash a tap leaves on a material surface —
     /// the shape and colour to splash in. `None` = no ink, which is the default: a
     /// widget has to ask.
@@ -1364,6 +1391,17 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn build_themed(&self, theme: &Theme) {
         (**self).build_themed(theme)
+    }
+    fn build_in(
+        &self,
+        id: crate::interaction::WidgetId,
+        runtime: &crate::runtime::Runtime,
+        theme: &Theme,
+    ) {
+        (**self).build_in(id, runtime, theme)
+    }
+    fn switches(&self) -> bool {
+        (**self).switches()
     }
     fn repaint_boundary(&self) -> bool {
         (**self).repaint_boundary()

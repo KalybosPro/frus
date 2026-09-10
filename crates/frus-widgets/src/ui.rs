@@ -1525,7 +1525,7 @@ fn build_layout_scoped<'a, Msg>(
     // A subtree that could not be composed until the theme was known (`ThemeBuilder`).
     // It has to happen **before** anything reads `children()`, and under the subtree's
     // own theme, which is why it sits after the swap above rather than at the call site.
-    widget.build_themed(theme);
+    widget.build_in(id, runtime, theme);
     // Everything below an `IgnoreBaseline` keeps its baseline and loses the right to be
     // seen: the flag is narrowed once, here, so no branch below has to remember.
     let baselines = baselines && !widget.ignores_baseline();
@@ -5182,7 +5182,7 @@ pub fn build_deferred<Msg>(root: &dyn Widget<Msg>, theme: &Theme, runtime: &Runt
             .media_override(crate::MediaQuery::of())
             .map(crate::MediaQuery::install);
         let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
-        widget.build_themed(theme);
+        widget.build_in(id, runtime, theme);
         for (index, child) in widget.children().iter().enumerate() {
             walk(
                 child.as_ref(),

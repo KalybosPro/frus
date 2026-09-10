@@ -87,6 +87,32 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
             .unwrap_or_default()
     }
 
+    // Both were missing, the first since `ThemeBuilder` existed: the walk asks this node to
+    // compose itself, the default did nothing, and `children` then read straight through to
+    // a deferred subtree nobody had built. An application bar is one, so
+    // `responsive(w).compact(bar)` was enough; the test below fails without these. The
+    // fourth hook this hand-written forwarder has missed.
+    fn build_themed(&self, theme: &Theme) {
+        if let Some(w) = &self.inner {
+            w.build_themed(theme);
+        }
+    }
+
+    fn build_in(
+        &self,
+        id: crate::interaction::WidgetId,
+        runtime: &crate::runtime::Runtime,
+        theme: &Theme,
+    ) {
+        if let Some(w) = &self.inner {
+            w.build_in(id, runtime, theme);
+        }
+    }
+
+    fn switches(&self) -> bool {
+        self.inner.as_ref().is_some_and(|w| w.switches())
+    }
+
     fn debug_name(&self) -> &'static str {
         // A transparent wrapper: the inspector shows the realised widget.
         self.inner
@@ -578,6 +604,33 @@ mod tests {
             // is one — not a share of the box.
             Some((1.0, 0.0)),
             "the anchor's two fractions reached through"
+        );
+    }
+
+    /// **And it must not skip the build.** The walk asks each node to compose its subtree
+    /// before it reads the children, and a selector reads its children straight through
+    /// from the variant it chose: one that did not pass the question on handed the walk a
+    /// deferred subtree nobody had built.
+    #[test]
+    fn a_selector_builds_a_deferred_variant() {
+        let chosen = responsive::<()>(400.0).compact(crate::ThemeBuilder::new(|_: &Theme| {
+            Container::new()
+                .width(30.0)
+                .height(10.0)
+                .color(frus_core::Color::rgb(1.0, 0.0, 0.0))
+        }));
+        let ui = crate::ui::build_ui(
+            &chosen,
+            frus_core::Size::new(100.0, 100.0),
+            &crate::Runtime::default(),
+            &Theme::default(),
+        );
+        assert!(
+            ui.scene()
+                .primitives()
+                .iter()
+                .any(|p| matches!(p, frus_core::Primitive::Rect { color, .. } if color.r > 0.5)),
+            "the variant was built, and painted"
         );
     }
 }
