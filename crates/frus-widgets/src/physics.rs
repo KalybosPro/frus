@@ -747,8 +747,14 @@ mod tests {
 
     #[test]
     fn the_platform_default_is_the_one_this_build_targets() {
-        let expected = if cfg!(any(target_os = "ios", target_os = "macos")) {
-            ScrollPhysics::BOUNCING
+        // The two bouncing platforms have not bounced alike since milestone 499 — a finger
+        // on the one, a trackpad on the other — and this said one `BOUNCING` for both. It
+        // was left behind, and only a macOS runner could see it: every build here is for
+        // Windows, Android or Linux, where the branch taken is the last one.
+        let expected = if cfg!(target_os = "ios") {
+            ScrollPhysics::Bouncing(ScrollDecelerationRate::Normal)
+        } else if cfg!(target_os = "macos") {
+            ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast)
         } else {
             ScrollPhysics::Clamping
         };

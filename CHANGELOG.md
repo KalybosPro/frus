@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 500 so far, each documenting the objective, the alternatives
+> record — one per step, 501 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -60,6 +60,24 @@ any release may break.
   everything around it used the value in flight.
 
 ### Added
+
+- **A decoration and a text style driven by the caller's number** (J501, part of #32):
+  `DecoratedBoxTransition` and `DefaultTextStyleTransition`, the two rows of the explicit
+  animation library that milestone 489 left as real work, plus `BoxDecoration::lerp` and
+  `BorderRadius::lerp` in `frus-core`. **One `Option`, two meanings, two rules**: a text
+  style that names no colour is asking the theme for one, so milestone 498 made it hold
+  still; a decoration that names no fill paints nothing, so here the colour on one side
+  only **fades**. And fading is where this repository's most repeated bug was waiting:
+  interpolating towards `Color::TRANSPARENT` is interpolating towards transparent *black*,
+  and a red fill fading out goes dark on the way. The fade keeps the hue and moves only the
+  alpha — tested on the scene and on the **rendered pixel**, which stays full red over white.
+  A border arrives by thickening in its own colour, a shadow grows out from under the box as
+  it fades in, a flat fill spreads into a gradient, and corners go through the one rule an
+  animated container now uses too. The decorated box **does not inset its child** by the
+  border, unlike `Container`: a line thickening over a transition would otherwise push the
+  content on every frame. The text-style transition is a transparent wrapper, which its
+  implicit twin cannot be — it keeps no timeline, so two nested fuse and hand down both.
+  The demo's task title now grows into place on the progress it already slid and faded on.
 
 - **The bouncing physics' second deceleration profile** (J499, half of #55):
   `ScrollDecelerationRate`, and `ScrollPhysics::Bouncing` now carries one.

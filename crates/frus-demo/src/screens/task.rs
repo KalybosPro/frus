@@ -49,7 +49,17 @@ pub(crate) fn task_screen(
             FadeTransition::new(
                 arriving,
                 column![
-                    text(label).size(24.0).weight(FontWeight::Bold).wrap(),
+                    // The title **grows into place** as it arrives, handed its size by the
+                    // same number that slides and fades it, so the three arrive together
+                    // (milestone 501). It names no size of its own for that reason: a text
+                    // that states its size keeps it, and the handed-down one would never be
+                    // asked. At rest it is the 24 it always was.
+                    DefaultTextStyleTransition::between(
+                        TextStyle::NONE.size(20.0),
+                        TextStyle::NONE.size(24.0),
+                        arriving,
+                        text(label).weight(FontWeight::Bold).wrap(),
+                    ),
                     text(state).size(15.0).color(theme.muted),
                 ]
                 .gap(18.0)

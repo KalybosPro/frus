@@ -370,7 +370,10 @@ pub use togglebuttons::{
 };
 pub use tooltip::Tooltip;
 pub use transform::{FractionalTranslation, Transform};
-pub use transitions::{eased, FadeTransition, ScaleTransition, SlideFrom, SlideTransition};
+pub use transitions::{
+    eased, DecoratedBoxTransition, DecorationPosition, DefaultTextStyleTransition, FadeTransition,
+    ScaleTransition, SlideFrom, SlideTransition,
+};
 pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use ui::{
