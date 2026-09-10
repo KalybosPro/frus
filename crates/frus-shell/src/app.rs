@@ -420,6 +420,9 @@ pub struct App<A: Application> {
     tree: Option<Box<dyn Widget<A::Message>>>,
     /// The pointer's last known position, in **logical** pixels.
     cursor: Point,
+    /// Where the pointer that **hovers** is: a mouse once it has moved, a finger only
+    /// while it touches. Kept as a place and asked of each frame — see [`crate::hover`].
+    hover: crate::hover::Hover,
     /// The screen's DPI scale factor (physical = logical × scale × density).
     scale: f32,
     /// The last **logical** size handed to the app, to detect breakpoints.
@@ -592,6 +595,7 @@ impl<A: Application> App<A> {
             ui: None,
             tree: None,
             cursor: Point::new(0.0, 0.0),
+            hover: crate::hover::Hover::default(),
             scale: 1.0,
             last_size: None,
             runtime: Runtime::default(),
@@ -1319,6 +1323,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         touch: false,
                     },
                 );
+            }
+
+            // The mouse left the window: nothing in it is under the pointer any more.
+            WindowEvent::CursorLeft { .. } => {
+                self.hover.left();
+                self.sync_hover();
             }
 
             WindowEvent::Touch(touch) => {
@@ -2265,6 +2275,25 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
                 // Keep the interface, for hit testing. The tree is already retained.
                 self.ui = Some(ui);
+                // The tree may have changed under a still pointer — a tap that opened a
+                // screen — so what it is over is asked of this frame, as the reference
+                // does after every frame. Not during a drag: a slider dragged past its
+                // end is still the one being pressed, and the move path leaves it so.
+                //
+                // Field by field rather than through `sync_hover`, which borrows the whole
+                // shell: the frame still holds part of it here. A change is shown the way
+                // the reference shows it, on the next frame — the tree is built again,
+                // since a tooltip's bubble is decided while the tree is walked.
+                let rehovered = self.drag.is_none() && {
+                    let hovered = self.ui.as_ref().and_then(|ui| self.hover.target(ui));
+                    let changed = hovered != self.runtime.input.hovered;
+                    self.runtime.input.hovered = hovered;
+                    changed
+                };
+                if rehovered {
+                    self.build_dirty = true;
+                }
+                let wants_animation = wants_animation || rehovered;
 
                 // The paged views that have just turned a page, read off **this**
                 // frame's regions: a page change is worth reporting the moment it
@@ -2414,8 +2443,12 @@ impl<A: Application> App<A> {
     /// and the loop is woken at its deadline.
     fn pointer(&mut self, event_loop: &ActiveEventLoop, event: PointerEvent) {
         self.cursor = event.position;
+        self.hover.event(event.kind, event.position, event.touch);
         match event.kind {
             PointerKind::Down => {
+                // What is under the pointer **now**: a finger has no move before its
+                // press, and a press only shows while it is also the hovered widget.
+                self.sync_hover();
                 // A pointer interaction: the keyboard focus ring fades away.
                 self.runtime.focus_visible = false;
                 self.pointer_down(event.touch);
@@ -2511,6 +2544,11 @@ impl<A: Application> App<A> {
                 self.request_redraw();
             }
         }
+        // After the release has been routed — it reads the press, not the hover — a
+        // finger that has lifted stops hovering (milestone 505).
+        if matches!(event.kind, PointerKind::Up | PointerKind::Cancel) {
+            self.sync_hover();
+        }
         // Wake the loop exactly at the next deadline, and rest otherwise.
         event_loop.set_control_flow(self.idle_control_flow());
     }
@@ -2535,15 +2573,25 @@ impl<A: Application> App<A> {
             self.handle_drag();
             return;
         }
-        let hovered = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
-        if hovered != self.runtime.input.hovered {
-            self.runtime.input.hovered = hovered;
-            self.request_redraw();
-        }
+        let hovered = self.sync_hover();
         // The system cursor follows the hovered sub-region (milestone 205): a hand
         // over a clickable icon, and so on. Recomputed on every move, since the
         // sub-region can change without the hovered widget changing.
         self.update_cursor_icon(hovered);
+    }
+
+    /// Asks the frame what is under the hovering pointer, and records it.
+    ///
+    /// The only way the hover changes, so it can never name a widget of another frame:
+    /// an id is a position in the tree, and the same position on the next screen is a
+    /// different widget (milestone 505).
+    fn sync_hover(&mut self) -> Option<WidgetId> {
+        let hovered = self.ui.as_ref().and_then(|ui| self.hover.target(ui));
+        if hovered != self.runtime.input.hovered {
+            self.runtime.input.hovered = hovered;
+            self.request_redraw();
+        }
+        hovered
     }
 
     /// Applies the cursor shape the hovered widget asks for at the pointer's local

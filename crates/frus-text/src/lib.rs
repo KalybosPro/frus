@@ -227,14 +227,54 @@ pub fn available_style(italic: bool) -> Style {
     }
 }
 
+/// Where Android keeps its fonts.
+#[cfg(target_os = "android")]
+const ANDROID_FONT_DIR: &str = "/system/fonts";
+
+/// Loads the **emoji** faces from a font directory — every font file whose name says
+/// `emoji` — and nothing else from it. Returns how many files were taken.
+///
+/// Only the emoji faces, because that is the gap: the bundled faces answer for text, and
+/// a platform's whole font directory is hundreds of files. They are taken from the
+/// platform rather than bundled because colour emoji are the platform's own look and the
+/// largest font on it. They then need no fallback list to be found: cosmic-text's last
+/// pass tries every face whose name says `Emoji`, whatever the style asked for.
+#[cfg(any(target_os = "android", test))]
+fn load_emoji_faces(db: &mut cosmic_text::fontdb::Database, dir: &std::path::Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut taken = 0;
+    for path in entries.flatten().map(|entry| entry.path()) {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_ascii_lowercase)
+            .unwrap_or_default();
+        let font = [".ttf", ".otf", ".ttc"]
+            .iter()
+            .any(|extension| name.ends_with(extension));
+        if font && name.contains("emoji") && db.load_font_file(&path).is_ok() {
+            taken += 1;
+        }
+    }
+    taken
+}
+
 /// Builds a ready-to-use `FontSystem`: the system fonts, which provide the emoji
 /// and script fallbacks, **plus** the bundled font, set as the default family. Use
 /// it everywhere a `FontSystem` is created — measurement here, rendering in
 /// `frus-gpu` — for consistent text rendering that does not depend on system fonts,
 /// which may have no resolvable default at all, as on Android.
+///
+/// On Android "the system fonts" used to be **none**: fontdb reads no directory there,
+/// and cosmic-text has no fallback list for the platform, so an emoji in a run was drawn
+/// as an empty box (milestone 506). The platform's emoji faces are loaded explicitly.
 pub fn new_font_system() -> FontSystem {
     let mut font_system = FontSystem::new();
     let db = font_system.db_mut();
+    #[cfg(target_os = "android")]
+    load_emoji_faces(db, std::path::Path::new(ANDROID_FONT_DIR));
     #[cfg(feature = "bundled-sans")]
     {
         db.load_font_data(DEJAVU_SANS.to_vec());
@@ -1298,6 +1338,95 @@ mod tests {
                 assert!(w > 0.0, "weight {weight:?} italic {italic}: nothing shaped");
             }
         }
+    }
+
+    /// A scratch font directory, removed when dropped.
+    struct FontDir(std::path::PathBuf);
+
+    impl FontDir {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("frus-fonts-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("a scratch font directory");
+            Self(dir)
+        }
+
+        fn put(&self, name: &str, bytes: &[u8]) {
+            std::fs::write(self.0.join(name), bytes).expect("a scratch font file");
+        }
+    }
+
+    impl Drop for FontDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// **Only the emoji faces are taken from the platform's font directory** (milestone
+    /// 506): a font file named for emoji, and nothing else — not the platform's text
+    /// faces, which the bundled ones answer for, and not a file that is not a font.
+    ///
+    /// Every file here holds a perfectly good face, so a filter that let one through would
+    /// show as a second face in the database.
+    #[test]
+    #[cfg(feature = "bundled-sans")]
+    fn only_the_emoji_faces_are_taken_from_a_font_directory() {
+        let dir = FontDir::new("filter");
+        dir.put("NotoColorEmoji.ttf", DEJAVU_SANS);
+        dir.put("Roboto-Regular.ttf", DEJAVU_SANS);
+        dir.put("emoji-notes.txt", DEJAVU_SANS);
+        let mut db = cosmic_text::fontdb::Database::new();
+        assert_eq!(load_emoji_faces(&mut db, &dir.0), 1, "one file taken");
+        assert_eq!(db.faces().count(), 1, "and one face in the database");
+        // A directory that is not there is a platform without one, not an error.
+        assert_eq!(load_emoji_faces(&mut db, &dir.0.join("absent")), 0);
+    }
+
+    /// **An emoji is drawn from the emoji face** when the run's own font lacks it, in the
+    /// arrangement Android is left with: the bundled faces, no system font, and the emoji
+    /// face loaded on its own. The glyph comes from that face and is a real one — on the
+    /// device it was an empty box.
+    ///
+    /// It needs a colour emoji font to load, and Windows ships one; elsewhere there is
+    /// nothing to load, and the test says so and passes.
+    #[test]
+    #[cfg(feature = "bundled-sans")]
+    fn an_emoji_is_drawn_from_the_emoji_face_the_runs_font_lacks() {
+        let emoji = std::path::Path::new("C:\\Windows\\Fonts\\seguiemj.ttf");
+        if !emoji.exists() {
+            eprintln!("no colour emoji font at {}; skipped", emoji.display());
+            return;
+        }
+        let mut db = cosmic_text::fontdb::Database::new();
+        db.load_font_data(DEJAVU_SANS.to_vec());
+        db.load_font_file(emoji).expect("the emoji font");
+        db.set_sans_serif_family(SANS_FAMILY);
+        let emoji_face = db
+            .faces()
+            .find(|face| face.post_script_name.contains("Emoji"))
+            .map(|face| face.id)
+            .expect("an emoji face");
+        let mut fs = FontSystem::new_with_locale_and_db("en-TG".to_string(), db);
+
+        let text = "Hi \u{1F44B}";
+        let at = text.find('\u{1F44B}').expect("the wave");
+        let mut buffer = Buffer::new(&mut fs, Metrics::new(40.0, 48.0));
+        buffer.set_size(&mut fs, None, None);
+        buffer.set_text(
+            &mut fs,
+            text,
+            Attrs::new().family(family_for(text)),
+            Shaping::Advanced,
+        );
+        buffer.shape_until_scroll(&mut fs, false);
+        let (font, glyph) = buffer
+            .layout_runs()
+            .flat_map(|run| run.glyphs.iter())
+            .find(|glyph| glyph.start == at)
+            .map(|glyph| (glyph.font_id, glyph.glyph_id))
+            .expect("a glyph for the emoji");
+        assert_eq!(font, emoji_face, "the emoji comes from the emoji face");
+        assert_ne!(glyph, 0, "and is a real glyph, not the empty box");
     }
 
     /// Reproduces the Android Arabic case **exactly**: the bundled db alone, with no
