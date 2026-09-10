@@ -152,7 +152,7 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
 
     let mut frames: Vec<Vec<u8>> = Vec::new();
     let capture = |app: &TodoApp, stage: &mut Stage, frames: &mut Vec<Vec<u8>>| {
-        let theme = shot_theme(&app);
+        let theme = shot_theme(app);
         stage.theme = theme.clone();
         let root =
             MediaQuery::new(Size::new(WIDTH as f32, HEIGHT as f32)).scope(|| app.view(&theme));
