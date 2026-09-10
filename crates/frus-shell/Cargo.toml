@@ -2,6 +2,7 @@
 name = "frus-shell"
 description = "frus — the platform layer: window + event loop (Milestone 0)"
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 license.workspace = true
 

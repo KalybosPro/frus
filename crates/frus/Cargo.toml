@@ -2,6 +2,7 @@
 name = "frus"
 description = "frus — the facade: a single dependency to write an application (shell + widgets + one entry point)."
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 license.workspace = true
 

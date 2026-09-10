@@ -2,6 +2,7 @@
 name = "frus-demo"
 description = "frus — example application (task list), a consumer of the framework"
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 license.workspace = true
 

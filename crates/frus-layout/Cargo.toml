@@ -2,6 +2,7 @@
 name = "frus-layout"
 description = "frus — layout engine (flexbox) on top of taffy"
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 license.workspace = true
 
