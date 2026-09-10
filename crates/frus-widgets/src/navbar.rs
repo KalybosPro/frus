@@ -103,6 +103,35 @@ impl<Msg> NavigationBar<Msg> {
             .and_then(|t| t.widgets.nav_bar.padding)
             .unwrap_or(PADDING)
     }
+
+    /// What the system has taken at the top of the screen and beside it, which a bar at
+    /// the head of a screen is under — read **when it is asked for**, so a
+    /// [`Scaffold`](crate::Scaffold) that has already decided about the status bar, or a
+    /// [`SafeArea`](crate::SafeArea) that has consumed it, is believed.
+    ///
+    /// The bottom is not the bar's: something is under it by definition.
+    fn clearance() -> Insets {
+        let taken = crate::MediaQuery::of().padding;
+        Insets::new(taken.top, taken.right, 0.0, taken.left)
+    }
+
+    /// The bar's height and padding with the clearance added. The intrusion is **added to
+    /// the bar, not taken out of it** — the background runs up behind the status bar while
+    /// the title and the button keep their full height underneath, which is how the
+    /// reference's persistent navigation bar is sized (its height plus the top padding).
+    fn sizing(&self, theme: Option<&Theme>) -> (f32, Insets) {
+        let clear = Self::clearance();
+        let pad = Self::padding_of(theme);
+        (
+            self.bar_height(theme) + clear.top,
+            Insets::new(
+                pad.top + clear.top,
+                pad.right + clear.right,
+                pad.bottom,
+                pad.left + clear.left,
+            ),
+        )
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
@@ -119,7 +148,7 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
             // sensible answer to "how wide would you like to be", and an app bar gives the
             // same one.
             width: Dimension::Percent(1.0),
-            height: Dimension::Length(self.bar_height(None)),
+            height: Dimension::Length(self.sizing(None).0),
             flex_direction: FlexDirection::Row,
             justify: Justify::Start,
             align: Align::Center,
@@ -129,7 +158,10 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
             // coming from the difference and not from a rule. Six pixels of padding left 44
             // for the button, which is under the target it now reserves (milestone 442) —
             // the bar squeezed the one control in it.
-            padding: Self::padding_of(None),
+            //
+            // The status bar, when the bar is under one, is added on top of that — see
+            // [`NavigationBar::sizing`].
+            padding: self.sizing(None).1,
             ..Default::default()
         }
     }
@@ -139,9 +171,10 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
     /// in the half that is easy to see and unthemed in the half that decides where
     /// everything under it starts.
     fn style_themed(&self, theme: &Theme) -> Style {
+        let (height, padding) = self.sizing(Some(theme));
         Style {
-            height: Dimension::Length(self.bar_height(Some(theme))),
-            padding: Self::padding_of(Some(theme)),
+            height: Dimension::Length(height),
+            padding,
             ..Widget::<Msg>::style(self)
         }
     }
@@ -173,13 +206,21 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
             rule.fade(o),
         );
 
-        // The title is centred horizontally in the bar, following `title_style`
-        // (medium weight by default — a bar title is a "title", not body text;
-        // the style's color is inherited from the theme when absent).
+        // The title is centred in the part of the bar **below the status bar and between
+        // the cutouts** — the background above runs behind the system's bar, the title
+        // does not — following `title_style` (the style's color is inherited from the
+        // theme when absent).
+        let clear = Self::clearance();
+        let room = Rect::new(
+            bounds.x + clear.left,
+            bounds.y + clear.top,
+            (bounds.width - clear.left - clear.right).max(0.0),
+            (bounds.height - clear.top).max(0.0),
+        );
         let style = title_style_of(self.title_style, theme);
         let measured = frus_text::measure_style(&self.title, style);
-        let tx = bounds.x + (bounds.width - measured.width) * 0.5;
-        let ty = bounds.y + (bounds.height - measured.height) * 0.5;
+        let tx = room.x + (room.width - measured.width) * 0.5;
+        let ty = room.y + (room.height - measured.height) * 0.5;
         scene.text(
             Point::new(tx, ty),
             self.title.clone(),
@@ -393,6 +434,156 @@ mod tests {
             Dimension::Length(h) => assert_eq!(h, 64.0, "the theme's height"),
             other => panic!("a definite height was expected, got {other:?}"),
         }
+    }
+
+    /// The bar's own background, told apart from anything a shell around it paints.
+    const BAR_BG: Color = Color::rgb(0.12, 0.34, 0.56);
+    const STATUS: f32 = 48.0;
+    const SCREEN: Size = Size::new(400.0, 800.0);
+
+    /// A phone: a status bar of [`STATUS`] at the top, nothing else taken.
+    fn phone() -> crate::MediaQuery {
+        crate::MediaQuery::new(SCREEN).with_insets(frus_core::WindowInsets::bars(Insets::new(
+            STATUS, 0.0, 0.0, 0.0,
+        )))
+    }
+
+    /// Where the title is painted and where the bar's background is, for `root` built
+    /// and walked under `surface` — and the built frame, to click on.
+    fn painted_under(
+        surface: crate::MediaQuery,
+        root: &dyn Widget<Msg>,
+    ) -> (Point, Rect, crate::Ui<Msg>) {
+        let mut theme = Theme::default();
+        theme.widgets.nav_bar.background = Some(BAR_BG);
+        let ui = surface.scope(|| build_ui(root, SCREEN, &Runtime::default(), &theme));
+        let title = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Text { text, position, .. } if text == "Task" => Some(*position),
+                _ => None,
+            })
+            .expect("the title is painted");
+        let background = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if *color == BAR_BG => Some(*rect),
+                _ => None,
+            })
+            .expect("the bar's background is painted");
+        (title, background, ui)
+    }
+
+    fn screen_with(bar: NavigationBar<Msg>) -> crate::Flex<Msg> {
+        crate::Flex::column()
+            .width(SCREEN.width)
+            .height(SCREEN.height)
+            .child(bar)
+    }
+
+    /// **A bar at the head of a screen drew under the status bar** (milestone 504), and
+    /// always had: the title and the back button sat behind the clock. The scaffold told
+    /// its app-bar slot what the status bar took, `AppBar` read it, and this bar never
+    /// did. Found on a device while checking the colour of the system bars (#46).
+    ///
+    /// The intrusion is added to the bar, as a drawer header adds it: the background runs
+    /// up behind the status bar and the content keeps its full height below.
+    #[test]
+    fn a_bar_at_the_head_of_a_screen_clears_the_status_bar() {
+        let (flat, _, _) = painted_under(
+            crate::MediaQuery::new(SCREEN),
+            &screen_with(NavigationBar::new("Task")),
+        );
+        let (title, background, ui) = painted_under(
+            phone(),
+            &screen_with(NavigationBar::new("Task").on_back(Msg::Back)),
+        );
+        assert_eq!(
+            background.y, 0.0,
+            "the background runs behind the status bar"
+        );
+        assert_eq!(
+            background.height,
+            HEIGHT + STATUS,
+            "and the bar grows by it rather than giving it up"
+        );
+        assert!(
+            (title.y - (flat.y + STATUS)).abs() < 0.5,
+            "the title is centred below the status bar: {} against {}",
+            title.y,
+            flat.y + STATUS
+        );
+        // The button moved with it: pressed below the status bar it answers, and behind
+        // the clock there is nothing of it.
+        let below = ui
+            .hit(Point::new(40.0, STATUS + HEIGHT / 2.0))
+            .expect("the back button, below the status bar");
+        assert_eq!(ui.msg_for(below), Some(Msg::Back));
+        assert!(
+            ui.hit(Point::new(40.0, STATUS / 2.0))
+                .and_then(|id| ui.msg_for(id))
+                .is_none(),
+            "the back button is not under the status bar"
+        );
+    }
+
+    /// **A bar inside a `SafeArea` is not pushed down twice.** Most of the demo's screens
+    /// are a column in a `SafeArea` with this bar at the head; the safe area has taken the
+    /// status bar, so the bar must be told there is nothing left to clear.
+    #[test]
+    fn a_bar_in_a_safe_area_does_not_clear_the_status_bar_again() {
+        let (flat, _, _) = painted_under(
+            crate::MediaQuery::new(SCREEN),
+            &screen_with(NavigationBar::new("Task")),
+        );
+        let root = crate::Flex::column()
+            .width(SCREEN.width)
+            .height(SCREEN.height)
+            .child(crate::SafeArea::new(
+                crate::Flex::column().child(NavigationBar::new("Task")),
+            ));
+        let (title, background, _) = painted_under(phone(), &root);
+        assert_eq!(
+            background.y, STATUS,
+            "the safe area holds the bar below the notch"
+        );
+        assert_eq!(
+            background.height, HEIGHT,
+            "and the bar adds nothing of its own"
+        );
+        assert!(
+            (title.y - (flat.y + STATUS)).abs() < 0.5,
+            "the title is one status bar down, not two: {} against {}",
+            title.y,
+            flat.y + STATUS
+        );
+    }
+
+    /// In a scaffold's app-bar slot — the demo's task screen — the shell tells the bar what
+    /// the status bar takes, and the bar clears it as it does at the head of a column.
+    #[test]
+    fn a_bar_in_a_scaffolds_app_bar_slot_clears_the_status_bar() {
+        let (flat, _, _) = painted_under(
+            crate::MediaQuery::new(SCREEN),
+            &screen_with(NavigationBar::new("Task")),
+        );
+        // Built under the surface, as an application's view is: the scaffold reads its
+        // intrusions when it is constructed.
+        let scaffold = phone().scope(|| {
+            crate::Scaffold::new()
+                .size(SCREEN.width, SCREEN.height)
+                .app_bar(NavigationBar::new("Task"))
+                .body(crate::Container::new().flex(1.0))
+                .build()
+        });
+        let (title, background, _) = painted_under(phone(), &scaffold);
+        assert_eq!(background.y, 0.0);
+        assert_eq!(background.height, HEIGHT + STATUS);
+        assert!((title.y - (flat.y + STATUS)).abs() < 0.5, "{}", title.y);
     }
 
     #[test]

@@ -3,7 +3,7 @@
 
 use crate::prelude::*;
 use crate::screens::*;
-use frus_widgets::{build_ui, build_ui_inspected, find_widget, Point, Runtime, Size};
+use frus_widgets::{build_ui, build_ui_inspected, find_widget, Brightness, Point, Runtime, Size};
 
 /// An app whose editable grid is already filled — the shape half of these tests
 /// start from.
@@ -1447,6 +1447,50 @@ fn live_reload_state_round_trips() {
     Application::restore_state(&mut other, b"garbage \xFF");
     Application::restore_state(&mut other, b"frus-demo-state v999\nlight 1\n");
     assert!(other.todos.is_empty() && !other.restored);
+}
+
+/// **The demonstration's own light switch is light on a phone in night mode.**
+///
+/// It pins the mode, and the framework then asks `theme()` for the light theme and
+/// `dark_theme()` for the dark one. `theme()` read the *platform's* brightness instead, so
+/// under a night-mode phone the pinned light theme came back dark and the switch did
+/// nothing — found on a device, trying to photograph the light status bar for #46.
+#[test]
+fn the_light_switch_is_light_under_a_dark_platform() {
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::ToggleTheme);
+    assert!(app.light, "the fixture: the switch is on light");
+    let mut night = MediaQuery::new(Size::new(400.0, 800.0));
+    night.platform_brightness = Brightness::Dark;
+    let theme = night.scope(|| Application::resolved_theme(&app, Brightness::Dark, false));
+    assert_eq!(theme.brightness(), Brightness::Light);
+}
+
+/// **The task screen's bottom bar continues into the system's navigation bar** (#46): the
+/// screen asks for the navigation bar in its bottom app bar's colour, and says nothing of
+/// the status bar, which stays the theme's.
+#[test]
+fn the_task_screen_asks_for_the_navigation_bar_in_its_bottom_bars_colour() {
+    let mut app = TodoApp::default();
+    add(&mut app, "Water the plants");
+    let id = app.todos[0].id;
+    reduce(&mut app, Msg::OpenTask(id));
+    // Let the route transition finish, so the frame is the task screen alone.
+    for _ in 0..200 {
+        if !app.tick(0.05) {
+            break;
+        }
+    }
+    let theme = Theme::default();
+    let size = Size::new(400.0, 800.0);
+    let root = root_for(&app, &theme, size);
+    let ui = build_ui(root.as_ref(), size, &Runtime::default(), &theme);
+    let style = ui.system_ui_style(Point::new(200.0, 0.5), Point::new(200.0, 799.5));
+    assert_eq!(style.navigation_bar_color, Some(theme.surface));
+    assert_eq!(
+        style.status_bar_color, None,
+        "the status bar is left to the theme"
+    );
 }
 
 /// Turning the phone must not move the navigation (milestone 305).

@@ -1033,6 +1033,13 @@ pub trait Widget<Msg> {
         false
     }
 
+    /// What the system bars over this widget should look like — see
+    /// [`AnnotatedRegion`](crate::AnnotatedRegion). `None` for every widget but that one; a
+    /// transparent wrapper forwards it, or a keyed region would say nothing.
+    fn system_ui_style(&self) -> Option<crate::SystemUiOverlayStyle> {
+        None
+    }
+
     /// If the widget takes **ink** — the splash a tap leaves on a material surface —
     /// the shape and colour to splash in. `None` = no ink, which is the default: a
     /// widget has to ask.
@@ -1402,6 +1409,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn switches(&self) -> bool {
         (**self).switches()
+    }
+    fn system_ui_style(&self) -> Option<crate::SystemUiOverlayStyle> {
+        (**self).system_ui_style()
     }
     fn repaint_boundary(&self) -> bool {
         (**self).repaint_boundary()

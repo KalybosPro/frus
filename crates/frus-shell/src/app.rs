@@ -561,6 +561,10 @@ pub struct App<A: Application> {
     /// Is the software keyboard being asked for? It follows the text fields' focus.
     #[cfg(android)]
     soft_input_shown: bool,
+    /// The system bars as the platform was last told them, so that it is told only of a
+    /// change (#46).
+    #[cfg(android)]
+    system_bars: Option<frus_widgets::SystemBars>,
     /// The length, in characters, of the IME **composition** under way in the focused
     /// field; it is replaced on every IME update.
     #[cfg(android)]
@@ -638,6 +642,8 @@ impl<A: Application> App<A> {
             #[cfg(android)]
             soft_input_shown: false,
             #[cfg(android)]
+            system_bars: None,
+            #[cfg(android)]
             ime_composing: 0,
         }
     }
@@ -666,6 +672,41 @@ impl<A: Application> App<A> {
                 }
             }
         }
+    }
+
+    /// Keeps the **system bars** in step with the frame (#46): their colour and their icons,
+    /// from the regions under them and then the theme. The platform is told only when the
+    /// answer changes, telling it being a crossing to the Java UI thread — and a request
+    /// that did not arrive is asked again next frame rather than remembered as made.
+    ///
+    /// The two points are the first row of content under the status bar and the last one
+    /// above the navigation bar: this window is not drawn behind the bars, so what a bar
+    /// stands against is what lies at the edge of the content next to it.
+    fn sync_system_bars(&mut self, theme: &Theme) {
+        #[cfg(android)]
+        {
+            let Some(ui) = self.ui.as_ref() else {
+                return;
+            };
+            let Some(window) = self.window.as_ref() else {
+                return;
+            };
+            let scale = self.total_scale();
+            let size = window.inner_size();
+            let (width, height) = (size.width as f32 / scale, size.height as f32 / scale);
+            let edges = self.last_insets.padding;
+            let bars = ui
+                .system_ui_style(
+                    frus_widgets::Point::new(width / 2.0, edges.top + 0.5),
+                    frus_widgets::Point::new(width / 2.0, height - edges.bottom - 0.5),
+                )
+                .resolve(theme);
+            if self.system_bars != Some(bars) && crate::android_system_bars::apply(bars) {
+                self.system_bars = Some(bars);
+            }
+        }
+        #[cfg(not(android))]
+        let _ = theme;
     }
 
     /// Keeps the **software keyboard** in step with focus: asked for when focus is in
@@ -2294,6 +2335,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         a11y.update(ui.semantics(), focus, &title, &self.announce);
                     }
                 }
+
+                // The system bars follow the frame: the regions under them, then the theme.
+                self.sync_system_bars(&theme);
 
                 // The Android software keyboard follows the text fields' focus.
                 self.sync_soft_input();

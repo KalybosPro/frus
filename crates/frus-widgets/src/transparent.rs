@@ -92,6 +92,10 @@ macro_rules! forward_transparent {
                 self.inner.switches()
             }
 
+            fn system_ui_style(&self) -> Option<$crate::SystemUiOverlayStyle> {
+                self.inner.system_ui_style()
+            }
+
             fn debug_name(&self) -> &'static str {
                 // A transparent wrapper: the inspector shows the wrapped widget.
                 self.inner.debug_name()

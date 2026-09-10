@@ -8,13 +8,38 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 502 so far, each documenting the objective, the alternatives
+> record — one per step, 504 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **`NavigationBar` drew under the status bar** (J504). At the head of a screen its title
+  and back button sat behind the clock: the scaffold told its app-bar slot what the status
+  bar took, `AppBar` read it, and this bar never did. It now clears the ambient top and
+  side intrusions itself, **adding** them to its height so the background runs behind the
+  status bar and the content keeps its full height below. Found on a device while checking
+  the system bars (#46).
+- **`SafeArea::new` padded without consuming** (J504). Only `SafeArea::build` told its
+  subtree the edges were taken, so a widget that clears the status bar on its own — the bar
+  above, a drawer header — was pushed down twice inside one. The child is now wrapped in a
+  scope that removes the edges it pads, as the reference's safe area does; an edge left
+  free is still there for a descendant.
+
+- **The Android system bars followed the phone, not the screen** (J503, answers #46).
+  Nothing set their colour or their icons, so they kept the launch theme's — the platform's,
+  following the night setting rather than the application's theme — and a light screen
+  could sit under light icons with the clock gone. A subtree now says what it wants with
+  `AnnotatedRegion` and `SystemUiOverlayStyle`; each frame the regions against each bar
+  answer, the one drawn last first and field by field, and the theme answers the rest — its
+  background, with icons read on it (a colour stated alone gets icons read on *that*
+  colour). The regions are a paint-walk registry, so one inside a subtree replayed from the
+  paint cache still answers. On Android the answer goes to a second class in the input
+  bridge's dex, on the Java UI thread, only when it changes. Verified on a device in both
+  themes, switched live.
+- **The demo's Light switch did nothing on a phone in night mode** (J503). Its `theme()`
+  read the platform's brightness, so the pinned light theme came back dark.
 - **`Responsive` never forwarded the deferred build** (J502). The size-class selector reads
   its children straight through from the variant it chose, but did not pass on the walk's
   request to compose them, so a deferred subtree behind one — an application bar — was read

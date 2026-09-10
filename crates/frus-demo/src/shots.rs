@@ -142,7 +142,7 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
     let stops = [Route::Charts, Route::Board, Route::Data];
 
     let mut app = seeded_app(false);
-    let theme = app.theme();
+    let theme = shot_theme(&app);
     let mut stage = Stage::new(WIDTH, HEIGHT).theme(theme.clone());
     {
         let root =
@@ -152,7 +152,7 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
 
     let mut frames: Vec<Vec<u8>> = Vec::new();
     let capture = |app: &TodoApp, stage: &mut Stage, frames: &mut Vec<Vec<u8>>| {
-        let theme = app.theme();
+        let theme = shot_theme(app);
         stage.theme = theme.clone();
         let root =
             MediaQuery::new(Size::new(WIDTH as f32, HEIGHT as f32)).scope(|| app.view(&theme));
@@ -233,7 +233,7 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
 /// contrast setting; nothing here has a platform, so it asks for a light one and lets the
 /// application's own `theme_mode` — which this demonstration pins — decide.
 fn shot_theme(app: &TodoApp) -> Theme {
-    Application::resolved_theme(app, Brightness::Light, false)
+    Application::resolved_theme(app, frus_widgets::Brightness::Light, false)
 }
 
 /// The application as it starts, with its demonstration data, in the asked-for theme.

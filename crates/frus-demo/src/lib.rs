@@ -262,9 +262,14 @@ impl Application for TodoApp {
         }
     }
 
+    /// The **light** theme, whatever the platform says: the framework asks this one for
+    /// light and [`Self::dark_theme`] for dark, and chooses with [`Self::theme_mode`].
+    ///
+    /// It read the platform's brightness for a while, which made the pinned light theme
+    /// come back dark on a phone in night mode — the demonstration's own switch did nothing
+    /// there. Found on a device while photographing the light theme's status bar (#46).
     fn theme(&self) -> Theme {
-        let dark = MediaQuery::of().platform_brightness == Brightness::Dark;
-        theme_of(self, dark)
+        theme_of(self, false)
     }
 
     fn dark_theme(&self) -> Option<Theme> {

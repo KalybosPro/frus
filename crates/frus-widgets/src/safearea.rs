@@ -11,11 +11,15 @@
 //! from the application. On desktop they are zero and this widget is a no-op — which is
 //! the point: the same screen code is correct on both.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use frus_core::{Insets, Rect, Scene};
 use frus_layout::Style;
 
 use crate::interaction::Status;
 use crate::media::{Edges, MediaQuery};
+use crate::mediascope::MediaScope;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -23,14 +27,18 @@ use crate::widget::Widget;
 ///
 /// ## Nesting
 ///
-/// A `SafeArea` **consumes** the padding it applies: anything built inside
-/// [`SafeArea::build`] sees a [`MediaQuery`] whose consumed edges are already zero, so
-/// a second `SafeArea` further down adds nothing and the notch is not avoided twice.
+/// A `SafeArea` **consumes** the padding it applies: its subtree sees a [`MediaQuery`]
+/// whose consumed edges are already zero, so a second `SafeArea` further down adds
+/// nothing and the notch is not avoided twice — and a widget that clears the status bar
+/// on its own, a [`NavigationBar`](crate::NavigationBar) or a
+/// [`DrawerHeader`](crate::DrawerHeader), is not pushed down by it twice either.
 ///
-/// [`SafeArea::new`] cannot do that — its child is already built by the time the
-/// widget exists — so it pads and says nothing about it. That is the right constructor
-/// for the usual case of one `SafeArea` at the root of a screen, and the wrong one if
-/// screens compose into each other; reach for `build` there.
+/// That holds for both constructors. [`SafeArea::new`] used to pad and say nothing, on
+/// the grounds that its child was already built; but the description is resolved **during
+/// the walk**, not at construction, so the child is wrapped in a
+/// [`MediaScope`](crate::MediaScope) that removes the edges — the reference's safe area
+/// does the same with `MediaQuery.removePadding`. [`SafeArea::build`] still hands the
+/// consumed description to its closure, for code that reads it while composing.
 pub struct SafeArea<Msg> {
     edges: Edges,
     minimum: Insets,
@@ -38,18 +46,42 @@ pub struct SafeArea<Msg> {
     /// Pad the bottom by the intrusion that does **not** move; see
     /// [`SafeArea::maintain_bottom_view_padding`].
     maintain_bottom: bool,
+    /// What the child's subtree is told has been consumed: the edges, and whether the
+    /// keyboard's with them. Shared with the scope wrapping the child, because the
+    /// builders below change it after the child was wrapped.
+    consumed: Rc<Cell<(Edges, bool)>>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg> SafeArea<Msg> {
+/// Wraps `child` in the scope that tells its subtree what the safe area took.
+fn consuming<Msg: 'static>(
+    consumed: Rc<Cell<(Edges, bool)>>,
+    child: impl Widget<Msg> + 'static,
+) -> Box<dyn Widget<Msg>> {
+    Box::new(MediaScope::tweak(
+        move |mq: &mut MediaQuery| {
+            let (edges, keyboard) = consumed.get();
+            let mut inner = mq.remove_padding(edges);
+            if keyboard {
+                inner = inner.remove_view_insets(edges);
+            }
+            *mq = inner;
+        },
+        child,
+    ))
+}
+
+impl<Msg: 'static> SafeArea<Msg> {
     /// Insets `child` away from every occupied edge.
     pub fn new(child: impl Widget<Msg> + 'static) -> Self {
+        let consumed = Rc::new(Cell::new((Edges::ALL, false)));
         Self {
             edges: Edges::ALL,
             minimum: Insets::ZERO,
             keyboard: false,
             maintain_bottom: false,
-            children: vec![Box::new(child)],
+            children: vec![consuming(consumed.clone(), child)],
+            consumed,
         }
     }
 
@@ -75,6 +107,7 @@ impl<Msg> SafeArea<Msg> {
         keyboard: bool,
         build: impl FnOnce(MediaQuery) -> W,
     ) -> Self {
+        let consumed = Rc::new(Cell::new((edges, keyboard)));
         let mut area = Self {
             edges,
             minimum,
@@ -83,6 +116,7 @@ impl<Msg> SafeArea<Msg> {
             // the result: it changes how much this widget pads, not what the child was
             // told had been consumed, and those are different questions.
             maintain_bottom: false,
+            consumed: consumed.clone(),
             children: Vec::new(),
         };
 
@@ -91,14 +125,21 @@ impl<Msg> SafeArea<Msg> {
             inner = inner.remove_view_insets(edges);
         }
         let child = inner.scope(|| build(inner));
-        area.children.push(Box::new(child));
+        // What the closure was told while composing, the subtree is told again while it
+        // is walked — the two have to agree, or a descendant that reads the surface late
+        // would see the edges the closure was told were gone.
+        area.children.push(consuming(consumed, child));
         area
     }
 
     /// Which edges to inset. The rest are left to run to the screen's border — a list
     /// that should scroll under the gesture handle, say, keeps its bottom edge free.
+    ///
+    /// Only those are consumed for the subtree: an edge left free is still there for a
+    /// descendant to clear.
     pub fn edges(mut self, edges: Edges) -> Self {
         self.edges = edges;
+        self.consumed.set((edges, self.keyboard));
         self
     }
 
@@ -134,9 +175,15 @@ impl<Msg> SafeArea<Msg> {
     /// whole screen. Turn it on for a short, non-scrolling form.
     pub fn avoid_keyboard(mut self) -> Self {
         self.keyboard = true;
+        self.consumed.set((self.edges, true));
         self
     }
+}
 
+/// The resolvers, in an impl of their own: the constructors above wrap the child in a
+/// scope, which asks for `Msg: 'static`, and the `Widget` impl does not — a resolver
+/// declared beside them could not be called from the layout.
+impl<Msg> SafeArea<Msg> {
     /// The padding to apply: the occupied edges this widget was asked for, floored by
     /// `minimum`.
     ///
@@ -340,6 +387,56 @@ mod tests {
             seen.get().bottom,
             16.0,
             "an edge left free is still there for a descendant to use"
+        );
+    }
+
+    const MARK: frus_core::Color = frus_core::Color::rgb(0.9, 0.1, 0.5);
+
+    /// The marked block's box in `root`, built and walked under the phone surface.
+    fn marked_in(root: &dyn Widget<()>) -> Rect {
+        let ui = phone().scope(|| {
+            crate::build_ui(
+                root,
+                Size::new(360.0, 780.0),
+                &crate::Runtime::default(),
+                &Theme::default(),
+            )
+        });
+        ui.scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, color, .. } if *color == MARK => Some(*rect),
+                _ => None,
+            })
+            .expect("the marked block is drawn")
+    }
+
+    /// **`SafeArea::new` consumes what it pads**, as `build` always did (milestone 504).
+    ///
+    /// It used to pad and say nothing, on the grounds that its child was built before it
+    /// existed. But the surface is resolved during the walk, so a scope around the child
+    /// can still tell the subtree — and a `SafeArea` that did not left a status bar for a
+    /// navigation bar under it to clear a second time.
+    #[test]
+    fn a_nested_new_does_not_avoid_the_same_notch_twice() {
+        let root = SafeArea::new(SafeArea::new(Container::new().height(10.0).color(MARK)));
+        assert_eq!(marked_in(&root).y, 28.0, "the status bar once, not twice");
+    }
+
+    /// Only the edges it insets are consumed: one left free is still there for a
+    /// descendant to clear.
+    #[test]
+    fn an_edge_left_free_is_left_for_a_descendant() {
+        let root =
+            SafeArea::new(SafeArea::new(Container::new().height(10.0).color(MARK))).edges(Edges {
+                top: false,
+                ..Edges::ALL
+            });
+        assert_eq!(
+            marked_in(&root).y,
+            28.0,
+            "the inner one still found the status bar the outer one left free"
         );
     }
 
