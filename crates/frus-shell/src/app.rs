@@ -102,6 +102,19 @@ fn clipboard_command(logical: &WinitKey, physical: PhysicalKey, ctrl: bool) -> O
     }
 }
 
+/// Whether `widget` takes typing, and so wants the software keyboard while it has focus.
+///
+/// Asked of the widget (milestone 510). It used to be asked of a **caret hit test** at
+/// the corner of a field one pixel wide, and a field with a clickable suffix — the ×
+/// a field shows once it holds text — answered that no caret goes there, since that
+/// pixel is its clear button. So the first letter typed into such a field closed the
+/// keyboard and ended its composition, and the keyboard's next update was written
+/// beside the first: `F`, then `FFr`.
+#[cfg(any(android, test))]
+fn wants_keyboard<M>(widget: &dyn Widget<M>) -> bool {
+    widget.text_value().is_some() && widget.focusable()
+}
+
 /// The clipboard: `arboard` on the desktop platforms, the platform's own on Android
 /// (`ClipboardManager`, through the bundled dex — milestone 509, #22), and a no-op on
 /// the rest (iOS, Web — `arboard` does not compile there and is not a dependency).
@@ -627,10 +640,6 @@ pub struct App<A: Application> {
     /// change (#46).
     #[cfg(android)]
     system_bars: Option<frus_widgets::SystemBars>,
-    /// The length, in characters, of the IME **composition** under way in the focused
-    /// field; it is replaced on every IME update.
-    #[cfg(android)]
-    ime_composing: usize,
 }
 
 impl<A: Application> App<A> {
@@ -706,8 +715,6 @@ impl<A: Application> App<A> {
             soft_input_shown: false,
             #[cfg(android)]
             system_bars: None,
-            #[cfg(android)]
-            ime_composing: 0,
         }
     }
 
@@ -773,7 +780,7 @@ impl<A: Application> App<A> {
     }
 
     /// Keeps the **software keyboard** in step with focus: asked for when focus is in
-    /// a text field (`cursor_at` → `Some`), closed otherwise. Called at the end of a
+    /// a text field (`wants_keyboard`), closed otherwise. Called at the end of a
     /// frame, since any focus change already triggers a redraw.
     fn sync_soft_input(&mut self) {
         #[cfg(android)]
@@ -787,11 +794,10 @@ impl<A: Application> App<A> {
                         .as_ref()
                         .and_then(|tree| find_widget(tree.as_ref(), id))
                 })
-                .and_then(|widget| widget.cursor_at(0.0, 0.0, 1.0, 0))
-                .is_some();
+                .is_some_and(wants_keyboard);
             if editing != self.soft_input_shown {
                 self.soft_input_shown = editing;
-                self.ime_composing = 0;
+                self.end_composition();
                 if crate::android_ime::installed() {
                     // The InputConnection bridge: the Java view captures the IME.
                     if editing {
@@ -855,7 +861,7 @@ impl<A: Application> App<A> {
         #[cfg(android)]
         {
             self.soft_input_shown = true;
-            self.ime_composing = 0;
+            self.end_composition();
             if crate::android_ime::installed() {
                 if let Some(id) = self.runtime.input.focused {
                     self.push_ime_context(id);
@@ -873,73 +879,49 @@ impl<A: Application> App<A> {
     /// docs/milestone-81.md.
     #[cfg(android)]
     fn drain_ime(&mut self) {
-        use crate::android_ime::ImeEvent;
+        use crate::ime::Step;
         let events = crate::android_ime::drain();
         if events.is_empty() {
             return;
         }
         let Some(focused) = self.runtime.input.focused else {
-            self.ime_composing = 0;
             return;
         };
         for event in events {
-            match event {
-                // A `\n` commit, which some IMEs send, means submit, not insert.
-                ImeEvent::Commit(text) if text == "\n" || text == "\r" => {
-                    self.clear_composing(focused);
-                    self.apply_key(focused, Key::Enter);
-                }
-                ImeEvent::Commit(text) => {
-                    self.clear_composing(focused);
-                    self.apply_key(focused, Key::Text(text));
-                }
-                ImeEvent::Composing(text) => {
-                    self.clear_composing(focused);
-                    let n = text.chars().count();
-                    self.ime_composing = n;
-                    // The position BEFORE insertion is where the composed region starts.
-                    let start = self
-                        .runtime
-                        .edits
-                        .get(&focused)
-                        .map(|e| e.cursor)
-                        .unwrap_or(0);
-                    if !text.is_empty() {
-                        self.apply_key(focused, Key::Text(text));
+            let edit = self
+                .runtime
+                .edits
+                .get(&focused)
+                .copied()
+                .unwrap_or_default();
+            // Planned against the field as it stands before this operation: its text,
+            // its caret and the composition it underlines (milestone 510).
+            let text = self
+                .tree
+                .as_ref()
+                .and_then(|tree| find_widget(tree.as_ref(), focused))
+                .and_then(|widget| widget.text_value().map(str::to_owned))
+                .unwrap_or_default();
+            for step in crate::ime::plan(&event, &edit, &text) {
+                match step {
+                    Step::Place { cursor, anchor } => {
+                        let edit = self.runtime.edits.entry(focused).or_default();
+                        edit.cursor = cursor;
+                        edit.anchor = anchor;
                     }
-                    // Record the underlined range; the caret now sits at its end.
-                    if let Some(edit) = self.runtime.edits.get_mut(&focused) {
-                        edit.composing = if n > 0 {
-                            Some((start, start + n))
-                        } else {
-                            None
-                        };
-                    }
-                }
-                ImeEvent::FinishComposing => {
-                    self.ime_composing = 0;
-                    if let Some(edit) = self.runtime.edits.get_mut(&focused) {
-                        edit.composing = None;
-                    }
-                }
-                ImeEvent::Delete { before, after } => {
-                    for _ in 0..before {
-                        self.apply_key(focused, Key::Backspace);
-                    }
-                    for _ in 0..after {
-                        self.apply_key(focused, Key::Delete);
-                    }
-                }
-                ImeEvent::Action => self.apply_key(focused, Key::Enter),
-                ImeEvent::Key { code, unicode } => match code {
-                    66 => self.apply_key(focused, Key::Enter),
-                    67 => self.apply_key(focused, Key::Backspace),
-                    _ => {
-                        if let Some(c) = char::from_u32(unicode).filter(|c| !c.is_control()) {
-                            self.apply_key(focused, Key::Text(c.to_string()));
+                    Step::Key(key) => self.apply_key(focused, key),
+                    Step::Compose(region) => {
+                        if let Some(edit) = self.runtime.edits.get_mut(&focused) {
+                            edit.composing = region;
                         }
                     }
-                },
+                    Step::ComposeTo(start) => {
+                        if let Some(edit) = self.runtime.edits.get_mut(&focused) {
+                            let end = edit.cursor;
+                            edit.composing = (end > start).then_some((start, end));
+                        }
+                    }
+                }
             }
         }
         // Refresh the input context, which the IME queries for its suggestions.
@@ -959,19 +941,28 @@ impl<A: Application> App<A> {
         if let Some(text) = value {
             let edit = self.runtime.edits.get(&id).copied().unwrap_or_default();
             crate::android_ime::set_editor_state(&text, edit.cursor, edit.selection_range());
+            // And the keyboard is **told**, as an Android editor tells it on every change:
+            // a keyboard that predicts keeps its own model of the field, and one never
+            // told of a change drifts from it (milestone 510). In UTF-16 units.
+            let len = text.chars().count();
+            let at = |i: usize| crate::ime::utf16_index(&text, i.min(len)) as i32;
+            let (start, end) = edit.selection_range().unwrap_or((edit.cursor, edit.cursor));
+            let (cand_start, cand_end) = edit
+                .composing
+                .map(|(s, e)| (at(s), at(e)))
+                .unwrap_or((-1, -1));
+            crate::android_ime::update_selection(at(start), at(end), cand_start, cand_end);
         }
     }
 
-    /// Erases the field's current composition, the caret sitting at its end, and
-    /// clears the underlined range.
+    /// Ends the focused field's composition where it stands: the keyboard is being
+    /// started again, and a keyboard started again has forgotten it.
     #[cfg(android)]
-    fn clear_composing(&mut self, focused: WidgetId) {
-        for _ in 0..self.ime_composing {
-            self.apply_key(focused, Key::Backspace);
-        }
-        self.ime_composing = 0;
-        if let Some(edit) = self.runtime.edits.get_mut(&focused) {
-            edit.composing = None;
+    fn end_composition(&mut self) {
+        if let Some(id) = self.runtime.input.focused {
+            if let Some(edit) = self.runtime.edits.get_mut(&id) {
+                edit.composing = None;
+            }
         }
     }
 
@@ -4520,18 +4511,11 @@ impl<A: Application> App<A> {
 
     /// Whether an input method is in the middle of composing a word.
     fn composing(&self) -> bool {
-        #[cfg(android)]
-        {
-            self.ime_composing > 0
-        }
-        #[cfg(not(android))]
-        {
-            self.runtime
-                .input
-                .focused
-                .and_then(|id| self.runtime.edits.get(&id))
-                .is_some_and(|edit| edit.composing.is_some())
-        }
+        self.runtime
+            .input
+            .focused
+            .and_then(|id| self.runtime.edits.get(&id))
+            .is_some_and(|edit| edit.composing.is_some())
     }
 
     /// Steps a text field's value back one change, or forward again. `true` when something
@@ -4937,6 +4921,31 @@ mod tests {
     use super::{clipboard_command, ClipCommand, KeyCode, PhysicalKey, WinitKey};
     use super::{collect_ids, find_widget, MediaQuery};
     use frus_widgets::Locale;
+
+    /// **A field with a clear button kept the keyboard only until the first letter**
+    /// (milestone 510). Whether the focused widget takes typing was asked of a caret
+    /// hit test at the corner of a field one pixel wide; a field whose clickable suffix
+    /// covers that pixel — the × it shows once it holds text — answered no, and the
+    /// keyboard was closed mid-word. Asked of the widget, the answer is the field's.
+    #[test]
+    fn a_field_with_a_clear_button_still_wants_the_keyboard() {
+        use frus_widgets::{Container, Icons, TextField};
+        let clearable = TextField::<()>::new("F")
+            .suffix_icon(Icons::CLOSE)
+            .on_suffix(());
+        assert!(
+            super::wants_keyboard(&clearable),
+            "the field with its clear button"
+        );
+        assert!(
+            !super::wants_keyboard(&TextField::<()>::new("F").enabled(false)),
+            "a disabled field takes no typing"
+        );
+        assert!(
+            !super::wants_keyboard(&Container::<()>::new()),
+            "and what is not a field wants no keyboard"
+        );
+    }
 
     fn character(c: &str) -> WinitKey {
         WinitKey::Character(c.into())

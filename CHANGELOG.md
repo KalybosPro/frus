@@ -8,13 +8,21 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 509 so far, each documenting the objective, the alternatives
+> record — one per step, 510 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **A predicting keyboard wrote a word twice on Android** (J510). Typing into a field with
+  SwiftKey left `FFFrusclip` for `frusclip`. Whether the focused widget takes typing was a
+  caret hit test at the corner of a field one pixel wide, and the × a field shows once it
+  holds text covers that pixel — so the first letter closed the keyboard and zeroed the
+  composition, a count the shell kept, and the next update was written beside the first.
+  The keyboard is now wanted by a widget that takes typing; the composition is the field's
+  own range, typed over rather than backspaced; the bridge forwards `setComposingRegion`
+  and reports every change with `updateSelection`. Verified on a device.
 - **The clipboard did nothing on Android** (J509, answers #22). It was `arboard` on the
   desktop and an empty struct elsewhere, so a copy dropped its text and a paste found none,
   silently. It is now the platform's `ClipboardManager`, through the bridge's dex, behind
