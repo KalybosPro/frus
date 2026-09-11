@@ -28,22 +28,9 @@ use jni::sys::{jboolean, jint, JNI_TRUE};
 use jni::{JNIEnv, JavaVM};
 use winit::platform::android::activity::AndroidApp;
 
-/// An input operation relayed by the IME; arrival order is preserved.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ImeEvent {
-    /// **Final** text: a plain keystroke, a swipe, a chosen suggestion, an emoji.
-    Commit(String),
-    /// Text **being composed**, replacing the previous composition.
-    Composing(String),
-    /// The current composition becomes final, as it stands.
-    FinishComposing,
-    /// Deletes `before` characters ahead of the cursor and `after` behind it.
-    Delete { before: u32, after: u32 },
-    /// An editor action: the keyboard's Enter, OK or Search.
-    Action,
-    /// A key relayed by the IME (`sendKeyEvent`), already filtered on the Java side.
-    Key { code: i32, unicode: u32 },
-}
+/// The operations, and what each does to a field, live in `crate::ime`, where they can
+/// be tested away from a device.
+pub(crate) use crate::ime::ImeEvent;
 
 /// The operation queue, filled on the Java UI thread and drained by the shell.
 static QUEUE: Mutex<Vec<ImeEvent>> = Mutex::new(Vec::new());
@@ -173,6 +160,11 @@ fn try_install(app: &AndroidApp) -> Result<Bridge, jni::errors::Error> {
                 native_set_composing as *mut _,
             ),
             method(
+                "nativeSetComposingRegion",
+                "(II)V",
+                native_set_composing_region as *mut _,
+            ),
+            method(
                 "nativeFinishComposing",
                 "()V",
                 native_finish_composing as *mut _,
@@ -255,6 +247,38 @@ pub(crate) fn start_input(ime: frus_widgets::Ime) {
     }
 }
 
+/// Tells the keyboard where the caret, the selection and the composition now are, in
+/// UTF-16 units: what an Android editor reports on every change, and what a keyboard
+/// that predicts needs to stay in step with a field (milestone 510). `-1` is no
+/// composition.
+pub(crate) fn update_selection(sel_start: i32, sel_end: i32, cand_start: i32, cand_end: i32) {
+    let Some(bridge) = BRIDGE.get() else {
+        return;
+    };
+    let result = bridge
+        .vm
+        .attach_current_thread_permanently()
+        .and_then(|mut env| {
+            let class: &JClass = bridge.class.as_obj().into();
+            env.call_static_method(
+                class,
+                "updateSelection",
+                "(Landroid/app/Activity;IIII)V",
+                &[
+                    JValue::Object(bridge.activity.as_obj()),
+                    JValue::Int(sel_start),
+                    JValue::Int(sel_end),
+                    JValue::Int(cand_start),
+                    JValue::Int(cand_end),
+                ],
+            )
+            .map(|_| ())
+        });
+    if let Err(err) = result {
+        log::warn!("input bridge: updateSelection failed ({err})");
+    }
+}
+
 /// Native focus leaves the text fields, and the IME closes.
 pub(crate) fn stop_input() {
     call_bridge("stopInput");
@@ -308,6 +332,18 @@ extern "system" fn native_commit(mut env: JNIEnv, _class: JClass, text: JString)
 extern "system" fn native_set_composing(mut env: JNIEnv, _class: JClass, text: JString) {
     let text = jstring_to_string(&mut env, &text);
     push(ImeEvent::Composing(text));
+}
+
+extern "system" fn native_set_composing_region(
+    _env: JNIEnv,
+    _class: JClass,
+    start: jint,
+    end: jint,
+) {
+    push(ImeEvent::ComposingRegion {
+        start: start.max(0) as u32,
+        end: end.max(0) as u32,
+    });
 }
 
 extern "system" fn native_finish_composing(_env: JNIEnv, _class: JClass) {

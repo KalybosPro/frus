@@ -27,6 +27,7 @@ import android.view.inputmethod.InputMethodManager;
 public final class FrusTextBridge extends View {
     private static native void nativeCommit(String text);
     private static native void nativeSetComposing(String text);
+    private static native void nativeSetComposingRegion(int start, int end);
     private static native void nativeFinishComposing();
     private static native void nativeDelete(int before, int after);
     private static native void nativeEditorAction(int action);
@@ -87,6 +88,30 @@ public final class FrusTextBridge extends View {
                         (InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE);
                 imm.restartInput(instance);
                 imm.showSoftInput(instance, 0);
+            }
+        });
+    }
+
+    /**
+     * Where the field's caret, selection and composition now are, in UTF-16 units
+     * ({@code -1} for no composition) -- reported on every change, as an Android
+     * editor reports it. A keyboard that predicts keeps its own model of the field,
+     * and one never told of a change it did not make drifts from it: on a device it
+     * wrote a word again beside itself (milestone 510).
+     */
+    public static void updateSelection(final Activity activity, final int selStart,
+            final int selEnd, final int candStart, final int candEnd) {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (instance == null) {
+                    return;
+                }
+                InputMethodManager imm =
+                        (InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (imm != null) {
+                    imm.updateSelection(instance, selStart, selEnd, candStart, candEnd);
+                }
             }
         });
     }
@@ -159,6 +184,14 @@ public final class FrusTextBridge extends View {
         @Override
         public boolean setComposingText(CharSequence text, int newCursorPosition) {
             nativeSetComposing(text.toString());
+            return true;
+        }
+
+        // A keyboard reclaiming a word it has finished, to go on predicting it: the
+        // region is the field's, so it goes to the native side like the rest.
+        @Override
+        public boolean setComposingRegion(int start, int end) {
+            nativeSetComposingRegion(start, end);
             return true;
         }
 

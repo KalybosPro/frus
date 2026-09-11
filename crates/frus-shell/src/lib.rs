@@ -24,6 +24,8 @@ mod application;
 mod command;
 mod gesture;
 mod hover;
+#[cfg(any(android, test))]
+mod ime;
 /// Cross-platform `fetch` HTTP helper (behind the `net` feature).
 #[cfg(feature = "net")]
 pub mod net;
