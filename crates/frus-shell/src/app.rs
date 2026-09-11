@@ -335,6 +335,15 @@ enum Drag {
         id: WidgetId,
         rect: frus_widgets::Rect,
     },
+    /// A **selection handle**, held (milestone 511). `grab` is the offset from the finger
+    /// to the text position the handle stands for, so the selection follows the handle
+    /// rather than jumping to the fingertip the moment it moves.
+    SelectionHandle {
+        id: WidgetId,
+        rect: frus_widgets::Rect,
+        handle: crate::selection::Handle,
+        grab: Point,
+    },
     /// A draggable widget — a slider or a handle — dragged along its horizontal axis.
     /// `last_x` is the pointer's last abscissa, so the **delta** can be delivered to
     /// the handles that accumulate, such as a column resize.
@@ -568,6 +577,9 @@ pub struct App<A: Application> {
     press: PressRecognizer,
     /// The pressed target's long-press message, captured on the press.
     long_press_msg: Option<A::Message>,
+    /// A **text field** pressed with a finger: a hold there selects the word under it
+    /// (milestone 511), where on anything else it is the widget's long press.
+    pending_word: Option<WidgetId>,
     /// When the last **recorded** edit happened, for the pause that breaks a run of
     /// typing into two steps of undo. One field and not one per text field, because only
     /// the focused one is being typed into, and leaving a field ends its run anyway.
@@ -691,6 +703,7 @@ impl<A: Application> App<A> {
             announce: String::new(),
             press: PressRecognizer::new(),
             long_press_msg: None,
+            pending_word: None,
             last_edit_at: None,
             pending_lift: None,
             pending_reorder: None,
@@ -1243,10 +1256,16 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             // wins** — it changes what the rest of the gesture means, and the message
             // would be acting on something the finger is still holding.
             let lifting = self.pending_lift.is_some() || self.pending_reorder.is_some();
+            // A hold in a text field selects the word under the finger (milestone 511),
+            // and is that — not also the long press of whatever the field sits in.
+            let word = self.pending_word.take();
             if let Some(message) = self.long_press_msg.take() {
-                if !lifting {
+                if !lifting && word.is_none() {
                     self.dispatch(message);
                 }
+            }
+            if let Some(id) = word {
+                self.select_held_word(id);
             }
             // A pending touch scroll no longer has any reason to exist — unless the
             // hold was the lift of an item, in which case the scroll hands the gesture
@@ -2532,7 +2551,8 @@ impl<A: Application> App<A> {
                     });
                 let interested = self.long_press_msg.is_some()
                     || self.pending_lift.is_some()
-                    || self.pending_reorder.is_some();
+                    || self.pending_reorder.is_some()
+                    || self.pending_word.is_some();
                 self.press.down(self.cursor, Instant::now(), interested);
             }
             PointerKind::Move => {
@@ -2550,6 +2570,7 @@ impl<A: Application> App<A> {
                 let swallow = self.press.up();
                 self.pending_lift = None;
                 self.pending_reorder = None;
+                self.pending_word = None;
                 // A row lifted by the hold owes its drop for the same reason a lifted
                 // item does: the release is what says where it goes.
                 if swallow
@@ -2570,6 +2591,7 @@ impl<A: Application> App<A> {
                 self.press.cancel();
                 self.pending_lift = None;
                 self.pending_reorder = None;
+                self.pending_word = None;
                 // A cancelled gesture still owes the offset back, or the region
                 // would stay frozen under a finger that is no longer there.
                 if let Some(Drag::Dismiss { item, .. }) = self.drag {
@@ -2685,6 +2707,18 @@ impl<A: Application> App<A> {
     /// scrolling when no other gesture captures the press.
     fn pointer_down(&mut self, touch: bool) {
         self.pointer_touch = touch;
+        self.pending_word = None;
+        // A selection handle first. It hangs below its line, over whatever is drawn
+        // there, so nothing else may claim the press before it; and any other press puts
+        // the handles away (milestone 511).
+        if let Some(drag) = self.grab_selection_handle() {
+            self.drag = Some(drag);
+            self.request_redraw();
+            return;
+        }
+        if self.runtime.selection_handles.take().is_some() {
+            self.request_redraw();
+        }
         // 0) The back gesture: a press on the **leading edge** — left under LTR,
         // right under RTL — if the app allows it.
         let on_back_edge = if self.is_rtl() {
@@ -2816,6 +2850,10 @@ impl<A: Application> App<A> {
                     },
                 );
                 self.drag = Some(Drag::TextSelect { id, rect });
+                // A finger that stays put selects the word instead (milestone 511).
+                if touch {
+                    self.pending_word = Some(id);
+                }
                 // The caret moved, so the run of typing ends here: typing at one place,
                 // then at another, then Ctrl+Z should take back only the second.
                 self.runtime.close_edit_run(id);
@@ -2985,6 +3023,11 @@ impl<A: Application> App<A> {
         // would otherwise never be told the release happened.
         if let Some(Drag::Widget { id, rect, .. }) = ended {
             self.dispatch_drag_edge(id, rect, Edge::End);
+        }
+        // The keyboard is told where a dragged handle left the selection.
+        #[cfg(android)]
+        if let Some(Drag::SelectionHandle { id, .. }) = ended {
+            self.push_ime_context(id);
         }
         // Reordering: on the drop, the target column is the reorderable header under
         // the pointer, and we route the grabbed header's `on_reorder(from, to)`.
@@ -3455,6 +3498,29 @@ impl<A: Application> App<A> {
                         edit.anchor = Some(edit.cursor);
                     }
                     edit.cursor = cursor;
+                }
+            }
+            Drag::SelectionHandle {
+                id,
+                rect,
+                handle,
+                grab,
+            } => {
+                // The text position the handle stands for, carried with the finger, and
+                // the retained vertical scroll folded in as for a press.
+                let local_x = self.cursor.x - rect.x + grab.x;
+                let local_y = self.cursor.y - rect.y
+                    + grab.y
+                    + self.runtime.scroll.get(id).map(|s| s.1).unwrap_or(0.0);
+                let edit = self.runtime.edits.get(id).copied().unwrap_or_default();
+                let moved = self
+                    .tree
+                    .as_ref()
+                    .and_then(|tree| find_widget(tree.as_ref(), *id))
+                    .and_then(|widget| widget.cursor_at(local_x, local_y, rect.width, edit.cursor))
+                    .and_then(|to| crate::selection::drag(edit, *handle, to));
+                if let Some(moved) = moved {
+                    self.runtime.edits.insert(*id, moved);
                 }
             }
             Drag::Widget { id, rect, last_x } => {
@@ -4428,11 +4494,63 @@ impl<A: Application> App<A> {
         true
     }
 
+    /// A hold in field `id` selects the word under the finger — the press has already
+    /// put the caret there — and gives the selection its handles (milestone 511).
+    fn select_held_word(&mut self, id: WidgetId) {
+        let cursor = self.runtime.edits.get(&id).map(|e| e.cursor).unwrap_or(0);
+        let word = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.word_at(cursor))
+            .filter(|(start, end)| start < end);
+        let Some((start, end)) = word else {
+            return;
+        };
+        self.runtime.edits.insert(
+            id,
+            Edit {
+                cursor: end,
+                anchor: Some(start),
+                composing: None,
+            },
+        );
+        self.runtime.selection_handles = Some(id);
+        self.runtime.close_edit_run(id);
+        #[cfg(android)]
+        self.push_ime_context(id);
+    }
+
+    /// The selection handle under the pointer, taken: a drag that moves its end of the
+    /// focused field's selection. `None` when no handle is showing there.
+    fn grab_selection_handle(&self) -> Option<Drag> {
+        let id = self.runtime.selection_handles?;
+        if self.runtime.input.focused != Some(id) {
+            return None;
+        }
+        let rect = self.ui.as_ref()?.widget_rect(id)?;
+        let edit = self.runtime.edits.get(&id).copied()?;
+        let scroll_y = self.runtime.scroll.get(&id).map(|s| s.1).unwrap_or(0.0);
+        let handles = find_widget(self.tree.as_ref()?.as_ref(), id)?
+            .selection_handles(rect.width, &edit, scroll_y)?;
+        let local = Point::new(self.cursor.x - rect.x, self.cursor.y - rect.y);
+        let handle = crate::selection::grab(&handles, local)?;
+        let at = handles[handle.index()].line_center;
+        Some(Drag::SelectionHandle {
+            id,
+            rect,
+            handle,
+            grab: Point::new(at.x - local.x, at.y - local.y),
+        })
+    }
+
     /// Routes a key to the focused field: updates the editing state and applies
     /// whatever message comes out, a value change or a submission.
     fn apply_key(&mut self, id: WidgetId, key: Key) {
         // Any horizontal move, or any keystroke, forgets the vertical goal column.
         self.goal_x = None;
+        // Typing puts a touch selection's handles away, as a press does (milestone 511).
+        self.runtime.selection_handles = None;
         let was = self.runtime.edits.get(&id).copied().unwrap_or_default();
         let mut edit = was;
         let widget = self

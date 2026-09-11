@@ -35,6 +35,7 @@ mod remote;
 /// effect. Native only — on the Web the browser is the runtime.
 #[cfg(not(web))]
 pub(crate) mod runtime;
+mod selection;
 mod subscription;
 mod theming;
 

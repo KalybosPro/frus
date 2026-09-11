@@ -214,6 +214,15 @@ macro_rules! forward_transparent {
                 self.inner.word_at(index)
             }
 
+            fn selection_handles(
+                &self,
+                width: f32,
+                edit: &$crate::runtime::Edit,
+                scroll_y: f32,
+            ) -> Option<[$crate::SelectionHandle; 2]> {
+                self.inner.selection_handles(width, edit, scroll_y)
+            }
+
             fn focusable(&self) -> bool {
                 self.inner.focusable()
             }

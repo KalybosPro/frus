@@ -4366,6 +4366,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 status.selection = edit.selection_range();
                 status.composing = edit.composing;
             }
+            status.handles = self.runtime.selection_handles == Some(id);
         }
         status
     }
@@ -6704,6 +6705,69 @@ mod tests {
         // The top-left corner: on the scrim → it dismisses.
         let corner = ui.hit(Point::new(5.0, 5.0)).expect("a clickable scrim");
         assert_eq!(ui.msg_for(corner), Some(Msg::A));
+    }
+
+    /// **The shell's mark reaches the field** (milestone 511): a focused field whose
+    /// selection the runtime marks as a touch one paints its two handles; the same
+    /// selection unmarked paints none, and so does a marked field that lost the focus.
+    #[test]
+    fn a_touch_selection_reaches_the_field_as_handles() {
+        let tree = Flex::column().width(300.0).height(80.0).child(
+            TextField::new("hello world")
+                .width(200.0)
+                .on_input(Msg::Edited),
+        );
+        let theme = Theme::default();
+        let size = Size::new(300.0, 80.0);
+        let (id, _) = build_ui(&tree, size, &Runtime::default(), &theme)
+            .focus_hit(Point::new(10.0, 10.0))
+            .expect("the field");
+        let handles = |focused: bool, marked: bool| {
+            let mut rt = Runtime::default();
+            rt.edits.insert(
+                id,
+                Edit {
+                    cursor: 11,
+                    anchor: Some(6),
+                    composing: None,
+                },
+            );
+            rt.input.focused = focused.then_some(id);
+            rt.selection_handles = marked.then_some(id);
+            let ui = build_ui(&tree, size, &rt, &theme);
+            ui.scene()
+                .primitives()
+                .iter()
+                .filter(|p| {
+                    matches!(p, Primitive::Path { fill: Some(c), .. } if *c == theme.scheme.primary)
+                })
+                .count()
+        };
+        assert_eq!(handles(true, true), 2);
+        assert_eq!(handles(true, false), 0, "a selection made with a mouse");
+        assert_eq!(handles(false, true), 0, "a field left behind");
+    }
+
+    /// A wrapper that fuses with its field shares its identity, so it is the wrapper the
+    /// shell asks for the handles — and a wrapper that forgot to pass the question on
+    /// would leave a finger nothing to take (the three silent bugs `Responsive` has
+    /// already cost, milestones 477 to 495).
+    #[test]
+    fn the_wrappers_that_fuse_with_a_field_pass_its_handles_on() {
+        let field = || TextField::<Msg>::new("hello world").width(200.0);
+        let edit = Edit {
+            cursor: 11,
+            anchor: Some(6),
+            composing: None,
+        };
+        let direct = Widget::<Msg>::selection_handles(&field(), 200.0, &edit, 0.0);
+        assert!(direct.is_some());
+        let keyed = crate::Keyed::new(1, field());
+        let responsive = crate::Responsive::new(crate::SizeClass::Compact).compact(field());
+        let boxed: Box<dyn Widget<Msg>> = Box::new(field());
+        assert_eq!(keyed.selection_handles(200.0, &edit, 0.0), direct);
+        assert_eq!(responsive.selection_handles(200.0, &edit, 0.0), direct);
+        assert_eq!(boxed.selection_handles(200.0, &edit, 0.0), direct);
     }
 
     #[test]

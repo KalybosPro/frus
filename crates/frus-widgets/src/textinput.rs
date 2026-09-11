@@ -124,6 +124,9 @@ pub struct TextFieldStyle {
     pub helper_color: Option<frus_core::Color>,
     /// The prefix and suffix icons.
     pub icon_color: Option<frus_core::Color>,
+    /// The handles under a touch selection. Unset, the scheme's `primary`
+    /// (`text_selection.dart:83`).
+    pub handle_color: Option<frus_core::Color>,
     /// Corner radius.
     pub radius: Option<f32>,
     /// Border weight at rest.
@@ -251,6 +254,35 @@ fn line_end(chars: &[char], cursor: usize) -> usize {
         i += 1;
     }
     i
+}
+
+/// The side of a selection handle's box (`text_selection.dart:17`).
+const HANDLE_SIZE: f32 = 22.0;
+
+/// A selection handle's outline in `rect`: a disc with the corner nearest the text
+/// squared off, so that it points at its end of the selection — up and right for the
+/// start handle, which hangs to the left of its position, up and left for the end one.
+fn handle_path(rect: Rect, start: bool) -> frus_core::Path {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    let r = rect.width * 0.5;
+    let centre = Point::new(rect.x + r, rect.y + r);
+    if start {
+        // From the squared corner, top right, down to the disc's rightmost point, then
+        // round the bottom and the left to its top.
+        frus_core::Path::new()
+            .move_to(Point::new(rect.x + rect.width, rect.y))
+            .line_to(Point::new(rect.x + rect.width, centre.y))
+            .arc_to(centre, r, 0.0, 3.0 * FRAC_PI_2)
+            .close()
+    } else {
+        // From the squared corner, top left, along to the disc's top, then round the
+        // right and the bottom to its leftmost point.
+        frus_core::Path::new()
+            .move_to(Point::new(rect.x, rect.y))
+            .line_to(Point::new(centre.x, rect.y))
+            .arc_to(centre, r, -FRAC_PI_2, PI)
+            .close()
+    }
 }
 
 /// Moves the caret to `target`, handling the selection anchor according to Shift.
@@ -487,6 +519,11 @@ impl<Msg> TextField<Msg> {
                 self.style.icon_color,
                 t.icon_color,
                 theme.scheme.on_surface_variant,
+            ),
+            handle_color: pick(
+                self.style.handle_color,
+                t.handle_color,
+                theme.scheme.primary,
             ),
             radius: Some(self.style.radius.or(t.radius).unwrap_or(FIELD_RADIUS)),
             border_width: Some(
@@ -841,6 +878,54 @@ impl<Msg> TextField<Msg> {
     }
 
     /// Text width (between the padding and the icons) for a given widget width.
+    /// The two selection handles for `edit`, in local coordinates — see
+    /// [`Widget::selection_handles`]. The paint's own geometry: the content's insets, the
+    /// alignment, the horizontal scroll that follows the caret and the retained vertical
+    /// one, so that a handle is taken exactly where it is drawn.
+    fn handles(
+        &self,
+        width: f32,
+        edit: &Edit,
+        scroll_y: f32,
+    ) -> Option<[crate::SelectionHandle; 2]> {
+        let len = self.value.chars().count();
+        let (start, end) = edit.selection_range()?;
+        let (start, end) = (start.min(len), end.min(len));
+        if start >= end {
+            return None;
+        }
+        let content_w = self.content_width(width);
+        let layout = self.layout(self.multiline.then_some(content_w));
+        let scroll = (layout.caret_rect(edit.cursor.min(len)).x - content_w).max(0.0);
+        let align = self.align_offset(content_w, layout.size().width);
+        let vscroll = if self.multiline {
+            let visible = self.field_height() - self.text_top() - self.pad_bottom();
+            scroll_y.clamp(0.0, (layout.size().height - visible).max(0.0))
+        } else {
+            0.0
+        };
+        let origin_x = self.pad_x() + self.prefix_w() + align - scroll;
+        let origin_y = self.label_block() + self.text_top() - vscroll;
+        let at = |index: usize, start: bool| {
+            let caret = layout.caret_rect(index);
+            let x = origin_x + caret.x;
+            let top = origin_y + caret.y;
+            crate::SelectionHandle {
+                // The start handle hangs to the left of its position and the end one to
+                // the right (`text_selection.dart:115`), so that both point in at the
+                // text between them.
+                rect: Rect::new(
+                    if start { x - HANDLE_SIZE } else { x },
+                    top + caret.height,
+                    HANDLE_SIZE,
+                    HANDLE_SIZE,
+                ),
+                line_center: Point::new(x, top + caret.height * 0.5),
+            }
+        };
+        Some([at(start, true), at(end, false)])
+    }
+
     fn content_width(&self, width: f32) -> f32 {
         (width - (self.pad_x() + self.prefix_w()) - self.pad_x() - self.suffix_w()).max(0.0)
     }
@@ -1212,7 +1297,8 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         // scrolled field was painted straight over the label naming it. It only became
         // visible once the padding grew to the reference's, which is the useful kind of
         // regression — the old 6 px hid it rather than avoided it.
-        let content_clip = scene.current_clip().intersect(Rect::new(
+        let outer_clip = scene.current_clip();
+        let content_clip = outer_clip.intersect(Rect::new(
             content_x,
             field.y + self.text_top(),
             content_w,
@@ -1264,6 +1350,25 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
                 Rect::new(text_x + caret.x, text_top + caret.y, 2.0, caret.height),
                 theme.on_surface.fade(o),
             );
+        }
+
+        // The handles of a touch selection (milestone 511), outside the content clip:
+        // they hang below their line, past the text and, on the last line, past the box.
+        if status.focused && status.handles {
+            scene.set_clip(outer_clip);
+            let edit = Edit {
+                cursor,
+                anchor: status
+                    .selection
+                    .map(|(a, b)| if cursor == a { b } else { a }),
+                composing: None,
+            };
+            if let Some([start, end]) = self.handles(bounds.width, &edit, status.scroll_y) {
+                let color = s.handle_color.unwrap().fade(o);
+                let place = |r: Rect| r.translate(bounds.x, bounds.y);
+                scene.fill_path(&handle_path(place(start.rect), true), color);
+                scene.fill_path(&handle_path(place(end.rect), false), color);
+            }
         }
     }
 
@@ -1625,6 +1730,15 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
             end += 1;
         }
         Some((start, end))
+    }
+
+    fn selection_handles(
+        &self,
+        width: f32,
+        edit: &Edit,
+        scroll_y: f32,
+    ) -> Option<[crate::SelectionHandle; 2]> {
+        self.handles(width, edit, scroll_y)
     }
 
     fn focusable(&self) -> bool {
@@ -3083,6 +3197,162 @@ mod tests {
             .suffix_icon(Icons::CLOSE)
             .width(220.0);
         assert_eq!(Widget::<Msg>::cursor_icon(&deco, w - 8.0, y, w, h), None);
+    }
+
+    /// **Each handle stands for its own end of the selection** (milestone 511): the point
+    /// it carries, handed back to the field's own hit test, is that end — with a label and
+    /// an icon moving the text in, and with text scrolled sideways, which is where a
+    /// handle and its end would part company first. The shell drags a handle through
+    /// exactly this round trip.
+    #[test]
+    fn each_handle_stands_for_its_own_end_of_the_selection() {
+        let width = 220.0;
+        let fields = [
+            TextField::<Msg>::new("hello world").width(width),
+            TextField::<Msg>::new("hello world")
+                .label("Name")
+                .prefix_icon(Icons::CLOSE)
+                .width(width),
+            // Outlined, the label sits on the border and the box starts below it.
+            TextField::<Msg>::new("hello world")
+                .label("Name")
+                .outlined()
+                .width(width),
+            // Wider than its box, the caret at the far end: scrolled.
+            TextField::<Msg>::new("a sentence long enough to be scrolled along its box")
+                .width(width),
+        ];
+        for field in &fields {
+            let len = field.value.chars().count();
+            let edit = Edit {
+                cursor: len,
+                anchor: Some(len - 5),
+                composing: None,
+            };
+            let [start, end] = Widget::<Msg>::selection_handles(field, width, &edit, 0.0)
+                .expect("a selection has handles");
+            for (handle, index) in [(start, len - 5), (end, len)] {
+                let at = handle.line_center;
+                assert_eq!(
+                    Widget::<Msg>::cursor_at(field, at.x, at.y, width, edit.cursor),
+                    Some(index),
+                    "{:?}",
+                    field.value
+                );
+            }
+            // Each hangs below its line and points in at the text: the corner the start
+            // one has squared off is its position, and the end one's likewise.
+            assert_eq!(start.rect.x + start.rect.width, start.line_center.x);
+            assert_eq!(end.rect.x, end.line_center.x);
+            assert!(start.rect.y > start.line_center.y && end.rect.y > end.line_center.y);
+            // And on the line the paint draws: the text's top, the line's middle, then the
+            // handle hanging from its bottom. A single line's hit test clamps the height, so
+            // only the paint can say the handles are at the right one.
+            let mut scene = Scene::new();
+            let status = Status {
+                focused: true,
+                cursor: Some(len),
+                selection: Some((len - 5, len)),
+                ..Status::default()
+            };
+            Widget::<Msg>::paint(
+                field,
+                Rect::new(0.0, 0.0, width, 120.0),
+                status,
+                &Theme::default(),
+                &mut scene,
+            );
+            let top = scene
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Text { position, text, .. } if *text == field.value => {
+                        Some(position.y)
+                    }
+                    _ => None,
+                })
+                .expect("the value is painted");
+            let half = start.line_center.y - top;
+            assert!(
+                half > 0.0 && (start.rect.y - top - 2.0 * half).abs() < 0.01,
+                "{:?}: text at {top}, line centre at {}, handle at {}",
+                field.value,
+                start.line_center.y,
+                start.rect.y
+            );
+        }
+    }
+
+    /// A multi-line field scrolled down carries its handles up with the text, and the
+    /// shell, folding the scroll back in as it does for a press, lands on the same ends.
+    #[test]
+    fn a_handle_rises_with_the_lines_a_field_scrolls_away() {
+        let width = 200.0;
+        let field = TextField::<Msg>::new("one\ntwo\nthree\nfour\nfive\nsix")
+            .multiline()
+            .rows(3)
+            .width(width);
+        // "five".
+        let edit = Edit {
+            cursor: 23,
+            anchor: Some(19),
+            composing: None,
+        };
+        let scroll = 20.0;
+        let still = Widget::<Msg>::selection_handles(&field, width, &edit, 0.0).unwrap();
+        let [start, end] = Widget::<Msg>::selection_handles(&field, width, &edit, scroll).unwrap();
+        assert!((still[0].line_center.y - start.line_center.y - scroll).abs() < 0.01);
+        for (handle, index) in [(start, 19), (end, 23)] {
+            let at = handle.line_center;
+            assert_eq!(
+                Widget::<Msg>::cursor_at(&field, at.x, at.y + scroll, width, edit.cursor),
+                Some(index)
+            );
+        }
+    }
+
+    /// Handles are painted for a selection the shell marks as a touch one, and for no
+    /// other: not for one made with a mouse, not in a field that has lost the focus. In
+    /// the scheme's primary, unless the field says otherwise.
+    #[test]
+    fn the_handles_are_painted_for_a_touch_selection_only() {
+        let theme = Theme::default();
+        let fills = |field: &TextField<Msg>, handles: bool, focused: bool| {
+            let mut scene = Scene::new();
+            let status = Status {
+                focused,
+                cursor: Some(11),
+                selection: Some((6, 11)),
+                handles,
+                ..Status::default()
+            };
+            Widget::<Msg>::paint(
+                field,
+                Rect::new(10.0, 20.0, 220.0, 56.0),
+                status,
+                &theme,
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Path { fill: Some(c), .. } => Some(*c),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let field = TextField::<Msg>::new("hello world").width(220.0);
+        assert_eq!(fills(&field, true, true), vec![theme.scheme.primary; 2]);
+        assert!(fills(&field, false, true).is_empty(), "a mouse selection");
+        assert!(fills(&field, true, false).is_empty(), "a field left behind");
+        let styled = TextField::<Msg>::new("hello world")
+            .width(220.0)
+            .style(TextFieldStyle {
+                handle_color: Some(frus_core::Color::WHITE),
+                ..TextFieldStyle::default()
+            });
+        assert_eq!(fills(&styled, true, true), vec![frus_core::Color::WHITE; 2]);
     }
 
     #[test]

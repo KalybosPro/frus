@@ -333,6 +333,19 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// The two handles of the selection in `edit`, start then end, for a field `width`
+    /// wide whose content is scrolled down by `scroll_y` — where they are painted, and
+    /// so where a finger takes them. `None` when there is no selection, or this is not
+    /// a text field.
+    fn selection_handles(
+        &self,
+        _width: f32,
+        _edit: &Edit,
+        _scroll_y: f32,
+    ) -> Option<[crate::SelectionHandle; 2]> {
+        None
+    }
+
     /// Keystrokes this subtree binds to **intents** — see [`crate::Shortcuts`].
     fn shortcut_bindings(&self) -> &[(crate::shortcuts::KeyStroke, crate::shortcuts::Intent)] {
         &[]
@@ -1485,6 +1498,14 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn word_at(&self, index: usize) -> Option<(usize, usize)> {
         (**self).word_at(index)
+    }
+    fn selection_handles(
+        &self,
+        width: f32,
+        edit: &Edit,
+        scroll_y: f32,
+    ) -> Option<[crate::SelectionHandle; 2]> {
+        (**self).selection_handles(width, edit, scroll_y)
     }
     fn focusable(&self) -> bool {
         (**self).focusable()

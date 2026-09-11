@@ -136,6 +136,10 @@ pub struct Status {
     /// The `(start, end)` range **being composed** by the IME (provisional,
     /// underlined text); `None` outside composition. In character indices.
     pub composing: Option<(usize, usize)>,
+    /// Does the selection carry **handles**? A selection made with a finger does — a long
+    /// press on a word — and one made with a mouse or the keyboard does not. Set by the
+    /// shell, and only for the focused field.
+    pub handles: bool,
     /// Is a drag currently **over this widget**, and would it be accepted? Only
     /// ever true for a [`crate::DragTarget`]; it is what lets one paint the "drop it
     /// here" state itself rather than have the shell paint it from outside.
@@ -218,6 +222,7 @@ impl Default for Status {
             cursor: None,
             selection: None,
             composing: None,
+            handles: false,
             drag_over: false,
             hover_progress: 0.0,
             focus_progress: 0.0,
@@ -264,6 +269,7 @@ impl InputState {
             cursor: None,
             selection: None,
             composing: None,
+            handles: false,
             drag_over: false,
             hover_progress: 0.0,
             focus_progress: 0.0,

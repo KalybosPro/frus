@@ -220,6 +220,17 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.word_at(index))
     }
 
+    fn selection_handles(
+        &self,
+        width: f32,
+        edit: &Edit,
+        scroll_y: f32,
+    ) -> Option<[crate::SelectionHandle; 2]> {
+        self.inner
+            .as_ref()
+            .and_then(|w| w.selection_handles(width, edit, scroll_y))
+    }
+
     fn focusable(&self) -> bool {
         self.inner.as_ref().is_some_and(|w| w.focusable())
     }
