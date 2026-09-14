@@ -8,13 +8,18 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 513 so far, each documenting the objective, the alternatives
+> record — one per step, 514 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **The demo's sign-up form opened a sentence keyboard for every field** (J514). Nothing in
+  the wizard said which keyboard a field wanted, so on a phone the email address came back
+  capitalised, with a space after each suggestion taken. The name now opens a name keyboard,
+  the email an email keyboard, and both passwords a secret's keyboard — still one while the
+  eye shows them in the clear, so revealing a password never lets the keyboard learn it.
 - **A letter took up to a second to appear on Android** (J513). The input bridge woke the
   event loop with the looper's bare waker, and winit's Android backend takes a wake with no
   redraw requested and no message of its own queued for a false one — so a letter waited for

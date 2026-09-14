@@ -74,6 +74,20 @@ pub(crate) fn wizard_hints(field: u8) -> &'static [frus_widgets::AutofillHint] {
     }
 }
 
+/// Which keyboard each wizard field opens (milestone 514). Nothing said it before, so every
+/// field opened a sentence keyboard: the email address came back with a capital and a space
+/// after each suggestion taken. A password shown in the clear still asks for a secret's
+/// keyboard — revealing it is for the reader to check it, not for the keyboard to learn it.
+pub(crate) fn wizard_keyboard(field: u8, obscure: bool) -> frus_widgets::KeyboardType {
+    use frus_widgets::KeyboardType as Keys;
+    match field {
+        0 => Keys::Name,
+        1 => Keys::Email,
+        _ if obscure => Keys::Password,
+        _ => Keys::VisiblePassword,
+    }
+}
+
 /// One wizard field: its error is shown **only after** submission, its value is **masked** for a
 /// password, and it carries a **focus key** (`keyed`) so the summary can jump to it.
 // Nine, and they are the field's whole description. A struct here would be a
@@ -93,6 +107,7 @@ pub(crate) fn wizard_input(
         .size(16.0)
         .label(label)
         .obscure(obscure)
+        .keyboard_type(wizard_keyboard(field, obscure))
         .on_input(move |s| Msg::WizardInput(field, s))
         .autofill(wizard_hints(field).iter().copied());
     // `eye = Some(revealed)`: an eye icon **inside the field** toggles the masking (milestone 198).
