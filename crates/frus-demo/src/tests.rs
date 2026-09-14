@@ -845,6 +845,52 @@ fn the_wizard_is_one_form_across_its_steps() {
     assert_eq!(wizard_hints(3), &[AutofillHint::NewPassword]);
 }
 
+/// **Each wizard field opens the keyboard it is for** (milestone 514), read off the tree the
+/// view builds — what the shell hands the platform — and not off the helper alone. Seen on a
+/// phone before: the email field opened a sentence keyboard, which capitalised the address
+/// and put a space after each suggestion. And a password revealed by the eye keeps a secret's
+/// keyboard, so revealing it never lets the keyboard learn it.
+#[test]
+fn each_wizard_field_opens_the_keyboard_it_is_for() {
+    use frus_widgets::KeyboardType;
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::Push(Route::Wizard));
+    let theme = Theme::default();
+    let size = Size::new(400.0, 800.0);
+    let keyboards = |app: &TodoApp| -> Vec<KeyboardType> {
+        let tree = view_for(app, &theme, size);
+        let ui = build_ui(&tree, size, &Runtime::default(), &theme);
+        let stops: Vec<_> = ui.focusable_ids().collect();
+        stops
+            .into_iter()
+            .filter(|id| ui.form_group(*id).is_some())
+            .map(|id| {
+                find_widget(&tree, id)
+                    .expect("a focus stop is a widget in the tree")
+                    .ime()
+                    .keyboard
+            })
+            .collect()
+    };
+    assert_eq!(
+        keyboards(&app),
+        [KeyboardType::Name, KeyboardType::Email],
+        "the account step"
+    );
+    reduce(&mut app, Msg::WizardStep(1));
+    assert_eq!(
+        keyboards(&app),
+        [KeyboardType::Password, KeyboardType::Password],
+        "masked passwords"
+    );
+    reduce(&mut app, Msg::WizardToggleReveal);
+    assert_eq!(
+        keyboards(&app),
+        [KeyboardType::VisiblePassword, KeyboardType::VisiblePassword],
+        "revealed, and still never learned"
+    );
+}
+
 #[test]
 fn grid_edit_navigate_and_resize() {
     let mut app = app_with_grid(vec![
