@@ -1366,8 +1366,8 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
             }
         }
 
-        // Curseur.
-        if status.focused {
+        // The caret, in the shown half of its blink (milestone 513).
+        if status.focused && !status.caret_hidden {
             scene.fill_rect(
                 Rect::new(text_x + caret.x, text_top + caret.y, 2.0, caret.height),
                 theme.on_surface.fade(o),
@@ -3379,6 +3379,37 @@ mod tests {
                 ..TextFieldStyle::default()
             });
         assert_eq!(fills(&styled, true, true), vec![frus_core::Color::WHITE; 2]);
+    }
+
+    /// The caret's hidden half paints no caret, and its shown half does (milestone 513).
+    #[test]
+    fn a_hidden_caret_is_not_painted() {
+        let theme = Theme::default();
+        let carets = |hidden: bool| {
+            let mut scene = Scene::new();
+            let status = Status {
+                focused: true,
+                cursor: Some(2),
+                caret_hidden: hidden,
+                ..Status::default()
+            };
+            Widget::<Msg>::paint(
+                &TextField::<Msg>::new("hello").width(220.0),
+                Rect::new(0.0, 0.0, 220.0, 56.0),
+                status,
+                &theme,
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .filter(
+                    |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width == 2.0),
+                )
+                .count()
+        };
+        assert_eq!(carets(false), 1, "shown");
+        assert_eq!(carets(true), 0, "hidden");
     }
 
     #[test]

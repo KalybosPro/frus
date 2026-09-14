@@ -238,11 +238,28 @@ pub(crate) fn with_bridge(
     }
 }
 
-/// Wakes the event loop, for something queued on the Java UI thread.
+/// Wakes the event loop for something queued on the Java UI thread — by asking for a frame.
+///
+/// A bare wake of the looper is not enough. winit takes a wake with no redraw requested and
+/// no message of its own queued for a false one and goes back to sleep
+/// (`platform_impl/android`, `PollEvent::Wake`), so the operation waited for whatever woke
+/// the loop next: on the device, the demo's stopwatch ticking once a second, and a letter
+/// took up to a second to appear (milestone 513). A redraw request is a reason winit
+/// honours, and the frame is wanted anyway — it is what shows the letter.
 pub(crate) fn wake() {
-    if let Some(waker) = WAKER.get() {
+    if let Some(window) = WINDOW.lock().unwrap().as_ref() {
+        window.request_redraw();
+    } else if let Some(waker) = WAKER.get() {
         waker.lock().unwrap().wake();
     }
+}
+
+/// The window a wake asks a frame of, while there is one.
+static WINDOW: Mutex<Option<std::sync::Arc<winit::window::Window>>> = Mutex::new(None);
+
+/// Hands the bridge the window its wakes ask frames of — or takes it away, with the surface.
+pub(crate) fn set_window(window: Option<std::sync::Arc<winit::window::Window>>) {
+    *WINDOW.lock().unwrap() = window;
 }
 
 /// Native focus enters a text field: the bridge view captures the IME, told what
@@ -346,9 +363,7 @@ pub(crate) fn drain() -> Vec<ImeEvent> {
 
 fn push(event: ImeEvent) {
     QUEUE.lock().unwrap().push(event);
-    if let Some(waker) = WAKER.get() {
-        waker.lock().unwrap().wake();
-    }
+    wake();
 }
 
 // --- Natives, called on the Java UI thread -----------------------------------

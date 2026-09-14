@@ -25,6 +25,7 @@ mod app;
 mod application;
 #[cfg(any(android, test))]
 mod autofill;
+mod caret;
 mod command;
 mod gesture;
 mod hover;

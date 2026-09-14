@@ -580,6 +580,8 @@ pub struct App<A: Application> {
     /// A **text field** pressed with a finger: a hold there selects the word under it
     /// (milestone 511), where on anything else it is the widget's long press.
     pending_word: Option<WidgetId>,
+    /// The focused field's caret blink (milestone 513).
+    caret: crate::caret::CaretBlink,
     /// The form last shown to the platform's autofill service, as it was shown
     /// (milestone 512) — what a returned value is routed against, and what a value the
     /// service has not heard is told apart from.
@@ -715,6 +717,7 @@ impl<A: Application> App<A> {
             press: PressRecognizer::new(),
             long_press_msg: None,
             pending_word: None,
+            caret: crate::caret::CaretBlink::new(),
             #[cfg(android)]
             autofill_reported: Vec::new(),
             #[cfg(android)]
@@ -1316,6 +1319,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         window.set_visible(true);
                     }
                     self.window = Some(window.clone());
+                    // What the input bridge's wakes ask a frame of (milestone 513).
+                    #[cfg(android)]
+                    crate::android_ime::set_window(Some(window.clone()));
                     self.renderer = Some(renderer);
                     // The surface was (re)created: force a full rebuild on the first frame.
                     self.build_dirty = true;
@@ -1346,6 +1352,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         self.set_lifecycle(Lifecycle::Paused);
         self.renderer = None;
         self.window = None;
+        #[cfg(android)]
+        crate::android_ime::set_window(None);
         self.last_frame = None;
     }
 
@@ -1418,6 +1426,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             } else {
                 self.drag = None;
             }
+            self.request_redraw();
+        }
+
+        // The caret's turn is due: a frame to show it, or to hide it, in (milestone 513).
+        if matches!(cause, StartCause::ResumeTimeReached { .. })
+            && self.lifecycle == Lifecycle::Resumed
+            && self.caret.next_toggle(Instant::now()).is_some()
+        {
             self.request_redraw();
         }
 
@@ -2114,6 +2130,19 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.elapsed += dt;
                 self.runtime.time = self.elapsed;
 
+                // The caret's blink (milestone 513), on the wall clock: the animation
+                // clock above is clamped per frame and stands still between frames, and a
+                // caret at rest is exactly when there are none. Solid while the window is
+                // not the one in front, where nothing wakes the loop for it.
+                let caret_now = Instant::now();
+                let caret = if self.lifecycle == Lifecycle::Resumed {
+                    self.caret_signature()
+                } else {
+                    None
+                };
+                self.caret.observe(caret_now, caret);
+                self.runtime.caret_hidden = self.caret.hidden(caret_now);
+
                 // The application advances its own animations: navigation, gesture.
                 let mut app_animating = self.app.tick(dt);
 
@@ -2754,16 +2783,36 @@ impl<A: Application> App<A> {
     }
 
     /// The loop's idle policy: wake at the **nearest** deadline — the long press, the
-    /// live-reload poll — and otherwise wait outright.
+    /// live-reload poll, the caret's next turn — and otherwise wait outright.
     fn idle_control_flow(&self) -> ControlFlow {
         let press = self.press.deadline();
         let reload = self.reload.as_ref().map(|w| w.deadline());
-        match (press, reload) {
-            (Some(a), Some(b)) => ControlFlow::WaitUntil(a.min(b)),
-            (Some(a), None) => ControlFlow::WaitUntil(a),
-            (None, Some(b)) => ControlFlow::WaitUntil(b),
-            (None, None) => ControlFlow::Wait,
+        // Twice a second while a field has the caret and the window is in front, and never
+        // otherwise (milestone 513).
+        let caret = (self.lifecycle == Lifecycle::Resumed)
+            .then(|| self.caret.next_toggle(Instant::now()))
+            .flatten();
+        match [press, reload, caret].into_iter().flatten().min() {
+            Some(at) => ControlFlow::WaitUntil(at),
+            None => ControlFlow::Wait,
         }
+    }
+
+    /// The focused field's caret, as its blink sees it: which field, where its caret and
+    /// selection are, and a digest of its value. `None` when what has focus takes no
+    /// typing, which has no caret to blink.
+    fn caret_signature(&self) -> Option<crate::caret::Signature> {
+        use std::hash::{Hash, Hasher};
+        let field = self.runtime.input.focused?;
+        let widget = find_widget(self.tree.as_ref()?.as_ref(), field)?;
+        let text = widget.text_value()?;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        text.hash(&mut hasher);
+        Some(crate::caret::Signature {
+            field,
+            edit: self.runtime.edits.get(&field).copied().unwrap_or_default(),
+            value: hasher.finish(),
+        })
     }
 
     /// Pointer movement, mouse or finger: continues a drag under way, and otherwise
