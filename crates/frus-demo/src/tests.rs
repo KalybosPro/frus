@@ -1086,13 +1086,13 @@ fn the_sheet_shares_the_finger_with_its_list_and_puts_itself_away() {
         }
         closed
     };
-    runtime.sheet_release(sheet.id, &sheet.spec, px, 900.0);
+    runtime.sheet_release(sheet.id, &sheet.spec, px, 900.0, None);
     assert!(settle(&mut runtime).is_empty());
     assert_eq!(runtime.sheet_size(sheet.id, &sheet.spec), 1.0);
 
     // Lowered to just under a quarter and flicked down: put away, with the demo's message.
     runtime.sheet_drag(sheet.id, &sheet.spec, -0.76, px);
-    runtime.sheet_release(sheet.id, &sheet.spec, px, -1200.0);
+    runtime.sheet_release(sheet.id, &sheet.spec, px, -1200.0, None);
     let closed = settle(&mut runtime);
     assert_eq!(closed, vec![sheet.id], "dismissed once");
     let message = find_widget(&tree, sheet.id).and_then(|panel| panel.on_sheet_dismissed());
@@ -1154,6 +1154,59 @@ fn the_sheet_keeps_its_list_at_nothing() {
     let ui = build_ui(&tree, size, &runtime, &theme);
     let back = ui.sheet(sheet.id).expect("the sheet").panel;
     assert!((back.height - 40.0).abs() < 0.5, "brought back: {back:?}");
+}
+
+/// **A sheet flicked to full height carries its list on** (milestone 520).
+///
+/// Milestone 515 stopped the throw at the top, so on a phone a flick up the demo's list
+/// raised the sheet and left the places where they were — as if there were no more. This
+/// steps the real page as the shell does: the sheet settles, the throw that reaches the top
+/// is handed to the list, and the list is flung with it under its physics.
+#[test]
+fn a_sheet_flicked_to_full_height_carries_its_list_on() {
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::Push(Route::Sheet));
+    app.nav_from = None;
+    let theme = Theme::default();
+    let size = Size::new(400.0, 800.0);
+    let tree = view_for(&app, &theme, size);
+    let mut runtime = Runtime::default();
+    let sheet = build_ui(&tree, size, &runtime, &theme)
+        .sheets()
+        .first()
+        .cloned()
+        .expect("a sheet");
+    let list = *sheet.areas.first().expect("its list");
+    let physics = frus_widgets::ScrollPhysics::default();
+
+    // Raised a little first: a release exactly on a stop stays on it, flick or not.
+    runtime.sheet_drag(sheet.id, &sheet.spec, 0.05, sheet.available);
+    runtime.sheet_release(sheet.id, &sheet.spec, sheet.available, 900.0, Some(list));
+    let mut handed = Vec::new();
+    for _ in 0..90 {
+        let ui = build_ui(&tree, size, &runtime, &theme);
+        let (areas, regions) = (ui.sheets().to_vec(), ui.scroll_regions().to_vec());
+        runtime.advance_sheets(&areas, 1.0 / 60.0);
+        for (to, velocity) in runtime.take_sheet_handovers() {
+            handed.push((to, velocity));
+            let area = regions
+                .iter()
+                .find(|area| area.id == to)
+                .copied()
+                .expect("the list is in the frame");
+            runtime.fling_scroll(area, physics, (0.0, velocity));
+        }
+        runtime.advance_scroll(&regions, physics, 1.0 / 60.0);
+    }
+    assert_eq!(
+        runtime.sheet_size(sheet.id, &sheet.spec),
+        1.0,
+        "at full height"
+    );
+    assert_eq!(handed.len(), 1, "handed over once: {handed:?}");
+    assert_eq!(handed[0].0, list);
+    let offset = runtime.scroll.get(&list).map_or(0.0, |o| o.1);
+    assert!(offset > 50.0, "and the list went on: {offset}");
 }
 
 #[test]

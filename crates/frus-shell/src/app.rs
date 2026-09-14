@@ -2448,7 +2448,17 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         dismissed.extend(closed.into_iter().filter_map(|id| {
                             find_widget(tree, id).and_then(|widget| widget.on_sheet_dismissed())
                         }));
-                        moving
+                        // A throw that carried a sheet to full height goes on into its
+                        // list, under the list's own physics (milestone 520).
+                        let mut handed = false;
+                        for (list, velocity) in self.runtime.take_sheet_handovers() {
+                            if let Some(area) = scroll_regions.iter().find(|a| a.id == list) {
+                                let physics = area.physics_or(scroll_physics);
+                                handed |=
+                                    self.runtime.fling_scroll(*area, physics, (0.0, velocity));
+                            }
+                        }
+                        moving | handed
                     }
                     | self.runtime.advance_interactive(&interactive_bounds, dt)
                     | self.runtime.advance_ink(dt)
@@ -2809,7 +2819,7 @@ impl<A: Application> App<A> {
                     _ => None,
                 };
                 if let Some((id, spec, available)) = sheet {
-                    self.runtime.sheet_release(id, &spec, available, 0.0);
+                    self.runtime.sheet_release(id, &spec, available, 0.0, None);
                 }
                 self.drag = None;
                 self.runtime.input.pressed = None;
@@ -3375,13 +3385,18 @@ impl<A: Application> App<A> {
             } else {
                 0.0
             };
-            let spec = self
-                .ui
-                .as_ref()
-                .and_then(|ui| ui.sheet(*id))
-                .map(|sheet| sheet.spec.clone());
-            if let Some(spec) = spec {
-                self.runtime.sheet_release(*id, &spec, *available, velocity);
+            // Thrown by its handle, a sheet with one list in it carries that list on at the
+            // top, as the reference's does: there its whole content is the list.
+            let sheet = self.ui.as_ref().and_then(|ui| ui.sheet(*id)).map(|sheet| {
+                let list = match sheet.areas.as_slice() {
+                    [only] => Some(*only),
+                    _ => None,
+                };
+                (sheet.spec.clone(), list)
+            });
+            if let Some((spec, list)) = sheet {
+                self.runtime
+                    .sheet_release(*id, &spec, *available, velocity, list);
             }
             if *moved {
                 self.request_redraw();
@@ -3460,6 +3475,7 @@ impl<A: Application> App<A> {
                     &sheet.spec,
                     sheet.available,
                     if sheet_took { velocity } else { 0.0 },
+                    Some(*id),
                 );
             }
         }

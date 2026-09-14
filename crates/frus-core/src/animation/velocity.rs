@@ -103,6 +103,17 @@ const HORIZON_MS: f32 = 100.0;
 /// A gap longer than this (in ms) means the finger stopped: the history before it
 /// belongs to a different gesture, and a release after it is not a fling.
 const STOPPED_MS: f32 = 40.0;
+/// How many of the newest gaps between samples say what pace they are arriving at.
+const DELIVERY_GAPS: usize = 3;
+/// The most that pace excuses, in ms — past it, a pause is a pause however slowly the
+/// application is running.
+///
+/// Samples are stamped when an event is *handled*, not when the finger moved: no event time
+/// reaches the shell on every platform. An application that renders slowly is handed its
+/// events once per frame, so the release of a finger still moving arrives up to a frame after
+/// its last movement — and with frames of ~37 ms that alone crossed `STOPPED_MS`, and a throw
+/// on a phone was read as a finger that had stopped (milestone 520).
+const MAX_DELIVERY_MS: f32 = 50.0;
 /// Below this many samples there is nothing to regress.
 const MIN_SAMPLES: usize = 3;
 
@@ -196,8 +207,9 @@ impl VelocityTracker {
     pub fn estimate(&self, now: f32) -> Option<VelocityEstimate> {
         let newest = self.samples[self.index]?;
         // The finger came to rest before letting go. Whatever it was doing 100 ms
-        // ago, it is not throwing anything now.
-        if (now - newest.time) * 1000.0 > STOPPED_MS {
+        // ago, it is not throwing anything now — once the pace the samples arrived at is
+        // allowed for: a release handled one frame after the last movement is not a pause.
+        if (now - newest.time) * 1000.0 - self.delivery_ms() > STOPPED_MS {
             return Some(VelocityEstimate::STILL);
         }
         match self.strategy {
@@ -226,6 +238,9 @@ impl VelocityTracker {
         let mut oldest = newest;
         let mut previous = newest;
         let mut index = self.index;
+        // Samples arriving a frame apart are as far apart as the frames: the horizon keeps
+        // enough of them to fit, and a gap is a pause only beyond that pace.
+        let delivery = self.delivery_ms();
 
         while count < HISTORY {
             let Some(sample) = self.samples[index] else {
@@ -235,7 +250,7 @@ impl VelocityTracker {
             let gap = ((sample.time - previous.time) * 1000.0).abs();
             previous = sample;
             // Too old to be this motion, or separated from it by a pause.
-            if age > HORIZON_MS || gap > STOPPED_MS {
+            if age > HORIZON_MS + delivery || gap - delivery > STOPPED_MS {
                 break;
             }
             oldest = sample;
@@ -275,6 +290,34 @@ impl VelocityTracker {
             duration,
             offset,
         }
+    }
+
+    /// The pace the newest samples arrived at, in ms, capped at `MAX_DELIVERY_MS`: the median
+    /// of the last `DELIVERY_GAPS` gaps between them, or the shortest when there are fewer.
+    ///
+    /// The median, so that neither kind of odd gap moves it — one real pause among them does
+    /// not excuse itself, and two events handled back to back do not take the allowance away.
+    fn delivery_ms(&self) -> f32 {
+        let mut gaps = [0.0f32; DELIVERY_GAPS];
+        let mut count = 0;
+        let mut index = self.index;
+        while count < DELIVERY_GAPS {
+            let before = if index == 0 { HISTORY } else { index } - 1;
+            let (Some(newer), Some(older)) = (self.samples[index], self.samples[before]) else {
+                break;
+            };
+            gaps[count] = ((newer.time - older.time) * 1000.0).max(0.0);
+            count += 1;
+            index = before;
+        }
+        let gaps = &mut gaps[..count];
+        gaps.sort_by(f32::total_cmp);
+        let pace = match gaps.len() {
+            0 => 0.0,
+            DELIVERY_GAPS => gaps[DELIVERY_GAPS / 2],
+            _ => gaps[0],
+        };
+        pace.min(MAX_DELIVERY_MS)
     }
 
     /// The velocity between the two samples `offset` steps back from the newest.
@@ -522,6 +565,120 @@ mod tests {
         let estimate = tracker.estimate(last + 0.1).expect("samples");
         assert_eq!(estimate.velocity, Velocity::ZERO);
         assert_eq!(estimate, VelocityEstimate::STILL);
+    }
+
+    /// Feeds a straight line at `speed` px/s along x, one sample every `step` seconds.
+    /// Returns the last sample's time.
+    fn paced(tracker: &mut VelocityTracker, speed: f32, step: f32, samples: usize) -> f32 {
+        let mut t = 0.0;
+        for i in 0..samples {
+            t = i as f32 * step;
+            tracker.add_position(t, Point::new(speed * t, 0.0));
+        }
+        t
+    }
+
+    /// **A throw handed over a frame at a time is still a throw.** Seen on a phone: with the
+    /// application rendering at ~27 frames a second, moves arrived 37 ms apart and the release
+    /// 41 ms after the last one — past the 40 ms stop, so a flick read as a finger at rest.
+    ///
+    /// Slower still, frames 45 ms apart put every gap between samples past the stop too, and
+    /// at 51 ms the 100 ms horizon alone would leave two samples, which is too few to fit.
+    #[test]
+    fn a_throw_delivered_a_frame_at_a_time_is_still_a_throw() {
+        for strategy in [
+            VelocityStrategy::Regression,
+            VelocityStrategy::RecentAverage(BOUNCING_FLING_WEIGHTS),
+        ] {
+            for step in [0.037, 0.045, 0.051] {
+                let mut tracker = VelocityTracker::new(strategy);
+                let last = paced(&mut tracker, 2000.0, step, 6);
+                let estimate = tracker.estimate(last + 0.041).expect("samples");
+                assert!(
+                    (estimate.velocity.x - 2000.0).abs() < 40.0,
+                    "{strategy:?} every {step} s: got {}",
+                    estimate.velocity.x
+                );
+            }
+        }
+    }
+
+    /// A throw only three samples long, at the same slow pace: two gaps are all there is to
+    /// read the pace from, and they are enough.
+    #[test]
+    fn a_short_throw_at_slow_frames_is_still_a_throw() {
+        let mut tracker = VelocityTracker::new(VelocityStrategy::Regression);
+        let last = paced(&mut tracker, 2000.0, 0.037, 3);
+        let estimate = tracker.estimate(last + 0.041).expect("samples");
+        assert!(
+            (estimate.velocity.x - 2000.0).abs() < 40.0,
+            "got {}",
+            estimate.velocity.x
+        );
+    }
+
+    /// **And a finger that stopped still stopped**, however slowly the frames came: the
+    /// allowance is one frame's worth, not a licence.
+    #[test]
+    fn slow_frames_do_not_hide_a_finger_that_stopped() {
+        let mut tracker = VelocityTracker::new(VelocityStrategy::Regression);
+        let last = paced(&mut tracker, 2000.0, 0.037, 6);
+        let estimate = tracker.estimate(last + 0.12).expect("samples");
+        assert_eq!(estimate, VelocityEstimate::STILL);
+        // Nor does an application slower than any frame buy an unlimited allowance.
+        let mut crawling = VelocityTracker::new(VelocityStrategy::Regression);
+        let last = paced(&mut crawling, 2000.0, 0.2, 6);
+        assert_eq!(
+            crawling.estimate(last + 0.1).expect("samples"),
+            VelocityEstimate::STILL
+        );
+    }
+
+    /// Two events handled back to back do not take the allowance away: the pace is the
+    /// median of the last gaps, not the shortest.
+    #[test]
+    fn one_short_gap_does_not_change_the_pace() {
+        let mut tracker = VelocityTracker::new(VelocityStrategy::Regression);
+        for (t, x) in [
+            (0.0, 0.0),
+            (0.037, 74.0),
+            (0.074, 148.0),
+            (0.111, 222.0),
+            (0.116, 232.0),
+            (0.153, 306.0),
+        ] {
+            tracker.add_position(t, Point::new(x, 0.0));
+        }
+        // 50 ms after the last move: a frame's lateness at a 37 ms pace, and past the stop by
+        // the 5 ms gap's count.
+        let estimate = tracker.estimate(0.153 + 0.05).expect("samples");
+        assert!(estimate.velocity.x > 1500.0, "got {}", estimate.velocity.x);
+    }
+
+    /// And one real pause does not excuse itself. A finger sampled every 8 ms throws, stops for
+    /// 60 ms, reports one last position where it stopped and lifts: the pause is among the
+    /// newest gaps, and taking the pace from it would let it excuse the stop it is.
+    #[test]
+    fn a_pause_just_before_the_release_excuses_nothing() {
+        let mut tracker = VelocityTracker::new(VelocityStrategy::Regression);
+        let mut t = 0.0;
+        for i in 0..6 {
+            t = i as f32 * 0.008;
+            tracker.add_position(t, Point::new(i as f32 * 16.0, 0.0));
+        }
+        let stopped = t + 0.06;
+        tracker.add_position(stopped, Point::new(80.0, 0.0));
+        let estimate = tracker.estimate(stopped + 0.005).expect("samples");
+        assert!(
+            estimate.velocity.x < 400.0,
+            "the throw before the pause leaked across it: {}",
+            estimate.velocity.x
+        );
+        // And the motion is only what came after the pause: none of the throw's travel.
+        assert!(
+            estimate.offset.0.abs() < 1.0 && estimate.duration < 0.01,
+            "the history ran back across the pause: {estimate:?}"
+        );
     }
 
     #[test]

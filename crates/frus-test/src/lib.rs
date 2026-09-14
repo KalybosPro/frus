@@ -141,6 +141,15 @@ impl Stage {
         self.runtime.sync_pages(&regions);
         let (dismiss_moving, _dismissed) = self.runtime.advance_dismiss(&dismissables, dt);
         let (sheets_moving, _closed) = self.runtime.advance_sheets(&sheets, dt);
+        // A throw that carried a sheet to full height goes on into its list, as the shell
+        // does it.
+        let mut handed = false;
+        for (list, velocity) in self.runtime.take_sheet_handovers() {
+            if let Some(area) = regions.iter().find(|area| area.id == list) {
+                let physics = area.physics_or(ScrollPhysics::default());
+                handed |= self.runtime.fling_scroll(*area, physics, (0.0, velocity));
+            }
+        }
         // `|` and not `||`: every family must be stepped, whatever an earlier one
         // answered. This is the shell's own list, in the shell's own order.
         self.runtime.advance(dt)
@@ -164,6 +173,7 @@ impl Stage {
             | self.runtime.advance_interactive(&interactive, dt)
             | dismiss_moving
             | sheets_moving
+            | handed
     }
 
     /// The shell's **first** frame: every implicit animation adopts its target with

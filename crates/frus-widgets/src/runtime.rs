@@ -654,6 +654,10 @@ pub struct Runtime {
     /// The retained height of each [`crate::DraggableScrollableSheet`], keyed by its
     /// panel. Absent = never moved, and at its initial height.
     pub sheets: HashMap<WidgetId, crate::sheet::SheetState>,
+    /// Throws that carried a sheet to full height since they were last taken: the list
+    /// each goes on in and the velocity it goes on at, in px/s. See
+    /// [`Runtime::take_sheet_handovers`].
+    pub sheet_handovers: Vec<(WidgetId, f32)>,
     /// The page each [`crate::PageView`] was last **told to show**, so that a request
     /// is acted on when it *changes* rather than re-asserted every frame — which
     /// would leave the offset unswipeable. Absent = never seen, so the next request
@@ -2176,26 +2180,40 @@ impl Runtime {
     }
 
     /// The finger lets go of the sheet `id` at `velocity` px/s, positive growing it, over
-    /// a box `available` px tall.
+    /// a box `available` px tall — from `list`, when the finger was on the list inside it,
+    /// which is then handed whatever is left of a throw that reaches full height.
     pub fn sheet_release(
         &mut self,
         id: WidgetId,
         spec: &crate::sheet::SheetSpec,
         available: f32,
         velocity: f32,
+        list: Option<WidgetId>,
     ) {
-        crate::sheet::release_of(&mut self.sheets, id, spec, available, velocity);
+        crate::sheet::release_of(&mut self.sheets, id, spec, available, velocity, list);
     }
 
     /// Advances every sheet of the frame by `dt`. Returns `(still moving, the sheets
     /// lowered to nothing on this frame)` — the second being what the shell turns into
-    /// messages.
+    /// messages. A throw that reached full height is kept for
+    /// [`Runtime::take_sheet_handovers`].
     pub fn advance_sheets(
         &mut self,
         areas: &[crate::sheet::SheetArea],
         dt: f32,
     ) -> (bool, Vec<WidgetId>) {
-        crate::sheet::advance_all(&mut self.sheets, areas, dt)
+        let step = crate::sheet::advance_all(&mut self.sheets, areas, dt);
+        self.sheet_handovers.extend(step.handovers);
+        (step.moving, step.dismissed)
+    }
+
+    /// The throws that carried a sheet to full height since the last call: the list each
+    /// goes on in, and the velocity to fling it at, in px/s growing its offset.
+    ///
+    /// The sheet does not fling the list itself, because a fling is started under the
+    /// list's physics, and those are the application's to choose.
+    pub fn take_sheet_handovers(&mut self) -> Vec<(WidgetId, f32)> {
+        std::mem::take(&mut self.sheet_handovers)
     }
 
     /// Calls off the pull of `id` without asking for anything — the list scrolled away
