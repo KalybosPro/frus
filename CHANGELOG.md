@@ -8,13 +8,21 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 515 so far, each documenting the objective, the alternatives
+> record — one per step, 516 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **An application bar's actions ran past its edge** (J516). The bar keeps as many labelled
+  actions inline as fit and folds the rest into its `⋯` menu, and it decided how many on an
+  estimate of each button it did not share with the buttons — 20 px either side of the label
+  where a button takes 24, and no minimum where a button is never narrower than 64 — and on a
+  row with a gap fewer than it had. The slips added up to as much as 34 px past the edge across
+  the widths a new test sweeps; the demo's own bar ran 13 px past it on a desktop the day one of
+  its actions was taken out. The bar now measures each action, and its `⋯`, on the very button
+  it then draws, and counts the row's gaps as the row has them.
 - **The demo's sign-up form opened a sentence keyboard for every field** (J514). Nothing in
   the wizard said which keyboard a field wanted, so on a phone the email address came back
   capitalised, with a space after each suggestion taken. The name now opens a name keyboard,
