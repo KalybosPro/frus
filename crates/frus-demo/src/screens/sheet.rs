@@ -1,6 +1,8 @@
 //! The draggable sheet screen (milestone 515): a sheet over a page, dragged between a
 //! quarter, half and the whole of it, holding a list long enough to scroll at every one.
 
+use frus_widgets::Text;
+
 use crate::prelude::*;
 
 /// What the sheet lists: enough to scroll however tall the sheet is.
@@ -62,7 +64,12 @@ pub(crate) fn sheet_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>>
     }
     Scaffold::new()
         .background(theme.background)
-        .app_bar(NavigationBar::new("Draggable sheet").on_back(Msg::Pop))
+        .app_bar(
+            AppBar::new("")
+                .title(Text::new("Draggable sheet"))
+                .leading(IconButton::new(Icons::ARROW_BACK).on_press(Msg::Pop))
+                .build(),
+        )
         .body(stack)
         .build()
 }
