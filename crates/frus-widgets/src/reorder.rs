@@ -88,7 +88,11 @@ pub fn reflow_reorder_columns(
 /// - `line`: the **insertion line** (the **target column**'s x band and the insertion y) —
 ///   `None` if the cursor is over no target (only the source gap closes);
 /// - `lifted`: the owners of the lifted card's **subtree** — removed from the preview (they
-///   are drawn separately as a ghost).
+///   are drawn separately as a ghost);
+/// - `movable`: the owners of everything that can be reordered — cards, rows, drop zones, and
+///   what each of them paints. **Nothing else moves.** The reflow is geometric, and a button
+///   floating over a list, or the navigation bar under it, sits in the same band as the cards
+///   without being one of them.
 ///
 /// The **slot** threshold is the card's height. A block **taller** than `1.5×` that slot is a
 /// column or page background (not a card): left in place — the vertical counterpart of the
@@ -99,6 +103,7 @@ pub fn reflow_reorder_cards(
     src: Rect,
     line: Option<Rect>,
     lifted: &HashSet<u64>,
+    movable: &HashSet<u64>,
 ) -> Vec<Primitive> {
     let slot = src.height;
     // Beyond this: a block covers more than a card (a column or page background) — left in place.
@@ -111,6 +116,10 @@ pub fn reflow_reorder_cards(
             // The lifted card: removed from the preview (it floats as a ghost).
             if lifted.contains(&p.owner()) {
                 return None;
+            }
+            // Not part of anything that can be reordered: it stays where it is drawn.
+            if !movable.contains(&p.owner()) {
+                return Some(p.clone());
             }
             let b = p.bounds();
             // A large background (column or page): immobile.
@@ -269,6 +278,7 @@ mod tests {
             Rect::new(0.0, 0.0, 100.0, 44.0),
             None,
             &lifted,
+            &cards(),
         );
         assert_eq!(rect_y_of_owner(&out, 1), None, "the lifted card is removed");
         assert_eq!(
@@ -300,6 +310,7 @@ mod tests {
             Rect::new(120.0, 0.0, 100.0, 44.0),
             Some(line),
             &lifted,
+            &cards(),
         );
         // The source column (B): the gap closes.
         assert_eq!(rect_y_of_owner(&out, 4), None, "the lifted card is removed");
@@ -343,6 +354,7 @@ mod tests {
             Rect::new(0.0, 0.0, 100.0, 44.0),
             Some(line),
             &lifted,
+            &cards(),
         );
         assert_eq!(rect_y_of_owner(&out, 1), None, "the lifted card is removed");
         // owner 2 (centre 74): below the source (−slot), above the line → **moves up** one slot.
@@ -362,6 +374,39 @@ mod tests {
         assert_eq!(rect_y_of_owner(&out, 4), Some(0.0), "column B untouched");
     }
 
+    /// Everything the board paints that can be reordered: the six cards.
+    fn cards() -> HashSet<u64> {
+        (1..=6).collect()
+    }
+
+    /// **Only what can be reordered makes room.** Seen on a phone: the reflow moved every
+    /// primitive in the source's band below it, and the demo's floating action button kept
+    /// its disc while its `+` slid up a row, and the navigation bar's items left the bar.
+    #[test]
+    fn only_what_can_be_reordered_makes_room() {
+        let mut base = board();
+        // A button floating over column A, below the lifted card and inside its band.
+        base.set_owner(99);
+        base.fill_rect(Rect::new(40.0, 120.0, 20.0, 20.0), Color::BLACK);
+        let out = reflow_reorder_cards(
+            base.primitives(),
+            Rect::new(0.0, 0.0, 100.0, 44.0),
+            None,
+            &HashSet::from([1]),
+            &cards(),
+        );
+        assert_eq!(
+            rect_y_of_owner(&out, 2),
+            Some(8.0),
+            "a card below the lifted one still closes the gap"
+        );
+        assert_eq!(
+            rect_y_of_owner(&out, 99),
+            Some(120.0),
+            "the floating button is not a card, and stays where it is"
+        );
+    }
+
     #[test]
     fn tall_backgrounds_stay_put() {
         let base = board();
@@ -372,6 +417,7 @@ mod tests {
             Rect::new(0.0, 0.0, 100.0, 44.0),
             Some(line),
             &lifted,
+            &cards(),
         );
         // Both column backgrounds (height 300 > 1.5×44) stay at y = 0.
         let bgs: Vec<f32> = out

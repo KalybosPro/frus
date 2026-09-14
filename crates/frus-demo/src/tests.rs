@@ -311,6 +311,70 @@ fn toggle_delete_and_clear_done() {
     assert_eq!(app.todos[0].text, "c");
 }
 
+/// **What makes room for a carried row is the rows**, and all of each.
+///
+/// The preview slides aside whatever sits in the carried row's band below it, and on a
+/// phone that took the floating action button's `+` a row away from its own disc and the
+/// navigation bar's items out of the bar. What may move is now asked of the tree, and this
+/// reads the answer off the demo's real page — a floating button, a bar, a field and a
+/// header around the list — against what the page paints: every primitive inside a row
+/// moves, and nothing outside one does.
+#[test]
+fn what_makes_room_for_a_carried_row_is_the_rows() {
+    let mut app = TodoApp::default();
+    for t in ["one", "two", "three"] {
+        add(&mut app, t);
+    }
+    let theme = Theme::dark();
+    let size = Size::new(424.0, 918.0);
+    let tree = root_for(&app, &theme, size);
+    let (ui, nodes) = MediaQuery::new(size)
+        .scope(|| build_ui_inspected(tree.as_ref(), size, &Runtime::default(), &theme));
+    let rows: Vec<frus_widgets::Rect> = nodes
+        .iter()
+        .filter(|n| n.name == "ReorderRow")
+        .map(|n| n.rect)
+        .collect();
+    assert_eq!(rows.len(), 3, "one row per task");
+
+    let movable = frus_widgets::reorderable_owners(&ui, tree.as_ref());
+    let centre = |b: frus_widgets::Rect| Point::new(b.x + b.width * 0.5, b.y + b.height * 0.5);
+    // Two questions, asked two ways. What a row paints lies **within** it — a page's
+    // background behind the whole list merely has its centre on one. And what moves must
+    // be centred on a row — a row's shadow may spill past its box, but not off it.
+    let within = |row: &frus_widgets::Rect, b: frus_widgets::Rect| {
+        b.x >= row.x - 0.5
+            && b.y >= row.y - 0.5
+            && b.x + b.width <= row.x + row.width + 0.5
+            && b.y + b.height <= row.y + row.height + 0.5
+    };
+    let mut left_behind = Vec::new();
+    let mut strays = Vec::new();
+    let mut moving = 0;
+    for p in ui.scene().primitives() {
+        let bounds = p.bounds();
+        let moves = movable.contains(&p.owner());
+        if moves {
+            if rows.iter().any(|row| row.contains(centre(bounds))) {
+                moving += 1;
+            } else {
+                strays.push(bounds);
+            }
+        } else if rows.iter().any(|row| within(row, bounds)) {
+            left_behind.push(bounds);
+        }
+    }
+    assert!(moving > 0, "the rows move");
+    assert!(
+        left_behind.is_empty(),
+        "everything a row paints moves with it: {left_behind:?}"
+    );
+    assert!(
+        strays.is_empty(),
+        "and nothing painted outside the rows does: {strays:?}"
+    );
+}
+
 /// A task dragged into a new place, under the filter that makes the two indices
 /// disagree.
 ///

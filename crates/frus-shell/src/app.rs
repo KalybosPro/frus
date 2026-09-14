@@ -14,11 +14,11 @@ use web_time::Instant;
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_deferred, build_ui, collect_ids, find_by_key, find_path, find_widget,
-    reflow_reorder_cards, reflow_reorder_columns, subtree_ids, Accessibility, Brightness, Color,
-    Cursor as UiCursor, Edit, EditKind, EditSnapshot, FocusDirection, Insets, Key, KeyResponse,
-    KeyStroke, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, ScrollTo,
-    Scrollable, ShortcutKey, Size, Theme, Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId,
-    WindowInsets,
+    reflow_reorder_cards, reflow_reorder_columns, reorderable_owners, subtree_ids, Accessibility,
+    Brightness, Color, Cursor as UiCursor, Edit, EditKind, EditSnapshot, FocusDirection, Insets,
+    Key, KeyResponse, KeyStroke, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene,
+    ScrollTo, Scrollable, ShortcutKey, Size, Theme, Ui, VelocityEstimate, VelocityTracker, Widget,
+    WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -4436,6 +4436,17 @@ impl<A: Application> App<A> {
         // list straight back out from under the row.
         self.runtime.scroll_target.insert(area.id, next);
         self.runtime.scroll_velocity.remove(&area.id);
+        // What is carried stays under the finger. Its ghost is drawn at the box the frame
+        // puts it at, offset by how far the finger has moved since the press; the frame now
+        // puts that box where the content went, so the press goes there too. Otherwise the
+        // ghost rides up with the list, stops hanging over the edge, and the scroll it
+        // started starves itself — seen on a phone, milestone 517.
+        if let Some(drag) = self.drag.as_mut() {
+            follow_content(
+                drag,
+                area.offset_delta((next.0 - offset.0, next.1 - offset.1)),
+            );
+        }
         true
     }
 
@@ -4611,7 +4622,18 @@ impl<A: Application> App<A> {
                         y: self.reorder_y,
                         ..r
                     });
-                let reflowed = reflow_reorder_cards(scene.primitives(), src, line, &owners);
+                // Only what can be reordered makes room — a card, a row, a drop zone, and
+                // what each of them paints. The reflow is geometric, and a button floating
+                // over the list or the navigation bar under it shares the band without being
+                // part of the list: moved with it, the first left its `+` a row above its own
+                // disc on a phone (milestone 517).
+                let movable = self
+                    .tree
+                    .as_ref()
+                    .map(|tree| reorderable_owners(ui, tree.as_ref()))
+                    .unwrap_or_default();
+                let reflowed =
+                    reflow_reorder_cards(scene.primitives(), src, line, &owners, &movable);
                 scene.clear();
                 for primitive in reflowed {
                     scene.push_primitive(primitive);
@@ -5200,6 +5222,26 @@ fn apply_scroll_requests<Msg>(
         }
     }
     (unplaced, moved)
+}
+
+/// Moves a carried item's press by `shift` — how far its content moved on screen — so that
+/// the ghost, drawn at the content's box plus the finger's travel since the press, stays
+/// under the finger. A lifted item's box, recorded at the press, goes with it.
+///
+/// Anything else being dragged is not carried content, and is left alone.
+fn follow_content(drag: &mut Drag, shift: (f32, f32)) {
+    match drag {
+        Drag::Reorder { start, .. } => {
+            start.x += shift.0;
+            start.y += shift.1;
+        }
+        Drag::Item { source, start, .. } => {
+            start.x += shift.0;
+            start.y += shift.1;
+            source.rect = source.rect.translate(shift.0, shift.1);
+        }
+        _ => {}
+    }
 }
 
 /// One axis of the auto-scroll: how far the **content** has to move this frame so that an
@@ -6103,7 +6145,10 @@ mod scroll_request_tests {
 
 #[cfg(test)]
 mod autoscroll_tests {
-    use super::{edge_autoscroll, AUTOSCROLL_MAX_OVERHANG, AUTOSCROLL_VELOCITY};
+    use super::{
+        edge_autoscroll, follow_content, Drag, Point, Rect, WidgetId, AUTOSCROLL_MAX_OVERHANG,
+        AUTOSCROLL_VELOCITY,
+    };
 
     /// A viewport from 100 to 500, with room to scroll either way.
     const VIEW: (f32, f32) = (100.0, 500.0);
@@ -6154,6 +6199,60 @@ mod autoscroll_tests {
     fn above_the_top_the_content_comes_down() {
         let up = edge_autoscroll((90.0, 150.0), VIEW, ROOM, DT).expect("ten above");
         assert!(up > 0.0, "{up}");
+    }
+
+    /// **What is carried stays under the finger while its list scrolls.**
+    ///
+    /// Seen on a phone: a row carried to the bottom edge started the list scrolling, and
+    /// the ghost rode up with the content — it is drawn at the row's box, and the box had
+    /// moved — until it no longer hung over the edge and the scroll stopped by itself,
+    /// 95 px in. The press moves with the content instead.
+    #[test]
+    fn a_carried_item_follows_its_content() {
+        // The list scrolled on by 95 px: its content went 95 px up the screen.
+        let shift = (0.0, -95.0);
+        let pressed = Point::new(900.0, 1330.0);
+        let row_then = Rect::new(105.0, 1250.0, 700.0, 160.0);
+        let row_now = row_then.translate(0.0, -95.0);
+        let finger = Point::new(900.0, 2030.0);
+
+        let mut reorder = Drag::Reorder {
+            id: WidgetId::from_u64(1),
+            from: 0,
+            start: pressed,
+            moved: true,
+        };
+        follow_content(&mut reorder, shift);
+        let Drag::Reorder { start, .. } = reorder else {
+            unreachable!("still a reorder");
+        };
+        // Drawn the way the shell draws it: the row's box this frame, plus the travel.
+        let ghost = row_now.translate(finger.x - start.x, finger.y - start.y);
+        assert_eq!(
+            ghost,
+            row_then.translate(finger.x - pressed.x, finger.y - pressed.y),
+            "the ghost is where it would be had nothing scrolled"
+        );
+
+        let mut item = Drag::Item {
+            source: frus_widgets::DragSource {
+                id: WidgetId::from_u64(1),
+                rect: row_then,
+                payload: 7,
+            },
+            start: pressed,
+            moved: true,
+            over: None,
+        };
+        follow_content(&mut item, shift);
+        let Drag::Item { source, start, .. } = item else {
+            unreachable!("still an item");
+        };
+        assert_eq!(
+            source.rect, row_now,
+            "the box taken at the press went with the content"
+        );
+        assert_eq!(start, Point::new(900.0, 1235.0), "and so did the press");
     }
 
     /// At the end of the content there is nothing left to reveal, so the list stays where

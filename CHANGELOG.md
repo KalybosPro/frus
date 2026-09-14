@@ -8,13 +8,22 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 516 so far, each documenting the objective, the alternatives
+> record — one per step, 517 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **A row carried to the bottom of a list stopped the list scrolling almost at once** (J517,
+  #44). Seen on a phone: the lifted row is drawn at its own box, offset by the finger's travel
+  since the press, and the box moved up with the scrolling content — so the row rode back
+  inside the viewport, and auto-scroll, which is measured against it, switched itself off 95 px
+  in. The press now moves with the content, so the row stays under the finger and the list
+  keeps coming to the end; a lifted `Draggable` keeps its contents inside its card the same
+  way. And the preview slid aside everything in the carried row's band, a floating button's
+  `+` and a navigation bar's items included: only what can be reordered makes room now
+  (`reorderable_owners`, and a `movable` set on `reflow_reorder_cards`).
 - **An application bar's actions ran past its edge** (J516). The bar keeps as many labelled
   actions inline as fit and folds the rest into its `⋯` menu, and it decided how many on an
   estimate of each button it did not share with the buttons — 20 px either side of the label

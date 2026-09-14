@@ -389,7 +389,8 @@ pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use ui::{
     build_deferred, build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget,
-    subtree_ids, FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
+    reorderable_owners, subtree_ids, FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar,
+    Ui,
 };
 pub use undo::{EditKind, EditSnapshot, UndoHistory, RUN_PAUSE};
 pub use wheel::{ListWheel, RowOnWheel, WheelGeometry};

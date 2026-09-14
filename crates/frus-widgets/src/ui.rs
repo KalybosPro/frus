@@ -1208,6 +1208,11 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, _)| *id)
     }
 
+    /// Every **reorderable** of the frame, with its box, in paint order.
+    pub fn reorderables(&self) -> &[(WidgetId, Rect)] {
+        &self.reorderables
+    }
+
     /// Topmost **interactive** viewport (`InteractiveViewer`) under `point`: (id, its screen
     /// viewport). The shell routes panning and zooming to it.
     pub fn interactive_at(&self, point: Point) -> Option<(WidgetId, Rect)> {
@@ -5216,6 +5221,30 @@ pub fn subtree_ids<Msg>(widget: &dyn Widget<Msg>, root_id: WidgetId) -> Vec<Widg
     let mut out = Vec::new();
     walk(widget, root_id, &mut out);
     out
+}
+
+/// The owners of everything a carried row, card or item may be **moved past** this frame:
+/// every reorderable that can be dropped on, and all it paints.
+///
+/// What a reorder preview slides out of the way is decided by geometry — the band the
+/// source sits in — and geometry alone moves whatever shares that band: a button floating
+/// over a list, the navigation bar under it. This is the other half of the question, *is
+/// it part of something that can be reordered*, asked of the tree. A grip is inside its
+/// row, so it moves with it without being a target itself.
+pub fn reorderable_owners<Msg>(
+    ui: &Ui<Msg>,
+    root: &dyn Widget<Msg>,
+) -> std::collections::HashSet<u64> {
+    ui.reorderables
+        .iter()
+        .filter_map(|(id, _)| {
+            find_widget(root, *id)
+                .filter(|widget| widget.reorder_droppable())
+                .map(|widget| subtree_ids(widget, *id))
+        })
+        .flatten()
+        .map(|id| id.as_u64())
+        .collect()
 }
 
 /// Identity of the **first** widget declaring the key `key` (a hash), or `None`. It is how the
