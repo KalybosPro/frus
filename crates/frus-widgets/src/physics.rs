@@ -435,6 +435,43 @@ pub fn page_target(metrics: ScrollMetrics, extent: f32, velocity: f32, tolerance
     (page.round() * extent.max(1.0)).clamp(metrics.min, metrics.max)
 }
 
+/// The resting place a **snapping sheet** heads for when the finger lets go at `position`
+/// moving at `velocity` — both in the sheet's own units, growing as it rises. `snaps`
+/// are the positions it may rest at, in increasing order.
+///
+/// The rule is the paged view's, stated on uneven stops rather than a fixed extent: a
+/// release slower than `tolerance` goes to the **nearer** of the two stops around it,
+/// and any faster one to the next stop **the way it was going**, however little of the
+/// way it had come. A position already on a stop stays there, and one outside the stops
+/// comes back to the nearest end.
+pub fn snap_target(position: f32, velocity: f32, snaps: &[f32], tolerance: f32) -> f32 {
+    let (Some(&first), Some(&last)) = (snaps.first(), snaps.last()) else {
+        return position;
+    };
+    let Some(next) = snaps.iter().position(|&snap| snap >= position) else {
+        return last;
+    };
+    if next == 0 {
+        return first;
+    }
+    let (below, above) = (snaps[next - 1], snaps[next]);
+    if above == position {
+        return above;
+    }
+    if velocity.abs() <= tolerance {
+        return if position - below < above - position {
+            below
+        } else {
+            above
+        };
+    }
+    if velocity < 0.0 {
+        below
+    } else {
+        above
+    }
+}
+
 /// The constant deceleration the **fast** profile adds on top of the drag, in
 /// px·s⁻² — the reference's own figure.
 ///
@@ -525,6 +562,39 @@ impl Simulation for Ballistic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const STOPS: [f32; 3] = [200.0, 400.0, 800.0];
+
+    /// **Let go slowly, and a sheet rests at the nearer stop** — measured on the uneven
+    /// gaps a sheet has, not on a page extent: 290 is nearer 200, 310 nearer 400, and 700
+    /// nearer 800 although it is past the middle of nothing a page view would recognise.
+    #[test]
+    fn a_slow_release_rests_at_the_nearer_stop() {
+        assert_eq!(snap_target(290.0, 0.0, &STOPS, 1.0), 200.0);
+        assert_eq!(snap_target(310.0, 0.0, &STOPS, 1.0), 400.0);
+        assert_eq!(snap_target(550.0, 0.0, &STOPS, 1.0), 400.0);
+        assert_eq!(snap_target(700.0, 0.5, &STOPS, 1.0), 800.0);
+    }
+
+    /// **Any flick goes to the next stop the way it went**, however little of the way it
+    /// had come — and never further than the next one, however hard.
+    #[test]
+    fn a_flick_goes_to_the_next_stop_its_way_and_no_further() {
+        assert_eq!(snap_target(210.0, 50.0, &STOPS, 1.0), 400.0);
+        assert_eq!(snap_target(790.0, -50.0, &STOPS, 1.0), 400.0);
+        assert_eq!(snap_target(210.0, 9000.0, &STOPS, 1.0), 400.0);
+        assert_eq!(snap_target(390.0, -9000.0, &STOPS, 1.0), 200.0);
+    }
+
+    /// On a stop it stays, whichever way it was nudged; outside them it comes back to the
+    /// nearest end; with no stops it rests where it is.
+    #[test]
+    fn a_stop_holds_and_the_ends_bound() {
+        assert_eq!(snap_target(400.0, 500.0, &STOPS, 1.0), 400.0);
+        assert_eq!(snap_target(150.0, -500.0, &STOPS, 1.0), 200.0);
+        assert_eq!(snap_target(900.0, 500.0, &STOPS, 1.0), 800.0);
+        assert_eq!(snap_target(333.0, 500.0, &[], 1.0), 333.0);
+    }
 
     #[test]
     fn inside_the_content_every_pixel_of_finger_reaches_the_offset() {

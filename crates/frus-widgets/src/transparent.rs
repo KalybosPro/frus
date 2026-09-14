@@ -622,6 +622,14 @@ macro_rules! forward_transparent {
                 self.inner.on_dismissed(direction)
             }
 
+            fn sheet(&self) -> Option<&$crate::sheet::SheetSpec> {
+                self.inner.sheet()
+            }
+
+            fn on_sheet_dismissed(&self) -> Option<Msg> {
+                self.inner.on_sheet_dismissed()
+            }
+
             fn refresh(&self) -> Option<$crate::refresh::RefreshSpec> {
                 self.inner.refresh()
             }

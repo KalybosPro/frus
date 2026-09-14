@@ -127,18 +127,20 @@ impl Stage {
     /// for the first time adopts its target rather than sliding in from zero. See
     /// [`Stage::settle`].
     pub fn advance<Msg: Clone + 'static>(&mut self, root: &dyn Widget<Msg>, dt: f32) -> bool {
-        let (regions, refresh_areas, dismissables, interactive) = {
+        let (regions, refresh_areas, dismissables, interactive, sheets) = {
             let ui = self.build(root);
             (
                 ui.scroll_regions().to_vec(),
                 ui.refresh_areas().to_vec(),
                 ui.dismissables().to_vec(),
                 ui.interactive_bounds(),
+                ui.sheets().to_vec(),
             )
         };
         self.runtime.time += dt;
         self.runtime.sync_pages(&regions);
         let (dismiss_moving, _dismissed) = self.runtime.advance_dismiss(&dismissables, dt);
+        let (sheets_moving, _closed) = self.runtime.advance_sheets(&sheets, dt);
         // `|` and not `||`: every family must be stepped, whatever an earlier one
         // answered. This is the shell's own list, in the shell's own order.
         self.runtime.advance(dt)
@@ -161,6 +163,7 @@ impl Stage {
             | self.runtime.advance_refresh(&refresh_areas, dt)
             | self.runtime.advance_interactive(&interactive, dt)
             | dismiss_moving
+            | sheets_moving
     }
 
     /// The shell's **first** frame: every implicit animation adopts its target with

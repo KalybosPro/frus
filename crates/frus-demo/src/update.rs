@@ -695,5 +695,13 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.sheet_open = !app.sheet_open;
             Command::none()
         }
+        Msg::ShowPlaces => {
+            app.places_hidden = false;
+            Command::none()
+        }
+        Msg::PlacesDismissed => {
+            app.places_hidden = true;
+            Command::none()
+        }
     }
 }

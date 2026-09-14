@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 514 so far, each documenting the objective, the alternatives
+> record — one per step, 515 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -150,6 +150,16 @@ any release may break.
 
 ### Added
 
+- **A sheet that follows the finger, and shares it with its list** (J515, answers #39).
+  `DraggableScrollableSheet` fills the box it is given and lays a panel along its bottom, as
+  tall as a retained share of that box: it starts at `initial`, moves between `min` and
+  `max`, coasts unless it snaps, settles on `snap_sizes` when it does, and with `on_dismiss`
+  can be lowered to nothing, which sends the message once it has arrived. The shell splits
+  every movement over a list inside it between the two — the sheet first going up, the list
+  first going down — so the gesture changes hands mid-drag without the finger lifting, and
+  the release goes to whichever of them the velocity says. The layout reads the height from
+  the runtime, so a drag rebuilds nothing. `snap_target`, `split_sheet_drag`,
+  `sheet_takes_release` and `SnapSimulation` are public and pure. The demo has one.
 - **A field that says what it is for** (J512, towards #45). `AutofillHint` names what a
   field holds — nineteen hints, each carrying the name Android's services expect, which is
   rarely the hint's own (`emailAddress`, `personName`, `smsOTPCode`) — `TextField::autofill`

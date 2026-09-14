@@ -420,6 +420,18 @@ enum Drag {
         moved: bool,
         over: Option<WidgetId>,
     },
+    /// A [`frus_widgets::DraggableScrollableSheet`] moved by its panel, where nothing
+    /// under the finger scrolls — its grabber, its header, a list too short to move
+    /// (milestone 515). `available` is the height its shares are shares of, taken at
+    /// the press: the panel may shrink to nothing under the finger, and still come back.
+    Sheet {
+        id: WidgetId,
+        last: Point,
+        /// `false` until the finger has passed the threshold: a press that never
+        /// travels is a tap on whatever is in the sheet.
+        moved: bool,
+        available: f32,
+    },
     /// The "back" gesture: the framework measures the finger's progress and velocity
     /// and passes them to the application, which decides on the navigation.
     Back { start_x: f32 },
@@ -2343,6 +2355,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // Filled by the dismissal step below, dispatched once the tree is no
                 // longer borrowed.
                 let mut dismissed: Vec<A::Message> = Vec::new();
+                let sheet_areas = self
+                    .ui
+                    .as_ref()
+                    .map(|ui| ui.sheets().to_vec())
+                    .unwrap_or_default();
                 let interactive_bounds = self
                     .ui
                     .as_ref()
@@ -2421,6 +2438,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         let (moving, done) = self.runtime.advance_dismiss(&dismissables, dt);
                         dismissed.extend(done.into_iter().filter_map(|(id, direction)| {
                             find_widget(tree, id).and_then(|widget| widget.on_dismissed(direction))
+                        }));
+                        moving
+                    }
+                    | {
+                        // A sheet lowered to nothing says so once it has arrived there,
+                        // collected like a dismissal and for the same reason.
+                        let (moving, closed) = self.runtime.advance_sheets(&sheet_areas, dt);
+                        dismissed.extend(closed.into_iter().filter_map(|id| {
+                            find_widget(tree, id).and_then(|widget| widget.on_sheet_dismissed())
                         }));
                         moving
                     }
@@ -2768,6 +2794,23 @@ impl<A: Application> App<A> {
                         self.runtime.refresh_cancel(host);
                     }
                 }
+                // A sheet under a cancelled finger settles from where it was left.
+                let sheet = match self.drag {
+                    Some(Drag::Sheet { id, available, .. }) => self
+                        .ui
+                        .as_ref()
+                        .and_then(|ui| ui.sheet(id))
+                        .map(|sheet| (sheet.id, sheet.spec.clone(), available)),
+                    Some(Drag::Scroll { id, .. }) => self
+                        .ui
+                        .as_ref()
+                        .and_then(|ui| ui.sheet_holding(id))
+                        .map(|sheet| (sheet.id, sheet.spec.clone(), sheet.available)),
+                    _ => None,
+                };
+                if let Some((id, spec, available)) = sheet {
+                    self.runtime.sheet_release(id, &spec, available, 0.0);
+                }
                 self.drag = None;
                 self.runtime.input.pressed = None;
                 self.request_redraw();
@@ -3089,6 +3132,17 @@ impl<A: Application> App<A> {
                 let carried = self.runtime.catch_scroll_fling(area.id, physics);
                 // The offset belongs to the finger until it lifts.
                 self.runtime.hold_scroll(area.id);
+                // And so does the sheet it sits in, if one is still settling: the finger
+                // may be about to move it, and a sheet sliding away under a finger that
+                // has caught its list is a sheet that ignored the catch.
+                if let Some(sheet) = self
+                    .ui
+                    .as_ref()
+                    .and_then(|ui| ui.sheet_holding(area.id))
+                    .map(|sheet| sheet.id)
+                {
+                    self.runtime.sheet_hold(sheet);
+                }
                 self.drag = Some(Drag::Scroll {
                     id: area.id,
                     last: self.cursor,
@@ -3099,6 +3153,26 @@ impl<A: Application> App<A> {
                         .as_ref()
                         .and_then(|ui| ui.dismissable_at(self.cursor)),
                     axis: None,
+                });
+                self.begin_gesture();
+            }
+        }
+
+        // 3a) A sheet's panel with nothing under the finger that scrolls: the finger moves
+        // the sheet itself. A pointer too — on a desktop there is no other way to raise one.
+        if self.drag.is_none() {
+            if let Some((id, available)) = self
+                .ui
+                .as_ref()
+                .and_then(|ui| ui.sheet_at(self.cursor))
+                .map(|sheet| (sheet.id, sheet.available))
+            {
+                self.runtime.sheet_hold(id);
+                self.drag = Some(Drag::Sheet {
+                    id,
+                    last: self.cursor,
+                    moved: false,
+                    available,
                 });
                 self.begin_gesture();
             }
@@ -3287,6 +3361,33 @@ impl<A: Application> App<A> {
                 return;
             }
         }
+        // A sheet let go of by its panel settles from wherever the finger left it — and
+        // one only pressed settles too, since the press caught it if it was moving.
+        if let Some(Drag::Sheet {
+            id,
+            moved,
+            available,
+            ..
+        }) = &ended
+        {
+            let velocity = if *moved {
+                -self.fling_velocity(self.gesture_estimate()).1
+            } else {
+                0.0
+            };
+            let spec = self
+                .ui
+                .as_ref()
+                .and_then(|ui| ui.sheet(*id))
+                .map(|sheet| sheet.spec.clone());
+            if let Some(spec) = spec {
+                self.runtime.sheet_release(*id, &spec, *available, velocity);
+            }
+            if *moved {
+                self.request_redraw();
+                return;
+            }
+        }
         if let Some(Drag::Item {
             source,
             moved: true,
@@ -3321,6 +3422,47 @@ impl<A: Application> App<A> {
             // has its say.
             self.runtime.drag_over = None;
         }
+        // Set when a sheet takes the release of a list inside it, which then does not
+        // fling as well (milestone 515).
+        let mut sheet_took = false;
+        if let Some(Drag::Scroll { id, .. }) = &ended {
+            let sheet = self
+                .ui
+                .as_ref()
+                .and_then(|ui| ui.sheet_holding(*id))
+                .cloned();
+            if let Some(sheet) = sheet {
+                // In the sheet's terms, positive growing it: a list's offset grows the
+                // same way, on an axis that is not reversed.
+                let velocity = match &ended {
+                    Some(Drag::Scroll {
+                        moved: true,
+                        axis: Some(true),
+                        carried,
+                        ..
+                    }) => -self.fling_velocity(self.gesture_estimate()).1 + carried.1,
+                    _ => 0.0,
+                };
+                let offset = self.runtime.scroll.get(id).map_or(0.0, |o| o.1);
+                let size = self.runtime.sheet_size(sheet.id, &sheet.spec);
+                sheet_took = velocity != 0.0
+                    && frus_widgets::sheet_takes_release(
+                        velocity,
+                        offset,
+                        size,
+                        &sheet.spec,
+                        sheet.available,
+                    );
+                // Whoever takes it, the sheet is let go of: settled by the throw, or
+                // from where it is — which is a stop, whenever the list keeps the throw.
+                self.runtime.sheet_release(
+                    sheet.id,
+                    &sheet.spec,
+                    sheet.available,
+                    if sheet_took { velocity } else { 0.0 },
+                );
+            }
+        }
         if let Some(Drag::Scroll { id, .. }) = &ended {
             // The finger gives the offset back before anything is flung at it.
             self.runtime.release_scroll(*id);
@@ -3354,14 +3496,18 @@ impl<A: Application> App<A> {
             // a gesture held to one axis must not launch along the other on the strength
             // of what the *previous* one was doing.
             let launch = (velocity.0 + carried.0, velocity.1 + carried.1);
-            self.fling(
-                *id,
-                match axis {
-                    Some(true) => (0.0, launch.1),
-                    Some(false) => (launch.0, 0.0),
-                    None => launch,
-                },
-            );
+            if sheet_took {
+                self.request_redraw();
+            } else {
+                self.fling(
+                    *id,
+                    match axis {
+                        Some(true) => (0.0, launch.1),
+                        Some(false) => (launch.0, 0.0),
+                        None => launch,
+                    },
+                );
+            }
         }
         // A pan fling: the momentum launches the content, which `advance_interactive`
         // decelerates and bounds frame by frame.
@@ -3839,11 +3985,42 @@ impl<A: Application> App<A> {
                 }
                 // Only the claimed axis moves. The other delta is not held back for later:
                 // it is not part of this gesture at all.
-                let (dx, dy) = match *axis {
+                let (dx, mut dy) = match *axis {
                     Some(true) => (0.0, dy),
                     Some(false) => (dx, 0.0),
                     None => (dx, dy),
                 };
+                if *moved && *axis == Some(true) {
+                    // A list inside a sheet shares the finger with it (milestone 515).
+                    // Every movement is split — the sheet first going up, the list
+                    // first going down — so the gesture changes hands in the middle of a
+                    // drag, and what the list is left with goes through its physics below
+                    // exactly as a movement of its own would.
+                    let sheet = self
+                        .ui
+                        .as_ref()
+                        .filter(|ui| ui.scroll_region(*id).is_some_and(|a| !a.reverse_y))
+                        .and_then(|ui| ui.sheet_holding(*id))
+                        .filter(|sheet| sheet.available > 0.0)
+                        .cloned();
+                    if let Some(sheet) = sheet {
+                        let px = sheet.available;
+                        let offset = self.runtime.scroll.get(id).map_or(0.0, |o| o.1);
+                        let size = self.runtime.sheet_size(sheet.id, &sheet.spec) * px;
+                        let (grown, listed) = frus_widgets::split_sheet_drag(
+                            -dy,
+                            offset,
+                            size,
+                            sheet.spec.floor() * px,
+                            sheet.spec.max * px,
+                        );
+                        if grown != 0.0 {
+                            self.runtime
+                                .sheet_drag(sheet.id, &sheet.spec, grown / px, px);
+                        }
+                        dy = -listed;
+                    }
+                }
                 if *moved {
                     let area = self.ui.as_ref().and_then(|u| u.scroll_region(*id));
                     let physics = area
@@ -3921,6 +4098,32 @@ impl<A: Application> App<A> {
                     };
                     self.runtime
                         .dismiss_drag(item.id, delta, item.extent(), item.spec.axis);
+                    *last = self.cursor;
+                    self.track_gesture();
+                }
+            }
+            Drag::Sheet {
+                id,
+                last,
+                moved,
+                available,
+            } => {
+                let dx = self.cursor.x - last.x;
+                let dy = self.cursor.y - last.y;
+                if !*moved && (dx * dx + dy * dy) > slop * slop {
+                    *moved = true;
+                }
+                if *moved && *available > 0.0 {
+                    let spec = self
+                        .ui
+                        .as_ref()
+                        .and_then(|ui| ui.sheet(*id))
+                        .map(|sheet| sheet.spec.clone());
+                    if let Some(spec) = spec {
+                        // Up grows it: the screen's y runs the other way.
+                        self.runtime
+                            .sheet_drag(*id, &spec, -dy / *available, *available);
+                    }
                     *last = self.cursor;
                     self.track_gesture();
                 }
@@ -4954,6 +5157,7 @@ fn gesture_was_a_tap(ended: Option<&Drag>) -> bool {
                 | Drag::Reorder { moved: false, .. }
                 | Drag::Item { moved: false, .. }
                 | Drag::Dismiss { moved: false, .. }
+                | Drag::Sheet { moved: false, .. }
         )
     )
 }
@@ -5537,6 +5741,16 @@ mod tests {
             axis: None,
         };
         assert!(gesture_was_a_tap(Some(&scroll)));
+        // A press on a sheet's panel likewise: a button in the sheet still clicks, and a
+        // sheet that was dragged does not also click what it was dragged by (515).
+        let sheet = |moved| Drag::Sheet {
+            id: WidgetId::from_u64(4),
+            last: Point::new(0.0, 0.0),
+            moved,
+            available: 800.0,
+        };
+        assert!(gesture_was_a_tap(Some(&sheet(false))));
+        assert!(!gesture_was_a_tap(Some(&sheet(true))));
         // And a gesture that captures on the press, rather than at a threshold, never
         // becomes a tap however still the finger was.
         let select = Drag::TextSelect {

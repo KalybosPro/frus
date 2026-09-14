@@ -891,6 +891,98 @@ fn each_wizard_field_opens_the_keyboard_it_is_for() {
     );
 }
 
+/// **The demo's sheet, driven through the registries in the order the shell reads them**
+/// (milestone 515): the list is a scroll area walked inside the sheet, a finger moving up
+/// on it grows the sheet, a flick settles it on the next stop, and a flick down from under
+/// the lowest one puts it away with the demo's own message.
+#[test]
+fn the_sheet_shares_the_finger_with_its_list_and_puts_itself_away() {
+    use frus_widgets::{split_sheet_drag, WidgetId};
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::Push(Route::Sheet));
+    // Arrived: a push starts the screen sliding in from the right, a whole width away,
+    // and the sheet is measured here where it rests. The application does the same once
+    // its spring has settled.
+    app.nav_from = None;
+    let theme = Theme::default();
+    let size = Size::new(400.0, 800.0);
+    let tree = view_for(&app, &theme, size);
+    let mut runtime = Runtime::default();
+
+    let ui = build_ui(&tree, size, &runtime, &theme);
+    let sheet = ui
+        .sheets()
+        .first()
+        .cloned()
+        .expect("the screen has a sheet");
+    assert_eq!(sheet.spec.stops, vec![0.0, 0.25, 0.5, 1.0]);
+    let list: WidgetId = *sheet.areas.first().expect("its list was walked inside it");
+    let region = ui.scroll_region(list).expect("the list scrolls");
+    assert!(region.max_y > 0.0, "long enough to scroll at half height");
+    assert!(
+        region.viewport.y >= sheet.panel.y
+            && region.viewport.y + region.viewport.height
+                <= sheet.panel.y + sheet.panel.height + 0.5,
+        "the list lies inside the panel: {:?} in {:?}",
+        region.viewport,
+        sheet.panel
+    );
+    assert_eq!(ui.sheet_holding(list).map(|s| s.id), Some(sheet.id));
+    // The page behind is no part of the sheet.
+    assert!(ui
+        .sheet_at(Point::new(200.0, sheet.panel.y - 10.0))
+        .is_none());
+    assert!(
+        ui.sheet_at(Point::new(200.0, sheet.panel.y + 10.0))
+            .is_some(),
+        "a finger on the panel is on the sheet: {:?}, its list at {:?}",
+        sheet.panel,
+        region.viewport
+    );
+
+    // A finger on the list moves up 100 px, the list at its top: all of it to the sheet.
+    let px = sheet.available;
+    let half = sheet.panel.height;
+    assert!(
+        (half - px * 0.5).abs() < 0.5,
+        "at half height: {half} of {px}"
+    );
+    let (grown, listed) = split_sheet_drag(100.0, 0.0, half, 0.0, px);
+    assert_eq!((grown, listed), (100.0, 0.0));
+    runtime.sheet_drag(sheet.id, &sheet.spec, grown / px, px);
+    let ui = build_ui(&tree, size, &runtime, &theme);
+    let raised = ui.sheet(sheet.id).expect("still there").panel;
+    assert!((raised.height - (half + 100.0)).abs() < 0.5, "{raised:?}");
+
+    // Flicked up: the next stop its way, which is the whole box.
+    let settle = |runtime: &mut Runtime| {
+        let mut closed = Vec::new();
+        for _ in 0..120 {
+            let areas = build_ui(&tree, size, runtime, &theme).sheets().to_vec();
+            closed.extend(runtime.advance_sheets(&areas, 1.0 / 60.0).1);
+        }
+        closed
+    };
+    runtime.sheet_release(sheet.id, &sheet.spec, px, 900.0);
+    assert!(settle(&mut runtime).is_empty());
+    assert_eq!(runtime.sheet_size(sheet.id, &sheet.spec), 1.0);
+
+    // Lowered to just under a quarter and flicked down: put away, with the demo's message.
+    runtime.sheet_drag(sheet.id, &sheet.spec, -0.76, px);
+    runtime.sheet_release(sheet.id, &sheet.spec, px, -1200.0);
+    let closed = settle(&mut runtime);
+    assert_eq!(closed, vec![sheet.id], "dismissed once");
+    let message = find_widget(&tree, sheet.id).and_then(|panel| panel.on_sheet_dismissed());
+    assert!(matches!(message, Some(Msg::PlacesDismissed)));
+    reduce(&mut app, Msg::PlacesDismissed);
+    let tree = view_for(&app, &theme, size);
+    assert!(build_ui(&tree, size, &runtime, &theme).sheets().is_empty());
+    // And asked back, it is there again.
+    reduce(&mut app, Msg::ShowPlaces);
+    let tree = view_for(&app, &theme, size);
+    assert_eq!(build_ui(&tree, size, &runtime, &theme).sheets().len(), 1);
+}
+
 #[test]
 fn grid_edit_navigate_and_resize() {
     let mut app = app_with_grid(vec![
@@ -1686,6 +1778,7 @@ fn no_screen_draws_outside_itself() {
         Route::Board,
         Route::Tour,
         Route::Licenses,
+        Route::Sheet,
     ];
     let mut worst: Vec<String> = Vec::new();
     for route in routes {
@@ -1822,5 +1915,58 @@ fn a_ticked_task_is_still_muted_and_struck_through() {
     assert_ne!(
         active_color, done_color,
         "the two states must not look alike"
+    );
+}
+
+/// **The end of the sheet's list clears the system's bottom bar** (milestone 515). The
+/// sheet reaches the bottom of the window and draws under the navigation bar, as the
+/// reference's does; seen on a phone, the list's last place sat under the buttons, out of
+/// reach. Scrolled to its end at full height, under a surface with a bar, the last place is
+/// above it.
+#[test]
+fn the_end_of_the_sheets_list_clears_the_bottom_bar() {
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::Push(Route::Sheet));
+    app.nav_from = None;
+    let theme = Theme::default();
+    let size = Size::new(400.0, 800.0);
+    let bar = 48.0;
+    let surface = MediaQuery {
+        padding: Insets::new(0.0, 0.0, bar, 0.0),
+        view_padding: Insets::new(0.0, 0.0, bar, 0.0),
+        ..MediaQuery::new(size)
+    };
+    let tree = surface.scope(|| build_view(&app, &theme));
+    let build = |runtime: &Runtime| surface.scope(|| build_ui(&tree, size, runtime, &theme));
+
+    let mut runtime = Runtime::default();
+    let sheet = build(&runtime).sheets().first().cloned().expect("a sheet");
+    runtime.sheet_drag(sheet.id, &sheet.spec, 1.0, sheet.available);
+    let list = *sheet.areas.first().expect("its list");
+    let max = build(&runtime)
+        .scroll_region(list)
+        .expect("the list scrolls")
+        .max_y;
+    runtime.scroll.insert(list, (0.0, max));
+
+    fn last_place(primitives: &[frus_widgets::Primitive]) -> Option<(f32, f32)> {
+        primitives.iter().find_map(|p| match p {
+            frus_widgets::Primitive::Text {
+                position,
+                text,
+                size,
+                ..
+            } if text == "20. Cable car" => Some((position.y, *size)),
+            frus_widgets::Primitive::Layer { primitives, .. } => last_place(primitives),
+            _ => None,
+        })
+    }
+    let ui = build(&runtime);
+    let (top, glyphs) = last_place(ui.scene().primitives()).expect("the last place is painted");
+    assert!(
+        top + glyphs <= size.height - bar,
+        "the last place ends at {} and the bar starts at {}",
+        top + glyphs,
+        size.height - bar
     );
 }

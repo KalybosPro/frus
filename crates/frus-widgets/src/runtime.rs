@@ -651,6 +651,9 @@ pub struct Runtime {
     pub refresh: HashMap<WidgetId, crate::refresh::RefreshPull>,
     /// The retained swipe of each [`crate::Dismissible`] item. Absent = at rest.
     pub dismiss: HashMap<WidgetId, crate::dismiss::DismissState>,
+    /// The retained height of each [`crate::DraggableScrollableSheet`], keyed by its
+    /// panel. Absent = never moved, and at its initial height.
+    pub sheets: HashMap<WidgetId, crate::sheet::SheetState>,
     /// The page each [`crate::PageView`] was last **told to show**, so that a request
     /// is acted on when it *changes* rather than re-asserted every frame — which
     /// would leave the offset unswipeable. Absent = never seen, so the next request
@@ -2147,6 +2150,52 @@ impl Runtime {
         dt: f32,
     ) -> (bool, Vec<(WidgetId, crate::dismiss::DismissDirection)>) {
         crate::dismiss::advance_all(&mut self.dismiss, items, dt)
+    }
+
+    /// The height of the sheet `id`, as a share of its box: the retained one, or its
+    /// initial one while nothing has moved it.
+    pub fn sheet_size(&self, id: WidgetId, spec: &crate::sheet::SheetSpec) -> f32 {
+        crate::sheet::size_of(&self.sheets, id, spec)
+    }
+
+    /// Moves the sheet `id` by `delta`, a share of its box — held by the finger until
+    /// [`Runtime::sheet_release`].
+    pub fn sheet_drag(
+        &mut self,
+        id: WidgetId,
+        spec: &crate::sheet::SheetSpec,
+        delta: f32,
+        available: f32,
+    ) {
+        crate::sheet::drag_into(&mut self.sheets, id, spec, delta, available);
+    }
+
+    /// A finger lands on the sheet `id`: a settle in progress stops where it is.
+    pub fn sheet_hold(&mut self, id: WidgetId) {
+        crate::sheet::hold_of(&mut self.sheets, id);
+    }
+
+    /// The finger lets go of the sheet `id` at `velocity` px/s, positive growing it, over
+    /// a box `available` px tall.
+    pub fn sheet_release(
+        &mut self,
+        id: WidgetId,
+        spec: &crate::sheet::SheetSpec,
+        available: f32,
+        velocity: f32,
+    ) {
+        crate::sheet::release_of(&mut self.sheets, id, spec, available, velocity);
+    }
+
+    /// Advances every sheet of the frame by `dt`. Returns `(still moving, the sheets
+    /// lowered to nothing on this frame)` — the second being what the shell turns into
+    /// messages.
+    pub fn advance_sheets(
+        &mut self,
+        areas: &[crate::sheet::SheetArea],
+        dt: f32,
+    ) -> (bool, Vec<WidgetId>) {
+        crate::sheet::advance_all(&mut self.sheets, areas, dt)
     }
 
     /// Calls off the pull of `id` without asking for anything — the list scrolled away

@@ -93,6 +93,7 @@ impl Application for TodoApp {
             Route::Data => 6,
             Route::Board => 7,
             Route::Tour => 8,
+            Route::Sheet => 9,
             // A task screen is not restored: the task it names may not exist any more,
             // and reopening a screen about nothing is worse than opening the list.
             Route::Task(_) => 0,
@@ -135,6 +136,7 @@ impl Application for TodoApp {
                         "6" => self.routes.push(Route::Data),
                         "7" => self.routes.push(Route::Board),
                         "8" => self.routes.push(Route::Tour),
+                        "9" => self.routes.push(Route::Sheet),
                         _ => {}
                     }
                 }

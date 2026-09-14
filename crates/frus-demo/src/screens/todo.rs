@@ -619,6 +619,9 @@ pub(crate) fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> SafeAr
                 button("Guided tour →", Msg::Push(Route::Tour))
                     .variant(Variant::Outlined)
                     .size(15.0),
+                button("Draggable sheet →", Msg::Push(Route::Sheet))
+                    .variant(Variant::Outlined)
+                    .size(15.0),
                 button("Kanban board →", Msg::Push(Route::Board))
                     .variant(Variant::Outlined)
                     .size(15.0),

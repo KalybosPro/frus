@@ -121,6 +121,10 @@ pub(crate) enum Msg {
     ToggleDrawer,
     /// Opens/closes the quick-actions modal sheet.
     ToggleSheet,
+    /// Shows the draggable sheet again, once it has been dismissed (milestone 515).
+    ShowPlaces,
+    /// The draggable sheet was lowered to nothing.
+    PlacesDismissed,
     // --- Sign-up wizard (an integration demo) ---
     /// Jumps to the wizard's step `i` (a Steps marker was clicked).
     WizardStep(usize),

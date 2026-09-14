@@ -47,6 +47,9 @@ pub(crate) enum Route {
     Task(u64),
     /// The licences of everything this application links (milestone 492).
     Licenses,
+    /// A sheet dragged between three heights over a page, holding a list that scrolls
+    /// (milestone 515).
+    Sheet,
 }
 
 /// The back gesture: the progress follows the finger, then a spring settle (commit/cancel)
@@ -180,6 +183,9 @@ pub(crate) struct TodoApp {
     pub(crate) drawer_open: bool,
     /// Is the quick-actions modal sheet open?
     pub(crate) sheet_open: bool,
+    /// The draggable sheet was lowered to nothing, and stays down until it is asked back
+    /// (milestone 515). `false` — shown — by default.
+    pub(crate) places_hidden: bool,
     /// System insets (the safe area): status/navigation bars, notches.
     pub(crate) insets: Insets,
     /// The theme seed: `0` = the hand-written scheme, otherwise `from_seed` (HCT).

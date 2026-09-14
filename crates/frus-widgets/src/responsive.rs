@@ -507,6 +507,14 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_dismissed(direction))
     }
 
+    fn sheet(&self) -> Option<&crate::sheet::SheetSpec> {
+        self.inner.as_ref().and_then(|w| w.sheet())
+    }
+
+    fn on_sheet_dismissed(&self) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_sheet_dismissed())
+    }
+
     fn refresh(&self) -> Option<crate::refresh::RefreshSpec> {
         self.inner.as_ref().and_then(|w| w.refresh())
     }
