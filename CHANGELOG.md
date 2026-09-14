@@ -8,13 +8,21 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 517 so far, each documenting the objective, the alternatives
+> record — one per step, 518 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **A row let go below the last one went back where it came from** (J518, #44). A list is
+  rarely all that is on its page, so a finger that carries a row to the bottom edge is over
+  what follows the list — and the release asked only what was under the pointer. Over no
+  target, a vertical reorderable now lands on the nearest slot of its own list along the axis:
+  after the last row, before the first, or beside the nearer row of a gap, with the insertion
+  line showing the same place. Only while the pointer is across the list, so a board's card
+  let go beside its column is not read as the end of it (`reorder_siblings`,
+  `nearest_reorder_slot`).
 - **A row carried to the bottom of a list stopped the list scrolling almost at once** (J517,
   #44). Seen on a phone: the lifted row is drawn at its own box, offset by the finger's travel
   since the press, and the box moved up with the scrolling content — so the row rode back

@@ -11,7 +11,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use frus_core::{Primitive, Rect};
+use frus_core::{Point, Primitive, Rect};
 
 /// The factor of the "**background** vs cell/card" guard **shared** by both reflows: a block
 /// whose **extent along the reorder axis** (width for horizontal columns, height for vertical
@@ -142,6 +142,34 @@ pub fn reflow_reorder_cards(
             Some(p.translated(0.0, dy))
         })
         .collect()
+}
+
+/// Which of a vertical list's `slots` a carried item lands on when the pointer is over **none
+/// of them** — the index into `slots`, or `None`.
+///
+/// A list is rarely all that is on its page. A finger that carries a row down to the bottom
+/// edge is over whatever follows the list — a footer, a bar — and a finger that carries it
+/// between two rows is over the gap. Neither is a row, and a drop that asked only *what is
+/// under the pointer* put the row back where it came from: the gesture the reference answers
+/// by landing at the nearest end. So the answer here is **the slot nearest along the axis**:
+/// below the last one is the last, above the first is the first, and a gap belongs to the
+/// closer of its two rows. Which half of it the pointer is on then decides before or after,
+/// as it does over a row.
+///
+/// Only while the pointer is **across the list** — within the horizontal extent of its slots.
+/// Beside it is somewhere else: another column of a board, whose own targets answer for it.
+pub fn nearest_reorder_slot(point: Point, slots: &[Rect]) -> Option<usize> {
+    let left = slots.iter().map(|r| r.x).reduce(f32::min)?;
+    let right = slots.iter().map(|r| r.x + r.width).reduce(f32::max)?;
+    if point.x < left || point.x > right {
+        return None;
+    }
+    let distance = |r: &Rect| (r.y - point.y).max(point.y - (r.y + r.height)).max(0.0);
+    slots
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| distance(a).total_cmp(&distance(b)))
+        .map(|(index, _)| index)
 }
 
 #[cfg(test)]
@@ -428,5 +456,70 @@ mod tests {
             })
             .collect();
         assert_eq!(bgs, vec![0.0, 0.0], "the column backgrounds are immobile");
+    }
+
+    /// Three rows 40 px tall with 8 px between them, in a list 16 px from the page's edge.
+    fn rows() -> Vec<Rect> {
+        (0..3)
+            .map(|i| Rect::new(16.0, 100.0 + i as f32 * 48.0, 300.0, 40.0))
+            .collect()
+    }
+
+    /// **Past either end of a list is that end.** Seen on a phone: a row carried to the
+    /// bottom edge was over the footer that follows the list, and the release put it back.
+    #[test]
+    fn past_the_end_of_a_list_is_its_last_row_and_before_it_its_first() {
+        let rows = rows();
+        // Below the last row (100 + 2 x 48 + 40 = 236), however far.
+        assert_eq!(
+            nearest_reorder_slot(Point::new(160.0, 260.0), &rows),
+            Some(2)
+        );
+        assert_eq!(
+            nearest_reorder_slot(Point::new(160.0, 900.0), &rows),
+            Some(2)
+        );
+        // Above the first.
+        assert_eq!(
+            nearest_reorder_slot(Point::new(160.0, 20.0), &rows),
+            Some(0)
+        );
+    }
+
+    /// A gap between two rows belongs to the nearer of them — and over a row, to that row.
+    #[test]
+    fn a_gap_between_rows_belongs_to_the_nearer_one() {
+        let rows = rows();
+        // The gap between the first and second rows runs from 140 to 148.
+        assert_eq!(
+            nearest_reorder_slot(Point::new(160.0, 141.0), &rows),
+            Some(0)
+        );
+        assert_eq!(
+            nearest_reorder_slot(Point::new(160.0, 147.0), &rows),
+            Some(1)
+        );
+        assert_eq!(
+            nearest_reorder_slot(Point::new(160.0, 170.0), &rows),
+            Some(1)
+        );
+    }
+
+    /// Beside the list is not in it: another column of a board answers for itself.
+    #[test]
+    fn beside_a_list_is_no_slot_of_it() {
+        let rows = rows();
+        assert_eq!(nearest_reorder_slot(Point::new(8.0, 260.0), &rows), None);
+        assert_eq!(nearest_reorder_slot(Point::new(330.0, 120.0), &rows), None);
+        // Its edges still are.
+        assert_eq!(
+            nearest_reorder_slot(Point::new(16.0, 260.0), &rows),
+            Some(2)
+        );
+        assert_eq!(
+            nearest_reorder_slot(Point::new(316.0, 260.0), &rows),
+            Some(2)
+        );
+        assert_eq!(nearest_reorder_slot(Point::new(160.0, 260.0), &[]), None);
     }
 }

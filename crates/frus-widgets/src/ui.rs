@@ -5247,6 +5247,52 @@ pub fn reorderable_owners<Msg>(
         .collect()
 }
 
+/// The slots a reorderable `id` can be dropped among **in its own list**: its siblings — the
+/// children of its parent — that can be dropped on, with their boxes this frame, in order.
+///
+/// A list's rows are one widget's children, and so are a board column's cards and the drop
+/// zone that ends it. Nothing else on the page is, which is what lets a drop that landed on
+/// no row at all still mean *somewhere in this list* rather than anywhere reorderable.
+/// Siblings the frame registered no box for are left out.
+pub fn reorder_siblings<Msg>(
+    ui: &Ui<Msg>,
+    root: &dyn Widget<Msg>,
+    id: WidgetId,
+) -> Vec<(WidgetId, Rect)> {
+    fn parent_of<Msg>(
+        widget: &dyn Widget<Msg>,
+        own: WidgetId,
+        target: WidgetId,
+    ) -> Option<(&dyn Widget<Msg>, WidgetId)> {
+        for (index, child) in widget.children().iter().enumerate() {
+            let id = child_id(own, index, child.as_ref());
+            if id == target {
+                return Some((widget, own));
+            }
+            if let Some(found) = parent_of(child.as_ref(), id, target) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    let Some((parent, parent_id)) = parent_of(root, WidgetId::ROOT, id) else {
+        return Vec::new();
+    };
+    parent
+        .children()
+        .iter()
+        .enumerate()
+        .filter(|(_, child)| child.reorder_index().is_some() && child.reorder_droppable())
+        .filter_map(|(index, child)| {
+            let id = child_id(parent_id, index, child.as_ref());
+            ui.reorderables
+                .iter()
+                .find(|(registered, _)| *registered == id)
+                .map(|(_, rect)| (id, *rect))
+        })
+        .collect()
+}
+
 /// Identity of the **first** widget declaring the key `key` (a hash), or `None`. It is how the
 /// shell resolves a focus-by-key request (`Command::focus`): the application wraps a field in
 /// `keyed(k, …)`, then focuses by `k`.

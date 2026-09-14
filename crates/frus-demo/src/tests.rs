@@ -375,6 +375,65 @@ fn what_makes_room_for_a_carried_row_is_the_rows() {
     );
 }
 
+/// **A row carried past the last one lands at the end.**
+///
+/// On a phone the list is followed by more of the page, so a finger that carries a row to
+/// the bottom edge is over that and not over a row — and the release, which asked only what
+/// was under the finger, put the row back. This reads the demo's real page: below the last
+/// row nothing can be dropped on, the first row's own list offers its three rows, the
+/// nearest is the last, and a drop after it moves the first task to the end.
+#[test]
+fn a_row_carried_past_the_last_one_lands_at_the_end() {
+    let mut app = TodoApp::default();
+    for t in ["one", "two", "three"] {
+        add(&mut app, t);
+    }
+    let theme = Theme::dark();
+    let size = Size::new(424.0, 918.0);
+    let tree = root_for(&app, &theme, size);
+    let ui =
+        MediaQuery::new(size).scope(|| build_ui(tree.as_ref(), size, &Runtime::default(), &theme));
+    let droppable = |id| find_widget(tree.as_ref(), id).is_some_and(|w| w.reorder_droppable());
+    let first = ui
+        .reorderables()
+        .iter()
+        .map(|(id, _)| *id)
+        .find(|id| {
+            droppable(*id)
+                && find_widget(tree.as_ref(), *id).and_then(|w| w.reorder_index()) == Some(0)
+        })
+        .expect("the first row");
+
+    let slots = frus_widgets::reorder_siblings(&ui, tree.as_ref(), first);
+    assert_eq!(
+        slots.len(),
+        3,
+        "the first row's list is the three rows: {slots:?}"
+    );
+    let last = slots[2].1;
+    let below = Point::new(last.x + last.width * 0.5, last.y + last.height + 24.0);
+    assert!(
+        below.y < size.height,
+        "the point is still on the page: {below:?}"
+    );
+    assert!(
+        !ui.reorderables_at(below).any(droppable),
+        "below the last row there is no row to drop on"
+    );
+
+    let boxes: Vec<frus_widgets::Rect> = slots.iter().map(|(_, rect)| *rect).collect();
+    let nearest = frus_widgets::nearest_reorder_slot(below, &boxes);
+    assert_eq!(nearest, Some(2), "the nearest slot is the last row");
+    // After it, as the lower half of a row is: raw index 3, from the first row.
+    let message = find_widget(tree.as_ref(), first).and_then(|w| w.on_reorder(3));
+    let Some(message) = message else {
+        panic!("a drop after the last row moves the first");
+    };
+    reduce(&mut app, message);
+    let labels: Vec<&str> = app.todos.iter().map(|t| t.text.as_str()).collect();
+    assert_eq!(labels, ["two", "three", "one"]);
+}
+
 /// A task dragged into a new place, under the filter that makes the two indices
 /// disagree.
 ///
