@@ -8,13 +8,20 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 519 so far, each documenting the objective, the alternatives
+> record — one per step, 520 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **A fast throw read as a finger at rest when frames were slow** (J520). A release more than
+  40 ms after the last movement is not a fling — but the samples are stamped when an event is
+  handled, and an application drawing at ~27 frames a second on a phone was handed a flick's
+  release 41 ms after its last move, so a clean 2000 px/s throw up a sheet's list released at
+  nought. `VelocityTracker` now allows for the pace its samples arrived at — the median of the
+  last three gaps, capped at 50 ms — on the release, between samples and in the horizon; a
+  finger that really stopped still reads as stopped.
 - **A row let go below the last one went back where it came from** (J518, #44). A list is
   rarely all that is on its page, so a finger that carries a row to the bottom edge is over
   what follows the list — and the release asked only what was under the pointer. Over no
