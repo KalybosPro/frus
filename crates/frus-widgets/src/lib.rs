@@ -309,7 +309,7 @@ pub use radio::{Radio, RadioGroup};
 pub use rating::Rating;
 pub use refresh::{RefreshIndicator, RefreshPhase, RefreshPull, RefreshSpec, Refreshable};
 pub use relayout::LayoutCache;
-pub use reorder::{reflow_reorder_cards, reflow_reorder_columns};
+pub use reorder::{nearest_reorder_slot, reflow_reorder_cards, reflow_reorder_columns};
 pub use reorderable::{settled_index, ReorderGrab, ReorderableList};
 pub use responsive::{responsive, Responsive};
 pub use richtext::RichText;
@@ -389,8 +389,8 @@ pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use ui::{
     build_deferred, build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget,
-    reorderable_owners, subtree_ids, FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar,
-    Ui,
+    reorder_siblings, reorderable_owners, subtree_ids, FocusDirection, Focusable, KeepVisible,
+    Scrollable, Scrollbar, Ui,
 };
 pub use undo::{EditKind, EditSnapshot, UndoHistory, RUN_PAUSE};
 pub use wheel::{ListWheel, RowOnWheel, WheelGeometry};

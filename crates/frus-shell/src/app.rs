@@ -14,11 +14,11 @@ use web_time::Instant;
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_deferred, build_ui, collect_ids, find_by_key, find_path, find_widget,
-    reflow_reorder_cards, reflow_reorder_columns, reorderable_owners, subtree_ids, Accessibility,
-    Brightness, Color, Cursor as UiCursor, Edit, EditKind, EditSnapshot, FocusDirection, Insets,
-    Key, KeyResponse, KeyStroke, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene,
-    ScrollTo, Scrollable, ShortcutKey, Size, Theme, Ui, VelocityEstimate, VelocityTracker, Widget,
-    WidgetId, WindowInsets,
+    nearest_reorder_slot, reflow_reorder_cards, reflow_reorder_columns, reorder_siblings,
+    reorderable_owners, subtree_ids, Accessibility, Brightness, Color, Cursor as UiCursor, Edit,
+    EditKind, EditSnapshot, FocusDirection, Insets, Key, KeyResponse, KeyStroke, MediaQuery, Point,
+    Primitive, Rect, ReorderAxis, Runtime, Scene, ScrollTo, Scrollable, ShortcutKey, Size, Theme,
+    Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -3285,7 +3285,7 @@ impl<A: Application> App<A> {
             ..
         }) = &ended
         {
-            let target = self.reorder_target_at(self.cursor);
+            let target = self.reorder_drop_target(*id, *from);
             let tree = self.tree.as_ref();
             let base = target
                 .and_then(|tid| tree.and_then(|t| find_widget(t.as_ref(), tid)))
@@ -4327,6 +4327,30 @@ impl<A: Application> App<A> {
             .find(|id| find_widget(tree.as_ref(), *id).is_some_and(|w| w.reorder_droppable()))
     }
 
+    /// Where the reorderable `id`, grabbed at index `from`, is **dropped** if released now:
+    /// the target under the pointer, or — over no target at all — the nearest slot of its own
+    /// list, for a vertical one.
+    ///
+    /// The insertion line and the release both ask this, so the line cannot promise a place
+    /// the drop does not keep. The second half is milestone 518: a row carried to the bottom
+    /// of a phone's list is over what follows the list, and the release used to put it back.
+    fn reorder_drop_target(&self, id: WidgetId, from: usize) -> Option<WidgetId> {
+        if let Some(target) = self.reorder_target_at(self.cursor) {
+            return Some(target);
+        }
+        let tree = self.tree.as_ref()?;
+        let vertical = find_widget(tree.as_ref(), id)
+            .is_some_and(|w| matches!(w.reorder_axis(), ReorderAxis::Vertical));
+        if !vertical {
+            return None;
+        }
+        // Among the slots of the row that moves, which is not the grip that was grabbed.
+        let (row, _) = self.reorder_source(id, from)?;
+        let slots = reorder_siblings(self.ui.as_ref()?, tree.as_ref(), row);
+        let boxes: Vec<Rect> = slots.iter().map(|(_, rect)| *rect).collect();
+        nearest_reorder_slot(self.cursor, &boxes).map(|index| slots[index].0)
+    }
+
     /// What is being **carried** this frame, where it is now: the box the ghost is drawn
     /// at, for a reorder or for a lifted item. `None` when nothing is engaged.
     ///
@@ -4726,11 +4750,14 @@ impl<A: Application> App<A> {
     /// The **insertion** line of the vertical preview: a thin band at the edge of the
     /// hovered reorderable slot, a card or a drop zone — the **top** edge when the
     /// pointer is in its upper half (inserting **before**), the **bottom** edge in its
-    /// lower half (inserting **after**). `None` when the pointer is not over a target.
+    /// lower half (inserting **after**). `None` when the release would land nowhere.
     fn reorder_drop_line(&self, thickness: f32) -> Option<Rect> {
-        // The reorderable slot — card, row or drop zone — under the pointer, via its
-        // registry, skipping whatever cannot be dropped on.
-        let target = self.reorder_target_at(self.cursor)?;
+        let Some(Drag::Reorder { id, from, .. }) = self.drag else {
+            return None;
+        };
+        // The reorderable slot — card, row or drop zone — the release would land on: the
+        // one under the pointer, or the nearest of the list's own.
+        let target = self.reorder_drop_target(id, from)?;
         let rect = self.ui.as_ref()?.widget_rect(target)?;
         Some(drop_insertion_line(
             rect,
