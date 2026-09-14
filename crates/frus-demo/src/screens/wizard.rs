@@ -62,6 +62,18 @@ pub(crate) fn wizard_step_valid(form: &Form, step: usize) -> bool {
     }
 }
 
+/// What each wizard field is for, so that a password manager can fill the form and save the
+/// account it creates (milestone 512). The email address is the account's name as well,
+/// and both passwords are new ones: offered for saving, never filled from what is saved.
+pub(crate) fn wizard_hints(field: u8) -> &'static [frus_widgets::AutofillHint] {
+    use frus_widgets::AutofillHint as Hint;
+    match field {
+        0 => &[Hint::Name],
+        1 => &[Hint::Username, Hint::Email],
+        _ => &[Hint::NewPassword],
+    }
+}
+
 /// One wizard field: its error is shown **only after** submission, its value is **masked** for a
 /// password, and it carries a **focus key** (`keyed`) so the summary can jump to it.
 // Nine, and they are the field's whole description. A struct here would be a
@@ -81,7 +93,8 @@ pub(crate) fn wizard_input(
         .size(16.0)
         .label(label)
         .obscure(obscure)
-        .on_input(move |s| Msg::WizardInput(field, s));
+        .on_input(move |s| Msg::WizardInput(field, s))
+        .autofill(wizard_hints(field).iter().copied());
     // `eye = Some(revealed)`: an eye icon **inside the field** toggles the masking (milestone 198).
     if let Some(revealed) = eye {
         let icon = if revealed {
@@ -242,6 +255,10 @@ pub(crate) fn wizard_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>
     // The form itself is what scrolls, and it says so: the Scaffold places the body and
     // does not wrap it (milestone 321). That matters most here — the footer must stay
     // pinned while the steps move, which is exactly the split between the two slots.
+    // The steps are one form, for autofill: a group around whichever step is showing, at
+    // the same place in the tree whatever the step, so the account's name typed on the
+    // first and its password on the second are saved together (milestone 512).
+    let content = frus_widgets::AutofillGroup::new(content);
     let inner = column![steps, content].gap(24.0).padding(24.0);
     Scaffold::new()
         .background(theme.background)

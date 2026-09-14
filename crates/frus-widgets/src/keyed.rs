@@ -80,6 +80,10 @@ crate::transparent::forward_transparent!(Keyed {
     fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
         self.inner.scaffold_override()
     }
+    /// Forwarded: a key is not a form, and a keyed form is still one (milestone 512).
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
+    }
 });
 
 #[cfg(test)]

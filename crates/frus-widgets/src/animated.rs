@@ -364,6 +364,10 @@ crate::transparent::forward_transparent!(AnimatedSlide {
     fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
         self.inner.scaffold_override()
     }
+    /// Forwarded: a wrapper around a form is still that form (milestone 512).
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
+    }
 });
 
 #[cfg(test)]
@@ -501,6 +505,10 @@ crate::transparent::forward_transparent!(AnimatedScale {
     fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
         self.inner.scaffold_override()
     }
+    /// Forwarded: a wrapper around a form is still that form (milestone 512).
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
+    }
 });
 
 /// **Turns its child** rather than letting it snap between angles — a paint-time
@@ -590,6 +598,10 @@ crate::transparent::forward_transparent!(AnimatedRotation {
     }
     fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
         self.inner.scaffold_override()
+    }
+    /// Forwarded: a wrapper around a form is still that form (milestone 512).
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
     }
 });
 

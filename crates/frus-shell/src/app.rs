@@ -580,6 +580,17 @@ pub struct App<A: Application> {
     /// A **text field** pressed with a finger: a hold there selects the word under it
     /// (milestone 511), where on anything else it is the widget's long press.
     pending_word: Option<WidgetId>,
+    /// The form last shown to the platform's autofill service, as it was shown
+    /// (milestone 512) — what a returned value is routed against, and what a value the
+    /// service has not heard is told apart from.
+    #[cfg(android)]
+    autofill_reported: Vec<crate::autofill::AutofillField>,
+    /// The field of that form the service was told has focus.
+    #[cfg(android)]
+    autofill_focus: Option<WidgetId>,
+    /// The [`frus_widgets::AutofillGroup`] that form is, while it is on screen.
+    #[cfg(android)]
+    autofill_group: Option<WidgetId>,
     /// When the last **recorded** edit happened, for the pause that breaks a run of
     /// typing into two steps of undo. One field and not one per text field, because only
     /// the focused one is being typed into, and leaving a field ends its run anyway.
@@ -704,6 +715,12 @@ impl<A: Application> App<A> {
             press: PressRecognizer::new(),
             long_press_msg: None,
             pending_word: None,
+            #[cfg(android)]
+            autofill_reported: Vec::new(),
+            #[cfg(android)]
+            autofill_focus: None,
+            #[cfg(android)]
+            autofill_group: None,
             last_edit_at: None,
             pending_lift: None,
             pending_reorder: None,
@@ -939,6 +956,107 @@ impl<A: Application> App<A> {
         }
         // Refresh the input context, which the IME queries for its suggestions.
         self.push_ime_context(focused);
+        self.request_redraw();
+    }
+
+    /// Keeps the platform's **autofill service** in step with the form being edited
+    /// (milestone 512). When a field that says what it is for takes focus, its form is
+    /// shown to the service and the service is told which field it is in; while it stays,
+    /// every value the service has not heard is reported, or what it saves is what the
+    /// fields held when it first looked; and when the form's group has left the screen
+    /// — submitted, or navigated away from — it is committed, which is the moment a
+    /// service may offer to save what was typed.
+    #[cfg(android)]
+    fn sync_autofill(&mut self) {
+        use crate::{android_autofill as platform, autofill};
+        if !crate::android_ime::installed() {
+            return;
+        }
+        let scale = self.total_scale();
+        let (Some(ui), Some(tree)) = (self.ui.as_ref(), self.tree.as_ref()) else {
+            return;
+        };
+        let fields_of = |id: WidgetId| {
+            autofill::structure(&ui.form_of(id), scale, |widget| {
+                find_widget(tree.as_ref(), widget).map(|w| {
+                    (
+                        w.autofill_hints(),
+                        w.text_value().unwrap_or_default().to_owned(),
+                    )
+                })
+            })
+        };
+        // The focused field, when it takes part: it says what it is for.
+        let focus = self.runtime.input.focused.filter(|&id| {
+            find_widget(tree.as_ref(), id).is_some_and(|w| !w.autofill_hints().is_empty())
+        });
+        if focus != self.autofill_focus {
+            if let Some(left) = self.autofill_focus {
+                platform::exit(autofill::virtual_id(left));
+            }
+            if let Some(entered) = focus {
+                let group = ui.form_group(entered);
+                // A field of the form already shown — the next step of a wizard — keeps
+                // the fields shown before it; any other form starts afresh.
+                let shown: &[autofill::AutofillField] =
+                    if group.is_some() && group == self.autofill_group {
+                        &self.autofill_reported
+                    } else {
+                        &[]
+                    };
+                let fields = autofill::with_gone(fields_of(entered), shown);
+                platform::publish(&fields);
+                platform::enter(autofill::virtual_id(entered));
+                self.autofill_reported = fields;
+                self.autofill_group = group;
+            }
+            self.autofill_focus = focus;
+        } else if let Some(id) = focus {
+            let fields = autofill::with_gone(fields_of(id), &self.autofill_reported);
+            for (virtual_id, value) in autofill::changed(&self.autofill_reported, &fields) {
+                platform::value_changed(virtual_id, &value);
+            }
+            self.autofill_reported = fields;
+        }
+        if let Some(group) = self.autofill_group {
+            if ui.group_stops(group).is_empty() {
+                platform::commit();
+                self.autofill_group = None;
+                self.autofill_reported.clear();
+            }
+        }
+    }
+
+    /// Puts the values an autofill service chose into their fields (milestone 512), each
+    /// through the message typing it would have produced — the path an undo takes, so a
+    /// field that refuses typing refuses this too — with the caret after what arrived.
+    #[cfg(android)]
+    fn drain_autofill(&mut self) {
+        let fills = crate::android_autofill::drain();
+        if fills.is_empty() {
+            return;
+        }
+        for (widget, value) in crate::autofill::route(&self.autofill_reported, fills) {
+            let message = self
+                .tree
+                .as_ref()
+                .and_then(|tree| find_widget(tree.as_ref(), widget))
+                .and_then(|w| w.replace_value(value.clone()));
+            if let Some(message) = message {
+                self.runtime.edits.insert(
+                    widget,
+                    Edit {
+                        cursor: value.chars().count(),
+                        anchor: None,
+                        composing: None,
+                    },
+                );
+                self.dispatch_edit(message);
+            }
+        }
+        if let Some(id) = self.runtime.input.focused {
+            self.push_ime_context(id);
+        }
         self.request_redraw();
     }
 
@@ -1306,6 +1424,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         // Pending IME operations, from the Android input bridge.
         #[cfg(android)]
         self.drain_ime();
+        // And the values an autofill service chose, from the same bridge.
+        #[cfg(android)]
+        self.drain_autofill();
 
         // Actions an assistive technology asked for, through AccessKit.
         #[cfg(desktop)]
@@ -2443,6 +2564,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
                 // The Android software keyboard follows the text fields' focus.
                 self.sync_soft_input();
+                // And the autofill service follows the form being edited.
+                #[cfg(android)]
+                self.sync_autofill();
 
                 // While an animation is running, ask for another frame.
                 if animating || wants_animation {

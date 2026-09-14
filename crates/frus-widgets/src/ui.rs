@@ -563,6 +563,9 @@ pub struct Focusable {
     /// widget is, whether or not any of it is on screen. Arrow navigation places
     /// candidates by this, and [`Ui::reveal`] works out what to scroll from it.
     pub bounds: Rect,
+    /// The [`crate::AutofillGroup`] this stop sits in — the form it is part of — when
+    /// there is one (milestone 512).
+    pub form: Option<WidgetId>,
     /// The nearest enclosing scroll region, when there is one. What could bring this
     /// stop into view, and the first link of the chain [`Ui::reveal`] walks.
     pub scroll: Option<WidgetId>,
@@ -1000,6 +1003,40 @@ impl<Msg: Clone> Ui<Msg> {
     /// the shell can detect the focus **disappearing** (an overlay closed) and restore it.
     pub fn focusable_ids(&self) -> impl Iterator<Item = WidgetId> + '_ {
         self.focusables.iter().map(|f| f.id)
+    }
+
+    /// The focus stops of the **form** `id` is part of, in tree order, each with its box
+    /// this frame (unclipped: a field scrolled out of sight is still a field of the form).
+    /// A stop in no [`crate::AutofillGroup`] is a form of one. Empty when `id` is not a
+    /// focus stop this frame.
+    ///
+    /// Stops, not fields: which of them take part in autofill is a question for the
+    /// widgets ([`crate::Widget::autofill_hints`]), which the shell has and this does not.
+    pub fn form_of(&self, id: WidgetId) -> Vec<(WidgetId, Rect)> {
+        let Some(stop) = self.focusables.iter().find(|f| f.id == id) else {
+            return Vec::new();
+        };
+        match stop.form {
+            Some(form) => self.group_stops(form),
+            None => vec![(stop.id, stop.bounds)],
+        }
+    }
+
+    /// The [`crate::AutofillGroup`] focus stop `id` sits in, if it is a stop this frame
+    /// and sits in one.
+    pub fn form_group(&self, id: WidgetId) -> Option<WidgetId> {
+        self.focusables.iter().find(|f| f.id == id)?.form
+    }
+
+    /// Every focus stop inside the [`crate::AutofillGroup`] `group`, in tree order, with
+    /// its unclipped box. Empty once the group has left the screen — which is the moment
+    /// a form is finished with, and the platform may offer to save what was typed in it.
+    pub fn group_stops(&self, group: WidgetId) -> Vec<(WidgetId, Rect)> {
+        self.focusables
+            .iter()
+            .filter(|f| f.form == Some(group))
+            .map(|f| (f.id, f.bounds))
+            .collect()
     }
 
     /// Frame (viewport) of the scrollable area `id`, when there is one — so the shell can find
@@ -2066,6 +2103,8 @@ struct Builder<'a, Msg> {
     focus_order: Option<f32>,
     /// The nearest enclosing `FocusTraversalGroup`, within which an order is resolved.
     focus_group: Option<WidgetId>,
+    /// The nearest enclosing [`crate::AutofillGroup`]: the form a field is part of.
+    autofill_group: Option<WidgetId>,
     /// Shortcut and action scopes closed so far this frame.
     scopes: Vec<Scope<Msg>>,
     /// Keystroke listeners, with the focus stops they cover.
@@ -2657,6 +2696,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         if widget.backdrop_group() {
             self.backdrop_group = Some(id.as_u64());
         }
+        // The form a field belongs to, scoped the same way (milestone 512).
+        let outer_form = self.autofill_group;
+        if widget.autofill_group() {
+            self.autofill_group = Some(id);
+        }
         // The focus stops this subtree contains start here; the walk is depth-first, so
         // they are contiguous and the range closes below.
         let stops_before = self.focusables.len();
@@ -2668,6 +2712,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.focus_group,
         ) = outer;
         self.backdrop_group = outer_group;
+        self.autofill_group = outer_form;
         self.close_scope(widget, stops_before);
     }
 
@@ -3132,6 +3177,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 id,
                 rect: visible,
                 bounds: draw_rect,
+                form: self.autofill_group,
                 scroll: self.scroll_host,
                 skip: self.focus_skipped || widget.focus_skip_traversal(),
                 order: widget.focus_order().or(self.focus_order),
@@ -4450,6 +4496,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 id,
                 rect: visible,
                 bounds: draw_rect,
+                form: self.autofill_group,
                 scroll: self.scroll_host,
                 skip: self.focus_skipped || widget.focus_skip_traversal(),
                 order: widget.focus_order().or(self.focus_order),
@@ -4996,6 +5043,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         focus_skipped: false,
         focus_order: None,
         focus_group: None,
+        autofill_group: None,
         scopes: Vec::new(),
         listeners: Vec::new(),
         overflows: std::cell::RefCell::new(Vec::new()),
@@ -6768,6 +6816,67 @@ mod tests {
         assert_eq!(keyed.selection_handles(200.0, &edit, 0.0), direct);
         assert_eq!(responsive.selection_handles(200.0, &edit, 0.0), direct);
         assert_eq!(boxed.selection_handles(200.0, &edit, 0.0), direct);
+    }
+
+    /// **A field knows the form it is part of** (milestone 512): the stops inside one
+    /// [`crate::AutofillGroup`] are that form, in tree order, whichever of them asks; two
+    /// groups side by side are two forms; a field in no group is a form of one; and a
+    /// group sits in the focus registry, so a cached subtree replays it like any stop.
+    #[test]
+    fn a_field_knows_the_form_it_is_part_of() {
+        use crate::{AutofillGroup, AutofillHint};
+        let field = |value: &str, hint: AutofillHint| {
+            TextField::new(value)
+                .width(200.0)
+                .on_input(Msg::Edited)
+                .autofill([hint])
+        };
+        let tree = Flex::column()
+            .width(300.0)
+            .height(400.0)
+            .child(AutofillGroup::new(
+                Flex::column()
+                    .child(field("someone", AutofillHint::Username))
+                    .child(field("secret", AutofillHint::Password)),
+            ))
+            .child(AutofillGroup::new(field(
+                "123456",
+                AutofillHint::OneTimeCode,
+            )))
+            .child(TextField::new("search").width(200.0).on_input(Msg::Edited));
+        let ui = build_ui(
+            &tree,
+            Size::new(300.0, 400.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let ids: Vec<WidgetId> = ui.focusable_ids().collect();
+        assert_eq!(ids.len(), 4);
+        let form = |id: WidgetId| ui.form_of(id).iter().map(|(f, _)| *f).collect::<Vec<_>>();
+        assert_eq!(form(ids[0]), vec![ids[0], ids[1]], "the sign-in pair");
+        assert_eq!(
+            form(ids[1]),
+            vec![ids[0], ids[1]],
+            "whichever of the two asks"
+        );
+        assert_eq!(
+            form(ids[2]),
+            vec![ids[2]],
+            "a second group is a second form"
+        );
+        assert_eq!(
+            form(ids[3]),
+            vec![ids[3]],
+            "a field in no group is a form of one"
+        );
+        assert!(ui.form_of(WidgetId::from_u64(7)).is_empty());
+        // The two groups are told apart by identity, and a lone field has none.
+        let (first, second) = (ui.form_group(ids[0]), ui.form_group(ids[2]));
+        assert!(first.is_some() && second.is_some() && first != second);
+        assert_eq!(ui.form_group(ids[3]), None);
+        assert_eq!(ui.group_stops(first.unwrap()).len(), 2);
+        // Each stop carries its box, which is what the platform anchors its offer to.
+        assert!(ui.form_of(ids[1]).iter().all(|(_, r)| r.height > 0.0));
     }
 
     #[test]

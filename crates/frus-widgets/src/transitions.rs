@@ -104,6 +104,10 @@ crate::transparent::forward_transparent!(FadeTransition {
     fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
         self.inner.scaffold_override()
     }
+    /// Forwarded: a wrapper around a form is still that form (milestone 512).
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
+    }
 });
 
 /// The edge a [`SlideTransition::from_edge`] comes in from.
@@ -196,6 +200,10 @@ crate::transparent::forward_transparent!(SlideTransition {
     fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
         self.inner.scaffold_override()
     }
+    /// Forwarded: a wrapper around a form is still that form (milestone 512).
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
+    }
 });
 
 /// **Scales** its child by a value the caller owns, about its centre or a pivot of the
@@ -265,6 +273,10 @@ crate::transparent::forward_transparent!(ScaleTransition {
     }
     fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
         self.inner.scaffold_override()
+    }
+    /// Forwarded: a wrapper around a form is still that form (milestone 512).
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
     }
 });
 
@@ -494,6 +506,10 @@ crate::transparent::forward_transparent!(DefaultTextStyleTransition {
     }
     fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
         self.inner.scaffold_override()
+    }
+    /// Forwarded: a wrapper around a form is still that form (milestone 512).
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
     }
 });
 

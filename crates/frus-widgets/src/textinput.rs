@@ -8,6 +8,7 @@ use frus_core::{Point, Rect, ResolvedTextStyle, Scene, TextAlign, TextStyle};
 use frus_layout::{Dimension, Style};
 use frus_text::TextLayout;
 
+use crate::autofill::AutofillHint;
 use crate::disabled::DISABLED_CONTENT_OPACITY;
 use crate::icons::IconData;
 use crate::ime::{Capitalization, Ime, KeyboardType, TextInputAction};
@@ -203,6 +204,9 @@ pub struct TextField<Msg> {
     read_only: bool,
     /// Per-call overrides; everything unset falls to the theme, then the framework.
     style: TextFieldStyle,
+    /// What the field is for, so the platform can fill it in; see
+    /// [`TextField::autofill`].
+    autofill: Vec<AutofillHint>,
 }
 
 /// A "word" character (letter/digit/`_`) for word jumps (Ctrl+Arrow).
@@ -327,6 +331,7 @@ impl<Msg> TextField<Msg> {
             capitalization: Capitalization::Auto,
             read_only: false,
             style: TextFieldStyle::default(),
+            autofill: Vec::new(),
         }
     }
 
@@ -541,6 +546,23 @@ impl<Msg> TextField<Msg> {
             icon_size: Some(self.icon_size()),
             padding_x: Some(self.pad_x()),
         }
+    }
+
+    /// What the field is **for** — a username, a new password, a one-time code, a postal
+    /// code — so that the platform's autofill service can fill it, and save it once the
+    /// form is submitted. See [`AutofillHint`].
+    ///
+    /// A list, most telling first: a sign-in box that takes an email address is both
+    /// `[AutofillHint::Username, AutofillHint::Email]`. The fields of one form belong in
+    /// an [`AutofillGroup`](crate::AutofillGroup), or a password is shown to the service
+    /// with no username to save it under.
+    ///
+    /// ```ignore
+    /// TextField::new(&app.code).autofill([AutofillHint::OneTimeCode])
+    /// ```
+    pub fn autofill(mut self, hints: impl IntoIterator<Item = AutofillHint>) -> Self {
+        self.autofill = hints.into_iter().collect();
+        self
     }
 
     /// Switches the field to **multi-line**: Enter inserts a line break (instead of
@@ -1739,6 +1761,10 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         scroll_y: f32,
     ) -> Option<[crate::SelectionHandle; 2]> {
         self.handles(width, edit, scroll_y)
+    }
+
+    fn autofill_hints(&self) -> &[AutofillHint] {
+        &self.autofill
     }
 
     fn focusable(&self) -> bool {

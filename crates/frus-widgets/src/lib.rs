@@ -15,6 +15,7 @@ mod animated;
 mod appbar;
 mod aspectratio;
 mod autocomplete;
+mod autofill;
 mod avatar;
 mod badge;
 mod banner;
@@ -178,6 +179,7 @@ pub use animated::{
 pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT, APP_BAR_MAX_TITLE_SCALE};
 pub use aspectratio::AspectRatio;
 pub use autocomplete::Autocomplete;
+pub use autofill::{AutofillGroup, AutofillHint};
 pub use avatar::CircleAvatar;
 pub use badge::Badge;
 pub use banner::{MaterialBanner, BANNER_ELEVATION, BANNER_MIN_ACTION_BAR_HEIGHT};

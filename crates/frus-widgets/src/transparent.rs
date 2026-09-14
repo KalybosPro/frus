@@ -223,6 +223,10 @@ macro_rules! forward_transparent {
                 self.inner.selection_handles(width, edit, scroll_y)
             }
 
+            fn autofill_hints(&self) -> &[$crate::AutofillHint] {
+                self.inner.autofill_hints()
+            }
+
             fn focusable(&self) -> bool {
                 self.inner.focusable()
             }
@@ -768,6 +772,8 @@ mod tests {
             "theme_override",
             "media_override",
             "scaffold_override",
+            // A wrapper that *is* a form says so; every other one forwards it (512).
+            "autofill_group",
         ];
         let missing: Vec<String> = names(trait_body)
             .into_iter()
@@ -855,6 +861,7 @@ mod tests {
                 "fn scaffold_override(",
                 "fn restyle(",
                 "fn positioned(",
+                "fn autofill_group(",
             ] {
                 assert!(src.contains(hook), "{file} says nothing about `{hook}`");
             }

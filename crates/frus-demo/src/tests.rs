@@ -803,6 +803,48 @@ fn wizard_flow_validates_navigates_and_notifies() {
     assert_eq!(app.wizard_step, 1);
 }
 
+/// **The sign-up wizard is one form, for autofill** (milestone 512). On each step the
+/// fields are grouped, and nothing else is — not the Next button, not the back arrow —
+/// and the group is the **same one** whatever the step: the account's name is typed on
+/// the first and its password on the second, and a password manager shown them as two
+/// forms would save a password with no account to save it under.
+#[test]
+fn the_wizard_is_one_form_across_its_steps() {
+    use frus_widgets::{AutofillHint, WidgetId};
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::Push(Route::Wizard));
+    let theme = Theme::default();
+    let size = Size::new(400.0, 800.0);
+    let grouped = |app: &TodoApp| -> Vec<(WidgetId, Option<WidgetId>)> {
+        let tree = view_for(app, &theme, size);
+        let ui = build_ui(&tree, size, &Runtime::default(), &theme);
+        let stops: Vec<WidgetId> = ui.focusable_ids().collect();
+        stops
+            .into_iter()
+            .map(|id| (id, ui.form_group(id)))
+            .filter(|(_, group)| group.is_some())
+            .collect()
+    };
+    let account = grouped(&app);
+    assert_eq!(account.len(), 2, "the name and the email, and nothing else");
+    assert_eq!(account[0].1, account[1].1, "in one group");
+    reduce(&mut app, Msg::WizardStep(1));
+    let security = grouped(&app);
+    assert_eq!(security.len(), 2, "the password and its confirmation");
+    assert_eq!(
+        security[0].1, account[0].1,
+        "the same form on the second step as on the first"
+    );
+    // And each field says what it is for: the email is the account's name as well.
+    assert_eq!(wizard_hints(0), &[AutofillHint::Name]);
+    assert_eq!(
+        wizard_hints(1),
+        &[AutofillHint::Username, AutofillHint::Email]
+    );
+    assert_eq!(wizard_hints(2), &[AutofillHint::NewPassword]);
+    assert_eq!(wizard_hints(3), &[AutofillHint::NewPassword]);
+}
+
 #[test]
 fn grid_edit_navigate_and_resize() {
     let mut app = app_with_grid(vec![

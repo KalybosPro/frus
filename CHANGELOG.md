@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 511 so far, each documenting the objective, the alternatives
+> record — one per step, 512 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -134,6 +134,16 @@ any release may break.
 
 ### Added
 
+- **A field that says what it is for** (J512, towards #45). `AutofillHint` names what a
+  field holds — nineteen hints, each carrying the name Android's services expect, which is
+  rarely the hint's own (`emailAddress`, `personName`, `smsOTPCode`) — `TextField::autofill`
+  takes a list of them, and `AutofillGroup` declares the fields of one form. On Android the
+  form reaches the platform's autofill service as a virtual structure under the input
+  bridge: published when one of its fields takes focus, every change reported, committed
+  when the group leaves the screen, and a chosen value put in the way typing would be.
+  Seen on a device: both services there are shown the form anchored on the right field,
+  and receive its changes and its commit; neither offered to fill or to save, and neither
+  logs why, so #45 stays open.
 - **A word held, and two handles to move it by** (J511, towards #23). A hold in a text field
   selects the word under the finger, and a selection made that way carries two handles —
   22 px, the scheme's primary unless `TextFieldStyle::handle_color` or
