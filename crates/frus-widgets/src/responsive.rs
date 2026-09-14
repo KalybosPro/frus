@@ -220,6 +220,28 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.word_at(index))
     }
 
+    fn selection_handles(
+        &self,
+        width: f32,
+        edit: &Edit,
+        scroll_y: f32,
+    ) -> Option<[crate::SelectionHandle; 2]> {
+        self.inner
+            .as_ref()
+            .and_then(|w| w.selection_handles(width, edit, scroll_y))
+    }
+
+    fn autofill_hints(&self) -> &[crate::AutofillHint] {
+        self.inner
+            .as_ref()
+            .map(|w| w.autofill_hints())
+            .unwrap_or(&[])
+    }
+
+    fn autofill_group(&self) -> bool {
+        self.inner.as_ref().is_some_and(|w| w.autofill_group())
+    }
+
     fn focusable(&self) -> bool {
         self.inner.as_ref().is_some_and(|w| w.focusable())
     }

@@ -379,6 +379,8 @@ pub struct TextFieldTheme {
     pub helper_color: Option<Color>,
     /// The prefix and suffix icons.
     pub icon_color: Option<Color>,
+    /// The handles under a touch selection. Unset, the scheme's `primary`.
+    pub handle_color: Option<Color>,
     /// Corner radius.
     pub radius: Option<f32>,
     /// Border weight at rest.

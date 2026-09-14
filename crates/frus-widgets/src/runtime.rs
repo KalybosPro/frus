@@ -45,6 +45,21 @@ impl Edit {
     }
 }
 
+/// One of the two handles under a touch selection, in the field's **local** coordinates
+/// (px from its top-left corner, as on screen: any scroll of its content already applied).
+///
+/// The paint and the shell's hit test read the same answer, so a handle is taken
+/// exactly where it is drawn.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct SelectionHandle {
+    /// The box the handle is drawn in, hanging below its end of the selection.
+    pub rect: Rect,
+    /// The text position the handle stands for: its end of the selection, halfway down
+    /// the line. A handle hangs below its line, so a finger dragging it is aimed at the
+    /// line through this point rather than at where the finger is.
+    pub line_center: Point,
+}
+
 /// **Default** transition duration, in seconds. A widget can set its own through
 /// [`crate::widget::Widget::anim_duration`].
 pub(crate) const ANIM_DURATION: f32 = 0.12;
@@ -677,6 +692,9 @@ pub struct Runtime {
     pub interactive_velocity: HashMap<WidgetId, (f32, f32)>,
     /// Edit state, per input field.
     pub edits: HashMap<WidgetId, Edit>,
+    /// The field whose selection shows **handles** — one made with a finger (milestone
+    /// 511). Put away by the next press or key; shown only while that field is focused.
+    pub selection_handles: Option<WidgetId>,
     /// **Undo history**, per input field: what it was, and what it was about to be.
     ///
     /// Beside `edits` rather than inside it, because they are different things kept for

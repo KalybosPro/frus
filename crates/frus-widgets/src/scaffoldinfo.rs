@@ -182,6 +182,10 @@ crate::transparent::forward_transparent!(ScaffoldScope {
                 .unwrap_or_else(|| self.info.clone()),
         )
     }
+    /// Forwarded: a scope around a form is still that form (milestone 512).
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
+    }
 });
 
 #[cfg(test)]

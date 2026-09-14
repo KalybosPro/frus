@@ -187,6 +187,11 @@ fn try_install(app: &AndroidApp) -> Result<Bridge, jni::errors::Error> {
                 "()Ljava/lang/String;",
                 native_selected_text as *mut _,
             ),
+            method(
+                "nativeAutofill",
+                "(ILjava/lang/String;)V",
+                crate::android_autofill::native_autofill as *mut _,
+            ),
         ],
     )?;
 
@@ -210,6 +215,34 @@ fn try_install(app: &AndroidApp) -> Result<Bridge, jni::errors::Error> {
 /// Is the bridge operational?
 pub(crate) fn installed() -> bool {
     BRIDGE.get().is_some()
+}
+
+/// Runs `call` against the bridge's class and activity — the way in for the other
+/// halves that live in the same Java class (autofill, milestone 512). Nothing happens
+/// when the bridge is not installed; a failure is logged, and the Java exception it left
+/// pending is cleared, or the next call across would abort the process.
+pub(crate) fn with_bridge(
+    what: &str,
+    call: impl FnOnce(&mut JNIEnv, &JClass, &JObject) -> jni::errors::Result<()>,
+) {
+    let Some(bridge) = BRIDGE.get() else {
+        return;
+    };
+    let Ok(mut env) = bridge.vm.attach_current_thread_permanently() else {
+        return;
+    };
+    let class: &JClass = bridge.class.as_obj().into();
+    if let Err(err) = call(&mut env, class, bridge.activity.as_obj()) {
+        let _ = env.exception_clear();
+        log::warn!("input bridge: {what} failed ({err})");
+    }
+}
+
+/// Wakes the event loop, for something queued on the Java UI thread.
+pub(crate) fn wake() {
+    if let Some(waker) = WAKER.get() {
+        waker.lock().unwrap().wake();
+    }
 }
 
 /// Native focus enters a text field: the bridge view captures the IME, told what

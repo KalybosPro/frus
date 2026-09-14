@@ -12,6 +12,8 @@
 #[cfg(desktop)]
 mod a11y;
 #[cfg(android)]
+mod android_autofill;
+#[cfg(android)]
 mod android_clipboard;
 #[cfg(android)]
 mod android_ime;
@@ -21,6 +23,8 @@ mod android_settings;
 mod android_system_bars;
 mod app;
 mod application;
+#[cfg(any(android, test))]
+mod autofill;
 mod command;
 mod gesture;
 mod hover;
@@ -35,6 +39,7 @@ mod remote;
 /// effect. Native only — on the Web the browser is the runtime.
 #[cfg(not(web))]
 pub(crate) mod runtime;
+mod selection;
 mod subscription;
 mod theming;
 

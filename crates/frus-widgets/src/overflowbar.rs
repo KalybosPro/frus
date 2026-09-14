@@ -274,6 +274,10 @@ crate::transparent::forward_transparent!(Capped {
     fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
         self.inner.scaffold_override()
     }
+    /// Forwarded: a wrapper around a form is still that form (milestone 512).
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
+    }
 });
 
 /// One arrangement of a bar: the children, and the width they were offered.

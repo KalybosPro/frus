@@ -333,6 +333,19 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// The two handles of the selection in `edit`, start then end, for a field `width`
+    /// wide whose content is scrolled down by `scroll_y` — where they are painted, and
+    /// so where a finger takes them. `None` when there is no selection, or this is not
+    /// a text field.
+    fn selection_handles(
+        &self,
+        _width: f32,
+        _edit: &Edit,
+        _scroll_y: f32,
+    ) -> Option<[crate::SelectionHandle; 2]> {
+        None
+    }
+
     /// Keystrokes this subtree binds to **intents** — see [`crate::Shortcuts`].
     fn shortcut_bindings(&self) -> &[(crate::shortcuts::KeyStroke, crate::shortcuts::Intent)] {
         &[]
@@ -395,6 +408,23 @@ pub trait Widget<Msg> {
     /// resolved among its own members and nowhere else, so a reordered dialog does not
     /// reshuffle the page behind it.
     fn focus_group(&self) -> bool {
+        false
+    }
+
+    /// What this field is **for**, so the platform can fill it in — see
+    /// [`AutofillHint`](crate::AutofillHint). Empty (the default) is a field that takes
+    /// no part in autofill at all.
+    ///
+    /// A list, because a field can legitimately be more than one thing: a sign-in box
+    /// taking an email address is the username *and* the email.
+    fn autofill_hints(&self) -> &[crate::AutofillHint] {
+        &[]
+    }
+
+    /// If `true`, this subtree's fields are **one form** — the reference's
+    /// `AutofillGroup`. A service shown a password with no username beside it has
+    /// nothing to save the pair under.
+    fn autofill_group(&self) -> bool {
         false
     }
 
@@ -1486,6 +1516,14 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn word_at(&self, index: usize) -> Option<(usize, usize)> {
         (**self).word_at(index)
     }
+    fn selection_handles(
+        &self,
+        width: f32,
+        edit: &Edit,
+        scroll_y: f32,
+    ) -> Option<[crate::SelectionHandle; 2]> {
+        (**self).selection_handles(width, edit, scroll_y)
+    }
     fn focusable(&self) -> bool {
         (**self).focusable()
     }
@@ -1526,6 +1564,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
 
     fn focus_group(&self) -> bool {
         (**self).focus_group()
+    }
+    fn autofill_hints(&self) -> &[crate::AutofillHint] {
+        (**self).autofill_hints()
+    }
+    fn autofill_group(&self) -> bool {
+        (**self).autofill_group()
     }
     fn draws_own_focus(&self) -> bool {
         (**self).draws_own_focus()

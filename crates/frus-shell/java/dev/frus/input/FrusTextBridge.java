@@ -2,16 +2,24 @@ package dev.frus.input;
 
 import android.app.Activity;
 import android.content.Context;
+import android.graphics.Rect;
+import android.os.Build;
 import android.text.InputType;
+import android.util.SparseArray;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewStructure;
+import android.view.autofill.AutofillId;
+import android.view.autofill.AutofillManager;
+import android.view.autofill.AutofillValue;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
+import java.util.ArrayList;
 
 /**
  * The frus input bridge (see docs/milestone-81.md): NativeActivity offers no
@@ -20,6 +28,11 @@ import android.view.inputmethod.InputMethodManager;
  * added on top of the native content, supplies a real InputConnection and
  * relays every IME operation to the native code, through the `native*` methods
  * registered by RegisterNatives on the Rust side.
+ *
+ * <p>It is also where the platform's autofill service meets the native fields
+ * (milestone 512): the form being edited is declared as a virtual structure under
+ * this view, one child per field, and the values the service hands back go to the
+ * native side the way typing does.
  *
  * Compiled into a bundled dex (scripts/build-input-dex.sh) and loaded at
  * runtime by InMemoryDexClassLoader, so the packaging never changes.
@@ -38,6 +51,8 @@ public final class FrusTextBridge extends View {
     private static native String nativeTextBeforeCursor(int n);
     private static native String nativeTextAfterCursor(int n);
     private static native String nativeSelectedText();
+    /** A value the autofill service chose for the field it knows by {@code virtualId}. */
+    private static native void nativeAutofill(int virtualId, String value);
 
     private static FrusTextBridge instance;
 
@@ -51,6 +66,44 @@ public final class FrusTextBridge extends View {
             InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES;
 
     private static int imeOptions = EditorInfo.IME_ACTION_DONE | EditorInfo.IME_FLAG_NO_FULLSCREEN;
+
+    /**
+     * One field of the form shown to the autofill service. Every value in it was worked
+     * out on the native side -- which fields, their ids, their platform hint names, their
+     * boxes in pixels from this view's corner -- and is carried here unchanged, for the
+     * same reason the keyboard's two integers are.
+     */
+    private static final class Field {
+        final int id;
+        final String[] hints;
+        final int left;
+        final int top;
+        final int width;
+        final int height;
+        final String value;
+        final boolean sensitive;
+
+        Field(int id, String[] hints, int left, int top, int width, int height, String value,
+                boolean sensitive) {
+            this.id = id;
+            this.hints = hints;
+            this.left = left;
+            this.top = top;
+            this.width = width;
+            this.height = height;
+            this.value = value;
+            this.sensitive = sensitive;
+        }
+    }
+
+    /**
+     * The form being assembled by the native side, field by field, and the one last
+     * published. The structure is read on the UI thread and written from the native
+     * one, so it is built aside and swapped whole: a service asking half-way through a
+     * rebuild sees the previous form, never half of the next.
+     */
+    private static ArrayList<Field> pendingFields = new ArrayList<Field>();
+    private static ArrayList<Field> publishedFields = new ArrayList<Field>();
 
     /** Adds the bridge view to the activity, once and once only. */
     public static void install(final Activity activity) {
@@ -132,10 +185,164 @@ public final class FrusTextBridge extends View {
         });
     }
 
+    // --- Autofill (milestone 512) -------------------------------------------------
+
+    /** One more field of the form being assembled; see {@link #publishFields}. */
+    public static synchronized void addField(int id, String[] hints, int left, int top,
+            int width, int height, String value, boolean sensitive) {
+        pendingFields.add(new Field(id, hints, left, top, width, height, value, sensitive));
+    }
+
+    /** The form assembled since the last call becomes the one a service is shown. */
+    public static synchronized void publishFields() {
+        publishedFields = pendingFields;
+        pendingFields = new ArrayList<Field>();
+    }
+
+    private static synchronized ArrayList<Field> currentFields() {
+        return publishedFields;
+    }
+
+    private static Field findField(int id) {
+        for (Field field : currentFields()) {
+            if (field.id == id) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    private static AutofillManager autofillManager(Activity activity) {
+        if (Build.VERSION.SDK_INT < 26 || instance == null) {
+            return null;
+        }
+        return activity.getSystemService(AutofillManager.class);
+    }
+
+    /**
+     * A field of the published form takes focus: the service is told where it is, which
+     * is what lets it offer a saved value there. The box is the field's, moved from this
+     * view's corner to the screen's.
+     */
+    public static void autofillEnter(final Activity activity, final int id) {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                AutofillManager afm = autofillManager(activity);
+                Field field = findField(id);
+                if (afm == null || field == null) {
+                    return;
+                }
+                // The native surface fills the window, so a field's box is measured from
+                // the window's corner -- not from this view's, which sits in the content
+                // frame below the status bar. Seen on a device: offers anchored a status
+                // bar too low (milestone 512).
+                int[] origin = new int[2];
+                instance.getRootView().getLocationOnScreen(origin);
+                int left = origin[0] + field.left;
+                int top = origin[1] + field.top;
+                afm.notifyViewEntered(instance, id,
+                        new Rect(left, top, left + field.width, top + field.height));
+            }
+        });
+    }
+
+    /** Focus leaves a field of the form. */
+    public static void autofillExit(final Activity activity, final int id) {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                AutofillManager afm = autofillManager(activity);
+                if (afm != null) {
+                    afm.notifyViewExited(instance, id);
+                }
+            }
+        });
+    }
+
+    /**
+     * A field's value changed. A service keeps the values it was shown and saves those,
+     * so a password typed after the form was published is saved as nothing unless it is
+     * reported here.
+     */
+    public static void autofillValueChanged(final Activity activity, final int id,
+            final String value) {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                AutofillManager afm = autofillManager(activity);
+                if (afm != null) {
+                    afm.notifyValueChanged(instance, id, AutofillValue.forText(value));
+                }
+            }
+        });
+    }
+
+    /** The form is finished with: the service may offer to save what was typed in it. */
+    public static void autofillCommit(final Activity activity) {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                AutofillManager afm = autofillManager(activity);
+                if (afm != null) {
+                    afm.commit();
+                }
+            }
+        });
+    }
+
     private FrusTextBridge(Context context) {
         super(context);
         setFocusable(true);
         setFocusableInTouchMode(true);
+        if (Build.VERSION.SDK_INT >= 26) {
+            // A 1x1 view is not somewhere a service looks for fields unless told to.
+            setImportantForAutofill(IMPORTANT_FOR_AUTOFILL_YES);
+        }
+    }
+
+    /** The published form, one virtual child per field, as the service asks for it. */
+    @Override
+    public void onProvideAutofillVirtualStructure(ViewStructure structure, int flags) {
+        if (Build.VERSION.SDK_INT < 26) {
+            return;
+        }
+        ArrayList<Field> form = currentFields();
+        AutofillId parent = structure.getAutofillId();
+        // The boxes arrive measured from the window's corner; a child's are this view's.
+        int[] self = new int[2];
+        int[] root = new int[2];
+        getLocationOnScreen(self);
+        getRootView().getLocationOnScreen(root);
+        int dx = self[0] - root[0];
+        int dy = self[1] - root[1];
+        int index = structure.addChildCount(form.size());
+        for (Field field : form) {
+            ViewStructure child = structure.newChild(index++);
+            child.setAutofillId(parent, field.id);
+            if (field.hints.length > 0) {
+                child.setAutofillHints(field.hints);
+            }
+            child.setAutofillType(View.AUTOFILL_TYPE_TEXT);
+            child.setAutofillValue(AutofillValue.forText(field.value));
+            child.setDataIsSensitive(field.sensitive);
+            child.setVisibility(View.VISIBLE);
+            child.setDimens(field.left - dx, field.top - dy, 0, 0, field.width, field.height);
+        }
+    }
+
+    /** The values the service chose, each for the field it names, to the native side. */
+    @Override
+    public void autofill(SparseArray<AutofillValue> values) {
+        if (Build.VERSION.SDK_INT < 26) {
+            return;
+        }
+        for (int i = 0; i < values.size(); i++) {
+            AutofillValue value = values.valueAt(i);
+            if (value != null && value.isText()) {
+                nativeAutofill(values.keyAt(i), value.getTextValue().toString());
+            }
+        }
     }
 
     @Override

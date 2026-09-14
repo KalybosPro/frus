@@ -15,6 +15,7 @@ mod animated;
 mod appbar;
 mod aspectratio;
 mod autocomplete;
+mod autofill;
 mod avatar;
 mod badge;
 mod banner;
@@ -178,6 +179,7 @@ pub use animated::{
 pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT, APP_BAR_MAX_TITLE_SCALE};
 pub use aspectratio::AspectRatio;
 pub use autocomplete::Autocomplete;
+pub use autofill::{AutofillGroup, AutofillHint};
 pub use avatar::CircleAvatar;
 pub use badge::Badge;
 pub use banner::{MaterialBanner, BANNER_ELEVATION, BANNER_MIN_ACTION_BAR_HEIGHT};
@@ -314,7 +316,7 @@ pub use rotatedbox::RotatedBox;
 pub use rowcolumn::{Column, MainAxisSize, Row, VerticalDirection};
 pub use runtime::{
     spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState, ScrollbarFade,
-    TransformValues, ValueAnim,
+    SelectionHandle, TransformValues, ValueAnim,
 };
 pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};
