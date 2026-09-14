@@ -245,16 +245,6 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             }
             Command::none()
         }
-        Msg::Tick => {
-            app.elapsed += 1;
-            // A trace of the tick: proof that the subscription emits messages.
-            eprintln!("[demo] stopwatch: {}s", app.elapsed);
-            Command::none()
-        }
-        Msg::ToggleTimer => {
-            app.running = !app.running;
-            Command::none()
-        }
         Msg::OpenTask(id) => {
             app.nav_from = Some(current_route(app));
             app.routes.push(Route::Task(id));

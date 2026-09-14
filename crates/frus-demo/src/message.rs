@@ -53,10 +53,6 @@ pub(crate) enum Msg {
     JournalScrolled(ScrollPosition),
     /// Back to the top of the log list, with an animation.
     JournalToTop,
-    /// A tick of the stopwatch (the timer subscription).
-    Tick,
-    /// Starts/stops the stopwatch.
-    ToggleTimer,
     /// Changes the active Settings tab.
     SetSettingsTab(usize),
     /// The walkthrough's page, whether the finger or a button asked for it.

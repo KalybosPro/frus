@@ -119,15 +119,6 @@ pub(crate) struct TodoApp {
     pub(crate) city_open: bool,
     pub(crate) city_query: String,
     pub(crate) city_choice: Option<usize>,
-    // --- Stopwatch (the timer subscription) ---
-    /// Is the stopwatch running? (it drives the `every` subscription).
-    pub(crate) running: bool,
-    /// Is the app in the **background**? (the lifecycle, milestone 259) — set to `true` on
-    /// `Paused`/`Detached` through [`Application::on_lifecycle`], at which point the timer
-    /// suspends. `false` by default (the foreground) — which suits `#[derive(Default)]`.
-    pub(crate) background: bool,
-    /// Seconds elapsed since the stopwatch started.
-    pub(crate) elapsed: u32,
     /// The Settings screen's active tab.
     pub(crate) settings_tab: usize,
     /// Is the about box open?

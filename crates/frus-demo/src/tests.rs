@@ -1541,27 +1541,6 @@ fn loaded_replaces_todos_with_unique_ids() {
 }
 
 #[test]
-fn timer_subscription_gated_by_running() {
-    let mut app = TodoApp::default();
-    // By default the stopwatch is not running (`init` starts it at run time).
-    assert!(app.subscription().is_empty());
-
-    app.running = true;
-    let subs = app.subscription();
-    assert!(!subs.is_empty());
-    // Two evaluations give the same id (a stable subscription).
-    assert_eq!(subs.ids(), app.subscription().ids());
-}
-
-#[test]
-fn tick_increments_elapsed() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Tick);
-    reduce(&mut app, Msg::Tick);
-    assert_eq!(app.elapsed, 2);
-}
-
-#[test]
 fn save_produces_a_run_effect() {
     let mut app = TodoApp::default();
     add(&mut app, "x");
