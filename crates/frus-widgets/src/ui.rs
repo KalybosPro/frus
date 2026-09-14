@@ -4413,6 +4413,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 status.composing = edit.composing;
             }
             status.handles = self.runtime.selection_handles == Some(id);
+            status.caret_hidden = self.runtime.caret_hidden;
         }
         status
     }

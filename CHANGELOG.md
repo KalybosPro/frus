@@ -8,13 +8,24 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 512 so far, each documenting the objective, the alternatives
+> record — one per step, 513 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **A letter took up to a second to appear on Android** (J513). The input bridge woke the
+  event loop with the looper's bare waker, and winit's Android backend takes a wake with no
+  redraw requested and no message of its own queued for a false one — so a letter waited for
+  whatever woke the loop next, on the demo a stopwatch ticking once a second: 424 to 835 ms
+  measured on a phone. The bridge now asks the window for a frame, which winit honours from
+  any thread; the same letters now reach the field in under a millisecond and the screen in
+  about ten. Autofill values, which came the same way, are fixed with it.
+- **The caret never blinked** (J513). It now does what the reference's does — half a second
+  shown, half hidden, started again from shown by any change to the field — on the wall
+  clock, waking the loop at each turn and not in between, and only while the window is in
+  front. Tests and goldens keep a solid caret.
 - **A predicting keyboard wrote a word twice on Android** (J510). Typing into a field with
   SwiftKey left `FFFrusclip` for `frusclip`. Whether the focused widget takes typing was a
   caret hit test at the corner of a field one pixel wide, and the × a field shows once it

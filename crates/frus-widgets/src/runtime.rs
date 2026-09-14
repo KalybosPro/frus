@@ -695,6 +695,10 @@ pub struct Runtime {
     /// The field whose selection shows **handles** — one made with a finger (milestone
     /// 511). Put away by the next press or key; shown only while that field is focused.
     pub selection_handles: Option<WidgetId>,
+    /// The focused field's caret is in the **hidden** half of its blink (milestone 513).
+    /// Kept by the shell, on the wall clock; `false` — shown — wherever nothing blinks it,
+    /// which is every test and every picture.
+    pub caret_hidden: bool,
     /// **Undo history**, per input field: what it was, and what it was about to be.
     ///
     /// Beside `edits` rather than inside it, because they are different things kept for

@@ -140,6 +140,9 @@ pub struct Status {
     /// press on a word — and one made with a mouse or the keyboard does not. Set by the
     /// shell, and only for the focused field.
     pub handles: bool,
+    /// Is the caret in the hidden half of its blink? Set by the shell, and only for the
+    /// focused field; a field paints no caret while it is.
+    pub caret_hidden: bool,
     /// Is a drag currently **over this widget**, and would it be accepted? Only
     /// ever true for a [`crate::DragTarget`]; it is what lets one paint the "drop it
     /// here" state itself rather than have the shell paint it from outside.
@@ -223,6 +226,7 @@ impl Default for Status {
             selection: None,
             composing: None,
             handles: false,
+            caret_hidden: false,
             drag_over: false,
             hover_progress: 0.0,
             focus_progress: 0.0,
@@ -270,6 +274,7 @@ impl InputState {
             selection: None,
             composing: None,
             handles: false,
+            caret_hidden: false,
             drag_over: false,
             hover_progress: 0.0,
             focus_progress: 0.0,
