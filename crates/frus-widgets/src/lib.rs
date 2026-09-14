@@ -135,6 +135,7 @@ mod searchview;
 mod segmented;
 /// Stating what a widget **is** from outside it: the [`semantics::Semantics`] wrapper.
 pub mod semantics;
+mod sheet;
 mod shortcuts;
 mod skeleton;
 mod slider;
@@ -296,8 +297,8 @@ pub use pageview::{PageSnap, PageView, PagedView};
 pub use pagination::Pagination;
 pub use paintcache::PaintCache;
 pub use physics::{
-    page_of, page_target, Ballistic, ScrollDecelerationRate, ScrollMetrics, ScrollPhysics,
-    Scrollbars, CONSTANT_DECELERATION_FAST, MAX_FLING_VELOCITY, MIN_FLING_VELOCITY,
+    page_of, page_target, snap_target, Ballistic, ScrollDecelerationRate, ScrollMetrics,
+    ScrollPhysics, Scrollbars, CONSTANT_DECELERATION_FAST, MAX_FLING_VELOCITY, MIN_FLING_VELOCITY,
 };
 pub use placeholder::{Placeholder, PLACEHOLDER_COLOR, PLACEHOLDER_FALLBACK, PLACEHOLDER_STROKE};
 pub use popover::MenuAnchor;
@@ -334,6 +335,10 @@ pub use segmented::{
     SEGMENTED_ICON_SIZE, SEGMENTED_PADDING,
 };
 pub use semantics::{Description, Semantics};
+pub use sheet::{
+    sheet_takes_release, split_sheet_drag, DraggableScrollableSheet, SheetArea, SheetSpec,
+    SheetState, SnapSimulation, SHEET_SNAP_MIN_SPEED,
+};
 pub use shortcuts::{
     ActionListener, Actions, CallbackShortcuts, FocusableActionDetector, Intent, KeyStroke,
     KeyboardListener, ShortcutKey, Shortcuts,
@@ -384,7 +389,8 @@ pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use ui::{
     build_deferred, build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget,
-    subtree_ids, FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
+    reorderable_owners, subtree_ids, FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar,
+    Ui,
 };
 pub use undo::{EditKind, EditSnapshot, UndoHistory, RUN_PAUSE};
 pub use wheel::{ListWheel, RowOnWheel, WheelGeometry};

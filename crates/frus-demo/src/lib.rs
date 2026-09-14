@@ -44,8 +44,7 @@ impl Application for TodoApp {
         // Here rather than in `main`, because there are three entry points (desktop,
         // Android, web) and only one of them is a `main`.
         frus_widgets::licenses::add_all(include_str!("../assets/licenses.txt"));
-        // Starts the stopwatch and loads the persisted tasks at start-up.
-        self.running = true;
+        // Seeds the demonstration state and loads the persisted tasks at start-up.
         self.page = 1;
         self.year = 2026;
         self.month = 7;
@@ -93,6 +92,7 @@ impl Application for TodoApp {
             Route::Data => 6,
             Route::Board => 7,
             Route::Tour => 8,
+            Route::Sheet => 9,
             // A task screen is not restored: the task it names may not exist any more,
             // and reopening a screen about nothing is worse than opening the list.
             Route::Task(_) => 0,
@@ -135,6 +135,7 @@ impl Application for TodoApp {
                         "6" => self.routes.push(Route::Data),
                         "7" => self.routes.push(Route::Board),
                         "8" => self.routes.push(Route::Tour),
+                        "9" => self.routes.push(Route::Sheet),
                         _ => {}
                     }
                 }
@@ -154,17 +155,6 @@ impl Application for TodoApp {
             }
         }
         self.restored = true;
-    }
-
-    fn subscription(&self) -> Subscription<Msg> {
-        // One tick per second while the stopwatch runs **and** the app is in the foreground: in
-        // the background (`on_lifecycle` → `foreground = false`) the timer **suspends** (the
-        // framework stops the subscription by diffing, then restarts it on the way back).
-        if self.running && !self.background {
-            Subscription::every(Duration::from_secs(1), |_| Msg::Tick)
-        } else {
-            Subscription::none()
-        }
     }
 
     fn density(&self) -> f32 {
@@ -210,13 +200,10 @@ impl Application for TodoApp {
     }
 
     fn on_lifecycle(&mut self, state: Lifecycle) {
-        // A demonstration of the lifecycle contract (milestone 259): the stopwatch **suspends**
-        // in the background and **resumes** in the foreground — as any app would cut its timers
-        // and sensors. The trace also goes to logcat (so it can be checked on a device).
+        // The lifecycle contract (milestone 259), traced to logcat so that a device run can
+        // see the transitions. An app with timers or sensors would cut them on `Paused` and
+        // restart them on `Resumed`; this one has none left.
         eprintln!("[demo] lifecycle: {state:?}");
-        // Suspends in the background (Paused/Detached); keeps the timer running on `Inactive`
-        // (focus lost but still visible) — suspending belongs to `paused`, not to `inactive`.
-        self.background = matches!(state, Lifecycle::Paused | Lifecycle::Detached);
     }
 
     fn view(&self, theme: &Theme) -> Box<dyn Widget<Msg>> {

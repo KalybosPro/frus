@@ -1292,6 +1292,20 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// If the widget is the moving panel of a [`crate::DraggableScrollableSheet`], its
+    /// configuration for this frame. The layout makes it as tall as the retained height,
+    /// and the shell shares a finger on it between the sheet and the scroll areas inside.
+    /// `None` = not a sheet.
+    fn sheet(&self) -> Option<&crate::sheet::SheetSpec> {
+        None
+    }
+
+    /// The message a sheet dispatches once it has been lowered to nothing. `None` = it
+    /// cannot be dismissed, or says nothing when it is.
+    fn on_sheet_dismissed(&self) -> Option<Msg> {
+        None
+    }
+
     /// If the widget is a **refresh area** ([`crate::RefreshIndicator`]), its configuration for
     /// this frame. Any scrollable inside it routes the movement its physics refuses at
     /// the top edge into the pull, instead of into the overscroll glow. `None` = not a
@@ -1817,6 +1831,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_dismissed(&self, direction: crate::dismiss::DismissDirection) -> Option<Msg> {
         (**self).on_dismissed(direction)
+    }
+    fn sheet(&self) -> Option<&crate::sheet::SheetSpec> {
+        (**self).sheet()
+    }
+    fn on_sheet_dismissed(&self) -> Option<Msg> {
+        (**self).on_sheet_dismissed()
     }
     fn refresh(&self) -> Option<crate::refresh::RefreshSpec> {
         (**self).refresh()

@@ -180,7 +180,6 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     // own how many fit on the line and folds the rest into a "⋯" overflow menu, according to the
     // width — without ever branching on mobile/desktop.
     let theme_label = if app.light { "Dark" } else { "Light" };
-    let timer_label = if app.running { "Pause" } else { "Resume" };
     // The title follows the active section (as a real app would) — the Tasks section is
     // localized (Fluent) for the i18n demo.
     let section_title = match app.section {
@@ -201,7 +200,6 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
                 .on_press(Msg::ToggleDrawer),
         )
         .overflow(app.actions_open, Msg::ToggleActions)
-        .action(timer_label, Msg::ToggleTimer)
         .action(theme_label, Msg::ToggleTheme)
         .action(seed_label(app), Msg::CycleSeed)
         .action(if app.rtl { "LTR" } else { "RTL" }, Msg::ToggleRtl)
@@ -617,6 +615,9 @@ pub(crate) fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> SafeAr
                     .variant(Variant::Outlined)
                     .size(15.0),
                 button("Guided tour →", Msg::Push(Route::Tour))
+                    .variant(Variant::Outlined)
+                    .size(15.0),
+                button("Draggable sheet →", Msg::Push(Route::Sheet))
                     .variant(Variant::Outlined)
                     .size(15.0),
                 button("Kanban board →", Msg::Push(Route::Board))

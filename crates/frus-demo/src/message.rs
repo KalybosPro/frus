@@ -53,10 +53,6 @@ pub(crate) enum Msg {
     JournalScrolled(ScrollPosition),
     /// Back to the top of the log list, with an animation.
     JournalToTop,
-    /// A tick of the stopwatch (the timer subscription).
-    Tick,
-    /// Starts/stops the stopwatch.
-    ToggleTimer,
     /// Changes the active Settings tab.
     SetSettingsTab(usize),
     /// The walkthrough's page, whether the finger or a button asked for it.
@@ -121,6 +117,10 @@ pub(crate) enum Msg {
     ToggleDrawer,
     /// Opens/closes the quick-actions modal sheet.
     ToggleSheet,
+    /// Shows the draggable sheet again, once it has been dismissed (milestone 515).
+    ShowPlaces,
+    /// The draggable sheet was lowered to nothing.
+    PlacesDismissed,
     // --- Sign-up wizard (an integration demo) ---
     /// Jumps to the wizard's step `i` (a Steps marker was clicked).
     WizardStep(usize),

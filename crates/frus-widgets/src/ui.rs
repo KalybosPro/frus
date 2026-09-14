@@ -613,6 +613,9 @@ pub struct Ui<Msg> {
     refreshes: Vec<Refreshable>,
     /// Swipe-to-dismiss items of the frame, with their configuration.
     dismissables: Vec<Dismissable>,
+    /// Draggable sheets of the frame, with their configuration and the scroll areas
+    /// walked inside each.
+    sheets: Vec<crate::sheet::SheetArea>,
     wants_animation: bool,
     /// The accessibility tree: semantic nodes (id, bounds, annotation), in paint order. The
     /// shell maps it onto AccessKit.
@@ -736,6 +739,32 @@ impl<Msg: Clone> Ui<Msg> {
     /// The frame's **dismissible items**, with the configuration each was built with.
     pub fn dismissables(&self) -> &[Dismissable] {
         &self.dismissables
+    }
+
+    /// The frame's **sheets**, with the configuration each was built with and the scroll
+    /// areas walked inside it.
+    pub fn sheets(&self) -> &[crate::sheet::SheetArea] {
+        &self.sheets
+    }
+
+    /// The sheet whose panel is under `point`, the last one walked winning — which is
+    /// the one painted on top.
+    pub fn sheet_at(&self, point: Point) -> Option<&crate::sheet::SheetArea> {
+        self.sheets.iter().rev().find(|sheet| sheet.contains(point))
+    }
+
+    /// The sheet `id`, when it is in the frame.
+    pub fn sheet(&self, id: WidgetId) -> Option<&crate::sheet::SheetArea> {
+        self.sheets.iter().find(|sheet| sheet.id == id)
+    }
+
+    /// The sheet the scroll area `area` was walked inside, when there is one — the
+    /// innermost, should sheets nest, since an outer one counts the inner one's areas too.
+    pub fn sheet_holding(&self, area: WidgetId) -> Option<&crate::sheet::SheetArea> {
+        self.sheets
+            .iter()
+            .filter(|sheet| sheet.areas.contains(&area))
+            .min_by_key(|sheet| sheet.areas.len())
     }
 
     /// The topmost dismissible item containing `point` — the candidate a press has to
@@ -1179,6 +1208,11 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, _)| *id)
     }
 
+    /// Every **reorderable** of the frame, with its box, in paint order.
+    pub fn reorderables(&self) -> &[(WidgetId, Rect)] {
+        &self.reorderables
+    }
+
     /// Topmost **interactive** viewport (`InteractiveViewer`) under `point`: (id, its screen
     /// viewport). The shell routes panning and zooming to it.
     pub fn interactive_at(&self, point: Point) -> Option<(WidgetId, Rect)> {
@@ -1420,6 +1454,13 @@ pub(crate) fn effective_style<Msg>(
     // neighbours slide up rather than the row narrow to a sliver. Only an explicit
     // length can shrink: an `Auto` box has no number to scale, which is why
     // `Dismissible` asks for a size (see its docs).
+    // A sheet's panel, as tall as the retained share of its box. The same `Percent` as a
+    // fraction above, for the same reason: the share is the quantity, and the box it is a
+    // share of is the layout's to know. Hashed through here as well, so the cache misses
+    // on every frame the sheet moves.
+    if let Some(spec) = widget.sheet() {
+        style.height = frus_layout::Dimension::Percent(runtime.sheet_size(id, spec));
+    }
     if let Some(spec) = widget.dismissible() {
         if let Some(factor) = runtime.dismiss_extent_factor(id) {
             let axis = if spec.axis.is_horizontal() {
@@ -2167,6 +2208,8 @@ struct Builder<'a, Msg> {
     refreshes: Vec<Refreshable>,
     /// The frame's dismissible items, in paint order.
     dismissables: Vec<Dismissable>,
+    /// The frame's sheets, in the order their subtrees finished walking.
+    sheets: Vec<crate::sheet::SheetArea>,
     /// Accessibility nodes collected during the walk (paint order).
     semantics: Vec<(WidgetId, Rect, frus_core::SemanticsProperties)>,
     /// The parts of the screen saying what the system bars over them should look like,
@@ -2750,6 +2793,40 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         index: &mut usize,
     ) {
         self.claim_overflows(id, translation);
+        // A **sheet's panel**: the subtree is walked as usual, and every scroll area it
+        // registered is recorded against the sheet, so the shell knows which lists share a
+        // finger with it. By range, since a subtree's registrations are contiguous —
+        // a replayed boundary splices its own in the same place.
+        if let Some(spec) = widget.sheet() {
+            let panel = rects[*index].translate(translation.0, translation.1);
+            let first = self.scrollables.len();
+            self.walk_node(widget, id, translation, clip, rects, index);
+            let areas = self.scrollables[first..]
+                .iter()
+                .map(|area| area.id)
+                .collect();
+            // What the share is a share of. At nought there is nothing to divide by, so the
+            // height last measured stands in: a finger that lowered the panel to nothing
+            // may still be holding it.
+            let size = self.runtime.sheet_size(id, spec);
+            let available = if size > 0.0 {
+                panel.height / size
+            } else {
+                self.runtime
+                    .sheets
+                    .get(&id)
+                    .map_or(0.0, |sheet| sheet.available())
+            };
+            self.sheets.push(crate::sheet::SheetArea {
+                id,
+                panel,
+                available,
+                spec: spec.clone(),
+                areas,
+            });
+            return;
+        }
+
         // A **refresh area**: the subtree is walked with this widget named as the host, so
         // every scrollable inside records where to send the movement its physics refuses at
         // the top edge. The indicator is then painted **over** the subtree — painting it in
@@ -5037,6 +5114,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         heroes: Vec::new(),
         refreshes: Vec::new(),
         dismissables: Vec::new(),
+        sheets: Vec::new(),
         semantics: Vec::new(),
         system_ui: Vec::new(),
         focus_excluded: false,
@@ -5101,6 +5179,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         interactives: builder.interactives,
         refreshes: builder.refreshes,
         dismissables: builder.dismissables,
+        sheets: builder.sheets,
         wants_animation: builder.wants_animation,
         semantics: builder.semantics,
         system_ui: builder.system_ui,
@@ -5142,6 +5221,30 @@ pub fn subtree_ids<Msg>(widget: &dyn Widget<Msg>, root_id: WidgetId) -> Vec<Widg
     let mut out = Vec::new();
     walk(widget, root_id, &mut out);
     out
+}
+
+/// The owners of everything a carried row, card or item may be **moved past** this frame:
+/// every reorderable that can be dropped on, and all it paints.
+///
+/// What a reorder preview slides out of the way is decided by geometry — the band the
+/// source sits in — and geometry alone moves whatever shares that band: a button floating
+/// over a list, the navigation bar under it. This is the other half of the question, *is
+/// it part of something that can be reordered*, asked of the tree. A grip is inside its
+/// row, so it moves with it without being a target itself.
+pub fn reorderable_owners<Msg>(
+    ui: &Ui<Msg>,
+    root: &dyn Widget<Msg>,
+) -> std::collections::HashSet<u64> {
+    ui.reorderables
+        .iter()
+        .filter_map(|(id, _)| {
+            find_widget(root, *id)
+                .filter(|widget| widget.reorder_droppable())
+                .map(|widget| subtree_ids(widget, *id))
+        })
+        .flatten()
+        .map(|id| id.as_u64())
+        .collect()
 }
 
 /// Identity of the **first** widget declaring the key `key` (a hash), or `None`. It is how the

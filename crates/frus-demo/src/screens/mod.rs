@@ -8,6 +8,7 @@ mod grid;
 mod journal;
 mod licenses;
 mod settings;
+mod sheet;
 mod task;
 mod todo;
 mod tour;
@@ -77,6 +78,7 @@ pub(crate) fn screen(
         Route::Data => data_screen(app, theme),
         Route::Board => board_screen(app, theme),
         Route::Tour => tour_screen(app, theme),
+        Route::Sheet => sheet::sheet_screen(app, theme),
         Route::Task(id) => task_screen(app, theme, id, entering),
         Route::Licenses => Box::new(licenses_screen(app, theme)),
     }

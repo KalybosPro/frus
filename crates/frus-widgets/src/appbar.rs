@@ -103,8 +103,6 @@ fn action_size_of(over: Option<f32>, theme: &Theme) -> f32 {
 /// rather than waiting for something to inset it.
 const PRIMARY: bool = true;
 
-/// A button's inner horizontal padding (must follow `button::PAD_X`).
-const BTN_PAD_X: f32 = 20.0;
 /// The space between the bar's elements (the default, overridden by [`AppBar::gap`]).
 const GAP: f32 = 8.0;
 /// The width reserved for the `leading` slot (a leading icon, Material style).
@@ -579,9 +577,11 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self
     }
 
-    /// The width an action button would take for this label.
-    fn action_width(label: &str, size: f32) -> f32 {
-        frus_text::measure(label, size).width + BTN_PAD_X * 2.0
+    /// The button a labelled action is drawn as — made in this one place, so that the
+    /// width the fold is decided on is the width of what is then drawn. The bar used to
+    /// estimate it with a padding and no minimum of its own, and the two drifted apart.
+    fn action_button(label: String, message: Msg, size: f32) -> impl Widget<Msg> + 'static {
+        button(label, message).variant(Variant::Outlined).size(size)
     }
 
     /// A widget's declared width (0 if it depends on layout).
@@ -755,19 +755,49 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         // starve the actions — and the actions fold to fit what is left. Truncating
         // the title is the *last* resort, for when even one action and the overflow
         // button will not fit beside it.
-        let fixed = H_PAD * 2.0 + leading_w + title_spacing + gap;
+        //
+        // The row's own children before the actions are counted as the row below will
+        // have them: the leading, the spacer that widens its gap to `title_spacing`, a
+        // spring before a centred title, the title, and the spring after it — each joined
+        // to the next by a gap. The gap joining the last of them to the actions is each
+        // action's own, below, so a bar with no actions still owes it here.
+        let spacer_w = if leading.is_some() && title_spacing > gap {
+            title_spacing - gap
+        } else {
+            0.0
+        };
+        let before_actions = usize::from(leading.is_some())
+            + usize::from(spacer_w > 0.0)
+            + usize::from(center_title)
+            + 2;
+        let joins = before_actions - 1 + usize::from(actions.is_empty());
+        let fixed = H_PAD * 2.0
+            + leading_w
+            + spacer_w
+            + gap * joins as f32
+            + actions_padding.map_or(0.0, |pad| pad * 2.0);
         let room = (width - fixed).max(0.0);
         let title_reserve = natural_title
             .min(room * 0.5)
             .max(TITLE_MIN.min(natural_title));
         let budget = room - title_reserve;
-        let overflow_btn_w = Self::action_width(OVERFLOW_GLYPH, action_size) + gap;
+        // The `⋯` is made as the actions are, and measured as they are.
+        let overflow_btn_w = match &overflow {
+            Some((_, toggle)) => {
+                let glyph = Self::action_button(OVERFLOW_GLYPH.into(), toggle.clone(), action_size);
+                Self::widget_width(&glyph, theme) + gap
+            }
+            None => 0.0,
+        };
 
         // Each action's width; free widgets are **always** inline.
         let widths: Vec<f32> = actions
             .iter()
             .map(|action| match action {
-                Action::Labeled { label, .. } => Self::action_width(label, action_size) + gap,
+                Action::Labeled { label, message } => {
+                    let drawn = Self::action_button(label.clone(), message.clone(), action_size);
+                    Self::widget_width(&drawn, theme) + gap
+                }
                 Action::Custom(widget) => Self::widget_width(widget.as_ref(), theme) + gap,
             })
             .collect();
@@ -899,11 +929,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                 Action::Custom(widget) => group = group.child_boxed(widget),
                 Action::Labeled { label, message } => {
                     if labeled_seen < kept_labeled {
-                        group = group.child(
-                            button(label, message)
-                                .variant(Variant::Outlined)
-                                .size(action_size),
-                        );
+                        group = group.child(Self::action_button(label, message, action_size));
                     } else {
                         folded.push((label, message));
                     }
@@ -918,9 +944,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                 // actions.
                 Some((open, toggle)) => {
                     let mut menu = PopupMenuButton::new(
-                        button(OVERFLOW_GLYPH, toggle.clone())
-                            .variant(Variant::Outlined)
-                            .size(action_size),
+                        Self::action_button(OVERFLOW_GLYPH.into(), toggle.clone(), action_size),
                         open,
                         toggle,
                     );
@@ -932,11 +956,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                 // No overflow configured: show everything inline (it may overflow).
                 None => {
                     for (label, message) in folded {
-                        group = group.child(
-                            button(label, message)
-                                .variant(Variant::Outlined)
-                                .size(action_size),
-                        );
+                        group = group.child(Self::action_button(label, message, action_size));
                     }
                 }
             }
@@ -1599,6 +1619,109 @@ mod tests {
     }
 
     /// Counts the buttons (rectangles with a shadow), excluding floating menu items.
+    /// **The actions a bar keeps inline fit in the bar**, at every width and whatever
+    /// its labels are.
+    ///
+    /// The fold was decided on an estimate of each button that the buttons did not
+    /// share — 20 px either side of the label where a button takes 24, and no minimum
+    /// where a button is never narrower than 64 — and on a row with a gap fewer than it
+    /// had. Each slip was a few pixels, and they add up: the demo's own bar ran 13 px
+    /// past its edge on a desktop the day one action was taken out of it.
+    #[test]
+    fn the_actions_a_bar_keeps_fit_in_it_at_every_width() {
+        const LABELS: [&str; 11] = [
+            "Light",
+            "Seed: default",
+            "RTL",
+            "Français",
+            "A+",
+            "A−",
+            "Log →",
+            "Settings →",
+            "Quick actions",
+            "Save",
+            "Clear completed",
+        ];
+        let mut worst: Vec<String> = Vec::new();
+        // The leading is an icon button, as in the demo, or a labelled button, whose width is
+        // declared exactly: an icon button is charged the whole leading slot and drawn
+        // narrower, and that slack alone would hide a gap the budget forgot.
+        //
+        // Each from the narrowest bar it can be, and not a pixel wider: below that, with every
+        // action folded, the leading, the title's floor, the `⋯` and the padding are wider
+        // than the bar on their own, and there is nothing left to fold. A labelled "Menu"
+        // leading is 87 px, so its bar needs 271; a centred title's second spring costs a
+        // gap more, and a 12 px padding two sides of it.
+        let configurations = [
+            ("icon", false, None, 240),
+            ("button", false, None, 271),
+            ("none", false, None, 240),
+            ("button", true, None, 279),
+            ("button", false, Some(12.0), 295),
+        ];
+        for (leading, centered, padding, narrowest) in configurations {
+            for width in (narrowest..=1600).step_by(7) {
+                let size = Size::new(width as f32, 80.0);
+                let bar = MediaQuery::new(size).scope(|| {
+                    let mut bar = AppBar::new("My Tasks")
+                        .center_title(centered)
+                        .overflow(false, Msg::PopupMenuButton);
+                    match leading {
+                        "icon" => {
+                            bar = bar.leading(
+                                crate::IconButton::new(crate::Icons::MENU).on_press(Msg::A),
+                            )
+                        }
+                        "button" => bar = bar.leading(button("Menu", Msg::A)),
+                        _ => {}
+                    }
+                    if let Some(padding) = padding {
+                        bar = bar.actions_padding(padding);
+                    }
+                    for label in LABELS {
+                        bar = bar.action(label, Msg::B);
+                    }
+                    bar.build()
+                });
+                let ui = build_ui(bar.as_ref(), size, &Runtime::default(), &Theme::default());
+                for o in ui.overflows() {
+                    worst.push(format!(
+                        "{width} px, leading {leading}, centred {centered}, padding {padding:?}: \
+                         {:?} by {:.1} px",
+                        o.side, o.amount
+                    ));
+                }
+            }
+        }
+        assert!(worst.is_empty(), "{worst:#?}");
+    }
+
+    /// **A title with nothing beside it stops short of the edge too.**
+    ///
+    /// The join between the title's spring and the actions is charged to each action. A
+    /// bar with none still has that join — the actions' row is there, empty — so leaving it
+    /// out caps a long title one gap too wide.
+    #[test]
+    fn a_title_with_no_actions_stops_short_of_the_edge() {
+        let mut worst: Vec<String> = Vec::new();
+        for width in (240..=900).step_by(11) {
+            let size = Size::new(width as f32, 80.0);
+            let bar = MediaQuery::new(size).scope(|| {
+                AppBar::new(
+                    "A title long enough to be cut short at every width this sweeps, and more",
+                )
+                // A leading of an exact width, so no slack in its slot hides the gap.
+                .leading(button("Menu", Msg::A))
+                .build()
+            });
+            let ui = build_ui(bar.as_ref(), size, &Runtime::default(), &Theme::default());
+            for o in ui.overflows() {
+                worst.push(format!("{width} px: {:?} by {:.1} px", o.side, o.amount));
+            }
+        }
+        assert!(worst.is_empty(), "{worst:#?}");
+    }
+
     fn inline_buttons(width: f32, open: bool) -> usize {
         let bar = AppBar::new("Title")
             .width(width)

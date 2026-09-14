@@ -8,13 +8,30 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 514 so far, each documenting the objective, the alternatives
+> record — one per step, 517 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **A row carried to the bottom of a list stopped the list scrolling almost at once** (J517,
+  #44). Seen on a phone: the lifted row is drawn at its own box, offset by the finger's travel
+  since the press, and the box moved up with the scrolling content — so the row rode back
+  inside the viewport, and auto-scroll, which is measured against it, switched itself off 95 px
+  in. The press now moves with the content, so the row stays under the finger and the list
+  keeps coming to the end; a lifted `Draggable` keeps its contents inside its card the same
+  way. And the preview slid aside everything in the carried row's band, a floating button's
+  `+` and a navigation bar's items included: only what can be reordered makes room now
+  (`reorderable_owners`, and a `movable` set on `reflow_reorder_cards`).
+- **An application bar's actions ran past its edge** (J516). The bar keeps as many labelled
+  actions inline as fit and folds the rest into its `⋯` menu, and it decided how many on an
+  estimate of each button it did not share with the buttons — 20 px either side of the label
+  where a button takes 24, and no minimum where a button is never narrower than 64 — and on a
+  row with a gap fewer than it had. The slips added up to as much as 34 px past the edge across
+  the widths a new test sweeps; the demo's own bar ran 13 px past it on a desktop the day one of
+  its actions was taken out. The bar now measures each action, and its `⋯`, on the very button
+  it then draws, and counts the row's gaps as the row has them.
 - **The demo's sign-up form opened a sentence keyboard for every field** (J514). Nothing in
   the wizard said which keyboard a field wanted, so on a phone the email address came back
   capitalised, with a space after each suggestion taken. The name now opens a name keyboard,
@@ -150,6 +167,16 @@ any release may break.
 
 ### Added
 
+- **A sheet that follows the finger, and shares it with its list** (J515, answers #39).
+  `DraggableScrollableSheet` fills the box it is given and lays a panel along its bottom, as
+  tall as a retained share of that box: it starts at `initial`, moves between `min` and
+  `max`, coasts unless it snaps, settles on `snap_sizes` when it does, and with `on_dismiss`
+  can be lowered to nothing, which sends the message once it has arrived. The shell splits
+  every movement over a list inside it between the two — the sheet first going up, the list
+  first going down — so the gesture changes hands mid-drag without the finger lifting, and
+  the release goes to whichever of them the velocity says. The layout reads the height from
+  the runtime, so a drag rebuilds nothing. `snap_target`, `split_sheet_drag`,
+  `sheet_takes_release` and `SnapSimulation` are public and pure. The demo has one.
 - **A field that says what it is for** (J512, towards #45). `AutofillHint` names what a
   field holds — nineteen hints, each carrying the name Android's services expect, which is
   rarely the hint's own (`emailAddress`, `personName`, `smsOTPCode`) — `TextField::autofill`
