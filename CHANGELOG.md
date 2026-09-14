@@ -8,13 +8,20 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 520 so far, each documenting the objective, the alternatives
+> record — one per step, 521 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **A throw that carried a sheet to full height stopped there** (J521, #39). A flick up a
+  `DraggableScrollableSheet`'s list raised the sheet and dropped the rest of the throw, as if the
+  list had nothing more to show. As in the reference, a throw up that arrives at the top now goes
+  on into the list: the release remembers the list, the settle records a hand-over at the top —
+  the motion's velocity plus the tolerance — and the shell flings the list at it under the list's
+  own physics (`Runtime::take_sheet_handovers`; `sheet_release` takes the list). A sheet thrown by
+  its handle carries its only list on. The test harness's `Stage` does the same.
 - **A fast throw read as a finger at rest when frames were slow** (J520). A release more than
   40 ms after the last movement is not a fling — but the samples are stamped when an event is
   handled, and an application drawing at ~27 frames a second on a phone was handed a flick's

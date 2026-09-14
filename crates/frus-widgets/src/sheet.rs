@@ -198,6 +198,11 @@ impl SnapSimulation {
     pub fn target(&self) -> f32 {
         self.target
     }
+
+    /// The speed it travels at, in px/s — the same from start to stop.
+    pub fn velocity(&self) -> f32 {
+        self.velocity
+    }
 }
 
 impl Simulation for SnapSimulation {
@@ -242,6 +247,9 @@ struct Settle {
     available: f32,
     floor: f32,
     max: f32,
+    /// The list the finger was on when it let go, which is handed what is left of a throw
+    /// that reaches full height.
+    list: Option<WidgetId>,
 }
 
 /// The retained height of one sheet, and whatever is moving it.
@@ -252,6 +260,9 @@ pub struct SheetState {
     settle: Option<Settle>,
     dismissed: bool,
     available: f32,
+    /// A throw that arrived at full height this frame: the list it goes on in, and the
+    /// velocity it goes on at, in px/s. Taken by whoever steps the sheets.
+    handover: Option<(WidgetId, f32)>,
 }
 
 impl SheetState {
@@ -263,6 +274,7 @@ impl SheetState {
             settle: None,
             dismissed: false,
             available: 0.0,
+            handover: None,
         }
     }
 
@@ -301,8 +313,9 @@ impl SheetState {
     }
 
     /// The finger lets go at `velocity` px/s, positive growing it, over a box
-    /// `available` px tall.
-    fn release(&mut self, spec: &SheetSpec, available: f32, velocity: f32) {
+    /// `available` px tall — from `list`, when it was on one, which a throw that carries
+    /// the sheet to full height goes on into.
+    fn release(&mut self, spec: &SheetSpec, available: f32, velocity: f32, list: Option<WidgetId>) {
         self.held = false;
         self.settle = None;
         if available <= 0.0 {
@@ -327,6 +340,12 @@ impl SheetState {
             available,
             floor: spec.floor() * available,
             max: spec.max * available,
+            // Only a throw **up** that starts **short of** full height can arrive there
+            // with anything to hand over. A still finger let go of a sheet already at the
+            // top still gets a snap, at the snap's own speed — and handing that to the list
+            // would fling a list nobody threw.
+            list: list
+                .filter(|_| velocity > 0.0 && position < spec.max * available - tolerance.distance),
         });
     }
 
@@ -338,16 +357,33 @@ impl SheetState {
         let mut moving = false;
         if let Some(settle) = &mut self.settle {
             settle.elapsed += dt;
-            let (x, done) = match settle.motion {
-                Motion::Snap(snap) => (snap.x(settle.elapsed), snap.is_done(settle.elapsed)),
+            // The velocity it is travelling up at, in px/s, when it is at full height —
+            // `None` otherwise.
+            let at_max = |x: f32| x >= settle.max - Tolerance::PIXELS.distance;
+            let (x, done, rising) = match settle.motion {
+                Motion::Snap(snap) => {
+                    let x = snap.x(settle.elapsed);
+                    let done = snap.is_done(settle.elapsed);
+                    (x, done, (done && at_max(x)).then_some(snap.velocity()))
+                }
                 Motion::Coast(coast) => {
                     let x = coast.x(settle.elapsed);
                     // A coast stops at the sheet's own ends, not the list's.
                     let out = x <= settle.floor || x >= settle.max;
-                    (x, out || coast.is_done(settle.elapsed))
+                    let done = out || coast.is_done(settle.elapsed);
+                    (x, done, at_max(x).then(|| coast.dx(settle.elapsed)))
                 }
             };
             self.size = x.clamp(settle.floor, settle.max) / settle.available;
+            // A throw that reaches full height does not stop there: what is left of it goes
+            // on into the list, or the list would seem to have nothing more to show. The
+            // reference's rule, tolerance and all — a snap arrives at its constant speed,
+            // so a sheet flicked to its top carries the list on at that speed.
+            if let (Some(velocity), Some(list)) = (rising.filter(|v| *v > 0.0), settle.list) {
+                self.handover = Some((list, velocity + Tolerance::PIXELS.velocity));
+                self.settle = None;
+                return (false, false);
+            }
             if done {
                 self.settle = None;
             } else {
@@ -398,44 +434,56 @@ pub(crate) fn hold_of(states: &mut HashMap<WidgetId, SheetState>, id: WidgetId) 
     }
 }
 
-/// The finger lets go of the sheet `id`.
+/// The finger lets go of the sheet `id` — from `list`, when it was on one.
 pub(crate) fn release_of(
     states: &mut HashMap<WidgetId, SheetState>,
     id: WidgetId,
     spec: &SheetSpec,
     available: f32,
     velocity: f32,
+    list: Option<WidgetId>,
 ) {
     if let Some(state) = states.get_mut(&id) {
-        state.release(spec, available, velocity);
+        state.release(spec, available, velocity, list);
     }
 }
 
+/// What stepping the sheets of a frame produced.
+pub(crate) struct SheetsStep {
+    /// Whether any is still moving.
+    pub moving: bool,
+    /// The sheets lowered to nothing on this frame.
+    pub dismissed: Vec<WidgetId>,
+    /// The throws that reached full height on this frame: each list, and the velocity it
+    /// goes on at, in px/s, growing its offset.
+    pub handovers: Vec<(WidgetId, f32)>,
+}
+
 /// Advances every sheet of the frame, dropping the state of any that has left it — so a
-/// sheet shown again starts from its initial height. Returns `(still moving, the sheets
-/// dismissed on this frame)`.
+/// sheet shown again starts from its initial height.
 pub(crate) fn advance_all(
     states: &mut HashMap<WidgetId, SheetState>,
     areas: &[SheetArea],
     dt: f32,
-) -> (bool, Vec<WidgetId>) {
-    if states.is_empty() {
-        return (false, Vec::new());
-    }
-    let mut moving = false;
-    let mut dismissed = Vec::new();
+) -> SheetsStep {
+    let mut step = SheetsStep {
+        moving: false,
+        dismissed: Vec::new(),
+        handovers: Vec::new(),
+    };
     states.retain(|id, state| {
         let Some(area) = areas.iter().find(|area| area.id == *id) else {
             return false;
         };
         let (still, gone) = state.advance(&area.spec, dt);
-        moving |= still;
+        step.moving |= still;
         if gone {
-            dismissed.push(*id);
+            step.dismissed.push(*id);
         }
+        step.handovers.extend(state.handover.take());
         true
     });
-    (moving, dismissed)
+    step
 }
 
 /// A sheet along the bottom of the box it fills, dragged between the heights it may rest
@@ -752,13 +800,13 @@ mod tests {
         let snapping = spec(true, false);
         let mut state = SheetState::new(&snapping);
         state.drag(&snapping, -0.2, 800.0); // 0.3: nearer the quarter than the half
-        state.release(&snapping, 800.0, 0.0);
+        state.release(&snapping, 800.0, 0.0, None);
         assert!(state.is_settling());
         assert!(!settle(&mut state, &snapping));
         assert_eq!(state.size(), 0.25);
 
         state.drag(&snapping, 0.05, 800.0); // 0.3 again, flicked up
-        state.release(&snapping, 800.0, 300.0);
+        state.release(&snapping, 800.0, 300.0, None);
         settle(&mut state, &snapping);
         assert_eq!(state.size(), 0.5);
         assert!(!state.is_settling());
@@ -771,14 +819,14 @@ mod tests {
         let closing = spec(true, true);
         let mut state = SheetState::new(&closing);
         state.drag(&closing, -0.24, 800.0); // 0.26: a flick down goes to the quarter
-        state.release(&closing, 800.0, -1200.0);
+        state.release(&closing, 800.0, -1200.0, None);
         assert!(
             !settle(&mut state, &closing),
             "the next stop its way, not nothing"
         );
         assert_eq!(state.size(), 0.25);
         state.drag(&closing, -0.01, 800.0); // 0.24: under the lowest stop that stays open
-        state.release(&closing, 800.0, -1200.0);
+        state.release(&closing, 800.0, -1200.0, None);
         assert!(settle(&mut state, &closing), "dismissed");
         assert_eq!(state.size(), 0.0);
         assert!(!settle(&mut state, &closing), "and not twice");
@@ -786,7 +834,7 @@ mod tests {
         let staying = spec(true, false);
         let mut state = SheetState::new(&staying);
         state.drag(&staying, -0.24, 800.0);
-        state.release(&staying, 800.0, -1200.0);
+        state.release(&staying, 800.0, -1200.0, None);
         assert!(!settle(&mut state, &staying));
         assert_eq!(state.size(), 0.25);
     }
@@ -809,17 +857,17 @@ mod tests {
         let coasting = spec(false, false);
         let mut state = SheetState::new(&coasting);
         state.drag(&coasting, 0.0, 800.0);
-        state.release(&coasting, 800.0, 0.0);
+        state.release(&coasting, 800.0, 0.0, None);
         assert!(!state.is_settling());
         assert_eq!(state.size(), 0.5);
-        state.release(&coasting, 800.0, 600.0);
+        state.release(&coasting, 800.0, 600.0, None);
         settle(&mut state, &coasting);
         assert!(
             state.size() > 0.55 && state.size() < 1.0,
             "{}",
             state.size()
         );
-        state.release(&coasting, 800.0, 8000.0);
+        state.release(&coasting, 800.0, 8000.0, None);
         settle(&mut state, &coasting);
         assert_eq!(state.size(), 1.0, "and stops at its max");
     }
@@ -871,6 +919,92 @@ mod tests {
         drag_into(&mut runtime.sheets, panel, &sheet().spec, 0.25, 800.0);
         let raised = painted(&runtime).expect("the content is painted");
         assert_eq!((raised.y, raised.height), (200.0, 600.0));
+    }
+
+    /// Steps `state` for four seconds, and hands back the throw it passed on, if any.
+    fn handed_over(state: &mut SheetState, spec: &SheetSpec) -> Option<(WidgetId, f32)> {
+        let mut handed = None;
+        for _ in 0..240 {
+            state.advance(spec, 1.0 / 60.0);
+            handed = handed.or(state.handover.take());
+        }
+        handed
+    }
+
+    /// **A throw that reaches full height goes on into the list.** Milestone 515 stopped
+    /// it at the top, and a list that was thrown with its sheet looked as if it had nothing
+    /// more to show.
+    #[test]
+    fn a_throw_that_reaches_full_height_goes_on_into_the_list() {
+        let list = WidgetId::ROOT.child(7);
+        let tolerance = Tolerance::PIXELS.velocity;
+
+        // Snapping, flicked up from just above half: it arrives at the top at its constant
+        // speed, and the list goes on at that speed. (A release exactly on a stop stays
+        // on it, flick or not — the reference's rule too.)
+        let snapping = spec(true, false);
+        let mut state = SheetState::new(&snapping);
+        state.drag(&snapping, 0.05, 800.0);
+        state.release(&snapping, 800.0, 900.0, Some(list));
+        let handed = handed_over(&mut state, &snapping);
+        assert_eq!(state.size(), 1.0);
+        assert_eq!(handed, Some((list, SHEET_SNAP_MIN_SPEED + tolerance)));
+        assert!(
+            !state.is_settling(),
+            "the sheet is done; the list carries on"
+        );
+
+        // Coasting, thrown hard: it reaches the top still moving, and hands over what it
+        // has left — less than it was thrown with.
+        let coasting = spec(false, false);
+        let mut state = SheetState::new(&coasting);
+        state.release(&coasting, 800.0, 8000.0, Some(list));
+        let (to, velocity) = handed_over(&mut state, &coasting).expect("handed over");
+        assert_eq!((to, state.size()), (list, 1.0));
+        assert!(
+            velocity > tolerance && velocity < 8000.0 + tolerance,
+            "{velocity}"
+        );
+    }
+
+    /// **Only a throw up that arrives at the top hands anything over** — not one that
+    /// settles lower, one going down, one with no list, nor a still release of a sheet
+    /// already at the top, which still gets a snap at the snap's own speed.
+    #[test]
+    fn nothing_is_handed_over_short_of_a_throw_to_the_top() {
+        let list = WidgetId::ROOT.child(7);
+        let snapping = spec(true, true);
+        let mut state = SheetState::new(&snapping);
+
+        state.drag(&snapping, -0.24, 800.0); // 0.26, flicked up: the next stop is half
+        state.release(&snapping, 800.0, 300.0, Some(list));
+        assert_eq!(handed_over(&mut state, &snapping), None);
+        assert_eq!(state.size(), 0.5);
+
+        state.drag(&snapping, 0.45, 800.0); // near the top, flicked down to half
+        state.release(&snapping, 800.0, -300.0, Some(list));
+        assert_eq!(handed_over(&mut state, &snapping), None);
+        assert_eq!(state.size(), 0.5);
+
+        state.drag(&snapping, 0.05, 800.0); // to the top, from no list
+        state.release(&snapping, 800.0, 900.0, None);
+        assert_eq!(handed_over(&mut state, &snapping), None);
+        assert_eq!(state.size(), 1.0);
+
+        state.drag(&snapping, 0.0, 800.0); // at the top, let go of still
+        state.release(&snapping, 800.0, 0.0, Some(list));
+        assert_eq!(handed_over(&mut state, &snapping), None);
+
+        // At the top and flicked up: the sheet did not carry the throw anywhere, so it has
+        // nothing to hand over — the list takes such a release itself, before the sheet.
+        state.drag(&snapping, 0.0, 800.0);
+        state.release(&snapping, 800.0, 900.0, Some(list));
+        assert_eq!(handed_over(&mut state, &snapping), None);
+
+        state.drag(&snapping, -0.05, 800.0); // just under it, let go of still: a snap up
+        state.release(&snapping, 800.0, 0.0, Some(list));
+        assert_eq!(handed_over(&mut state, &snapping), None);
+        assert_eq!(state.size(), 1.0);
     }
 
     /// **A panel lowered to nothing keeps its list**: the list is how a finger holding it
