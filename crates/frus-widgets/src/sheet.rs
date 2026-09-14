@@ -872,4 +872,47 @@ mod tests {
         let raised = painted(&runtime).expect("the content is painted");
         assert_eq!((raised.y, raised.height), (200.0, 600.0));
     }
+
+    /// **A panel lowered to nothing keeps its list**: the list is how a finger holding it
+    /// finds the sheet on every movement, and a finger that lowered the sheet to nothing
+    /// through its list may yet bring it back.
+    #[test]
+    fn a_panel_lowered_to_nothing_keeps_its_list() {
+        let sheet = || {
+            DraggableScrollableSheet::<()>::new(
+                crate::Flex::column().flex(1.0).child(
+                    crate::SingleChildScrollView::new()
+                        .flex(1.0)
+                        .child(Container::new().height(2000.0)),
+                ),
+            )
+            .min(0.25)
+            .on_dismiss(())
+        };
+        let holding = |runtime: &Runtime| {
+            let root = sheet();
+            let ui = build_ui(&root, Size::new(400.0, 800.0), runtime, &Theme::default());
+            let area = ui
+                .sheets()
+                .first()
+                .cloned()
+                .expect("the sheet is in the frame");
+            let held = area
+                .areas
+                .first()
+                .and_then(|list| ui.sheet_holding(*list))
+                .map(|sheet| sheet.id);
+            (area.areas.len(), held == Some(area.id))
+        };
+        let mut runtime = Runtime::default();
+        let panel = WidgetId::ROOT.child(0);
+        assert_eq!(
+            holding(&runtime),
+            (1, true),
+            "open, its list shares the finger"
+        );
+        drag_into(&mut runtime.sheets, panel, &sheet().spec, -0.5, 800.0);
+        assert_eq!(runtime.sheets[&panel].size(), 0.0);
+        assert_eq!(holding(&runtime), (1, true), "at nothing, still");
+    }
 }

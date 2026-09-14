@@ -1106,6 +1106,56 @@ fn the_sheet_shares_the_finger_with_its_list_and_puts_itself_away() {
     assert_eq!(build_ui(&tree, size, &runtime, &theme).sheets().len(), 1);
 }
 
+/// **The demo's sheet keeps its list at nothing**, and a finger on that list still finds
+/// the sheet (milestone 519).
+///
+/// Milestone 515 wrote that a sheet lowered to nothing through its list lost the gesture,
+/// because the list left the frame at nought. It does not leave: this reads the real
+/// page with the sheet at nothing — the list still walked inside the panel, still found
+/// as the sheet's, and the height its shares are taken of still known — and the split of
+/// the next movement up grows the sheet from nothing.
+#[test]
+fn the_sheet_keeps_its_list_at_nothing() {
+    use frus_widgets::split_sheet_drag;
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::Push(Route::Sheet));
+    app.nav_from = None;
+    let theme = Theme::default();
+    let size = Size::new(400.0, 800.0);
+    let tree = view_for(&app, &theme, size);
+    let mut runtime = Runtime::default();
+    let ui = build_ui(&tree, size, &runtime, &theme);
+    let sheet = ui.sheets().first().cloned().expect("a sheet");
+    let list = *sheet.areas.first().expect("its list");
+    let px = sheet.available;
+
+    runtime.sheet_drag(sheet.id, &sheet.spec, -1.0, px);
+    assert_eq!(runtime.sheet_size(sheet.id, &sheet.spec), 0.0);
+    let ui = build_ui(&tree, size, &runtime, &theme);
+    let lowered = ui
+        .sheet(sheet.id)
+        .cloned()
+        .expect("the sheet is in the frame");
+    assert_eq!(lowered.panel.height, 0.0, "lowered to nothing");
+    assert_eq!(
+        lowered.areas,
+        vec![list],
+        "its list is still walked inside it"
+    );
+    assert!(ui.scroll_region(list).is_some(), "and still in the frame");
+    assert_eq!(ui.sheet_holding(list).map(|s| s.id), Some(sheet.id));
+    assert_eq!(lowered.available, px, "the height its shares are shares of");
+
+    // The next movement up, as the shell splits it: all of it to the sheet.
+    let offset = runtime.scroll.get(&list).map_or(0.0, |o| o.1);
+    let (grown, listed) = split_sheet_drag(40.0, offset, 0.0, 0.0, px);
+    assert_eq!((grown, listed), (40.0, 0.0));
+    runtime.sheet_drag(sheet.id, &sheet.spec, grown / px, px);
+    let ui = build_ui(&tree, size, &runtime, &theme);
+    let back = ui.sheet(sheet.id).expect("the sheet").panel;
+    assert!((back.height - 40.0).abs() < 0.5, "brought back: {back:?}");
+}
+
 #[test]
 fn grid_edit_navigate_and_resize() {
     let mut app = app_with_grid(vec![

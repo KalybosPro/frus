@@ -138,9 +138,11 @@ the device run above is its verification.
 
 ## What is left
 
-- **A sheet lowered to nothing through its list** cannot be brought back without lifting the
+- ~~**A sheet lowered to nothing through its list** cannot be brought back without lifting the
   finger: at nought its list leaves the frame, and the gesture with it. Through the handle it
-  can.
+  can.~~ **Not so — see [milestone 519](milestone-519.md).** The list stays in the frame at
+  nought, the gesture comes back, and a finger on the list cannot lower the sheet that far in
+  the first place.
 - **A throw that reaches full height does not carry on into the list**, as the reference's
   coasting sheet hands its remaining velocity over; the throw stops at the top.
 - **No controller**: nothing moves a sheet from the application — the reference's
