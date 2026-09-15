@@ -190,8 +190,10 @@ pub(crate) fn settings_screen(app: &TodoApp, theme: &Theme) -> Container<Msg> {
         app.info_open,
         Msg::ToggleInfo,
     )
+    // The anchor floats its content on a menu panel of its own (milestone 532), so the
+    // content brings no surface: a card here would be a surface on a surface.
     .content(
-        Card::new().padding(16.0).child(
+        Container::new().padding(16.0).child(
             column![
                 text("MenuAnchor").size(16.0),
                 text("An arbitrary floating panel; closes on outside click.")

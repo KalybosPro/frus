@@ -15,13 +15,16 @@
 
 use std::rc::Rc;
 
-use frus_core::{Insets, Path, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
+use frus_core::{
+    BorderRadius, Color, Insets, Path, Point, Rect, ResolvedTextStyle, Scene, ShapeBorder,
+    TextStyle,
+};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
-use crate::flex::Flex;
 use crate::icons::Icons;
 use crate::interaction::Status;
+use crate::menu::{Panel, PanelKind, PanelStyle};
 use crate::portal::Placement;
 use crate::theme::Theme;
 use crate::transparent::Shared;
@@ -62,6 +65,10 @@ struct Row<Msg> {
     /// Whether **this row** can be used: the list's availability and the choice's own.
     enabled: bool,
     text_style: Option<TextStyle>,
+    /// Whose panel an option is drawn on, and the caller's word about its surface, so a
+    /// row's highlight tints the surface it sits on. Ignored for the header.
+    kind: PanelKind,
+    menu_background: Option<Color>,
     on_click: Option<Msg>,
 }
 
@@ -106,29 +113,48 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // A menu panel is a distinct area within the surface, the `surface_container`
-        // role (`menu_anchor.dart:4035`). Selected option: a primary-tinted background;
-        // hover on top (the state layer).
-        let panel = theme.scheme.surface_container;
-        let base = if self.selected && self.enabled {
-            panel.lerp(theme.primary, 0.14)
+        if self.is_header {
+            // The header is the control, and a control keeps its box: a surface, a
+            // corner and an outline. No state layer while disabled — a hover tint is a
+            // promise that a press would do something — and the outline is the row's
+            // **container**, so it takes the container opacity rather than the content one.
+            let base = theme.scheme.surface_container;
+            let bg = if self.enabled {
+                theme.state_layer(base, theme.on_surface, &status)
+            } else {
+                base
+            };
+            let outline = if self.enabled {
+                theme.border
+            } else {
+                disabled_container(theme)
+            };
+            scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, outline.fade(o));
         } else {
-            panel
-        };
-        // No state layer while disabled: a hover tint is a promise that a press would do
-        // something. The outline is the row's **container**, so it takes the container
-        // opacity rather than the content one.
-        let bg = if self.enabled {
-            theme.state_layer(base, theme.on_surface, &status)
-        } else {
-            base
-        };
-        let outline = if self.enabled {
-            theme.border
-        } else {
-            disabled_container(theme)
-        };
-        scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, outline.fade(o));
+            // An option is **a strip of the panel**, not a box of its own. It drew a
+            // filled, outlined, rounded rectangle, four pixels from the next, with nothing
+            // behind the column — where the reference's rows are transparent on one
+            // surface and only a highlight marks one out. So: nothing at rest, the
+            // selected option tinted towards the primary, and the state layer on top.
+            let panel = PanelStyle {
+                background: self.menu_background,
+                ..PanelStyle::default()
+            }
+            .background(self.kind, theme);
+            let base = if self.selected && self.enabled {
+                panel.lerp(theme.primary, 0.14)
+            } else {
+                panel
+            };
+            let bg = if self.enabled {
+                theme.state_layer(base, theme.on_surface, &status)
+            } else {
+                base
+            };
+            if bg != panel {
+                scene.fill_rect(bounds, bg.fade(o));
+            }
+        }
 
         let ink = if self.enabled {
             theme.on_surface
@@ -305,6 +331,7 @@ pub(crate) fn option_row<Msg: Clone + 'static>(
     selected: bool,
     enabled: bool,
     text_style: Option<TextStyle>,
+    panel: (PanelKind, Option<Color>),
     on_click: Option<Msg>,
 ) -> impl Widget<Msg> {
     Row {
@@ -320,6 +347,8 @@ pub(crate) fn option_row<Msg: Clone + 'static>(
         selected,
         enabled: enabled && option.enabled,
         text_style,
+        kind: panel.0,
+        menu_background: panel.1,
         on_click,
     }
 }
@@ -334,6 +363,8 @@ pub struct DropdownButton<Msg> {
     enabled: bool,
     options: Vec<DropdownOption<Msg>>,
     text_style: Option<TextStyle>,
+    /// The panel the options float on — see [`menu_background`](Self::menu_background).
+    look: PanelStyle,
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -350,6 +381,7 @@ impl<Msg: Clone + 'static> DropdownButton<Msg> {
             enabled: true,
             options: Vec::new(),
             text_style: None,
+            look: PanelStyle::default(),
             on_select: None,
             children: Vec::new(),
         };
@@ -361,6 +393,60 @@ impl<Msg: Clone + 'static> DropdownButton<Msg> {
     #[must_use]
     pub fn text_style(mut self, style: TextStyle) -> Self {
         self.text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// **The surface the options float on**, over
+    /// [`DropdownTheme::menu_background`](crate::DropdownTheme::menu_background) and
+    /// `surface_container`.
+    ///
+    /// The options sit on **one panel**: a surface, the corner, eight pixels above and
+    /// below, and a shadow eight high — the height the reference gives a dropdown button's
+    /// list. An option has no box of its own; only the selected one and the one under a
+    /// pointer are tinted.
+    #[must_use]
+    pub fn menu_background(mut self, color: Color) -> Self {
+        self.look.background = Some(color);
+        self.rebuild();
+        self
+    }
+
+    /// What shape the panel is, over the theme's and the framework's corner.
+    #[must_use]
+    pub fn menu_shape(mut self, shape: ShapeBorder) -> Self {
+        self.look.shape = Some(shape);
+        self.rebuild();
+        self
+    }
+
+    /// The shorthand for a rounded panel.
+    #[must_use]
+    pub fn menu_radius(self, radius: impl Into<BorderRadius>) -> Self {
+        self.menu_shape(ShapeBorder::rounded(radius.into()))
+    }
+
+    /// How far off the page the panel sits, in pixels. Eight by default.
+    #[must_use]
+    pub fn menu_elevation(mut self, elevation: f32) -> Self {
+        self.look.elevation = Some(elevation);
+        self.rebuild();
+        self
+    }
+
+    /// The colour of the panel's shadow, over the theme's and the scheme's shadow at 30 %.
+    /// [`Color::TRANSPARENT`] casts none.
+    #[must_use]
+    pub fn menu_shadow_color(mut self, color: Color) -> Self {
+        self.look.shadow_color = Some(color);
+        self.rebuild();
+        self
+    }
+
+    /// The room kept above and below the options, inside the panel. Eight by default.
+    #[must_use]
+    pub fn menu_padding(mut self, padding: Insets) -> Self {
+        self.look.padding = Some(padding);
         self.rebuild();
         self
     }
@@ -433,28 +519,34 @@ impl<Msg: Clone + 'static> DropdownButton<Msg> {
             selected: false,
             enabled: self.enabled,
             text_style: self.text_style,
+            kind: PanelKind::Dropdown,
+            menu_background: None,
             on_click: Some(self.on_toggle.clone()),
         };
         self.children = vec![Box::new(header)];
 
         if self.open && self.enabled && !self.options.is_empty() {
-            let mut menu = Flex::column().gap(4.0);
+            // The options are the panel's own children, contiguous: the four-pixel gutter
+            // they used to leave would show the page through the middle of the list.
+            let mut rows: Vec<Box<dyn Widget<Msg>>> = Vec::with_capacity(self.options.len());
             for (index, option) in self.options.iter().enumerate() {
                 let on_click = self
                     .on_select
                     .as_ref()
                     .filter(|_| self.enabled && option.enabled)
                     .map(|f| f(index));
-                menu = menu.child(option_row(
+                rows.push(Box::new(option_row(
                     option,
                     self.width,
                     self.selected == Some(index),
                     self.enabled,
                     self.text_style,
+                    (PanelKind::Dropdown, self.look.background),
                     on_click,
-                ));
+                )));
             }
-            self.children.push(Box::new(menu));
+            self.children
+                .push(Box::new(Panel::new(PanelKind::Dropdown, self.look, rows)));
         }
     }
 }
@@ -677,5 +769,170 @@ mod tests {
             Widget::<Msg>::children(&live)[0].on_click(),
             Some(Msg::Toggle)
         );
+    }
+
+    use crate::menu::probe::{blurred, crisp};
+
+    /// Three options, open, nothing selected, in a frame with room for the shadow.
+    fn open_list() -> DropdownButton<Msg> {
+        DropdownButton::new("Pick", Msg::Toggle)
+            .width(200.0)
+            .options(true, &["A", "B", "C"], Msg::Select)
+    }
+
+    fn frame(list: &DropdownButton<Msg>, theme: &Theme) -> crate::Ui<Msg> {
+        build_ui(list, Size::new(400.0, 400.0), &Runtime::default(), theme)
+    }
+
+    /// **The options float on one panel and draw no box of their own.** Each was a filled,
+    /// outlined, rounded rectangle four pixels from the next, with nothing behind the
+    /// column — where the reference's list is one surface with its rows inside.
+    ///
+    /// With nothing selected and no pointer, the frame holds exactly two crisp
+    /// rectangles: the header, which is a control and keeps its outline, and the panel,
+    /// in `surface_container`, rounded, unoutlined, as wide as the options, three rows tall
+    /// with eight above and eight below, and starting where the header ends.
+    #[test]
+    fn the_options_float_on_one_panel_and_draw_no_box_of_their_own() {
+        let theme = Theme::default();
+        let ui = frame(&open_list(), &theme);
+        let painted = crisp(ui.scene());
+        assert_eq!(painted.len(), 2, "the header and one panel: {painted:#?}");
+        let (header, panel) = (painted[0], painted[1]);
+        assert_eq!(header.border_width, 1.0, "the header keeps its outline");
+        let row = frus_text::line_box(ROW_H, &label_style(None, Some(&theme)), 0.0);
+        assert_eq!(panel.color, theme.scheme.surface_container);
+        assert_eq!(panel.border_width, 0.0, "the panel has no outline");
+        assert!(panel.radius != BorderRadius::ZERO, "and is rounded");
+        // Under the header's box, which is a row tall, and the four pixels an overlay
+        // placed below its anchor always leaves.
+        assert_eq!(panel.rect.y, header.rect.y + row + 4.0, "under the header");
+        assert_eq!(panel.rect.width, 200.0);
+        assert_eq!(
+            panel.rect.height,
+            3.0 * row + 16.0,
+            "no gutters between rows"
+        );
+    }
+
+    /// **The list casts a shadow eight high**, the height the reference's dropdown button
+    /// gives its list: a blur of forty, dropped sixteen, in the scheme's shadow at 30 %.
+    #[test]
+    fn the_list_casts_a_shadow_eight_high() {
+        let theme = Theme::default();
+        let ui = frame(&open_list(), &theme);
+        let panel = crisp(ui.scene())[1];
+        let shadows = blurred(ui.scene());
+        assert_eq!(
+            shadows.len(),
+            1,
+            "one shadow, under the panel: {shadows:#?}"
+        );
+        assert_eq!(shadows[0].blur, 40.0);
+        assert_eq!(shadows[0].rect.y, panel.rect.y + 16.0 - 40.0);
+        assert_eq!(shadows[0].color, theme.scheme.shadow.with_alpha(0.30));
+
+        let closed = DropdownButton::new("Pick", Msg::Toggle).options(false, &["A"], Msg::Select);
+        assert!(
+            blurred(frame(&closed, &theme).scene()).is_empty(),
+            "and a shut list casts nothing"
+        );
+    }
+
+    /// **The panel answers to its theme, and to its caller over the theme** — surface,
+    /// corner, height, shadow colour and room — and the selected option's tint is taken
+    /// from the surface it sits on, not from the one the framework would have picked.
+    #[test]
+    fn the_panel_answers_to_its_theme_and_to_its_caller() {
+        let mut theme = Theme::default();
+        let (surface, shade) = (
+            frus_core::Color::rgb(0.2, 0.4, 0.6),
+            frus_core::Color::rgba(0.0, 0.0, 0.5, 0.5),
+        );
+        theme.widgets.dropdown.menu_background = Some(surface);
+        theme.widgets.dropdown.menu_radius = Some(3.0);
+        theme.widgets.dropdown.menu_elevation = Some(2.0);
+        theme.widgets.dropdown.menu_shadow_color = Some(shade);
+        theme.widgets.dropdown.menu_padding = Some(Insets::new(20.0, 0.0, 20.0, 0.0));
+        let row = frus_text::line_box(ROW_H, &label_style(None, Some(&theme)), 0.0);
+
+        let ui = frame(&open_list().selected(0), &theme);
+        let painted = crisp(ui.scene());
+        let panel = *painted
+            .iter()
+            .find(|r| r.color == surface)
+            .expect("the theme's surface");
+        assert_eq!(panel.radius, BorderRadius::uniform(3.0));
+        assert_eq!(panel.rect.height, 3.0 * row + 40.0);
+        assert!(
+            painted
+                .iter()
+                .any(|r| r.color == surface.lerp(theme.primary, 0.14)),
+            "the selected option is tinted from the theme's surface: {painted:#?}"
+        );
+        let shadow = blurred(ui.scene())[0];
+        assert_eq!((shadow.blur, shadow.color), (16.0, shade));
+
+        let own = frus_core::Color::rgb(0.9, 0.9, 0.1);
+        let own_shade = frus_core::Color::rgba(0.5, 0.0, 0.0, 0.4);
+        let told = open_list()
+            .menu_background(own)
+            .menu_radius(9.0)
+            .menu_elevation(1.0)
+            .menu_shadow_color(own_shade)
+            .menu_padding(Insets::ZERO)
+            .selected(0);
+        let ui = frame(&told, &theme);
+        let painted = crisp(ui.scene());
+        let panel = *painted
+            .iter()
+            .find(|r| r.color == own)
+            .expect("the caller's surface");
+        assert_eq!(panel.radius, BorderRadius::uniform(9.0));
+        assert_eq!(panel.rect.height, 3.0 * row);
+        assert!(painted
+            .iter()
+            .any(|r| r.color == own.lerp(theme.primary, 0.14)));
+        let shadow = blurred(ui.scene())[0];
+        assert_eq!((shadow.blur, shadow.color), (12.0, own_shade));
+    }
+
+    /// **A transparent shadow colour casts nothing**, on the list or on its theme
+    /// (milestone 529), and neither does a flat panel.
+    #[test]
+    fn a_transparent_shadow_or_a_flat_list_casts_nothing() {
+        let theme = Theme::default();
+        let clear = open_list().menu_shadow_color(frus_core::Color::TRANSPARENT);
+        assert!(blurred(frame(&clear, &theme).scene()).is_empty());
+        let flat = open_list().menu_elevation(0.0);
+        assert!(blurred(frame(&flat, &theme).scene()).is_empty());
+
+        let mut themed = Theme::default();
+        themed.widgets.dropdown.menu_shadow_color = Some(frus_core::Color::TRANSPARENT);
+        assert!(blurred(frame(&open_list(), &themed).scene()).is_empty());
+    }
+
+    /// **The keyboard still walks the options and a press still picks one**, now that
+    /// they sit in a panel: the options are focusable, the second one answers where it is
+    /// drawn, and the panel's own room above the first swallows a press.
+    #[test]
+    fn the_options_still_answer_inside_the_panel() {
+        let theme = Theme::default();
+        let ui = frame(&open_list(), &theme);
+        let (header, panel) = {
+            let painted = crisp(ui.scene());
+            (painted[0].rect, painted[1].rect)
+        };
+        let row = frus_text::line_box(ROW_H, &label_style(None, Some(&theme)), 0.0);
+        let press = |y: f32| {
+            ui.hit(frus_core::Point::new(100.0, y))
+                .and_then(|id| ui.msg_for(id))
+        };
+        assert_eq!(press(panel.y + 8.0 + row * 1.5), Some(Msg::Select(1)));
+        assert_eq!(press(panel.y + 4.0), None, "the room above the first row");
+        assert_eq!(press(header.y + header.height * 0.5), Some(Msg::Toggle));
+        let list = open_list();
+        let menu = &Widget::<Msg>::children(&list)[1];
+        assert!(menu.children().iter().all(|row| row.focusable()));
     }
 }

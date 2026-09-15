@@ -410,9 +410,9 @@ pub use widgetstate::{StateFilter, WidgetState, WidgetStateProperty, WidgetState
 pub use widgettheme::resolve_shape;
 pub use widgettheme::{
     AppBarTheme, BadgeTheme, ButtonTheme, CardTheme, CheckboxTheme, ChipTheme, DefaultTextStyle,
-    DividerTheme, DrawerTheme, ExpansionPanelListTheme, GridTileBarTheme, IconButtonTheme,
-    IconTheme, InkTheme, PageSelectorTheme, RadioTheme, SegmentedTheme, SliderTheme, SwitchTheme,
-    TabBarTheme, TextFieldTheme, ToggleButtonsTheme, WidgetThemes,
+    DividerTheme, DrawerTheme, DropdownTheme, ExpansionPanelListTheme, GridTileBarTheme,
+    IconButtonTheme, IconTheme, InkTheme, MenuTheme, PageSelectorTheme, RadioTheme, SegmentedTheme,
+    SliderTheme, SwitchTheme, TabBarTheme, TextFieldTheme, ToggleButtonsTheme, WidgetThemes,
 };
 
 // Convenience re-exports for callers.

@@ -40,8 +40,13 @@ const PAD_X: f32 = 12.0;
 /// twice the panel's own corner, which is why a row's highlight can never reach a curve
 /// and the panel needs no clip.
 const PAD_Y: f32 = 8.0;
-/// How far off the page the panel sits (`popup_menu.dart:1839`).
+/// How far off the page the panel sits: three, the reference's popup menu's. A menu
+/// anchor's panel and a dropdown menu's stand at the same three: the reference's menu
+/// defaults.
 const ELEVATION: f32 = 3.0;
+/// How far off the page a **dropdown button's** list sits: the reference's dropdown button
+/// takes eight in its constructor, and its painter casts the shadow that height is given.
+const DROPDOWN_ELEVATION: f32 = 8.0;
 /// **The leading column**: the mark itself, and the room between it and the words.
 /// Eighteen is the size of [`DropdownButton`](crate::DropdownButton)'s own tick — the
 /// nearest control in the framework that puts a mark beside a label — and twelve is the
@@ -58,6 +63,104 @@ const SHORTCUT_GAP: f32 = 24.0;
 fn panel_background(own: Option<Color>, theme: &Theme) -> Color {
     own.or(theme.widgets.menu.background)
         .unwrap_or(theme.scheme.surface_container)
+}
+
+/// **Which theme a panel answers to** once its caller has said nothing.
+///
+/// Four widgets float a list on a panel, and they do not all read the same theme — nor
+/// do the reference's. A popup menu, a menu anchor and a dropdown menu all resolve
+/// through the menu theme to the menu defaults; a dropdown button reads neither and
+/// stands higher.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PanelKind {
+    /// [`PopupMenuButton`], [`MenuAnchor`](crate::MenuAnchor) and
+    /// [`DropdownMenu`](crate::DropdownMenu): [`MenuTheme`](crate::MenuTheme), then three.
+    Menu,
+    /// [`DropdownButton`](crate::DropdownButton): the `menu_*` fields of
+    /// [`DropdownTheme`](crate::DropdownTheme), then eight.
+    Dropdown,
+}
+
+/// **What a caller said about a menu's panel**, every word optional. The theme's, then
+/// the framework's, fill in the rest — see [`PanelKind`] for whose.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct PanelStyle {
+    pub(crate) background: Option<Color>,
+    pub(crate) shape: Option<ShapeBorder>,
+    pub(crate) elevation: Option<f32>,
+    pub(crate) shadow_color: Option<Color>,
+    pub(crate) padding: Option<Insets>,
+}
+
+impl PanelStyle {
+    /// The surface: the caller's, the theme's, then `surface_container` for every kind.
+    pub(crate) fn background(&self, kind: PanelKind, theme: &Theme) -> Color {
+        match kind {
+            PanelKind::Menu => panel_background(self.background, theme),
+            PanelKind::Dropdown => self
+                .background
+                .or(theme.widgets.dropdown.menu_background)
+                .unwrap_or(theme.scheme.surface_container),
+        }
+    }
+
+    /// The shape: the caller's, the theme's shape, the theme's radius, then the
+    /// framework's one corner — see [`Panel::shape_of`] for why not the reference's.
+    fn shape(&self, kind: PanelKind, theme: &Theme) -> ShapeBorder {
+        let (shape, radius) = match kind {
+            PanelKind::Menu => (theme.widgets.menu.shape, theme.widgets.menu.radius),
+            PanelKind::Dropdown => (
+                theme.widgets.dropdown.menu_shape,
+                theme.widgets.dropdown.menu_radius,
+            ),
+        };
+        crate::resolve_shape(
+            self.shape,
+            shape,
+            radius.map(BorderRadius::uniform),
+            ShapeBorder::rounded(theme.radius),
+        )
+    }
+
+    /// The height: the caller's, the theme's, then three for a menu and eight for a
+    /// dropdown button.
+    fn elevation(&self, kind: PanelKind, theme: &Theme) -> f32 {
+        match kind {
+            PanelKind::Menu => self
+                .elevation
+                .or(theme.widgets.menu.elevation)
+                .unwrap_or(ELEVATION),
+            PanelKind::Dropdown => self
+                .elevation
+                .or(theme.widgets.dropdown.menu_elevation)
+                .unwrap_or(DROPDOWN_ELEVATION),
+        }
+    }
+
+    /// The shadow's colour: the caller's, the theme's, then the scheme's shadow at 30 %,
+    /// the framework's colour for a height. It is used **as given**, alpha and all, so a
+    /// transparent one casts nothing (milestone 529).
+    fn shadow_color(&self, kind: PanelKind, theme: &Theme) -> Color {
+        let themed = match kind {
+            PanelKind::Menu => theme.widgets.menu.shadow_color,
+            PanelKind::Dropdown => theme.widgets.dropdown.menu_shadow_color,
+        };
+        self.shadow_color
+            .or(themed)
+            .unwrap_or(theme.scheme.shadow.with_alpha(0.30))
+    }
+
+    /// The room above and below the rows: the caller's, the theme's, then eight — the
+    /// reference's for a menu and for a dropdown button's list alike.
+    fn padding(&self, kind: PanelKind, theme: Option<&Theme>) -> Insets {
+        let themed = theme.and_then(|t| match kind {
+            PanelKind::Menu => t.widgets.menu.padding,
+            PanelKind::Dropdown => t.widgets.dropdown.menu_padding,
+        });
+        self.padding
+            .or(themed)
+            .unwrap_or(Insets::new(PAD_Y, 0.0, PAD_Y, 0.0))
+    }
 }
 
 /// The style the items are drawn in: what the caller said, else what the theme says, else
@@ -319,8 +422,30 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
 /// a stack of outlined buttons with the page showing through two-pixel gutters — which
 /// is not what a menu looks like anywhere, and is not what the reference draws
 /// (`popup_menu.dart:1837`).
-struct Panel<Msg> {
+///
+/// **Shared by every list that floats.** [`PopupMenuButton`] built it first;
+/// [`MenuAnchor`](crate::MenuAnchor), [`DropdownButton`](crate::DropdownButton) and
+/// [`DropdownMenu`](crate::DropdownMenu) float on it too since milestone 532, where each
+/// had floated bare content or a column of separately outlined rows with nothing behind
+/// them — and so nothing a shadow could be the shadow of. A third copy of the surface
+/// would have been three panels drifting apart; this is one, told by [`PanelKind`] whose
+/// theme it answers to.
+///
+/// **It does not clip.** A clip takes the clipping widget's own paint with it, and the
+/// shadow is that paint. The room above and below the rows keeps a row's highlight off
+/// the corners instead, and a list long enough to scroll clips in its own viewport,
+/// inside that room.
+pub(crate) struct Panel<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
+    kind: PanelKind,
+    look: PanelStyle,
+    /// The popup menu's rows, measured because the popup menu's panel is what decides
+    /// its width. `None` for a panel as wide as what is inside it.
+    measure: Option<RowMeasure>,
+}
+
+/// What a popup menu's panel measures its rows by — see [`Panel::row_width`].
+struct RowMeasure {
     /// What each row needs across, in order — see [`Measure`]. The panel is what decides
     /// the menu's width, so this is where the words have to be.
     rows: Vec<Measure>,
@@ -328,13 +453,23 @@ struct Panel<Msg> {
     lead_column: bool,
     text_style: Option<TextStyle>,
     item_padding: Option<Insets>,
-    background: Option<Color>,
-    shape: Option<ShapeBorder>,
-    elevation: Option<f32>,
-    padding: Option<Insets>,
 }
 
 impl<Msg> Panel<Msg> {
+    /// A panel **as wide as what is inside it**, in the look `kind` resolves `look` to.
+    pub(crate) fn new(
+        kind: PanelKind,
+        look: PanelStyle,
+        children: Vec<Box<dyn Widget<Msg>>>,
+    ) -> Self {
+        Self {
+            children,
+            kind,
+            look,
+            measure: None,
+        }
+    }
+
     /// What shape the panel is: the caller's word, then the theme's shape, then the
     /// theme's plain radius, then the framework's own corner.
     ///
@@ -345,20 +480,23 @@ impl<Msg> Panel<Msg> {
     /// menu the only thing on screen that ignores it; `MenuTheme::radius` is there for an
     /// application that wants the reference's number.
     fn shape_of(&self, theme: &Theme) -> ShapeBorder {
-        crate::resolve_shape(
-            self.shape,
-            theme.widgets.menu.shape,
-            theme.widgets.menu.radius.map(BorderRadius::uniform),
-            ShapeBorder::rounded(theme.radius),
-        )
+        self.look.shape(self.kind, theme)
     }
 
-    /// The room above and below the rows: eight, which is twice the corner and so keeps a
-    /// row's highlight clear of the curve without a clip.
-    fn padding(&self, theme: &Theme) -> Insets {
-        self.padding
-            .or(theme.widgets.menu.padding)
-            .unwrap_or(Insets::new(PAD_Y, 0.0, PAD_Y, 0.0))
+    /// The box: a column, the room above and below the rows, and — for a popup menu —
+    /// the width its rows measure to.
+    fn sizing(&self, theme: Option<&Theme>) -> Style {
+        let padding = self.look.padding(self.kind, theme);
+        Style {
+            // The rows are the width they measure to; the panel is that plus whatever
+            // room it was told to keep at its own edges.
+            width: self.row_width(theme).map_or(Dimension::Auto, |rows| {
+                Dimension::Length(rows + padding.left + padding.right)
+            }),
+            flex_direction: FlexDirection::Column,
+            padding,
+            ..Default::default()
+        }
     }
 
     /// **How wide a row is**: two hundred and twenty, or the widest row when a row wants
@@ -373,18 +511,21 @@ impl<Msg> Panel<Msg> {
     /// A row the caller drew contributes nothing, because it cannot be asked what it
     /// wants ([#52](https://github.com/KalybosPro/frus/issues/52)). It takes whatever
     /// the words decided, and that is the single place in the menu where that gap shows.
-    fn row_width(&self, theme: Option<&Theme>) -> f32 {
-        let style = label_style(self.text_style, theme);
-        let pad = self
+    ///
+    /// `None` for a panel that measures no rows — it is as wide as what is inside it.
+    fn row_width(&self, theme: Option<&Theme>) -> Option<f32> {
+        let measure = self.measure.as_ref()?;
+        let style = label_style(measure.text_style, theme);
+        let pad = measure
             .item_padding
             .or(theme.and_then(|t| t.widgets.menu.item_padding))
             .unwrap_or(Insets::new(0.0, PAD_X, 0.0, PAD_X));
-        let lead = if self.lead_column {
+        let lead = if measure.lead_column {
             LEAD + LEAD_GAP
         } else {
             0.0
         };
-        let widest = self.rows.iter().fold(0.0f32, |wide, row| {
+        let widest = measure.rows.iter().fold(0.0f32, |wide, row| {
             let label = row
                 .label
                 .as_deref()
@@ -395,30 +536,17 @@ impl<Msg> Panel<Msg> {
             wide.max(pad.left + lead + label + keys + pad.right)
         });
         // Rounded up: half a pixel of a glyph past the edge is the whole of the bug.
-        widest.max(WIDTH).ceil()
+        Some(widest.max(WIDTH).ceil())
     }
 }
 
 impl<Msg: Clone> Widget<Msg> for Panel<Msg> {
     fn style(&self) -> Style {
-        Style {
-            width: Dimension::Length(self.row_width(None)),
-            flex_direction: FlexDirection::Column,
-            padding: Insets::new(PAD_Y, 0.0, PAD_Y, 0.0),
-            ..Default::default()
-        }
+        self.sizing(None)
     }
 
     fn style_themed(&self, theme: &Theme) -> Style {
-        let padding = self.padding(theme);
-        Style {
-            // The rows are the width above; the panel is that plus whatever room it was
-            // told to keep at its own edges.
-            width: Dimension::Length(self.row_width(Some(theme)) + padding.left + padding.right),
-            flex_direction: FlexDirection::Column,
-            padding,
-            ..Default::default()
-        }
+        self.sizing(Some(theme))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -432,11 +560,11 @@ impl<Msg: Clone> Widget<Msg> for Panel<Msg> {
             .as_rounded(bounds)
             .map(|(_, r)| r)
             .unwrap_or(BorderRadius::ZERO);
-        let depth = self
-            .elevation
-            .or(theme.widgets.menu.elevation)
-            .unwrap_or(ELEVATION);
-        if depth > 0.0 {
+        let depth = self.look.elevation(self.kind, theme);
+        let shadow = self.look.shadow_color(self.kind, theme);
+        // A height casts only in a colour that shows (milestone 529): a transparent
+        // shadow colour is the caller saying there is none, whatever the height.
+        if depth > 0.0 && shadow.a > 0.0 {
             let blur = depth * 4.0 + 8.0;
             scene.shadow(
                 Rect::new(
@@ -445,7 +573,7 @@ impl<Msg: Clone> Widget<Msg> for Panel<Msg> {
                     bounds.width + 2.0 * blur,
                     bounds.height + 2.0 * blur,
                 ),
-                theme.scheme.shadow.with_alpha(0.30).fade(o),
+                shadow.fade(o),
                 radius.inflate(blur),
                 blur,
             );
@@ -456,7 +584,7 @@ impl<Msg: Clone> Widget<Msg> for Panel<Msg> {
         scene.draw_shape(
             bounds,
             shape,
-            panel_background(self.background, theme).fade(o),
+            self.look.background(self.kind, theme).fade(o),
         );
     }
 
@@ -623,10 +751,7 @@ pub struct PopupMenuButton<Msg> {
     /// [`rebuild`](Self::rebuild), so **the order they are written in does not matter**
     /// — unlike [`BottomSheet`](crate::BottomSheet), where the panel is built by
     /// `body` and anything said after it is dropped.
-    background: Option<Color>,
-    shape: Option<ShapeBorder>,
-    elevation: Option<f32>,
-    menu_padding: Option<Insets>,
+    look: PanelStyle,
     item_padding: Option<Insets>,
     item_height: Option<f32>,
     dismiss: Option<Msg>,
@@ -643,10 +768,7 @@ impl<Msg: Clone + 'static> PopupMenuButton<Msg> {
             children: vec![Box::new(anchor)],
             items: Vec::new(),
             text_style: None,
-            background: None,
-            shape: None,
-            elevation: None,
-            menu_padding: None,
+            look: PanelStyle::default(),
             item_padding: None,
             item_height: None,
             dismiss: Some(on_dismiss.clone()),
@@ -665,7 +787,7 @@ impl<Msg: Clone + 'static> PopupMenuButton<Msg> {
     /// **The panel's surface**, over the theme's and the reference's `surface_container`.
     #[must_use]
     pub fn background(mut self, color: Color) -> Self {
-        self.background = Some(color);
+        self.look.background = Some(color);
         self.rebuild();
         self
     }
@@ -673,7 +795,7 @@ impl<Msg: Clone + 'static> PopupMenuButton<Msg> {
     /// **What shape the panel is**, over the theme's and the framework's corner.
     #[must_use]
     pub fn shape(mut self, shape: ShapeBorder) -> Self {
-        self.shape = Some(shape);
+        self.look.shape = Some(shape);
         self.rebuild();
         self
     }
@@ -691,7 +813,16 @@ impl<Msg: Clone + 'static> PopupMenuButton<Msg> {
     /// **How far off the page the panel sits**, in pixels. Three by default.
     #[must_use]
     pub fn elevation(mut self, elevation: f32) -> Self {
-        self.elevation = Some(elevation);
+        self.look.elevation = Some(elevation);
+        self.rebuild();
+        self
+    }
+
+    /// The colour of the panel's shadow, over the theme's and the scheme's shadow at 30 %.
+    /// It is used as given, alpha and all: [`Color::TRANSPARENT`] casts none.
+    #[must_use]
+    pub fn shadow_color(mut self, color: Color) -> Self {
+        self.look.shadow_color = Some(color);
         self.rebuild();
         self
     }
@@ -699,7 +830,7 @@ impl<Msg: Clone + 'static> PopupMenuButton<Msg> {
     /// The room kept **above and below** the rows, inside the panel.
     #[must_use]
     pub fn menu_padding(mut self, padding: Insets) -> Self {
-        self.menu_padding = Some(padding);
+        self.look.padding = Some(padding);
         self.rebuild();
         self
     }
@@ -816,22 +947,20 @@ impl<Msg: Clone + 'static> PopupMenuButton<Msg> {
                 shortcut: item.shortcut.clone(),
                 enabled: self.enabled && item.enabled,
                 text_style: self.text_style,
-                background: self.background,
+                background: self.look.background,
                 padding: self.item_padding,
                 height: self.item_height,
                 message: message.clone(),
             });
         }
         let panel: Box<dyn Widget<Msg>> = Box::new(Panel {
-            children: vec![Box::new(list)],
-            rows,
-            lead_column,
-            text_style: self.text_style,
-            item_padding: self.item_padding,
-            background: self.background,
-            shape: self.shape,
-            elevation: self.elevation,
-            padding: self.menu_padding,
+            measure: Some(RowMeasure {
+                rows,
+                lead_column,
+                text_style: self.text_style,
+                item_padding: self.item_padding,
+            }),
+            ..Panel::new(PanelKind::Menu, self.look, vec![Box::new(list)])
         });
         if self.children.len() > 1 {
             self.children[1] = panel;
@@ -877,8 +1006,75 @@ impl<Msg: Clone> Widget<Msg> for PopupMenuButton<Msg> {
     }
 }
 
+/// Reading a menu's panel back out of a frame — shared by the four widgets that float on
+/// one, so each asserts the same thing the same way.
+#[cfg(test)]
+pub(crate) mod probe {
+    use frus_core::{BorderRadius, Color, Primitive, Rect, Scene};
+
+    /// One rectangle as it was painted.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub(crate) struct Painted {
+        pub(crate) rect: Rect,
+        pub(crate) color: Color,
+        pub(crate) radius: BorderRadius,
+        pub(crate) border_width: f32,
+        pub(crate) blur: f32,
+        /// The rectangle nothing of it is drawn outside — a scroll viewport's, inside one.
+        pub(crate) clip: Rect,
+    }
+
+    /// Every rectangle in the frame, in paint order, innermost layers included.
+    fn painted(scene: &Scene) -> Vec<Painted> {
+        fn walk(primitives: &[Primitive], out: &mut Vec<Painted>) {
+            for p in primitives {
+                match p {
+                    Primitive::Rect {
+                        rect,
+                        color,
+                        radius,
+                        border_width,
+                        blur,
+                        clip,
+                        ..
+                    } => out.push(Painted {
+                        rect: *rect,
+                        color: *color,
+                        radius: *radius,
+                        border_width: *border_width,
+                        blur: *blur,
+                        clip: *clip,
+                    }),
+                    Primitive::Layer { primitives, .. } => walk(primitives, out),
+                    _ => {}
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(scene.primitives(), &mut out);
+        out
+    }
+
+    /// The crisp rectangles: surfaces, highlights, outlines.
+    pub(crate) fn crisp(scene: &Scene) -> Vec<Painted> {
+        painted(scene)
+            .into_iter()
+            .filter(|r| r.blur == 0.0)
+            .collect()
+    }
+
+    /// The blurred ones: shadows.
+    pub(crate) fn blurred(scene: &Scene) -> Vec<Painted> {
+        painted(scene)
+            .into_iter()
+            .filter(|r| r.blur > 0.0)
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::probe::blurred;
     use super::*;
     use crate::{build_ui, Container, Point as P, Runtime, Size};
 
@@ -1396,6 +1592,43 @@ mod tests {
             Some(Msg::Close),
             "and the page beyond it still closes the menu"
         );
+    }
+
+    /// **The shadow's colour is the caller's to say**, then the theme's, then the scheme's
+    /// shadow at 30 % — and a transparent one casts nothing (milestone 529). The panel drew
+    /// its shadow from its height alone, in a colour nobody could change.
+    #[test]
+    fn the_shadow_is_cast_in_a_colour_that_can_be_told() {
+        let theme = Theme::default();
+        let cast = |menu: &PopupMenuButton<Msg>, theme: &Theme| blurred(frame(menu, theme).scene());
+
+        let shadows = cast(&open_menu(), &theme);
+        assert_eq!(shadows.len(), 1, "{shadows:#?}");
+        assert_eq!(shadows[0].blur, 20.0, "three high");
+        assert_eq!(shadows[0].color, theme.scheme.shadow.with_alpha(0.30));
+
+        let shade = frus_core::Color::rgba(0.0, 0.2, 0.6, 0.5);
+        assert_eq!(
+            cast(&open_menu().shadow_color(shade), &theme)[0].color,
+            shade
+        );
+        let mut themed = Theme::default();
+        themed.widgets.menu.shadow_color = Some(shade);
+        assert_eq!(cast(&open_menu(), &themed)[0].color, shade, "the theme's");
+        let own = frus_core::Color::rgba(0.6, 0.0, 0.0, 0.25);
+        assert_eq!(
+            cast(&open_menu().shadow_color(own), &themed)[0].color,
+            own,
+            "the caller's over the theme's"
+        );
+
+        assert!(cast(
+            &open_menu().shadow_color(frus_core::Color::TRANSPARENT),
+            &theme
+        )
+        .is_empty());
+        themed.widgets.menu.shadow_color = Some(frus_core::Color::TRANSPARENT);
+        assert!(cast(&open_menu(), &themed).is_empty());
     }
 
     #[test]
