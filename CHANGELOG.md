@@ -15,6 +15,17 @@ any release may break.
 
 ### Fixed
 
+- **A back gesture over a row of the page below lifted the row instead** (J531). Seen on a
+  phone: a swipe from the left edge at the height of a task row did not slide the page, and
+  half a second in the row was carried over it in its ghost until the finger lifted. After a
+  push the frame on screen is the push's last — an animation that has just settled asks for no
+  rebuild — so the page left behind was still under the finger, and the press that started the
+  gesture armed that row's hold; the deadline then replaced the gesture with a lift. Two fixes.
+  As in the reference, a back gesture now owns its pointer: its press arms no long press and no
+  lift, and a hold's deadline never takes the pointer from it (`hold_candidates`,
+  `drag_after_hold`). And the shell builds the view once more in the frame an application's
+  animation stops in, so nothing is hit-tested against a page a transition has already taken
+  away (`frame_needs_build`). Not yet seen on a phone.
 - **Shadows the reference draws, drawn** (J530). A button held one height whatever the pointer
   did. As in the reference, an elevated button now rests at 1, rises to 3 under a pointer and is
   back at 1 pressed or focused, and a filled, tonal or danger button rises from flat to 1 under a

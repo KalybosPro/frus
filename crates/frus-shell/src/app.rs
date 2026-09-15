@@ -424,6 +424,89 @@ mod drag_preview {
     pub const INSERT_THICKNESS: f32 = 3.0;
 }
 
+/// Whether a frame builds the view again rather than repainting the tree it already has:
+/// when something asked for it (`dirty`), while the application's own animations are
+/// moving **and in the frame they stop in**, or for a reason of the frame's own
+/// (`otherwise`: no tree yet, a switcher in flight).
+///
+/// The frame they stop in, because the tick that ends a transition has changed the state
+/// — a push's page left behind is gone — and reports nothing moving. Without it the tree
+/// hit-tested from then on is the transition's last, the page left behind still in it
+/// under the finger (milestone 531).
+fn frame_needs_build(dirty: bool, animating: bool, was_animating: bool, otherwise: bool) -> bool {
+    dirty || animating || was_animating || otherwise
+}
+
+/// What a press is still a candidate for once it has chosen its drag: the long press a
+/// widget under the finger asks for, and the item it would lift on a hold.
+///
+/// A long press only while the press was not captured by a drag — a scrollbar, a handle,
+/// a selection; a touch scroll that has not moved yet stays a candidate. An item that
+/// lifts on a hold is a candidate under a scroll too: the scroll keeps the gesture for
+/// now, and the deadline decides, since a finger that stays put was never scrolling.
+fn hold_candidates<Msg: Clone>(
+    drag: Option<&Drag>,
+    ui: Option<&frus_widgets::Ui<Msg>>,
+    tree: Option<&dyn frus_widgets::Widget<Msg>>,
+    at: Point,
+) -> (Option<Msg>, Option<frus_widgets::DragSource>) {
+    // A back gesture owns its pointer from the press that starts it, as the reference's
+    // pop gesture does: nothing on either page takes a finger that is taking a page away
+    // (milestone 531). The page below is not even in the frame yet when the press lands —
+    // what is under the finger is whatever the frame on screen holds.
+    if matches!(drag, Some(Drag::Back { .. })) {
+        return (None, None);
+    }
+    let Some(ui) = ui else {
+        return (None, None);
+    };
+    let free = matches!(drag, None | Some(Drag::Scroll { moved: false, .. }));
+    let long_press = if free { ui.long_press_at(at) } else { None };
+    let lift = ui.drag_source_at(at).filter(|source| {
+        tree.and_then(|tree| find_widget(tree, source.id))
+            .is_some_and(|widget| widget.drag_needs_long_press())
+    });
+    (long_press, lift)
+}
+
+/// The drag a press is left with when its hold's deadline fires, from the drag it had
+/// and what the press found to lift.
+///
+/// A pending touch scroll no longer has any reason to exist — unless the hold was the
+/// lift of an item or of a row, in which case the scroll hands the gesture over and what
+/// was held is already up: `moved` is true because the hold *was* the threshold, and
+/// asking for a movement as well would mean a row that was held and then carried
+/// straight out of the list never engaged at all.
+fn drag_after_hold(
+    drag: Option<Drag>,
+    lift: Option<frus_widgets::DragSource>,
+    reorder: Option<(WidgetId, usize, Point)>,
+    cursor: Point,
+) -> Option<Drag> {
+    // Never a back gesture's: the hold was not what that finger was doing, and taking the
+    // drag from it would leave the application's gesture open with nothing to end it.
+    if let Some(Drag::Back { start_x }) = drag {
+        return Some(Drag::Back { start_x });
+    }
+    if let Some(source) = lift {
+        Some(Drag::Item {
+            source,
+            start: cursor,
+            moved: true,
+            over: None,
+        })
+    } else if let Some((id, from, start)) = reorder {
+        Some(Drag::Reorder {
+            id,
+            from,
+            start,
+            moved: true,
+        })
+    } else {
+        None
+    }
+}
+
 /// A drag currently under way with the mouse.
 enum Drag {
     /// A scrollbar's thumb.
@@ -667,6 +750,11 @@ pub struct App<A: Application> {
     /// only animates an interaction merely **repaints** the retained tree (§1: "a hover
     /// touches paint and nothing else").
     build_dirty: bool,
+    /// Whether the application's own animations were moving at the last frame. The frame
+    /// they stop in is built once more: the tick that ends a transition has changed the
+    /// state — the page it left is gone — and says it is no longer moving, so without it
+    /// the tree hit-tested from then on is the transition's last (milestone 531).
+    app_was_animating: bool,
     /// The mouse drag under way.
     drag: Option<Drag>,
     /// Was the pointer that started the drag under way a finger? A mouse is
@@ -833,6 +921,7 @@ impl<A: Application> App<A> {
             started: false,
             last_frame: None,
             build_dirty: true,
+            app_was_animating: false,
             drag: None,
             pointer_touch: false,
             gesture_velocity: VelocityTracker::platform_default(),
@@ -1522,38 +1611,18 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             if let Some(id) = word {
                 self.select_held_word(id);
             }
-            // A pending touch scroll no longer has any reason to exist — unless the
-            // hold was the lift of an item, in which case the scroll hands the gesture
-            // over and the item is already up: the hold *was* the threshold.
-            if let Some(source) = self.pending_lift.take() {
+            let lift = self.pending_lift.take();
+            let reorder = self.pending_reorder.take();
+            // The scroll hands the gesture over to what the hold lifted.
+            if lift.is_some() || reorder.is_some() {
                 if let Some(Drag::Scroll { id, .. }) = self.drag {
                     self.runtime.release_scroll(id);
                 }
-                self.drag = Some(Drag::Item {
-                    source,
-                    start: self.cursor,
-                    moved: true,
-                    over: None,
-                });
-            } else if let Some((id, from, start)) = self.pending_reorder.take() {
-                // A row lifted by a hold, and the same hand-over: the scroll gives the
-                // gesture back and the row is already up — `moved` is true because the
-                // hold *was* the threshold, and asking for a movement as well would mean
-                // a row that was held and then carried straight out of the list never
-                // engaged at all.
-                if let Some(Drag::Scroll { id, .. }) = self.drag {
-                    self.runtime.release_scroll(id);
-                }
-                self.drag = Some(Drag::Reorder {
-                    id,
-                    from,
-                    start,
-                    moved: true,
-                });
+            }
+            self.drag = drag_after_hold(self.drag.take(), lift, reorder, self.cursor);
+            if matches!(self.drag, Some(Drag::Reorder { .. })) {
                 self.reorder_x = self.cursor.x;
                 self.reorder_y = self.cursor.y;
-            } else {
-                self.drag = None;
             }
             self.request_redraw();
         }
@@ -2362,10 +2431,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 };
                 // A switcher in flight carries each child's progress as a number built into
                 // the tree, so it is rebuilt — not only repainted — until the switch settles.
-                let need_build = self.build_dirty
-                    || app_animating
-                    || self.tree.is_none()
-                    || self.runtime.switching();
+                let need_build = frame_needs_build(
+                    self.build_dirty,
+                    app_animating,
+                    std::mem::replace(&mut self.app_was_animating, app_animating),
+                    self.tree.is_none() || self.runtime.switching(),
+                );
                 if need_build {
                     // No scope of its own: the surface above is already installed, and
                     // covers the layout and the paint that follow as well.
@@ -2861,30 +2932,14 @@ impl<A: Application> App<A> {
                 // A pointer interaction: the keyboard focus ring fades away.
                 self.runtime.focus_visible = false;
                 self.pointer_down(event.touch);
-                // A long-press candidate, but only if the press was not captured by a
-                // drag — a scrollbar, a handle, a selection. A touch scroll that has not
-                // moved yet stays a candidate.
-                let free = matches!(self.drag, None | Some(Drag::Scroll { moved: false, .. }));
-                self.long_press_msg = if free {
-                    self.ui
-                        .as_ref()
-                        .and_then(|ui| ui.long_press_at(self.cursor))
-                } else {
-                    None
-                };
-                // An item that lifts on a hold: the scroll keeps the gesture for now,
-                // and the deadline decides. Nothing is taken from the scroll unless the
-                // finger actually stays put, which is not a scroll.
-                self.pending_lift = self
-                    .ui
-                    .as_ref()
-                    .and_then(|ui| ui.drag_source_at(self.cursor))
-                    .filter(|source| {
-                        self.tree
-                            .as_ref()
-                            .and_then(|tree| find_widget(tree.as_ref(), source.id))
-                            .is_some_and(|widget| widget.drag_needs_long_press())
-                    });
+                let (long_press, lift) = hold_candidates(
+                    self.drag.as_ref(),
+                    self.ui.as_ref(),
+                    self.tree.as_deref(),
+                    self.cursor,
+                );
+                self.long_press_msg = long_press;
+                self.pending_lift = lift;
                 let interested = self.long_press_msg.is_some()
                     || self.pending_lift.is_some()
                     || self.pending_reorder.is_some()
@@ -6638,5 +6693,215 @@ mod autoscroll_tests {
     fn a_row_taller_than_the_viewport_follows_its_leading_edge() {
         let both = edge_autoscroll((50.0, 900.0), VIEW, ROOM, DT).expect("over both edges");
         assert!(both > 0.0, "the top edge wins: {both}");
+    }
+}
+
+/// **A back gesture the page below cannot take** (milestone 531).
+///
+/// Seen on a phone: a back gesture from the left edge, at the height of a task row of the
+/// page below, did not slide the page on top. Half a second in, the row was lifted instead —
+/// drawn over the page on top in its green-outlined ghost, and following the finger — and it
+/// went away when the finger did. At a height with no row the gesture worked.
+///
+/// The press that starts the gesture is tested against the frame on screen, and after a push
+/// that frame is the push's last: an application's animation that has just settled asks for
+/// no rebuild, so the page the push left is still in the frame, parallaxed to the left and
+/// under the finger. The press found the row's hold, the long press armed, and its deadline
+/// replaced the gesture with a lift.
+#[cfg(test)]
+mod back_gesture_tests {
+    use super::{
+        drag_after_hold, frame_needs_build, hold_candidates, Drag, Point, Theme, WidgetId,
+    };
+    use frus_widgets::{build_ui, column, Container, DragSource, Draggable, Navigator};
+    use frus_widgets::{Rect, Runtime, Size, Ui, Widget};
+
+    /// A phone, in logical pixels.
+    const W: f32 = 392.0;
+    const H: f32 = 850.0;
+    /// Where the row sits on the page below, and the finger's press on the edge at its
+    /// height.
+    const ROW_TOP: f32 = 480.0;
+    const ROW_HEIGHT: f32 = 66.0;
+    const ON_THE_ROW: Point = Point::new(3.0, 509.0);
+    const ABOVE_THE_ROW: Point = Point::new(3.0, 200.0);
+    /// The long press the row asks for.
+    const HELD: u8 = 1;
+
+    /// A page with one row that lifts on a hold and says something when held, below a
+    /// stretch with nothing to take.
+    fn home() -> impl Widget<u8> {
+        column![
+            Container::<u8>::new().width(W).height(ROW_TOP),
+            Draggable::new(
+                Container::<u8>::new()
+                    .width(W)
+                    .height(ROW_HEIGHT)
+                    .on_long_press(HELD)
+            )
+            .payload(7)
+            .long_press(),
+        ]
+    }
+
+    /// The frame on screen after a push from `home` has settled: the push's last, with the
+    /// page it left still in it.
+    fn after_a_push() -> Navigator<u8> {
+        Navigator::new("data", Container::<u8>::new().width(W).height(H))
+            .size(W, H)
+            .from("home", home(), 0.999, true)
+    }
+
+    fn frame(root: &dyn Widget<u8>) -> Ui<u8> {
+        build_ui(
+            root,
+            Size::new(W, H),
+            &Runtime::default(),
+            &Theme::default(),
+        )
+    }
+
+    fn back(at: Point) -> Drag {
+        Drag::Back { start_x: at.x }
+    }
+
+    fn still_scroll() -> Drag {
+        Drag::Scroll {
+            id: WidgetId::from_u64(9),
+            last: ON_THE_ROW,
+            moved: false,
+            carried: (0.0, 0.0),
+            dismiss: None,
+            axis: None,
+        }
+    }
+
+    fn row_source() -> DragSource {
+        DragSource {
+            id: WidgetId::from_u64(3),
+            rect: Rect::new(-117.0, ROW_TOP, W, ROW_HEIGHT),
+            payload: 7,
+        }
+    }
+
+    /// **Why the row was under the finger at all**: the frame a transition ends on is built
+    /// again. The tick that ends a push takes the page it left out of the state and reports
+    /// nothing moving, so a loop that builds only while something moves hit-tests the
+    /// push's last frame from then on — the page left behind still in it, where a tap or a
+    /// hold can reach what is no longer on screen. The demo's
+    /// `the_last_frame_of_a_push_still_holds_the_page_it_left` shows that frame on its own
+    /// page, at the phone's coordinates.
+    #[test]
+    fn the_frame_an_animation_settles_in_is_built_again() {
+        assert!(
+            frame_needs_build(false, false, true, false),
+            "the frame the application's animation stops in builds the view again"
+        );
+        assert!(
+            frame_needs_build(false, true, true, false),
+            "as does every frame while it moves"
+        );
+        assert!(
+            !frame_needs_build(false, false, false, false),
+            "and a still frame after a still one repaints the tree it has"
+        );
+        assert!(frame_needs_build(true, false, false, false), "unless asked");
+        assert!(
+            frame_needs_build(false, false, false, true),
+            "or the frame has its own reason"
+        );
+    }
+
+    /// The reproduction: the frame really has a row to take under the finger, and a back
+    /// gesture's press takes nothing from it.
+    #[test]
+    fn a_back_gesture_claims_nothing_under_its_finger() {
+        let root = after_a_push();
+        let ui = frame(&root);
+        let (held, lift) = hold_candidates(None, Some(&ui), Some(&root), ON_THE_ROW);
+        assert!(
+            lift.is_some() && held == Some(HELD),
+            "the frame the phone had: a press there, with no gesture, finds the row's hold"
+        );
+
+        let gesture = back(ON_THE_ROW);
+        let (held, lift) = hold_candidates(Some(&gesture), Some(&ui), Some(&root), ON_THE_ROW);
+        assert!(
+            lift.is_none(),
+            "a back gesture's press arms no lift of the row under it"
+        );
+        assert_eq!(held, None, "nor its long press");
+    }
+
+    /// Whatever a press found, the deadline never takes the pointer from a back gesture:
+    /// the gesture goes on, and keeps its start.
+    #[test]
+    fn a_hold_never_takes_the_pointer_from_a_back_gesture() {
+        let reorder = Some((WidgetId::from_u64(4), 2, ON_THE_ROW));
+        for (lift, reorder) in [
+            (Some(row_source()), None),
+            (None, reorder),
+            (Some(row_source()), reorder),
+            (None, None),
+        ] {
+            let after = drag_after_hold(Some(back(ON_THE_ROW)), lift, reorder, ON_THE_ROW);
+            assert!(
+                matches!(after, Some(Drag::Back { start_x }) if start_x == ON_THE_ROW.x),
+                "the back gesture is still the drag (lift {}, reorder {})",
+                lift.is_some(),
+                reorder.is_some()
+            );
+        }
+    }
+
+    /// At a height with nothing to take — where the gesture always worked — it still does.
+    #[test]
+    fn a_back_gesture_where_nothing_is_under_it_still_owns_the_pointer() {
+        let root = after_a_push();
+        let ui = frame(&root);
+        let gesture = back(ABOVE_THE_ROW);
+        let (held, lift) = hold_candidates(Some(&gesture), Some(&ui), Some(&root), ABOVE_THE_ROW);
+        assert!(held.is_none() && lift.is_none());
+        assert!(matches!(
+            drag_after_hold(Some(gesture), None, None, ABOVE_THE_ROW),
+            Some(Drag::Back { .. })
+        ));
+    }
+
+    /// No regression: a hold on the row with no back gesture — the list's scroll still
+    /// waiting to see whether the finger moves — lifts it, or its reorder, and says what
+    /// the row asks when held.
+    #[test]
+    fn a_hold_on_a_row_without_a_back_gesture_still_lifts_it() {
+        let root = home();
+        let ui = frame(&root);
+        let at = Point::new(40.0, ROW_TOP + 10.0);
+        let scroll = still_scroll();
+        let (held, lift) = hold_candidates(Some(&scroll), Some(&ui), Some(&root), at);
+        assert_eq!(
+            held,
+            Some(HELD),
+            "the long press is armed under a still scroll"
+        );
+        assert!(lift.is_some(), "and so is the lift");
+        let (held, lift) = hold_candidates(None, Some(&ui), Some(&root), at);
+        assert!(held.is_some() && lift.is_some(), "and with no drag at all");
+
+        let cursor = Point::new(41.0, ROW_TOP + 11.0);
+        let lifted = drag_after_hold(Some(still_scroll()), Some(row_source()), None, cursor);
+        assert!(
+            matches!(lifted, Some(Drag::Item { moved: true, start, .. }) if start == cursor),
+            "the hold lifts the item where the finger is"
+        );
+        let reorder = Some((WidgetId::from_u64(4), 2, at));
+        let reordering = drag_after_hold(Some(still_scroll()), None, reorder, cursor);
+        assert!(
+            matches!(reordering, Some(Drag::Reorder { moved: true, from: 2, start, .. }) if start == at),
+            "or picks the row up for a reorder, from where it was pressed"
+        );
+        assert!(
+            drag_after_hold(Some(still_scroll()), None, None, cursor).is_none(),
+            "a hold with nothing to lift ends the still scroll: the long press had it"
+        );
     }
 }

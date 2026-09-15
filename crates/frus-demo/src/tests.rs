@@ -2339,3 +2339,43 @@ fn a_page_returned_to_keeps_its_scroll_through_the_pop() {
         "the pop slides settings in where they were left"
     );
 }
+
+/// **The frame a push ends on still holds the page it left** (milestone 531).
+///
+/// Seen on a phone: a back gesture from the left edge of the data table, at the height of a
+/// home task row, lifted that row instead of sliding the page. The shell builds the view
+/// again only while the application says it is moving, and the tick that ends a push says it
+/// is not — so the frame it hit-tests against is the push's last, with the home page still
+/// in it, parallaxed under the edge. The shell now builds once more on the frame an
+/// animation settles in; this is the premise, on the demo's own page, at the phone's
+/// coordinates.
+#[test]
+fn the_last_frame_of_a_push_still_holds_the_page_it_left() {
+    // The Huawei STK-L21 in logical pixels, and the finger: 8 px in, 1400 px down.
+    let size = Size::new(392.7, 850.9);
+    let edge = Point::new(3.0, 509.0);
+    let theme = Theme::default();
+    let mut app = TodoApp::default();
+    add(&mut app, "Write code");
+    reduce(&mut app, Msg::Push(Route::Data));
+    // The loop as it was: the view built only while the application says it is moving.
+    let mut last_built = None;
+    while app.tick(1.0 / 60.0) {
+        last_built = Some(view_for(&app, &theme, size));
+    }
+    let last_built = last_built.expect("the push takes frames");
+    assert!(app.nav_from.is_none(), "the push has settled");
+    let source_at = |tree: &Navigator<Msg>| {
+        MediaQuery::new(size)
+            .scope(|| build_ui(tree, size, &Runtime::default(), &theme))
+            .drag_source_at(edge)
+    };
+    assert!(
+        source_at(&last_built).is_some(),
+        "the push's last frame has a home row under the back gesture's finger"
+    );
+    assert!(
+        source_at(&view_for(&app, &theme, size)).is_none(),
+        "a frame built once the push has settled has nothing there"
+    );
+}
