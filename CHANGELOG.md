@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 522 so far, each documenting the objective, the alternatives
+> record — one per step, 523 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -196,6 +196,15 @@ any release may break.
 
 ### Added
 
+- **An application can move a sheet** (J523, #39). `Command::sheet(key, SheetTo::size(1.0))`
+  moves the `DraggableScrollableSheet` wrapped in `keyed(key, …)` at once, `.animate(duration,
+  curve)` along a curve, and `SheetTo::initial()` puts it back where it started — the
+  reference's `DraggableScrollableController`, as an effect the way `Command::scroll` is one.
+  As there, the height is kept within the sheet's bounds, whatever was carrying it stops, and
+  it does not snap afterwards; a finger on the sheet refuses the request, and one landing on
+  it stops a request under way. Asked for nothing, a sheet that can be dismissed is put away
+  with its message. `Runtime::sheet_to` and `find_sheet_by_key` are the two halves the shell
+  uses.
 - **A sheet that follows the finger, and shares it with its list** (J515, answers #39).
   `DraggableScrollableSheet` fills the box it is given and lays a panel along its bottom, as
   tall as a retained share of that box: it starts at `initial`, moves between `min` and

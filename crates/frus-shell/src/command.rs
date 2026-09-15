@@ -29,17 +29,18 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
-use frus_widgets::ScrollTo;
+use frus_widgets::{ScrollTo, SheetTo};
 
 /// A command taken apart, for the shell to run. A struct rather than a tuple: there
-/// are four kinds of effect now, and a four-tuple at a call site says nothing about
-/// which is which.
+/// are several kinds of effect, and a tuple at a call site says nothing about which is
+/// which.
 pub(crate) struct Parts<Msg> {
     pub(crate) tasks: Vec<Task<Msg>>,
     pub(crate) async_tasks: Vec<AsyncTask<Msg>>,
     pub(crate) timers: Vec<(Duration, Msg)>,
     pub(crate) focus: Vec<u64>,
     pub(crate) scrolls: Vec<(u64, ScrollTo)>,
+    pub(crate) sheets: Vec<(u64, SheetTo)>,
 }
 
 /// A **synchronous** task: work that may produce a message.
@@ -70,6 +71,8 @@ pub struct Command<Msg> {
     /// The scroll regions to move, by the same kind of key. Resolved against the frame
     /// the request is returned into.
     scrolls: Vec<(u64, ScrollTo)>,
+    /// The sheets to move, by the same kind of key and on the same terms.
+    sheets: Vec<(u64, SheetTo)>,
 }
 
 /// A key's hash — **identical** to the hash the widgets' `keyed(key, …)` uses, so that
@@ -90,6 +93,7 @@ impl<Msg: Send + 'static> Command<Msg> {
             timers: Vec::new(),
             focus: Vec::new(),
             scrolls: Vec::new(),
+            sheets: Vec::new(),
         }
     }
 
@@ -100,12 +104,14 @@ impl<Msg: Send + 'static> Command<Msg> {
         let mut timers = Vec::new();
         let mut focus = Vec::new();
         let mut scrolls = Vec::new();
+        let mut sheets = Vec::new();
         for command in commands {
             tasks.extend(command.tasks);
             async_tasks.extend(command.async_tasks);
             timers.extend(command.timers);
             focus.extend(command.focus);
             scrolls.extend(command.scrolls);
+            sheets.extend(command.sheets);
         }
         Self {
             tasks,
@@ -113,6 +119,7 @@ impl<Msg: Send + 'static> Command<Msg> {
             timers,
             focus,
             scrolls,
+            sheets,
         }
     }
 
@@ -251,13 +258,38 @@ impl<Msg: Send + 'static> Command<Msg> {
         }
     }
 
-    /// `true` when the command has no effect, no focus request and no scroll request.
+    /// **Moves a sheet**: the one named `key` goes where `to` says — the reference's
+    /// `DraggableScrollableController`, as an effect.
+    ///
+    /// For the reason a scroll is one: "raise the sheet" happens once, and the height it
+    /// leaves behind is state that stays where every other sheet height is, in the
+    /// runtime. Named the same way — the sheet, or anything around it, wrapped in
+    /// `keyed(k, …)` — and resolved on the same terms: against the frame that follows, a
+    /// sheet that has only just appeared included, and dropped if that frame has not got
+    /// it. A finger on the sheet refuses it.
+    ///
+    /// ```no_run
+    /// # use frus_shell::Command;
+    /// # use frus_widgets::{Curve, SheetTo};
+    /// # fn f() -> Command<()> {
+    /// Command::sheet("places", SheetTo::size(1.0).animate(0.3, Curve::ease()))
+    /// # }
+    /// ```
+    pub fn sheet(key: impl std::hash::Hash, to: SheetTo) -> Self {
+        Self {
+            sheets: vec![(focus_key(key), to)],
+            ..Self::none()
+        }
+    }
+
+    /// `true` when the command has no effect and no request of any kind.
     pub fn is_empty(&self) -> bool {
         self.tasks.is_empty()
             && self.async_tasks.is_empty()
             && self.timers.is_empty()
             && self.focus.is_empty()
             && self.scrolls.is_empty()
+            && self.sheets.is_empty()
     }
 
     /// Takes the command apart for the framework to run.
@@ -268,6 +300,7 @@ impl<Msg: Send + 'static> Command<Msg> {
             timers: self.timers,
             focus: self.focus,
             scrolls: self.scrolls,
+            sheets: self.sheets,
         }
     }
 }
@@ -279,6 +312,18 @@ mod tests {
     #[test]
     fn none_is_empty() {
         assert!(Command::<u32>::none().is_empty());
+    }
+
+    #[test]
+    fn a_batch_keeps_its_sheet_requests() {
+        let sheet = Command::<u32>::sheet("places", SheetTo::size(1.0));
+        assert!(!sheet.is_empty());
+        let batch = Command::batch([
+            sheet,
+            Command::none(),
+            Command::sheet("other", SheetTo::initial()),
+        ]);
+        assert_eq!(batch.into_parts().sheets.len(), 2);
     }
 
     #[test]

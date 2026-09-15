@@ -21,6 +21,7 @@ pub(crate) use grid::*;
 pub(crate) use journal::*;
 pub(crate) use licenses::licenses_screen;
 pub(crate) use settings::*;
+pub(crate) use sheet::PLACES_SHEET;
 pub(crate) use task::*;
 pub(crate) use todo::*;
 pub(crate) use tour::*;
