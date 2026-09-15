@@ -1,7 +1,7 @@
 //! The Kanban board screen.
 
 use crate::prelude::*;
-use frus_widgets::{column, row};
+use frus_widgets::{column, row, ReorderAxis};
 
 /// A **rich card** of the Kanban (milestone 249): the label on the left, a **×** delete button
 /// on the right (`KanbanDelete(col, pos)`).
@@ -19,9 +19,43 @@ pub(crate) fn rich_card(label: &str, col: usize, pos: usize) -> Box<dyn Widget<M
     )
 }
 
-/// The **Kanban** screen: columns of **rich cards** (a label + a × to delete), with per-column
-/// adding (milestone 249) and drag-and-drop between columns (milestone 247). The app holds the
-/// cards; the widget emits `KanbanMove`/`KanbanAdd`/`KanbanDelete` and the reducer applies them.
+/// The width of one label of the strip.
+const LABEL_WIDTH: f32 = 96.0;
+
+/// The board's **label strip** (milestone 527): a `ReorderableList` whose rows run across,
+/// wider than a phone so that it scrolls, and so that a label carried to either edge scrolls
+/// it. The app holds the order; the list emits `MoveLabel(from, to)`.
+fn label_strip(app: &TodoApp, theme: &Theme, width: f32) -> SingleChildScrollView<Msg> {
+    let mut strip = ReorderableList::new(Msg::MoveLabel)
+        .axis(ReorderAxis::Horizontal)
+        .gap(8.0);
+    for index in app.board_labels() {
+        let label = Container::new()
+            .width(LABEL_WIDTH)
+            .padding(12.0)
+            .radius(10.0)
+            .color(theme.surface)
+            .child(
+                row![text(BOARD_LABELS[index]).size(14.0).color(theme.on_surface)]
+                    .justify(Justify::Center),
+            );
+        // Keyed by the label, not its place: the place is what changes.
+        strip = strip.keyed_row(index as u64, label);
+    }
+    SingleChildScrollView::new()
+        .axis(Axis::Horizontal)
+        .width(width)
+        .child(
+            Container::new()
+                .padding_each(12.0, 24.0, 0.0, 24.0)
+                .child(strip),
+        )
+}
+
+/// The **Kanban** screen: a strip of labels to reorder across (milestone 527), then columns of
+/// **rich cards** (a label + a × to delete), with per-column adding (milestone 249) and
+/// drag-and-drop between columns (milestone 247). The app holds the cards; the widget emits
+/// `KanbanMove`/`KanbanAdd`/`KanbanDelete` and the reducer applies them.
 pub(crate) fn board_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> {
     // The window this screen fills, read from the surface description in force:
     // nothing hands it down any more.
@@ -47,7 +81,7 @@ pub(crate) fn board_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>>
         board = board.column_widgets(*title, factories);
     }
     // The hint **wraps** within the width (otherwise the line runs off the right of the screen).
-    let hint = text("Add cards with + Add card; remove with ×; drag a card to move it.")
+    let hint = text("Add cards with + Add card; remove with ×; drag a card or a label to move it.")
         .size(13.0)
         .color(theme.muted)
         .wrap();
@@ -68,6 +102,7 @@ pub(crate) fn board_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>>
     let hint_bar = Container::new().width(width).padding(24.0).child(hint);
     let screen = column![
         NavigationBar::new("Kanban board").on_back(Msg::Pop),
+        label_strip(app, theme, width),
         board_area,
         hint_bar
     ]

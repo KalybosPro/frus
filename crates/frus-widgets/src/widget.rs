@@ -546,6 +546,22 @@ pub trait Widget<Msg> {
         ReorderAxis::Horizontal
     }
 
+    /// Is a **horizontal** reorderable dropped *between* its neighbours, like a list's row,
+    /// rather than *into the place* of the one under the pointer, like a table's column?
+    /// `false` by default, which is the table.
+    ///
+    /// The two are different gestures, not one gesture on two axes. A column follows the
+    /// pointer with a continuous slide and takes the index of the column it lands on. A row
+    /// is inserted before or after the slot it is over — whichever half the pointer is in —
+    /// with an insertion line, a gap that opens there, and the nearest slot of its own list
+    /// when the pointer is over none. A widget that answers `true` gets the second.
+    ///
+    /// Only asked of a horizontal reorderable: every vertical one is inserted between its
+    /// neighbours already, and answering here changes nothing for it.
+    fn reorder_inserts(&self) -> bool {
+        false
+    }
+
     /// Can this reorderable be **picked up** as a drag source? `true` by default for every
     /// reorderable. A **target-only** slot — the drop zone at the end of a Kanban column —
     /// returns `false`: a card can be **dropped** there, not **lifted** from it (otherwise the
@@ -1620,6 +1636,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn reorder_axis(&self) -> ReorderAxis {
         (**self).reorder_axis()
+    }
+    fn reorder_inserts(&self) -> bool {
+        (**self).reorder_inserts()
     }
     fn announce(&self) -> Option<String> {
         (**self).announce()

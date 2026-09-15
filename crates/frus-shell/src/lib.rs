@@ -51,6 +51,10 @@ mod theming;
 #[cfg(web)]
 mod web_clipboard;
 
+/// A windowless driver for tests. Hidden: not part of what an application builds on.
+#[cfg(any(test, feature = "testing"))]
+#[doc(hidden)]
+pub use app::testing;
 pub use app::App;
 pub use application::{Application, Lifecycle};
 pub use command::Command;

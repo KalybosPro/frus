@@ -243,6 +243,9 @@ pub(crate) struct TodoApp {
     /// The Kanban cards, per column (milestone 247); `None` = the `KANBAN_SEED` starting set.
     /// `Some` as soon as a card is moved. See [`TodoApp::kanban_cols`].
     pub(crate) kanban: Option<Vec<Vec<String>>>,
+    /// The order of the board's label strip, as indices into `BOARD_LABELS` (milestone 527);
+    /// `None` = the order they are declared in. See [`TodoApp::board_labels`].
+    pub(crate) label_order: Option<Vec<usize>>,
 }
 
 pub(crate) fn current_route(app: &TodoApp) -> Route {
@@ -272,6 +275,15 @@ impl TodoApp {
                 .map(|col| col.iter().map(|s| s.to_string()).collect())
                 .collect(),
         }
+    }
+
+    /// The board's labels in the order the strip shows them, as indices into `BOARD_LABELS`:
+    /// the order held in the state once a label has moved, otherwise the declared one
+    /// (milestone 527).
+    pub(crate) fn board_labels(&self) -> Vec<usize> {
+        self.label_order
+            .clone()
+            .unwrap_or_else(|| (0..BOARD_LABELS.len()).collect())
     }
 }
 
@@ -344,6 +356,11 @@ pub(crate) const KANBAN_SEED: [&[&str]; 3] = [
     &["Design API", "Write spec", "Triage bugs"],
     &["Build widget"],
     &["Kickoff", "Research"],
+];
+/// The labels of the board's strip (a demo, milestone 527): enough of them to run well past a
+/// phone's width, so the strip scrolls and a label carried to either edge scrolls it.
+pub(crate) const BOARD_LABELS: [&str; 10] = [
+    "Bug", "Feature", "Design", "Docs", "Urgent", "Later", "Ideas", "Ops", "Tests", "Release",
 ];
 
 /// Categories (the x axis) of the chart dashboard.

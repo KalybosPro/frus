@@ -608,6 +608,17 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             }
             Command::none()
         }
+        Msg::MoveLabel(from, to) => {
+            // `to` already counts the label as gone from where it was, so it is removed
+            // first and put back at `to`.
+            let mut order = app.board_labels();
+            if from < order.len() && to < order.len() {
+                let label = order.remove(from);
+                order.insert(to, label);
+                app.label_order = Some(order);
+            }
+            Command::none()
+        }
         Msg::PickColor(c) => {
             app.picked = Some(c);
             Command::none()

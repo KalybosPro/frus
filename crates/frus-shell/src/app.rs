@@ -14,11 +14,12 @@ use web_time::Instant;
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_deferred, build_ui, collect_ids, find_by_key, find_path, find_widget,
-    nearest_reorder_slot, reflow_reorder_cards, reflow_reorder_columns, reorder_siblings,
-    reorderable_owners, subtree_ids, Accessibility, Brightness, Color, Cursor as UiCursor, Edit,
-    EditKind, EditSnapshot, FocusDirection, Insets, Key, KeyResponse, KeyStroke, MediaQuery, Point,
-    Primitive, Rect, ReorderAxis, Runtime, Scene, ScrollTo, Scrollable, SheetTo, ShortcutKey, Size,
-    Theme, Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
+    nearest_reorder_slot, reflow_reorder_cards, reflow_reorder_columns, reorder_drop_after,
+    reorder_siblings, reorderable_owners, subtree_ids, Accessibility, Brightness, Color,
+    Cursor as UiCursor, Edit, EditKind, EditSnapshot, FocusDirection, Insets, Key, KeyResponse,
+    KeyStroke, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, ScrollTo,
+    Scrollable, SheetTo, ShortcutKey, Size, Theme, Ui, VelocityEstimate, VelocityTracker, Widget,
+    WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -501,6 +502,7 @@ fn drag_after_hold(
             from,
             start,
             moved: true,
+            carried: None,
         })
     } else {
         None
@@ -552,6 +554,12 @@ enum Drag {
         from: usize,
         start: Point,
         moved: bool,
+        /// What is carried and where: the row the grab moves and its box, taken from the
+        /// frame the first time the drag is carried and moved with the content since, as a
+        /// lifted item's box is. The frame knows a reorderable's box only while it shows, and
+        /// only as much of it as shows — and carrying a row to an edge is exactly what
+        /// scrolls it out of sight (milestone 527, seen on a phone).
+        carried: Option<(WidgetId, Rect)>,
     },
     /// Panning an interactive viewport (`InteractiveViewer`): the pointer pushes the
     /// content. `last` is the previous position, for the delta; `moved` tells a real
@@ -683,11 +691,32 @@ fn build_view<A: Application>(
     tree
 }
 
+/// Where the messages an effect produces on another thread are sent: the event loop's proxy,
+/// or nowhere for a driver no event loop runs.
+struct Mailbox<M: 'static>(Option<EventLoopProxy<M>>);
+
+impl<M: 'static> Clone for Mailbox<M> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<M: 'static> Mailbox<M> {
+    /// Sends `message` to the loop. An error when the loop has closed, or when there is
+    /// none — either way nobody is left to tell.
+    fn send_event(&self, message: M) -> Result<(), ()> {
+        match &self.0 {
+            Some(proxy) => proxy.send_event(message).map_err(|_| ()),
+            None => Err(()),
+        }
+    }
+}
+
 pub struct App<A: Application> {
     /// The application being driven: its state and logic.
     app: A,
     /// The channel that feeds back the messages effects produce, from their threads.
-    proxy: EventLoopProxy<A::Message>,
+    proxy: Mailbox<A::Message>,
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
     /// A renderer being initialised **asynchronously**, on the Web only: filled in by
@@ -885,6 +914,18 @@ pub struct App<A: Application> {
 impl<A: Application> App<A> {
     /// Creates the driver around an application and its message channel.
     pub fn new(app: A, proxy: EventLoopProxy<A::Message>) -> Self {
+        Self::with_mailbox(app, Mailbox(Some(proxy)))
+    }
+
+    /// A driver with no event loop behind it, for a test that feeds it input and frames
+    /// by hand: whatever an effect sends back goes nowhere. An event loop cannot be built
+    /// on a machine with no display, which is where the continuous integration runs.
+    #[cfg(any(test, feature = "testing"))]
+    fn detached(app: A) -> Self {
+        Self::with_mailbox(app, Mailbox(None))
+    }
+
+    fn with_mailbox(app: A, proxy: Mailbox<A::Message>) -> Self {
         // The widget layer knows how to *want* an image over the network and has no way
         // to get one: no runtime, no socket, and no dependency on this crate, since the
         // dependency runs the other way. So the shell says how, on the way up, and the
@@ -1594,37 +1635,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
     fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
         if matches!(cause, StartCause::ResumeTimeReached { .. }) && self.press.poll(Instant::now())
         {
-            // Two claims on one hold: a widget asking for a message, and an item asking
-            // to be lifted. Serving both would do a discrete action *and* start a drag
-            // from the same gesture, which is never what anyone meant. **The lift
-            // wins** — it changes what the rest of the gesture means, and the message
-            // would be acting on something the finger is still holding.
-            let lifting = self.pending_lift.is_some() || self.pending_reorder.is_some();
-            // A hold in a text field selects the word under the finger (milestone 511),
-            // and is that — not also the long press of whatever the field sits in.
-            let word = self.pending_word.take();
-            if let Some(message) = self.long_press_msg.take() {
-                if !lifting && word.is_none() {
-                    self.dispatch(message);
-                }
-            }
-            if let Some(id) = word {
-                self.select_held_word(id);
-            }
-            let lift = self.pending_lift.take();
-            let reorder = self.pending_reorder.take();
-            // The scroll hands the gesture over to what the hold lifted.
-            if lift.is_some() || reorder.is_some() {
-                if let Some(Drag::Scroll { id, .. }) = self.drag {
-                    self.runtime.release_scroll(id);
-                }
-            }
-            self.drag = drag_after_hold(self.drag.take(), lift, reorder, self.cursor);
-            if matches!(self.drag, Some(Drag::Reorder { .. })) {
-                self.reorder_x = self.cursor.x;
-                self.reorder_y = self.cursor.y;
-            }
-            self.request_redraw();
+            self.hold_deadline_reached();
         }
 
         // The caret's turn is due: a frame to show it, or to hide it, in (milestone 513).
@@ -2521,6 +2532,18 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // next one, or the content would lag a frame behind the finger.
                 let autoscrolling = self.autoscroll_carried(dt);
 
+                // The reorder spring, per axis, with a time constant of about 70 ms:
+                // - **horizontal** (`Table` columns): the smoothed `reorder_x` catches up
+                //   with the pointer — the columns slide with inertia while the ghost
+                //   sticks to the real pointer;
+                // - **vertical** (Kanban cards): the smoothed `reorder_y` catches up with
+                //   the **chosen** slot edge, the hovered half — the insertion line and
+                //   the gap *slide* between cards instead of jumping, which is the
+                //   vertical counterpart of `reorder_x`;
+                // - **a horizontal list's rows**: `reorder_x` catches up with the chosen
+                //   slot edge, the same line turned on its side.
+                let reorder_animating = self.advance_reorder_springs(dt);
+
                 // static `RepaintBoundary` subtree is replayed without repainting while
                 // its geometry and the interaction state hold still).
                 let tree = self
@@ -2561,34 +2584,6 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .as_ref()
                     .map(|ui| ui.interactive_bounds())
                     .unwrap_or_default();
-
-                // The reorder spring, per axis, with a time constant of about 70 ms:
-                // - **horizontal** (`Table` columns): the smoothed `reorder_x` catches up
-                //   with the pointer — the columns slide with inertia while the ghost
-                //   sticks to the real pointer;
-                // - **vertical** (Kanban cards): the smoothed `reorder_y` catches up with
-                //   the **chosen** slot edge, the hovered half — the insertion line and
-                //   the gap *slide* between cards instead of jumping, which is the
-                //   vertical counterpart of `reorder_x`.
-                let reorder_axis = matches!(self.drag, Some(Drag::Reorder { moved: true, .. }))
-                    .then(|| self.dragged_reorder_axis())
-                    .flatten();
-                let reorder_animating = match reorder_axis {
-                    Some(ReorderAxis::Horizontal) => {
-                        self.reorder_x = spring_toward(self.reorder_x, self.cursor.x, dt, 0.07);
-                        (self.cursor.x - self.reorder_x).abs() > 0.5
-                    }
-                    Some(ReorderAxis::Vertical) => {
-                        match self.reorder_drop_line(drag_preview::INSERT_THICKNESS) {
-                            Some(target) => {
-                                self.reorder_y = spring_toward(self.reorder_y, target.y, dt, 0.07);
-                                (target.y - self.reorder_y).abs() > 0.5
-                            }
-                            None => false,
-                        }
-                    }
-                    None => false,
-                };
 
                 // A paged view that has been asked for another page glides across to
                 // it. Done before the springs are stepped, so the request is honoured
@@ -2922,6 +2917,14 @@ impl<A: Application> App<A> {
     /// here, with an explicit `Cancel`. The long-press recogniser is fed along the way,
     /// and the loop is woken at its deadline.
     fn pointer(&mut self, event_loop: &ActiveEventLoop, event: PointerEvent) {
+        self.pointer_event(event);
+        // Wake the loop exactly at the next deadline, and rest otherwise.
+        event_loop.set_control_flow(self.idle_control_flow());
+    }
+
+    /// Everything [`pointer`](Self::pointer) does with an event but wake the loop: the one
+    /// place a press, a movement and a release are routed, and so what a test drives.
+    fn pointer_event(&mut self, event: PointerEvent) {
         self.cursor = event.position;
         self.hover.event(event.kind, event.position, event.touch);
         match event.kind {
@@ -3033,8 +3036,41 @@ impl<A: Application> App<A> {
         if matches!(event.kind, PointerKind::Up | PointerKind::Cancel) {
             self.sync_hover();
         }
-        // Wake the loop exactly at the next deadline, and rest otherwise.
-        event_loop.set_control_flow(self.idle_control_flow());
+    }
+
+    /// A press held still for the long-press delay: what it was a candidate for is decided.
+    fn hold_deadline_reached(&mut self) {
+        // Two claims on one hold: a widget asking for a message, and an item asking
+        // to be lifted. Serving both would do a discrete action *and* start a drag
+        // from the same gesture, which is never what anyone meant. **The lift
+        // wins** — it changes what the rest of the gesture means, and the message
+        // would be acting on something the finger is still holding.
+        let lifting = self.pending_lift.is_some() || self.pending_reorder.is_some();
+        // A hold in a text field selects the word under the finger (milestone 511),
+        // and is that — not also the long press of whatever the field sits in.
+        let word = self.pending_word.take();
+        if let Some(message) = self.long_press_msg.take() {
+            if !lifting && word.is_none() {
+                self.dispatch(message);
+            }
+        }
+        if let Some(id) = word {
+            self.select_held_word(id);
+        }
+        let lift = self.pending_lift.take();
+        let reorder = self.pending_reorder.take();
+        // The scroll hands the gesture over to what the hold lifted.
+        if lift.is_some() || reorder.is_some() {
+            if let Some(Drag::Scroll { id, .. }) = self.drag {
+                self.runtime.release_scroll(id);
+            }
+        }
+        self.drag = drag_after_hold(self.drag.take(), lift, reorder, self.cursor);
+        if matches!(self.drag, Some(Drag::Reorder { .. })) {
+            self.reorder_x = self.cursor.x;
+            self.reorder_y = self.cursor.y;
+        }
+        self.request_redraw();
     }
 
     /// The loop's idle policy: wake at the **nearest** deadline — the long press, the
@@ -3221,6 +3257,7 @@ impl<A: Application> App<A> {
                     from,
                     start: self.cursor,
                     moved: false,
+                    carried: None,
                 });
                 self.reorder_x = self.cursor.x; // starts glued to the pointer, with no jerk
                 self.reorder_y = self.cursor.y; // likewise for the vertical insertion line
@@ -3494,17 +3531,19 @@ impl<A: Application> App<A> {
             id,
             from,
             moved: true,
+            carried,
             ..
         }) = &ended
         {
-            let target = self.reorder_drop_target(*id, *from);
+            let target = self.reorder_drop_target(*id, *from, *carried);
             let tree = self.tree.as_ref();
             let base = target
                 .and_then(|tid| tree.and_then(|t| find_widget(t.as_ref(), tid)))
                 .and_then(|widget| widget.reorder_index());
-            // The **lower** half of a hovered vertical target means inserting **after**
-            // it, index +1: the effective drop slot follows the insertion line that was
-            // painted. No effect horizontally, for `Table` columns, or off target.
+            // The **trailing** half of a hovered target that is inserted at — the lower
+            // half down a list, the right half across one (the left, right to left) —
+            // means inserting **after** it, index +1: the effective drop slot follows the
+            // insertion line that was painted. No effect for `Table` columns, or off target.
             let to = match (base, target) {
                 (Some(base), Some(tid)) => {
                     let after = self
@@ -4536,6 +4575,40 @@ impl<A: Application> App<A> {
         Some((slot, ui.widget_rect(slot).unwrap_or(own)))
     }
 
+    /// The row the reorder under way carries, and its box: the one taken when the drag was
+    /// first carried, moved with the content since — or, before any frame has carried it,
+    /// the frame's.
+    fn reorder_carried(&self) -> Option<(WidgetId, Rect)> {
+        match &self.drag {
+            Some(Drag::Reorder {
+                carried: Some(carried),
+                ..
+            }) => Some(*carried),
+            Some(Drag::Reorder { id, from, .. }) => self.reorder_source(*id, *from),
+            _ => None,
+        }
+    }
+
+    /// Takes the carried row's box from the frame, once: the first frame a reorder is carried
+    /// in, before anything has scrolled it. From then on it goes with the content, and the
+    /// frame is no longer asked — a row carried to an edge is clipped by it, and a row
+    /// scrolled out of sight is not in the frame at all.
+    fn keep_carried_box(&mut self) {
+        let source = match &self.drag {
+            Some(Drag::Reorder {
+                id,
+                from,
+                moved: true,
+                carried: None,
+                ..
+            }) => self.reorder_source(*id, *from),
+            _ => return,
+        };
+        if let Some(Drag::Reorder { carried, .. }) = self.drag.as_mut() {
+            *carried = source;
+        }
+    }
+
     /// The topmost reorderable under `point` that something can actually be **dropped**
     /// on. It is not always the topmost reorderable: a list row's grip is a source and
     /// not a target, and what is under it is the row the drop is really aimed at.
@@ -4548,26 +4621,35 @@ impl<A: Application> App<A> {
 
     /// Where the reorderable `id`, grabbed at index `from`, is **dropped** if released now:
     /// the target under the pointer, or — over no target at all — the nearest slot of its own
-    /// list, for a vertical one.
+    /// list, for one inserted between its neighbours, along the axis it is reordered on.
     ///
     /// The insertion line and the release both ask this, so the line cannot promise a place
     /// the drop does not keep. The second half is milestone 518: a row carried to the bottom
     /// of a phone's list is over what follows the list, and the release used to put it back.
-    fn reorder_drop_target(&self, id: WidgetId, from: usize) -> Option<WidgetId> {
+    /// Milestone 527 turned it on its side, for a list whose rows run across.
+    fn reorder_drop_target(
+        &self,
+        id: WidgetId,
+        from: usize,
+        carried: Option<(WidgetId, Rect)>,
+    ) -> Option<WidgetId> {
         if let Some(target) = self.reorder_target_at(self.cursor) {
             return Some(target);
         }
         let tree = self.tree.as_ref()?;
-        let vertical = find_widget(tree.as_ref(), id)
-            .is_some_and(|w| matches!(w.reorder_axis(), ReorderAxis::Vertical));
-        if !vertical {
+        let Some(ReorderMotion::Slots(axis)) = find_widget(tree.as_ref(), id).map(reorder_motion)
+        else {
             return None;
-        }
-        // Among the slots of the row that moves, which is not the grip that was grabbed.
-        let (row, _) = self.reorder_source(id, from)?;
+        };
+        // Among the slots of the row that moves, which is not the grip that was grabbed —
+        // and which may have been scrolled out of the frame by the carry itself.
+        let row = match carried {
+            Some((row, _)) => row,
+            None => self.reorder_source(id, from)?.0,
+        };
         let slots = reorder_siblings(self.ui.as_ref()?, tree.as_ref(), row);
         let boxes: Vec<Rect> = slots.iter().map(|(_, rect)| *rect).collect();
-        nearest_reorder_slot(self.cursor, &boxes).map(|index| slots[index].0)
+        nearest_reorder_slot(self.cursor, &boxes, axis).map(|index| slots[index].0)
     }
 
     /// What is being **carried** this frame, where it is now: the box the ghost is drawn
@@ -4579,20 +4661,16 @@ impl<A: Application> App<A> {
     fn carried_rect(&self) -> Option<Rect> {
         match &self.drag {
             Some(Drag::Reorder {
-                id,
-                from,
-                start,
-                moved: true,
+                start, moved: true, ..
             }) => {
-                let (_, src) = self.reorder_source(*id, *from)?;
+                let (_, src) = self.reorder_carried()?;
                 // The same offsets the ghost is painted at, and for the same reason a
                 // column's ghost only rises: it moves along its own axis.
-                let (gx, gy) = match self.dragged_reorder_axis() {
-                    Some(ReorderAxis::Vertical) => {
-                        (self.cursor.x - start.x, self.cursor.y - start.y)
-                    }
-                    _ => (self.cursor.x - start.x, drag_preview::LIFT_Y),
-                };
+                let (gx, gy) = ghost_offset(
+                    self.dragged_reorder_motion()
+                        .unwrap_or(ReorderMotion::Columns),
+                    (self.cursor.x - start.x, self.cursor.y - start.y),
+                );
                 Some(src.translate(gx, gy))
             }
             Some(Drag::Item {
@@ -4617,6 +4695,7 @@ impl<A: Application> App<A> {
     /// hand: an area that refuses a finger refuses this too, so a list that fits its
     /// viewport never twitches.
     fn autoscroll_carried(&mut self, dt: f32) -> bool {
+        self.keep_carried_box();
         let Some(carried) = self.carried_rect() else {
             return false;
         };
@@ -4693,17 +4772,50 @@ impl<A: Application> App<A> {
         true
     }
 
-    /// The axis of the reorderable currently **grabbed**, if a drag is under way. It
-    /// is what keeps the **horizontal spring** (`reorder_x`) to `Table`'s columns; the
-    /// Kanban cards, being vertical, reflow with no x smoothing.
-    fn dragged_reorder_axis(&self) -> Option<ReorderAxis> {
+    /// How the reorderable currently **grabbed** moves, if a drag is under way. It is what
+    /// keeps the **pointer spring** (`reorder_x` following the pointer) to `Table`'s columns;
+    /// the Kanban cards and a list's rows spring their insertion line instead.
+    fn dragged_reorder_motion(&self) -> Option<ReorderMotion> {
         let Some(Drag::Reorder { id, .. }) = self.drag else {
             return None;
         };
         self.tree
             .as_ref()
             .and_then(|t| find_widget(t.as_ref(), id))
-            .map(|w| w.reorder_axis())
+            .map(reorder_motion)
+    }
+
+    /// Steps the reorder springs one frame, per gesture — see the frame loop — and says
+    /// whether they are still moving.
+    fn advance_reorder_springs(&mut self, dt: f32) -> bool {
+        let reorder_motion = matches!(self.drag, Some(Drag::Reorder { moved: true, .. }))
+            .then(|| self.dragged_reorder_motion())
+            .flatten();
+        match reorder_motion {
+            Some(ReorderMotion::Columns) => {
+                self.reorder_x = spring_toward(self.reorder_x, self.cursor.x, dt, 0.07);
+                (self.cursor.x - self.reorder_x).abs() > 0.5
+            }
+            Some(ReorderMotion::Slots(ReorderAxis::Vertical)) => {
+                match self.reorder_drop_line(drag_preview::INSERT_THICKNESS) {
+                    Some(target) => {
+                        self.reorder_y = spring_toward(self.reorder_y, target.y, dt, 0.07);
+                        (target.y - self.reorder_y).abs() > 0.5
+                    }
+                    None => false,
+                }
+            }
+            Some(ReorderMotion::Slots(ReorderAxis::Horizontal)) => {
+                match self.reorder_drop_line(drag_preview::INSERT_THICKNESS) {
+                    Some(target) => {
+                        self.reorder_x = spring_toward(self.reorder_x, target.x, dt, 0.07);
+                        (target.x - self.reorder_x).abs() > 0.5
+                    }
+                    None => false,
+                }
+            }
+            None => false,
+        }
     }
 
     /// Paints the **reorder preview** on top of the scene, unclipped: the source
@@ -4799,33 +4911,27 @@ impl<A: Application> App<A> {
 
     fn paint_reorder_preview(&self, ui: &Ui<A::Message>, theme: &Theme, scene: &mut Scene) {
         let Some(Drag::Reorder {
-            id,
-            from,
-            start,
-            moved: true,
+            start, moved: true, ..
         }) = self.drag
         else {
             return;
         };
-        // What moves is the row, even when what was grabbed is the grip inside it.
-        let Some((id, src)) = self.reorder_source(id, from) else {
+        // What moves is the row, even when what was grabbed is the grip inside it — at the
+        // box it was carried from, which has gone with the content.
+        let Some((id, src)) = self.reorder_carried() else {
             return;
         };
-        let axis = self
+        let motion = self
             .tree
             .as_ref()
             .and_then(|t| find_widget(t.as_ref(), id))
-            .map(|w| w.reorder_axis())
-            .unwrap_or(ReorderAxis::Horizontal);
+            .map(reorder_motion)
+            .unwrap_or(ReorderMotion::Columns);
         let dx = self.cursor.x - start.x;
         let dy = self.cursor.y - start.y;
 
-        // The ghost's offset, per axis: **horizontal** (Table columns) follows `dx`,
-        // with a slight `-2` lift; **vertical** (Kanban cards) follows the pointer in 2D.
-        let (gx, gy) = match axis {
-            ReorderAxis::Horizontal => (dx, drag_preview::LIFT_Y),
-            ReorderAxis::Vertical => (dx, dy),
-        };
+        // The ghost's offset, per motion — see `ghost_offset`.
+        let (gx, gy) = ghost_offset(motion, (dx, dy));
 
         // The owners of the grabbed item's **subtree**: used by the ghost, to capture a
         // rich card's content, which its children paint (milestone 251), **and** by the
@@ -4837,8 +4943,8 @@ impl<A: Application> App<A> {
             .map(|w| subtree_ids(w, id).iter().map(|i| i.as_u64()).collect())
             .unwrap_or_else(|| std::iter::once(id.as_u64()).collect());
 
-        match axis {
-            ReorderAxis::Horizontal => {
+        match motion {
+            ReorderMotion::Columns => {
                 // Reflow the neighbouring columns: the source's gap closes and the drop
                 // slot opens, following the pointer's **smoothed** abscissa — a gentle
                 // inertial slide, while the ghost sticks to the real pointer.
@@ -4849,7 +4955,7 @@ impl<A: Application> App<A> {
                     scene.push_primitive(primitive);
                 }
             }
-            ReorderAxis::Vertical => {
+            ReorderMotion::Slots(axis) => {
                 // Reflow the **cards**: the lifted card's gap closes in the source
                 // column and a slot opens under the **insertion line** in the target one.
                 // Then the line is laid on top, at the chosen edge — the hovered half,
@@ -4858,13 +4964,20 @@ impl<A: Application> App<A> {
                 // A **smoothed** line (milestone 265): the chosen slot's width, abscissa
                 // and thickness are kept, but the **ordinate** is replaced by the
                 // `reorder_y` spring — the line *and* the gap slide between cards, with
-                // vertical inertia, instead of jumping a notch.
-                let line = self
-                    .reorder_drop_line(drag_preview::INSERT_THICKNESS)
-                    .map(|r| Rect {
-                        y: self.reorder_y,
-                        ..r
-                    });
+                // vertical inertia, instead of jumping a notch. A horizontal list's line
+                // stands on its end, and its **abscissa** is the one that springs.
+                let line =
+                    self.reorder_drop_line(drag_preview::INSERT_THICKNESS)
+                        .map(|r| match axis {
+                            ReorderAxis::Vertical => Rect {
+                                y: self.reorder_y,
+                                ..r
+                            },
+                            ReorderAxis::Horizontal => Rect {
+                                x: self.reorder_x,
+                                ..r
+                            },
+                        });
                 // Only what can be reordered makes room — a card, a row, a drop zone, and
                 // what each of them paints. The reflow is geometric, and a button floating
                 // over the list or the navigation bar under it shares the band without being
@@ -4876,17 +4989,22 @@ impl<A: Application> App<A> {
                     .map(|tree| reorderable_owners(ui, tree.as_ref()))
                     .unwrap_or_default();
                 let reflowed =
-                    reflow_reorder_cards(scene.primitives(), src, line, &owners, &movable);
+                    reflow_reorder_cards(scene.primitives(), src, line, &owners, &movable, axis);
                 scene.clear();
                 for primitive in reflowed {
                     scene.push_primitive(primitive);
                 }
                 if let Some(line) = line {
+                    // Rounded across its thickness, whichever way it stands.
+                    let thickness = match axis {
+                        ReorderAxis::Vertical => line.height,
+                        ReorderAxis::Horizontal => line.width,
+                    };
                     scene.set_clip(Rect::UNBOUNDED);
                     scene.draw_rect(
                         line,
                         theme.primary,
-                        theme.radius.min(line.height * 0.5),
+                        theme.radius.min(thickness * 0.5),
                         0.0,
                         Color::TRANSPARENT,
                     );
@@ -4966,38 +5084,57 @@ impl<A: Application> App<A> {
         draw_ghost_card(scene, theme, source.rect.translate(dx, dy), &ghost);
     }
 
-    /// The **insertion** line of the vertical preview: a thin band at the edge of the
-    /// hovered reorderable slot, a card or a drop zone — the **top** edge when the
-    /// pointer is in its upper half (inserting **before**), the **bottom** edge in its
-    /// lower half (inserting **after**). `None` when the release would land nowhere.
+    /// The **insertion** line of the preview: a thin band at the edge of the hovered
+    /// reorderable slot, a card, a row or a drop zone — the edge **before** it when the
+    /// pointer is in its leading half, the edge **after** it in its trailing half. Across a
+    /// vertical list; standing on its end in a horizontal one. `None` when the release would
+    /// land nowhere.
     fn reorder_drop_line(&self, thickness: f32) -> Option<Rect> {
-        let Some(Drag::Reorder { id, from, .. }) = self.drag else {
+        let Some(Drag::Reorder {
+            id, from, carried, ..
+        }) = self.drag
+        else {
             return None;
         };
         // The reorderable slot — card, row or drop zone — the release would land on: the
         // one under the pointer, or the nearest of the list's own.
-        let target = self.reorder_drop_target(id, from)?;
+        let target = self.reorder_drop_target(id, from, carried)?;
         let rect = self.ui.as_ref()?.widget_rect(target)?;
+        let axis = match self
+            .tree
+            .as_ref()
+            .and_then(|t| find_widget(t.as_ref(), target))
+            .map(reorder_motion)
+        {
+            Some(ReorderMotion::Slots(axis)) => axis,
+            _ => ReorderAxis::Vertical,
+        };
         Some(drop_insertion_line(
             rect,
             thickness,
             self.reorder_insert_after(target, rect),
+            axis,
+            self.is_rtl(),
         ))
     }
 
-    /// For a **vertically** reordered slot, tells whether the pointer is in its
-    /// **lower** half — that is, whether insertion happens **after** it (index +1,
-    /// between this card and the next). Always `false` on the **horizontal** axis, where
-    /// `Table`'s columns keep their drop logic unchanged. This is the insertion line's
-    /// counterpart on the **routing** side.
+    /// For a slot a reorderable is **inserted** at, tells whether insertion happens
+    /// **after** it (index +1, between it and the next) — the pointer in its trailing half,
+    /// which `reorder_drop_after` works out along the list's axis and reading direction.
+    /// Always `false` for `Table`'s columns, which keep their drop logic unchanged. This is
+    /// the insertion line's counterpart on the **routing** side.
     fn reorder_insert_after(&self, target: WidgetId, rect: Rect) -> bool {
-        let vertical = self
+        match self
             .tree
             .as_ref()
             .and_then(|t| find_widget(t.as_ref(), target))
-            .map(|w| matches!(w.reorder_axis(), ReorderAxis::Vertical))
-            .unwrap_or(false);
-        vertical && rect.height > 0.0 && self.cursor.y > rect.y + rect.height * 0.5
+            .map(reorder_motion)
+        {
+            Some(ReorderMotion::Slots(axis)) => {
+                reorder_drop_after(self.cursor, rect, axis, self.is_rtl())
+            }
+            _ => false,
+        }
     }
 
     /// Sends a value drag's **start** or **end** to the widget being dragged.
@@ -5511,9 +5648,12 @@ fn apply_sheet_requests<Msg>(
 /// Anything else being dragged is not carried content, and is left alone.
 fn follow_content(drag: &mut Drag, shift: (f32, f32)) {
     match drag {
-        Drag::Reorder { start, .. } => {
+        Drag::Reorder { start, carried, .. } => {
             start.x += shift.0;
             start.y += shift.1;
+            if let Some((_, rect)) = carried {
+                *rect = rect.translate(shift.0, shift.1);
+            }
         }
         Drag::Item { source, start, .. } => {
             start.x += shift.0;
@@ -5632,18 +5772,85 @@ fn draw_ghost_card(scene: &mut Scene, theme: &Theme, card: Rect, ghost: &[Primit
     }
 }
 
-/// The geometry of a **vertical** reorder preview's **insertion line**: a thin band
-/// of thickness `thickness`, centred on the target edge **where the insertion will
-/// happen** — the **top** edge (inserting before, the upper half hovered) or the
-/// **bottom** one (inserting after, `after = true`, the lower half hovered) — spanning
-/// the full width. A pure function, testable without a GPU.
-fn drop_insertion_line(target: Rect, thickness: f32, after: bool) -> Rect {
-    let edge = if after {
-        target.y + target.height
-    } else {
-        target.y
-    };
-    Rect::new(target.x, edge - thickness * 0.5, target.width, thickness)
+/// How a reorderable moves while it is carried: the two gestures the shell knows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReorderMotion {
+    /// A table's column: a continuous slide along x following the pointer, dropped into
+    /// the place of the column under it.
+    Columns,
+    /// A list's row or a board's card: inserted before or after a slot along the axis,
+    /// with an insertion line, a gap opening there, and the nearest slot past either end.
+    Slots(ReorderAxis),
+}
+
+impl ReorderMotion {
+    /// Which of the two a reorderable is, from its two answers: every vertical one inserts,
+    /// and a horizontal one only when it says so — a list's row does, a table's column does
+    /// not.
+    fn of(axis: ReorderAxis, inserts: bool) -> Self {
+        match axis {
+            ReorderAxis::Vertical => Self::Slots(ReorderAxis::Vertical),
+            ReorderAxis::Horizontal if inserts => Self::Slots(ReorderAxis::Horizontal),
+            ReorderAxis::Horizontal => Self::Columns,
+        }
+    }
+}
+
+/// How `widget` moves while it is carried — [`ReorderMotion::of`] its two answers.
+fn reorder_motion<Msg>(widget: &dyn Widget<Msg>) -> ReorderMotion {
+    ReorderMotion::of(widget.reorder_axis(), widget.reorder_inserts())
+}
+
+/// Where the ghost is drawn relative to the box it was lifted from, given the finger's
+/// `travel` since the press.
+///
+/// - A **column** follows the pointer along x, with a slight lift.
+/// - A **card** follows it in both directions: a board carries it across columns.
+/// - A **horizontal list's row** follows it along x only. The reference keeps a list's
+///   proxy in its lane on either axis; a vertical list here shares the board's freedom
+///   because the two are one path, and a horizontal list has no board to share it with.
+fn ghost_offset(motion: ReorderMotion, travel: (f32, f32)) -> (f32, f32) {
+    match motion {
+        ReorderMotion::Columns => (travel.0, drag_preview::LIFT_Y),
+        ReorderMotion::Slots(ReorderAxis::Vertical) => travel,
+        ReorderMotion::Slots(ReorderAxis::Horizontal) => (travel.0, 0.0),
+    }
+}
+
+/// The geometry of a reorder preview's **insertion line**: a thin band of thickness
+/// `thickness`, centred on the target edge **where the insertion will happen**.
+///
+/// Along a **vertical** list: the **top** edge (inserting before, the upper half hovered)
+/// or the **bottom** one (inserting after, `after = true`, the lower half hovered),
+/// spanning the full width. Along a **horizontal** list the band stands on its end,
+/// spanning the full height at the left or right edge — and *after* is the right edge
+/// only when the list reads left to right: under `rtl` what follows a row is on its left.
+/// A pure function, testable without a GPU.
+fn drop_insertion_line(
+    target: Rect,
+    thickness: f32,
+    after: bool,
+    axis: ReorderAxis,
+    rtl: bool,
+) -> Rect {
+    match axis {
+        ReorderAxis::Vertical => {
+            let edge = if after {
+                target.y + target.height
+            } else {
+                target.y
+            };
+            Rect::new(target.x, edge - thickness * 0.5, target.width, thickness)
+        }
+        ReorderAxis::Horizontal => {
+            let edge = if after != rtl {
+                target.x + target.width
+            } else {
+                target.x
+            };
+            Rect::new(edge - thickness * 0.5, target.y, thickness, target.height)
+        }
+    }
 }
 
 /// Which axis a scroll gesture is **claimed by**, decided once when the finger passes the
@@ -5732,8 +5939,9 @@ fn fetch_image_bytes(
 mod tests {
     use super::{
         build_view, claim_area, claim_axis, draw_ghost_card, drop_insertion_line, fling_velocity,
-        gesture_was_a_tap, install_ambient, resolve_focus, spring_toward, Drag, Point, Rect, Scene,
-        Theme, VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
+        gesture_was_a_tap, ghost_offset, install_ambient, reorder_motion, resolve_focus,
+        spring_toward, Drag, Point, Rect, ReorderAxis, ReorderMotion, Scene, Theme,
+        VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
     };
     use super::{clipboard_command, ClipCommand, KeyCode, PhysicalKey, WinitKey};
     use super::{collect_ids, find_widget, MediaQuery};
@@ -6285,7 +6493,13 @@ mod tests {
     fn insertion_line_sits_on_the_target_top_edge() {
         // The upper half hovered means inserting **before**: a band of thickness 4
         // centred on the top edge (y=100) of a target 200 wide.
-        let line = drop_insertion_line(Rect::new(20.0, 100.0, 200.0, 44.0), 4.0, false);
+        let line = drop_insertion_line(
+            Rect::new(20.0, 100.0, 200.0, 44.0),
+            4.0,
+            false,
+            ReorderAxis::Vertical,
+            false,
+        );
         assert_eq!(line.x, 20.0, "aligned to the target's left");
         assert_eq!(line.width, 200.0, "the target's full width");
         assert_eq!(line.y, 98.0, "centred on the top edge (100 - 4/2)");
@@ -6296,11 +6510,123 @@ mod tests {
     fn insertion_line_sits_on_the_target_bottom_edge_when_inserting_after() {
         // The lower half hovered means inserting **after**: the band slides to the
         // **bottom** edge (y = 100 + 44 = 144, centred → 142). Same width, same thickness.
-        let line = drop_insertion_line(Rect::new(20.0, 100.0, 200.0, 44.0), 4.0, true);
+        let line = drop_insertion_line(
+            Rect::new(20.0, 100.0, 200.0, 44.0),
+            4.0,
+            true,
+            ReorderAxis::Vertical,
+            false,
+        );
         assert_eq!(line.x, 20.0, "still aligned to the left");
         assert_eq!(line.width, 200.0, "the target's full width");
         assert_eq!(line.y, 142.0, "centred on the bottom edge (144 - 4/2)");
         assert_eq!(line.height, 4.0);
+        // A vertical list reads down whichever way its text runs.
+        let rtl = drop_insertion_line(
+            Rect::new(20.0, 100.0, 200.0, 44.0),
+            4.0,
+            true,
+            ReorderAxis::Vertical,
+            true,
+        );
+        assert_eq!(rtl, line, "right to left changes nothing down a list");
+    }
+
+    /// **A horizontal list's line stands on its end**, on the edge the row goes to: the
+    /// right one after a row that reads left to right, the left one after a row that reads
+    /// right to left — where what follows it is.
+    #[test]
+    fn a_horizontal_insertion_line_stands_on_the_edge_the_row_goes_to() {
+        let chip = Rect::new(100.0, 20.0, 80.0, 48.0);
+        let line = |after, rtl| drop_insertion_line(chip, 4.0, after, ReorderAxis::Horizontal, rtl);
+        let before = line(false, false);
+        assert_eq!(
+            (before.x, before.y, before.width, before.height),
+            (98.0, 20.0, 4.0, 48.0),
+            "before a row: its left edge, the full height, 4 wide"
+        );
+        assert_eq!(
+            line(true, false).x,
+            178.0,
+            "after it: its right edge (180 - 4/2)"
+        );
+        // Right to left, the two edges trade places.
+        assert_eq!(
+            line(true, true).x,
+            98.0,
+            "after, right to left: the left edge"
+        );
+        assert_eq!(
+            line(false, true).x,
+            178.0,
+            "before, right to left: the right edge"
+        );
+    }
+
+    /// **Which gesture a reorderable gets.** A column slides; a row or a card is inserted
+    /// between slots — and a horizontal reorderable is a row only when it says so, which is
+    /// what keeps a table's columns exactly as they were.
+    #[test]
+    fn a_horizontal_reorderable_inserts_only_when_it_says_so() {
+        assert_eq!(
+            ReorderMotion::of(ReorderAxis::Horizontal, false),
+            ReorderMotion::Columns,
+            "a table's column"
+        );
+        assert_eq!(
+            ReorderMotion::of(ReorderAxis::Horizontal, true),
+            ReorderMotion::Slots(ReorderAxis::Horizontal),
+            "a horizontal list's row"
+        );
+        // Every vertical reorderable inserts, whatever it answers.
+        for inserts in [false, true] {
+            assert_eq!(
+                ReorderMotion::of(ReorderAxis::Vertical, inserts),
+                ReorderMotion::Slots(ReorderAxis::Vertical)
+            );
+        }
+        // A widget that answers nothing keeps the trait's defaults, which are the table's.
+        assert_eq!(
+            reorder_motion::<()>(&frus_widgets::Container::new()),
+            ReorderMotion::Columns
+        );
+        // And the real rows say which they are, down and across.
+        for (axis, expected) in [
+            (
+                ReorderAxis::Vertical,
+                ReorderMotion::Slots(ReorderAxis::Vertical),
+            ),
+            (
+                ReorderAxis::Horizontal,
+                ReorderMotion::Slots(ReorderAxis::Horizontal),
+            ),
+        ] {
+            let list = frus_widgets::ReorderableList::new(|_, _| ())
+                .axis(axis)
+                .row(frus_widgets::Container::new().width(60.0));
+            let row = frus_widgets::Widget::children(&list)[0].as_ref();
+            assert_eq!(reorder_motion(row), expected, "{axis:?}");
+        }
+    }
+
+    /// **The ghost stays in its lane.** A column rises and follows x; a card follows the
+    /// finger anywhere; a horizontal list's row follows x and nothing else — so a finger
+    /// that wanders below the strip does not drag the row off it.
+    #[test]
+    fn a_horizontal_rows_ghost_follows_the_finger_along_x_only() {
+        let travel = (120.0, 35.0);
+        assert_eq!(
+            ghost_offset(ReorderMotion::Columns, travel),
+            (120.0, super::drag_preview::LIFT_Y)
+        );
+        assert_eq!(
+            ghost_offset(ReorderMotion::Slots(ReorderAxis::Vertical), travel),
+            (120.0, 35.0)
+        );
+        assert_eq!(
+            ghost_offset(ReorderMotion::Slots(ReorderAxis::Horizontal), travel),
+            (120.0, 0.0)
+        );
     }
 
     #[test]
@@ -6639,13 +6965,19 @@ mod autoscroll_tests {
             from: 0,
             start: pressed,
             moved: true,
+            carried: Some((WidgetId::from_u64(1), row_then)),
         };
         follow_content(&mut reorder, shift);
-        let Drag::Reorder { start, .. } = reorder else {
+        let Drag::Reorder { start, carried, .. } = reorder else {
             unreachable!("still a reorder");
         };
-        // Drawn the way the shell draws it: the row's box this frame, plus the travel.
-        let ghost = row_now.translate(finger.x - start.x, finger.y - start.y);
+        // The box it was carried from went with the content, as the row did — and the frame's
+        // own box is not asked again, since the frame clips a row carried to an edge and loses
+        // one scrolled out of sight (milestone 527).
+        let (_, carried) = carried.expect("the box it was carried from");
+        assert_eq!(carried, row_now, "the carried box went with the content");
+        // Drawn the way the shell draws it: the carried box, plus the travel.
+        let ghost = carried.translate(finger.x - start.x, finger.y - start.y);
         assert_eq!(
             ghost,
             row_then.translate(finger.x - pressed.x, finger.y - pressed.y),
@@ -6902,6 +7234,583 @@ mod back_gesture_tests {
         assert!(
             drag_after_hold(Some(still_scroll()), None, None, cursor).is_none(),
             "a hold with nothing to lift ends the still scroll: the long press had it"
+        );
+    }
+}
+
+/// A driver with no window and no event loop: input and frames fed by hand, through the
+/// shell's own paths.
+#[cfg(any(test, feature = "testing"))]
+#[doc(hidden)]
+pub mod testing {
+    use super::*;
+    use crate::gesture::{PointerEvent, PointerKind, LONG_PRESS_DELAY};
+
+    /// The shell around an application, on a surface of a stated logical size.
+    pub struct Driver<A: Application> {
+        shell: App<A>,
+        size: Size,
+        /// Where the last frame drew a reorder's ghost, when it drew one.
+        ghost: Option<Rect>,
+    }
+
+    impl<A: Application> Driver<A> {
+        /// A driver for `app` on a `width` by `height` logical surface.
+        pub fn new(app: A, width: f32, height: f32) -> Self {
+            Self {
+                shell: App::detached(app),
+                size: Size::new(width, height),
+                ghost: None,
+            }
+        }
+
+        /// Where what is carried is drawn this frame — a reorder's ghost or a lifted item —
+        /// or `None` when nothing is.
+        pub fn carried(&self) -> Option<Rect> {
+            self.shell.carried_rect()
+        }
+
+        /// Where the last frame drew a reorder's ghost — the outline around it — or `None`
+        /// when it drew none.
+        pub fn ghost(&self) -> Option<Rect> {
+            self.ghost
+        }
+
+        /// Every scroll region of the last frame, as its viewport and its offset.
+        pub fn offsets(&self) -> Vec<(Rect, (f32, f32))> {
+            let s = &self.shell;
+            s.ui.as_ref()
+                .map(|ui| {
+                    ui.scroll_regions()
+                        .iter()
+                        .map(|a| {
+                            (
+                                a.viewport,
+                                s.runtime.scroll.get(&a.id).copied().unwrap_or((0.0, 0.0)),
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+
+        /// The application, as the shell holds it.
+        pub fn app(&self) -> &A {
+            &self.shell.app
+        }
+
+        /// Hands the application a message, as the shell does.
+        pub fn update(&mut self, message: A::Message) {
+            self.shell.dispatch(message);
+        }
+
+        /// Frames at sixty a second for `seconds`.
+        pub fn run(&mut self, seconds: f32) {
+            let n = (seconds * 60.0).round() as usize;
+            for _ in 0..n.max(1) {
+                self.frame(1.0 / 60.0);
+            }
+        }
+
+        /// A finger down at `at`.
+        pub fn press(&mut self, at: Point) {
+            self.pointer(PointerKind::Down, at);
+        }
+
+        /// The finger moved to `at`.
+        pub fn move_to(&mut self, at: Point) {
+            self.pointer(PointerKind::Move, at);
+        }
+
+        /// The finger lifted at `at`.
+        pub fn release(&mut self, at: Point) {
+            self.pointer(PointerKind::Up, at);
+        }
+
+        /// The long-press deadline, delivered as the loop's wake delivers it. Whether it
+        /// fired: a press that moved past the slop, or was never waiting, has none.
+        pub fn hold_deadline(&mut self) -> bool {
+            let fired = self.shell.press.poll(Instant::now() + LONG_PRESS_DELAY);
+            if fired {
+                self.shell.hold_deadline_reached();
+            }
+            fired
+        }
+
+        fn pointer(&mut self, kind: PointerKind, at: Point) {
+            self.shell.pointer_event(PointerEvent {
+                kind,
+                position: at,
+                touch: true,
+            });
+        }
+
+        /// One frame, the real frame's steps in the real frame's order, less the GPU.
+        pub fn frame(&mut self, dt: f32) {
+            let (width, height) = (self.size.width, self.size.height);
+            let s = &mut self.shell;
+            if s.last_size != Some((width, height)) {
+                s.last_size = Some((width, height));
+                s.build_dirty = true;
+                s.app.on_resize(width, height);
+            }
+            let mut app_animating = s.app.tick(dt);
+            let settings = s
+                .platform
+                .accessibility
+                .with_overrides(s.app.accessibility());
+            let theme_moved = s.themes.advance(
+                &s.app,
+                s.platform.brightness,
+                settings.high_contrast,
+                settings.disable_animations,
+                dt,
+            );
+            app_animating |= theme_moved | s.themes.animating();
+            let theme = s.themes.displayed(&s.app);
+            install_ambient(&s.app, &mut s.runtime, &s.platform.locales);
+            let _surface = s.media_query(width, height).install();
+            s.runtime.still = settings.disable_animations;
+            let was = std::mem::replace(&mut s.app_was_animating, app_animating);
+            if frame_needs_build(
+                s.build_dirty,
+                app_animating,
+                was,
+                s.tree.is_none() || s.runtime.switching(),
+            ) {
+                s.tree = Some(build_view(&s.app, &theme, &s.runtime));
+            }
+            s.build_dirty = false;
+            s.autoscroll_carried(dt);
+            s.advance_reorder_springs(dt);
+            let regions =
+                s.ui.as_ref()
+                    .map(|ui| ui.scroll_regions().to_vec())
+                    .unwrap_or_default();
+            let physics = s.app.scroll_physics();
+            s.runtime.sync_pages(&regions);
+            s.runtime.sync_visible(&regions);
+            s.runtime.advance(dt);
+            s.runtime.advance_scroll(&regions, physics, dt);
+            let tree = s.tree.as_deref().expect("the view was built");
+            let ui = build_ui(tree, Size::new(width, height), &s.runtime, &theme);
+            let mut scene = ui.scene().clone();
+            let ghost = if matches!(s.drag, Some(Drag::Reorder { moved: true, .. })) {
+                s.paint_reorder_preview(&ui, &theme, &mut scene);
+                // The ghost's outline is the last thing the preview draws, on the ghost's box.
+                scene.primitives().last().map(|p| p.bounds())
+            } else {
+                None
+            };
+            let paged = ui.scroll_regions().to_vec();
+            let scrolled: Vec<A::Message> = {
+                let grain = |id| find_widget(tree, id).map_or(0.0, |w| w.scroll_grain());
+                s.runtime
+                    .scroll_changes(&paged, grain)
+                    .into_iter()
+                    .filter_map(|(id, position)| {
+                        find_widget(tree, id).and_then(|w| w.on_scroll(position))
+                    })
+                    .collect()
+            };
+            s.ui = Some(ui);
+            for message in scrolled {
+                s.dispatch(message);
+            }
+            self.ghost = ghost;
+        }
+    }
+}
+
+/// **What is carried stays carried, however far its list scrolls** (milestone 527, seen on
+/// a phone).
+///
+/// A label held on the Kanban screen's strip and carried towards the strip's right edge was
+/// not drawn lifted, the strip scrolled away under it, and the release put it somewhere the
+/// finger had never been. The carried row's box came from the frame, and the frame keeps a
+/// reorderable's box only while it is on screen, clipped to what shows: once auto-scroll had
+/// pushed the row against the edge the box stopped moving with the content while the press
+/// kept moving, the ghost ran ahead of the finger, the scroll fed on it, and a row scrolled
+/// out of sight had no box at all.
+///
+/// These drive the shell's own input path and its frame, on the screen's shape: a bar, a strip
+/// of ten 96-px labels that lift on a hold, and a board of cards, each in a horizontal scroll.
+#[cfg(test)]
+mod carried_row_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{
+        column, text, Axis, Button, CellFn, Container, Flex, Kanban, Point, Rect, ReorderAxis,
+        ReorderGrab, ReorderableList, SingleChildScrollView, Theme, Widget,
+    };
+
+    /// A phone, in logical pixels.
+    const W: f32 = 392.7;
+    const H: f32 = 850.9;
+    /// The height of the labels' middle, under the 56-px bar and the strip's 12 px of padding.
+    const STRIP_Y: f32 = 88.0;
+    /// How wide the strip's content is: ten labels, nine gaps, and 24 px at either end.
+    const STRIP_CONTENT: f32 = 24.0 + 10.0 * 96.0 + 9.0 * 8.0 + 24.0;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Board {
+        Label(usize, usize),
+        Card(usize, usize, usize, usize),
+        Delete(usize, usize),
+        Add(usize),
+        Row(usize, usize),
+    }
+
+    /// The Kanban screen, in the shape that matters.
+    struct BoardApp {
+        labels: Vec<usize>,
+        cards: Vec<Vec<String>>,
+        log: Vec<Board>,
+    }
+
+    impl Default for BoardApp {
+        fn default() -> Self {
+            let cols: [&[&str]; 3] = [
+                &["Design API", "Write spec", "Triage bugs"],
+                &["Build widget"],
+                &["Kickoff", "Research"],
+            ];
+            Self {
+                labels: (0..10).collect(),
+                cards: cols
+                    .iter()
+                    .map(|c| c.iter().map(|s| s.to_string()).collect())
+                    .collect(),
+                log: Vec::new(),
+            }
+        }
+    }
+
+    impl Application for BoardApp {
+        type Message = Board;
+
+        fn update(&mut self, message: Board) -> Command<Board> {
+            self.log.push(message.clone());
+            match message {
+                Board::Label(from, to) => {
+                    let label = self.labels.remove(from);
+                    self.labels.insert(to, label);
+                }
+                Board::Card(from_col, from_pos, to_col, to_pos) => {
+                    let card = self.cards[from_col].remove(from_pos);
+                    let to_pos = to_pos.min(self.cards[to_col].len());
+                    self.cards[to_col].insert(to_pos, card);
+                }
+                _ => {}
+            }
+            Command::none()
+        }
+
+        fn view(&self, theme: &Theme) -> Box<dyn Widget<Board>> {
+            let mut strip = ReorderableList::new(Board::Label)
+                .axis(ReorderAxis::Horizontal)
+                .grab(ReorderGrab::LongPress)
+                .gap(8.0);
+            for &label in &self.labels {
+                strip = strip.keyed_row(
+                    label as u64,
+                    Container::new()
+                        .width(96.0)
+                        .padding(12.0)
+                        .color(theme.surface)
+                        .child(text(format!("label {label}")).size(14.0)),
+                );
+            }
+            let strip = SingleChildScrollView::new()
+                .axis(Axis::Horizontal)
+                .width(W)
+                .child(
+                    Container::new()
+                        .padding_each(12.0, 24.0, 0.0, 24.0)
+                        .child(strip),
+                );
+            let mut board = Kanban::new(Board::Card)
+                .on_add(Board::Add)
+                .scrollable_columns();
+            for (col, title) in ["To do", "Doing", "Done"].iter().enumerate() {
+                let cards: Vec<CellFn<Board>> = self.cards[col]
+                    .iter()
+                    .enumerate()
+                    .map(|(pos, label)| {
+                        let label = label.clone();
+                        Box::new(move || {
+                            Box::new(
+                                Flex::row()
+                                    .child(text(label.clone()).size(14.0))
+                                    .child(Flex::row().flex(1.0))
+                                    .child(Button::new("x").on_press(Board::Delete(col, pos))),
+                            ) as Box<dyn Widget<Board>>
+                        }) as CellFn<Board>
+                    })
+                    .collect();
+                board = board.column_widgets(*title, cards);
+            }
+            let board = SingleChildScrollView::new()
+                .axis(Axis::Horizontal)
+                .width(W)
+                .flex(1.0)
+                .child(Container::new().padding(24.0).child(board));
+            Box::new(
+                Container::new().width(W).height(H).child(
+                    column![
+                        Container::<Board>::new().width(W).height(56.0),
+                        strip,
+                        board
+                    ]
+                    .flex(1.0),
+                ),
+            )
+        }
+    }
+
+    /// Twenty 60-px rows that lift on a hold, in a list taller than the window.
+    #[derive(Default)]
+    struct ListApp {
+        log: Vec<Board>,
+    }
+
+    impl Application for ListApp {
+        type Message = Board;
+
+        fn update(&mut self, message: Board) -> Command<Board> {
+            self.log.push(message);
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Board>> {
+            let mut list = ReorderableList::new(Board::Row)
+                .grab(ReorderGrab::LongPress)
+                .width(W);
+            for row in 0..20u64 {
+                list = list.keyed_row(
+                    row,
+                    Container::new()
+                        .height(60.0)
+                        .child(text(format!("row {row}")).size(14.0)),
+                );
+            }
+            Box::new(
+                SingleChildScrollView::new()
+                    .axis(Axis::Vertical)
+                    .width(W)
+                    .height(H)
+                    .child(list),
+            )
+        }
+    }
+
+    fn driver<A: Application>(app: A) -> Driver<A> {
+        let mut driver = Driver::new(app, W, H);
+        driver.run(0.2);
+        driver
+    }
+
+    /// A finger held still at `at` until the long press has lifted what is under it.
+    fn hold<A: Application>(driver: &mut Driver<A>, at: Point) {
+        driver.press(at);
+        driver.run(0.5);
+        assert!(
+            driver.hold_deadline(),
+            "the hold lifts what is under {at:?}"
+        );
+        driver.run(0.05);
+    }
+
+    /// The finger through `points`, a tenth of a second apart, as the phone's were.
+    fn carry<A: Application>(driver: &mut Driver<A>, points: impl IntoIterator<Item = Point>) {
+        for at in points {
+            driver.move_to(at);
+            driver.run(0.1);
+        }
+    }
+
+    /// Frame by frame for `seconds` with the finger still at `finger`: the carried box keeps
+    /// the place it had under the finger — `offset` from it and `size` — and the region
+    /// `region` keeps scrolling the way it started. Hands back that region's last offset.
+    fn held_under_the_finger<A: Application>(
+        driver: &mut Driver<A>,
+        seconds: f32,
+        finger: Point,
+        offset: (f32, f32),
+        size: (f32, f32),
+        region: usize,
+    ) -> (f32, f32) {
+        let mut last = driver.offsets()[region].1;
+        for frame in 0..(seconds * 60.0) as usize {
+            driver.run(1.0 / 60.0);
+            let now = driver.offsets()[region].1;
+            let carried: Rect = driver.carried().unwrap_or_else(|| {
+                panic!("frame {frame}: nothing is carried any more, the list at {now:?}")
+            });
+            assert!(
+                (carried.x - finger.x - offset.0).abs() < 0.5
+                    && (carried.y - finger.y - offset.1).abs() < 0.5
+                    && (carried.width - size.0).abs() < 0.5
+                    && (carried.height - size.1).abs() < 0.5,
+                "frame {frame}: carried at {carried:?}, the finger at {finger:?}, the list at {now:?}"
+            );
+            assert!(
+                now.0 >= last.0 - 0.01 && now.1 >= last.1 - 0.01,
+                "frame {frame}: the list went back, {last:?} then {now:?}"
+            );
+            // And it is drawn there: the ghost the finger sees is the box being carried.
+            let ghost = driver
+                .ghost()
+                .unwrap_or_else(|| panic!("frame {frame}: no ghost is drawn"));
+            assert!(
+                (ghost.x - carried.x).abs() < 1.0
+                    && (ghost.y - carried.y).abs() < 1.0
+                    && (ghost.width - carried.width).abs() < 2.0,
+                "frame {frame}: the ghost is drawn at {ghost:?}, what is carried is at {carried:?}"
+            );
+            last = now;
+        }
+        last
+    }
+
+    /// **The reproduction.** A label held and carried past the strip's right edge stays under
+    /// the finger for as long as it is held there, whole, while the strip scrolls on to its
+    /// end; and the release drops it where the finger is, past the last label.
+    #[test]
+    fn a_label_carried_past_the_strips_edge_stays_under_the_finger() {
+        let mut driver = driver(BoardApp::default());
+        hold(&mut driver, Point::new(155.0, STRIP_Y));
+        let lifted = driver.carried().expect("the label is carried");
+        assert_eq!(
+            lifted,
+            Rect::new(128.0, 68.0, 96.0, 41.0),
+            "Feature, lifted"
+        );
+        let finger = Point::new(370.0, STRIP_Y);
+        carry(
+            &mut driver,
+            [200.0, 260.0, 320.0, finger.x].map(|x| Point::new(x, STRIP_Y)),
+        );
+        let strip = held_under_the_finger(
+            &mut driver,
+            1.5,
+            finger,
+            (lifted.x - 155.0, lifted.y - STRIP_Y),
+            (96.0, 41.0),
+            0,
+        );
+        assert!(
+            (strip.0 - (STRIP_CONTENT - W)).abs() < 1.0,
+            "the strip scrolled on to its end: {strip:?}"
+        );
+        driver.release(finger);
+        driver.run(0.2);
+        assert_eq!(
+            driver.app().log,
+            [Board::Label(1, 9)],
+            "past the last label, it goes last; no card moves"
+        );
+    }
+
+    /// **The phone's own gesture**, where the label never reaches an edge: held on Feature,
+    /// carried along x as the injected moves went, let go over Design's right half.
+    #[test]
+    fn a_hold_on_a_label_then_a_carry_along_x_reorders_the_labels_and_moves_no_card() {
+        let mut driver = driver(BoardApp::default());
+        hold(&mut driver, Point::new(155.0, STRIP_Y));
+        carry(
+            &mut driver,
+            [167.0, 189.0, 218.0, 247.0, 276.0, 306.0].map(|x| Point::new(x, STRIP_Y)),
+        );
+        driver.run(0.4);
+        assert!(driver.carried().is_some(), "still carried");
+        driver.release(Point::new(306.0, STRIP_Y));
+        driver.run(0.2);
+        assert_eq!(driver.app().log, [Board::Label(1, 2)]);
+        assert_eq!(driver.app().labels[..4], [0, 2, 1, 3]);
+        assert_eq!(
+            driver.app().cards,
+            BoardApp::default().cards,
+            "no card moved"
+        );
+        assert_eq!(driver.offsets()[0].1, (0.0, 0.0), "nothing scrolled");
+        assert_eq!(driver.offsets()[1].1, (0.0, 0.0), "the board neither");
+    }
+
+    /// **A card still crosses the board**: Design API, pressed and carried onto the upper
+    /// half of Build widget, goes to the top of Doing; no label moves.
+    #[test]
+    fn a_card_carried_across_the_board_moves_the_card() {
+        let mut driver = driver(BoardApp::default());
+        driver.press(Point::new(100.0, 190.0));
+        carry(
+            &mut driver,
+            [130.0, 180.0, 240.0, 300.0].map(|x| Point::new(x, 185.0)),
+        );
+        driver.release(Point::new(300.0, 185.0));
+        driver.run(0.2);
+        assert_eq!(driver.app().log, [Board::Card(0, 0, 1, 0)]);
+        assert_eq!(driver.app().labels, (0..10).collect::<Vec<_>>());
+    }
+
+    /// **The board has the same edge.** A card carried to the board's right edge scrolls
+    /// the board and stays under the finger, although the column it came from scrolls away.
+    #[test]
+    fn a_card_carried_to_the_boards_edge_stays_under_the_finger() {
+        let mut driver = driver(BoardApp::default());
+        let press = Point::new(100.0, 190.0);
+        driver.press(press);
+        let finger = Point::new(385.0, 190.0);
+        carry(
+            &mut driver,
+            [130.0, 200.0, 280.0, 340.0, finger.x].map(|x| Point::new(x, 190.0)),
+        );
+        let card = driver.carried().expect("the card is carried");
+        let board = held_under_the_finger(
+            &mut driver,
+            1.0,
+            finger,
+            (card.x - finger.x, card.y - finger.y),
+            (card.width, card.height),
+            1,
+        );
+        assert!(
+            board.0 > 250.0,
+            "the board scrolled past the column the card came from: {board:?}"
+        );
+    }
+
+    /// **A list that runs down has the same edge**: row 0 held and carried to the bottom
+    /// stays under the finger after its own place has scrolled off the top, and lands low in
+    /// the list.
+    #[test]
+    fn a_row_carried_past_the_bottom_of_a_long_list_stays_under_the_finger() {
+        let mut driver = driver(ListApp::default());
+        hold(&mut driver, Point::new(100.0, 30.0));
+        let lifted = driver.carried().expect("the row is carried");
+        let finger = Point::new(100.0, 840.0);
+        carry(
+            &mut driver,
+            [200.0, 400.0, 600.0, 800.0, finger.y].map(|y| Point::new(100.0, y)),
+        );
+        let list = held_under_the_finger(
+            &mut driver,
+            1.5,
+            finger,
+            (lifted.x - 100.0, lifted.y - 30.0),
+            (lifted.width, lifted.height),
+            0,
+        );
+        assert!(
+            list.1 > 200.0,
+            "the list scrolled past the row's own place: {list:?}"
+        );
+        driver.release(finger);
+        driver.run(0.2);
+        assert!(
+            matches!(driver.app().log[..], [Board::Row(0, to)] if to > 15),
+            "row 0 lands near the end: {:?}",
+            driver.app().log
         );
     }
 }

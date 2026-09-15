@@ -37,6 +37,19 @@
 //! subtraction for it. This framework starts where the reference ended up:
 //! `on_reorder(from, to)` gives **the index the row ends up at**, and
 //! [`settled_index`] is the one line that makes it so.
+//!
+//! ## Along either axis
+//!
+//! A list of rows reads down; a strip of cards, a row of chips, a tab bar reads across.
+//! [`ReorderableList::axis`] turns the whole list: the rows are laid out along x, the grip
+//! moves from the trailing edge to the bottom, and the gesture is the same one transposed —
+//! the gap, the insertion line, the drop past either end, the list scrolling at the left
+//! and right edges. The ghost stays in its lane, as the reference keeps it: a horizontal list
+//! has nowhere else to put a row.
+//!
+//! Under a right-to-left layout a horizontal list runs from the right, as every row of
+//! children does here: its first row is the rightmost, *after* a row is its left, and past
+//! the end is past the left edge. Nothing is asked of the application for that.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -44,11 +57,12 @@ use std::rc::Rc;
 use frus_core::{Color, Rect, Scene};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
+use crate::expanded::{flex_item, FlexFit};
 use crate::icons::{IconData, Icons};
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::{ReorderAxis, Widget};
-use crate::{Container, Expanded, Icon, ThemeBuilder};
+use crate::{Container, Icon, ThemeBuilder};
 
 /// The width of the grip's box, and so the size of its tap target.
 const HANDLE_WIDTH: f32 = 40.0;
@@ -113,6 +127,8 @@ type HandleFn<Msg> = Rc<dyn Fn(&Theme) -> Box<dyn Widget<Msg>>>;
 /// after `.row()` is a bug no compiler catches.
 struct Spec<Msg> {
     grab: ReorderGrab,
+    /// The way the rows run: down, or across.
+    axis: ReorderAxis,
     enabled: bool,
     on_reorder: Option<ReorderFn<Msg>>,
     handle: Option<HandleFn<Msg>>,
@@ -173,10 +189,16 @@ struct ReorderRow<Msg> {
 
 impl<Msg: Clone + 'static> Widget<Msg> for ReorderRow<Msg> {
     fn style(&self) -> Style {
+        // The row and its grip sit side by side *across* the list: beside each other in a
+        // list that runs down, one above the other in a list that runs across.
+        let direction = match self.spec.borrow().axis {
+            ReorderAxis::Vertical => FlexDirection::Row,
+            ReorderAxis::Horizontal => FlexDirection::Column,
+        };
         Style {
             width: Dimension::Auto,
             height: Dimension::Auto,
-            flex_direction: FlexDirection::Row,
+            flex_direction: direction,
             align: Align::Center,
             ..Default::default()
         }
@@ -209,7 +231,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for ReorderRow<Msg> {
     }
 
     fn reorder_axis(&self) -> ReorderAxis {
-        ReorderAxis::Vertical
+        self.spec.borrow().axis
+    }
+
+    fn reorder_inserts(&self) -> bool {
+        true
     }
 
     fn reorder_draggable(&self) -> bool {
@@ -242,9 +268,15 @@ impl<Msg: Clone + 'static> Widget<Msg> for ReorderHandle<Msg> {
                 ..Default::default()
             };
         }
+        // Its depth is taken across the list: a gutter beside a row that runs down, a strip
+        // under one that runs across.
+        let (width, height) = match spec.axis {
+            ReorderAxis::Vertical => (Dimension::Length(spec.handle_width), Dimension::Auto),
+            ReorderAxis::Horizontal => (Dimension::Auto, Dimension::Length(spec.handle_width)),
+        };
         Style {
-            width: Dimension::Length(spec.handle_width),
-            height: Dimension::Auto,
+            width,
+            height,
             // A grip that shrinks is a grip that misses: the row beside it is what gives
             // way when the line is tight.
             flex_shrink: 0.0,
@@ -277,13 +309,76 @@ impl<Msg: Clone + 'static> Widget<Msg> for ReorderHandle<Msg> {
     }
 
     fn reorder_axis(&self) -> ReorderAxis {
-        ReorderAxis::Vertical
+        self.spec.borrow().axis
+    }
+
+    fn reorder_inserts(&self) -> bool {
+        true
     }
 
     fn reorder_droppable(&self) -> bool {
         false
     }
 }
+
+/// The caller's row, in the room its grip leaves.
+///
+/// Down a list it is exactly a [`crate::Expanded`]: a basis of zero, and all the width the
+/// grip did not take. Across one, that basis is wrong. The row and its grip are stacked in a
+/// column nobody gave a height to, so a row that starts at nothing grows into nothing, and a
+/// strip of chips lays out as a line of grips. There the row starts at its own height and
+/// grows only into a height the list was given. The axis is read at layout time, like the
+/// rest of the spec, so an `.axis()` after the rows still reaches them.
+struct ReorderContent<Msg> {
+    inner: Box<dyn Widget<Msg>>,
+    spec: Shared<Msg>,
+}
+
+impl<Msg> ReorderContent<Msg> {
+    /// The one thing this wrapper changes: the flex item the row is, along the axis.
+    fn restyle(&self, base: Style) -> Style {
+        let expanded = flex_item(base, 1.0, FlexFit::Tight);
+        match self.spec.borrow().axis {
+            ReorderAxis::Vertical => expanded,
+            ReorderAxis::Horizontal => Style {
+                flex_basis: Dimension::Auto,
+                ..expanded
+            },
+        }
+    }
+}
+
+crate::transparent::forward_transparent!(ReorderContent {
+    /// Forwarded: the row keeps the identity the application gave it.
+    fn key(&self) -> Option<u64> {
+        self.inner.key()
+    }
+
+    /// Forwarded: a box is not a place.
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        self.inner.positioned()
+    }
+
+    /// Forwarded too: a box is not a palette.
+    fn theme_override(
+        &self,
+        inherited: &crate::theme::Theme,
+    ) -> Option<Box<crate::theme::Theme>> {
+        self.inner.theme_override(inherited)
+    }
+
+    /// Forwarded: a wrapper is its child, and a scoped surface is the child's to impose.
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        self.inner.media_override(inherited)
+    }
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        self.inner.scaffold_override()
+    }
+    /// Forwarded: a row that is a form is still that form.
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
+    }
+});
 
 /// A list whose rows can be **dragged into a new order**.
 ///
@@ -317,6 +412,7 @@ impl<Msg: Clone + 'static> ReorderableList<Msg> {
         Self {
             spec: Rc::new(RefCell::new(Spec {
                 grab: ReorderGrab::default(),
+                axis: ReorderAxis::Vertical,
                 enabled: true,
                 on_reorder: Some(Rc::new(on_reorder)),
                 handle: None,
@@ -366,7 +462,13 @@ impl<Msg: Clone + 'static> ReorderableList<Msg> {
             index,
             key,
             spec,
-            children: vec![Box::new(Expanded::new(row)), Box::new(handle)],
+            children: vec![
+                Box::new(ReorderContent {
+                    inner: row,
+                    spec: Rc::clone(&self.spec),
+                }),
+                Box::new(handle),
+            ],
         }));
         self
     }
@@ -375,6 +477,15 @@ impl<Msg: Clone + 'static> ReorderableList<Msg> {
     #[must_use]
     pub fn grab(self, grab: ReorderGrab) -> Self {
         self.spec.borrow_mut().grab = grab;
+        self
+    }
+
+    /// The way the rows run, [`ReorderAxis::Vertical`] by default. A horizontal list lays its
+    /// rows out along x, puts each grip under its row, and is reordered across: see the
+    /// module's notes for what that means under a right-to-left layout.
+    #[must_use]
+    pub fn axis(self, axis: ReorderAxis) -> Self {
+        self.spec.borrow_mut().axis = axis;
         self
     }
 
@@ -417,8 +528,9 @@ impl<Msg: Clone + 'static> ReorderableList<Msg> {
         self
     }
 
-    /// The width of the grip's box — its tap target, which is not the size of the glyph
-    /// inside it.
+    /// The depth of the grip's box — its tap target, which is not the size of the glyph
+    /// inside it. A width beside the rows of a vertical list, a height under the rows of a
+    /// horizontal one.
     #[must_use]
     pub fn handle_width(self, width: f32) -> Self {
         self.spec.borrow_mut().handle_width = width;
@@ -491,7 +603,10 @@ impl<Msg: Clone + 'static> Widget<Msg> for ReorderableList<Msg> {
             width: self.width,
             height: self.height,
             flex_grow: self.flex_grow,
-            flex_direction: FlexDirection::Column,
+            flex_direction: match self.spec.borrow().axis {
+                ReorderAxis::Vertical => FlexDirection::Column,
+                ReorderAxis::Horizontal => FlexDirection::Row,
+            },
             gap: self.gap,
             ..Default::default()
         }
@@ -709,6 +824,320 @@ mod tests {
             .collect();
         for i in 0..3 {
             assert!(indices.contains(&(i, true)) && indices.contains(&(i, false)));
+        }
+    }
+
+    /// A list that runs across: three rows 80 px wide, gripped, in a strip 300 px wide.
+    fn strip(grab: ReorderGrab) -> ReorderableList<Msg> {
+        ReorderableList::new(Msg::Moved)
+            .grab(grab)
+            .axis(ReorderAxis::Horizontal)
+            .width(300.0)
+            .keyed_row(1, Container::new().width(80.0).child(text("one")))
+            .keyed_row(2, Container::new().width(80.0).child(text("two")))
+            .keyed_row(3, Container::new().width(80.0).child(text("three")))
+    }
+
+    /// **Rows along x, and each grip under its row.** The grip keeps its 40 px of depth —
+    /// a height now — and its middle is still inside the row it moves, which is how the
+    /// shell finds the row from the grip on either axis.
+    #[test]
+    fn a_horizontal_list_lays_its_rows_along_x_with_the_grip_underneath() {
+        let list = strip(ReorderGrab::Handle);
+        let nodes = inspected(&list);
+        let rows: Vec<&InspectorNode> = nodes.iter().filter(|n| n.name == "ReorderRow").collect();
+        let grips: Vec<&InspectorNode> =
+            nodes.iter().filter(|n| n.name == "ReorderHandle").collect();
+        assert_eq!((rows.len(), grips.len()), (3, 3));
+        for pair in rows.windows(2) {
+            assert!(
+                (pair[0].rect.y - pair[1].rect.y).abs() < 0.5
+                    && pair[1].rect.x >= pair[0].rect.x + pair[0].rect.width - 0.5,
+                "side by side, in order: {:?} then {:?}",
+                pair[0].rect,
+                pair[1].rect
+            );
+        }
+        for (row, grip) in rows.iter().zip(&grips) {
+            assert!(
+                (grip.rect.height - HANDLE_WIDTH).abs() < 0.5,
+                "the grip keeps its 40 px, as a height: {:?}",
+                grip.rect
+            );
+            assert!(
+                (grip.rect.y + grip.rect.height - (row.rect.y + row.rect.height)).abs() < 0.5,
+                "at the row's bottom edge: {:?} in {:?}",
+                grip.rect,
+                row.rect
+            );
+            assert!(
+                row.rect.height > HANDLE_WIDTH + 8.0,
+                "and the row's content keeps its room above it: {:?}",
+                row.rect
+            );
+            let middle = frus_core::Point::new(
+                grip.rect.x + grip.rect.width * 0.5,
+                grip.rect.y + grip.rect.height * 0.5,
+            );
+            assert!(
+                row.rect.contains(middle),
+                "{middle:?} inside {:?}",
+                row.rect
+            );
+        }
+    }
+
+    /// **A row across a strip keeps its own height.** Down a list the row takes the width
+    /// its grip leaves, from nothing; stacked over the grip in a strip with no height of its
+    /// own, a row that started at nothing stayed there and the strip was a line of grips. So
+    /// a held strip is as tall as its content, and a strip given a height hands what the
+    /// grip leaves to its rows.
+    #[test]
+    fn a_row_across_a_strip_keeps_its_height() {
+        let content = |list: &ReorderableList<Msg>| -> Vec<Rect> {
+            inspected(list)
+                .iter()
+                // The rows' own boxes; a held grip leaves an empty one of nothing.
+                .filter(|n| n.name == "Container" && n.rect.width > 0.0)
+                .map(|n| n.rect)
+                .take(3)
+                .collect()
+        };
+        let held = content(&strip(ReorderGrab::LongPress));
+        assert_eq!(held.len(), 3);
+        assert!(
+            held.iter().all(|r| r.height > 8.0),
+            "a held strip's rows are not flat: {held:?}"
+        );
+        let tall = content(&strip(ReorderGrab::Handle).height(120.0));
+        assert!(
+            tall.iter()
+                .all(|r| (r.height - (120.0 - HANDLE_WIDTH)).abs() < 0.5),
+            "a strip 120 tall leaves its rows 80 above the grip: {tall:?}"
+        );
+    }
+
+    /// Every row and every grip of a horizontal list says it runs across and is inserted
+    /// between its neighbours — the two answers the shell turns the gesture by. A list that
+    /// runs down says the same of itself.
+    #[test]
+    fn a_horizontal_list_answers_across_and_inserts() {
+        for grab in [ReorderGrab::Handle, ReorderGrab::LongPress] {
+            let across = strip(grab);
+            let answers: Vec<(ReorderAxis, bool)> = nodes_of(&across)
+                .into_iter()
+                .filter(|w| w.reorder_index().is_some())
+                .map(|w| (w.reorder_axis(), w.reorder_inserts()))
+                .collect();
+            assert!(!answers.is_empty());
+            assert!(
+                answers
+                    .iter()
+                    .all(|a| *a == (ReorderAxis::Horizontal, true)),
+                "{answers:?}"
+            );
+        }
+        let down = list(ReorderGrab::Handle);
+        assert!(nodes_of(&down)
+            .into_iter()
+            .filter(|w| w.reorder_index().is_some())
+            .all(|w| w.reorder_axis() == ReorderAxis::Vertical));
+        // And `.axis()` after the rows still reaches them.
+        let late = ReorderableList::new(Msg::Moved)
+            .keyed_row(1, Container::new().width(80.0).child(text("one")))
+            .axis(ReorderAxis::Horizontal);
+        assert!(nodes_of(&late)
+            .into_iter()
+            .filter(|w| w.reorder_index().is_some())
+            .all(|w| w.reorder_axis() == ReorderAxis::Horizontal));
+    }
+
+    /// **The whole route of a horizontal drop, on a real built frame**, asked in the order
+    /// the shell asks it — grab the grip, find the row it moves, find nothing under a
+    /// pointer past the end, fall back to the nearest slot along x, take the half, route the
+    /// message — left to right and right to left.
+    ///
+    /// Right to left the strip is mirrored: its first row is on the right, past its end is
+    /// past its **left** edge, and after a row is its left half. The same finger movement
+    /// in reading terms has to give the same message.
+    #[test]
+    fn a_horizontal_drop_routes_the_same_in_either_reading_direction() {
+        for rtl in [false, true] {
+            let theme = if rtl {
+                Theme::dark().rtl()
+            } else {
+                Theme::dark()
+            };
+            let list = strip(ReorderGrab::Handle);
+            let ui = crate::build_ui(&list, Size::new(300.0, 120.0), &Runtime::default(), &theme);
+            let find = |id| crate::find_widget(&list, id);
+            let grip_of = |index| {
+                ui.reorderables()
+                    .iter()
+                    .find(|(id, _)| {
+                        find(*id).is_some_and(|w| {
+                            w.reorder_index() == Some(index) && !w.reorder_droppable()
+                        })
+                    })
+                    .copied()
+                    .expect("a grip")
+            };
+            let (grip0, grip0_box) = grip_of(0);
+            let middle = frus_core::Point::new(
+                grip0_box.x + grip0_box.width * 0.5,
+                grip0_box.y + grip0_box.height * 0.5,
+            );
+            let row0 = ui
+                .reorderables_at(middle)
+                .find(|id| {
+                    find(*id).is_some_and(|w| w.reorder_droppable() && w.reorder_index() == Some(0))
+                })
+                .expect("the grip sits inside its row");
+
+            let slots = crate::reorder_siblings(&ui, &list, row0);
+            assert_eq!(
+                slots.len(),
+                3,
+                "rtl={rtl}: the row's list is the three rows"
+            );
+            let boxes: Vec<Rect> = slots.iter().map(|(_, r)| *r).collect();
+            assert_eq!(
+                boxes[0].x > boxes[2].x,
+                rtl,
+                "rtl={rtl}: the first row is on the reading side: {boxes:?}"
+            );
+
+            // Past the end, in reading terms: beyond the last row's far edge.
+            let last = boxes[2];
+            let past = frus_core::Point::new(
+                if rtl {
+                    last.x - 24.0
+                } else {
+                    last.x + last.width + 24.0
+                },
+                last.y + last.height * 0.5,
+            );
+            assert!(
+                (0.0..300.0).contains(&past.x),
+                "rtl={rtl}: still in the window: {past:?}"
+            );
+            assert!(
+                !ui.reorderables_at(past)
+                    .any(|id| find(id).is_some_and(|w| w.reorder_droppable())),
+                "rtl={rtl}: nothing to drop on past the end"
+            );
+            let nearest = crate::nearest_reorder_slot(past, &boxes, ReorderAxis::Horizontal)
+                .expect("the strip's own nearest slot");
+            assert_eq!(nearest, 2, "rtl={rtl}: the last row");
+            let after = crate::reorder_drop_after(past, boxes[2], ReorderAxis::Horizontal, rtl);
+            assert!(after, "rtl={rtl}: past the end is after the last row");
+            let grip0 = find(grip0).expect("the grip");
+            assert_eq!(
+                grip0.on_reorder(nearest + usize::from(after)),
+                Some(Msg::Moved(0, 2)),
+                "rtl={rtl}: the first row ends up last"
+            );
+
+            // And the last row carried onto the first row's leading half lands first.
+            let first = boxes[0];
+            let leading = frus_core::Point::new(
+                if rtl {
+                    first.x + first.width * 0.8
+                } else {
+                    first.x + first.width * 0.2
+                },
+                first.y + first.height * 0.3,
+            );
+            let (grip2, _) = grip_of(2);
+            let after = crate::reorder_drop_after(leading, first, ReorderAxis::Horizontal, rtl);
+            assert!(!after, "rtl={rtl}: the leading half is before the row");
+            assert_eq!(
+                find(grip2).and_then(|w| w.on_reorder(usize::from(after))),
+                Some(Msg::Moved(2, 0)),
+                "rtl={rtl}: the last row ends up first"
+            );
+        }
+    }
+
+    /// **What makes room on a real built strip**, asked the way the shell asks it: the first
+    /// row lifted with everything it paints, the rest of the strip movable. With no line,
+    /// every row after it — its label, its grip, whatever it draws — moves back along x by
+    /// the lifted row's width and not at all along y; with the line on the third row's
+    /// leading edge, the second still closes the gap and the third, at the line, stays.
+    #[test]
+    fn a_built_strip_makes_room_along_x() {
+        let list = strip(ReorderGrab::Handle);
+        let ui = crate::build_ui(
+            &list,
+            Size::new(300.0, 120.0),
+            &Runtime::default(),
+            &Theme::dark(),
+        );
+        let mut rows: Vec<(crate::WidgetId, Rect)> = ui
+            .reorderables()
+            .iter()
+            .filter(|(id, _)| crate::find_widget(&list, *id).is_some_and(|w| w.reorder_droppable()))
+            .copied()
+            .collect();
+        rows.sort_by(|a, b| a.1.x.total_cmp(&b.1.x));
+        assert_eq!(rows.len(), 3, "three rows: {rows:?}");
+        let (row0, src) = rows[0];
+        let lifted: std::collections::HashSet<u64> = crate::find_widget(&list, row0)
+            .map(|w| {
+                crate::subtree_ids(w, row0)
+                    .iter()
+                    .map(|i| i.as_u64())
+                    .collect()
+            })
+            .expect("the first row");
+        let movable = crate::reorderable_owners(&ui, &list);
+        let prims = ui.scene().primitives();
+        let kept: Vec<&frus_core::Primitive> = prims
+            .iter()
+            .filter(|p| !lifted.contains(&p.owner()))
+            .collect();
+        let centred_in = |b: Rect, r: Rect| {
+            r.contains(frus_core::Point::new(
+                b.x + b.width * 0.5,
+                b.y + b.height * 0.5,
+            ))
+        };
+
+        let line = Rect::new(rows[2].1.x - 1.5, rows[2].1.y, 3.0, rows[2].1.height);
+        for (line, shifts) in [
+            (None, [-src.width, -src.width]),
+            (Some(line), [-src.width, 0.0]),
+        ] {
+            let out = crate::reflow_reorder_cards(
+                prims,
+                src,
+                line,
+                &lifted,
+                &movable,
+                ReorderAxis::Horizontal,
+            );
+            assert_eq!(out.len(), kept.len(), "only the lifted row is taken out");
+            let mut moved = [0, 0];
+            for (before, after) in kept.iter().zip(&out) {
+                let (b, a) = (before.bounds(), after.bounds());
+                assert_eq!(a.y, b.y, "nothing moves across the strip: {b:?}");
+                let row = (1..3).find(|&i| centred_in(b, rows[i].1));
+                match row {
+                    Some(i) if movable.contains(&before.owner()) => {
+                        assert!(
+                            (a.x - (b.x + shifts[i - 1])).abs() < 0.01,
+                            "line={line:?}: row {i}'s {b:?} shifts by {} and is at {a:?}",
+                            shifts[i - 1]
+                        );
+                        moved[i - 1] += 1;
+                    }
+                    _ => assert_eq!(a.x, b.x, "not part of a row: stays"),
+                }
+            }
+            assert!(
+                moved.iter().all(|&n| n > 0),
+                "both rows paint something: {moved:?}"
+            );
         }
     }
 

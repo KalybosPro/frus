@@ -422,7 +422,8 @@ fn a_row_carried_past_the_last_one_lands_at_the_end() {
     );
 
     let boxes: Vec<frus_widgets::Rect> = slots.iter().map(|(_, rect)| *rect).collect();
-    let nearest = frus_widgets::nearest_reorder_slot(below, &boxes);
+    let nearest =
+        frus_widgets::nearest_reorder_slot(below, &boxes, frus_widgets::ReorderAxis::Vertical);
     assert_eq!(nearest, Some(2), "the nearest slot is the last row");
     // After it, as the lower half of a row is: raw index 3, from the first row.
     let message = find_widget(tree.as_ref(), first).and_then(|w| w.on_reorder(3));
@@ -1537,6 +1538,81 @@ fn kanban_move_relocates_a_card() {
     );
 }
 
+/// **The board's label strip runs across, and what it routes reorders the labels**
+/// (milestone 527).
+///
+/// The strip is what a horizontal `ReorderableList` is tried on under a finger, so it has to
+/// be one on a phone's page: its rows side by side along x, not flat, running past the
+/// window's right edge so that it scrolls — and the message its first row routes for a drop
+/// after the third has to move that label in the model.
+#[test]
+fn the_board_label_strip_runs_across_and_reorders() {
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::Push(Route::Board));
+    // Past the route transition, so the board is the one screen on show.
+    for _ in 0..40 {
+        Application::tick(&mut app, 0.05);
+    }
+    let theme = Theme::dark();
+    let size = Size::new(424.0, 918.0);
+    let tree = root_for(&app, &theme, size);
+    let (ui, nodes) = MediaQuery::new(size)
+        .scope(|| build_ui_inspected(tree.as_ref(), size, &Runtime::default(), &theme));
+    let rows: Vec<frus_widgets::Rect> = nodes
+        .iter()
+        .filter(|n| n.name == "ReorderRow")
+        .map(|n| n.rect)
+        .collect();
+    assert_eq!(
+        rows.len(),
+        BOARD_LABELS.len(),
+        "one row per label: {rows:?}"
+    );
+    for pair in rows.windows(2) {
+        assert!(
+            (pair[0].y - pair[1].y).abs() < 0.5 && pair[1].x >= pair[0].x + pair[0].width - 0.5,
+            "side by side along x, in order: {:?} then {:?}",
+            pair[0],
+            pair[1]
+        );
+    }
+    assert!(
+        rows.iter().all(|r| r.height > 20.0 && r.x >= 0.0),
+        "the labels are neither flat nor off the page's left: {rows:?}"
+    );
+    let last = rows[rows.len() - 1];
+    assert!(
+        last.x + last.width > size.width,
+        "the strip runs past the window, so it scrolls: {last:?}"
+    );
+
+    // The first label's own row, as the shell finds it: across, droppable, index 0.
+    let first = ui
+        .reorderables()
+        .iter()
+        .map(|(id, _)| *id)
+        .find(|id| {
+            find_widget(tree.as_ref(), *id).is_some_and(|w| {
+                w.reorder_droppable()
+                    && w.reorder_axis() == frus_widgets::ReorderAxis::Horizontal
+                    && w.reorder_index() == Some(0)
+            })
+        })
+        .expect("the first label's row");
+    // After the third label is raw index 3, which is where the first one ends up: 2.
+    let Some(message) = find_widget(tree.as_ref(), first).and_then(|w| w.on_reorder(3)) else {
+        panic!("a drop after the third label moves the first");
+    };
+    reduce(&mut app, message);
+    assert_eq!(app.board_labels()[..4], [1, 2, 0, 3]);
+    // And back from the end of the strip to its head.
+    reduce(&mut app, Msg::MoveLabel(9, 0));
+    assert_eq!(app.board_labels(), [9, 1, 2, 0, 3, 4, 5, 6, 7, 8]);
+    // An index the strip never emitted asks for nothing.
+    reduce(&mut app, Msg::MoveLabel(0, 10));
+    assert_eq!(app.board_labels()[0], 9);
+}
+
 #[test]
 fn grouped_bars_are_clickable_in_dashboard() {
     // The main chart in **grouped bars** (kind 2) wires up `on_point` (milestone 222): at
@@ -2377,5 +2453,35 @@ fn the_last_frame_of_a_push_still_holds_the_page_it_left() {
     assert!(
         source_at(&view_for(&app, &theme, size)).is_none(),
         "a frame built once the push has settled has nothing there"
+    );
+}
+
+/// **The board's strip, carried through the shell, moves a label and no card** (milestone
+/// 527, seen on a phone: a label carried along the strip moved a card of the board instead).
+///
+/// The demo itself, on the phone's surface, through the shell's own input path and frame:
+/// the Kanban screen pushed and settled, then Feature carried along x to Design's right half
+/// and let go. On a desktop the strip's labels are picked up by the grip under each one.
+#[test]
+fn the_board_strip_carried_through_the_shell_moves_a_label_and_no_card() {
+    use frus_shell::testing::Driver;
+    let mut driver = Driver::new(TodoApp::default(), 392.7, 850.9);
+    driver.run(0.3);
+    driver.update(Msg::Push(Route::Board));
+    driver.run(1.5);
+    // Feature's grip: under its label, 128 to 224 across.
+    driver.press(Point::new(176.0, 129.0));
+    for x in [190.0, 220.0, 250.0, 280.0, 306.0] {
+        driver.move_to(Point::new(x, 129.0));
+        driver.run(0.1);
+    }
+    assert!(driver.carried().is_some(), "Feature is carried");
+    driver.release(Point::new(306.0, 129.0));
+    driver.run(0.2);
+    assert_eq!(driver.app().board_labels()[..4], [0, 2, 1, 3]);
+    assert_eq!(
+        driver.app().kanban_cols(),
+        TodoApp::default().kanban_cols(),
+        "no card moved"
     );
 }

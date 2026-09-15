@@ -15,6 +15,19 @@ any release may break.
 
 ### Fixed
 
+- **A row carried to the edge of its list ran away from the finger** (J527, #44). Seen on a
+  phone on the Kanban screen's strip: a label held and carried was not drawn lifted and the strip
+  scrolled away under it. The carried row's box was asked of the frame every frame, and the frame
+  keeps a reorderable's box only as far as it shows, and not at all once it is scrolled out of
+  sight. Once auto-scroll had pushed the row against the edge its clipped box stood still while
+  the press moved with the content, so the ghost ran ahead of the finger, the scroll sped up, and
+  the reorder lost its row and its preview. A list that runs down and a board's cards had the same
+  edge. A reorder now keeps the row it carries and that row's box from the first frame it is
+  carried in, and moves the box with the content as it already moved the press; the ghost, the
+  auto-scroll, the preview and the release's nearest slot read it. The shell also gains a hidden
+  windowless test driver (`testing` feature). Research moving to Doing in the same report was not
+  reproduced. Seen on a phone after the fix: a label carried to the strip's edge stays under the
+  finger while the strip scrolls, and lands where it is released.
 - **A back gesture over a row of the page below lifted the row instead** (J531). Seen on a
   phone: a swipe from the left edge at the height of a task row did not slide the page, and
   half a second in the row was carried over it in its ghost until the finger lifted. After a
@@ -25,7 +38,7 @@ any release may break.
   lift, and a hold's deadline never takes the pointer from it (`hold_candidates`,
   `drag_after_hold`). And the shell builds the view once more in the frame an application's
   animation stops in, so nothing is hit-tested against a page a transition has already taken
-  away (`frame_needs_build`). Not yet seen on a phone.
+  away (`frame_needs_build`). Seen on a phone: the gesture that failed now slides the page.
 - **Shadows the reference draws, drawn** (J530). A button held one height whatever the pointer
   did. As in the reference, an elevated button now rests at 1, rises to 3 under a pointer and is
   back at 1 pressed or focused, and a filled, tonal or danger button rises from flat to 1 under a
@@ -212,6 +225,9 @@ any release may break.
   A page below the top keeps its scroll offsets while it is out of the tree. A key on a
   page's own root is replaced by the page's key. `Navigator`'s builders now ask
   `Msg: 'static`.
+- **Breaking: `reflow_reorder_cards` and `nearest_reorder_slot` take the axis** (J527, #44).
+  Both were vertical only; each now takes a last `ReorderAxis` argument, and
+  `ReorderAxis::Vertical` gives exactly what they gave before.
 - **Breaking: `AppBar::new()` takes no title, and a bar may have none** (J522). The
   constructor demanded a string, so a bar with nothing between its leading and its actions
   was written `new("")` and laid out and painted an empty text where the title would have
@@ -259,6 +275,18 @@ any release may break.
 
 ### Added
 
+- **A reorderable list whose rows run across** (J527, #44). `ReorderableList::axis` takes
+  `ReorderAxis::Horizontal`: the rows are laid out along x, each grip moves under its row,
+  and the gesture is the vertical one transposed — the neighbours make room along x, the
+  insertion line stands on its end and springs along x, a drop over no row lands on the
+  nearest slot of the strip past either end, and the strip scrolls at its left and right
+  edges. The ghost follows the finger along x only, as the reference keeps a list's row in
+  its lane. Under a right-to-left layout the strip runs from the right and *after* a row is
+  its left half, for the line and the release alike (`reorder_drop_after`). A table's
+  columns, which were already horizontal, are untouched: a horizontal reorderable is
+  inserted between its neighbours only when it answers `Widget::reorder_inserts`, which the
+  list's rows do. Seen on a phone once, where a label carried to the strip's edge ran away from
+  the finger — fixed above.
 - **A README for every crate** (J525, answers #7). All fifteen crates had none, and on
   crates.io a crate's README is its whole page. Each now has one on the same plan — what the
   crate is for, its layer, the two or three things to reach for, one example or the commands
