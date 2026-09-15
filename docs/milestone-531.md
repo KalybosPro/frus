@@ -128,23 +128,21 @@ hash of the whole diff the same before and after:
   event loop, and this is the one line that feeds the function from it; the same goes for the press
   handler passing the drag to `hold_candidates`. The device run is what covers those two lines.
 
-## On the device — not run here; left to the lead
+## On the device
 
-The same steps as above, on a release build of this commit:
+The Huawei STK-L21, a release build of this commit with milestone 527 on top. Home → drawer →
+**Data table →**, then the gesture that failed, injected the same way: pressed at the left edge at
+**y = 1400 px**, at the height of a home task row, moved to x = 540 over six steps and held past
+the long-press deadline. The table slid with the finger, the home page came in behind it at its
+parallax, and no row was drawn over either; moved back and released, the table settled where it
+was. The two lines no test reaches — the frame loop's `app_was_animating` and the press handing
+its drag to `hold_candidates` — are the path that run took.
 
-- Home → drawer → **Data table →**, then the gesture at **y = 1400** with moves that take longer
-  than half a second in all: the table should slide with the finger, with no row drawn over it, and
-  the home page should come in behind. Released half-way, it should settle back or complete as
-  usual.
-- The same at **y = 1000**, which should be unchanged.
-- On home, a hold on a task row with no gesture should still lift it, and a sideways swipe should
-  still dismiss it.
-- After the push has settled, a tap on an empty stretch of the table at the height of a home
-  button should do nothing.
+Not tried on the device: the gesture at y = 1000 (it worked before this milestone), a hold and a
+swipe on a home row with no gesture, and a tap on the table at the height of a home button.
 
 ## What is left
 
-- **A device run**, above.
 - **The page below during a gesture is still in the frame's registries.** Nothing reaches it now,
   since the gesture owns the pointer until the finger lifts, and the frame after the gesture settles
   is rebuilt. A second finger during a gesture is not modelled at all: the shell tracks one pointer.

@@ -26,7 +26,8 @@ any release may break.
   carried in, and moves the box with the content as it already moved the press; the ghost, the
   auto-scroll, the preview and the release's nearest slot read it. The shell also gains a hidden
   windowless test driver (`testing` feature). Research moving to Doing in the same report was not
-  reproduced.
+  reproduced. Seen on a phone after the fix: a label carried to the strip's edge stays under the
+  finger while the strip scrolls, and lands where it is released.
 - **A back gesture over a row of the page below lifted the row instead** (J531). Seen on a
   phone: a swipe from the left edge at the height of a task row did not slide the page, and
   half a second in the row was carried over it in its ghost until the finger lifted. After a
@@ -37,7 +38,7 @@ any release may break.
   lift, and a hold's deadline never takes the pointer from it (`hold_candidates`,
   `drag_after_hold`). And the shell builds the view once more in the frame an application's
   animation stops in, so nothing is hit-tested against a page a transition has already taken
-  away (`frame_needs_build`). Not yet seen on a phone.
+  away (`frame_needs_build`). Seen on a phone: the gesture that failed now slides the page.
 - **Shadows the reference draws, drawn** (J530). A button held one height whatever the pointer
   did. As in the reference, an elevated button now rests at 1, rises to 3 under a pointer and is
   back at 1 pressed or focused, and a filled, tonal or danger button rises from flat to 1 under a

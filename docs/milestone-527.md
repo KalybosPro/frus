@@ -254,30 +254,28 @@ list's golden in `frus-test`, `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps -p
 frus-shell`, and `cargo clippy -p frus-shell --target aarch64-linux-android --no-deps -- -D
 warnings`.
 
-### On the device — left to the lead
+### On the device, after the fix
 
-- The same injected sequence as above, and a label carried **to the strip's right edge and held
-  there**: the ghost stays under the finger while the strip scrolls to its end, and the release
-  drops the label where the finger is.
-- A row of the home list held and carried to the bottom and held; a card carried to the board's
-  right edge and held.
-- **Before trying again, check what the app believes the surface is**: the demo's density
-  setting on the Settings screen, and a log of the logical position of the press on the strip.
-  Research moving to Doing was not reproduced at any scale here; if it happens again, the press
-  position and what the shell finds under it are what would say why.
+The Huawei STK-L21, a release build of this fix with milestone 531 under it, the demo's Kanban
+screen, injected the same way. **Feature** pressed and held 0.9 s was lifted, outlined. Carried
+along x to between Design and Docs, it followed the finger and Design moved left into the gap it
+left, the board below untouched. Carried on to the right edge and held a second, the strip
+scrolled to its end — Ops, Tests, Release — with Feature still under the finger and a gap after
+Release. Released there, Feature was last, and no card of the board had moved.
+
+Not tried on the device: the left edge, a right-to-left locale, a row of the home list or a card
+carried to an edge, and the insertion line looked for on its own.
 
 ## What is left
 
-- **Research moving to Doing, and the board scrolling**, from a gesture on the strip. Not
-  reproduced; see above.
+- **Research moving to Doing, and the board scrolling**, from a gesture on the strip, seen once on
+  the build before this fix and 531's frame fix under it. Not reproduced here at any scale, and
+  not seen again on the device after both fixes.
 - **A row partly clipped when it is lifted** keeps that clipped box as its size: a label half off
   the strip's edge, held there, is carried at the width that showed.
-- **The device run.** No phone was attached. This repository does not believe green tests about a
-  gesture that only exists while something is held — 517 is the reason — so nothing here has been
-  seen under a finger yet: a strip carried to its right and left edges and held, the line and the
-  gap along x, a release past either end, and the same in a right-to-left locale. The demo now
-  has a strip to try it on: ten labels across the top of the Kanban board screen (Menu, then
-  *Kanban board*), wider than a phone and reordered in the model by `MoveLabel`.
+- **The rest of the device run**: the strip's left edge, a release past the start, and a
+  right-to-left locale. The demo's strip is ten labels across the top of the Kanban board screen
+  (Menu, then *Kanban board*), reordered in the model by `MoveLabel`.
 - **A strip that reads against its theme.** The direction the release reads is the theme's. A
   `Row` or a `Column` can run against it with `text_direction`, but only for its own children, and
   a strip's rows are the list's own children, so today the layout and the release always agree. A
