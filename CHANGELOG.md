@@ -15,6 +15,16 @@ any release may break.
 
 ### Fixed
 
+- **A segment a swipe started on stayed grey** (J534). A finger that landed on a button inside
+  a scroll view and then scrolled it — the demo's filters in a horizontal strip — scrolled the
+  strip and selected nothing, but left the button highlighted for good: the release of a
+  gesture that had moved never let go of the press, and a splash waits for as long as its widget
+  is pressed. As in the reference, the press now ends the moment the scroll, a swipe, a sheet or
+  a carried row takes the gesture past its slop — the ink is swept and the press fades while the
+  finger is still down — and a pointer that has lifted holds no press whatever its release did.
+  A finger whose press was taken stops hovering; a mouse still hovers where it is. A tap is
+  unchanged. Seen on a phone: a swipe starting on a filter scrolls it and leaves nothing grey,
+  straight after the release and two seconds on.
 - **A scroll view stayed scrolled past the end of content that had shrunk** (J533). A row of
   filters in a horizontal `SingleChildScrollView` overflowed at a large text size, was swiped to
   its end, and stayed there once the text was small again and the row fitted: its first label
