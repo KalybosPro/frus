@@ -337,7 +337,7 @@ pub use segmented::{
 pub use semantics::{Description, Semantics};
 pub use sheet::{
     sheet_takes_release, split_sheet_drag, DraggableScrollableSheet, SheetArea, SheetSpec,
-    SheetState, SnapSimulation, SHEET_SNAP_MIN_SPEED,
+    SheetState, SheetTo, SnapSimulation, SHEET_SNAP_MIN_SPEED,
 };
 pub use shortcuts::{
     ActionListener, Actions, CallbackShortcuts, FocusableActionDetector, Intent, KeyStroke,
@@ -388,9 +388,9 @@ pub use transitions::{
 pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use ui::{
-    build_deferred, build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget,
-    reorder_siblings, reorderable_owners, subtree_ids, FocusDirection, Focusable, KeepVisible,
-    Scrollable, Scrollbar, Ui,
+    build_deferred, build_ui, build_ui_inspected, collect_ids, find_by_key, find_path,
+    find_sheet_by_key, find_widget, reorder_siblings, reorderable_owners, subtree_ids,
+    FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
 };
 pub use undo::{EditKind, EditSnapshot, UndoHistory, RUN_PAUSE};
 pub use wheel::{ListWheel, RowOnWheel, WheelGeometry};

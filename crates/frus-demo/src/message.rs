@@ -121,6 +121,8 @@ pub(crate) enum Msg {
     ShowPlaces,
     /// The draggable sheet was lowered to nothing.
     PlacesDismissed,
+    /// Raises the draggable sheet to full height from the page (milestone 523).
+    RaisePlaces,
     // --- Sign-up wizard (an integration demo) ---
     /// Jumps to the wizard's step `i` (a Steps marker was clicked).
     WizardStep(usize),

@@ -2193,6 +2193,18 @@ impl Runtime {
         crate::sheet::release_of(&mut self.sheets, id, spec, available, velocity, list);
     }
 
+    /// Asks the sheet `id` for `to` — an application's request, by way of `Command::sheet`.
+    /// `false` when a finger is on it, which refuses it, as a finger refuses a scroll
+    /// request.
+    pub fn sheet_to(
+        &mut self,
+        id: WidgetId,
+        spec: &crate::sheet::SheetSpec,
+        to: &crate::sheet::SheetTo,
+    ) -> bool {
+        crate::sheet::go_to(&mut self.sheets, id, spec, to)
+    }
+
     /// Advances every sheet of the frame by `dt`. Returns `(still moving, the sheets
     /// lowered to nothing on this frame)` — the second being what the shell turns into
     /// messages. A throw that reached full height is kept for

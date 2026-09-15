@@ -1106,6 +1106,63 @@ fn the_sheet_shares_the_finger_with_its_list_and_puts_itself_away() {
     assert_eq!(build_ui(&tree, size, &runtime, &theme).sheets().len(), 1);
 }
 
+/// **The page raises its sheet by name** (milestone 523). "Raise it" asks for the sheet under
+/// the page's key; that key names the very sheet the frame reports, and what the message asks
+/// for carries it to full height along its curve — not at once, and past the half-way stop
+/// without settling on it.
+#[test]
+fn the_page_raises_its_sheet_by_name() {
+    use frus_widgets::{find_sheet_by_key, SheetTo};
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::Push(Route::Sheet));
+    app.nav_from = None;
+    let theme = Theme::default();
+    let size = Size::new(400.0, 800.0);
+    let tree = view_for(&app, &theme, size);
+    let mut runtime = Runtime::default();
+    let sheet = build_ui(&tree, size, &runtime, &theme)
+        .sheets()
+        .first()
+        .cloned()
+        .expect("the screen has a sheet");
+    let key = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        crate::screens::PLACES_SHEET.hash(&mut hasher);
+        hasher.finish()
+    };
+    assert_eq!(
+        find_sheet_by_key(&tree, key),
+        Some(sheet.id),
+        "the page's key names the sheet the frame reports"
+    );
+
+    // What `Msg::RaisePlaces` asks for, placed as the shell places it.
+    assert!(runtime.sheet_to(
+        sheet.id,
+        &sheet.spec,
+        &SheetTo::size(1.0).animate(0.3, frus_widgets::Curve::ease())
+    ));
+    let step = |runtime: &mut Runtime, frames: usize| {
+        for _ in 0..frames {
+            let areas = build_ui(&tree, size, runtime, &theme).sheets().to_vec();
+            runtime.advance_sheets(&areas, 1.0 / 60.0);
+        }
+        runtime.sheet_size(sheet.id, &sheet.spec)
+    };
+    let under_way = step(&mut runtime, 9);
+    assert!(
+        under_way > 0.5 && under_way < 1.0,
+        "on its way, not there at once: {under_way}"
+    );
+    assert_eq!(
+        step(&mut runtime, 30),
+        1.0,
+        "at full height once it is done"
+    );
+    assert_eq!(step(&mut runtime, 60), 1.0, "and it stays there");
+}
+
 /// **The demo's sheet keeps its list at nothing**, and a finger on that list still finds
 /// the sheet (milestone 519).
 ///

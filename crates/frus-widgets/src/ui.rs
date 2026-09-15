@@ -5311,6 +5311,41 @@ pub fn find_by_key<Msg>(root: &dyn Widget<Msg>, key: u64) -> Option<WidgetId> {
     walk(root, WidgetId::ROOT, key)
 }
 
+/// Identity of the **sheet** the key `key` names: the first sheet's panel at or under the
+/// widget declaring it, which is the identity the sheet's state is kept under and the one the
+/// frame's sheets are reported by. `None` when nothing declares the key, or nothing under it
+/// is a sheet.
+///
+/// A sheet's state belongs to its panel, which the application never builds itself, so a
+/// request by key (`Command::sheet`) needs this one step more than a focus request does.
+pub fn find_sheet_by_key<Msg>(root: &dyn Widget<Msg>, key: u64) -> Option<WidgetId> {
+    fn first_sheet<Msg>(widget: &dyn Widget<Msg>, id: WidgetId) -> Option<WidgetId> {
+        if widget.sheet().is_some() {
+            return Some(id);
+        }
+        widget
+            .children()
+            .iter()
+            .enumerate()
+            .find_map(|(index, child)| {
+                first_sheet(child.as_ref(), child_id(id, index, child.as_ref()))
+            })
+    }
+    fn walk<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, key: u64) -> Option<WidgetId> {
+        if widget.key() == Some(key) {
+            return first_sheet(widget, id);
+        }
+        widget
+            .children()
+            .iter()
+            .enumerate()
+            .find_map(|(index, child)| {
+                walk(child.as_ref(), child_id(id, index, child.as_ref()), key)
+            })
+    }
+    walk(root, WidgetId::ROOT, key)
+}
+
 /// Path from the **root down to the widget** with identity `target` (`[root, …, target]`), for
 /// the leaf→root bubbling of keys. Empty when it cannot be found.
 pub fn find_path<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Vec<&dyn Widget<Msg>> {

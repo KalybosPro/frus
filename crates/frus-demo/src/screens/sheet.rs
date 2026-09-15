@@ -29,6 +29,9 @@ pub(crate) const PLACES: [&str; 20] = [
     "Cable car",
 ];
 
+/// The key the sheet is wrapped in, which is how the page asks it to move (milestone 523).
+pub(crate) const PLACES_SHEET: &str = "places-sheet";
+
 /// The screen: a page, and the sheet over it until a flick down puts it away.
 pub(crate) fn sheet_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> {
     let page = Container::new().padding(24.0).child(
@@ -48,19 +51,29 @@ pub(crate) fn sheet_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>>
                 .color(theme.muted),
             )
             .child(
-                button("Show the sheet", Msg::ShowPlaces)
-                    .variant(Variant::Filled)
-                    .size(15.0),
+                Flex::row()
+                    .gap(12.0)
+                    .child(
+                        button("Show the sheet", Msg::ShowPlaces)
+                            .variant(Variant::Filled)
+                            .size(15.0),
+                    )
+                    .child(
+                        button("Raise it", Msg::RaisePlaces)
+                            .variant(Variant::Outlined)
+                            .size(15.0),
+                    ),
             ),
     );
     let mut stack = Stack::new().flex(1.0).layer(page);
     if !app.places_hidden {
-        stack = stack.layer(
+        stack = stack.layer(keyed(
+            PLACES_SHEET,
             frus_widgets::DraggableScrollableSheet::new(places_panel(theme))
                 .min(0.25)
                 .snap_sizes([0.5])
                 .on_dismiss(Msg::PlacesDismissed),
-        );
+        ));
     }
     Scaffold::new()
         .background(theme.background)

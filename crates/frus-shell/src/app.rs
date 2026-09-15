@@ -17,8 +17,8 @@ use frus_widgets::{
     nearest_reorder_slot, reflow_reorder_cards, reflow_reorder_columns, reorder_siblings,
     reorderable_owners, subtree_ids, Accessibility, Brightness, Color, Cursor as UiCursor, Edit,
     EditKind, EditSnapshot, FocusDirection, Insets, Key, KeyResponse, KeyStroke, MediaQuery, Point,
-    Primitive, Rect, ReorderAxis, Runtime, Scene, ScrollTo, Scrollable, ShortcutKey, Size, Theme,
-    Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
+    Primitive, Rect, ReorderAxis, Runtime, Scene, ScrollTo, Scrollable, SheetTo, ShortcutKey, Size,
+    Theme, Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -638,6 +638,12 @@ pub struct App<A: Application> {
     /// could not place — a region that has only just appeared. Tried once more against
     /// the registry this frame builds, and then gone: a request gets one frame.
     retry_scroll: Vec<(u64, ScrollTo)>,
+    /// Pending **sheet** requests — the `(key, SheetTo)` pairs `Command::sheet` produced —
+    /// on the terms of the scroll requests above.
+    pending_sheet: Vec<(u64, SheetTo)>,
+    /// The sheet requests of the frame in progress that the previous frame's sheets did
+    /// not name: tried once more against this frame's.
+    retry_sheet: Vec<(u64, SheetTo)>,
     /// The **focus history** of triggers, for returning focus when an overlay closes:
     /// on every focus change the old one, if still present, is pushed; when focus
     /// **vanishes** because a menu or modal closed, we go back to the most recent
@@ -745,6 +751,8 @@ impl<A: Application> App<A> {
             pending_focus: Vec::new(),
             pending_scroll: Vec::new(),
             retry_scroll: Vec::new(),
+            pending_sheet: Vec::new(),
+            retry_sheet: Vec::new(),
             focus_history: Vec::new(),
             prev_focus: None,
             occluded: false,
@@ -2410,8 +2418,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 let (retry, scrolled) =
                     apply_scroll_requests(&mut self.runtime, tree, requests, &scroll_regions);
                 self.retry_scroll = retry;
+                // And the sheets it has asked to move, on the same terms: before the sheets
+                // are stepped, so an animated request starts in the frame it arrives in.
+                let requests = std::mem::take(&mut self.pending_sheet);
+                let (retry, sheeted) =
+                    apply_sheet_requests(&mut self.runtime, tree, requests, &sheet_areas);
+                self.retry_sheet = retry;
 
                 let animating = scrolled
+                    | sheeted
                     | self.runtime.advance(dt)
                     | self.runtime.advance_leaving(dt)
                     | self.runtime.advance_switchers(tree, dt)
@@ -2580,6 +2595,21 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     std::mem::take(&mut self.retry_scroll),
                     &paged,
                 );
+                // The same for the sheet requests: a sheet shown by the very message that
+                // asked it to move is in this frame's sheets and not the last one's.
+                let (_, sheeted_late) = {
+                    let sheets = self
+                        .ui
+                        .as_ref()
+                        .map(|ui| ui.sheets().to_vec())
+                        .unwrap_or_default();
+                    apply_sheet_requests(
+                        &mut self.runtime,
+                        tree,
+                        std::mem::take(&mut self.retry_sheet),
+                        &sheets,
+                    )
+                };
 
                 // The regions that have moved since they last said so, read off **this**
                 // frame's registry so that the offset and the extents reported together
@@ -2603,7 +2633,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 for message in dismissed.into_iter().chain(turned).chain(scrolled) {
                     self.dispatch(message);
                 }
-                if moved_late {
+                if moved_late || sheeted_late {
                     // Nothing else this frame knows the offset changed: the springs ran
                     // before the request was placed.
                     self.request_redraw();
@@ -3660,6 +3690,7 @@ impl<A: Application> App<A> {
         let parts = command.into_parts();
         self.pending_focus.extend(parts.focus);
         self.pending_scroll.extend(parts.scrolls);
+        self.pending_sheet.extend(parts.sheets);
         for task in parts.tasks {
             let proxy = self.proxy.clone();
             #[cfg(not(web))]
@@ -5267,6 +5298,31 @@ fn apply_scroll_requests<Msg>(
     (unplaced, moved)
 }
 
+/// Places the sheet requests it can against `sheets`, and hands back the ones whose sheet
+/// that registry does not name, along with whether anything moved — the terms of
+/// `apply_scroll_requests`, above.
+///
+/// A request names the key the application wrapped the sheet in; the state belongs to the
+/// sheet's panel under that key, which is what the tree is asked for.
+fn apply_sheet_requests<Msg>(
+    runtime: &mut Runtime,
+    tree: &dyn Widget<Msg>,
+    requests: Vec<(u64, SheetTo)>,
+    sheets: &[frus_widgets::SheetArea],
+) -> (Vec<(u64, SheetTo)>, bool) {
+    let mut unplaced = Vec::new();
+    let mut moved = false;
+    for (key, to) in requests {
+        let sheet = frus_widgets::find_sheet_by_key(tree, key)
+            .and_then(|id| sheets.iter().find(|sheet| sheet.id == id));
+        match sheet {
+            Some(sheet) => moved |= runtime.sheet_to(sheet.id, &sheet.spec, &to),
+            None => unplaced.push((key, to)),
+        }
+    }
+    (unplaced, moved)
+}
+
 /// Moves a carried item's press by `shift` — how far its content moved on screen — so that
 /// the ghost, drawn at the content's box plus the finger's travel since the press, stays
 /// under the finger. A lifted item's box, recorded at the press, goes with it.
@@ -6065,6 +6121,73 @@ mod tests {
 
 /// The half of a scroll request that belongs to the shell: turning the **name** an
 /// application wrote into the region a frame actually has.
+#[cfg(test)]
+mod sheet_request_tests {
+    use super::{apply_sheet_requests, Runtime, Widget};
+    use crate::command::Command;
+    use frus_widgets::{
+        build_ui, keyed, Container, DraggableScrollableSheet, SheetTo, Size, Theme,
+    };
+
+    /// A page with one named sheet on it — the key on a wrapper the application wrote, the
+    /// state on a panel it never sees.
+    fn view() -> Box<dyn Widget<()>> {
+        Box::new(
+            Container::<()>::new()
+                .width(400.0)
+                .height(800.0)
+                .child(keyed(
+                    "places",
+                    DraggableScrollableSheet::<()>::new(Container::new()),
+                )),
+        )
+    }
+
+    /// **A request reaches the sheet the view named**, and nothing else: another key, or a
+    /// frame without the sheet, hands it back unplaced and moves nothing.
+    #[test]
+    fn a_request_reaches_the_sheet_the_view_named() {
+        let tree = view();
+        let mut runtime = Runtime::default();
+        let sheets = build_ui(
+            tree.as_ref(),
+            Size::new(400.0, 800.0),
+            &runtime,
+            &Theme::default(),
+        )
+        .sheets()
+        .to_vec();
+        let sheet = sheets.first().expect("the page has its sheet").clone();
+
+        let requests = Command::<()>::sheet("places", SheetTo::size(0.9))
+            .into_parts()
+            .sheets;
+        let (unplaced, moved) =
+            apply_sheet_requests(&mut runtime, tree.as_ref(), requests, &sheets);
+        assert!(unplaced.is_empty());
+        assert!(moved);
+        assert_eq!(runtime.sheet_size(sheet.id, &sheet.spec), 0.9);
+
+        let elsewhere = Command::<()>::sheet("elsewhere", SheetTo::size(0.3))
+            .into_parts()
+            .sheets;
+        let (unplaced, moved) =
+            apply_sheet_requests(&mut runtime, tree.as_ref(), elsewhere, &sheets);
+        assert_eq!(unplaced.len(), 1);
+        assert!(!moved);
+        let not_yet = Command::<()>::sheet("places", SheetTo::size(0.3))
+            .into_parts()
+            .sheets;
+        let (unplaced, _) = apply_sheet_requests(&mut runtime, tree.as_ref(), not_yet, &[]);
+        assert_eq!(unplaced.len(), 1, "kept for the frame that has the sheet");
+        assert_eq!(
+            runtime.sheet_size(sheet.id, &sheet.spec),
+            0.9,
+            "nothing moved"
+        );
+    }
+}
+
 #[cfg(test)]
 mod scroll_request_tests {
     use super::{apply_scroll_requests, Rect, Runtime, Scrollable, Widget, WidgetId};

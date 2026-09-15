@@ -33,7 +33,7 @@
 use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
 
-use frus_core::{ClampingScrollSimulation, Point, Rect, Scene, Simulation, Tolerance};
+use frus_core::{ClampingScrollSimulation, Curve, Point, Rect, Scene, Simulation, Tolerance};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::interaction::{Status, WidgetId};
@@ -106,6 +106,63 @@ impl SheetArea {
             && point.x < p.x + p.width
             && point.y >= p.y
             && point.y < p.y + p.height
+    }
+}
+
+/// Where an application asks a sheet to go — the reference's `DraggableScrollableController`,
+/// as a request rather than an object.
+///
+/// Sent with `Command::sheet(key, to)` to the sheet wrapped in `keyed(key, …)`. A height is a
+/// share of the sheet's box, kept between its floor and `max` as a finger's would be — so
+/// asking a sheet that can be dismissed for nothing puts it away, message and all.
+///
+/// ```ignore
+/// Command::sheet("places", SheetTo::size(1.0).animate(0.3, Curve::ease()))
+/// ```
+///
+/// What it does to a sheet is what the reference's controller does:
+///
+/// - **whatever was carrying it stops** — a settle, a coast, an earlier request;
+/// - **it does not snap afterwards**, even on a sheet that snaps: snapping answers a finger;
+/// - **a finger on the sheet refuses it**, the rule a scroll request keeps too — and a finger
+///   landing on a sheet a request is moving stops it where it is.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SheetTo {
+    target: SheetTarget,
+    /// Over how many seconds, along what curve. `None` arrives at once.
+    animation: Option<(f32, Curve)>,
+}
+
+/// The height a [`SheetTo`] names.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SheetTarget {
+    Size(f32),
+    Initial,
+}
+
+impl SheetTo {
+    /// To `size`, a share of the box, at once — the reference's `jumpTo`.
+    pub fn size(size: f32) -> Self {
+        Self {
+            target: SheetTarget::Size(size),
+            animation: None,
+        }
+    }
+
+    /// Back to the height it started at, at once — the reference's `reset`.
+    pub fn initial() -> Self {
+        Self {
+            target: SheetTarget::Initial,
+            animation: None,
+        }
+    }
+
+    /// Over `duration` seconds along `curve` rather than at once — the reference's
+    /// `animateTo`. A duration of nought or less is no animation.
+    #[must_use]
+    pub fn animate(mut self, duration: f32, curve: Curve) -> Self {
+        self.animation = (duration > 0.0).then_some((duration, curve));
+        self
     }
 }
 
@@ -252,12 +309,25 @@ struct Settle {
     list: Option<WidgetId>,
 }
 
+/// A height an application asked for, on its way there. In shares of the box, since a
+/// request says nothing about pixels and the box may change under it.
+#[derive(Clone, Debug)]
+struct Drive {
+    from: f32,
+    to: f32,
+    duration: f32,
+    curve: Curve,
+    elapsed: f32,
+}
+
 /// The retained height of one sheet, and whatever is moving it.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct SheetState {
     size: f32,
     held: bool,
     settle: Option<Settle>,
+    /// A request under way — never at the same time as a settle.
+    drive: Option<Drive>,
     dismissed: bool,
     available: f32,
     /// A throw that arrived at full height this frame: the list it goes on in, and the
@@ -272,6 +342,7 @@ impl SheetState {
             size: spec.clamp(spec.initial),
             held: false,
             settle: None,
+            drive: None,
             dismissed: false,
             available: 0.0,
             handover: None,
@@ -283,9 +354,9 @@ impl SheetState {
         self.size
     }
 
-    /// `true` while a release is still carrying it.
+    /// `true` while a release, or an application's request, is still carrying it.
     pub fn is_settling(&self) -> bool {
-        self.settle.is_some()
+        self.settle.is_some() || self.drive.is_some()
     }
 
     /// The height its shares were last taken of, in px — kept so that a panel lowered
@@ -294,10 +365,12 @@ impl SheetState {
         self.available
     }
 
-    /// A finger is on it: whatever was carrying it stops where it is.
+    /// A finger is on it: whatever was carrying it — a release or a request — stops where
+    /// it is.
     fn hold(&mut self) {
         self.held = true;
         self.settle = None;
+        self.drive = None;
     }
 
     /// Moves it by `delta`, a share of the box, within its floor and `max`.
@@ -318,6 +391,7 @@ impl SheetState {
     fn release(&mut self, spec: &SheetSpec, available: f32, velocity: f32, list: Option<WidgetId>) {
         self.held = false;
         self.settle = None;
+        self.drive = None;
         if available <= 0.0 {
             return;
         }
@@ -349,12 +423,55 @@ impl SheetState {
         });
     }
 
+    /// An application asks for `to`. `false` when a finger is on it, which refuses it.
+    fn go(&mut self, spec: &SheetSpec, to: &SheetTo) -> bool {
+        if self.held {
+            return false;
+        }
+        self.settle = None;
+        self.drive = None;
+        let target = spec.clamp(match to.target {
+            SheetTarget::Size(size) => size,
+            SheetTarget::Initial => spec.initial,
+        });
+        match &to.animation {
+            Some((duration, curve)) if target != self.size => {
+                self.drive = Some(Drive {
+                    from: self.size,
+                    to: target,
+                    duration: *duration,
+                    curve: curve.clone(),
+                    elapsed: 0.0,
+                });
+            }
+            _ => self.size = target,
+        }
+        // Asked back up from nothing, it is open again — and may be put away again.
+        if target > 0.0 {
+            self.dismissed = false;
+        }
+        true
+    }
+
     /// Advances by `dt` seconds. Returns `(still moving, dismissed on this frame)`.
     fn advance(&mut self, spec: &SheetSpec, dt: f32) -> (bool, bool) {
         if self.held {
             return (false, false);
         }
         let mut moving = false;
+        // A request goes where it was told and stops: no snap afterwards, since snapping
+        // answers a finger, and none of a throw's hand-over, since nobody threw anything.
+        if let Some(drive) = &mut self.drive {
+            drive.elapsed += dt;
+            let t = (drive.elapsed / drive.duration).min(1.0);
+            self.size = spec.clamp(drive.from + (drive.to - drive.from) * drive.curve.transform(t));
+            if t >= 1.0 {
+                self.size = drive.to;
+                self.drive = None;
+            } else {
+                moving = true;
+            }
+        }
         if let Some(settle) = &mut self.settle {
             settle.elapsed += dt;
             // The velocity it is travelling up at, in px/s, when it is at full height —
@@ -390,7 +507,12 @@ impl SheetState {
                 moving = true;
             }
         }
-        if self.settle.is_none() && spec.dismissible && !self.dismissed && self.size <= 1e-4 {
+        if self.settle.is_none()
+            && self.drive.is_none()
+            && spec.dismissible
+            && !self.dismissed
+            && self.size <= 1e-4
+        {
             self.size = 0.0;
             self.dismissed = true;
             return (moving, true);
@@ -446,6 +568,20 @@ pub(crate) fn release_of(
     if let Some(state) = states.get_mut(&id) {
         state.release(spec, available, velocity, list);
     }
+}
+
+/// An application asks the sheet `id` for `to`, creating its state if nothing has moved it
+/// yet. `false` when a finger is on it.
+pub(crate) fn go_to(
+    states: &mut HashMap<WidgetId, SheetState>,
+    id: WidgetId,
+    spec: &SheetSpec,
+    to: &SheetTo,
+) -> bool {
+    states
+        .entry(id)
+        .or_insert_with(|| SheetState::new(spec))
+        .go(spec, to)
 }
 
 /// What stepping the sheets of a frame produced.
@@ -782,6 +918,120 @@ mod tests {
         let against = SnapSimulation::new(300.0, 50.0, 200.0);
         assert_eq!(against.dx(0.0), -SHEET_SNAP_MIN_SPEED, "towards the stop");
         assert_eq!(against.x(1.0), 200.0);
+    }
+
+    /// **A request moves a sheet at once**, kept between its floor and `max` as a finger's
+    /// height is — and `initial` puts it back where it started (milestone 523).
+    #[test]
+    fn a_request_moves_a_sheet_at_once_within_its_bounds() {
+        let snapping = spec(true, false);
+        let mut state = SheetState::new(&snapping);
+        assert!(state.go(&snapping, &SheetTo::size(0.9)));
+        assert_eq!(state.size(), 0.9);
+        assert!(!state.is_settling(), "at once is at once");
+        state.go(&snapping, &SheetTo::size(3.0));
+        assert_eq!(state.size(), 1.0, "no higher than max");
+        state.go(&snapping, &SheetTo::size(0.0));
+        assert_eq!(
+            state.size(),
+            0.25,
+            "no lower than min, on a sheet that stays open"
+        );
+        state.go(&snapping, &SheetTo::initial());
+        assert_eq!(state.size(), 0.5, "and back where it started");
+    }
+
+    /// **An animated request follows its curve, and stays where it arrives** — the
+    /// reference's `animateTo`, which does not snap afterwards: snapping answers a finger.
+    #[test]
+    fn an_animated_request_follows_its_curve_and_stays_where_it_arrives() {
+        let snapping = spec(true, false);
+        let mut state = SheetState::new(&snapping);
+        state.go(&snapping, &SheetTo::size(0.8).animate(0.3, Curve::Linear));
+        assert_eq!(state.size(), 0.5, "nothing moves before a frame");
+        let (moving, _) = state.advance(&snapping, 0.15);
+        assert!(moving);
+        assert!(
+            (state.size() - 0.65).abs() < 1e-4,
+            "half-way along a straight line: {}",
+            state.size()
+        );
+        state.advance(&snapping, 0.2);
+        assert_eq!(state.size(), 0.8);
+        assert!(!state.is_settling());
+        // 0.8 is no stop of this sheet — its stops are a quarter, half and all — and a
+        // request does not look for one.
+        assert!(!settle(&mut state, &snapping));
+        assert_eq!(state.size(), 0.8);
+        // Along another curve it is somewhere else half-way: the curve is the one asked for.
+        let mut eased = SheetState::new(&snapping);
+        eased.go(
+            &snapping,
+            &SheetTo::size(0.8).animate(0.3, Curve::Decelerate),
+        );
+        eased.advance(&snapping, 0.15);
+        assert!(
+            (eased.size() - (0.5 + 0.3 * 0.75)).abs() < 1e-4,
+            "{}",
+            eased.size()
+        );
+        // And no duration is no animation.
+        let mut instant = SheetState::new(&snapping);
+        instant.go(&snapping, &SheetTo::size(0.8).animate(0.0, Curve::Linear));
+        assert_eq!(instant.size(), 0.8);
+    }
+
+    /// **A finger outranks a request**: one on the sheet refuses it, and one that lands on a
+    /// sheet a request is moving stops it where it is. A request, for its part, takes over
+    /// from a settle.
+    #[test]
+    fn a_finger_refuses_a_request_and_stops_one_under_way() {
+        let snapping = spec(true, false);
+        let mut state = SheetState::new(&snapping);
+        state.drag(&snapping, 0.1, 800.0);
+        assert!(
+            !state.go(&snapping, &SheetTo::size(1.0)),
+            "refused under a finger"
+        );
+        assert!((state.size() - 0.6).abs() < 1e-6);
+        state.release(&snapping, 800.0, 0.0, None);
+        assert!(state.is_settling(), "let go off a stop, it settles");
+        assert!(state.go(&snapping, &SheetTo::size(0.9).animate(0.5, Curve::Linear)));
+        state.advance(&snapping, 0.25);
+        let midway = state.size();
+        assert!(
+            (midway - 0.75).abs() < 1e-4,
+            "the request's way, not the settle's: {midway}"
+        );
+        state.hold();
+        state.advance(&snapping, 0.25);
+        assert_eq!(state.size(), midway, "a finger stopped it where it was");
+        assert!(!state.is_settling());
+    }
+
+    /// **Asked for nothing, a sheet that can be dismissed is put away** — once it has
+    /// arrived there, as a finger would have it — and asked back, it opens and may be put
+    /// away again.
+    #[test]
+    fn a_request_to_nothing_puts_a_dismissible_sheet_away() {
+        let closing = spec(true, true);
+        let mut state = SheetState::new(&closing);
+        // A curve that is there by half-way: the sheet is at nothing while the request is
+        // still under way, and it is not put away until the request is done.
+        let early = Curve::Interval {
+            begin: 0.0,
+            end: 0.5,
+            inner: Box::new(Curve::Linear),
+        };
+        state.go(&closing, &SheetTo::size(0.0).animate(0.2, early));
+        let (_, gone) = state.advance(&closing, 0.15);
+        assert_eq!(state.size(), 0.0);
+        assert!(!gone, "not while the request is under way");
+        assert!(settle(&mut state, &closing), "put away once it is done");
+        assert!(state.go(&closing, &SheetTo::initial()));
+        assert_eq!(state.size(), 0.5);
+        state.go(&closing, &SheetTo::size(0.0));
+        assert!(settle(&mut state, &closing), "and may be put away again");
     }
 
     fn settle(state: &mut SheetState, spec: &SheetSpec) -> bool {

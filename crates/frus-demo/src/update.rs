@@ -693,5 +693,11 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.places_hidden = true;
             Command::none()
         }
+        // A height the sheet goes to once, so an effect rather than state: the height it
+        // leaves behind is the runtime's, as a finger's would be.
+        Msg::RaisePlaces => Command::sheet(
+            crate::screens::PLACES_SHEET,
+            frus_widgets::SheetTo::size(1.0).animate(0.3, Curve::ease()),
+        ),
     }
 }
