@@ -61,6 +61,15 @@ is the titled one's less the title's 64 px floor and one 8 px gap: 199 px flush,
 first run started both at 200, and the centred one overflowed at 200 px by **7 px** — exactly the
 distance to its floor, which is the budget's arithmetic confirmed to the pixel rather than a slip.
 
+**And the test that failed on macOS alone.** Pushed, CI ran the bar sized to the pixel for one
+action on its three desktops, and macOS found only the overflow button. The test had left the
+title's placement to the platform, and Apple's platforms centre a bar's title while it has fewer
+than two actions — which puts a spring before the title, one more child of the row and one more
+8 px join in the budget. The arithmetic was right and the question was not: its answer depended
+on the platform, and the test did not say which it meant. It now builds the bar both ways, on
+every platform: flush, the action fits; centred, the same width folds it; centred and one gap
+wider, it fits again.
+
 **Goldens.** Every golden passes unchanged, the app bar's included: its bar now says
 `AppBar::new().title(…)` and draws the same pixels. The demo's tests pass with its task list and
 sheet screens on the new constructor, and the whole widget crate's 1586 tests with every earlier

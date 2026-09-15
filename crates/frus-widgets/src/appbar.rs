@@ -1539,8 +1539,13 @@ mod tests {
     /// **A bar with no title owes the fold no room for one**, not even a gap.
     ///
     /// The budget counts the row's children before the actions, and the title was always
-    /// one of them. At exactly the width its margins and one action take, an untitled bar
-    /// shows the action; charged a join for a title it has not got, it folds it away.
+    /// one of them. At exactly the width its margins and one action take, a flush untitled
+    /// bar shows the action; charged a join for a title it has not got, it folds it away.
+    ///
+    /// Told where its title goes rather than left to the platform: a centred title's leading
+    /// spring is a child of the row too, and Apple's platforms centre a bar with one action —
+    /// which is how this test first failed, on macOS alone. So the centred bar is checked as
+    /// well, and it needs exactly one gap more.
     #[test]
     fn an_untitled_bar_gives_its_actions_the_room() {
         let theme = Theme::default();
@@ -1549,17 +1554,26 @@ mod tests {
             &AppBar::<Msg>::action_button("Save".into(), Msg::B, size),
             &theme,
         );
+        let shows = |centered: bool, width: f32| {
+            let bar = AppBar::<Msg>::new()
+                .width(width)
+                .center_title(centered)
+                .overflow(false, Msg::PopupMenuButton)
+                .action("Save", Msg::B)
+                .build();
+            let texts = texts_of(bar.as_ref(), width);
+            texts.iter().any(|t| t == "Save") && !texts.iter().any(|t| t == OVERFLOW_GLYPH)
+        };
         let width = H_PAD * 2.0 + save + GAP + 0.25;
-        let bar = AppBar::<Msg>::new()
-            .width(width)
-            .overflow(false, Msg::PopupMenuButton)
-            .action("Save", Msg::B)
-            .build();
-        let texts = texts_of(bar.as_ref(), width);
         assert!(
-            texts.iter().any(|t| t == "Save") && !texts.iter().any(|t| t == OVERFLOW_GLYPH),
-            "the action fits a bar {width} px wide: {texts:?}"
+            shows(false, width),
+            "flush, the action fits a bar {width} px wide"
         );
+        assert!(
+            !shows(true, width),
+            "centred, the spring before the title costs a gap"
+        );
+        assert!(shows(true, width + GAP), "and exactly one");
     }
 
     /// Every path the bar paints, layers included.
