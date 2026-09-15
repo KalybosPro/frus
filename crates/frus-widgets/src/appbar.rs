@@ -117,15 +117,6 @@ const H_PAD: f32 = 8.0;
 const TITLE_MIN: f32 = 64.0;
 /// The glyph on the overflow button.
 const OVERFLOW_GLYPH: &str = "\u{22ef}";
-/// The elevation shadow's colour. Only its alpha is local; the hue is the theme's
-/// job, and a bar that needs another one sets its own background instead.
-const SHADOW: Color = Color {
-    r: 0.0,
-    g: 0.0,
-    b: 0.0,
-    a: 0.22,
-};
-
 /// The title: styled text, or any widget at all.
 /// An action: labelled (foldable into the overflow) or a free widget (always
 /// inline — an arbitrary widget cannot become a text menu row).
@@ -428,8 +419,12 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self
     }
 
-    /// A shadow under the bar, in px of blur. `0` — the default — draws none, which is
-    /// what a bar sitting on a surface of the same colour wants.
+    /// How far off the page the bar sits. `0` — the default — is flat, which is what a bar
+    /// sitting on a surface of the same colour wants.
+    ///
+    /// A height casts a shadow only where a [`shadow_color`](Self::shadow_color) is named,
+    /// and tints only where a [`surface_tint`](Self::surface_tint) is: the reference's
+    /// Material 3 bar makes both transparent (its app bar defaults, lines 2542 and 2545).
     pub fn elevation(mut self, elevation: f32) -> Self {
         self.elevation = elevation.max(0.0);
         self
@@ -464,8 +459,9 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// The colour of the shadow the bar casts. Only visible with an
     /// [`elevation`](Self::elevation).
     ///
-    /// The reference's `shadowColor`. Left unset it is the framework's own near-black,
-    /// which is right on a light surface and too heavy on some dark ones.
+    /// The reference's `shadowColor`, **alpha included**. Left unset it is transparent, as
+    /// the reference's Material 3 bar is (its app bar defaults, line 2542), and an
+    /// elevated bar casts nothing.
     pub fn shadow_color(mut self, color: Color) -> Self {
         self.shadow_color = Some(color);
         self
@@ -1075,8 +1071,11 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             if let Some(color) = surface {
                 chrome = chrome.color(color);
             }
-            if elevation > 0.0 {
-                let shadow = shadow_color.or(t.shadow_color).unwrap_or(SHADOW);
+            // A shadow only where a colour is named: the reference's is transparent.
+            if let Some(shadow) = shadow_color
+                .or(t.shadow_color)
+                .filter(|shadow| elevation > 0.0 && shadow.a > 0.0)
+            {
                 chrome = chrome.shadow(0.0, elevation * 0.25, elevation, shadow);
             }
         }
@@ -1220,6 +1219,65 @@ mod tests {
                 && (raised_color.g - expected.g).abs() < 1e-4
                 && (raised_color.b - expected.b).abs() < 1e-4,
             "elevation 3 should tint at 8%: {raised_color:?} against {expected:?}"
+        );
+    }
+
+    /// **An elevated bar casts nothing until it is given a shadow colour**
+    /// (the reference's app bar defaults, line 2542). Its Material 3 bar keeps its height for the
+    /// tint and makes the shadow transparent; this one drew a near-black of its own at 22 %
+    /// under any bar with a height.
+    #[test]
+    fn an_elevated_bar_casts_a_shadow_only_in_a_colour_it_was_given() {
+        const W: f32 = 400.0;
+        // A shadow is a blurred rectangle — or, from a bar with no height, an unblurred one in
+        // the shadow's colour, a hard box that a blur test alone never sees.
+        fn shadows(primitives: &[crate::Primitive], named: Color, out: &mut Vec<Color>) {
+            for p in primitives {
+                match p {
+                    crate::Primitive::Rect { color, blur, .. }
+                        if *blur > 0.0 || *color == named =>
+                    {
+                        out.push(*color)
+                    }
+                    crate::Primitive::Layer { primitives, .. } => shadows(primitives, named, out),
+                    _ => {}
+                }
+            }
+        }
+        let named = Color::rgba(0.0, 0.0, 0.0, 0.3);
+        let cast = |bar: AppBar<Msg>, theme: &Theme| {
+            let bar = bar.build();
+            let ui = build_ui(
+                bar.as_ref(),
+                Size::new(W, 200.0),
+                &Runtime::default(),
+                theme,
+            );
+            let mut out = Vec::new();
+            shadows(ui.scene().primitives(), named, &mut out);
+            out
+        };
+        let bar = || AppBar::<Msg>::new().title(Text::new("Title")).width(W);
+        let plain = Theme::default();
+        assert!(
+            cast(bar().elevation(3.0), &plain).is_empty(),
+            "a height alone is no shadow"
+        );
+
+        assert_eq!(
+            cast(bar().elevation(3.0).shadow_color(named), &plain),
+            vec![named]
+        );
+        let mut themed = Theme::default();
+        themed.widgets.app_bar.shadow_color = Some(named);
+        assert_eq!(
+            cast(bar().elevation(3.0), &themed),
+            vec![named],
+            "or a colour the theme names"
+        );
+        assert!(
+            cast(bar().shadow_color(named), &plain).is_empty(),
+            "and a flat bar has no height to cast it from"
         );
     }
 

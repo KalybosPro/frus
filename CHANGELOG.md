@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 528 so far, each documenting the objective, the alternatives
+> record — one per step, 529 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -149,6 +149,18 @@ any release may break.
 
 ### Changed
 
+- **A height is no longer a shadow where the reference's is not** (J529). A widget here cast a
+  shadow from its elevation alone, where the reference's Material 3 casts one only in a shadow
+  colour that is not transparent — and many of its components keep an elevation and make that
+  colour transparent. `NavigationDrawer` no longer draws a black shadow under every panel, and
+  `Drawer` and `AppBar` given an elevation cast none until they are given a colour: each has
+  `shadow_color` on the widget and on its theme, transparent by default. An untold
+  `MaterialBanner` is flat, with its rule and no margin (`BANNER_ELEVATION` is `0.0`), because
+  the reference's build never reads the 1 in its defaults. `SearchBar::shadow_color` is used as
+  it is given, so `Color::TRANSPARENT` removes the shadow rather than casting black at 30 %.
+  `FloatingActionButton::hover_elevation` is new, and the hovered height is resolved on its own
+  as the reference's is, no longer floored at the resting one. `SnackBar::elevation` is new, and
+  a bar at nought casts nothing.
 - **Breaking: every `Navigator` page has a key, and scrolling one page no longer scrolls
   another** (J528). Reported from a phone: "when I scroll another page, the one I just left
   scrolls too." Retained state is kept by identity, and a page's identity was its place
