@@ -2455,3 +2455,33 @@ fn the_last_frame_of_a_push_still_holds_the_page_it_left() {
         "a frame built once the push has settled has nothing there"
     );
 }
+
+/// **The board's strip, carried through the shell, moves a label and no card** (milestone
+/// 527, seen on a phone: a label carried along the strip moved a card of the board instead).
+///
+/// The demo itself, on the phone's surface, through the shell's own input path and frame:
+/// the Kanban screen pushed and settled, then Feature carried along x to Design's right half
+/// and let go. On a desktop the strip's labels are picked up by the grip under each one.
+#[test]
+fn the_board_strip_carried_through_the_shell_moves_a_label_and_no_card() {
+    use frus_shell::testing::Driver;
+    let mut driver = Driver::new(TodoApp::default(), 392.7, 850.9);
+    driver.run(0.3);
+    driver.update(Msg::Push(Route::Board));
+    driver.run(1.5);
+    // Feature's grip: under its label, 128 to 224 across.
+    driver.press(Point::new(176.0, 129.0));
+    for x in [190.0, 220.0, 250.0, 280.0, 306.0] {
+        driver.move_to(Point::new(x, 129.0));
+        driver.run(0.1);
+    }
+    assert!(driver.carried().is_some(), "Feature is carried");
+    driver.release(Point::new(306.0, 129.0));
+    driver.run(0.2);
+    assert_eq!(driver.app().board_labels()[..4], [0, 2, 1, 3]);
+    assert_eq!(
+        driver.app().kanban_cols(),
+        TodoApp::default().kanban_cols(),
+        "no card moved"
+    );
+}

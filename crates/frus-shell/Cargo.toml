@@ -17,6 +17,9 @@ readme = "README.md"
 # ~3.4 MB of faces, and an application that ships its own turns off the ones it does
 # not need. All on by default.
 [features]
+# A driver with no window, for an application's tests to feed input and frames through the
+# shell's own paths. Hidden; not for applications to ship.
+testing = []
 net = ["dep:ureq"]
 json = ["net", "dep:serde", "dep:serde_json"]
 default = ["frus-gpu/default", "frus-widgets/default"]

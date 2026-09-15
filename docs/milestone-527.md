@@ -123,8 +123,155 @@ golden in `frus-test`, `cargo clippy -p frus-widgets -p frus-shell -p frus-demo 
 --all-targets -- -D warnings`, `cargo fmt --all -- --check`, and
 `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps -p frus-widgets -p frus-shell`, all clean.
 
+## Seen on the phone, and fixed
+
+A release build of the demo on the Huawei (1080 × 2340 px, density about 2.75), driven with
+`adb shell input motionevent`: a press on the strip's Feature label, a hold of 0.9 s, then moves
+along x a tenth of a second apart, a screenshot, and the release.
+
+- **During the drag** no label looked lifted — no ghost, no gap, no line — and the strip had
+  scrolled. The board below looked scrolled too, and its Doing column showed Research above
+  Build widget.
+- **After the release** the labels were in their old order, the strip stayed scrolled, the board
+  was back at its start, and Research was at the top of Doing.
+- **A second attempt**, held on Design and moved further in one step, did nothing visible but
+  bring the strip back to its start.
+
+### What the shell did
+
+**A carried row's box came from the frame, and the frame loses it at an edge.** Everything a
+reorder draws and measures — the ghost, the auto-scroll, the gap that closes behind the row —
+starts from the row's box, and the shell asked the frame for it every frame. The frame's
+registry keeps a reorderable's box only as far as it shows, clipped to its scroll's viewport,
+and keeps nothing at all for one scrolled out of sight. Since milestone 517 the *press* goes with
+the content while a list auto-scrolls, so that the ghost stays under the finger. The box did
+not: the moment a carried row reached the strip's edge, the content moving under it clipped its
+box, the clipped box stood still while the press moved on, and the ghost — drawn at the box plus
+the finger's travel — ran ahead of the finger. The ghost now hung further past the edge, so the
+strip scrolled faster; within a fifth of a second the row was scrolled out of the frame, the
+reorder had no box, and the preview drew nothing. The release then dropped the label where the
+runaway strip had put a slot under the finger.
+
+Measured on the demo's own screen at the phone's logical size, through the shell: Feature held
+and carried to x = 370 took the strip to an offset of 100 in a tenth of a second, a ghost 7 px
+wide and 62 px ahead of the finger six frames later, no source at all six frames after that
+with the strip stopped at 233, and a release that put Feature fifth. **A list that runs down and
+a board's cards have the same edge**: row 0 of a long list carried to the bottom is lost as soon
+as its own place scrolls off the top, and a card carried to the board's right edge is lost as
+soon as its column does. Milestone 517's test of the press following its content assumed the
+row's box moved with the content, which is what the frame does not do.
+
+That is the part of the report that reproduces, and it accounts for a label that was not drawn
+lifted and a strip that scrolled away. **The rest did not reproduce**, and is left open rather
+than explained away:
+
+- Through the shell's own input path and a frame in the real frame's order, on the demo, at the
+  phone's logical size, with the injected coordinates divided by 2.75 and the same timing — with
+  and without phone-sized bars, straight after the push and after coming through the drawer —
+  the hold lifts Feature, the carry moves it and the release sends `MoveLabel(1, 2)`: a label
+  moves, no card does, and neither region scrolls. At those coordinates the ghost's right edge
+  stops at 375, short of the strip's 392.7, so the runaway above is not reached either.
+- The frame never has a card under a press on the strip: at every board offset tried, the only
+  reorderables at the press and release points are the strip's rows, and the Kanban cards'
+  flat indices sharing numbers with the rows' indices changes nothing, since each is read only
+  from its own widget. No two widgets of the Board screen share an identity (135 of 135 distinct).
+- Replaying the same pixel sequence at every total scale from 1.5 to 4.0 in steps of 0.05, with and
+  without a 99-px status bar, never moved Research: below 1.6 the press lands on a card of the
+  board and that card moves; from about 3.05 the carried label reaches the edge and runs away as
+  described.
+- The demo's density setting is not persisted, and the Kanban is not either, so a fresh launch
+  starts from the seed and a scale of 2.75.
+
+So either the phone's surface was not the one the coordinates were converted with, or something
+happened on the device that no replay here performs. The device run below is what separates the
+two.
+
+### The fix
+
+**What is carried keeps its own box.** `Drag::Reorder` holds the row it carries and that row's
+box, taken from the frame once — the first frame the drag is carried in, before anything has
+scrolled — and from then on moved with the content by the same step that moves the press, as a
+lifted item's box already was. The ghost and the auto-scroll (`carried_rect`), the preview (the
+row lifted out, the gap behind it, the ghost's content) and the release's fallback to the
+nearest slot all read that box and that row. The frame is still asked for everything else: what
+is under the finger, the slots of the list, the target's half. The reorder springs moved out of
+the frame into one function the frame and the driver below both call.
+
+### A driver for the shell
+
+No test drove the shell's event loop, which is why three device runs in a row found what green
+tests could not. The shell now has a windowless driver, `frus_shell::testing::Driver`, behind a
+hidden `testing` feature the demo turns on for its tests: an application on a stated surface, fed
+presses, moves, releases and the long-press deadline through the shell's own `pointer_event` and
+`hold_deadline_reached` (split out of the loop's handlers unchanged), and frames that take the real
+frame's steps in the real frame's order, less the GPU. The shell's message channel became
+optional for it, since an event loop cannot be built on a machine with no display. The frame it
+runs is still a copy of those steps, not the frame itself; what the two share is what the fix
+touched, and the rest of the loop remains unexercised.
+
+### Verification
+
+**Tests**, through the driver, on the Kanban screen's shape (a bar, ten 96-px labels that lift on
+a hold, a board of rich cards) and on a list of twenty 60-px rows:
+
+- `a_label_carried_past_the_strips_edge_stays_under_the_finger` — **the reproduction**: held on
+  Feature and carried to x = 370, then held for a second and a half, frame by frame the carried
+  box keeps its place under the finger and its full size, the ghost is drawn there, the strip
+  only scrolls on, reaching its end; the release past the last label sends `Label(1, 9)`. Failed
+  before the fix at frame 1: *carried at x 348, 90.7 wide, the finger at 370*.
+- `a_card_carried_to_the_boards_edge_stays_under_the_finger` — the same on the board. Failed
+  before the fix: the card was lost before the carry ended.
+- `a_row_carried_past_the_bottom_of_a_long_list_stays_under_the_finger` — the same down a list
+  that runs down, and the release lands near the end. Failed before the fix at frame 0: *nothing
+  is carried any more*.
+- `a_hold_on_a_label_then_a_carry_along_x_reorders_the_labels_and_moves_no_card` — the phone's
+  own sequence: `Label(1, 2)`, the cards as they were, neither region scrolled. Passed before.
+- `a_card_carried_across_the_board_moves_the_card` — Design API onto Build widget's upper half:
+  `Card(0, 0, 1, 0)`, no label moved. Passed before.
+- In the demo, `the_board_strip_carried_through_the_shell_moves_a_label_and_no_card` — the demo
+  itself through the driver, its strip gripped as a desktop grips it: Feature carried to Design's
+  right half moves Feature and no card.
+- 517's `a_carried_item_follows_its_content` now carries the box and checks it went with the
+  content.
+
+**Mutations**, five, each applied alone to the fixed tree and restored after, with the hash of the
+whole diff checked equal before and after every run:
+
+- `follow_content` no longer moving the carried box: killed by four tests.
+- The box never recorded, so every frame asks the frame again: killed by the three edge tests.
+- The release handing the drop no carried row: killed by the reproduction, whose release is past
+  the last label with Feature long scrolled away.
+- `carried_rect` read from the frame: killed by the three edge tests.
+- The preview drawn at the frame's box: **survived** the first run — nothing checked where the
+  ghost is drawn, which is the symptom the phone showed. The driver now records the ghost's
+  outline and the held frames check it against the carried box; run again, killed by the three
+  edge tests.
+
+**Commands**, in this worktree, all clean: `cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo fmt --all -- --check`, `cargo test -p frus-widgets --lib` (1604 passed),
+`cargo test -p frus-shell --lib` (121), `cargo test -p frus-demo --lib` (64), the reorderable
+list's golden in `frus-test`, `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps -p frus-widgets -p
+frus-shell`, and `cargo clippy -p frus-shell --target aarch64-linux-android --no-deps -- -D
+warnings`.
+
+### On the device — left to the lead
+
+- The same injected sequence as above, and a label carried **to the strip's right edge and held
+  there**: the ghost stays under the finger while the strip scrolls to its end, and the release
+  drops the label where the finger is.
+- A row of the home list held and carried to the bottom and held; a card carried to the board's
+  right edge and held.
+- **Before trying again, check what the app believes the surface is**: the demo's density
+  setting on the Settings screen, and a log of the logical position of the press on the strip.
+  Research moving to Doing was not reproduced at any scale here; if it happens again, the press
+  position and what the shell finds under it are what would say why.
+
 ## What is left
 
+- **Research moving to Doing, and the board scrolling**, from a gesture on the strip. Not
+  reproduced; see above.
+- **A row partly clipped when it is lifted** keeps that clipped box as its size: a label half off
+  the strip's edge, held there, is carried at the width that showed.
 - **The device run.** No phone was attached. This repository does not believe green tests about a
   gesture that only exists while something is held — 517 is the reason — so nothing here has been
   seen under a finger yet: a strip carried to its right and left edges and held, the line and the
