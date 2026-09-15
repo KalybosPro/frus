@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+readme = "README.md"
 
 [dependencies]
 frus-core = { path = "../frus-core" }

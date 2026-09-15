@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+readme = "README.md"
 
 # The **bundled fonts** are forwarded from `frus-text` (milestone 292) so that an
 # application can drop the faces it does not ship through the facade alone:

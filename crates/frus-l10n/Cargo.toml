@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+readme = "README.md"
 
 [dependencies]
 # Fluent (Mozilla): the Rust i18n standard. Nothing to reinvent here.

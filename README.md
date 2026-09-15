@@ -239,7 +239,6 @@ real, open, and written up with where to look and how to know you are done:
 
 | | |
 |---|---|
-| 🟢 [Give every crate a README](https://github.com/KalybosPro/frus/labels/good%20first%20issue) | Fifteen crates, no front page. **One crate is a perfectly good PR.** |
 | 🟢 Turn on `missing_docs`, crate by crate | Start with the small crates. **One crate is a whole PR.** |
 | 🟡 [Publish to crates.io](https://github.com/KalybosPro/frus/labels/help%20wanted) | The single biggest thing between the project and anyone trying it. |
 | 🟡 The overscroll stretch effect | Current Android stretches the content instead of glowing. A render-target effect, and where to start reading is written down. |

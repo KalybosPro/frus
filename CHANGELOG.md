@@ -196,6 +196,13 @@ any release may break.
 
 ### Added
 
+- **A README for every crate** (J525, answers #7). All fifteen crates had none, and on
+  crates.io a crate's README is its whole page. Each now has one on the same plan — what the
+  crate is for, its layer, the two or three things to reach for, one example or the commands
+  that run it, and a line back to the workspace README — and `readme = "README.md"` in its
+  manifest. Links are absolute, since crates.io shows a README without the repository around
+  it. The ten library crates include their README as a `cfg(doctest)` item, so
+  `cargo test --doc` compiles every example and runs the ones that need no window or GPU.
 - **Shipping to more than one ABI, documented** (J524, answers #10). Every example builds
   `aarch64-linux-android` alone, and nothing said that an application for real people wants
   more, or what the packager does about it. The getting-started guide's *Shipping* section now

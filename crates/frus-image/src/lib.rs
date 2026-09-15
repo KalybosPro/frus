@@ -6,6 +6,11 @@
 //! (`decode(include_bytes!("logo.png"))`) without `frus-widgets` or `frus-core`
 //! inheriting the decoder's dependency tree.
 
+// The README's example is compiled and run by `cargo test --doc`, so it cannot rot.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
+
 use std::error::Error;
 use std::fmt;
 

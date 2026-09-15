@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+readme = "README.md"
 
 # The **bundled fonts** (milestone 292). They are ~3.4 MB of faces — about 40% of a
 # minimal frus app once the APK has compressed them — so each group is a feature. All

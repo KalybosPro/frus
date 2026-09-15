@@ -7,6 +7,11 @@
 //! taffy is **entirely hidden** behind frus's own API, so it can be replaced later
 //! without breaking anything public.
 
+// The README's example is compiled and run by `cargo test --doc`, so it cannot rot.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
+
 mod style;
 mod tree;
 

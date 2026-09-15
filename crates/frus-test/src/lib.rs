@@ -21,6 +21,11 @@
 //! llvmpipe under WSL, which is deterministic. With no GPU adapter the render
 //! functions return `None` and the tests skip cleanly.
 
+// The README's example is compiled by `cargo test --doc`, so it cannot rot.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
+
 use std::path::Path;
 
 use frus_core::{Color, Scene, Size};

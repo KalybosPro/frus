@@ -17,6 +17,11 @@
 //! // Falls back to the default locale when the key is missing from the current one.
 //! ```
 
+// The README's example is compiled and run by `cargo test --doc`, so it cannot rot.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
+
 use std::collections::HashMap;
 
 // The **concurrent** bundle — its memoiser sits behind a `Mutex` — is what makes
