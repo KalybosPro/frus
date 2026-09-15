@@ -23,7 +23,7 @@ pub(crate) enum Filter {
 }
 
 /// The application's screens.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Route {
     Home,
     Settings,

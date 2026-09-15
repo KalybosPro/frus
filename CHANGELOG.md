@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 526 so far, each documenting the objective, the alternatives
+> record — one per step, 528 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -149,6 +149,20 @@ any release may break.
 
 ### Changed
 
+- **Breaking: every `Navigator` page has a key, and scrolling one page no longer scrolls
+  another** (J528). Reported from a phone: "when I scroll another page, the one I just left
+  scrolls too." Retained state is kept by identity, and a page's identity was its place
+  among the navigator's children — the first child for whichever page was on show, so two
+  pages built the same way read one scroll offset (the demo's table and grid shared one),
+  and the second child while a page slid in, so a page returned to came back at the top
+  through the whole pop and back gesture and jumped when it ended.
+  `Navigator::new(key, screen)` and `.from(key, previous, progress, forward)` now take a key,
+  and each page's subtree takes its identity from it. The key names an **entry of the
+  stack**, not a route — the same route pushed twice is two pages — and `(depth, route)` is
+  the shape to use; two pages of one transition under one key are refused in a debug build.
+  A page below the top keeps its scroll offsets while it is out of the tree. A key on a
+  page's own root is replaced by the page's key. `Navigator`'s builders now ask
+  `Msg: 'static`.
 - **Breaking: `AppBar::new()` takes no title, and a bar may have none** (J522). The
   constructor demanded a string, so a bar with nothing between its leading and its actions
   was written `new("")` and laid out and painted an empty text where the title would have

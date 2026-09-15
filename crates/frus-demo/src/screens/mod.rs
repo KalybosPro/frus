@@ -36,9 +36,19 @@ use crate::prelude::*;
 /// reference's `ModalRoute.of(context).animation`: a screen that wants to move its own
 /// contents as it arrives needs the route's progress, and the application is what has it.
 /// A screen that does not care ignores it, which is all but one of them.
+///
+/// Each page is keyed by **its entry of the stack** — how deep it is and which route it
+/// shows — so that what one page keeps, its scroll first of all, is never read by another,
+/// and a page keeps it through the transitions that bring it in and take it out
+/// (milestone 528). Home is depth 0, below everything the stack holds.
 pub(crate) fn build_view(app: &TodoApp, theme: &Theme) -> Navigator<Msg> {
+    let depth = app.routes.len();
+    let top_key = (depth, current_route(app));
+
     // A back gesture in progress: it previews the pop, driven by the finger. The top
-    // screen is the one leaving, so its own progress runs the other way.
+    // screen is the one leaving, so its own progress runs the other way. A gesture only
+    // starts on a stack with something to go back to, so the page below is one entry
+    // down.
     if let Some(gesture) = &app.back {
         let progress = gesture.progress;
         let top = screen(current_route(app), app, theme, 1.0 - progress);
@@ -48,7 +58,8 @@ pub(crate) fn build_view(app: &TodoApp, theme: &Theme) -> Navigator<Msg> {
             .and_then(|(_, rest)| rest.last().copied())
             .unwrap_or(Route::Home);
         let below = screen(below_route, app, theme, progress);
-        return Navigator::new(below).from(top, progress, false);
+        return Navigator::new((depth.saturating_sub(1), below_route), below)
+            .from(top_key, top, progress, false);
     }
 
     match app.nav_from {
@@ -56,9 +67,21 @@ pub(crate) fn build_view(app: &TodoApp, theme: &Theme) -> Navigator<Msg> {
             let progress = app.nav.value();
             let current = screen(current_route(app), app, theme, progress);
             let leaving = screen(from, app, theme, 1.0 - progress);
-            Navigator::new(current).from(leaving, progress, app.nav_forward)
+            // A push left the page it came from one entry down; a pop took the page it
+            // left off the top, one entry up.
+            let from_depth = if app.nav_forward {
+                depth.saturating_sub(1)
+            } else {
+                depth + 1
+            };
+            Navigator::new(top_key, current).from(
+                (from_depth, from),
+                leaving,
+                progress,
+                app.nav_forward,
+            )
         }
-        None => Navigator::new(screen(current_route(app), app, theme, 1.0)),
+        None => Navigator::new(top_key, screen(current_route(app), app, theme, 1.0)),
     }
 }
 
