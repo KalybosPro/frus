@@ -69,5 +69,9 @@ cd crates/frus-hello/web && python3 -m http.server 8080
   subscription that increments it — the thing to watch in a browser. A genuinely
   **asynchronous** effect, a network fetch, is still to come; the current `Task` is
   synchronous.
-- **Clipboard, accessibility and live reload** are disabled on the Web; each is a
-  separate piece of work.
+- **The clipboard** is the browser's asynchronous Clipboard API (milestone 526), which
+  only exists in a **secure context**: `localhost` is one, a plain `http://` address on
+  another machine is not, and there copy and paste do nothing but log a warning. The
+  browser may also ask the reader before the first paste.
+- **Accessibility and live reload** are disabled on the Web; each is a separate piece of
+  work.

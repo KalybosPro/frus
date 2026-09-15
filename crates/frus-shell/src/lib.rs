@@ -43,6 +43,8 @@ pub(crate) mod runtime;
 mod selection;
 mod subscription;
 mod theming;
+#[cfg(web)]
+mod web_clipboard;
 
 pub use app::App;
 pub use application::{Application, Lifecycle};

@@ -100,6 +100,8 @@ web-sys = { version = "0.3", features = [
     "Window",
     # `navigator.languages`: the reader's preferred languages, in order (milestone 454).
     "Navigator",
+    # `navigator.clipboard`: copy and paste (milestone 526, #17).
+    "Clipboard",
     "Element",
     "Response",
     "Request",

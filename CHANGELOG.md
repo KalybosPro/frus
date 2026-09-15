@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 523 so far, each documenting the objective, the alternatives
+> record — one per step, 526 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -196,6 +196,15 @@ any release may break.
 
 ### Added
 
+- **Copy and paste in the browser** (J526, #17). The web's clipboard was a no-op, so a field
+  on a web build dropped Ctrl+C, Ctrl+X and Ctrl+V silently. It is now the browser's
+  asynchronous Clipboard API behind the shell's clipboard, with the same shortcuts as the
+  desktop. A paste is asked for on behalf of the focused field and answered either at once
+  (desktop, Android) or on a later frame (the web), and either answer lands only in the field
+  that asked while it still has the focus, and only when there is text — so an empty
+  clipboard no longer types nothing over a selection anywhere. No widget changed. Outside a
+  secure context, or when the browser refuses, copy and paste log a warning and do nothing;
+  nothing on the path can panic. Not yet seen in a real browser.
 - **An application can move a sheet** (J523, #39). `Command::sheet(key, SheetTo::size(1.0))`
   moves the `DraggableScrollableSheet` wrapped in `keyed(key, …)` at once, `.animate(duration,
   curve)` along a curve, and `SheetTo::initial()` puts it back where it started — the

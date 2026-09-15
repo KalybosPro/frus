@@ -116,12 +116,56 @@ fn wants_keyboard<M>(widget: &dyn Widget<M>) -> bool {
 }
 
 /// The clipboard: `arboard` on the desktop platforms, the platform's own on Android
-/// (`ClipboardManager`, through the bundled dex — milestone 509, #22), and a no-op on
-/// the rest (iOS, Web — `arboard` does not compile there and is not a dependency).
+/// (`ClipboardManager`, through the bundled dex — milestone 509, #22), the browser's
+/// asynchronous Clipboard API on the Web (milestone 526, #17), and a no-op on iOS
+/// (`arboard` does not compile there and is not a dependency).
 /// The stub is gated on what is *not* implemented rather than on a list of the other
 /// platforms: that is what makes adding a target never leave this type undefined.
 /// One uniform API, so the driver's body stays free of `cfg`.
+///
+/// **A paste is asked for, and answered.** The Web's read is a promise — it may prompt
+/// the reader, be refused, or take its time — and the other platforms' reads are
+/// immediate. So `Clipboard::paste` names the field that asked and either answers at
+/// once or answers later through `Clipboard::take_answered`, which the driver drains
+/// every frame; both answers land through the same rule, `Pasted::lands`. Nothing on a
+/// synchronous platform pretends to wait, and no widget knows which kind it is on: the
+/// shell, not the field, holds the clipboard.
 mod clip {
+    use frus_widgets::WidgetId;
+
+    /// What the clipboard answered to a paste: its text, and the field that asked.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct Pasted {
+        pub into: WidgetId,
+        pub text: String,
+    }
+
+    impl Pasted {
+        /// Whether this paste goes into its field: only while that field still has the
+        /// focus — on the Web the answer comes back after the key press, and the reader
+        /// may have moved on to another field, or to none — and only when there is text.
+        /// An empty clipboard is nothing to paste, not an instruction to delete the
+        /// selection; the browser answers a clipboard holding no text with `""`.
+        pub fn lands(&self, focused: Option<WidgetId>) -> bool {
+            focused == Some(self.into) && !self.text.is_empty()
+        }
+    }
+
+    /// The platforms whose read is immediate answer a paste on the spot.
+    #[cfg(not(web))]
+    impl Clipboard {
+        pub fn paste(
+            &mut self,
+            into: WidgetId,
+            _wake: Option<&std::sync::Arc<winit::window::Window>>,
+        ) -> Option<Pasted> {
+            self.get_text().map(|text| Pasted { into, text })
+        }
+        pub fn take_answered(&mut self) -> Option<Pasted> {
+            None
+        }
+    }
+
     #[cfg(desktop)]
     pub struct Clipboard(Option<arboard::Clipboard>);
 
@@ -156,10 +200,75 @@ mod clip {
         }
     }
 
-    #[cfg(not(any(desktop, android)))]
+    /// The pastes a clipboard has answered later and the driver has not taken yet, in the
+    /// order the answers came — which need not be the order they were asked in.
+    ///
+    /// Held by the Web's clipboard; kept out of its `cfg` so that it is tested natively.
+    #[cfg(any(web, test))]
+    #[derive(Default)]
+    pub struct Answers(std::rc::Rc<std::cell::RefCell<std::collections::VecDeque<Pasted>>>);
+
+    #[cfg(any(web, test))]
+    impl Answers {
+        /// What answers a paste into `into` once the text is there: it queues the paste,
+        /// then calls `wake`, so that a frame comes to take it.
+        pub fn answer_for(
+            &self,
+            into: WidgetId,
+            wake: impl FnOnce() + 'static,
+        ) -> impl FnOnce(String) + 'static {
+            let queue = std::rc::Rc::clone(&self.0);
+            move |text| {
+                queue.borrow_mut().push_back(Pasted { into, text });
+                wake();
+            }
+        }
+
+        /// The oldest answer not taken yet.
+        pub fn take(&self) -> Option<Pasted> {
+            self.0.borrow_mut().pop_front()
+        }
+    }
+
+    /// The Web: a read is started by the key press and answered by the browser later,
+    /// into a queue the driver drains; the window is asked for a frame so that it does.
+    #[cfg(web)]
+    pub struct Clipboard {
+        answered: Answers,
+    }
+
+    #[cfg(web)]
+    impl Clipboard {
+        pub fn new() -> Self {
+            Self {
+                answered: Answers::default(),
+            }
+        }
+        pub fn set_text(&mut self, text: String) {
+            crate::web_clipboard::set_text(&text);
+        }
+        pub fn paste(
+            &mut self,
+            into: WidgetId,
+            wake: Option<&std::sync::Arc<winit::window::Window>>,
+        ) -> Option<Pasted> {
+            let wake = wake.cloned();
+            crate::web_clipboard::get_text(self.answered.answer_for(into, move || {
+                if let Some(window) = wake {
+                    window.request_redraw();
+                }
+            }));
+            None
+        }
+        pub fn take_answered(&mut self) -> Option<Pasted> {
+            self.answered.take()
+        }
+    }
+
+    #[cfg(not(any(desktop, android, web)))]
     pub struct Clipboard;
 
-    #[cfg(not(any(desktop, android)))]
+    #[cfg(not(any(desktop, android, web)))]
     impl Clipboard {
         pub fn new() -> Self {
             Self
@@ -544,8 +653,8 @@ pub struct App<A: Application> {
     /// lines keeps the original column, the way an editor does. Cleared as soon as any
     /// other caret movement happens.
     goal_x: Option<f32>,
-    /// Clipboard access: `arboard` on the desktop, the platform's on Android, nothing yet
-    /// on iOS and the web.
+    /// Clipboard access: `arboard` on the desktop, the platform's on Android, the
+    /// browser's on the web, nothing yet on iOS.
     clipboard: clip::Clipboard,
     /// Has the startup effect (`init`) already run? This keeps it from being replayed
     /// when the surface is recreated, as it is when Android returns from background.
@@ -1872,9 +1981,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                             self.request_redraw();
                         }
                         ClipCommand::Paste => {
-                            if let Some(text) = self.clipboard.get_text() {
-                                self.apply_key(focused, Key::Text(text));
-                                self.request_redraw();
+                            // Answered now, or — on the Web — on a later frame.
+                            if let Some(pasted) =
+                                self.clipboard.paste(focused, self.window.as_ref())
+                            {
+                                self.land_paste(pasted);
                             }
                         }
                     }
@@ -2084,6 +2195,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         Some(renderer) => self.renderer = Some(renderer),
                         None => return,
                     }
+                }
+                // A paste the browser has answered since the last frame goes in before
+                // this one is built. Elsewhere a paste is answered on the spot and this
+                // finds nothing.
+                while let Some(pasted) = self.clipboard.take_answered() {
+                    self.land_paste(pasted);
                 }
                 // Occluded window: rendering is suspended, resuming on Occluded(false).
                 if self.occluded {
@@ -5213,6 +5330,15 @@ impl<A: Application> App<A> {
             self.clipboard.set_text(text);
         }
     }
+
+    /// Types what the clipboard answered into the field that asked for it, if the paste
+    /// still lands there — see `clip::Pasted::lands`.
+    fn land_paste(&mut self, pasted: clip::Pasted) {
+        if pasted.lands(self.runtime.input.focused) {
+            self.apply_key(pasted.into, Key::Text(pasted.text));
+            self.request_redraw();
+        }
+    }
 }
 
 /// Which end of a value drag is being announced.
@@ -5634,6 +5760,77 @@ mod tests {
             clipboard_command(&named, any, false),
             Some(ClipCommand::Paste)
         );
+    }
+
+    /// **A paste lands only in the field that asked, while that field still has the
+    /// focus** — on the Web the clipboard answers after the key press, and by then the
+    /// reader may have moved to another field or to none. And a clipboard holding no
+    /// text pastes nothing, rather than typing an empty string over the selection
+    /// (milestone 526).
+    #[test]
+    fn a_paste_lands_in_the_field_that_asked_only_while_it_has_the_focus() {
+        use super::clip::Pasted;
+        let field = WidgetId::from_u64(1);
+        let other = WidgetId::from_u64(2);
+        let pasted = Pasted {
+            into: field,
+            text: "copied".into(),
+        };
+        assert!(pasted.lands(Some(field)));
+        assert!(
+            !pasted.lands(Some(other)),
+            "the focus moved to another field"
+        );
+        assert!(!pasted.lands(None), "the focus left every field");
+        let nothing = Pasted {
+            into: field,
+            text: String::new(),
+        };
+        assert!(!nothing.lands(Some(field)), "an empty clipboard");
+    }
+
+    /// **A paste answered later is queued for its field, and a frame is asked for.** Two
+    /// pastes asked in two fields and answered in the other order come out in the order
+    /// the answers came, each still naming the field that asked; each answer wakes the
+    /// window once; and nothing is taken twice (milestone 526).
+    #[test]
+    fn a_paste_answered_later_waits_for_the_frame_that_takes_it() {
+        use super::clip::{Answers, Pasted};
+        use std::cell::Cell;
+        use std::rc::Rc;
+        let first = WidgetId::from_u64(1);
+        let second = WidgetId::from_u64(2);
+        let answers = Answers::default();
+        let wakes = Rc::new(Cell::new(0));
+        let wake = || {
+            let wakes = Rc::clone(&wakes);
+            move || wakes.set(wakes.get() + 1)
+        };
+        let to_first = answers.answer_for(first, wake());
+        let to_second = answers.answer_for(second, wake());
+        assert_eq!(answers.take(), None, "nothing is answered yet");
+        assert_eq!(wakes.get(), 0, "asking is not answering");
+
+        to_second("later".into());
+        assert_eq!(wakes.get(), 1);
+        to_first("sooner".into());
+        assert_eq!(wakes.get(), 2);
+
+        assert_eq!(
+            answers.take(),
+            Some(Pasted {
+                into: second,
+                text: "later".into()
+            })
+        );
+        assert_eq!(
+            answers.take(),
+            Some(Pasted {
+                into: first,
+                text: "sooner".into()
+            })
+        );
+        assert_eq!(answers.take(), None, "each answer is taken once");
     }
 
     /// An application whose whole interface lives **inside a deferred subtree** — which is
