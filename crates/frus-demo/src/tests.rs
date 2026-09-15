@@ -1538,6 +1538,81 @@ fn kanban_move_relocates_a_card() {
     );
 }
 
+/// **The board's label strip runs across, and what it routes reorders the labels**
+/// (milestone 527).
+///
+/// The strip is what a horizontal `ReorderableList` is tried on under a finger, so it has to
+/// be one on a phone's page: its rows side by side along x, not flat, running past the
+/// window's right edge so that it scrolls — and the message its first row routes for a drop
+/// after the third has to move that label in the model.
+#[test]
+fn the_board_label_strip_runs_across_and_reorders() {
+    let mut app = TodoApp::default();
+    reduce(&mut app, Msg::Push(Route::Board));
+    // Past the route transition, so the board is the one screen on show.
+    for _ in 0..40 {
+        Application::tick(&mut app, 0.05);
+    }
+    let theme = Theme::dark();
+    let size = Size::new(424.0, 918.0);
+    let tree = root_for(&app, &theme, size);
+    let (ui, nodes) = MediaQuery::new(size)
+        .scope(|| build_ui_inspected(tree.as_ref(), size, &Runtime::default(), &theme));
+    let rows: Vec<frus_widgets::Rect> = nodes
+        .iter()
+        .filter(|n| n.name == "ReorderRow")
+        .map(|n| n.rect)
+        .collect();
+    assert_eq!(
+        rows.len(),
+        BOARD_LABELS.len(),
+        "one row per label: {rows:?}"
+    );
+    for pair in rows.windows(2) {
+        assert!(
+            (pair[0].y - pair[1].y).abs() < 0.5 && pair[1].x >= pair[0].x + pair[0].width - 0.5,
+            "side by side along x, in order: {:?} then {:?}",
+            pair[0],
+            pair[1]
+        );
+    }
+    assert!(
+        rows.iter().all(|r| r.height > 20.0 && r.x >= 0.0),
+        "the labels are neither flat nor off the page's left: {rows:?}"
+    );
+    let last = rows[rows.len() - 1];
+    assert!(
+        last.x + last.width > size.width,
+        "the strip runs past the window, so it scrolls: {last:?}"
+    );
+
+    // The first label's own row, as the shell finds it: across, droppable, index 0.
+    let first = ui
+        .reorderables()
+        .iter()
+        .map(|(id, _)| *id)
+        .find(|id| {
+            find_widget(tree.as_ref(), *id).is_some_and(|w| {
+                w.reorder_droppable()
+                    && w.reorder_axis() == frus_widgets::ReorderAxis::Horizontal
+                    && w.reorder_index() == Some(0)
+            })
+        })
+        .expect("the first label's row");
+    // After the third label is raw index 3, which is where the first one ends up: 2.
+    let Some(message) = find_widget(tree.as_ref(), first).and_then(|w| w.on_reorder(3)) else {
+        panic!("a drop after the third label moves the first");
+    };
+    reduce(&mut app, message);
+    assert_eq!(app.board_labels()[..4], [1, 2, 0, 3]);
+    // And back from the end of the strip to its head.
+    reduce(&mut app, Msg::MoveLabel(9, 0));
+    assert_eq!(app.board_labels(), [9, 1, 2, 0, 3, 4, 5, 6, 7, 8]);
+    // An index the strip never emitted asks for nothing.
+    reduce(&mut app, Msg::MoveLabel(0, 10));
+    assert_eq!(app.board_labels()[0], 9);
+}
+
 #[test]
 fn grouped_bars_are_clickable_in_dashboard() {
     // The main chart in **grouped bars** (kind 2) wires up `on_point` (milestone 222): at

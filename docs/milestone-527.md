@@ -128,8 +128,9 @@ golden in `frus-test`, `cargo clippy -p frus-widgets -p frus-shell -p frus-demo 
 - **The device run.** No phone was attached. This repository does not believe green tests about a
   gesture that only exists while something is held — 517 is the reason — so nothing here has been
   seen under a finger yet: a strip carried to its right and left edges and held, the line and the
-  gap along x, a release past either end, and the same in a right-to-left locale. The demo has no
-  horizontal list to try it on; the run needs one.
+  gap along x, a release past either end, and the same in a right-to-left locale. The demo now
+  has a strip to try it on: ten labels across the top of the Kanban board screen (Menu, then
+  *Kanban board*), wider than a phone and reordered in the model by `MoveLabel`.
 - **A strip that reads against its theme.** The direction the release reads is the theme's. A
   `Row` or a `Column` can run against it with `text_direction`, but only for its own children, and
   a strip's rows are the list's own children, so today the layout and the release always agree. A

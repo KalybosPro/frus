@@ -85,6 +85,9 @@ pub(crate) enum Msg {
     KanbanAdd(usize),
     /// Deletes the Kanban card `(col, pos)` (milestone 249).
     KanbanDelete(usize, usize),
+    /// A label of the board's strip carried to a new place: `(from, to)`, `to` being the index
+    /// it ends up at (milestone 527).
+    MoveLabel(usize, usize),
     /// Picks a colour.
     PickColor(Color),
     /// Selects a day in the calendar.
