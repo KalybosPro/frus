@@ -14,7 +14,8 @@
 //!
 //! ```ignore
 //! ThemeBuilder::new(|theme| {
-//!     AppBar::new("Inbox")
+//!     AppBar::new()
+//!         .title(Text::new("Inbox"))
 //!         .center_title(theme.widgets.app_bar.center_title.unwrap_or(platform()))
 //!         .build()
 //! })

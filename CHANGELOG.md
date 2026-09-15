@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 521 so far, each documenting the objective, the alternatives
+> record — one per step, 522 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -149,6 +149,13 @@ any release may break.
 
 ### Changed
 
+- **Breaking: `AppBar::new()` takes no title, and a bar may have none** (J522). The
+  constructor demanded a string, so a bar with nothing between its leading and its actions
+  was written `new("")` and laid out and painted an empty text where the title would have
+  been, and a bar with a logo for a title was written `new("").title(logo)`. As in the
+  reference, the title is an optional widget: `AppBar::new().title(Text::new("Inbox"))`.
+  Unset, nothing is built, painted or announced there, and the fold gives the actions the
+  room. `AppBar` now implements `Default`.
 - **A minimum supported Rust version: 1.88** (J507, answers #8). No manifest carried a
   `rust-version` and nothing older than current stable had ever built the workspace. The
   dependencies set the floor — `image` 0.25 and the `icu` 2.3 crates behind `url` ask for

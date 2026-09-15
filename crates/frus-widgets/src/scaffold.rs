@@ -1250,7 +1250,12 @@ mod tests {
                     // *description* rather than a padding: an `AppBar` consumes the status
                     // bar itself, as the reference's does, and a bare box in this slot is a
                     // bare box that does not.
-                    .app_bar(crate::AppBar::<Msg>::new("bar").height(56.0).build())
+                    .app_bar(
+                        crate::AppBar::<Msg>::new()
+                            .title(crate::Text::new("bar"))
+                            .height(56.0)
+                            .build(),
+                    )
                     .body(Container::new().flex(1.0).child(text("body")))
                     .build()
             });
@@ -1551,7 +1556,7 @@ mod tests {
             Scaffold::new()
                 .size(W, H)
                 .insets(Insets::new(40.0, 0.0, 0.0, 0.0))
-                .app_bar(crate::AppBar::<Msg>::new("").height(56.0).build())
+                .app_bar(crate::AppBar::<Msg>::new().height(56.0).build())
                 .body(marked(200.0))
                 .build(),
         );
@@ -1562,7 +1567,7 @@ mod tests {
                 .size(W, H)
                 .insets(Insets::new(40.0, 0.0, 0.0, 0.0))
                 .extend_body_behind_app_bar(true)
-                .app_bar(crate::AppBar::<Msg>::new("").height(56.0).build())
+                .app_bar(crate::AppBar::<Msg>::new().height(56.0).build())
                 .body(marked(200.0))
                 .build(),
         );
@@ -1776,7 +1781,8 @@ mod tests {
                 .drawer(text("Menu"), false, Msg::Drawer)
                 .end_drawer(text("Filters"), false, Msg::Add)
                 .app_bar(
-                    crate::AppBar::<Msg>::new("Title")
+                    crate::AppBar::<Msg>::new()
+                        .title(crate::Text::new("Title"))
                         .automatically_imply_leading(leading)
                         .automatically_imply_actions(actions)
                         .build(),
@@ -1809,7 +1815,11 @@ mod tests {
             Scaffold::new()
                 .size(W, H)
                 .body(Container::<Msg>::new())
-                .app_bar(crate::AppBar::<Msg>::new("Title").build())
+                .app_bar(
+                    crate::AppBar::<Msg>::new()
+                        .title(crate::Text::new("Title"))
+                        .build(),
+                )
                 .build()
                 .as_ref(),
         );
@@ -1828,7 +1838,8 @@ mod tests {
                 .drawer(text("Menu"), false, Msg::Drawer)
                 .end_drawer(text("Filters"), false, Msg::Add)
                 .app_bar(
-                    crate::AppBar::<Msg>::new("Title")
+                    crate::AppBar::<Msg>::new()
+                        .title(crate::Text::new("Title"))
                         .leading(button("Back", Msg::Go(1)))
                         .action("Save", Msg::Go(2))
                         .build(),
@@ -1877,8 +1888,12 @@ mod tests {
             marked_under(surface, size, || {
                 let mut scaffold = Scaffold::new().size(W, H);
                 if with_bar {
-                    scaffold =
-                        scaffold.app_bar(crate::AppBar::<Msg>::new("bar").height(BAR).build());
+                    scaffold = scaffold.app_bar(
+                        crate::AppBar::<Msg>::new()
+                            .title(crate::Text::new("bar"))
+                            .height(BAR)
+                            .build(),
+                    );
                 }
                 scaffold
                     .body(crate::SafeArea::new(marked::<Msg>(20.0).width(20.0)))
@@ -2156,7 +2171,12 @@ mod tests {
             let tree = surface.scope(|| {
                 Scaffold::<Msg>::new()
                     .primary(primary)
-                    .app_bar(crate::AppBar::<Msg>::new("bar").height(56.0).build())
+                    .app_bar(
+                        crate::AppBar::<Msg>::new()
+                            .title(crate::Text::new("bar"))
+                            .height(56.0)
+                            .build(),
+                    )
                     .body(Container::new().flex(1.0))
                     .build()
             });

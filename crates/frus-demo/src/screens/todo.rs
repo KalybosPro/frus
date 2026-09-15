@@ -187,7 +187,8 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
         2 => "About".to_string(),
         _ => tr(lang_of(app), "app-title"),
     };
-    let header = AppBar::new(section_title)
+    let header = AppBar::new()
+        .title(frus_widgets::Text::new(section_title))
         .leading(
             // **The mark crosses as the drawer does.** Three bars while it is shut, a
             // cross while it is open, and the way between driven by the same `0 ↔ 1` the
