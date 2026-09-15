@@ -196,6 +196,16 @@ any release may break.
 
 ### Added
 
+- **Shipping to more than one ABI, documented** (J524, answers #10). Every example builds
+  `aarch64-linux-android` alone, and nothing said that an application for real people wants
+  more, or what the packager does about it. The getting-started guide's *Shipping* section now
+  says which ABIs are worth building and why, how `build_targets` gets there, and what it
+  weighs — measured on the counter: a 4.8 MB APK for `arm64-v8a`, 4.6 MB for `armeabi-v7a`,
+  9.4 MB for both, since the library is nearly all of it. It lists what `cargo-apk` does
+  **not** do, read from its source: no store-ready split (`--target` builds one ABI, but every
+  APK carries the same version code), no app bundle, no Rust targets installed. Release
+  signing through `CARGO_APK_RELEASE_KEYSTORE` is documented, and a finding made while
+  measuring is written down rather than fixed: the release library is aligned for 4 KB pages.
 - **Copy and paste in the browser** (J526, #17). The web's clipboard was a no-op, so a field
   on a web build dropped Ctrl+C, Ctrl+X and Ctrl+V silently. It is now the browser's
   asynchronous Clipboard API behind the shell's clipboard, with the same shortcuts as the

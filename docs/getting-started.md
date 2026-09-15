@@ -144,6 +144,83 @@ path = "/absolute/path/to/release.keystore"
 keystore_password = "…"
 ```
 
+Or keep both out of the manifest: `cargo-apk` reads `CARGO_APK_RELEASE_KEYSTORE` and
+`CARGO_APK_RELEASE_KEYSTORE_PASSWORD` from the environment, and they take precedence over
+the table above — which is what a CI job wants. Set both or neither: a release build given
+a keystore without its password stops.
+
+### More than one ABI
+
+Every example here, and the template, builds for one ABI: `aarch64-linux-android`, which
+Android calls `arm64-v8a`. An APK carries native code only for the ABIs it was built for, and
+a device whose ABI is not in it cannot install it.
+
+| Android ABI   | Rust target               | worth shipping?                                                   |
+| ------------- | ------------------------- | ----------------------------------------------------------------- |
+| `arm64-v8a`   | `aarch64-linux-android`   | Always: it is what nearly every phone and tablet in use runs.     |
+| `armeabi-v7a` | `armv7-linux-androideabi` | For older and entry-level devices whose system is 32-bit. An addition, never a replacement: some recent devices run 64-bit code only. |
+| `x86_64`      | `x86_64-linux-android`    | For the emulator on an Intel or AMD machine, and ChromeOS on those chips. |
+| `x86`         | `i686-linux-android`      | No: old 32-bit emulator images.                                   |
+
+List them in the manifest, and add each one's Rust target once:
+
+```toml
+[package.metadata.android]
+build_targets = ["aarch64-linux-android", "armv7-linux-androideabi"]
+```
+
+```sh
+rustup target add armv7-linux-androideabi   # once, for each target you list
+cargo apk build --lib --release
+```
+
+`cargo-apk` compiles the library once per target and packs every result into **one** APK,
+with a `lib/<abi>/` directory each, at `target/release/apk/<name>.apk`. Every device that
+installs it downloads every ABI in it:
+
+| `build_targets`             | APK    | `.so`   | `.so` in the APK |
+| --------------------------- | ------ | ------- | ---------------- |
+| `arm64-v8a` only            | 4.8 MB | 10.5 MB | 4.8 MB           |
+| `armeabi-v7a` only          | 4.6 MB | 8.4 MB  | 4.6 MB           |
+| both                        | 9.4 MB | both    | both             |
+
+That is the counter app in release, with every font bundled, measured later than the table
+above, and the counter has grown a little since. A second ABI costs as much as
+the first: the library is nearly the whole APK, and two architectures' machine code share
+nothing.
+
+Signing does not change: it is the APK that is signed, once, with the release key set up
+above, whatever it holds.
+
+To build one ABI without touching the manifest, name its target, which replaces the list:
+
+```sh
+cargo apk build --lib --release --target armv7-linux-androideabi
+```
+
+What `cargo-apk` does **not** do for you:
+
+- **Split per ABI.** Building each target on its own gives one APK per ABI, but always at
+  the same path — each build overwrites the last, so copy it away — and with the **same
+  version code**: `cargo-apk` derives it from the crate's version and refuses one set in
+  the manifest. A store that serves a different APK per ABI needs a different version code
+  for each, so these APKs are for installing on devices you know, not for publishing side
+  by side.
+- **Build an app bundle.** Google Play has required an Android App Bundle (`.aab`) for new
+  applications since August 2021, and makes the per-device APKs from it itself: there, the
+  split is the store's job. `cargo-apk` writes APKs only. Producing a bundle for a frus
+  application has not been done and checked yet, so this guide does not describe it.
+- **Install the Rust targets.** `rustup target add` is yours to run; the NDK already has a
+  compiler for each ABI.
+- **Take a version past 255.** Each part of the crate's version becomes one byte of the
+  version code, so `0.1.300` is refused.
+
+One more thing to know before a store tells you: Google Play asks applications that target
+Android 15 or later to support 16 KB memory pages, and a library built as above is aligned for
+4 KB pages (`llvm-readelf -l` on the `.so` shows `0x1000` on every `LOAD` segment). The
+template targets SDK 34, so it is not asked yet. How to build for 16 KB has not been checked
+here, so it is not described.
+
 ### Fonts, and what they weigh
 
 frus bundles its own faces so text renders identically everywhere — Android has no
