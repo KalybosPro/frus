@@ -408,7 +408,12 @@ pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> 
     // the retained state (the field's focus!) jumps.
     card_body = card_body
         .child(keyed("draft-row", input_row))
-        .child(keyed("filters", filters))
+        .child(keyed(
+            "filters",
+            SingleChildScrollView::new()
+                .child(filters)
+                .axis(Axis::Horizontal),
+        ))
         .child(keyed("drop-zones", zones))
         .child(keyed("todo-list", list))
         .child(Divider::new())
