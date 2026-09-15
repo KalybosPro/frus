@@ -32,8 +32,15 @@ pub const BUTTON_MIN_WIDTH: f32 = 64.0;
 pub const BUTTON_PADDING: f32 = 24.0;
 /// The room either side of a **text** button's label, which has no box to fill.
 pub const BUTTON_TEXT_PADDING: f32 = 12.0;
-/// How far an elevated button sits off the surface.
+/// How far an elevated button sits off the surface **at rest** — see [`Button::elevation`]
+/// for the other states.
 pub const BUTTON_ELEVATION: f32 = 1.0;
+/// How far an elevated button rises under a pointer (the reference's elevated button
+/// defaults, line 579).
+const ELEVATED_HOVER_ELEVATION: f32 = 3.0;
+/// How far a filled or tonal button rises under a pointer, from flat (the reference's
+/// filled button defaults, lines 597 and 738).
+const FILLED_HOVER_ELEVATION: f32 = 1.0;
 /// An outlined button's outline.
 pub const BUTTON_BORDER_WIDTH: f32 = 1.0;
 
@@ -61,11 +68,29 @@ pub enum Variant {
 }
 
 impl Variant {
-    /// Whether the variant carries a shadow by default.
-    const fn elevation(self) -> f32 {
+    /// How far the variant sits off the surface in each state it can be in while enabled.
+    ///
+    /// The reference's, variant by variant: an elevated button rests at 1, rises to 3 under
+    /// a pointer and is back at 1 focused or pressed (its elevated button defaults, lines
+    /// 570–585); a filled or a tonal one is flat except under a pointer, where it rises to 1
+    /// (its filled button defaults, lines 588–603 and 729–744) — and so is a danger one,
+    /// being a filled button in the error colours; an outlined or a text button never
+    /// leaves the surface.
+    const fn heights(self) -> Heights {
         match self {
-            Variant::Elevated => BUTTON_ELEVATION,
-            _ => 0.0,
+            Variant::Elevated => Heights {
+                rest: BUTTON_ELEVATION,
+                hovered: ELEVATED_HOVER_ELEVATION,
+                focused: BUTTON_ELEVATION,
+                pressed: BUTTON_ELEVATION,
+            },
+            Variant::Filled | Variant::Tonal | Variant::Danger => Heights {
+                rest: 0.0,
+                hovered: FILLED_HOVER_ELEVATION,
+                focused: 0.0,
+                pressed: 0.0,
+            },
+            Variant::Outlined | Variant::Text => Heights::all(0.0),
         }
     }
 
@@ -75,6 +100,42 @@ impl Variant {
             Variant::Text => BUTTON_TEXT_PADDING,
             _ => BUTTON_PADDING,
         }
+    }
+}
+
+/// A button's height in each state it can be in while enabled. Disabled, every button is
+/// flat, and that is decided before these are read.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Heights {
+    rest: f32,
+    hovered: f32,
+    focused: f32,
+    pressed: f32,
+}
+
+impl Heights {
+    const fn all(height: f32) -> Self {
+        Self {
+            rest: height,
+            hovered: height,
+            focused: height,
+            pressed: height,
+        }
+    }
+
+    /// The height this frame.
+    ///
+    /// From rest towards the focused height, then the hovered one, then the pressed one,
+    /// each by its own progress. So a press outranks a hover and a hover outranks a focus,
+    /// which is the order the reference resolves the states in, and every change is exactly
+    /// as gradual as the state layer painted from the same status: the reference animates a
+    /// height it resolved outright, and this one is continuous by construction.
+    fn at(self, status: &Status) -> f32 {
+        let toward =
+            |from: f32, to: f32, progress: f32| from + (to - from) * progress.clamp(0.0, 1.0);
+        let height = toward(self.rest, self.focused, status.focus_progress);
+        let height = toward(height, self.hovered, status.hover_progress);
+        toward(height, self.pressed, status.press_progress)
     }
 }
 
@@ -205,8 +266,13 @@ impl<Msg> Button<Msg> {
         self
     }
 
-    /// How far it sits off the surface. `0.0` is flat, and flat is what four of the five
-    /// variants are.
+    /// How far it sits off the surface, **in every state**. `0.0` is flat whatever the
+    /// pointer does.
+    ///
+    /// Unset, the variant's own heights, and they move with the state as the reference's
+    /// do: an elevated button rests at 1, rises to 3 under a pointer and is back at 1 while
+    /// pressed; a filled, tonal or danger button is flat and rises to 1 under a pointer; an
+    /// outlined or a text button stays flat. A disabled button is flat either way.
     pub fn elevation(mut self, elevation: f32) -> Self {
         self.elevation = Some(elevation);
         self
@@ -242,13 +308,19 @@ impl<Msg> Button<Msg> {
             .unwrap_or(BUTTON_MIN_WIDTH)
     }
 
-    fn elevation_of(&self, theme: &Theme) -> f32 {
+    /// The height this frame: nought while disabled, the caller's or the theme's in every
+    /// state, and otherwise the variant's own for the state the button is in.
+    ///
+    /// It was one number whatever the state, so an elevated button did not rise under a
+    /// pointer and a filled one never left the surface.
+    fn elevation_of(&self, theme: &Theme, status: &Status) -> f32 {
         if !self.enabled {
             return 0.0;
         }
-        self.elevation
-            .or(theme.widgets.button.elevation)
-            .unwrap_or(self.variant.elevation())
+        match self.elevation.or(theme.widgets.button.elevation) {
+            Some(height) => height,
+            None => self.variant.heights().at(status),
+        }
     }
 
     /// **What shape this button is**: its own word, then the theme's shape, then the
@@ -355,10 +427,11 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
             .as_rounded(bounds)
             .map(|(_, radius)| radius)
             .unwrap_or(BorderRadius::ZERO);
-        let elevation = self.elevation_of(theme);
+        let elevation = self.elevation_of(theme, &status);
 
-        // The shadow belongs to **one** variant. Every enabled button used to cast one,
-        // which is the reference's elevated button drawn five times over.
+        // At rest the shadow belongs to **one** variant — every enabled button used to cast
+        // one, which is the reference's elevated button drawn five times over — and under a
+        // pointer to the filled three as well.
         if elevation > 0.0 {
             let blur = elevation * 4.0 + 8.0;
             scene.shadow(
@@ -839,6 +912,108 @@ mod tests {
             height(Button::new("Go").height(30.0), &theme),
             30.0,
             "the caller's, over the theme's"
+        );
+    }
+
+    /// **A button's height follows its state**, as the reference's does. An elevated one
+    /// rests at 1, rises to 3 under a pointer and is back at 1 once pressed; a filled, tonal
+    /// or danger one is flat and rises to 1 under a pointer. Every button here held one
+    /// height whatever the pointer did. The height moves by the progress the state layer is
+    /// painted with, so half-way into a hover is half-way up.
+    #[test]
+    fn the_height_follows_the_state() {
+        // The height a painted shadow stands for: its blur is four pixels a step, plus eight.
+        let height = |button: &Button<Msg>, status: Status, theme: &Theme| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                button,
+                Rect::new(0.0, 0.0, 120.0, BUTTON_HEIGHT),
+                status,
+                theme,
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect { blur, .. } if *blur > 0.0 => Some((blur - 8.0) / 4.0),
+                    _ => None,
+                })
+                .unwrap_or(0.0)
+        };
+        let theme = Theme::default();
+        let rest = Status::default();
+        let hovered = Status {
+            hover_progress: 1.0,
+            ..Default::default()
+        };
+        let held = Status {
+            hover_progress: 1.0,
+            press_progress: 1.0,
+            ..Default::default()
+        };
+        let focused = Status {
+            focus_progress: 1.0,
+            ..Default::default()
+        };
+        let half = Status {
+            hover_progress: 0.5,
+            ..Default::default()
+        };
+
+        let elevated = Button::new("Go")
+            .variant(Variant::Elevated)
+            .on_press(Msg::Pressed);
+        assert_eq!(height(&elevated, rest, &theme), 1.0);
+        assert_eq!(height(&elevated, hovered, &theme), 3.0);
+        assert_eq!(
+            height(&elevated, held, &theme),
+            1.0,
+            "a press outranks the hover"
+        );
+        assert_eq!(height(&elevated, focused, &theme), 1.0);
+        assert_eq!(
+            height(&elevated, half, &theme),
+            2.0,
+            "it moves, it does not jump"
+        );
+
+        for variant in [Variant::Filled, Variant::Tonal, Variant::Danger] {
+            let button = Button::new("Go").variant(variant).on_press(Msg::Pressed);
+            assert_eq!(height(&button, rest, &theme), 0.0, "{variant:?} rests flat");
+            assert_eq!(height(&button, hovered, &theme), 1.0, "{variant:?} rises");
+            assert_eq!(height(&button, held, &theme), 0.0, "{variant:?} pressed");
+            assert_eq!(height(&button, focused, &theme), 0.0, "{variant:?} focused");
+        }
+        for variant in [Variant::Outlined, Variant::Text] {
+            let button = Button::new("Go").variant(variant).on_press(Msg::Pressed);
+            assert_eq!(
+                height(&button, hovered, &theme),
+                0.0,
+                "{variant:?} stays flat"
+            );
+        }
+        let disabled = Button::new("Go")
+            .variant(Variant::Elevated)
+            .on_press(Msg::Pressed)
+            .enabled(false);
+        assert_eq!(
+            height(&disabled, hovered, &theme),
+            0.0,
+            "a disabled one does not rise"
+        );
+
+        // A height the caller or the theme names holds in every state.
+        let told = Button::new("Go").elevation(2.0).on_press(Msg::Pressed);
+        assert_eq!(height(&told, rest, &theme), 2.0);
+        assert_eq!(height(&told, held, &theme), 2.0);
+        let mut flat = Theme::default();
+        flat.widgets.button.elevation = Some(0.0);
+        assert_eq!(height(&elevated, hovered, &flat), 0.0, "the theme's word");
+        assert_eq!(
+            height(&told, hovered, &flat),
+            2.0,
+            "and the caller's over it"
         );
     }
 }

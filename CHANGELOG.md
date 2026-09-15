@@ -8,13 +8,24 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 528 so far, each documenting the objective, the alternatives
+> record — one per step, 530 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **Shadows the reference draws, drawn** (J530). A button held one height whatever the pointer
+  did. As in the reference, an elevated button now rests at 1, rises to 3 under a pointer and is
+  back at 1 pressed or focused, and a filled, tonal or danger button rises from flat to 1 under a
+  pointer; the height moves with the same progress as the state layer, and one named with
+  `Button::elevation` or `ButtonTheme::elevation` still holds in every state. A slider's thumb,
+  and each of a range slider's, casts a shadow at 1 that rises to 6 while it is held
+  (`thumb_elevation` and `pressed_thumb_elevation` on `Slider`, `RangeSlider` and
+  `SliderTheme`). `ExpansionPanelList` stands at 2 and casts one shadow a card — a run of shut
+  panels, or an open one (`elevation` on the list and on its theme). Not done: the menus the
+  reference lifts at 3 and 8 — `MenuAnchor`, `DropdownMenu`, `DropdownButton` — which have no
+  panel to cast a shadow from; milestone 530 sets out the choice.
 - **A throw that carried a sheet to full height stopped there** (J521, #39). A flick up a
   `DraggableScrollableSheet`'s list raised the sheet and dropped the rest of the throw, as if the
   list had nothing more to show. As in the reference, a throw up that arrives at the top now goes
@@ -149,6 +160,18 @@ any release may break.
 
 ### Changed
 
+- **A height is no longer a shadow where the reference's is not** (J529). A widget here cast a
+  shadow from its elevation alone, where the reference's Material 3 casts one only in a shadow
+  colour that is not transparent — and many of its components keep an elevation and make that
+  colour transparent. `NavigationDrawer` no longer draws a black shadow under every panel, and
+  `Drawer` and `AppBar` given an elevation cast none until they are given a colour: each has
+  `shadow_color` on the widget and on its theme, transparent by default. An untold
+  `MaterialBanner` is flat, with its rule and no margin (`BANNER_ELEVATION` is `0.0`), because
+  the reference's build never reads the 1 in its defaults. `SearchBar::shadow_color` is used as
+  it is given, so `Color::TRANSPARENT` removes the shadow rather than casting black at 30 %.
+  `FloatingActionButton::hover_elevation` is new, and the hovered height is resolved on its own
+  as the reference's is, no longer floored at the resting one. `SnackBar::elevation` is new, and
+  a bar at nought casts nothing.
 - **Breaking: every `Navigator` page has a key, and scrolling one page no longer scrolls
   another** (J528). Reported from a phone: "when I scroll another page, the one I just left
   scrolls too." Retained state is kept by identity, and a page's identity was its place

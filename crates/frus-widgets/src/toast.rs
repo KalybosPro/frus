@@ -123,6 +123,8 @@ pub struct SnackBar<Msg> {
     text_color: Option<Color>,
     action_text_color: Option<Color>,
     accent: Option<Color>,
+    /// How far off the page it sits; `None` follows the theme, then the reference's 6.
+    elevation: Option<f32>,
     /// The action's label and message, kept **beside** the child rather than only inside
     /// it: the width it reserves is a measurement, and a measurement cannot be taken in a
     /// builder, before any theme exists to say what type it is in.
@@ -151,6 +153,7 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
             text_color: None,
             action_text_color: None,
             accent: None,
+            elevation: None,
             action: None,
             close: None,
             close_icon_color: None,
@@ -206,6 +209,14 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
     #[must_use]
     pub fn background(mut self, color: Color) -> Self {
         self.background = Some(color);
+        self
+    }
+
+    /// **How far off the page it sits**, over the theme's and the reference's 6 (its
+    /// snack bar build, line 794). `0.0` casts no shadow.
+    #[must_use]
+    pub fn elevation(mut self, elevation: f32) -> Self {
+        self.elevation = Some(elevation);
         self
     }
 
@@ -471,7 +482,10 @@ impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
             .as_rounded(bounds)
             .map(|(_, radius)| radius)
             .unwrap_or(BorderRadius::ZERO);
-        let elevation = t.elevation.unwrap_or(SNACK_BAR_ELEVATION);
+        let elevation = self
+            .elevation
+            .or(t.elevation)
+            .unwrap_or(SNACK_BAR_ELEVATION);
         // A notification is **inverted**: it is not a card on the page, it is a bar that
         // stands out from it (`snack_bar.dart:949`). The scheme has carried the pair for
         // this since it was written, and said so in its own documentation.
@@ -479,17 +493,20 @@ impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
             .background
             .or(t.background_color)
             .unwrap_or(theme.scheme.inverse_surface);
-        scene.shadow(
-            Rect::new(
-                bounds.x - elevation,
-                bounds.y - elevation * 0.5,
-                bounds.width + elevation * 2.0,
-                bounds.height + elevation * 2.0,
-            ),
-            theme.scheme.shadow.with_alpha(0.3).fade(o),
-            radius.inflate(elevation),
-            elevation,
-        );
+        // A bar on the page casts nothing: a shadow with no blur is a hard dark box.
+        if elevation > 0.0 {
+            scene.shadow(
+                Rect::new(
+                    bounds.x - elevation,
+                    bounds.y - elevation * 0.5,
+                    bounds.width + elevation * 2.0,
+                    bounds.height + elevation * 2.0,
+                ),
+                theme.scheme.shadow.with_alpha(0.3).fade(o),
+                radius.inflate(elevation),
+                elevation,
+            );
+        }
         // No border: the inverted surface is what separates the bar from the page, and a
         // rule round it would be edging a thing that is already distinct.
         scene.draw_shape(bounds, shape, fill.fade(o));
@@ -1259,5 +1276,51 @@ mod tests {
         assert_eq!(q.dismiss(), Some("hello"));
         assert!(!q.is_leaving());
         assert!(q.is_empty());
+    }
+
+    /// **A bar can be told its own height, and a flat one casts nothing.** The reference's
+    /// snack bar build takes the widget's, the theme's, then six (line 794); here it was the
+    /// theme's or six with no word for the bar itself, and the shadow was drawn whatever it
+    /// came to — at nought, an unblurred box of shadow the size of the bar.
+    #[test]
+    fn a_bar_takes_its_own_elevation_and_casts_nothing_at_nought() {
+        // Every rectangle in the shadow's colour, by its blur: a shadow at nought has none,
+        // so it is found by what it is painted in rather than by being soft.
+        let shadows = |bar: &SnackBar<()>, theme: &Theme| {
+            let colour = theme.scheme.shadow.with_alpha(0.3);
+            painted(bar, theme)
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    Primitive::Rect { color, blur, .. } if *color == colour => Some(*blur),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let theme = Theme::default();
+        assert_eq!(
+            shadows(&SnackBar::new("Saved"), &theme),
+            vec![SNACK_BAR_ELEVATION]
+        );
+        assert_eq!(
+            shadows(&SnackBar::new("Saved").elevation(3.0), &theme),
+            vec![3.0]
+        );
+        assert!(
+            shadows(&SnackBar::new("Saved").elevation(0.0), &theme).is_empty(),
+            "a bar on the page casts nothing"
+        );
+
+        let mut flat = Theme::default();
+        flat.widgets.snack_bar.elevation = Some(0.0);
+        assert!(
+            shadows(&SnackBar::new("Saved"), &flat).is_empty(),
+            "nor one the theme put there"
+        );
+        assert_eq!(
+            shadows(&SnackBar::new("Saved").elevation(2.0), &flat),
+            vec![2.0],
+            "the bar's word over the theme's"
+        );
     }
 }

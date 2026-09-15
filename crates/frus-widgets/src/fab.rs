@@ -95,6 +95,7 @@ pub struct FloatingActionButton<Msg> {
     background: Option<Color>,
     foreground: Option<Color>,
     elevation: Option<f32>,
+    hover_elevation: Option<f32>,
     shape: Option<ShapeBorder>,
     icon_size: Option<f32>,
     label_style: Option<TextStyle>,
@@ -112,6 +113,7 @@ impl<Msg: Clone> FloatingActionButton<Msg> {
             background: None,
             foreground: None,
             elevation: None,
+            hover_elevation: None,
             shape: None,
             icon_size: None,
             label_style: None,
@@ -145,6 +147,7 @@ impl<Msg: Clone> FloatingActionButton<Msg> {
             background: None,
             foreground: None,
             elevation: None,
+            hover_elevation: None,
             shape: None,
             icon_size: None,
             label_style: None,
@@ -213,9 +216,21 @@ impl<Msg: Clone> FloatingActionButton<Msg> {
     }
 
     /// How far off the page it sits at rest, in pixels. Six by default.
+    ///
+    /// Only at rest: under a pointer it takes [`hover_elevation`](Self::hover_elevation)
+    /// whatever this says, as the reference's does, so a button made flat here still rises
+    /// when hovered. A button that should never float says both.
     #[must_use]
     pub fn elevation(mut self, elevation: f32) -> Self {
         self.elevation = Some(elevation);
+        self
+    }
+
+    /// How far off the page it sits under a pointer, over the theme's and eight
+    /// (the reference's defaults, line 780).
+    #[must_use]
+    pub fn hover_elevation(mut self, elevation: f32) -> Self {
+        self.hover_elevation = Some(elevation);
         self
     }
 
@@ -314,6 +329,12 @@ impl<Msg: Clone> FloatingActionButton<Msg> {
 
     /// The elevation this frame: none while disabled, the hovered value under a pointer,
     /// the resting one otherwise.
+    ///
+    /// Each is resolved **on its own** — the caller's, the theme's, the default — as the
+    /// reference's build resolves them (lines 512 and 516). The hovered one
+    /// used to be the default's eight *or the resting height if that was higher*, and there
+    /// was no caller's word for it at all, so a button flattened with `elevation(0.0)` had
+    /// no way to stay flat under a pointer.
     fn depth(&self, status: &Status, theme: &Theme) -> f32 {
         if !self.enabled || self.on_press.is_none() {
             return 0.0;
@@ -322,11 +343,10 @@ impl<Msg: Clone> FloatingActionButton<Msg> {
             .elevation
             .or(theme.widgets.fab.elevation)
             .unwrap_or(ELEVATION);
-        let hovered = theme
-            .widgets
-            .fab
+        let hovered = self
             .hover_elevation
-            .unwrap_or(HOVER_ELEVATION.max(rest));
+            .or(theme.widgets.fab.hover_elevation)
+            .unwrap_or(HOVER_ELEVATION);
         rest + (hovered - rest) * status.hover_progress.clamp(0.0, 1.0)
     }
 }
@@ -757,5 +777,59 @@ mod tests {
 
         let glyph = FloatingActionButton::new(Icons::ADD).on_press(Msg::Add);
         assert_eq!(Widget::<Msg>::semantics(&glyph).unwrap().label, None);
+    }
+
+    /// **Each height is resolved on its own** (the reference's build, lines 512 and 516).
+    /// The hovered one was the default's eight or the resting height if that was higher,
+    /// with no caller's word for it: a button told `elevation(0.0)` rose under a pointer and
+    /// could not be told to stay down, and one told twelve stayed at twelve. The reference's
+    /// rises to eight from nothing, comes down to eight from twelve, and takes a hovered
+    /// height of its own.
+    #[test]
+    fn the_hovered_height_is_resolved_on_its_own() {
+        let theme = Theme::default();
+        let hovered = Status {
+            hover_progress: 1.0,
+            ..Default::default()
+        };
+        // The shadow's width, when there is one: the box grown by the blur either side,
+        // and the blur grows with the height.
+        let shadow = |fab: FloatingActionButton<Msg>, theme: &Theme, status: Status| {
+            let (rects, _) = painted(&fab.on_press(Msg::Add), theme, status);
+            (rects.len() == 2).then(|| rects[0].0.width)
+        };
+        let fab = || FloatingActionButton::new(Icons::ADD);
+        let eight = shadow(fab(), &theme, hovered).expect("a hovered button floats");
+
+        assert_eq!(
+            shadow(fab().elevation(0.0), &theme, Status::default()),
+            None
+        );
+        assert_eq!(
+            shadow(fab().elevation(0.0), &theme, hovered),
+            Some(eight),
+            "flat at rest still rises to eight, as the reference's does"
+        );
+        assert_eq!(
+            shadow(fab().elevation(0.0).hover_elevation(0.0), &theme, hovered),
+            None,
+            "and one told both stays down"
+        );
+        let twelve = shadow(fab().elevation(12.0), &theme, Status::default()).unwrap();
+        assert_eq!(
+            shadow(fab().elevation(12.0), &theme, hovered),
+            Some(eight),
+            "a hovered height is not the resting one's floor"
+        );
+        assert!(twelve > eight);
+
+        let mut themed = Theme::default();
+        themed.widgets.fab.hover_elevation = Some(0.0);
+        assert_eq!(shadow(fab(), &themed, hovered), None, "the theme's word");
+        assert_eq!(
+            shadow(fab().hover_elevation(8.0), &themed, hovered),
+            Some(eight),
+            "and the caller's over it"
+        );
     }
 }

@@ -376,6 +376,7 @@ pub struct NavigationDrawer<Msg> {
     width: Option<f32>,
     background: Option<Color>,
     elevation: Option<f32>,
+    shadow_color: Option<Color>,
     indicator_color: Option<Color>,
     indicator_shape: Option<ShapeBorder>,
     indicator_size: Option<(f32, f32)>,
@@ -404,6 +405,7 @@ impl<Msg: Clone + 'static> NavigationDrawer<Msg> {
             width: None,
             background: None,
             elevation: None,
+            shadow_color: None,
             indicator_color: None,
             indicator_shape: None,
             indicator_size: None,
@@ -583,9 +585,18 @@ impl<Msg: Clone + 'static> NavigationDrawer<Msg> {
         self
     }
 
-    /// How far off the page the panel sits. Unset, the reference's `1`.
+    /// How far off the page the panel sits. Unset, the reference's `1` — which on its own
+    /// casts nothing: see [`shadow_color`](Self::shadow_color).
     pub fn elevation(mut self, elevation: f32) -> Self {
         self.elevation = Some(elevation);
+        self
+    }
+
+    /// The shadow's colour. **Transparent by default**, as the reference's Material 3
+    /// drawer is (its defaults, line 746): the panel's tone carries its height, and a
+    /// shadow appears only where a colour is named — alpha included.
+    pub fn shadow_color(mut self, color: Color) -> Self {
+        self.shadow_color = Some(color);
         self
     }
 
@@ -754,7 +765,14 @@ impl<Msg: Clone + 'static> Widget<Msg> for NavigationDrawer<Msg> {
         let o = status.opacity;
         let t = &theme.widgets.nav_drawer;
         let depth = self.elevation.or(t.elevation).unwrap_or(ELEVATION);
-        if depth > 0.0 {
+        // Drawn the way `Dialog` draws one, and for the same reason only where a colour is
+        // named: the reference keeps the elevation and makes the shadow transparent
+        // (its navigation drawer defaults, lines 729 and 746).
+        let shadow = self
+            .shadow_color
+            .or(t.shadow_color)
+            .unwrap_or(Color::TRANSPARENT);
+        if depth > 0.0 && shadow.a > 0.0 {
             let blur = depth * 4.0 + 8.0;
             scene.shadow(
                 Rect::new(
@@ -763,7 +781,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for NavigationDrawer<Msg> {
                     bounds.width + 2.0 * blur,
                     bounds.height + 2.0 * blur,
                 ),
-                theme.scheme.shadow.with_alpha(0.30).fade(o),
+                shadow.fade(o),
                 frus_core::BorderRadius::uniform(blur),
                 blur,
             );
@@ -1116,6 +1134,37 @@ mod tests {
         assert_ne!(
             theme.scheme.surface_container_low, theme.scheme.surface,
             "the two rungs have to be tellable apart for that to mean anything"
+        );
+    }
+
+    /// **A drawer's height is its tone, not a shadow.** The reference's navigation drawer
+    /// defaults keep an elevation of 1 and make the shadow transparent (lines 729, 746);
+    /// this painted a black one at 30 % under every drawer. A colour named — on the drawer
+    /// or on the theme — brings one back, in that colour.
+    #[test]
+    fn a_drawer_casts_no_shadow_until_a_colour_is_named() {
+        let bounds = Rect::new(0.0, 0.0, 304.0, 600.0);
+        let shadows = |drawer: &NavigationDrawer<Msg>, theme: &Theme| {
+            scene_of(drawer, bounds, theme)
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Rect { color, blur, .. } if *blur > 0.0 => Some(*color),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let theme = Theme::default();
+        assert!(shadows(&drawer(), &theme).is_empty(), "none by default");
+
+        let named = Color::rgba(0.0, 0.0, 0.0, 0.25);
+        assert_eq!(shadows(&drawer().shadow_color(named), &theme), vec![named]);
+        let mut themed = Theme::default();
+        themed.widgets.nav_drawer.shadow_color = Some(named);
+        assert_eq!(shadows(&drawer(), &themed), vec![named], "or on the theme");
+        assert!(
+            shadows(&drawer().shadow_color(named).elevation(0.0), &theme).is_empty(),
+            "and a flat drawer has no height to cast it from"
         );
     }
 }

@@ -192,7 +192,8 @@ impl<Msg: Clone + 'static> SearchBar<Msg> {
         self
     }
 
-    /// The colour its shadow is cast in. Unset, the scheme's `shadow`.
+    /// The colour its shadow is cast in, used **as it is given**, alpha included — so
+    /// [`Color::TRANSPARENT`] casts none. Unset, the scheme's `shadow` at 30 %.
     pub fn shadow_color(mut self, color: Color) -> Self {
         self.shadow_color = Some(color);
         self
@@ -411,7 +412,13 @@ impl<Msg: Clone + 'static> Widget<Msg> for SearchBar<Msg> {
         let t = &theme.widgets.search_bar;
 
         let depth = self.elevation.or(t.elevation).unwrap_or(ELEVATION);
-        if depth > 0.0 {
+        // A named colour is the colour: its alpha used to be overwritten with the default's
+        // 30 %, so a caller asking for a transparent shadow still got a black one.
+        let shadow = self
+            .shadow_color
+            .or(t.shadow_color)
+            .unwrap_or(theme.scheme.shadow.with_alpha(0.30));
+        if depth > 0.0 && shadow.a > 0.0 {
             let blur = depth * 2.0 + 4.0;
             scene.shadow(
                 Rect::new(
@@ -420,11 +427,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for SearchBar<Msg> {
                     bounds.width + 2.0 * blur,
                     bounds.height + 2.0 * blur,
                 ),
-                self.shadow_color
-                    .or(t.shadow_color)
-                    .unwrap_or(theme.scheme.shadow)
-                    .with_alpha(0.30)
-                    .fade(o),
+                shadow.fade(o),
                 BorderRadius::uniform(blur),
                 blur,
             );
@@ -720,5 +723,42 @@ mod tests {
             squared.outline(&theme),
             ShapeBorder::RoundedRectangle { .. }
         ));
+    }
+
+    /// **A shadow colour is used as it is given** — alpha included. The paint used to
+    /// overwrite the alpha with the default's 30 %, so `shadow_color(TRANSPARENT)` still
+    /// cast a black shadow and a half-strength colour came out at 30 %. The default look
+    /// does not move.
+    #[test]
+    fn a_named_shadow_colour_is_the_colour() {
+        let theme = Theme::default();
+        let shadows = |bar: &SearchBar<Msg>, theme: &Theme| {
+            scene_of(bar, lit(Status::default()), theme)
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    Primitive::Rect { color, blur, .. } if *blur > 0.0 => Some(*color),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            shadows(&bar(), &theme),
+            vec![theme.scheme.shadow.with_alpha(0.30)],
+            "the default, unchanged"
+        );
+        assert!(
+            shadows(&bar().shadow_color(Color::TRANSPARENT), &theme).is_empty(),
+            "a transparent shadow casts none"
+        );
+        let half = Color::rgba(0.2, 0.0, 0.4, 0.5);
+        assert_eq!(shadows(&bar().shadow_color(half), &theme), vec![half]);
+        let mut themed = Theme::default();
+        themed.widgets.search_bar.shadow_color = Some(half);
+        assert_eq!(
+            shadows(&bar(), &themed),
+            vec![half],
+            "the theme's, likewise"
+        );
     }
 }

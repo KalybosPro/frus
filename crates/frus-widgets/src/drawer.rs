@@ -20,14 +20,16 @@
 //!
 //! Everything it paints is a **default**, not a rule: the fill, the hairline on the
 //! inner edge and its thickness, the rounding of that edge, how far off the surface the
-//! panel sits, and the scrim behind a modal one — each resolved instance, then
-//! [`DrawerTheme`](crate::widgettheme::DrawerTheme), then the scheme's role.
+//! panel sits and the colour of the shadow that casts, and the scrim behind a modal one —
+//! each resolved instance, then [`DrawerTheme`](crate::widgettheme::DrawerTheme), then the
+//! scheme's role.
 //!
 //! ```ignore
 //! Drawer::new(open)
 //!     .background_color(theme.scheme.surface_container_low)
 //!     .border_width(0.0)          // told apart by colour, not by a rule
-//!     .elevation(2.0)             // …or by a shadow along its inner edge
+//!     .elevation(2.0)             // …or by a shadow along its inner edge,
+//!     .shadow_color(theme.scheme.shadow.with_alpha(0.3)) // in a colour named for it
 //!     .radius(0.0)                // …or squared off entirely
 //!     .scrim_color(Color::TRANSPARENT) // an overlay that darkens nothing
 //! ```
@@ -90,6 +92,7 @@ struct PanelStyle {
     /// What shape the panel is, over the theme's; `None` falls to the radius below it.
     shape: Option<ShapeBorder>,
     elevation: Option<f32>,
+    shadow_color: Option<Color>,
 }
 
 impl<Msg> DrawerPanel<Msg> {
@@ -192,11 +195,19 @@ impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
             .elevation
             .or(theme.widgets.drawer.elevation)
             .unwrap_or(0.0);
+        // Transparent unless named, as the reference's Material 3 drawer is
+        // (its drawer defaults, line 795): a height alone is no shadow.
+        let shadow = self
+            .style
+            .shadow_color
+            .or(theme.widgets.drawer.shadow_color)
+            .unwrap_or(Color::TRANSPARENT);
 
-        // The shadow, when the caller has lifted the panel off the surface at all. The
-        // drop is **sideways** rather than down: a panel is lifted along its inner edge,
-        // and a shadow cast below a full-height panel falls outside the window entirely.
-        if depth > 0.0 {
+        // The shadow, when the caller has lifted the panel off the surface and named a
+        // colour for it. The drop is **sideways** rather than down: a panel is lifted along
+        // its inner edge, and a shadow cast below a full-height panel falls outside the
+        // window entirely.
+        if depth > 0.0 && shadow.a > 0.0 {
             let blur = depth * 4.0 + 8.0;
             let sideways = if right { -depth } else { depth } * 2.0;
             scene.shadow(
@@ -206,7 +217,7 @@ impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
                     bounds.width + 2.0 * blur,
                     bounds.height + 2.0 * blur,
                 ),
-                theme.scheme.shadow.with_alpha(0.30).fade(o),
+                shadow.fade(o),
                 radius.inflate(blur),
                 blur,
             );
@@ -357,12 +368,20 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
         self
     }
 
-    /// How far off the surface the panel sits. `0.0` — the default — casts no shadow.
+    /// How far off the surface the panel sits. `0.0` — the default — casts no shadow, and
+    /// neither does a height without a [`shadow_color`](Self::shadow_color).
     ///
     /// The drop is sideways, along the inner edge: a shadow cast below a panel as tall as
     /// the window falls outside it and is never seen.
     pub fn elevation(mut self, elevation: f32) -> Self {
         self.style.elevation = Some(elevation);
+        self
+    }
+
+    /// The colour of the shadow an elevated panel casts, **alpha included**. Transparent
+    /// by default, as the reference's Material 3 drawer is (its defaults, line 795).
+    pub fn shadow_color(mut self, color: Color) -> Self {
+        self.style.shadow_color = Some(color);
         self
     }
 
@@ -1029,9 +1048,20 @@ mod tests {
             .body(Container::<Msg>::new());
         assert!(shadows(&flat).is_empty(), "no shadow by default");
 
+        // **A height alone casts nothing**: the reference's Material 3
+        // drawer keeps its elevation and makes the shadow transparent (line 795); this one drew a
+        // black shadow at 30 % for any height it was given.
+        let height_only = Drawer::new(false)
+            .permanent(true)
+            .elevation(3.0)
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        assert!(shadows(&height_only).is_empty(), "no colour, no shadow");
+
         let lifted = Drawer::new(false)
             .permanent(true)
             .elevation(3.0)
+            .shadow_color(Color::rgba(0.0, 0.0, 0.0, 0.3))
             .panel(Text::new("menu"))
             .body(Container::<Msg>::new());
         let cast = shadows(&lifted);

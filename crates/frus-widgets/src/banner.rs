@@ -29,8 +29,13 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// The banner's own elevation. `1` in Material 3 (`banner.dart:503`).
-pub const BANNER_ELEVATION: f32 = 1.0;
+/// How far off the page a banner sits when nobody says: **`0`**, flat.
+///
+/// The reference's Material 3 banner defaults say `1` (line 503), but its build reads
+/// only the widget's elevation and the theme's before falling to nought
+/// (line 375), so the defaults' figure is never used. What a reader sees is a flat
+/// banner, with the rule under it and no margin, and that is what this is.
+pub const BANNER_ELEVATION: f32 = 0.0;
 /// The shortest an actions bar gets (`banner.dart:123`).
 pub const BANNER_MIN_ACTION_BAR_HEIGHT: f32 = 52.0;
 /// The gap between two actions, and the padding around their bar (`banner.dart:363`).
@@ -164,7 +169,7 @@ impl<Msg: Clone + 'static> MaterialBanner<Msg> {
         self
     }
 
-    /// How far off the page it sits. `1` by default.
+    /// How far off the page it sits. `0` by default — see [`BANNER_ELEVATION`].
     ///
     /// It decides two other things, which is why it is worth naming: a banner off the page
     /// keeps a 10-pixel margin under it so its shadow has room, and a banner **flat** on
@@ -569,5 +574,58 @@ mod tests {
             action.x + action.width > WIDTH - 48.0,
             "the action did not reach the trailing edge: {action:?}"
         );
+    }
+
+    /// **A banner nobody lifted is flat** (the reference's banner build, line 375). Its Material 3
+    /// defaults say 1, and its build never reads that figure: the elevation is the
+    /// widget's, then the theme's, then nought. So an untold banner draws its rule and
+    /// keeps no margin under it — where this one kept ten pixels for a shadow it had no
+    /// colour for, and no rule.
+    #[test]
+    fn an_untold_banner_is_flat_with_a_rule_and_no_margin() {
+        let theme = Theme::default();
+        let marker = Color::rgb8(0, 255, 0);
+        let laid = |banner: MaterialBanner<Msg>| {
+            let column = crate::Flex::column()
+                .child_boxed(banner.action(button("Save", Msg::Save)).build())
+                .child(
+                    crate::Container::<Msg>::new()
+                        .width(10.0)
+                        .height(4.0)
+                        .color(marker),
+                );
+            let painted = rects(&column);
+            let surface = painted
+                .iter()
+                .find(|(r, c)| *c == theme.scheme.surface_container_low && r.width > 300.0)
+                .expect("the banner's surface")
+                .0;
+            let below = painted
+                .iter()
+                .find(|(_, c)| *c == marker)
+                .expect("the marker")
+                .0;
+            let rule = painted
+                .iter()
+                .any(|(_, c)| *c == theme.scheme.outline_variant);
+            (below.y - (surface.y + surface.height), rule)
+        };
+        let (margin, rule) = laid(MaterialBanner::new("Message"));
+        assert!(
+            margin.abs() < 0.5,
+            "no margin under a flat banner: {margin}"
+        );
+        assert!(rule, "and the rule in its place");
+
+        // A lifted one keeps a margin and loses the rule. Not asserted to the pixel: it
+        // comes out at twenty rather than the reference's ten, because the theme builder
+        // the banner is assembled in hands the layout its child's margin and the child
+        // keeps it too. That is the builder's, and older than this.
+        let (margin, rule) = laid(MaterialBanner::new("Message").elevation(1.0));
+        assert!(
+            margin >= RAISED_MARGIN - 0.5,
+            "a lifted one keeps a margin: {margin}"
+        );
+        assert!(!rule, "and no rule");
     }
 }

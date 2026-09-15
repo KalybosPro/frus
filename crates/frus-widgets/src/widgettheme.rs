@@ -199,6 +199,11 @@ pub struct SliderTheme {
     pub thumb_color: Option<Color>,
     /// The ring around the thumb.
     pub thumb_border_color: Option<Color>,
+    /// How far a thumb sits off the track at rest — a slider's, and each of a range
+    /// slider's. Unset, the reference's 1.
+    pub thumb_elevation: Option<f32>,
+    /// And while it is held. Unset, the reference's 6.
+    pub pressed_thumb_elevation: Option<f32>,
 }
 
 /// Defaults for [`Switch`](crate::Switch).
@@ -338,11 +343,13 @@ pub struct AppBarTheme {
     pub background: Option<Color>,
     /// What is drawn on it — the title's colour.
     pub foreground: Option<Color>,
-    /// The shadow's depth. Unset, the bar is flat, as the reference's is.
+    /// How far off the page the bar sits. Unset, the bar is flat, as the reference's is.
     pub elevation: Option<f32>,
     /// The toolbar's height.
     pub height: Option<f32>,
-    /// The colour of the shadow an elevated bar casts. Unset, the framework's near-black.
+    /// The colour of the shadow an elevated bar casts. Unset, **transparent**, as the
+    /// reference's app bar defaults are (line 2542): a shadow is cast only where a colour is
+    /// named.
     pub shadow_color: Option<Color>,
     /// The colour laid over the surface in proportion to the elevation — Material 3's
     /// way of showing height, and the one that still reads on a dark background.
@@ -413,7 +420,8 @@ pub struct ButtonTheme {
     pub height: Option<f32>,
     /// The narrowest it will be, however short its label.
     pub min_width: Option<f32>,
-    /// How far it sits off the surface.
+    /// How far it sits off the surface, **in every state**. Unset, the variant's own
+    /// heights, which move with the state — see [`Button::elevation`](crate::Button::elevation).
     pub elevation: Option<f32>,
 }
 
@@ -588,6 +596,8 @@ pub struct ExpansionPanelListTheme {
     pub gap: Option<f32>,
     /// The hairline between two shut panels of one card.
     pub divider_color: Option<Color>,
+    /// How far the cards sit off the page. Unset, the reference's 2; `0.0` is flat.
+    pub elevation: Option<f32>,
 }
 
 /// Defaults for [`ExpansionTile`](crate::ExpansionTile) — the reference's
@@ -638,7 +648,8 @@ pub struct FabTheme {
     pub foreground: Option<Color>,
     /// How far off the page it sits at rest. Unset, six.
     pub elevation: Option<f32>,
-    /// And under a pointer. Unset, eight.
+    /// And under a pointer. Unset, eight — whatever the resting height is, as the reference's
+    /// build resolves it (line 517).
     pub hover_elevation: Option<f32>,
     /// What shape it is. Unset, the corner its size asks for — sixteen, twelve or
     /// twenty-eight (`floating_action_button.dart:816`).
@@ -722,8 +733,12 @@ pub struct DrawerTheme {
     /// The rounding of the **inner** edge's two corners — the edge that meets the
     /// content. The outer one stays square against the window.
     pub radius: Option<f32>,
-    /// How far off the surface the panel sits. `0.0` casts no shadow.
+    /// How far off the surface the panel sits. `0.0` casts no shadow, and neither does a
+    /// height with no [`shadow_color`](Self::shadow_color).
     pub elevation: Option<f32>,
+    /// The shadow's colour. Unset, **transparent**, as the reference's Material 3 drawer is
+    /// (its defaults, line 795): a panel is lifted by its tone, and shadowed only on request.
+    pub shadow_color: Option<Color>,
     /// The scrim behind a modal panel, **alpha included**.
     pub scrim_color: Option<Color>,
 }
@@ -1062,7 +1077,8 @@ pub struct SearchBarTheme {
     /// The bar's fill. Unset, the scheme's `surface_container_high`
     /// (`search_anchor.dart:1859`).
     pub background_color: Option<Color>,
-    /// The colour its shadow is cast in. Unset, the scheme's `shadow`.
+    /// The colour its shadow is cast in, **alpha included**. Unset, the scheme's `shadow`
+    /// at 30 %.
     pub shadow_color: Option<Color>,
     /// How far off the page it sits. Unset, `6` (`search_anchor.dart:1863`).
     pub elevation: Option<f32>,
@@ -1144,6 +1160,10 @@ pub struct NavDrawerTheme {
     pub background_color: Option<Color>,
     /// How far off the page the panel sits. Unset, `1` (`navigation_drawer.dart:729`).
     pub elevation: Option<f32>,
+    /// The shadow's colour. Unset, **transparent**, as the reference's navigation drawer
+    /// defaults are (line 746): the panel's height is its tone, and a shadow is cast only
+    /// where a colour is named.
+    pub shadow_color: Option<Color>,
     /// The pill behind the selected destination. Unset, the scheme's
     /// `secondary_container`.
     pub indicator_color: Option<Color>,
@@ -1220,7 +1240,8 @@ pub struct BannerTheme {
     /// The rule along the bottom, drawn only where the banner is flat. Unset, the
     /// scheme's `outlineVariant`.
     pub divider_color: Option<Color>,
-    /// How far off the page it sits. Unset, 1.
+    /// How far off the page it sits. Unset, `0`: flat, with a rule under it — see
+    /// [`BANNER_ELEVATION`](crate::BANNER_ELEVATION).
     pub elevation: Option<f32>,
     /// The padding around the message row. Unset, it depends on where the actions went.
     pub padding: Option<Insets>,
