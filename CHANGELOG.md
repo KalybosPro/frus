@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 523 so far, each documenting the objective, the alternatives
+> record — one per step, 528 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -149,6 +149,20 @@ any release may break.
 
 ### Changed
 
+- **Breaking: every `Navigator` page has a key, and scrolling one page no longer scrolls
+  another** (J528). Reported from a phone: "when I scroll another page, the one I just left
+  scrolls too." Retained state is kept by identity, and a page's identity was its place
+  among the navigator's children — the first child for whichever page was on show, so two
+  pages built the same way read one scroll offset (the demo's table and grid shared one),
+  and the second child while a page slid in, so a page returned to came back at the top
+  through the whole pop and back gesture and jumped when it ended.
+  `Navigator::new(key, screen)` and `.from(key, previous, progress, forward)` now take a key,
+  and each page's subtree takes its identity from it. The key names an **entry of the
+  stack**, not a route — the same route pushed twice is two pages — and `(depth, route)` is
+  the shape to use; two pages of one transition under one key are refused in a debug build.
+  A page below the top keeps its scroll offsets while it is out of the tree. A key on a
+  page's own root is replaced by the page's key. `Navigator`'s builders now ask
+  `Msg: 'static`.
 - **Breaking: `AppBar::new()` takes no title, and a bar may have none** (J522). The
   constructor demanded a string, so a bar with nothing between its leading and its actions
   was written `new("")` and laid out and painted an empty text where the title would have
@@ -196,6 +210,32 @@ any release may break.
 
 ### Added
 
+- **A README for every crate** (J525, answers #7). All fifteen crates had none, and on
+  crates.io a crate's README is its whole page. Each now has one on the same plan — what the
+  crate is for, its layer, the two or three things to reach for, one example or the commands
+  that run it, and a line back to the workspace README — and `readme = "README.md"` in its
+  manifest. Links are absolute, since crates.io shows a README without the repository around
+  it. The ten library crates include their README as a `cfg(doctest)` item, so
+  `cargo test --doc` compiles every example and runs the ones that need no window or GPU.
+- **Shipping to more than one ABI, documented** (J524, answers #10). Every example builds
+  `aarch64-linux-android` alone, and nothing said that an application for real people wants
+  more, or what the packager does about it. The getting-started guide's *Shipping* section now
+  says which ABIs are worth building and why, how `build_targets` gets there, and what it
+  weighs — measured on the counter: a 4.8 MB APK for `arm64-v8a`, 4.6 MB for `armeabi-v7a`,
+  9.4 MB for both, since the library is nearly all of it. It lists what `cargo-apk` does
+  **not** do, read from its source: no store-ready split (`--target` builds one ABI, but every
+  APK carries the same version code), no app bundle, no Rust targets installed. Release
+  signing through `CARGO_APK_RELEASE_KEYSTORE` is documented, and a finding made while
+  measuring is written down rather than fixed: the release library is aligned for 4 KB pages.
+- **Copy and paste in the browser** (J526, #17). The web's clipboard was a no-op, so a field
+  on a web build dropped Ctrl+C, Ctrl+X and Ctrl+V silently. It is now the browser's
+  asynchronous Clipboard API behind the shell's clipboard, with the same shortcuts as the
+  desktop. A paste is asked for on behalf of the focused field and answered either at once
+  (desktop, Android) or on a later frame (the web), and either answer lands only in the field
+  that asked while it still has the focus, and only when there is text — so an empty
+  clipboard no longer types nothing over a selection anywhere. No widget changed. Outside a
+  secure context, or when the browser refuses, copy and paste log a warning and do nothing;
+  nothing on the path can panic. Not yet seen in a real browser.
 - **An application can move a sheet** (J523, #39). `Command::sheet(key, SheetTo::size(1.0))`
   moves the `DraggableScrollableSheet` wrapped in `keyed(key, …)` at once, `.animate(duration,
   curve)` along a curve, and `SheetTo::initial()` puts it back where it started — the

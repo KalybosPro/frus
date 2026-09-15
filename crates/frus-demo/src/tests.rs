@@ -2232,3 +2232,110 @@ fn the_end_of_the_sheets_list_clears_the_bottom_bar() {
         size.height - bar
     );
 }
+
+/// Runs the transition in flight, if any, to its end.
+fn settle_navigation(app: &mut TodoApp) {
+    while app.nav_from.is_some() {
+        app.tick(0.05);
+    }
+}
+
+/// The scroll regions the application's frame registers, for a stated surface.
+fn scroll_regions_of(
+    app: &TodoApp,
+    runtime: &Runtime,
+    size: Size,
+) -> Vec<frus_widgets::Scrollable> {
+    let theme = Theme::default();
+    let tree = view_for(app, &theme, size);
+    build_ui(&tree, size, runtime, &theme)
+        .scroll_regions()
+        .to_vec()
+}
+
+/// **Scrolling one page does not scroll another** (milestone 528). Reported from the
+/// phone: "when I scroll another page, the one I just left scrolls too."
+///
+/// The data table's page and the editable grid's are built the same way, and a
+/// navigator's settled page is always its first child, so their scroll regions had one
+/// identity between them — the offset the table was scrolled to was the one the grid
+/// opened on. Each page is keyed by its place in the stack and its route now.
+#[test]
+fn scrolling_one_page_does_not_scroll_another() {
+    let size = Size::new(420.0, 360.0);
+    let mut app = TodoApp::default();
+    let mut runtime = Runtime::default();
+    reduce(&mut app, Msg::Push(Route::Data));
+    settle_navigation(&mut app);
+    let table = scroll_regions_of(&app, &runtime, size)[0].id;
+    runtime.scroll.insert(table, (120.0, 0.0));
+
+    reduce(&mut app, Msg::Pop);
+    settle_navigation(&mut app);
+    reduce(&mut app, Msg::Push(Route::GridView));
+    settle_navigation(&mut app);
+    let grid = scroll_regions_of(&app, &runtime, size)[0].id;
+    assert_eq!(
+        runtime.scroll.get(&grid),
+        None,
+        "the grid was never scrolled, and read the table's offset (table {table:?}, grid {grid:?})"
+    );
+}
+
+/// **A page returned to keeps its scroll on the way back** (milestone 528). The page
+/// arriving on a pop was the navigator's second child for as long as the pop lasted and
+/// its first once it was over, so settings scrolled down came back at the top through the
+/// whole slide — and through a back gesture's preview — and jumped to where they had been
+/// left when it ended.
+#[test]
+fn a_page_returned_to_keeps_its_scroll_through_the_pop() {
+    let size = Size::new(420.0, 360.0);
+    let mut app = TodoApp::default();
+    let mut runtime = Runtime::default();
+    reduce(&mut app, Msg::Push(Route::Settings));
+    settle_navigation(&mut app);
+    let settings = scroll_regions_of(&app, &runtime, size)[0].id;
+    runtime.scroll.insert(settings, (0.0, 300.0));
+
+    // The page below: the one drawn behind, parallaxed to the left — as the push slides
+    // it out, as the back gesture previews it, and as the pop slides it back in.
+    let below = |app: &TodoApp, runtime: &Runtime| {
+        scroll_regions_of(app, runtime, size)
+            .into_iter()
+            .find(|area| area.viewport.x < -1.0)
+            .expect("the page below is in the frame")
+            .id
+    };
+
+    reduce(&mut app, Msg::Push(Route::Journal));
+    app.tick(0.05);
+    app.tick(0.05);
+    assert!(app.nav_from.is_some(), "still sliding");
+    let leaving = below(&app, &runtime);
+    assert_eq!(
+        runtime.scroll.get(&leaving),
+        Some(&(0.0, 300.0)),
+        "the push slides settings out where they were left"
+    );
+    settle_navigation(&mut app);
+
+    app.back_gesture(0.5);
+    let previewed = below(&app, &runtime);
+    assert_eq!(
+        runtime.scroll.get(&previewed),
+        Some(&(0.0, 300.0)),
+        "the back gesture previews settings where they were left"
+    );
+    app.back = None;
+
+    reduce(&mut app, Msg::Pop);
+    app.tick(0.05);
+    app.tick(0.05);
+    assert!(app.nav_from.is_some(), "still sliding");
+    let sliding = below(&app, &runtime);
+    assert_eq!(
+        runtime.scroll.get(&sliding),
+        Some(&(0.0, 300.0)),
+        "the pop slides settings in where they were left"
+    );
+}

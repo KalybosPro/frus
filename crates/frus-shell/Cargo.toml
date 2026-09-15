@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+readme = "README.md"
 
 # The `net` feature turns on the cross-platform `fetch` HTTP helper: the `ureq`
 # client natively, the browser's `fetch` on the Web. Off by default, so an app that
@@ -100,6 +101,8 @@ web-sys = { version = "0.3", features = [
     "Window",
     # `navigator.languages`: the reader's preferred languages, in order (milestone 454).
     "Navigator",
+    # `navigator.clipboard`: copy and paste (milestone 526, #17).
+    "Clipboard",
     "Element",
     "Response",
     "Request",

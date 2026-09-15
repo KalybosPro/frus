@@ -5,6 +5,11 @@
 //! `frus-gpu`, `frus-layout` and the rest, which keeps those layers from
 //! duplicating types or coupling to one another.
 
+// The README's example is compiled and run by `cargo test --doc`, so it cannot rot.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
+
 pub mod animation;
 mod color;
 mod colors;

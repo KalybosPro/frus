@@ -8,6 +8,11 @@
 //! **lazily** and shared behind a `Mutex`. That is a pragmatic v1 choice;
 //! unifying it with the renderer's own `FontSystem` will come later.
 
+// The README's example is compiled and run by `cargo test --doc`, so it cannot rot.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 

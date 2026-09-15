@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+readme = "README.md"
 
 # The `net` feature forwards the shell layer's HTTP `fetch` helper (see `frus::fetch`).
 # `json` (implies `net`) forwards `Request::json_body` / `send_json` (typed JSON).

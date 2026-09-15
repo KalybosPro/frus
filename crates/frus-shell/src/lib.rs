@@ -4,6 +4,11 @@
 //! [`frus_gpu::Renderer`] and drives the `event → frame` loop for any [`Application`]. This
 //! is the only platform-dependent layer.
 
+// The README's example is compiled by `cargo test --doc`, so it cannot rot.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
+
 // The `desktop` / `android` / `ios` / `web` aliases come from `build.rs`. They hold
 // for **this** crate only: the `main!` macro below expands in the user's crate, so
 // it keeps explicit `target_os` / `target_arch` predicates.
@@ -43,6 +48,8 @@ pub(crate) mod runtime;
 mod selection;
 mod subscription;
 mod theming;
+#[cfg(web)]
+mod web_clipboard;
 
 pub use app::App;
 pub use application::{Application, Lifecycle};

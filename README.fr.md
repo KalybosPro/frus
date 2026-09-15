@@ -240,7 +240,6 @@ c'est fini :
 
 | | |
 |---|---|
-| 🟢 [Un README par crate](https://github.com/KalybosPro/frus/labels/good%20first%20issue) | Quinze crates, aucune page d'accueil. **Une seule crate fait une très bonne PR.** |
 | 🟢 Activer `missing_docs`, crate par crate | Commencer par les petites crates. **Une seule crate fait une PR entière.** |
 | 🟡 [Publier sur crates.io](https://github.com/KalybosPro/frus/labels/help%20wanted) | Le principal obstacle entre le projet et quiconque voudrait l'essayer. |
 | 🟡 L'effet d'étirement en bout de défilement | Les Android récents étirent le contenu au lieu de le faire luire. Un effet par rendu vers texture, et le point de départ est écrit. |

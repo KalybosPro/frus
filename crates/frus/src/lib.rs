@@ -22,6 +22,11 @@
 //! { my_app::run() }`. On the web, the application keeps a `wasm-bindgen` dependency (targeted
 //! at `wasm32`), which the generated `#[wasm_bindgen(start)]` entry point needs.
 
+// The README's example is compiled by `cargo test --doc`, so it cannot rot.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
+
 // Widgets, theming, layout, and the DSL (`row!` / `column!`) — all of `frus-widgets`.
 pub use frus_widgets::*;
 

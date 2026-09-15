@@ -7,6 +7,11 @@
 //! What is to be drawn is described in a [`Scene`] — coloured [`Rect`]s and the
 //! rest — which is then handed to [`Renderer::render`].
 
+// The README's example is compiled and run by `cargo test --doc`, so it cannot rot.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
+
 // Re-exported so the layers above can handle wgpu types (`SurfaceError`, for one)
 // without depending on `wgpu` directly.
 pub use wgpu;
