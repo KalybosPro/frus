@@ -905,6 +905,9 @@ pub struct MenuTheme {
     /// How far off the page the panel sits, in pixels. Unset, three
     /// (`popup_menu.dart:1839`).
     pub elevation: Option<f32>,
+    /// The colour of the panel's shadow. Unset, the scheme's shadow at 30 %, the
+    /// framework's colour for a height; [`Color::TRANSPARENT`] casts none.
+    pub shadow_color: Option<Color>,
     /// The room kept **above and below** the rows, inside the panel
     /// (`popup_menu.dart:1872`).
     pub padding: Option<Insets>,
@@ -915,10 +918,28 @@ pub struct MenuTheme {
 }
 
 /// Defaults for [`DropdownButton`](crate::DropdownButton) and its options.
+///
+/// The `menu_*` fields are the **panel** its options float on. They are this theme's and
+/// not [`MenuTheme`]'s, because the reference's dropdown button does not read the menu
+/// theme either: its list has its own height, eight, where a menu has three.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DropdownTheme {
     /// The value's and the options' type.
     pub text_style: Option<TextStyle>,
+    /// The panel's surface. Unset, `surface_container`, the popup menu's.
+    pub menu_background: Option<Color>,
+    /// What shape the panel is.
+    pub menu_shape: Option<ShapeBorder>,
+    /// The radius of the panel's corners, for a theme that would rather give the number
+    /// than the shape. Outranked by [`menu_shape`](Self::menu_shape).
+    pub menu_radius: Option<f32>,
+    /// How far off the page the panel sits, in pixels. Unset, eight, the reference's.
+    pub menu_elevation: Option<f32>,
+    /// The colour of the panel's shadow. Unset, the scheme's shadow at 30 %;
+    /// [`Color::TRANSPARENT`] casts none.
+    pub menu_shadow_color: Option<Color>,
+    /// The room kept **above and below** the options, inside the panel. Unset, eight.
+    pub menu_padding: Option<Insets>,
 }
 
 /// Defaults for [`Autocomplete`](crate::Autocomplete) and its suggestions.

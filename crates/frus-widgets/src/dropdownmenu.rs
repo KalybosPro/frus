@@ -23,13 +23,14 @@
 
 use std::rc::Rc;
 
-use frus_core::{Insets, Rect, Scene, TextStyle};
+use frus_core::{BorderRadius, Color, Insets, Rect, Scene, ShapeBorder, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::dropdown::{label_style, option_row, DropdownOption};
 use crate::flex::Flex;
 use crate::icons::Icons;
 use crate::interaction::Status;
+use crate::menu::{Panel, PanelKind, PanelStyle};
 use crate::portal::Placement;
 use crate::scroll::SingleChildScrollView;
 use crate::textinput::TextField;
@@ -38,8 +39,6 @@ use crate::widget::Widget;
 
 /// The field's width when the caller has not said otherwise.
 const DEFAULT_WIDTH: f32 = 240.0;
-/// The gap between the choices, matching [`crate::DropdownButton`]'s list.
-const ROW_GAP: f32 = 4.0;
 /// One choice's height, before the reader's type is applied to it.
 const ROW_H: f32 = 40.0;
 
@@ -85,6 +84,8 @@ pub struct DropdownMenu<Msg> {
     placeholder: Option<String>,
     max_visible: Option<usize>,
     text_style: Option<TextStyle>,
+    /// The panel the choices float on — see [`menu_background`](Self::menu_background).
+    look: PanelStyle,
     on_input: Rc<dyn Fn(String) -> Msg>,
     on_toggle: Msg,
     options: Vec<DropdownOption<Msg>>,
@@ -118,6 +119,7 @@ impl<Msg: Clone + 'static> DropdownMenu<Msg> {
             placeholder: None,
             max_visible: None,
             text_style: None,
+            look: PanelStyle::default(),
             on_input: Rc::new(on_input),
             on_toggle,
             options: Vec::new(),
@@ -202,6 +204,60 @@ impl<Msg: Clone + 'static> DropdownMenu<Msg> {
     #[must_use]
     pub fn text_style(mut self, style: TextStyle) -> Self {
         self.text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// **The surface the choices float on**, over
+    /// [`MenuTheme::background`](crate::MenuTheme::background) and `surface_container`.
+    ///
+    /// The choices sit on **one panel**, the one a menu floats on: a surface, the corner,
+    /// eight pixels above and below, and a shadow three high. The reference's dropdown menu
+    /// hands its panel to its menu anchor, so it answers to the menu theme, and so does
+    /// this. A choice has no box of its own; only the selected one and the one under a
+    /// pointer are tinted.
+    #[must_use]
+    pub fn menu_background(mut self, color: Color) -> Self {
+        self.look.background = Some(color);
+        self.rebuild();
+        self
+    }
+
+    /// What shape the panel is, over the theme's and the framework's corner.
+    #[must_use]
+    pub fn menu_shape(mut self, shape: ShapeBorder) -> Self {
+        self.look.shape = Some(shape);
+        self.rebuild();
+        self
+    }
+
+    /// The shorthand for a rounded panel.
+    #[must_use]
+    pub fn menu_radius(self, radius: impl Into<BorderRadius>) -> Self {
+        self.menu_shape(ShapeBorder::rounded(radius.into()))
+    }
+
+    /// How far off the page the panel sits, in pixels. Three by default.
+    #[must_use]
+    pub fn menu_elevation(mut self, elevation: f32) -> Self {
+        self.look.elevation = Some(elevation);
+        self.rebuild();
+        self
+    }
+
+    /// The colour of the panel's shadow, over the theme's and the scheme's shadow at 30 %.
+    /// [`Color::TRANSPARENT`] casts none.
+    #[must_use]
+    pub fn menu_shadow_color(mut self, color: Color) -> Self {
+        self.look.shadow_color = Some(color);
+        self.rebuild();
+        self
+    }
+
+    /// The room kept above and below the choices, inside the panel. Eight by default.
+    #[must_use]
+    pub fn menu_padding(mut self, padding: Insets) -> Self {
+        self.look.padding = Some(padding);
         self.rebuild();
         self
     }
@@ -307,7 +363,9 @@ impl<Msg: Clone + 'static> DropdownMenu<Msg> {
             // looks broken; a query matching nothing should leave the field alone.
             return;
         }
-        let mut list = Flex::column().gap(ROW_GAP);
+        // Contiguous, on one panel: the four-pixel gutter the choices used to leave would
+        // show the page through the middle of the list.
+        let mut list = Flex::column();
         for &index in &showing {
             let option = &self.options[index];
             let on_click = self
@@ -321,11 +379,16 @@ impl<Msg: Clone + 'static> DropdownMenu<Msg> {
                 self.selected == Some(index),
                 self.enabled,
                 self.text_style,
+                (PanelKind::Menu, self.look.background),
                 on_click,
             ));
         }
         let rows = showing.len();
-        match self.max_visible {
+        // **A long list scrolls inside the panel**, not the panel inside a viewport: the
+        // surface, its room above and below and its shadow stay whole, and the rows are
+        // clipped in the viewport between the two rooms — where the reference's menu puts
+        // its scroll view, inside the panel's padding.
+        let content: Box<dyn Widget<Msg>> = match self.max_visible {
             Some(n) if rows > n => {
                 // The rows' own height, not the floor: a viewport counted at `ROW_H`
                 // while the rows are taller shows `n` rows minus a sliver of each. `None`
@@ -333,16 +396,20 @@ impl<Msg: Clone + 'static> DropdownMenu<Msg> {
                 // before any theme exists — so an application that retypesets the choices
                 // through the theme *and* caps them should say the size on the widget.
                 let row = frus_text::line_box(ROW_H, &label_style(self.text_style, None), 0.0);
-                let viewport = n as f32 * row + (n as f32 - 1.0) * ROW_GAP;
-                self.children.push(Box::new(
+                Box::new(
                     SingleChildScrollView::new()
                         .width(self.width)
-                        .height(viewport)
+                        .height(n as f32 * row)
                         .child(list),
-                ));
+                )
             }
-            _ => self.children.push(Box::new(list)),
-        }
+            _ => Box::new(list),
+        };
+        self.children.push(Box::new(Panel::new(
+            PanelKind::Menu,
+            self.look,
+            vec![content],
+        )));
     }
 }
 
@@ -497,8 +564,9 @@ mod tests {
     #[test]
     fn the_message_carries_the_index_in_the_callers_own_list() {
         let ui = frame(&menu("green", true));
+        // The field is 56 tall, and the panel keeps eight above its first row.
         let row = |n: f32| {
-            ui.hit(Point::new(120.0, 56.0 + ROW_H * (n + 0.5) + ROW_GAP * n))
+            ui.hit(Point::new(120.0, 56.0 + 8.0 + ROW_H * (n + 0.5)))
                 .and_then(|id| ui.msg_for(id))
         };
         // Both, so that the coordinates are known to be landing on rows at all: an
@@ -582,6 +650,193 @@ mod tests {
         assert!(painted.iter().any(|t| t == "Blue"), "kept");
         let swatches = count_colour(ui.scene(), Color::rgb(0.0, 0.0, 1.0));
         assert_eq!(swatches, 1, "and the one with no words is still there");
+    }
+
+    use crate::menu::probe::{blurred, crisp, Painted};
+
+    /// The height of one choice on the default theme.
+    fn row_height() -> f32 {
+        frus_text::line_box(ROW_H, &label_style(None, Some(&Theme::default())), 0.0)
+    }
+
+    /// What is painted **under the field** — the field has an outline of its own, and it
+    /// is the list this is about.
+    fn below_field(scene: &frus_core::Scene) -> Vec<Painted> {
+        crisp(scene)
+            .into_iter()
+            .filter(|r| r.rect.y >= 56.0)
+            .collect()
+    }
+
+    fn themed_frame(menu: &DropdownMenu<Msg>, theme: &Theme) -> crate::Ui<Msg> {
+        build_ui(menu, Size::new(400.0, 500.0), &Runtime::default(), theme)
+    }
+
+    /// **The choices float on one panel and draw no box of their own.** Each was an
+    /// outlined, rounded rectangle four pixels from the next, with nothing behind them.
+    ///
+    /// Under the field: the panel in `surface_container`, rounded, unoutlined, as wide as
+    /// the field, four rows and eight above and below — and the selected choice's tint,
+    /// which is the one other thing a list at rest draws.
+    #[test]
+    fn the_choices_float_on_one_panel_and_draw_no_box_of_their_own() {
+        let theme = Theme::default();
+        let ui = frame(&menu("", true));
+        let painted = below_field(ui.scene());
+        assert_eq!(
+            painted.len(),
+            2,
+            "the panel and the selection: {painted:#?}"
+        );
+        let (panel, selection) = (painted[0], painted[1]);
+        assert_eq!(panel.color, theme.scheme.surface_container);
+        assert!(panel.radius != frus_core::BorderRadius::ZERO);
+        assert_eq!(panel.rect.width, DEFAULT_WIDTH);
+        assert_eq!(panel.rect.height, 4.0 * row_height() + 16.0);
+        assert!(
+            painted.iter().all(|r| r.border_width == 0.0),
+            "no choice is outlined: {painted:#?}"
+        );
+        assert_eq!(
+            selection.color,
+            theme.scheme.surface_container.lerp(theme.primary, 0.14)
+        );
+        assert_eq!(
+            selection.rect.y,
+            panel.rect.y + 8.0 + row_height(),
+            "the second choice, on the panel"
+        );
+        assert_eq!(
+            selection.radius,
+            frus_core::BorderRadius::ZERO,
+            "a strip, not a box"
+        );
+    }
+
+    /// **The panel casts a shadow three high**, the reference's menu height, which a
+    /// dropdown menu falls through to: a blur of twenty in the scheme's shadow at 30 %.
+    #[test]
+    fn the_panel_casts_a_shadow_three_high() {
+        let theme = Theme::default();
+        let ui = frame(&menu("", true));
+        let panel = below_field(ui.scene())[0];
+        let shadows = blurred(ui.scene());
+        assert_eq!(shadows.len(), 1, "{shadows:#?}");
+        assert_eq!(shadows[0].blur, 20.0);
+        assert_eq!(shadows[0].rect.y, panel.rect.y + 6.0 - 20.0);
+        assert_eq!(shadows[0].color, theme.scheme.shadow.with_alpha(0.30));
+        assert!(
+            blurred(frame(&menu("", false)).scene()).is_empty(),
+            "shut, none"
+        );
+    }
+
+    /// **The panel answers to the menu theme, and to its caller over the theme**, as the
+    /// reference's dropdown menu answers to its anchor's.
+    #[test]
+    fn the_panel_answers_to_the_menu_theme_and_to_its_caller() {
+        let mut theme = Theme::default();
+        let (surface, shade) = (Color::rgb(0.2, 0.4, 0.6), Color::rgba(0.0, 0.0, 0.5, 0.5));
+        theme.widgets.menu.background = Some(surface);
+        theme.widgets.menu.radius = Some(3.0);
+        theme.widgets.menu.elevation = Some(1.0);
+        theme.widgets.menu.shadow_color = Some(shade);
+        theme.widgets.menu.padding = Some(Insets::new(20.0, 0.0, 20.0, 0.0));
+        let ui = themed_frame(&menu("", true), &theme);
+        let painted = below_field(ui.scene());
+        let panel = *painted
+            .iter()
+            .find(|r| r.color == surface)
+            .expect("the theme's");
+        assert_eq!(panel.radius, frus_core::BorderRadius::uniform(3.0));
+        assert_eq!(panel.rect.height, 4.0 * row_height() + 40.0);
+        assert!(painted
+            .iter()
+            .any(|r| r.color == surface.lerp(theme.primary, 0.14)));
+        let shadow = blurred(ui.scene())[0];
+        assert_eq!((shadow.blur, shadow.color), (12.0, shade));
+
+        let (own, own_shade) = (Color::rgb(0.9, 0.9, 0.1), Color::rgba(0.5, 0.0, 0.0, 0.4));
+        let told = menu("", true)
+            .menu_background(own)
+            .menu_radius(9.0)
+            .menu_elevation(2.0)
+            .menu_shadow_color(own_shade)
+            .menu_padding(Insets::ZERO);
+        let ui = themed_frame(&told, &theme);
+        let panel = *below_field(ui.scene())
+            .iter()
+            .find(|r| r.color == own)
+            .expect("the caller's");
+        assert_eq!(panel.radius, frus_core::BorderRadius::uniform(9.0));
+        assert_eq!(panel.rect.height, 4.0 * row_height());
+        let shadow = blurred(ui.scene())[0];
+        assert_eq!((shadow.blur, shadow.color), (16.0, own_shade));
+    }
+
+    /// **A transparent shadow colour casts nothing** (milestone 529), on the widget or on
+    /// the menu theme.
+    #[test]
+    fn a_transparent_shadow_casts_nothing() {
+        let clear = menu("", true).menu_shadow_color(Color::TRANSPARENT);
+        assert!(blurred(frame(&clear).scene()).is_empty());
+        let mut theme = Theme::default();
+        theme.widgets.menu.shadow_color = Some(Color::TRANSPARENT);
+        assert!(blurred(themed_frame(&menu("", true), &theme).scene()).is_empty());
+    }
+
+    /// **A long list scrolls inside the panel, and is clipped there.** The panel stays
+    /// whole — two rows showing and its room above and below, and no clip of its own, since
+    /// a clip would take its shadow with it — and the rows are drawn clipped to the
+    /// viewport between the two rooms, so the choices past the fold are built, laid out
+    /// below it and not shown.
+    #[test]
+    fn a_long_list_scrolls_and_clips_inside_the_panel() {
+        let theme = Theme::default();
+        let ui = frame(&menu("", true).max_visible(2));
+        let painted = below_field(ui.scene());
+        let panel = *painted
+            .iter()
+            .find(|r| r.color == theme.scheme.surface_container)
+            .expect("a panel");
+        assert_eq!(panel.rect.height, 2.0 * row_height() + 16.0);
+        let window = Rect::new(0.0, 0.0, 400.0, 500.0);
+        assert_eq!(
+            panel.clip, window,
+            "the panel is clipped by nothing but the window"
+        );
+        assert_eq!(
+            blurred(ui.scene())[0].clip,
+            window,
+            "and neither is its shadow"
+        );
+
+        // The selected choice, the second, is inside the viewport: its clip is the viewport.
+        let selected = *painted
+            .iter()
+            .find(|r| r.color == theme.scheme.surface_container.lerp(theme.primary, 0.14))
+            .expect("the selected choice is drawn");
+        let clip = selected.clip;
+        assert_eq!(
+            clip.y,
+            panel.rect.y + 8.0,
+            "the viewport starts inside the room"
+        );
+        assert_eq!(clip.height, 2.0 * row_height(), "and shows two rows");
+        assert!(clip.x >= panel.rect.x && clip.x + clip.width <= panel.rect.x + panel.rect.width);
+
+        fn text_at(primitives: &[Primitive], words: &str) -> Option<Point> {
+            primitives.iter().find_map(|p| match p {
+                Primitive::Text { position, text, .. } if text == words => Some(*position),
+                Primitive::Layer { primitives, .. } => text_at(primitives, words),
+                _ => None,
+            })
+        }
+        let blue = text_at(ui.scene().primitives(), "Blue").expect("the last choice is built");
+        assert!(
+            blue.y >= clip.y + clip.height,
+            "the last choice is past the fold, so there is something to scroll to: {blue:?}"
+        );
     }
 
     fn count_colour(scene: &frus_core::Scene, wanted: Color) -> usize {

@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 530 so far, each documenting the objective, the alternatives
+> record — one per step, 532 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -160,6 +160,21 @@ any release may break.
 
 ### Changed
 
+- **A menu anchor and both dropdowns float on a panel, with its shadow** (J532). `MenuAnchor`
+  floated its content bare, and `DropdownButton` and `DropdownMenu` floated a column of
+  separately outlined, rounded rows four pixels apart with nothing behind them, so none had a
+  surface a shadow could belong to. All three now float on `PopupMenuButton`'s panel, as the
+  reference's do: one surface in `surface_container`, the framework's corner, eight pixels above
+  and below, and a shadow — three high for the anchor and the dropdown menu, eight for the
+  dropdown button's list. An option draws no box of its own; only the selected one and the one
+  under a pointer are tinted. **Every dropdown looks different.** The look is overridable on each
+  widget — `background`, `shape`, `radius`, `elevation`, `shadow_color` and `menu_padding` on
+  `MenuAnchor` (and `shadow_color` on `PopupMenuButton`), the same with a `menu_` prefix on both
+  dropdowns — and on the theme: `MenuTheme::shadow_color` for the anchor, the dropdown menu and
+  the popup menu, and `menu_background`, `menu_shape`, `menu_radius`, `menu_elevation`,
+  `menu_shadow_color` and `menu_padding` on `DropdownTheme` for the dropdown button. A
+  transparent shadow colour casts nothing. A capped dropdown menu scrolls inside the panel.
+  Content given to a `MenuAnchor` should no longer bring a surface of its own.
 - **A height is no longer a shadow where the reference's is not** (J529). A widget here cast a
   shadow from its elevation alone, where the reference's Material 3 casts one only in a shadow
   colour that is not transparent — and many of its components keep an elevation and make that
