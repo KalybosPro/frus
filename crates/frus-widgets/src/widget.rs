@@ -1026,7 +1026,7 @@ pub trait Widget<Msg> {
     /// **looks**. This is for the questions a theme answers *earlier* than that: whether
     /// an application bar centres its title decides which children exist and in what
     /// order, and by the time anything is being painted the composition has already been
-    /// made. A widget assembled by a builder — `AppBar::new(…).build()` — never sees a
+    /// made. A widget assembled by a builder — `AppBar::new().build()` — never sees a
     /// theme at all.
     ///
     /// Called by the layout pass on the way down, **before** [`Self::children`] is read,

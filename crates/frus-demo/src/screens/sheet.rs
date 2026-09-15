@@ -65,7 +65,7 @@ pub(crate) fn sheet_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>>
     Scaffold::new()
         .background(theme.background)
         .app_bar(
-            AppBar::new("")
+            AppBar::new()
                 .title(Text::new("Draggable sheet"))
                 .leading(IconButton::new(Icons::ARROW_BACK).on_press(Msg::Pop))
                 .build(),

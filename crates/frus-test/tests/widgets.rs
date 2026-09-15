@@ -374,7 +374,8 @@ fn a_stepper_and_a_timeline() {
 /// The top bar with everything on it: a leading icon, a title, two actions.
 #[test]
 fn the_app_bar() {
-    let bar: Box<dyn Widget<()>> = AppBar::new("Inbox")
+    let bar: Box<dyn Widget<()>> = AppBar::new()
+        .title(frus_widgets::Text::new("Inbox"))
         .width(360.0)
         .leading(Icon::new(Icons::MENU).size(20.0))
         .action("Save", ())

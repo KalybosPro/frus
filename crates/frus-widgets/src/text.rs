@@ -1665,7 +1665,7 @@ mod reader_font_size {
     #[test]
     fn an_app_bar_caps_its_title_rather_than_growing() {
         let title_size = |scale: f32| {
-            let bar = crate::AppBar::<()>::new("A title");
+            let bar = crate::AppBar::<()>::new().title(crate::Text::new("A title"));
             MediaQuery::new(Size::new(400.0, 300.0))
                 .with_text_scaler(scale)
                 .scope(|| {
