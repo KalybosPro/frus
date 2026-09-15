@@ -31,6 +31,54 @@ const KEY_STEP: f32 = 0.05;
 const H: f32 = 24.0;
 const TRACK_H: f32 = 6.0;
 const THUMB: f32 = 18.0;
+/// How far a thumb sits off the track at rest, and while it is held: the reference's round
+/// thumb on a slider (its slider parts, lines 680–681) and on a range slider (its range
+/// slider parts, lines 789–790).
+const THUMB_ELEVATION: f32 = 1.0;
+const THUMB_PRESSED_ELEVATION: f32 = 6.0;
+
+/// The shadow under a thumb whose box is `thumb`: its resting height, rising to the pressed
+/// one as the press goes in.
+///
+/// Drawn the way a search bar draws its height — a blur of two pixels a step from four, and a
+/// drop of half a pixel a step — and **not** the way a card does. That is not taste: the
+/// shadow primitive's soft edge stops at its own rectangle, and around a circle this small a
+/// card's wider blur leaves that rectangle's corners in the fade, so the halo comes out square.
+/// At rest this one is round; while held, at six, the corners begin to show.
+///
+/// `told` is the widget's `(resting, pressed)`, each over the theme's and the reference's.
+/// The reference's round thumb casts it enabled or not — its shape has no disabled height
+/// (its slider parts, lines 747–767) — and so does this one.
+fn paint_thumb_shadow(
+    thumb: Rect,
+    told: (Option<f32>, Option<f32>),
+    status: &Status,
+    theme: &Theme,
+    scene: &mut Scene,
+) {
+    let t = &theme.widgets.slider;
+    let rest = told.0.or(t.thumb_elevation).unwrap_or(THUMB_ELEVATION);
+    let pressed = told
+        .1
+        .or(t.pressed_thumb_elevation)
+        .unwrap_or(THUMB_PRESSED_ELEVATION);
+    let depth = rest + (pressed - rest) * status.press_progress.clamp(0.0, 1.0);
+    if depth <= 0.0 {
+        return;
+    }
+    let blur = depth * 2.0 + 4.0;
+    scene.shadow(
+        Rect::new(
+            thumb.x - blur,
+            thumb.y + depth * 0.5 - blur,
+            thumb.width + 2.0 * blur,
+            thumb.height + 2.0 * blur,
+        ),
+        theme.scheme.shadow.with_alpha(0.30).fade(status.opacity),
+        frus_core::BorderRadius::uniform(thumb.width * 0.5).inflate(blur),
+        blur,
+    );
+}
 
 /// A linear slider over `min..=max`, **controlled** and draggable.
 pub struct Slider<Msg> {
@@ -43,6 +91,8 @@ pub struct Slider<Msg> {
     label: Option<Rc<dyn Fn(f32) -> String>>,
     enabled: bool,
     colors: SliderColors,
+    thumb_elevation: Option<f32>,
+    pressed_thumb_elevation: Option<f32>,
     on_change: Option<Box<dyn Fn(f32) -> Msg>>,
     /// Sent once when a drag begins, before the first `on_change`.
     on_change_start: Option<Box<dyn Fn(f32) -> Msg>>,
@@ -103,6 +153,8 @@ impl<Msg> Slider<Msg> {
             label: None,
             enabled: true,
             colors: SliderColors::default(),
+            thumb_elevation: None,
+            pressed_thumb_elevation: None,
             on_change: None,
             on_change_start: None,
             on_change_end: None,
@@ -132,6 +184,19 @@ impl<Msg> Slider<Msg> {
     /// The ring around the thumb; the travelled track's colour otherwise.
     pub fn thumb_border_color(mut self, color: Color) -> Self {
         self.colors.thumb_border = Some(color);
+        self
+    }
+
+    /// How far the thumb sits off the track at rest. Unset, the theme's, then the
+    /// reference's 1; `0.0` casts no shadow.
+    pub fn thumb_elevation(mut self, elevation: f32) -> Self {
+        self.thumb_elevation = Some(elevation);
+        self
+    }
+
+    /// How far it rises while it is held. Unset, the theme's, then the reference's 6.
+    pub fn pressed_thumb_elevation(mut self, elevation: f32) -> Self {
+        self.pressed_thumb_elevation = Some(elevation);
         self
     }
 
@@ -306,20 +371,22 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
             0.0,
             Color::TRANSPARENT,
         );
-        // The thumb.
+        // The thumb, over its shadow.
         let cx = bounds.x + filled;
-        scene.draw_rect(
-            Rect::new(
-                cx - THUMB * 0.5,
-                track_top + (H - THUMB) * 0.5,
-                THUMB,
-                THUMB,
-            ),
-            thumb.fade(o),
-            THUMB * 0.5,
-            2.0,
-            ring.fade(o),
+        let thumb_box = Rect::new(
+            cx - THUMB * 0.5,
+            track_top + (H - THUMB) * 0.5,
+            THUMB,
+            THUMB,
         );
+        paint_thumb_shadow(
+            thumb_box,
+            (self.thumb_elevation, self.pressed_thumb_elevation),
+            &status,
+            theme,
+            scene,
+        );
+        scene.draw_rect(thumb_box, thumb.fade(o), THUMB * 0.5, 2.0, ring.fade(o));
 
         // The tooltip, in the zone reserved above the track. A disabled slider shows
         // none: it is a hint about a value being changed, and this one is not.
@@ -470,6 +537,8 @@ struct RangeThumb<Msg> {
     label: Option<Rc<dyn Fn(f32) -> String>>,
     /// The slider's availability, handed down to each thumb.
     enabled: bool,
+    /// The slider's `(resting, pressed)` thumb heights, handed down likewise.
+    elevations: (Option<f32>, Option<f32>),
     on_change: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
 }
 
@@ -543,13 +612,9 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
             let dead = disabled_content(theme);
             (dead, dead)
         };
-        scene.draw_rect(
-            Rect::new(bounds.x, y, THUMB, THUMB),
-            fill.fade(o),
-            THUMB * 0.5,
-            border,
-            ring.fade(o),
-        );
+        let thumb = Rect::new(bounds.x, y, THUMB, THUMB);
+        paint_thumb_shadow(thumb, self.elevations, &status, theme, scene);
+        scene.draw_rect(thumb, fill.fade(o), THUMB * 0.5, border, ring.fade(o));
         // The tooltip revealed on hover or focus (the upper zone the slider reserves).
         // A disabled thumb shows none: it is a hint about a value being changed.
         if let Some(label) = self.label.as_ref().filter(|_| self.enabled) {
@@ -625,6 +690,8 @@ pub struct RangeSlider<Msg> {
     /// `label(value)` (and the height reserves the room for it).
     label: Option<Rc<dyn Fn(f32) -> String>>,
     enabled: bool,
+    thumb_elevation: Option<f32>,
+    pressed_thumb_elevation: Option<f32>,
     on_change: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
     /// Sent once when a drag begins, before the first `on_change`.
     on_change_start: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
@@ -645,6 +712,8 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
             divisions: None,
             label: None,
             enabled: true,
+            thumb_elevation: None,
+            pressed_thumb_elevation: None,
             on_change: None,
             on_change_start: None,
             on_change_end: None,
@@ -682,6 +751,21 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
     /// See [`crate::disabled`] for the whole contract.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self.rebuild();
+        self
+    }
+
+    /// How far each thumb sits off the track at rest. Unset, the theme's, then the
+    /// reference's 1; `0.0` casts no shadow.
+    pub fn thumb_elevation(mut self, elevation: f32) -> Self {
+        self.thumb_elevation = Some(elevation);
+        self.rebuild();
+        self
+    }
+
+    /// How far a thumb rises while it is held. Unset, the theme's, then the reference's 6.
+    pub fn pressed_thumb_elevation(mut self, elevation: f32) -> Self {
+        self.pressed_thumb_elevation = Some(elevation);
         self.rebuild();
         self
     }
@@ -740,6 +824,7 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
             divisions: self.divisions,
             label: self.label.clone(),
             enabled: self.enabled,
+            elevations: (self.thumb_elevation, self.pressed_thumb_elevation),
             on_change: self.on_change.clone(),
         };
         let lo_gap = (self.low * self.width - THUMB * 0.5).max(0.0);
@@ -1223,11 +1308,12 @@ mod tests {
                 &theme,
                 &mut scene,
             );
+            // The crisp rectangles: the thumb's shadow is painted just before the thumb.
             let fills: Vec<frus_core::Color> = scene
                 .primitives()
                 .iter()
                 .filter_map(|p| match p {
-                    frus_core::Primitive::Rect { color, .. } => Some(*color),
+                    frus_core::Primitive::Rect { color, blur, .. } if *blur == 0.0 => Some(*color),
                     _ => None,
                 })
                 .collect();
@@ -1245,6 +1331,78 @@ mod tests {
             assert!(
                 from_surface(fills[0]) < from_surface(fills[1]),
                 "the rail is the quieter of the two"
+            );
+        }
+    }
+    /// **A thumb stands off its track, and higher while it is held.** The reference's round
+    /// thumb rests at 1 and rises to 6 as the press goes in, on a slider and on each of a
+    /// range slider's two. Neither cast anything here.
+    #[test]
+    fn a_thumb_casts_a_shadow_that_rises_while_it_is_held() {
+        // The heights the painted shadows stand for: a blur of two pixels a step, plus four.
+        fn heights(widget: &dyn Widget<Msg>, bounds: Rect, press: f32, theme: &Theme) -> Vec<f32> {
+            let status = Status {
+                opacity: 1.0,
+                press_progress: press,
+                ..Default::default()
+            };
+            let mut scene = Scene::new();
+            widget.paint(bounds, status, theme, &mut scene);
+            scene
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Rect { blur, .. } if *blur > 0.0 => {
+                        Some((blur - 4.0) / 2.0)
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+        let theme = Theme::default();
+        let track = Rect::new(0.0, 0.0, 220.0, H);
+        let slider = Slider::new(0.5).on_change(Msg::Value);
+        assert_eq!(heights(&slider, track, 0.0, &theme), vec![1.0]);
+        assert_eq!(heights(&slider, track, 1.0, &theme), vec![6.0]);
+        assert_eq!(
+            heights(&slider, track, 0.5, &theme),
+            vec![3.5],
+            "on its way up"
+        );
+        let grounded = Slider::new(0.5)
+            .on_change(Msg::Value)
+            .thumb_elevation(0.0)
+            .pressed_thumb_elevation(0.0);
+        assert!(heights(&grounded, track, 1.0, &theme).is_empty());
+
+        let mut flat = Theme::default();
+        flat.widgets.slider.thumb_elevation = Some(0.0);
+        flat.widgets.slider.pressed_thumb_elevation = Some(0.0);
+        assert!(
+            heights(&slider, track, 1.0, &flat).is_empty(),
+            "the theme's word"
+        );
+        let told = Slider::new(0.5).on_change(Msg::Value).thumb_elevation(2.0);
+        assert_eq!(
+            heights(&told, track, 0.0, &flat),
+            vec![2.0],
+            "and the slider's over it"
+        );
+
+        let cell = Rect::new(0.0, 0.0, THUMB, H);
+        let range = RangeSlider::new(0.25, 0.75).on_change(Msg::Range);
+        for thumb in thumbs(&range) {
+            assert_eq!(heights(thumb, cell, 0.0, &theme), vec![1.0]);
+            assert_eq!(heights(thumb, cell, 1.0, &theme), vec![6.0]);
+        }
+        let raised = RangeSlider::new(0.25, 0.75)
+            .on_change(Msg::Range)
+            .thumb_elevation(3.0);
+        for thumb in thumbs(&raised) {
+            assert_eq!(
+                heights(thumb, cell, 0.0, &theme),
+                vec![3.0],
+                "told on the slider"
             );
         }
     }
@@ -1505,7 +1663,8 @@ mod color_tests {
     const BRAND: Color = Color::rgb(0.0, 0.6, 0.3);
     const RAIL: Color = Color::rgb(0.9, 0.9, 0.2);
 
-    /// (rail, travelled, thumb, ring) as painted.
+    /// (rail, travelled, thumb, ring) as painted — the crisp rectangles, in order, and not
+    /// the soft one under the thumb that is its shadow.
     fn painted(slider: &Slider<()>, theme: &Theme) -> (Color, Color, Color, Color) {
         let mut scene = Scene::new();
         Widget::<()>::paint(
@@ -1525,8 +1684,9 @@ mod color_tests {
                 Primitive::Rect {
                     color,
                     border_color,
+                    blur,
                     ..
-                } => Some((*color, *border_color)),
+                } if *blur == 0.0 => Some((*color, *border_color)),
                 _ => None,
             })
             .collect();

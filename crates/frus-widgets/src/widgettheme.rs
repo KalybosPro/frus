@@ -199,6 +199,11 @@ pub struct SliderTheme {
     pub thumb_color: Option<Color>,
     /// The ring around the thumb.
     pub thumb_border_color: Option<Color>,
+    /// How far a thumb sits off the track at rest — a slider's, and each of a range
+    /// slider's. Unset, the reference's 1.
+    pub thumb_elevation: Option<f32>,
+    /// And while it is held. Unset, the reference's 6.
+    pub pressed_thumb_elevation: Option<f32>,
 }
 
 /// Defaults for [`Switch`](crate::Switch).
@@ -415,7 +420,8 @@ pub struct ButtonTheme {
     pub height: Option<f32>,
     /// The narrowest it will be, however short its label.
     pub min_width: Option<f32>,
-    /// How far it sits off the surface.
+    /// How far it sits off the surface, **in every state**. Unset, the variant's own
+    /// heights, which move with the state — see [`Button::elevation`](crate::Button::elevation).
     pub elevation: Option<f32>,
 }
 
@@ -590,6 +596,8 @@ pub struct ExpansionPanelListTheme {
     pub gap: Option<f32>,
     /// The hairline between two shut panels of one card.
     pub divider_color: Option<Color>,
+    /// How far the cards sit off the page. Unset, the reference's 2; `0.0` is flat.
+    pub elevation: Option<f32>,
 }
 
 /// Defaults for [`ExpansionTile`](crate::ExpansionTile) — the reference's

@@ -55,6 +55,10 @@ use crate::widget::Widget;
 /// The reference's `kMaterialGap` and a card's corner.
 const GAP: f32 = 16.0;
 const RADIUS: f32 = 12.0;
+/// How far the cards sit off the page: the reference's 2 (its expansion panel list, line
+/// 195), cast under each card as its mergeable material casts one under each run of panels
+/// (lines 678–699).
+const ELEVATION: f32 = 2.0;
 
 /// One panel of an [`ExpansionPanelList`]: a header and what it hides.
 pub struct ExpansionPanel<Msg> {
@@ -132,6 +136,7 @@ pub struct ExpansionPanelList<Msg> {
     radius: Option<f32>,
     background: Option<Color>,
     divider_color: Option<Color>,
+    elevation: Option<f32>,
     /// Assembled on the way down, under the theme the list actually sits in — as
     /// [`ExpansionTile`](crate::ExpansionTile) assembles its row.
     built: OnceCell<Vec<Box<dyn Widget<Msg>>>>,
@@ -163,6 +168,7 @@ impl<Msg: Clone + 'static> ExpansionPanelList<Msg> {
             radius: None,
             background: None,
             divider_color: None,
+            elevation: None,
             built: OnceCell::new(),
         }
     }
@@ -200,6 +206,14 @@ impl<Msg: Clone + 'static> ExpansionPanelList<Msg> {
     #[must_use]
     pub fn divider_color(mut self, color: Color) -> Self {
         self.divider_color = Some(color);
+        self
+    }
+
+    /// How far the cards sit off the page: each run of shut panels, and each open panel,
+    /// casts one shadow. 2 by default; `0.0` is flat.
+    #[must_use]
+    pub fn elevation(mut self, elevation: f32) -> Self {
+        self.elevation = Some(elevation.max(0.0));
         self
     }
 
@@ -242,18 +256,35 @@ impl<Msg: Clone + 'static> ExpansionPanelList<Msg> {
             .divider_color
             .or(t.divider_color)
             .unwrap_or(theme.scheme.outline_variant);
+        let depth = self.elevation.or(t.elevation).unwrap_or(ELEVATION);
 
+        // **One shadow a card, not one a panel.** Two shut panels are one card, and a shadow
+        // under each would lay the lower one's across the upper one's surface. So a run's
+        // panels are gathered into a column first and the run casts, which is what the
+        // reference's mergeable material does: a shadow under each slice, all of them before
+        // any slice is painted.
+        let card = |run: crate::Flex<Msg>| CardShadow {
+            children: vec![Box::new(run) as Box<dyn Widget<Msg>>],
+            depth,
+            radius,
+        };
         let mut column = crate::Flex::column();
+        let mut run: Option<crate::Flex<Msg>> = None;
         for (index, panel) in self.panels.iter().enumerate() {
             let open = self.is_open(index);
             let split_above = self.gap_before(index);
             let split_below = index + 1 == self.panels.len() || self.gap_before(index + 1);
             if split_above {
+                if let Some(done) = run.take() {
+                    column = column.child(card(done));
+                }
                 column = column.child(crate::Container::<Msg>::new().height(gap));
-            } else if index > 0 {
+            }
+            let mut current = run.take().unwrap_or_else(crate::Flex::column);
+            if index > 0 && !split_above {
                 // Two shut panels of one card: a hairline, which is what says they are
                 // separate rows of the same thing rather than one long row.
-                column = column.child(crate::Divider::new().color(divider));
+                current = current.child(crate::Divider::new().color(divider));
             }
 
             // The **head** of a run rounds its top, the **foot** rounds its bottom, and a
@@ -287,15 +318,71 @@ impl<Msg: Clone + 'static> ExpansionPanelList<Msg> {
             if let Some(body) = panel.body.borrow_mut().take() {
                 tile = tile.content(crate::ConstrainedBox::new_boxed(body));
             }
-            column = column.child(
+            current = current.child(
                 crate::Container::new()
                     .color(background)
                     .radius(corners)
                     .clip()
                     .child(tile),
             );
+            run = Some(current);
+        }
+        if let Some(done) = run {
+            column = column.child(card(done));
         }
         vec![Box::new(column) as Box<dyn Widget<Msg>>]
+    }
+}
+
+/// A card of the list — a run of shut panels, or an open one — and the shadow it casts.
+///
+/// **Not clipped**, which is why it is a node of its own: the panels inside clip to their
+/// corners, and a clip takes the clipping widget's own paint with it, so a shadow drawn by
+/// a clipped container is cut away at that container's edge.
+struct CardShadow<Msg> {
+    children: Vec<Box<dyn Widget<Msg>>>,
+    depth: f32,
+    radius: f32,
+}
+
+impl<Msg: Clone + 'static> Widget<Msg> for CardShadow<Msg> {
+    fn style(&self) -> Style {
+        Style {
+            flex_direction: FlexDirection::Column,
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &self.children
+    }
+
+    /// Drawn the way `Card` draws a height: the blur grows with the depth and the drop is
+    /// half of it.
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        if self.depth <= 0.0 {
+            return;
+        }
+        let blur = self.depth * 4.0 + 8.0;
+        scene.shadow(
+            Rect::new(
+                bounds.x - blur,
+                bounds.y + self.depth * 2.0 - blur,
+                bounds.width + 2.0 * blur,
+                bounds.height + 2.0 * blur,
+            ),
+            theme.scheme.shadow.with_alpha(0.30).fade(status.opacity),
+            BorderRadius::uniform(self.radius).inflate(blur),
+            blur,
+        );
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+
+    fn debug_name(&self) -> &'static str {
+        "ExpansionPanelCard"
     }
 }
 
@@ -482,7 +569,10 @@ mod tests {
             let mut tops: Vec<f32> = flat(&ui)
                 .iter()
                 .filter_map(|p| match p {
-                    Primitive::Rect { rect, radius, .. } if radius.top_left > 0.0 => Some(rect.y),
+                    // Crisp ones only: a card's shadow is rounded too, and sits above it.
+                    Primitive::Rect {
+                        rect, radius, blur, ..
+                    } if radius.top_left > 0.0 && *blur == 0.0 => Some(rect.y),
                     _ => None,
                 })
                 .collect();
@@ -494,6 +584,58 @@ mod tests {
         assert!(
             open.len() > shut.len(),
             "an open panel makes a second card: {shut:?} against {open:?}"
+        );
+    }
+
+    /// **Each card casts one shadow, and a card is a run.** The reference's list stands at
+    /// 2, and its mergeable material casts a shadow under each run of panels rather than
+    /// under each panel. Three shut panels are one card and one shadow; with the middle one
+    /// open they are three cards and three. None was cast here.
+    #[test]
+    fn each_card_casts_one_shadow() {
+        let shadows = |list: &ExpansionPanelList<Msg>, theme: &Theme| {
+            let ui = build_ui(list, Size::new(320.0, 400.0), &Runtime::default(), theme);
+            flat(&ui)
+                .iter()
+                .filter_map(|p| match p {
+                    Primitive::Rect { blur, .. } if *blur > 0.0 => Some((blur - 8.0) / 4.0),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let theme = Theme::default();
+        assert_eq!(
+            shadows(&three(ExpansionPanelList::new(&[], Msg::Toggle)), &theme),
+            vec![2.0],
+            "one card, one shadow"
+        );
+        assert_eq!(
+            shadows(
+                &three(ExpansionPanelList::radio(Some(1), Msg::Open)),
+                &theme
+            ),
+            vec![2.0; 3],
+            "three cards, three"
+        );
+        assert!(shadows(
+            &three(ExpansionPanelList::new(&[], Msg::Toggle).elevation(0.0)),
+            &theme
+        )
+        .is_empty());
+
+        let mut level = Theme::default();
+        level.widgets.expansion_panel_list.elevation = Some(0.0);
+        assert!(
+            shadows(&three(ExpansionPanelList::new(&[], Msg::Toggle)), &level).is_empty(),
+            "the theme's word"
+        );
+        assert_eq!(
+            shadows(
+                &three(ExpansionPanelList::new(&[], Msg::Toggle).elevation(4.0)),
+                &level
+            ),
+            vec![4.0],
+            "and the list's over it"
         );
     }
 }

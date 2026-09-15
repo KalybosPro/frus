@@ -8,13 +8,24 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 529 so far, each documenting the objective, the alternatives
+> record — one per step, 530 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **Shadows the reference draws, drawn** (J530). A button held one height whatever the pointer
+  did. As in the reference, an elevated button now rests at 1, rises to 3 under a pointer and is
+  back at 1 pressed or focused, and a filled, tonal or danger button rises from flat to 1 under a
+  pointer; the height moves with the same progress as the state layer, and one named with
+  `Button::elevation` or `ButtonTheme::elevation` still holds in every state. A slider's thumb,
+  and each of a range slider's, casts a shadow at 1 that rises to 6 while it is held
+  (`thumb_elevation` and `pressed_thumb_elevation` on `Slider`, `RangeSlider` and
+  `SliderTheme`). `ExpansionPanelList` stands at 2 and casts one shadow a card — a run of shut
+  panels, or an open one (`elevation` on the list and on its theme). Not done: the menus the
+  reference lifts at 3 and 8 — `MenuAnchor`, `DropdownMenu`, `DropdownButton` — which have no
+  panel to cast a shadow from; milestone 530 sets out the choice.
 - **A throw that carried a sheet to full height stopped there** (J521, #39). A flick up a
   `DraggableScrollableSheet`'s list raised the sheet and dropped the rest of the throw, as if the
   list had nothing more to show. As in the reference, a throw up that arrives at the top now goes
