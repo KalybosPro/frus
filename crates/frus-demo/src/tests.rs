@@ -422,7 +422,8 @@ fn a_row_carried_past_the_last_one_lands_at_the_end() {
     );
 
     let boxes: Vec<frus_widgets::Rect> = slots.iter().map(|(_, rect)| *rect).collect();
-    let nearest = frus_widgets::nearest_reorder_slot(below, &boxes);
+    let nearest =
+        frus_widgets::nearest_reorder_slot(below, &boxes, frus_widgets::ReorderAxis::Vertical);
     assert_eq!(nearest, Some(2), "the nearest slot is the last row");
     // After it, as the lower half of a row is: raw index 3, from the first row.
     let message = find_widget(tree.as_ref(), first).and_then(|w| w.on_reorder(3));

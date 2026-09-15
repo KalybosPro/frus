@@ -133,7 +133,7 @@ pub enum FlexFit {
 /// Shared by [`Expanded`] and [`Flexible`] because they *are* the same box — the
 /// reference makes one a subclass of the other, and two copies of this would be two
 /// places for the next fix to miss.
-fn flex_item(base: Style, flex: f32, fit: FlexFit) -> Style {
+pub(crate) fn flex_item(base: Style, flex: f32, fit: FlexFit) -> Style {
     let tight = fit == FlexFit::Tight;
     Style {
         flex_grow: if tight { flex } else { 0.0 },

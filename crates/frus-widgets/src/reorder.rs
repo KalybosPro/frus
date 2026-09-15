@@ -13,6 +13,24 @@ use std::collections::{HashMap, HashSet};
 
 use frus_core::{Point, Primitive, Rect};
 
+use crate::widget::ReorderAxis;
+
+/// A box's `(start, extent)` **along** the axis a list is reordered on.
+fn along(axis: ReorderAxis, r: Rect) -> (f32, f32) {
+    match axis {
+        ReorderAxis::Vertical => (r.y, r.height),
+        ReorderAxis::Horizontal => (r.x, r.width),
+    }
+}
+
+/// And **across** it: the band a list's slots share.
+fn across(axis: ReorderAxis, r: Rect) -> (f32, f32) {
+    match axis {
+        ReorderAxis::Vertical => (r.x, r.width),
+        ReorderAxis::Horizontal => (r.y, r.height),
+    }
+}
+
 /// The factor of the "**background** vs cell/card" guard **shared** by both reflows: a block
 /// whose **extent along the reorder axis** (width for horizontal columns, height for vertical
 /// cards) exceeds `OVERSIZE_FACTOR × slot` is a page or column background, not a cell or card
@@ -98,17 +116,27 @@ pub fn reflow_reorder_columns(
 /// column or page background (not a card): left in place — the vertical counterpart of the
 /// `max_cell` guard. Each primitive slides according to the **centre** of its bounds; since
 /// insertion lines land on card **edges** (never mid-centre), a card never shears.
+///
+/// **On the horizontal `axis`** — a list whose rows run along x — it is the same reflow
+/// transposed: what follows the lifted row along x moves back by its width, what is at or
+/// past the line moves on by it, and the band is the row's height. Without the background
+/// guard, which is a board's: there is no horizontal board, and in a row of chips of
+/// different widths a neighbour wider than one and a half of the lifted one is a chip, not a
+/// background — kept still, its label would slide out of it. The geometry does not care
+/// which way the list reads: in a mirrored layout the line is simply on the other edge.
 pub fn reflow_reorder_cards(
     prims: &[Primitive],
     src: Rect,
     line: Option<Rect>,
     lifted: &HashSet<u64>,
     movable: &HashSet<u64>,
+    axis: ReorderAxis,
 ) -> Vec<Primitive> {
-    let slot = src.height;
+    let (src_start, slot) = along(axis, src);
+    let (src_band, src_band_extent) = across(axis, src);
     // Beyond this: a block covers more than a card (a column or page background) — left in place.
-    let max_card = src.height * OVERSIZE_FACTOR;
-    let in_band = |cx: f32, x0: f32, w: f32| cx >= x0 && cx <= x0 + w;
+    let max_card = slot * OVERSIZE_FACTOR;
+    let in_band = |c: f32, start: f32, extent: f32| c >= start && c <= start + extent;
 
     prims
         .iter()
@@ -122,30 +150,36 @@ pub fn reflow_reorder_cards(
                 return Some(p.clone());
             }
             let b = p.bounds();
-            // A large background (column or page): immobile.
-            if b.height >= max_card {
+            let (b_start, b_extent) = along(axis, b);
+            // A large background (column or page): immobile. Only a board has one.
+            if axis == ReorderAxis::Vertical && b_extent >= max_card {
                 return Some(p.clone());
             }
-            let cx = b.x + b.width * 0.5;
-            let cy = b.y + b.height * 0.5;
-            let mut dy = 0.0;
-            // The **target** column: whatever is at or below the line moves down (the gap opens).
+            let (b_band, b_band_extent) = across(axis, b);
+            let c_band = b_band + b_band_extent * 0.5;
+            let c_along = b_start + b_extent * 0.5;
+            let mut shift = 0.0;
+            // The **target** column: whatever is at or past the line moves on (the gap opens).
             if let Some(line) = line {
-                if in_band(cx, line.x, line.width) && cy >= line.y {
-                    dy += slot;
+                let (line_band, line_band_extent) = across(axis, line);
+                if in_band(c_band, line_band, line_band_extent) && c_along >= along(axis, line).0 {
+                    shift += slot;
                 }
             }
-            // The **source** column: whatever follows the lifted card moves up (the gap closes).
-            if in_band(cx, src.x, src.width) && cy > src.y {
-                dy -= slot;
+            // The **source** column: whatever follows the lifted card moves back (the gap closes).
+            if in_band(c_band, src_band, src_band_extent) && c_along > src_start {
+                shift -= slot;
             }
-            Some(p.translated(0.0, dy))
+            Some(match axis {
+                ReorderAxis::Vertical => p.translated(0.0, shift),
+                ReorderAxis::Horizontal => p.translated(shift, 0.0),
+            })
         })
         .collect()
 }
 
-/// Which of a vertical list's `slots` a carried item lands on when the pointer is over **none
-/// of them** — the index into `slots`, or `None`.
+/// Which of a list's `slots` a carried item lands on when the pointer is over **none of
+/// them** — the index into `slots`, or `None`. The list runs along `axis`.
 ///
 /// A list is rarely all that is on its page. A finger that carries a row down to the bottom
 /// edge is over whatever follows the list — a footer, a bar — and a finger that carries it
@@ -156,20 +190,56 @@ pub fn reflow_reorder_cards(
 /// closer of its two rows. Which half of it the pointer is on then decides before or after,
 /// as it does over a row.
 ///
-/// Only while the pointer is **across the list** — within the horizontal extent of its slots.
-/// Beside it is somewhere else: another column of a board, whose own targets answer for it.
-pub fn nearest_reorder_slot(point: Point, slots: &[Rect]) -> Option<usize> {
-    let left = slots.iter().map(|r| r.x).reduce(f32::min)?;
-    let right = slots.iter().map(|r| r.x + r.width).reduce(f32::max)?;
-    if point.x < left || point.x > right {
+/// Only while the pointer is **across the list** — within the extent of its slots on the other
+/// axis, the width of a vertical list or the height of a horizontal one. Beside it is
+/// somewhere else: another column of a board, whose own targets answer for it.
+///
+/// *Past the end* is a place, not a direction: a horizontal list laid out right to left ends
+/// at its left, and the slot nearest a pointer out there is still its last.
+pub fn nearest_reorder_slot(point: Point, slots: &[Rect], axis: ReorderAxis) -> Option<usize> {
+    let (point_along, point_band) = match axis {
+        ReorderAxis::Vertical => (point.y, point.x),
+        ReorderAxis::Horizontal => (point.x, point.y),
+    };
+    let near = slots.iter().map(|r| across(axis, *r).0).reduce(f32::min)?;
+    let far = slots
+        .iter()
+        .map(|r| {
+            let (start, extent) = across(axis, *r);
+            start + extent
+        })
+        .reduce(f32::max)?;
+    if point_band < near || point_band > far {
         return None;
     }
-    let distance = |r: &Rect| (r.y - point.y).max(point.y - (r.y + r.height)).max(0.0);
+    let distance = |r: &Rect| {
+        let (start, extent) = along(axis, *r);
+        (start - point_along)
+            .max(point_along - (start + extent))
+            .max(0.0)
+    };
     slots
         .iter()
         .enumerate()
         .min_by(|(_, a), (_, b)| distance(a).total_cmp(&distance(b)))
         .map(|(index, _)| index)
+}
+
+/// Is a carried item dropped **after** the `slot` the pointer is over, rather than before it?
+///
+/// The half the pointer is in decides, along the list's `axis`: the lower half of a row in a
+/// vertical list, the right half of one in a horizontal list. **Except when the horizontal
+/// list is laid out right to left** (`rtl`): what follows a row there is on its left, so the
+/// left half is the one that means *after*. A vertical list reads down in either direction.
+///
+/// The insertion line and the release both come through here — the line on the edge of the
+/// half, the release at the index after it — so the two cannot disagree about which side of a
+/// row a drop is on.
+pub fn reorder_drop_after(point: Point, slot: Rect, axis: ReorderAxis, rtl: bool) -> bool {
+    match axis {
+        ReorderAxis::Vertical => slot.height > 0.0 && point.y > slot.y + slot.height * 0.5,
+        ReorderAxis::Horizontal => slot.width > 0.0 && (point.x > slot.x + slot.width * 0.5) != rtl,
+    }
 }
 
 #[cfg(test)]
@@ -307,6 +377,7 @@ mod tests {
             None,
             &lifted,
             &cards(),
+            ReorderAxis::Vertical,
         );
         assert_eq!(rect_y_of_owner(&out, 1), None, "the lifted card is removed");
         assert_eq!(
@@ -339,6 +410,7 @@ mod tests {
             Some(line),
             &lifted,
             &cards(),
+            ReorderAxis::Vertical,
         );
         // The source column (B): the gap closes.
         assert_eq!(rect_y_of_owner(&out, 4), None, "the lifted card is removed");
@@ -383,6 +455,7 @@ mod tests {
             Some(line),
             &lifted,
             &cards(),
+            ReorderAxis::Vertical,
         );
         assert_eq!(rect_y_of_owner(&out, 1), None, "the lifted card is removed");
         // owner 2 (centre 74): below the source (−slot), above the line → **moves up** one slot.
@@ -422,6 +495,7 @@ mod tests {
             None,
             &HashSet::from([1]),
             &cards(),
+            ReorderAxis::Vertical,
         );
         assert_eq!(
             rect_y_of_owner(&out, 2),
@@ -446,6 +520,7 @@ mod tests {
             Some(line),
             &lifted,
             &cards(),
+            ReorderAxis::Vertical,
         );
         // Both column backgrounds (height 300 > 1.5×44) stay at y = 0.
         let bgs: Vec<f32> = out
@@ -472,16 +547,16 @@ mod tests {
         let rows = rows();
         // Below the last row (100 + 2 x 48 + 40 = 236), however far.
         assert_eq!(
-            nearest_reorder_slot(Point::new(160.0, 260.0), &rows),
+            nearest_reorder_slot(Point::new(160.0, 260.0), &rows, ReorderAxis::Vertical),
             Some(2)
         );
         assert_eq!(
-            nearest_reorder_slot(Point::new(160.0, 900.0), &rows),
+            nearest_reorder_slot(Point::new(160.0, 900.0), &rows, ReorderAxis::Vertical),
             Some(2)
         );
         // Above the first.
         assert_eq!(
-            nearest_reorder_slot(Point::new(160.0, 20.0), &rows),
+            nearest_reorder_slot(Point::new(160.0, 20.0), &rows, ReorderAxis::Vertical),
             Some(0)
         );
     }
@@ -492,15 +567,15 @@ mod tests {
         let rows = rows();
         // The gap between the first and second rows runs from 140 to 148.
         assert_eq!(
-            nearest_reorder_slot(Point::new(160.0, 141.0), &rows),
+            nearest_reorder_slot(Point::new(160.0, 141.0), &rows, ReorderAxis::Vertical),
             Some(0)
         );
         assert_eq!(
-            nearest_reorder_slot(Point::new(160.0, 147.0), &rows),
+            nearest_reorder_slot(Point::new(160.0, 147.0), &rows, ReorderAxis::Vertical),
             Some(1)
         );
         assert_eq!(
-            nearest_reorder_slot(Point::new(160.0, 170.0), &rows),
+            nearest_reorder_slot(Point::new(160.0, 170.0), &rows, ReorderAxis::Vertical),
             Some(1)
         );
     }
@@ -509,17 +584,202 @@ mod tests {
     #[test]
     fn beside_a_list_is_no_slot_of_it() {
         let rows = rows();
-        assert_eq!(nearest_reorder_slot(Point::new(8.0, 260.0), &rows), None);
-        assert_eq!(nearest_reorder_slot(Point::new(330.0, 120.0), &rows), None);
+        assert_eq!(
+            nearest_reorder_slot(Point::new(8.0, 260.0), &rows, ReorderAxis::Vertical),
+            None
+        );
+        assert_eq!(
+            nearest_reorder_slot(Point::new(330.0, 120.0), &rows, ReorderAxis::Vertical),
+            None
+        );
         // Its edges still are.
         assert_eq!(
-            nearest_reorder_slot(Point::new(16.0, 260.0), &rows),
+            nearest_reorder_slot(Point::new(16.0, 260.0), &rows, ReorderAxis::Vertical),
             Some(2)
         );
         assert_eq!(
-            nearest_reorder_slot(Point::new(316.0, 260.0), &rows),
+            nearest_reorder_slot(Point::new(316.0, 260.0), &rows, ReorderAxis::Vertical),
             Some(2)
         );
-        assert_eq!(nearest_reorder_slot(Point::new(160.0, 260.0), &[]), None);
+        assert_eq!(
+            nearest_reorder_slot(Point::new(160.0, 260.0), &[], ReorderAxis::Vertical),
+            None
+        );
+    }
+
+    /// Three chips 44 px wide with 8 px between them, and a fourth more than twice as wide —
+    /// owners 1..4, all in the band from y = 0 to 40 — plus a movable card below the strip
+    /// (owner 5) that is not in its band.
+    fn strip() -> Scene {
+        let mut s = Scene::new();
+        for i in 0..3 {
+            s.set_owner((i + 1) as u64);
+            s.fill_rect(Rect::new(i as f32 * 52.0, 0.0, 44.0, 40.0), Color::BLACK);
+        }
+        s.set_owner(4);
+        s.fill_rect(Rect::new(156.0, 0.0, 100.0, 40.0), Color::BLACK);
+        s.set_owner(5);
+        s.fill_rect(Rect::new(52.0, 100.0, 44.0, 40.0), Color::BLACK);
+        s
+    }
+
+    /// **A horizontal list closes the gap along x**, the vertical reflow transposed — and a
+    /// wide chip is a chip: it makes room with the rest instead of standing still like a
+    /// board's background.
+    #[test]
+    fn a_horizontal_reflow_closes_the_gap_along_x() {
+        let base = strip();
+        let out = reflow_reorder_cards(
+            base.primitives(),
+            Rect::new(0.0, 0.0, 44.0, 40.0),
+            None,
+            &HashSet::from([1]),
+            &(1..=5).collect(),
+            ReorderAxis::Horizontal,
+        );
+        assert_eq!(rect_x_of_owner(&out, 1), None, "the lifted chip is removed");
+        assert_eq!(
+            rect_x_of_owner(&out, 2),
+            Some(8.0),
+            "the next moves back (52 - 44)"
+        );
+        assert_eq!(
+            rect_x_of_owner(&out, 3),
+            Some(60.0),
+            "and the one after (104 - 44)"
+        );
+        assert_eq!(
+            rect_x_of_owner(&out, 4),
+            Some(112.0),
+            "the wide chip too (156 - 44): only a board has backgrounds"
+        );
+        assert_eq!(
+            rect_x_of_owner(&out, 5),
+            Some(52.0),
+            "a card outside the strip's band stays"
+        );
+        assert_eq!(
+            rect_y_of_owner(&out, 2),
+            Some(0.0),
+            "and nothing moves across the list"
+        );
+    }
+
+    /// The line opens the slot along x: carried after the second chip, the second fills the
+    /// gap and the third, past the line, has nowhere to go.
+    #[test]
+    fn a_horizontal_line_opens_the_slot_along_x() {
+        let base = strip();
+        let out = reflow_reorder_cards(
+            base.primitives(),
+            Rect::new(0.0, 0.0, 44.0, 40.0),
+            Some(Rect::new(104.0, 0.0, 3.0, 40.0)),
+            &HashSet::from([1]),
+            &(1..=5).collect(),
+            ReorderAxis::Horizontal,
+        );
+        assert_eq!(
+            rect_x_of_owner(&out, 2),
+            Some(8.0),
+            "before the line: fills the gap"
+        );
+        assert_eq!(
+            rect_x_of_owner(&out, 3),
+            Some(104.0),
+            "past it: a nil net shift"
+        );
+    }
+
+    /// **Right to left, the geometry holds.** The strip mirrored: the first chip on the right
+    /// (x = 104), the second in the middle, the third on the left. Carried after the second —
+    /// whose *after* edge is its left one, x = 52 — the second takes the first's place and the
+    /// slot opens between it and the third.
+    #[test]
+    fn a_mirrored_strip_opens_the_slot_on_the_left() {
+        let mut s = Scene::new();
+        for (owner, x) in [(1, 104.0), (2, 52.0), (3, 0.0)] {
+            s.set_owner(owner);
+            s.fill_rect(Rect::new(x, 0.0, 44.0, 40.0), Color::BLACK);
+        }
+        let out = reflow_reorder_cards(
+            s.primitives(),
+            Rect::new(104.0, 0.0, 44.0, 40.0),
+            Some(Rect::new(50.5, 0.0, 3.0, 40.0)),
+            &HashSet::from([1]),
+            &(1..=3).collect(),
+            ReorderAxis::Horizontal,
+        );
+        assert_eq!(
+            rect_x_of_owner(&out, 2),
+            Some(96.0),
+            "on past the line (52 + 44)"
+        );
+        assert_eq!(
+            rect_x_of_owner(&out, 3),
+            Some(0.0),
+            "before it, in reading order: stays"
+        );
+    }
+
+    /// The three rows of [`rows`], turned on their side: chips 40 px wide, 8 px apart, 300
+    /// tall, 16 px from the top of the page.
+    fn chips() -> Vec<Rect> {
+        (0..3)
+            .map(|i| Rect::new(100.0 + i as f32 * 48.0, 16.0, 40.0, 300.0))
+            .collect()
+    }
+
+    /// **Past either end of a horizontal list is that end**, along x.
+    #[test]
+    fn past_either_end_of_a_horizontal_list_is_that_end() {
+        let chips = chips();
+        let at = |x, y| nearest_reorder_slot(Point::new(x, y), &chips, ReorderAxis::Horizontal);
+        // Right of the last chip (100 + 2 x 48 + 40 = 236), however far; left of the first.
+        assert_eq!(at(260.0, 160.0), Some(2));
+        assert_eq!(at(900.0, 160.0), Some(2));
+        assert_eq!(at(20.0, 160.0), Some(0));
+        // The gap between the first two runs from 140 to 148.
+        assert_eq!(at(141.0, 160.0), Some(0));
+        assert_eq!(at(147.0, 160.0), Some(1));
+        // Above or below the strip is not in it; its edges still are.
+        assert_eq!(at(260.0, 8.0), None);
+        assert_eq!(at(120.0, 330.0), None);
+        assert_eq!(at(260.0, 16.0), Some(2));
+        assert_eq!(at(260.0, 316.0), Some(2));
+        // The same point read as a vertical list is beside it: the axis is what decides.
+        assert_eq!(
+            nearest_reorder_slot(Point::new(260.0, 160.0), &chips, ReorderAxis::Vertical),
+            None
+        );
+    }
+
+    /// **Which half means after.** The lower half down a list, the right half across one —
+    /// and the left half across one that reads right to left.
+    #[test]
+    fn the_half_that_means_after_follows_the_axis_and_the_reading_direction() {
+        let slot = Rect::new(100.0, 100.0, 80.0, 40.0);
+        let upper_left = Point::new(110.0, 110.0);
+        let lower_right = Point::new(170.0, 130.0);
+        let vertical = |p, rtl| reorder_drop_after(p, slot, ReorderAxis::Vertical, rtl);
+        let horizontal = |p, rtl| reorder_drop_after(p, slot, ReorderAxis::Horizontal, rtl);
+        assert!(!vertical(upper_left, false) && vertical(lower_right, false));
+        assert!(
+            !vertical(upper_left, true) && vertical(lower_right, true),
+            "down a list, the reading direction changes nothing"
+        );
+        // Across: the right half is after, whichever half of the height.
+        assert!(horizontal(Point::new(170.0, 110.0), false));
+        assert!(!horizontal(Point::new(110.0, 130.0), false));
+        // Right to left: the left half is.
+        assert!(horizontal(Point::new(110.0, 130.0), true));
+        assert!(!horizontal(Point::new(170.0, 110.0), true));
+        // A slot with no extent along the axis has no half to be after.
+        let flat = Rect::new(100.0, 100.0, 0.0, 40.0);
+        assert!(!reorder_drop_after(
+            Point::new(120.0, 120.0),
+            flat,
+            ReorderAxis::Horizontal,
+            false
+        ));
     }
 }

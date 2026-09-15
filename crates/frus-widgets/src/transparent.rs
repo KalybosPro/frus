@@ -324,6 +324,10 @@ macro_rules! forward_transparent {
                 self.inner.reorder_axis()
             }
 
+            fn reorder_inserts(&self) -> bool {
+                self.inner.reorder_inserts()
+            }
+
             fn reorder_draggable(&self) -> bool {
                 self.inner.reorder_draggable()
             }

@@ -212,6 +212,9 @@ any release may break.
   A page below the top keeps its scroll offsets while it is out of the tree. A key on a
   page's own root is replaced by the page's key. `Navigator`'s builders now ask
   `Msg: 'static`.
+- **Breaking: `reflow_reorder_cards` and `nearest_reorder_slot` take the axis** (J527, #44).
+  Both were vertical only; each now takes a last `ReorderAxis` argument, and
+  `ReorderAxis::Vertical` gives exactly what they gave before.
 - **Breaking: `AppBar::new()` takes no title, and a bar may have none** (J522). The
   constructor demanded a string, so a bar with nothing between its leading and its actions
   was written `new("")` and laid out and painted an empty text where the title would have
@@ -259,6 +262,17 @@ any release may break.
 
 ### Added
 
+- **A reorderable list whose rows run across** (J527, #44). `ReorderableList::axis` takes
+  `ReorderAxis::Horizontal`: the rows are laid out along x, each grip moves under its row,
+  and the gesture is the vertical one transposed — the neighbours make room along x, the
+  insertion line stands on its end and springs along x, a drop over no row lands on the
+  nearest slot of the strip past either end, and the strip scrolls at its left and right
+  edges. The ghost follows the finger along x only, as the reference keeps a list's row in
+  its lane. Under a right-to-left layout the strip runs from the right and *after* a row is
+  its left half, for the line and the release alike (`reorder_drop_after`). A table's
+  columns, which were already horizontal, are untouched: a horizontal reorderable is
+  inserted between its neighbours only when it answers `Widget::reorder_inserts`, which the
+  list's rows do. Not yet seen on a phone.
 - **A README for every crate** (J525, answers #7). All fifteen crates had none, and on
   crates.io a crate's README is its whole page. Each now has one on the same plan — what the
   crate is for, its layer, the two or three things to reach for, one example or the commands

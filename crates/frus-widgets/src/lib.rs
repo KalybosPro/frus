@@ -314,7 +314,9 @@ pub use radio::{Radio, RadioGroup};
 pub use rating::Rating;
 pub use refresh::{RefreshIndicator, RefreshPhase, RefreshPull, RefreshSpec, Refreshable};
 pub use relayout::LayoutCache;
-pub use reorder::{nearest_reorder_slot, reflow_reorder_cards, reflow_reorder_columns};
+pub use reorder::{
+    nearest_reorder_slot, reflow_reorder_cards, reflow_reorder_columns, reorder_drop_after,
+};
 pub use reorderable::{settled_index, ReorderGrab, ReorderableList};
 pub use responsive::{responsive, Responsive};
 pub use richtext::RichText;

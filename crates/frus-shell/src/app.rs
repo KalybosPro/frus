@@ -14,11 +14,12 @@ use web_time::Instant;
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_deferred, build_ui, collect_ids, find_by_key, find_path, find_widget,
-    nearest_reorder_slot, reflow_reorder_cards, reflow_reorder_columns, reorder_siblings,
-    reorderable_owners, subtree_ids, Accessibility, Brightness, Color, Cursor as UiCursor, Edit,
-    EditKind, EditSnapshot, FocusDirection, Insets, Key, KeyResponse, KeyStroke, MediaQuery, Point,
-    Primitive, Rect, ReorderAxis, Runtime, Scene, ScrollTo, Scrollable, SheetTo, ShortcutKey, Size,
-    Theme, Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
+    nearest_reorder_slot, reflow_reorder_cards, reflow_reorder_columns, reorder_drop_after,
+    reorder_siblings, reorderable_owners, subtree_ids, Accessibility, Brightness, Color,
+    Cursor as UiCursor, Edit, EditKind, EditSnapshot, FocusDirection, Insets, Key, KeyResponse,
+    KeyStroke, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, ScrollTo,
+    Scrollable, SheetTo, ShortcutKey, Size, Theme, Ui, VelocityEstimate, VelocityTracker, Widget,
+    WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -2569,20 +2570,31 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // - **vertical** (Kanban cards): the smoothed `reorder_y` catches up with
                 //   the **chosen** slot edge, the hovered half — the insertion line and
                 //   the gap *slide* between cards instead of jumping, which is the
-                //   vertical counterpart of `reorder_x`.
-                let reorder_axis = matches!(self.drag, Some(Drag::Reorder { moved: true, .. }))
-                    .then(|| self.dragged_reorder_axis())
+                //   vertical counterpart of `reorder_x`;
+                // - **a horizontal list's rows**: `reorder_x` catches up with the chosen
+                //   slot edge, the same line turned on its side.
+                let reorder_motion = matches!(self.drag, Some(Drag::Reorder { moved: true, .. }))
+                    .then(|| self.dragged_reorder_motion())
                     .flatten();
-                let reorder_animating = match reorder_axis {
-                    Some(ReorderAxis::Horizontal) => {
+                let reorder_animating = match reorder_motion {
+                    Some(ReorderMotion::Columns) => {
                         self.reorder_x = spring_toward(self.reorder_x, self.cursor.x, dt, 0.07);
                         (self.cursor.x - self.reorder_x).abs() > 0.5
                     }
-                    Some(ReorderAxis::Vertical) => {
+                    Some(ReorderMotion::Slots(ReorderAxis::Vertical)) => {
                         match self.reorder_drop_line(drag_preview::INSERT_THICKNESS) {
                             Some(target) => {
                                 self.reorder_y = spring_toward(self.reorder_y, target.y, dt, 0.07);
                                 (target.y - self.reorder_y).abs() > 0.5
+                            }
+                            None => false,
+                        }
+                    }
+                    Some(ReorderMotion::Slots(ReorderAxis::Horizontal)) => {
+                        match self.reorder_drop_line(drag_preview::INSERT_THICKNESS) {
+                            Some(target) => {
+                                self.reorder_x = spring_toward(self.reorder_x, target.x, dt, 0.07);
+                                (target.x - self.reorder_x).abs() > 0.5
                             }
                             None => false,
                         }
@@ -3502,9 +3514,10 @@ impl<A: Application> App<A> {
             let base = target
                 .and_then(|tid| tree.and_then(|t| find_widget(t.as_ref(), tid)))
                 .and_then(|widget| widget.reorder_index());
-            // The **lower** half of a hovered vertical target means inserting **after**
-            // it, index +1: the effective drop slot follows the insertion line that was
-            // painted. No effect horizontally, for `Table` columns, or off target.
+            // The **trailing** half of a hovered target that is inserted at — the lower
+            // half down a list, the right half across one (the left, right to left) —
+            // means inserting **after** it, index +1: the effective drop slot follows the
+            // insertion line that was painted. No effect for `Table` columns, or off target.
             let to = match (base, target) {
                 (Some(base), Some(tid)) => {
                     let after = self
@@ -4548,26 +4561,26 @@ impl<A: Application> App<A> {
 
     /// Where the reorderable `id`, grabbed at index `from`, is **dropped** if released now:
     /// the target under the pointer, or — over no target at all — the nearest slot of its own
-    /// list, for a vertical one.
+    /// list, for one inserted between its neighbours, along the axis it is reordered on.
     ///
     /// The insertion line and the release both ask this, so the line cannot promise a place
     /// the drop does not keep. The second half is milestone 518: a row carried to the bottom
     /// of a phone's list is over what follows the list, and the release used to put it back.
+    /// Milestone 527 turned it on its side, for a list whose rows run across.
     fn reorder_drop_target(&self, id: WidgetId, from: usize) -> Option<WidgetId> {
         if let Some(target) = self.reorder_target_at(self.cursor) {
             return Some(target);
         }
         let tree = self.tree.as_ref()?;
-        let vertical = find_widget(tree.as_ref(), id)
-            .is_some_and(|w| matches!(w.reorder_axis(), ReorderAxis::Vertical));
-        if !vertical {
+        let Some(ReorderMotion::Slots(axis)) = find_widget(tree.as_ref(), id).map(reorder_motion)
+        else {
             return None;
-        }
+        };
         // Among the slots of the row that moves, which is not the grip that was grabbed.
         let (row, _) = self.reorder_source(id, from)?;
         let slots = reorder_siblings(self.ui.as_ref()?, tree.as_ref(), row);
         let boxes: Vec<Rect> = slots.iter().map(|(_, rect)| *rect).collect();
-        nearest_reorder_slot(self.cursor, &boxes).map(|index| slots[index].0)
+        nearest_reorder_slot(self.cursor, &boxes, axis).map(|index| slots[index].0)
     }
 
     /// What is being **carried** this frame, where it is now: the box the ghost is drawn
@@ -4587,12 +4600,11 @@ impl<A: Application> App<A> {
                 let (_, src) = self.reorder_source(*id, *from)?;
                 // The same offsets the ghost is painted at, and for the same reason a
                 // column's ghost only rises: it moves along its own axis.
-                let (gx, gy) = match self.dragged_reorder_axis() {
-                    Some(ReorderAxis::Vertical) => {
-                        (self.cursor.x - start.x, self.cursor.y - start.y)
-                    }
-                    _ => (self.cursor.x - start.x, drag_preview::LIFT_Y),
-                };
+                let (gx, gy) = ghost_offset(
+                    self.dragged_reorder_motion()
+                        .unwrap_or(ReorderMotion::Columns),
+                    (self.cursor.x - start.x, self.cursor.y - start.y),
+                );
                 Some(src.translate(gx, gy))
             }
             Some(Drag::Item {
@@ -4693,17 +4705,17 @@ impl<A: Application> App<A> {
         true
     }
 
-    /// The axis of the reorderable currently **grabbed**, if a drag is under way. It
-    /// is what keeps the **horizontal spring** (`reorder_x`) to `Table`'s columns; the
-    /// Kanban cards, being vertical, reflow with no x smoothing.
-    fn dragged_reorder_axis(&self) -> Option<ReorderAxis> {
+    /// How the reorderable currently **grabbed** moves, if a drag is under way. It is what
+    /// keeps the **pointer spring** (`reorder_x` following the pointer) to `Table`'s columns;
+    /// the Kanban cards and a list's rows spring their insertion line instead.
+    fn dragged_reorder_motion(&self) -> Option<ReorderMotion> {
         let Some(Drag::Reorder { id, .. }) = self.drag else {
             return None;
         };
         self.tree
             .as_ref()
             .and_then(|t| find_widget(t.as_ref(), id))
-            .map(|w| w.reorder_axis())
+            .map(reorder_motion)
     }
 
     /// Paints the **reorder preview** on top of the scene, unclipped: the source
@@ -4811,21 +4823,17 @@ impl<A: Application> App<A> {
         let Some((id, src)) = self.reorder_source(id, from) else {
             return;
         };
-        let axis = self
+        let motion = self
             .tree
             .as_ref()
             .and_then(|t| find_widget(t.as_ref(), id))
-            .map(|w| w.reorder_axis())
-            .unwrap_or(ReorderAxis::Horizontal);
+            .map(reorder_motion)
+            .unwrap_or(ReorderMotion::Columns);
         let dx = self.cursor.x - start.x;
         let dy = self.cursor.y - start.y;
 
-        // The ghost's offset, per axis: **horizontal** (Table columns) follows `dx`,
-        // with a slight `-2` lift; **vertical** (Kanban cards) follows the pointer in 2D.
-        let (gx, gy) = match axis {
-            ReorderAxis::Horizontal => (dx, drag_preview::LIFT_Y),
-            ReorderAxis::Vertical => (dx, dy),
-        };
+        // The ghost's offset, per motion — see `ghost_offset`.
+        let (gx, gy) = ghost_offset(motion, (dx, dy));
 
         // The owners of the grabbed item's **subtree**: used by the ghost, to capture a
         // rich card's content, which its children paint (milestone 251), **and** by the
@@ -4837,8 +4845,8 @@ impl<A: Application> App<A> {
             .map(|w| subtree_ids(w, id).iter().map(|i| i.as_u64()).collect())
             .unwrap_or_else(|| std::iter::once(id.as_u64()).collect());
 
-        match axis {
-            ReorderAxis::Horizontal => {
+        match motion {
+            ReorderMotion::Columns => {
                 // Reflow the neighbouring columns: the source's gap closes and the drop
                 // slot opens, following the pointer's **smoothed** abscissa — a gentle
                 // inertial slide, while the ghost sticks to the real pointer.
@@ -4849,7 +4857,7 @@ impl<A: Application> App<A> {
                     scene.push_primitive(primitive);
                 }
             }
-            ReorderAxis::Vertical => {
+            ReorderMotion::Slots(axis) => {
                 // Reflow the **cards**: the lifted card's gap closes in the source
                 // column and a slot opens under the **insertion line** in the target one.
                 // Then the line is laid on top, at the chosen edge — the hovered half,
@@ -4858,13 +4866,20 @@ impl<A: Application> App<A> {
                 // A **smoothed** line (milestone 265): the chosen slot's width, abscissa
                 // and thickness are kept, but the **ordinate** is replaced by the
                 // `reorder_y` spring — the line *and* the gap slide between cards, with
-                // vertical inertia, instead of jumping a notch.
-                let line = self
-                    .reorder_drop_line(drag_preview::INSERT_THICKNESS)
-                    .map(|r| Rect {
-                        y: self.reorder_y,
-                        ..r
-                    });
+                // vertical inertia, instead of jumping a notch. A horizontal list's line
+                // stands on its end, and its **abscissa** is the one that springs.
+                let line =
+                    self.reorder_drop_line(drag_preview::INSERT_THICKNESS)
+                        .map(|r| match axis {
+                            ReorderAxis::Vertical => Rect {
+                                y: self.reorder_y,
+                                ..r
+                            },
+                            ReorderAxis::Horizontal => Rect {
+                                x: self.reorder_x,
+                                ..r
+                            },
+                        });
                 // Only what can be reordered makes room — a card, a row, a drop zone, and
                 // what each of them paints. The reflow is geometric, and a button floating
                 // over the list or the navigation bar under it shares the band without being
@@ -4876,17 +4891,22 @@ impl<A: Application> App<A> {
                     .map(|tree| reorderable_owners(ui, tree.as_ref()))
                     .unwrap_or_default();
                 let reflowed =
-                    reflow_reorder_cards(scene.primitives(), src, line, &owners, &movable);
+                    reflow_reorder_cards(scene.primitives(), src, line, &owners, &movable, axis);
                 scene.clear();
                 for primitive in reflowed {
                     scene.push_primitive(primitive);
                 }
                 if let Some(line) = line {
+                    // Rounded across its thickness, whichever way it stands.
+                    let thickness = match axis {
+                        ReorderAxis::Vertical => line.height,
+                        ReorderAxis::Horizontal => line.width,
+                    };
                     scene.set_clip(Rect::UNBOUNDED);
                     scene.draw_rect(
                         line,
                         theme.primary,
-                        theme.radius.min(line.height * 0.5),
+                        theme.radius.min(thickness * 0.5),
                         0.0,
                         Color::TRANSPARENT,
                     );
@@ -4966,10 +4986,11 @@ impl<A: Application> App<A> {
         draw_ghost_card(scene, theme, source.rect.translate(dx, dy), &ghost);
     }
 
-    /// The **insertion** line of the vertical preview: a thin band at the edge of the
-    /// hovered reorderable slot, a card or a drop zone — the **top** edge when the
-    /// pointer is in its upper half (inserting **before**), the **bottom** edge in its
-    /// lower half (inserting **after**). `None` when the release would land nowhere.
+    /// The **insertion** line of the preview: a thin band at the edge of the hovered
+    /// reorderable slot, a card, a row or a drop zone — the edge **before** it when the
+    /// pointer is in its leading half, the edge **after** it in its trailing half. Across a
+    /// vertical list; standing on its end in a horizontal one. `None` when the release would
+    /// land nowhere.
     fn reorder_drop_line(&self, thickness: f32) -> Option<Rect> {
         let Some(Drag::Reorder { id, from, .. }) = self.drag else {
             return None;
@@ -4978,26 +4999,41 @@ impl<A: Application> App<A> {
         // one under the pointer, or the nearest of the list's own.
         let target = self.reorder_drop_target(id, from)?;
         let rect = self.ui.as_ref()?.widget_rect(target)?;
+        let axis = match self
+            .tree
+            .as_ref()
+            .and_then(|t| find_widget(t.as_ref(), target))
+            .map(reorder_motion)
+        {
+            Some(ReorderMotion::Slots(axis)) => axis,
+            _ => ReorderAxis::Vertical,
+        };
         Some(drop_insertion_line(
             rect,
             thickness,
             self.reorder_insert_after(target, rect),
+            axis,
+            self.is_rtl(),
         ))
     }
 
-    /// For a **vertically** reordered slot, tells whether the pointer is in its
-    /// **lower** half — that is, whether insertion happens **after** it (index +1,
-    /// between this card and the next). Always `false` on the **horizontal** axis, where
-    /// `Table`'s columns keep their drop logic unchanged. This is the insertion line's
-    /// counterpart on the **routing** side.
+    /// For a slot a reorderable is **inserted** at, tells whether insertion happens
+    /// **after** it (index +1, between it and the next) — the pointer in its trailing half,
+    /// which `reorder_drop_after` works out along the list's axis and reading direction.
+    /// Always `false` for `Table`'s columns, which keep their drop logic unchanged. This is
+    /// the insertion line's counterpart on the **routing** side.
     fn reorder_insert_after(&self, target: WidgetId, rect: Rect) -> bool {
-        let vertical = self
+        match self
             .tree
             .as_ref()
             .and_then(|t| find_widget(t.as_ref(), target))
-            .map(|w| matches!(w.reorder_axis(), ReorderAxis::Vertical))
-            .unwrap_or(false);
-        vertical && rect.height > 0.0 && self.cursor.y > rect.y + rect.height * 0.5
+            .map(reorder_motion)
+        {
+            Some(ReorderMotion::Slots(axis)) => {
+                reorder_drop_after(self.cursor, rect, axis, self.is_rtl())
+            }
+            _ => false,
+        }
     }
 
     /// Sends a value drag's **start** or **end** to the widget being dragged.
@@ -5632,18 +5668,85 @@ fn draw_ghost_card(scene: &mut Scene, theme: &Theme, card: Rect, ghost: &[Primit
     }
 }
 
-/// The geometry of a **vertical** reorder preview's **insertion line**: a thin band
-/// of thickness `thickness`, centred on the target edge **where the insertion will
-/// happen** — the **top** edge (inserting before, the upper half hovered) or the
-/// **bottom** one (inserting after, `after = true`, the lower half hovered) — spanning
-/// the full width. A pure function, testable without a GPU.
-fn drop_insertion_line(target: Rect, thickness: f32, after: bool) -> Rect {
-    let edge = if after {
-        target.y + target.height
-    } else {
-        target.y
-    };
-    Rect::new(target.x, edge - thickness * 0.5, target.width, thickness)
+/// How a reorderable moves while it is carried: the two gestures the shell knows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReorderMotion {
+    /// A table's column: a continuous slide along x following the pointer, dropped into
+    /// the place of the column under it.
+    Columns,
+    /// A list's row or a board's card: inserted before or after a slot along the axis,
+    /// with an insertion line, a gap opening there, and the nearest slot past either end.
+    Slots(ReorderAxis),
+}
+
+impl ReorderMotion {
+    /// Which of the two a reorderable is, from its two answers: every vertical one inserts,
+    /// and a horizontal one only when it says so — a list's row does, a table's column does
+    /// not.
+    fn of(axis: ReorderAxis, inserts: bool) -> Self {
+        match axis {
+            ReorderAxis::Vertical => Self::Slots(ReorderAxis::Vertical),
+            ReorderAxis::Horizontal if inserts => Self::Slots(ReorderAxis::Horizontal),
+            ReorderAxis::Horizontal => Self::Columns,
+        }
+    }
+}
+
+/// How `widget` moves while it is carried — [`ReorderMotion::of`] its two answers.
+fn reorder_motion<Msg>(widget: &dyn Widget<Msg>) -> ReorderMotion {
+    ReorderMotion::of(widget.reorder_axis(), widget.reorder_inserts())
+}
+
+/// Where the ghost is drawn relative to the box it was lifted from, given the finger's
+/// `travel` since the press.
+///
+/// - A **column** follows the pointer along x, with a slight lift.
+/// - A **card** follows it in both directions: a board carries it across columns.
+/// - A **horizontal list's row** follows it along x only. The reference keeps a list's
+///   proxy in its lane on either axis; a vertical list here shares the board's freedom
+///   because the two are one path, and a horizontal list has no board to share it with.
+fn ghost_offset(motion: ReorderMotion, travel: (f32, f32)) -> (f32, f32) {
+    match motion {
+        ReorderMotion::Columns => (travel.0, drag_preview::LIFT_Y),
+        ReorderMotion::Slots(ReorderAxis::Vertical) => travel,
+        ReorderMotion::Slots(ReorderAxis::Horizontal) => (travel.0, 0.0),
+    }
+}
+
+/// The geometry of a reorder preview's **insertion line**: a thin band of thickness
+/// `thickness`, centred on the target edge **where the insertion will happen**.
+///
+/// Along a **vertical** list: the **top** edge (inserting before, the upper half hovered)
+/// or the **bottom** one (inserting after, `after = true`, the lower half hovered),
+/// spanning the full width. Along a **horizontal** list the band stands on its end,
+/// spanning the full height at the left or right edge — and *after* is the right edge
+/// only when the list reads left to right: under `rtl` what follows a row is on its left.
+/// A pure function, testable without a GPU.
+fn drop_insertion_line(
+    target: Rect,
+    thickness: f32,
+    after: bool,
+    axis: ReorderAxis,
+    rtl: bool,
+) -> Rect {
+    match axis {
+        ReorderAxis::Vertical => {
+            let edge = if after {
+                target.y + target.height
+            } else {
+                target.y
+            };
+            Rect::new(target.x, edge - thickness * 0.5, target.width, thickness)
+        }
+        ReorderAxis::Horizontal => {
+            let edge = if after != rtl {
+                target.x + target.width
+            } else {
+                target.x
+            };
+            Rect::new(edge - thickness * 0.5, target.y, thickness, target.height)
+        }
+    }
 }
 
 /// Which axis a scroll gesture is **claimed by**, decided once when the finger passes the
@@ -5732,8 +5835,9 @@ fn fetch_image_bytes(
 mod tests {
     use super::{
         build_view, claim_area, claim_axis, draw_ghost_card, drop_insertion_line, fling_velocity,
-        gesture_was_a_tap, install_ambient, resolve_focus, spring_toward, Drag, Point, Rect, Scene,
-        Theme, VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
+        gesture_was_a_tap, ghost_offset, install_ambient, reorder_motion, resolve_focus,
+        spring_toward, Drag, Point, Rect, ReorderAxis, ReorderMotion, Scene, Theme,
+        VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
     };
     use super::{clipboard_command, ClipCommand, KeyCode, PhysicalKey, WinitKey};
     use super::{collect_ids, find_widget, MediaQuery};
@@ -6285,7 +6389,13 @@ mod tests {
     fn insertion_line_sits_on_the_target_top_edge() {
         // The upper half hovered means inserting **before**: a band of thickness 4
         // centred on the top edge (y=100) of a target 200 wide.
-        let line = drop_insertion_line(Rect::new(20.0, 100.0, 200.0, 44.0), 4.0, false);
+        let line = drop_insertion_line(
+            Rect::new(20.0, 100.0, 200.0, 44.0),
+            4.0,
+            false,
+            ReorderAxis::Vertical,
+            false,
+        );
         assert_eq!(line.x, 20.0, "aligned to the target's left");
         assert_eq!(line.width, 200.0, "the target's full width");
         assert_eq!(line.y, 98.0, "centred on the top edge (100 - 4/2)");
@@ -6296,11 +6406,123 @@ mod tests {
     fn insertion_line_sits_on_the_target_bottom_edge_when_inserting_after() {
         // The lower half hovered means inserting **after**: the band slides to the
         // **bottom** edge (y = 100 + 44 = 144, centred → 142). Same width, same thickness.
-        let line = drop_insertion_line(Rect::new(20.0, 100.0, 200.0, 44.0), 4.0, true);
+        let line = drop_insertion_line(
+            Rect::new(20.0, 100.0, 200.0, 44.0),
+            4.0,
+            true,
+            ReorderAxis::Vertical,
+            false,
+        );
         assert_eq!(line.x, 20.0, "still aligned to the left");
         assert_eq!(line.width, 200.0, "the target's full width");
         assert_eq!(line.y, 142.0, "centred on the bottom edge (144 - 4/2)");
         assert_eq!(line.height, 4.0);
+        // A vertical list reads down whichever way its text runs.
+        let rtl = drop_insertion_line(
+            Rect::new(20.0, 100.0, 200.0, 44.0),
+            4.0,
+            true,
+            ReorderAxis::Vertical,
+            true,
+        );
+        assert_eq!(rtl, line, "right to left changes nothing down a list");
+    }
+
+    /// **A horizontal list's line stands on its end**, on the edge the row goes to: the
+    /// right one after a row that reads left to right, the left one after a row that reads
+    /// right to left — where what follows it is.
+    #[test]
+    fn a_horizontal_insertion_line_stands_on_the_edge_the_row_goes_to() {
+        let chip = Rect::new(100.0, 20.0, 80.0, 48.0);
+        let line = |after, rtl| drop_insertion_line(chip, 4.0, after, ReorderAxis::Horizontal, rtl);
+        let before = line(false, false);
+        assert_eq!(
+            (before.x, before.y, before.width, before.height),
+            (98.0, 20.0, 4.0, 48.0),
+            "before a row: its left edge, the full height, 4 wide"
+        );
+        assert_eq!(
+            line(true, false).x,
+            178.0,
+            "after it: its right edge (180 - 4/2)"
+        );
+        // Right to left, the two edges trade places.
+        assert_eq!(
+            line(true, true).x,
+            98.0,
+            "after, right to left: the left edge"
+        );
+        assert_eq!(
+            line(false, true).x,
+            178.0,
+            "before, right to left: the right edge"
+        );
+    }
+
+    /// **Which gesture a reorderable gets.** A column slides; a row or a card is inserted
+    /// between slots — and a horizontal reorderable is a row only when it says so, which is
+    /// what keeps a table's columns exactly as they were.
+    #[test]
+    fn a_horizontal_reorderable_inserts_only_when_it_says_so() {
+        assert_eq!(
+            ReorderMotion::of(ReorderAxis::Horizontal, false),
+            ReorderMotion::Columns,
+            "a table's column"
+        );
+        assert_eq!(
+            ReorderMotion::of(ReorderAxis::Horizontal, true),
+            ReorderMotion::Slots(ReorderAxis::Horizontal),
+            "a horizontal list's row"
+        );
+        // Every vertical reorderable inserts, whatever it answers.
+        for inserts in [false, true] {
+            assert_eq!(
+                ReorderMotion::of(ReorderAxis::Vertical, inserts),
+                ReorderMotion::Slots(ReorderAxis::Vertical)
+            );
+        }
+        // A widget that answers nothing keeps the trait's defaults, which are the table's.
+        assert_eq!(
+            reorder_motion::<()>(&frus_widgets::Container::new()),
+            ReorderMotion::Columns
+        );
+        // And the real rows say which they are, down and across.
+        for (axis, expected) in [
+            (
+                ReorderAxis::Vertical,
+                ReorderMotion::Slots(ReorderAxis::Vertical),
+            ),
+            (
+                ReorderAxis::Horizontal,
+                ReorderMotion::Slots(ReorderAxis::Horizontal),
+            ),
+        ] {
+            let list = frus_widgets::ReorderableList::new(|_, _| ())
+                .axis(axis)
+                .row(frus_widgets::Container::new().width(60.0));
+            let row = frus_widgets::Widget::children(&list)[0].as_ref();
+            assert_eq!(reorder_motion(row), expected, "{axis:?}");
+        }
+    }
+
+    /// **The ghost stays in its lane.** A column rises and follows x; a card follows the
+    /// finger anywhere; a horizontal list's row follows x and nothing else — so a finger
+    /// that wanders below the strip does not drag the row off it.
+    #[test]
+    fn a_horizontal_rows_ghost_follows_the_finger_along_x_only() {
+        let travel = (120.0, 35.0);
+        assert_eq!(
+            ghost_offset(ReorderMotion::Columns, travel),
+            (120.0, super::drag_preview::LIFT_Y)
+        );
+        assert_eq!(
+            ghost_offset(ReorderMotion::Slots(ReorderAxis::Vertical), travel),
+            (120.0, 35.0)
+        );
+        assert_eq!(
+            ghost_offset(ReorderMotion::Slots(ReorderAxis::Horizontal), travel),
+            (120.0, 0.0)
+        );
     }
 
     #[test]
