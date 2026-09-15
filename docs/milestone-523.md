@@ -86,12 +86,16 @@ capture a moment later found it still there rather than back on the half-way sto
 itself, 0.3 s long, is shorter than a capture takes, so the device shows where it arrives and the
 tests show how it got there.
 
-**Mutations** — fifteen are written: the finger's refusal, the settle left running, the clamp,
-`initial`, the animation, the curve, the finger stopping a request, the dismissal waiting for it,
-the dismissed flag, a zero duration, the key's own node taken for the sheet, a batch dropping
-requests, an unplaced request dropped, and two in the shell's wiring. The run was still going when
-this was committed, on a machine shared with four other builds; its verdicts follow in a commit
-of their own.
+**Mutations** — fifteen, fourteen killed: the finger's refusal, the settle left running, the
+clamp, `initial`, the animation, the curve, the finger stopping a request, the dismissal waiting
+for it, the dismissed flag, a zero duration, the key's own node taken for the sheet, a batch
+dropping requests, an unplaced request dropped, and a placed request moving nothing. The first
+run could not apply the unplaced-request mutation — its line appears twice in the shell, once for
+scroll requests and once for sheet requests — so it was run again on its own with a pattern that
+names the sheet's; the shell's test caught it. **One survived**: requests never reaching the
+shell from a returned command. No test drives the shell's event loop, so nothing can kill it
+there; the device run above is what covers that path, since **Raise it** is exactly a command
+returned from `update` and resolved by the shell.
 
 ## What is left
 
