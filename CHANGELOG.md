@@ -15,6 +15,18 @@ any release may break.
 
 ### Fixed
 
+- **A scroll view stayed scrolled past the end of content that had shrunk** (J533). A row of
+  filters in a horizontal `SingleChildScrollView` overflowed at a large text size, was swiped to
+  its end, and stayed there once the text was small again and the row fitted: its first label
+  cut at the left, empty room at the right of its last. The offset a region keeps was never
+  brought back inside a smaller extent. As in the reference, a region nothing is moving — no
+  finger, fling or glide — is now drawn inside its extent in the very frame its content or
+  viewport shrinks, and the runtime keeps it there (`Runtime::keep_scroll_in_range`,
+  `Runtime::scroll_offset_within`). A finger keeps what it holds until it lets go, a glide
+  springs home as it already did, and a fling that settles on an end the content no longer
+  reaches springs on to the new one instead of jumping. Every scrollable, either axis,
+  reversed or not. Seen on a phone: raised past its end and lowered back, the filter row snaps
+  to its start exactly, nothing cut and no gap.
 - **A row carried to the edge of its list ran away from the finger** (J527, #44). Seen on a
   phone on the Kanban screen's strip: a label held and carried was not drawn lifted and the strip
   scrolled away under it. The carried row's box was asked of the frame every frame, and the frame
