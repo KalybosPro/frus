@@ -299,6 +299,13 @@ any release may break.
   comment and `Layout::size_of`'s had been run together as one block, landing entirely on
   `size_of`; each is now back over the function it describes. Last of the three crates the
   issue named to start with.
+- **`frus-image` denies a missing doc comment** (J536, answers #14, one of several crates).
+  `#![deny(missing_docs)]`, first added as `#![warn(...)]` to see what it would find: nothing
+  did, every public item — the crate itself, `DecodeError` and its `message()`, `decode()` —
+  was already documented, so the lint went straight to `deny` with no findings to fix. A
+  drive-by: a test helper's `.expect("encodage")` was the one French word left in the crate,
+  fixed to `.expect("encoding")`. `frus-image` is the smallest of the three crates the issue
+  named to start with; `frus-l10n` and `frus-layout` are left for their own pull requests.
 - **A reorderable list whose rows run across** (J527, #44). `ReorderableList::axis` takes
   `ReorderAxis::Horizontal`: the rows are laid out along x, each grip moves under its row,
   and the gesture is the vertical one transposed — the neighbours make room along x, the
