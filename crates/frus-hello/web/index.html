@@ -8,24 +8,75 @@
       html, body { margin: 0; height: 100%; background: #0d0d14; overflow: hidden; }
       /* winit appends its canvas to <body>; we make it fill the window. */
       canvas { display: block; width: 100vw; height: 100vh; }
-      #unsupported {
-        color: #e6e6ef; font: 15px/1.5 system-ui, sans-serif; padding: 24px; max-width: 40rem;
+
+      #chrome {
+        position: fixed; top: 0; left: 0; right: 0; z-index: 2;
+        display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap;
+        padding: 0.6rem 1rem;
+        font: 14px/1.4 system-ui, sans-serif; color: #e6e6ef;
+        background: linear-gradient(#0d0d14cc, #0d0d1400);
+        pointer-events: none;
       }
+      #chrome h1 { margin: 0; font-size: 15px; font-weight: 600; }
+      #chrome p { margin: 0; color: #a3a3b3; }
+      #chrome a { color: #9fd3ff; pointer-events: auto; }
+
+      #loading, #unsupported {
+        position: fixed; inset: 0; z-index: 1;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 0.9rem; text-align: center;
+        color: #e6e6ef; font: 15px/1.5 system-ui, sans-serif; padding: 24px;
+      }
+      #unsupported { max-width: 40rem; margin: 0 auto; }
+      #loading[hidden], #unsupported[hidden] { display: none; }
+
+      #spinner {
+        width: 28px; height: 28px; border-radius: 50%;
+        border: 3px solid #33334a; border-top-color: #9fd3ff;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
     </style>
   </head>
   <body>
+    <header id="chrome">
+      <h1>frus — hello</h1>
+      <p>A counter, running through WebGPU with no build step beyond <code>wasm-bindgen</code>.</p>
+      <a href="https://github.com/KalybosPro/frus">Source on GitHub →</a>
+    </header>
+
+    <div id="loading" role="status" aria-live="polite">
+      <div id="spinner" aria-hidden="true"></div>
+      <p>Loading the application…</p>
+    </div>
+
     <div id="unsupported" hidden>
       <h2>WebGPU unavailable</h2>
       <p>frus renders through <strong>WebGPU</strong>. Open this page in a recent
       browser — Chrome or Edge 113+, or Firefox with WebGPU enabled — over
       <code>https</code> or <code>localhost</code>.</p>
     </div>
+
     <script type="module">
+      const loading = document.getElementById('loading');
+      const unsupported = document.getElementById('unsupported');
+
       if (!('gpu' in navigator)) {
-        document.getElementById('unsupported').hidden = false;
+        loading.hidden = true;
+        unsupported.hidden = false;
       } else {
         // The wasm-bindgen module; `start()` (#[wasm_bindgen(start)]) runs on init.
-        import('./pkg/frus_hello.js').then((m) => m.default());
+        import('./pkg/frus_hello.js')
+          .then((m) => m.default())
+          .then(() => { loading.hidden = true; })
+          .catch((err) => {
+            loading.hidden = true;
+            unsupported.querySelector('h2').textContent = 'Could not load the application';
+            unsupported.querySelector('p').textContent =
+              'Fetching or starting the wasm module failed: ' + err + '. Check the console, ' +
+              'and that crates/frus-hello/web/pkg/ has been built (see web/README.md).';
+            unsupported.hidden = false;
+          });
       }
     </script>
   </body>

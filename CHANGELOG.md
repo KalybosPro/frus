@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 532 so far, each documenting the objective, the alternatives
+> record — one per step, 535 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -275,6 +275,21 @@ any release may break.
 
 ### Added
 
+- **A real page for the web example** (J535, answers #11). `crates/frus-hello/web/index.html`
+  was a canvas on a flat background: no title beyond the `<title>` tag, no line saying what was
+  running, no link back to the repository, and a blank rectangle for as long as the wasm module
+  took to fetch and start. A fixed header now names the example and links to the repository,
+  `pointer-events: none` on the bar and `auto` on the link alone so the canvas underneath still
+  takes every other click. A loading overlay is the markup itself — no `hidden` attribute on
+  `#loading`, so it is what paints before any script runs — taken away once the module has
+  fetched, instantiated and started; a failed import now reuses the `WebGPU unavailable` panel's
+  markup for its own message instead of hanging silently. The `navigator.gpu` check the issue
+  also asked for had already landed. Found while verifying, not fixed: a headless Edge build here
+  gets past `navigator.gpu` and `requestAdapter` but fails `requestDevice` on a limit name
+  (`maxInterStageShaderComponents`) it does not recognise, which `frus-shell` already logs and
+  fails on asynchronously, after the loading overlay has already been taken away — left as found,
+  since whether a real, non-headless browser on real hardware hits the same mismatch is not
+  established here.
 - **A reorderable list whose rows run across** (J527, #44). `ReorderableList::axis` takes
   `ReorderAxis::Horizontal`: the rows are laid out along x, each grip moves under its row,
   and the gesture is the vertical one transposed — the neighbours make room along x, the

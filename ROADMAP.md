@@ -152,7 +152,12 @@ The web target renders and animates but is missing its platform integrations. Ea
 - 🟡 **Accessibility.** AccessKit has web support; the semantics tree already exists and is populated. This is a bridging job, not a from-scratch one.
 - 🟡 **IME / soft keyboard** on mobile browsers — a hidden input overlay, composition events, viewport insets.
 - 🟡 **Live-reload** for the wasm target.
-- 🟢 **A proper web example page** — the current `index.html` is minimal.
+- 🟢 **A proper web example page — done, milestone 535 (#11).** A fixed header names the
+  example and links back to the repository, over the canvas rather than in its way, and a
+  loading overlay — the markup itself, shown before any script runs — is taken away once the
+  wasm module has fetched, instantiated and started, or replaced with a message if that fails.
+  Left: a renderer that fails *after* starting still leaves a silent blank canvas, which needs a
+  channel out of `frus-shell`'s async Web init and is not this page's job.
 
 ### Size
 
