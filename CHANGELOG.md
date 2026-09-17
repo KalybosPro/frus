@@ -334,6 +334,11 @@ any release may break.
   drive-by: a test helper's `.expect("encodage")` was the one French word left in the crate,
   fixed to `.expect("encoding")`. `frus-image` is the smallest of the three crates the issue
   named to start with; `frus-l10n` and `frus-layout` are left for their own pull requests.
+- **`frus-l10n` denies a missing doc comment** (J537, answers #14, second of several
+  crates). `#![deny(missing_docs)]`, again added as `#![warn(...)]` first: nothing found,
+  every public item — the crate itself, `Arg` and its variants, `args!`, `Localizer` and its
+  eight methods — already documented, so it went straight to `deny`. `frus-layout` is next,
+  its own pull request, the last of the three crates the issue named to start with.
 - **A reorderable list whose rows run across** (J527, #44). `ReorderableList::axis` takes
   `ReorderAxis::Horizontal`: the rows are laid out along x, each grip moves under its row,
   and the gesture is the vertical one transposed — the neighbours make room along x, the
