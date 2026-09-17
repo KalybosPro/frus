@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 535 so far, each documenting the objective, the alternatives
+> record — one per step, 538 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -290,6 +290,15 @@ any release may break.
   fails on asynchronously, after the loading overlay has already been taken away — left as found,
   since whether a real, non-headless browser on real hardware hits the same mismatch is not
   established here.
+- **`frus-layout` denies a missing doc comment** (J538, answers #14, third of several
+  crates). `#![deny(missing_docs)]`, added as `#![warn(...)]` first: this time it found
+  something. `Justify::Start/Center/End/SpaceBetween/SpaceAround` and
+  `Align::Start/Center/End` had no doc comment at all — only their siblings did — and are now
+  documented on the same plan as `AlignContent`, the sibling enum a few lines above that
+  already covers this ground. `Layout::absolute_rects` had none of its own either: its doc
+  comment and `Layout::size_of`'s had been run together as one block, landing entirely on
+  `size_of`; each is now back over the function it describes. Last of the three crates the
+  issue named to start with.
 - **A reorderable list whose rows run across** (J527, #44). `ReorderableList::axis` takes
   `ReorderAxis::Horizontal`: the rows are laid out along x, each grip moves under its row,
   and the gesture is the vertical one transposed — the neighbours make room along x, the
