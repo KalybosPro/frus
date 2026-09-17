@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 538 so far, each documenting the objective, the alternatives
+> record — one per step, 540 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -275,6 +275,14 @@ any release may break.
 
 ### Added
 
+- **`frus` denies a missing doc comment** (J540, answers #14, continuing past the three
+  crates it named to start with). Mostly `pub use` re-exports of items `frus-widgets`,
+  `frus-shell` and `frus-text` already document — `missing_docs` credits a re-export
+  against the definition it points at, so `#![warn(...)]` found only one real gap:
+  `pub mod fonts { ... }` had a plain `//` comment above it, not a doc comment, so the
+  lint did not see it as documented. Turned the comment into `///` on the module itself
+  (its wording already said what the module was for) and promoted to
+  `#![deny(missing_docs)]`.
 - **A real page for the web example** (J535, answers #11). `crates/frus-hello/web/index.html`
   was a canvas on a flat background: no title beyond the `<title>` tag, no line saying what was
   running, no link back to the repository, and a blank rectangle for as long as the wasm module
