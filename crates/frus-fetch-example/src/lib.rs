@@ -15,6 +15,8 @@
 //! Run it on the desktop with `cargo run -p frus-fetch-example`; add `RUST_LOG=info` for
 //! logs.
 
+#![deny(missing_docs)]
+
 use std::time::Duration;
 
 // A **single** dependency: the `frus` facade, with the `net` feature for `fetch` and
