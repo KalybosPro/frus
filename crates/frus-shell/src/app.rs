@@ -2760,6 +2760,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .as_ref()
                     .map(|ui| ui.scroll_regions().to_vec())
                     .unwrap_or_default();
+                // A region whose content shrank this frame under an offset nobody owns was
+                // drawn where it now rests; the runtime keeps it there before anything reads
+                // the offset back — the reports below, a press, the next frame's springs.
+                // Without it the row was drawn right once and pressed wrong (milestone 533).
+                self.runtime.keep_scroll_in_range(&paged);
                 let turned: Vec<A::Message> = self
                     .runtime
                     .page_changes(&paged)
