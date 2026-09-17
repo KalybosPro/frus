@@ -164,7 +164,7 @@ snapshot.assert_golden(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/goldens/card.
 - A failing golden writes `<name>.actual.png` next to the reference so you can diff them. Those files are gitignored.
 - Goldens depend on the rasterizer; text antialiasing varies across drivers. `assert_golden_with` takes a channel tolerance and a pixel budget for that reason. If a golden fails only on your machine, say so in the PR rather than loosening it silently.
 
-**Run the goldens yourself when you change what pixels come out.** `cargo test --workspace` includes them, but the headless CI job does not, and the CI job that does is advisory for the goldens, for want of a pinned rasteriser version on the runner. That gap once let a deliberate change to text metrics leave 47 goldens red for five milestones with nobody looking (milestone 294). If your change touches text measurement, layout, painting or the renderer:
+**Run the goldens yourself when you change what pixels come out.** `cargo test --workspace` includes them, but the headless CI job does not — only the GPU job does, on a runner whose rasteriser is now pinned to the exact mesa version this repository blesses under, so a golden that is wrong fails CI rather than merging quietly. That was not always so: this job used to be advisory for want of a pinned rasteriser, and the gap once let a deliberate change to text metrics leave 47 goldens red for five milestones with nobody looking (milestone 294). Waiting for CI to tell you is still slower than looking yourself, so before pushing, if your change touches text measurement, layout, painting or the renderer:
 
 ```sh
 cargo test -p frus-test --test goldens --test widgets
