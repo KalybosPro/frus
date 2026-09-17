@@ -483,11 +483,6 @@ impl<'a, T> Layout<'a, T> {
             .expect("computing the layout");
     }
 
-    /// Walks the tree in prefix order and returns, for each node, its rectangle in
-    /// **absolute** coordinates along with any associated data.
-    ///
-    /// taffy expresses positions relative to the parent; here we accumulate the
-    /// offsets to get absolute coordinates that can be rendered directly.
     /// The size a node came out at, after a `compute*`.
     ///
     /// [`Layout::absolute_rects`] answers the same question for a whole subtree and
@@ -500,6 +495,11 @@ impl<'a, T> Layout<'a, T> {
             .unwrap_or(Size::new(0.0, 0.0))
     }
 
+    /// Walks the tree in prefix order and returns, for each node, its rectangle in
+    /// **absolute** coordinates along with any associated data.
+    ///
+    /// taffy expresses positions relative to the parent; here we accumulate the
+    /// offsets to get absolute coordinates that can be rendered directly.
     pub fn absolute_rects(&self, root: NodeId) -> Vec<(Rect, Option<&T>)> {
         let mut out = Vec::new();
         self.collect(root, 0.0, 0.0, &mut out);
