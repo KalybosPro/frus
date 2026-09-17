@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 540 so far, each documenting the objective, the alternatives
+> record — one per step, 541 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -295,6 +295,12 @@ any release may break.
 
 ### Added
 
+- **`frus-bench` denies a missing doc comment** (J541, answers #14, continuing the
+  sweep). The smallest crate left: one file, `VIEWPORT` and four functions
+  (`task_list`, `task_list_wordless`, `nested`, `build`) building the trees every
+  benchmark measures, so a number from one run means the same thing as the next.
+  `#![warn(...)]` found nothing — every public item was already documented, straight
+  to `#![deny(missing_docs)]`.
 - **`frus` denies a missing doc comment** (J540, answers #14, continuing past the three
   crates it named to start with). Mostly `pub use` re-exports of items `frus-widgets`,
   `frus-shell` and `frus-text` already document — `missing_docs` credits a re-export
