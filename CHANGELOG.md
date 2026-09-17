@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 541 so far, each documenting the objective, the alternatives
+> record — one per step, 544 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -317,6 +317,11 @@ any release may break.
 
 ### Added
 
+- **`frus-transforms` denies a missing doc comment** (J544, answers #14, continuing
+  the sweep). `Showcase` is private, `star_path` and the two tuning constants
+  (`FRAME_DT`, `CYCLE`) are private, and `frus_shell::main!(Showcase::default())`
+  generates the only public item, `run()`. `#![warn(...)]` found nothing — straight
+  to `#![deny(missing_docs)]`.
 - **`frus-bench` denies a missing doc comment** (J541, answers #14, continuing the
   sweep). The smallest crate left: one file, `VIEWPORT` and four functions
   (`task_list`, `task_list_wordless`, `nested`, `build`) building the trees every
