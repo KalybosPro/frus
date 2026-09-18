@@ -332,7 +332,9 @@ impl Hct {
 /// `tone(90)` is very light, `tone(10)` very dark, and both read as one colour.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TonalPalette {
+    /// The hue, in degrees.
     pub hue: f64,
+    /// The chroma ceiling: the maximum saturation reachable at any tone.
     pub chroma: f64,
 }
 

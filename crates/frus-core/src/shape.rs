@@ -28,7 +28,9 @@ use crate::Color;
 /// (`border_side.dart`).
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct BorderSide {
+    /// The edge's colour.
     pub color: Color,
+    /// The edge's width, in logical pixels.
     pub width: f32,
 }
 
@@ -41,6 +43,7 @@ impl BorderSide {
         width: 0.0,
     };
 
+    /// An edge of the given colour and width.
     pub const fn new(color: Color, width: f32) -> Self {
         Self { color, width }
     }
@@ -66,12 +69,17 @@ impl Default for BorderSide {
 pub enum ShapeBorder {
     /// Corners rounded by a radius each (`rounded_rectangle_border.dart`).
     RoundedRectangle {
+        /// The corner radii.
         radius: BorderRadius,
+        /// The edge drawn around the shape.
         side: BorderSide,
     },
     /// **A pill**: the ends are semicircles, whatever the box's proportions
     /// (`stadium_border.dart:95`). What a chip is, and what a navigation indicator is.
-    Stadium { side: BorderSide },
+    Stadium {
+        /// The edge drawn around the shape.
+        side: BorderSide,
+    },
     /// **A circle** inscribed in the box, or an ellipse on the way to filling it
     /// (`circle_border.dart:126`).
     Circle {
@@ -79,13 +87,16 @@ pub enum ShapeBorder {
         /// an ellipse filling the box entirely. Between them, the circle grows towards
         /// the ellipse along the box's longer axis.
         eccentricity: f32,
+        /// The edge drawn around the shape.
         side: BorderSide,
     },
     /// Corners **cut off straight** rather than rounded
     /// (`beveled_rectangle_border.dart`). The one shape here that is not a rounded
     /// rectangle in disguise.
     Beveled {
+        /// The corner radii, before bevelling.
         radius: BorderRadius,
+        /// The edge drawn around the shape.
         side: BorderSide,
     },
 }

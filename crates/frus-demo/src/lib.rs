@@ -5,6 +5,8 @@
 //! - desktop: `cargo run -p frus-demo` → the `src/bin/frus-demo.rs` binary → `run()`;
 //! - Android: the `cdylib` library exposes `android_main`, called by the native activity.
 
+#![deny(missing_docs)]
+
 mod assets;
 mod l10n;
 mod message;

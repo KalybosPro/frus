@@ -11,15 +11,22 @@ use bytemuck::{Pod, Zeroable};
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
 pub struct Color {
+    /// The red channel, sRGB, in `[0.0, 1.0]`.
     pub r: f32,
+    /// The green channel, sRGB, in `[0.0, 1.0]`.
     pub g: f32,
+    /// The blue channel, sRGB, in `[0.0, 1.0]`.
     pub b: f32,
+    /// The alpha channel: `0.0` fully transparent, `1.0` fully opaque.
     pub a: f32,
 }
 
 impl Color {
+    /// Opaque black.
     pub const BLACK: Self = Self::rgb(0.0, 0.0, 0.0);
+    /// Opaque white.
     pub const WHITE: Self = Self::rgb(1.0, 1.0, 1.0);
+    /// Fully transparent black — the alpha is `0.0`, so the RGB channels never show.
     pub const TRANSPARENT: Self = Self::rgba(0.0, 0.0, 0.0, 0.0);
 
     /// Builds an opaque colour.

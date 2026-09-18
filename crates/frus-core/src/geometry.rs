@@ -128,13 +128,17 @@ impl Affine {
 /// A 2D point.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Point {
+    /// The horizontal coordinate, in logical pixels.
     pub x: f32,
+    /// The vertical coordinate, in logical pixels.
     pub y: f32,
 }
 
 impl Point {
+    /// The origin.
     pub const ZERO: Self = Self::new(0.0, 0.0);
 
+    /// A point at `(x, y)`, in logical pixels.
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
@@ -171,15 +175,21 @@ impl TextDirection {
 /// Insets — padding or margin — per side, in logical pixels.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Insets {
+    /// The top inset, in logical pixels.
     pub top: f32,
+    /// The right inset, in logical pixels.
     pub right: f32,
+    /// The bottom inset, in logical pixels.
     pub bottom: f32,
+    /// The left inset, in logical pixels.
     pub left: f32,
 }
 
 impl Insets {
+    /// No inset on any side.
     pub const ZERO: Self = Self::new(0.0, 0.0, 0.0, 0.0);
 
+    /// An inset per side, in logical pixels.
     pub const fn new(top: f32, right: f32, bottom: f32, left: f32) -> Self {
         Self {
             top,
@@ -200,15 +210,21 @@ impl Insets {
 /// time.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct InsetsDirectional {
+    /// The top inset, in logical pixels.
     pub top: f32,
+    /// The end-edge inset (right in LTR, left in RTL), in logical pixels.
     pub end: f32,
+    /// The bottom inset, in logical pixels.
     pub bottom: f32,
+    /// The start-edge inset (left in LTR, right in RTL), in logical pixels.
     pub start: f32,
 }
 
 impl InsetsDirectional {
+    /// No inset on any side.
     pub const ZERO: Self = Self::new(0.0, 0.0, 0.0, 0.0);
 
+    /// A directional inset per side, in logical pixels.
     pub const fn new(top: f32, end: f32, bottom: f32, start: f32) -> Self {
         Self {
             top,
@@ -237,13 +253,17 @@ impl InsetsDirectional {
 /// A 2D size (width × height).
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Size {
+    /// The width, in logical pixels.
     pub width: f32,
+    /// The height, in logical pixels.
     pub height: f32,
 }
 
 impl Size {
+    /// No area.
     pub const ZERO: Self = Self::new(0.0, 0.0);
 
+    /// A size of `width` × `height`, in logical pixels.
     pub const fn new(width: f32, height: f32) -> Self {
         Self { width, height }
     }
@@ -264,14 +284,23 @@ pub struct Alignment {
 }
 
 impl Alignment {
+    /// Hugs the top-left corner.
     pub const TOP_LEFT: Self = Self::new(-1.0, -1.0);
+    /// Hugs the top edge, centred horizontally.
     pub const TOP_CENTER: Self = Self::new(0.0, -1.0);
+    /// Hugs the top-right corner.
     pub const TOP_RIGHT: Self = Self::new(1.0, -1.0);
+    /// Hugs the left edge, centred vertically.
     pub const CENTER_LEFT: Self = Self::new(-1.0, 0.0);
+    /// The exact centre.
     pub const CENTER: Self = Self::new(0.0, 0.0);
+    /// Hugs the right edge, centred vertically.
     pub const CENTER_RIGHT: Self = Self::new(1.0, 0.0);
+    /// Hugs the bottom-left corner.
     pub const BOTTOM_LEFT: Self = Self::new(-1.0, 1.0);
+    /// Hugs the bottom edge, centred horizontally.
     pub const BOTTOM_CENTER: Self = Self::new(0.0, 1.0);
+    /// Hugs the bottom-right corner.
     pub const BOTTOM_RIGHT: Self = Self::new(1.0, 1.0);
 
     /// An `(x, y)` anchor, with fractions in `[-1, 1]`.
@@ -305,14 +334,23 @@ pub struct AlignmentDirectional {
 }
 
 impl AlignmentDirectional {
+    /// Hugs the top-start corner (top-left in LTR, top-right in RTL).
     pub const TOP_START: Self = Self::new(-1.0, -1.0);
+    /// Hugs the top edge, centred horizontally.
     pub const TOP_CENTER: Self = Self::new(0.0, -1.0);
+    /// Hugs the top-end corner (top-right in LTR, top-left in RTL).
     pub const TOP_END: Self = Self::new(1.0, -1.0);
+    /// Hugs the start edge, centred vertically.
     pub const CENTER_START: Self = Self::new(-1.0, 0.0);
+    /// The exact centre.
     pub const CENTER: Self = Self::new(0.0, 0.0);
+    /// Hugs the end edge, centred vertically.
     pub const CENTER_END: Self = Self::new(1.0, 0.0);
+    /// Hugs the bottom-start corner (bottom-left in LTR, bottom-right in RTL).
     pub const BOTTOM_START: Self = Self::new(-1.0, 1.0);
+    /// Hugs the bottom edge, centred horizontally.
     pub const BOTTOM_CENTER: Self = Self::new(0.0, 1.0);
+    /// Hugs the bottom-end corner (bottom-right in LTR, bottom-left in RTL).
     pub const BOTTOM_END: Self = Self::new(1.0, 1.0);
 
     /// A directional `(x_start, y)` anchor, with fractions in `[-1, 1]`.

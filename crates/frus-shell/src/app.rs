@@ -2769,6 +2769,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .as_ref()
                     .map(|ui| ui.scroll_regions().to_vec())
                     .unwrap_or_default();
+                // A region whose content shrank this frame under an offset nobody owns was
+                // drawn where it now rests; the runtime keeps it there before anything reads
+                // the offset back — the reports below, a press, the next frame's springs.
+                // Without it the row was drawn right once and pressed wrong (milestone 533).
+                self.runtime.keep_scroll_in_range(&paged);
                 let turned: Vec<A::Message> = self
                     .runtime
                     .page_changes(&paged)
@@ -2936,6 +2941,9 @@ impl<A: Application> App<A> {
     fn pointer_event(&mut self, event: PointerEvent) {
         self.cursor = event.position;
         self.hover.event(event.kind, event.position, event.touch);
+        // Whether the gesture under way could still end as a tap, before this event moves
+        // it on: the press is shared with it until it cannot (milestone 534).
+        let could_tap = gesture_was_a_tap(self.drag.as_ref());
         match event.kind {
             PointerKind::Down => {
                 // What is under the pointer **now**: a finger has no move before its
@@ -3039,6 +3047,17 @@ impl<A: Application> App<A> {
                 self.runtime.input.pressed = None;
                 self.request_redraw();
             }
+        }
+        // A press a gesture has taken, or one whose pointer has gone, is let go of — after
+        // the routing, which is what reads it (milestone 534).
+        if settle_press(
+            &mut self.runtime.input,
+            event.kind,
+            could_tap,
+            self.drag.as_ref(),
+            event.touch,
+        ) {
+            self.request_redraw();
         }
         // After the release has been routed — it reads the press, not the hover — a
         // finger that has lifted stops hovering (milestone 505).
@@ -3273,19 +3292,8 @@ impl<A: Application> App<A> {
             }
         }
 
-        self.runtime.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
-        // The ink: a surface that takes it splashes from where the finger landed. The
-        // box comes from the frame that was on screen when the finger came down, which
-        // is the one the user aimed at.
-        if let Some(pressed) = self.runtime.input.pressed {
-            if let Some(rect) = self.ui.as_ref().and_then(|ui| ui.ink_box(pressed)) {
-                self.runtime.ink_press(
-                    pressed,
-                    Point::new(self.cursor.x - rect.x, self.cursor.y - rect.y),
-                    Size::new(rect.width, rect.height),
-                );
-                self.request_redraw();
-            }
+        if press_at(&mut self.runtime, self.ui.as_ref(), self.cursor) {
+            self.request_redraw();
         }
         // 2) Focus and caret placement, and the start of a text selection.
         let previously_focused = self.runtime.input.focused;
@@ -5585,6 +5593,64 @@ fn gesture_was_a_tap(ended: Option<&Drag>) -> bool {
     )
 }
 
+/// A press lands at `at`: what is under it is pressed, and a surface that takes ink
+/// splashes from where it landed. The box comes from the frame that was on screen when the
+/// pointer came down, which is the one the user aimed at. Returns whether a splash started.
+fn press_at<Msg: Clone>(runtime: &mut Runtime, ui: Option<&Ui<Msg>>, at: Point) -> bool {
+    runtime.input.pressed = ui.and_then(|ui| ui.hit(at));
+    let Some(pressed) = runtime.input.pressed else {
+        return false;
+    };
+    let Some(rect) = ui.and_then(|ui| ui.ink_box(pressed)) else {
+        return false;
+    };
+    runtime.ink_press(
+        pressed,
+        Point::new(at.x - rect.x, at.y - rect.y),
+        Size::new(rect.width, rect.height),
+    );
+    true
+}
+
+/// What becomes of the press once a pointer event has been routed, `could_tap` being
+/// whether the gesture under way could still have ended as a tap **before** the event, and
+/// `drag` the gesture after it. Returns whether anything changed, which wants a frame.
+///
+/// A press on something inside a scrollable is shared with the scroll until the pointer
+/// crosses the slop. From then on the gesture has it — a scroll, a swipe, a sheet, a
+/// carried row — and, as in the reference, where the recogniser that loses the arena is
+/// told so, the press is **let go of there and then**: its ink is swept, its press fades.
+/// And a pointer that has lifted holds nothing, whatever its release did.
+///
+/// Before this, a release that ended a gesture which had moved returned before the press
+/// was cleared, so the press outlived the finger; the ink, which waits for as long as its
+/// widget is pressed, was held for good — the grey left on a segment a phone had swiped
+/// a strip of filters by (milestone 534).
+///
+/// A finger hovers only so that its press can show (milestone 505), so a finger whose press
+/// was taken stops hovering too. A mouse is still over whatever it is over.
+fn settle_press(
+    input: &mut frus_widgets::InputState,
+    kind: PointerKind,
+    could_tap: bool,
+    drag: Option<&Drag>,
+    touch: bool,
+) -> bool {
+    let taken = match kind {
+        PointerKind::Down => false,
+        PointerKind::Move => could_tap && !gesture_was_a_tap(drag),
+        PointerKind::Up | PointerKind::Cancel => true,
+    };
+    if !taken {
+        return false;
+    }
+    let mut changed = input.pressed.take().is_some();
+    if touch {
+        changed |= input.hovered.take().is_some();
+    }
+    changed
+}
+
 /// How fast an area scrolls under a carried item, in pixels per second **per pixel** the
 /// item hangs over the edge: the further out it is, the faster the list comes to meet it.
 /// The reference's number, and the reference's law.
@@ -7821,5 +7887,409 @@ mod carried_row_tests {
             "row 0 lands near the end: {:?}",
             driver.app().log
         );
+    }
+}
+
+/// **A press a scroll took is let go of** (milestone 534).
+///
+/// The shell's own types need a window and an event loop, so these drive a real frame
+/// through the pieces `App::pointer` is made of, in the order it calls them: the hover, the
+/// press where the pointer lands, the gesture the drag handler turns the press into, and
+/// `settle_press` after every event. What is painted is then compared with a runtime
+/// nobody pressed.
+#[cfg(test)]
+mod press_tests {
+    use super::{gesture_was_a_tap, press_at, settle_press, Drag, Point, Runtime, Theme};
+    use crate::gesture::PointerKind;
+    use crate::hover::Hover;
+    use frus_widgets::{
+        build_ui, Axis, Button, Container, Flex, Primitive, SegmentedButton, SingleChildScrollView,
+        Size, Ui, Widget,
+    };
+
+    const SCREEN: Size = Size::new(300.0, 400.0);
+    const DT: f32 = 1.0 / 60.0;
+
+    /// The phone's screen: a strip of segments too wide for it, in a horizontal scroll.
+    fn filters() -> Box<dyn Widget<usize>> {
+        let mut segments = SegmentedButton::new(0, |i| i);
+        for label in ["All", "Active", "Done", "Archived", "Starred", "Shared"] {
+            segments = segments.segment(label);
+        }
+        Box::new(
+            Flex::column().width(300.0).height(400.0).child(
+                SingleChildScrollView::new()
+                    .axis(Axis::Horizontal)
+                    .width(300.0)
+                    .height(80.0)
+                    .child(segments),
+            ),
+        )
+    }
+
+    /// A plain button at the top of a page that scrolls down.
+    fn page() -> Box<dyn Widget<usize>> {
+        Box::new(
+            Flex::column().width(300.0).height(400.0).child(
+                SingleChildScrollView::new()
+                    .width(300.0)
+                    .height(400.0)
+                    .child(
+                        Flex::column()
+                            .child(Button::new("Go").on_press(7))
+                            .child(Container::new().width(300.0).height(1200.0)),
+                    ),
+            ),
+        )
+    }
+
+    fn frame(view: &dyn Widget<usize>, runtime: &Runtime) -> Ui<usize> {
+        build_ui(view, SCREEN, runtime, &Theme::default())
+    }
+
+    /// Frames go by with nothing else happening, as a phone left alone for `seconds`.
+    fn idle(runtime: &mut Runtime, seconds: f32) {
+        for _ in 0..(seconds / DT) as usize {
+            runtime.advance(DT);
+            runtime.advance_ink(DT);
+        }
+    }
+
+    /// What the screen shows.
+    fn painted(view: &dyn Widget<usize>, runtime: &Runtime) -> Vec<Primitive> {
+        frame(view, runtime).scene().primitives().to_vec()
+    }
+
+    /// The same screen, scrolled the same, that no pointer has touched.
+    fn untouched(view: &dyn Widget<usize>, runtime: &Runtime) -> Vec<Primitive> {
+        let mut quiet = Runtime::default();
+        quiet.scroll.clone_from(&runtime.scroll);
+        quiet.scroll_target.clone_from(&runtime.scroll_target);
+        idle(&mut quiet, 0.5);
+        painted(view, &quiet)
+    }
+
+    /// A pointer on a screen, routed as the shell routes one.
+    struct Pointer<'a> {
+        view: &'a dyn Widget<usize>,
+        runtime: Runtime,
+        hover: Hover,
+        drag: Option<Drag>,
+        touch: bool,
+        at: Point,
+    }
+
+    impl<'a> Pointer<'a> {
+        fn new(view: &'a dyn Widget<usize>, touch: bool) -> Self {
+            Self {
+                view,
+                runtime: Runtime::default(),
+                hover: Hover::default(),
+                drag: None,
+                touch,
+                at: Point::new(0.0, 0.0),
+            }
+        }
+
+        /// One event: `route` stands for what the shell's handler makes of it.
+        fn event(&mut self, kind: PointerKind, at: Point, route: impl FnOnce(&mut Self)) {
+            self.at = at;
+            self.hover.event(kind, at, self.touch);
+            let could_tap = gesture_was_a_tap(self.drag.as_ref());
+            if kind == PointerKind::Down {
+                let ui = frame(self.view, &self.runtime);
+                self.runtime.input.hovered = self.hover.target(&ui);
+                press_at(&mut self.runtime, Some(&ui), at);
+            }
+            route(self);
+            settle_press(
+                &mut self.runtime.input,
+                kind,
+                could_tap,
+                self.drag.as_ref(),
+                self.touch,
+            );
+            if matches!(kind, PointerKind::Up | PointerKind::Cancel) {
+                let ui = frame(self.view, &self.runtime);
+                self.runtime.input.hovered = self.hover.target(&ui);
+            }
+        }
+
+        /// A finger lands where a touch scroll takes it, as `pointer_down` prepares one.
+        fn land(&mut self, at: Point) {
+            self.event(PointerKind::Down, at, |p| {
+                if !p.touch {
+                    return;
+                }
+                let ui = frame(p.view, &p.runtime);
+                let area = ui
+                    .scroll_chain(at)
+                    .find(|area| area.accepts_user_offset((0.0, 0.0)))
+                    .expect("the region under the finger has somewhere to go");
+                p.drag = Some(Drag::Scroll {
+                    id: area.id,
+                    last: at,
+                    moved: false,
+                    carried: (0.0, 0.0),
+                    dismiss: None,
+                    axis: None,
+                });
+            });
+        }
+
+        /// The pointer moves by `by`; past the slop a touch scroll moves its content, as the
+        /// drag handler moves it.
+        fn slide(&mut self, by: (f32, f32)) {
+            let to = Point::new(self.at.x + by.0, self.at.y + by.1);
+            self.event(PointerKind::Move, to, |p| {
+                let Some(Drag::Scroll {
+                    id,
+                    moved,
+                    axis,
+                    last,
+                    ..
+                }) = p.drag.as_mut()
+                else {
+                    return;
+                };
+                let (dx, dy) = (to.x - last.x, to.y - last.y);
+                if dx.hypot(dy) <= super::TOUCH_SLOP && !*moved {
+                    return;
+                }
+                *moved = true;
+                *axis = Some(dy.abs() >= dx.abs());
+                *last = to;
+                let offset = p.runtime.scroll.get(id).copied().unwrap_or((0.0, 0.0));
+                let moved_to = (offset.0 - by.0, offset.1 - by.1);
+                p.runtime.scroll.insert(*id, moved_to);
+                p.runtime.scroll_target.insert(*id, moved_to);
+            });
+        }
+
+        /// The pointer lifts; the release takes the gesture, as `pointer_up` does.
+        fn lift(&mut self) -> Option<Drag> {
+            let mut ended = None;
+            self.event(PointerKind::Up, self.at, |p| ended = p.drag.take());
+            ended
+        }
+    }
+
+    /// **Seen on a phone**: a swipe that started on "Done" scrolled the strip, selected
+    /// nothing — and left "Done" grey, still there two seconds later. Afterwards the screen
+    /// is the one nobody touched.
+    #[test]
+    fn a_segment_a_swipe_started_on_is_not_left_pressed() {
+        let view = filters();
+        let mut finger = Pointer::new(view.as_ref(), true);
+        let done = Point::new(200.0, 16.0);
+        finger.land(done);
+        let segment = finger
+            .runtime
+            .input
+            .pressed
+            .expect("the segment is pressed");
+        assert!(
+            finger.runtime.ink.contains_key(&segment),
+            "and it splashed: a segment takes ink"
+        );
+        assert!(
+            frame(view.as_ref(), &finger.runtime)
+                .scroll_chain(done)
+                .any(|area| area.max_x > 0.0),
+            "the strip is wider than the screen, as the phone's was"
+        );
+        for _ in 0..19 {
+            finger.slide((-10.0, 0.0));
+        }
+        let ended = finger.lift();
+        assert!(
+            !gesture_was_a_tap(ended.as_ref()),
+            "a gesture that scrolled clicks nothing"
+        );
+        idle(&mut finger.runtime, 2.0);
+        // What the phone showed first, then why.
+        let (shown, quiet) = (
+            painted(view.as_ref(), &finger.runtime),
+            untouched(view.as_ref(), &finger.runtime),
+        );
+        assert_eq!(
+            shown.len(),
+            quiet.len(),
+            "two seconds on, the screen paints what nobody touched, and no layer more"
+        );
+        assert_eq!(shown, quiet, "nothing is highlighted");
+        assert!(
+            finger.runtime.ink.is_empty(),
+            "no ink waits for a finger that has gone"
+        );
+        assert_eq!(finger.runtime.input.pressed, None, "the press went with it");
+        assert_eq!(
+            finger.runtime.input.hovered, None,
+            "and a lifted finger hovers nothing"
+        );
+    }
+
+    /// The reference cancels the press **when the scroll wins**, not when the finger lifts:
+    /// a strip being scrolled does not carry a pressed segment along with it.
+    #[test]
+    fn the_press_ends_when_the_scroll_takes_it() {
+        let view = filters();
+        let mut finger = Pointer::new(view.as_ref(), true);
+        finger.land(Point::new(200.0, 16.0));
+        finger.slide((-4.0, 0.0));
+        assert!(
+            finger.runtime.input.pressed.is_some(),
+            "under the slop it may still be a tap"
+        );
+        finger.slide((-40.0, 0.0));
+        assert_eq!(
+            finger.runtime.input.pressed, None,
+            "past it, the scroll has it"
+        );
+        assert_eq!(
+            finger.runtime.input.hovered, None,
+            "and the finger's hover with it"
+        );
+        idle(&mut finger.runtime, 0.5);
+        assert_eq!(
+            painted(view.as_ref(), &finger.runtime),
+            untouched(view.as_ref(), &finger.runtime),
+            "the finger is still down, and nothing under it is highlighted"
+        );
+    }
+
+    /// The same down a page: a plain button a scroll started on.
+    #[test]
+    fn a_button_a_page_scrolled_from_is_not_left_pressed() {
+        let view = page();
+        let mut finger = Pointer::new(view.as_ref(), true);
+        let go = Point::new(20.0, 15.0);
+        finger.land(go);
+        let button = finger.runtime.input.pressed.expect("the button is pressed");
+        assert_eq!(
+            frame(view.as_ref(), &finger.runtime).msg_for(button),
+            Some(7),
+            "the press is on the button"
+        );
+        for _ in 0..10 {
+            finger.slide((0.0, -30.0));
+        }
+        assert!(!gesture_was_a_tap(finger.lift().as_ref()));
+        idle(&mut finger.runtime, 2.0);
+        assert_eq!(finger.runtime.input.pressed, None);
+        assert!(finger.runtime.ink.is_empty());
+        assert_eq!(
+            painted(view.as_ref(), &finger.runtime),
+            untouched(view.as_ref(), &finger.runtime),
+        );
+    }
+
+    /// **A tap is still a tap**: a finger that stays inside the slop keeps its press to the
+    /// release, which is what clicks; only then is it let go of.
+    #[test]
+    fn a_tap_still_presses_and_clicks() {
+        let view = filters();
+        let mut finger = Pointer::new(view.as_ref(), true);
+        let segment = Point::new(200.0, 16.0);
+        finger.land(segment);
+        finger.slide((3.0, 2.0));
+        let pressed = finger.runtime.input.pressed;
+        assert!(pressed.is_some(), "a wobble under the slop takes nothing");
+        assert_eq!(finger.runtime.input.hovered, pressed, "and the press shows");
+        // What `pointer_up` reads, before the release lets it go.
+        let ui = frame(view.as_ref(), &finger.runtime);
+        assert_eq!(
+            ui.hit(segment),
+            pressed,
+            "released on the widget it pressed"
+        );
+        assert!(
+            pressed.and_then(|id| ui.msg_for(id)).is_some(),
+            "and the segment it pressed has a choice to make"
+        );
+        let ended = finger.lift();
+        assert!(
+            gesture_was_a_tap(ended.as_ref()),
+            "a scroll that never moved"
+        );
+        assert_eq!(
+            finger.runtime.input.pressed, None,
+            "let go of once released"
+        );
+    }
+
+    /// **A mouse is as it was**: it has no touch scroll, keeps its press while it moves, and
+    /// still hovers where it is after its button comes up.
+    #[test]
+    fn a_mouse_keeps_its_press_while_it_moves_and_its_hover_after() {
+        let view = filters();
+        let mut mouse = Pointer::new(view.as_ref(), false);
+        let done = Point::new(200.0, 16.0);
+        mouse.land(done);
+        assert!(mouse.drag.is_none(), "a mouse does not drag a scroll");
+        let pressed = mouse.runtime.input.pressed.expect("pressed");
+        mouse.slide((-60.0, 0.0));
+        assert_eq!(mouse.runtime.input.pressed, Some(pressed), "still held");
+        mouse.lift();
+        assert_eq!(mouse.runtime.input.pressed, None);
+        assert!(
+            mouse.runtime.input.hovered.is_some(),
+            "a released mouse is still over the strip"
+        );
+    }
+
+    /// A gesture a **mouse** moves past its slop takes the press as a finger's does — but
+    /// not the hover, since the mouse is still there.
+    #[test]
+    fn a_gesture_takes_a_mouse_s_press_and_leaves_its_hover() {
+        let id = frus_widgets::WidgetId::from_u64(3);
+        let sheet = |moved| Drag::Sheet {
+            id: frus_widgets::WidgetId::from_u64(9),
+            last: Point::new(0.0, 0.0),
+            moved,
+            available: 800.0,
+        };
+        for touch in [false, true] {
+            let mut input = frus_widgets::InputState {
+                pressed: Some(id),
+                hovered: Some(id),
+                ..Default::default()
+            };
+            assert!(!settle_press(
+                &mut input,
+                PointerKind::Move,
+                true,
+                Some(&sheet(false)),
+                touch
+            ));
+            assert_eq!(input.pressed, Some(id), "not yet past the slop");
+            assert!(settle_press(
+                &mut input,
+                PointerKind::Move,
+                true,
+                Some(&sheet(true)),
+                touch
+            ));
+            assert_eq!(input.pressed, None, "touch {touch}");
+            assert_eq!(input.hovered, (!touch).then_some(id), "touch {touch}");
+        }
+        // A gesture that was never a tap — a slider, a selection — had no press to share,
+        // and moving it lets go of nothing.
+        let mut input = frus_widgets::InputState {
+            pressed: Some(id),
+            ..Default::default()
+        };
+        let select = Drag::TextSelect {
+            id,
+            rect: super::Rect::new(0.0, 0.0, 10.0, 10.0),
+        };
+        assert!(!settle_press(
+            &mut input,
+            PointerKind::Move,
+            false,
+            Some(&select),
+            true
+        ));
+        assert_eq!(input.pressed, Some(id));
     }
 }

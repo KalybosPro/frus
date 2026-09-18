@@ -22,6 +22,8 @@
 //! { my_app::run() }`. On the web, the application keeps a `wasm-bindgen` dependency (targeted
 //! at `wasm32`), which the generated `#[wasm_bindgen(start)]` entry point needs.
 
+#![deny(missing_docs)]
+
 // The README's example is compiled by `cargo test --doc`, so it cannot rot.
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
@@ -43,9 +45,9 @@ pub use frus_shell::{anyhow, log};
 pub use frus_shell::main;
 pub use frus_widgets::{asset, column, row};
 
-// Fonts: registering the application's own faces, and naming the families text
-// resolves to. An application that ships its own can drop the bundled ones through
-// the `bundled-*` features — see the "Shipping" section of the getting-started guide.
+/// Registering the application's own faces, and naming the families text resolves
+/// to. An application that ships its own can drop the bundled ones through the
+/// `bundled-*` features — see the "Shipping" section of the getting-started guide.
 pub mod fonts {
     pub use frus_text::{add_font, set_default_family, set_monospace_family};
 }

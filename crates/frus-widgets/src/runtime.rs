@@ -150,6 +150,14 @@ fn scroll_axis(current: f32, vel: f32, target: f32, max: f32, dt: f32) -> (f32, 
     }
 }
 
+/// `offset` brought inside `[0, max]` on each axis.
+fn inside_extent(offset: (f32, f32), max: (f32, f32)) -> (f32, f32) {
+    (
+        offset.0.clamp(0.0, max.0.max(0.0)),
+        offset.1.clamp(0.0, max.1.max(0.0)),
+    )
+}
+
 /// A widget's animation progresses (`0.0..=1.0`).
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Anim {
@@ -1601,6 +1609,9 @@ impl Runtime {
         default: ScrollPhysics,
         dt: f32,
     ) -> bool {
+        // Content that shrank under an offset nobody owns is brought back first, so that
+        // everything below starts from where the content now is (milestone 533).
+        self.keep_scroll_in_range(regions);
         let mut animating = false;
         let ballistic_ids: Vec<WidgetId> = self.scroll_ballistic.keys().copied().collect();
         for id in ballistic_ids {
@@ -1759,6 +1770,15 @@ impl Runtime {
         if fling.is_empty() {
             self.scroll_ballistic.remove(&id);
             self.scroll_target.remove(&id);
+            // Settled on an end the content no longer reaches — it shrank under the fling,
+            // whose simulation was built for the old one. Spring on to the end there is now:
+            // left to the correction at rest, the offset would jump there in one frame. The
+            // reference starts its ballistic again on new dimensions for the same reason.
+            let inside = inside_extent((x, y), (area.max_x, area.max_y));
+            let slack = physics.tolerance().distance;
+            if (x - inside.0).abs() > slack || (y - inside.1).abs() > slack {
+                return self.fling_scroll(area, physics, (0.0, 0.0));
+            }
             false
         } else {
             self.scroll_ballistic.insert(id, fling);
@@ -1961,6 +1981,60 @@ impl Runtime {
         self.scroll_held != Some(id)
             && !self.scroll_ballistic.contains_key(&id)
             && !self.scroll_target.contains_key(&id)
+    }
+
+    /// Where region `id` is **drawn**, its content now reaching no further than `max`: the
+    /// retained offset, brought inside `[0, max]` when nothing owns it. `None` when it has
+    /// never been scrolled.
+    ///
+    /// The walk reads this rather than the map because the content can shrink in the very
+    /// frame being built — a row of labels at a smaller text size — and that frame should
+    /// already show the content where it rests, as the reference corrects its position
+    /// during layout. [`Runtime::keep_scroll_in_range`] retains the same answer afterwards.
+    /// A finger, a fling or a glide keeps what it has: each of them owns the offset, and
+    /// each already brings it home when it lets go.
+    pub fn scroll_offset_within(&self, id: WidgetId, max: (f32, f32)) -> Option<(f32, f32)> {
+        let offset = self.scroll.get(&id).copied()?;
+        Some(if self.scroll_at_rest(id) {
+            inside_extent(offset, max)
+        } else {
+            offset
+        })
+    }
+
+    /// Brings every region **nobody owns** back inside its content, and answers whether any
+    /// had strayed.
+    ///
+    /// An offset at rest can only be out of range because the content or the viewport
+    /// changed under it: a drag, a fling and a glide all settle inside. Found on a phone in
+    /// milestone 533 — a row of filters swiped to its end at a large text size stayed
+    /// swiped once the text was small again and the row fitted, its first label cut at the
+    /// left and empty room at the right.
+    ///
+    /// Corrected at once rather than sprung, as the reference's default physics does for a
+    /// position that was in range and is not animating. The scrollbar is not summoned for
+    /// it: nothing scrolled, the content changed.
+    pub fn keep_scroll_in_range(&mut self, regions: &[Scrollable]) -> bool {
+        let mut corrected = false;
+        for area in regions {
+            let Some(offset) = self.scroll.get(&area.id).copied() else {
+                continue;
+            };
+            let inside = inside_extent(offset, (area.max_x, area.max_y));
+            if inside == offset || !self.scroll_at_rest(area.id) {
+                continue;
+            }
+            self.scroll.insert(area.id, inside);
+            if let Some(fade) = self
+                .scrollbar_fade
+                .get_mut(&area.id)
+                .filter(|fade| fade.seen == offset)
+            {
+                fade.seen = inside;
+            }
+            corrected = true;
+        }
+        corrected
     }
 
     /// The scroll regions whose offset is worth reporting this frame, and where each is
@@ -3257,6 +3331,82 @@ mod tests {
             free.scroll.get(&id).copied().unwrap().1.abs() < 1.0,
             "a released overscroll springs back"
         );
+    }
+
+    /// Milestone 533. A fling owns its offset as a finger does: content that shrinks under
+    /// a bounce does not snap it to the new end in one frame, and when the bounce settles
+    /// on the end it was aimed at — the old one, now past the content — it springs on to the
+    /// new end rather than jumping there.
+    #[test]
+    fn a_fling_the_content_shrank_under_springs_on_to_the_new_end() {
+        let id = WidgetId::ROOT;
+        let physics = ScrollPhysics::BOUNCING;
+        let mut rt = Runtime::default();
+        rt.scroll.insert(id, (0.0, 300.0));
+        assert!(rt.fling_scroll(region(id, 400.0), physics, (0.0, 3000.0)));
+
+        let shrunk = [region(id, 100.0)];
+        let mut previous = 300.0;
+        let mut biggest_step: f32 = 0.0;
+        let mut frames = 0;
+        while rt.advance_scroll(&shrunk, physics, 1.0 / 60.0) {
+            let y = rt.scroll.get(&id).copied().unwrap().1;
+            biggest_step = biggest_step.max((y - previous).abs());
+            previous = y;
+            frames += 1;
+            assert!(frames < 2000, "the motion must end");
+        }
+        let y = rt.scroll.get(&id).copied().unwrap().1;
+        biggest_step = biggest_step.max((y - previous).abs());
+        assert!((y - 100.0).abs() < 1.0, "home at the new end, at {y}");
+        assert!(
+            biggest_step < 120.0,
+            "carried there, not jumped: {biggest_step} px in one frame"
+        );
+        assert!(rt.scroll_ballistic.is_empty() && rt.scroll_target.is_empty());
+    }
+
+    /// Milestone 533. A glide still under way — a wheel's, or a slow release's — is left to
+    /// its own spring, which already pulls a target past the end back inside it.
+    #[test]
+    fn a_glide_the_content_shrank_under_is_not_snapped() {
+        let id = WidgetId::ROOT;
+        let mut rt = Runtime::default();
+        rt.scroll.insert(id, (0.0, 400.0));
+        rt.scroll_target.insert(id, (0.0, 400.0));
+        let shrunk = [region(id, 100.0)];
+        rt.advance_scroll(&shrunk, ScrollPhysics::Clamping, 1.0 / 60.0);
+        let first = rt.scroll.get(&id).copied().unwrap().1;
+        assert!(first > 300.0, "one frame in, still gliding: {first}");
+        while rt.advance_scroll(&shrunk, ScrollPhysics::Clamping, 1.0 / 60.0) {}
+        let rest = rt.scroll.get(&id).copied().unwrap().1;
+        assert!((rest - 100.0).abs() < 1.0, "and it glides home: {rest}");
+    }
+
+    /// Milestone 533. Nothing owns the offset, the content shrank: it is corrected at once,
+    /// both axes, both ends of the range.
+    #[test]
+    fn an_offset_nobody_owns_is_kept_inside_the_content() {
+        let id = WidgetId::ROOT;
+        let mut rt = Runtime::default();
+        let area = Scrollable {
+            max_x: 30.0,
+            ..region(id, 100.0)
+        };
+        rt.scroll.insert(id, (80.0, 400.0));
+        assert!(rt.keep_scroll_in_range(&[area]), "something was corrected");
+        assert_eq!(rt.scroll.get(&id), Some(&(30.0, 100.0)));
+        assert!(
+            !rt.keep_scroll_in_range(&[area]),
+            "and nothing is left to correct"
+        );
+        rt.scroll.insert(id, (-5.0, -20.0));
+        rt.keep_scroll_in_range(&[area]);
+        assert_eq!(rt.scroll.get(&id), Some(&(0.0, 0.0)));
+        // A region nobody has scrolled gains no entry.
+        let other = region(id.child(1), 0.0);
+        assert!(!rt.keep_scroll_in_range(&[other]));
+        assert!(!rt.scroll.contains_key(&other.id));
     }
 
     #[test]

@@ -76,10 +76,15 @@ impl FlexDirection {
 /// How children are distributed along the **main** axis.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Justify {
+    /// Packed at the start of the main axis.
     Start,
+    /// Packed at the middle.
     Center,
+    /// Packed at the end of the main axis.
     End,
+    /// The first and last children touch the edges, the room shared between them.
     SpaceBetween,
+    /// Equal space around each child: the outer gaps are half the inner ones.
     SpaceAround,
     /// Equal space **everywhere**, the outer gaps included: with `SpaceAround` the end
     /// gaps are half the inner ones, which reads as a mistake when the row is the only
@@ -141,8 +146,11 @@ impl AlignContent {
 /// How children are aligned on the **cross** axis.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Align {
+    /// Packed at the near edge of the cross axis.
     Start,
+    /// Packed at the middle.
     Center,
+    /// Packed at the far edge of the cross axis.
     End,
     /// Children stretch to fill the cross axis. This is the default.
     Stretch,
