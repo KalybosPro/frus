@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 535 so far, each documenting the objective, the alternatives
+> record — one per step, 549 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -184,6 +184,13 @@ any release may break.
 
 ### Changed
 
+- **The MSRV floor moves to 1.90** (J549, follows milestone 507, #8). The wgpu
+  22→30 upgrade pulled in dependencies past the 1.88 floor:
+  `cosmic-text@0.19.0` and `smol_str@0.3.6` need 1.89, `ordered-float@5.5.0`
+  needs 1.90. `rust-version` and CI's pinned `msrv` toolchain both move to
+  1.90, the highest of the three, per the rule milestone 507 set: raising the
+  floor is a deliberate edit of the manifest and the job together, never
+  something a dependency bump does quietly.
 - **A menu anchor and both dropdowns float on a panel, with its shadow** (J532). `MenuAnchor`
   floated its content bare, and `DropdownButton` and `DropdownMenu` floated a column of
   separately outlined, rounded rows four pixels apart with nothing behind them, so none had a
