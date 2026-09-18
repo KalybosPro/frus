@@ -462,7 +462,7 @@ pub fn baseline(size_px: f32, weight: FontWeight, italic: bool) -> f32 {
         .family(family_for(probe))
         .weight(Weight(available_weight(weight)))
         .style(available_style(italic));
-    buffer.set_text(&mut font_system, probe, attrs, Shaping::Advanced);
+    buffer.set_text(probe, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut font_system, false);
     // `line_y` is where the renderer puts the baseline, so taking it from the same
     // place is what keeps layout and paint talking about the same line.
@@ -623,14 +623,14 @@ fn measure_at(
     let metrics = Metrics::new(size_px, line_h);
     let mut buffer = Buffer::new(&mut font_system, metrics);
     // A constrained width (wrapping) or a free one; the height is always free.
-    buffer.set_size(&mut font_system, max_width, None);
+    buffer.set_size(max_width, None);
     let attrs = Attrs::new()
         // The face the **renderer** will use, not the default: measuring in one family and
         // drawing in another reserves a width for letters of a different shape.
         .family(family_for_style(text, family))
         .weight(Weight(available_weight(weight)))
         .style(available_style(italic));
-    buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
+    buffer.set_text(text, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut font_system, false);
 
     let mut width = 0.0_f32;
@@ -720,14 +720,14 @@ pub fn line_spans(
     let metrics = Metrics::new(size_px, line_height(size_px));
     let mut buffer = Buffer::new(&mut font_system, metrics);
     if !soft_wrap {
-        buffer.set_wrap(&mut font_system, cosmic_text::Wrap::None);
+        buffer.set_wrap(cosmic_text::Wrap::None);
     }
-    buffer.set_size(&mut font_system, max_width, None);
+    buffer.set_size(max_width, None);
     let attrs = Attrs::new()
         .family(family_for(text))
         .weight(Weight(available_weight(weight)))
         .style(available_style(italic));
-    buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
+    buffer.set_text(text, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut font_system, false);
 
     // A buffer line per explicit newline; a layout run's glyph offsets are into its own
@@ -778,7 +778,7 @@ pub fn measure_runs_wrapped(runs: &[TextRun], max_width: Option<f32>) -> Size {
     let mut font_system = font_system().lock().expect("FontSystem lock");
     let metrics = Metrics::new(base, line_height(base));
     let mut buffer = Buffer::new(&mut font_system, metrics);
-    buffer.set_size(&mut font_system, max_width, None);
+    buffer.set_size(max_width, None);
     let spans = runs.iter().map(|run| {
         (
             run.text.as_str(),
@@ -789,7 +789,7 @@ pub fn measure_runs_wrapped(runs: &[TextRun], max_width: Option<f32>) -> Size {
                 .metrics(Metrics::new(run.size, line_height(run.size))),
         )
     });
-    buffer.set_rich_text(&mut font_system, spans, Attrs::new(), Shaping::Advanced);
+    buffer.set_rich_text(spans, &Attrs::new(), Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut font_system, false);
 
     let mut width = 0.0_f32;
@@ -834,9 +834,9 @@ pub fn runs_cut_at(
     let metrics = Metrics::new(base, line_height(base));
     let mut buffer = Buffer::new(&mut font_system, metrics);
     if !soft_wrap {
-        buffer.set_wrap(&mut font_system, cosmic_text::Wrap::None);
+        buffer.set_wrap(cosmic_text::Wrap::None);
     }
-    buffer.set_size(&mut font_system, max_width, None);
+    buffer.set_size(max_width, None);
     let spans = runs.iter().map(|run| {
         (
             run.text.as_str(),
@@ -847,7 +847,7 @@ pub fn runs_cut_at(
                 .metrics(Metrics::new(run.size, line_height(run.size))),
         )
     });
-    buffer.set_rich_text(&mut font_system, spans, Attrs::new(), Shaping::Advanced);
+    buffer.set_rich_text(spans, &Attrs::new(), Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut font_system, false);
 
     // A buffer line per explicit newline; the offsets a layout run carries are into its
@@ -940,12 +940,12 @@ impl TextLayout {
             let mut font_system = font_system().lock().expect("FontSystem lock");
             let metrics = Metrics::new(size_px, fallback_h);
             let mut buffer = Buffer::new(&mut font_system, metrics);
-            buffer.set_size(&mut font_system, max_width, None);
+            buffer.set_size(max_width, None);
             let attrs = Attrs::new()
                 .family(family_for(text))
                 .weight(Weight(available_weight(weight)))
                 .style(available_style(italic));
-            buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
+            buffer.set_text(text, &attrs, Shaping::Advanced, None);
             buffer.shape_until_scroll(&mut font_system, false);
 
             // Collect the runs so we can look at the next one, which ends this segment.
@@ -1338,8 +1338,8 @@ mod tests {
                     .weight(Weight(available_weight(weight)))
                     .style(if italic { Style::Italic } else { Style::Normal });
                 let mut buffer = Buffer::new(&mut fs, Metrics::new(20.0, 24.0));
-                buffer.set_size(&mut fs, None, None);
-                buffer.set_text(&mut fs, "Nothing to show", attrs, Shaping::Advanced);
+                buffer.set_size(None, None);
+                buffer.set_text("Nothing to show", &attrs, Shaping::Advanced, None);
                 buffer.shape_until_scroll(&mut fs, false); // panics here if broken
                 let w: f32 = buffer.layout_runs().map(|r| r.line_w).fold(0.0, f32::max);
                 assert!(w > 0.0, "weight {weight:?} italic {italic}: nothing shaped");
@@ -1418,12 +1418,12 @@ mod tests {
         let text = "Hi \u{1F44B}";
         let at = text.find('\u{1F44B}').expect("the wave");
         let mut buffer = Buffer::new(&mut fs, Metrics::new(40.0, 48.0));
-        buffer.set_size(&mut fs, None, None);
+        buffer.set_size(None, None);
         buffer.set_text(
-            &mut fs,
             text,
-            Attrs::new().family(family_for(text)),
+            &Attrs::new().family(family_for(text)),
             Shaping::Advanced,
+            None,
         );
         buffer.shape_until_scroll(&mut fs, false);
         let (font, glyph) = buffer
@@ -1455,8 +1455,8 @@ mod tests {
         let text = "مهامي";
         let attrs = Attrs::new().family(family_for(text));
         let mut buffer = Buffer::new(&mut fs, Metrics::new(40.0, 48.0));
-        buffer.set_size(&mut fs, None, None);
-        buffer.set_text(&mut fs, text, attrs, Shaping::Advanced);
+        buffer.set_size(None, None);
+        buffer.set_text(text, &attrs, Shaping::Advanced, None);
         buffer.shape_until_scroll(&mut fs, false);
 
         let mut glyphs = 0usize;
@@ -1494,8 +1494,8 @@ mod tests {
 
         let mut first_glyph_x = |width: Option<f32>| {
             let mut buffer = Buffer::new(&mut fs, Metrics::new(40.0, 48.0));
-            buffer.set_size(&mut fs, width, Some(200.0));
-            buffer.set_text(&mut fs, text, attrs, Shaping::Advanced);
+            buffer.set_size(width, Some(200.0));
+            buffer.set_text(text, &attrs, Shaping::Advanced, None);
             buffer.shape_until_scroll(&mut fs, false);
             buffer
                 .layout_runs()

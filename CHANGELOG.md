@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 548 so far, each documenting the objective, the alternatives
+> record — one per step, 550 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -206,26 +206,19 @@ any release may break.
 
 ### Changed
 
-- **The golden-image check is blocking** (J539, answers #15). It carried
-  `continue-on-error: true` since it existed, on a reason in the roadmap that turned out to
-  be wrong: "lavapipe rasterises differently from hardware." Both sides run lavapipe — the
-  goldens are blessed under WSL's llvmpipe and CI's `gpu-test` job installs the same
-  software rasteriser. What differed was the mesa **version**: the maintainer's WSL against
-  whatever apt gave `ubuntu-latest` on the day, a target that moves on its own. `gpu-test`
-  now runs on a pinned `ubuntu-24.04` and points apt at a frozen
-  [snapshot.ubuntu.com](https://snapshot.ubuntu.com) timestamp carrying the exact mesa
-  build (`25.2.8-0ubuntu0.24.04.2`) WSL currently resolves — confirmed against Launchpad's
-  publishing history — instead of the live archive, which only ever serves the current
-  version. `continue-on-error` is gone from the goldens step; a red golden is now a real
-  defect rather than drift nobody is watching, which is how milestone 294 went unnoticed
-  for five milestones in the first place. **It found one on the first real run**:
-  `constraint_boxes.png` failed even under WSL itself, its blessing environment, by a
-  different pixel count than CI's — both real, neither the rasteriser's fault (run twice
-  in a row on WSL, byte-identical). The diff sat entirely inside its "OVERFLOWED BY 42
-  PIXELS" labels, the number unchanged, everything else in the image bit-for-bit the
-  same: sub-pixel drift in the label's anti-aliased edges, most likely never re-blessed
-  when J497 changed layout rounding the day after this golden was committed. Re-blessed
-  and looked at; the rest of the suite (goldens, widgets, motion) came back clean.
+- **158 goldens re-blessed for the new text stack** (J550, follows this branch's
+  wgpu upgrade and milestone 539, #15). glyphon 0.6→0.12 and cosmic-text
+  0.12→0.19 shifted anti-aliasing and hinting slightly; the now-blocking golden
+  check (milestone 539) caught 91 of 102 differing, all small pixel counts with
+  no layout or content change. Re-blessed under WSL; `goldens`, `widgets` and
+  `motion` all green afterward.
+- **The MSRV floor moves to 1.90** (J549, follows milestone 507, #8). The wgpu
+  22→30 upgrade pulled in dependencies past the 1.88 floor:
+  `cosmic-text@0.19.0` and `smol_str@0.3.6` need 1.89, `ordered-float@5.5.0`
+  needs 1.90. `rust-version` and CI's pinned `msrv` toolchain both move to
+  1.90, the highest of the three, per the rule milestone 507 set: raising the
+  floor is a deliberate edit of the manifest and the job together, never
+  something a dependency bump does quietly.
 - **A menu anchor and both dropdowns float on a panel, with its shadow** (J532). `MenuAnchor`
   floated its content bare, and `DropdownButton` and `DropdownMenu` floated a column of
   separately outlined, rounded rows four pixels apart with nothing behind them, so none had a

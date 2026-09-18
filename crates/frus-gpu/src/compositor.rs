@@ -374,8 +374,8 @@ impl CompositePainter {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("frus.composite.pipeline_layout"),
-            bind_group_layouts: &[&viewport_layout, &texture_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&viewport_layout), Some(&texture_layout)],
+            immediate_size: 0,
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -383,13 +383,13 @@ impl CompositePainter {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
-                buffers: &[QuadVertex::layout(), comp_instance_layout()],
+                entry_point: Some("vs_main"),
+                buffers: &[Some(QuadVertex::layout()), Some(comp_instance_layout())],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     // **Premultiplied**, unlike every other pipeline here, because
@@ -414,7 +414,7 @@ impl CompositePainter {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -423,13 +423,13 @@ impl CompositePainter {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
-                buffers: &[QuadVertex::layout(), comp_instance_layout()],
+                entry_point: Some("vs_main"),
+                buffers: &[Some(QuadVertex::layout()), Some(comp_instance_layout())],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     // No blending at all: the source is written as it stands.
@@ -448,7 +448,7 @@ impl CompositePainter {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -1141,6 +1141,7 @@ impl Painters {
             label: Some("frus.render_pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view,
+                depth_slice: None,
                 resolve_target,
                 ops: wgpu::Operations {
                     load,
@@ -1150,6 +1151,7 @@ impl Painters {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         for i in batches {
             let batch = &content.batches[i];
@@ -1397,6 +1399,7 @@ impl Painters {
                 label: Some("frus.layer.pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: attachment,
+                    depth_slice: None,
                     resolve_target,
                     ops: wgpu::Operations {
                         // Transparent background: a layer covers only its primitives.
@@ -1407,6 +1410,7 @@ impl Painters {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             let mut slot = 0;
             for (i, batch) in batches.iter().enumerate() {
@@ -1493,22 +1497,22 @@ mod tests {
     fn headless() -> Option<(wgpu::Device, wgpu::Queue)> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
-            ..Default::default()
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::default(),
             compatible_surface: None,
             force_fallback_adapter: false,
-        }))?;
-        pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("frus.compositor.test.device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_defaults(),
-                memory_hints: wgpu::MemoryHints::default(),
-            },
-            None,
-        ))
+            ..Default::default()
+        }))
+        .ok()?;
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("frus.compositor.test.device"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::downlevel_defaults(),
+            memory_hints: wgpu::MemoryHints::default(),
+            ..Default::default()
+        }))
         .ok()
     }
 

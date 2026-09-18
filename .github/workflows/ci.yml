@@ -267,15 +267,16 @@ jobs:
   #
   # Checked, not tested — the suite runs on stable above — and without
   # `-D warnings`: lints move between releases, and an older compiler's opinion is
-  # not the gate (1.88 calls a constant read only by a compile-time assertion dead;
-  # stable does not). The clippy job below is where warnings are enforced.
+  # not the gate (an MSRV toolchain can call a constant read only by a
+  # compile-time assertion dead when a newer stable does not). The clippy job
+  # below is where warnings are enforced.
   # ---------------------------------------------------------------------------
   msrv:
-    name: MSRV (1.88)
+    name: MSRV (1.90)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.88
+      - uses: dtolnay/rust-toolchain@1.90
       - uses: Swatinem/rust-cache@v2
       - name: Install Linux dependencies
         run: |

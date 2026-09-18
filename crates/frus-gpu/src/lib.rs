@@ -12,8 +12,8 @@
 #[doc = include_str!("../README.md")]
 pub struct ReadmeDoctests;
 
-// Re-exported so the layers above can handle wgpu types (`SurfaceError`, for one)
-// without depending on `wgpu` directly.
+// Re-exported so the layers above can handle wgpu types without depending on `wgpu`
+// directly.
 pub use wgpu;
 
 mod batch;
@@ -40,4 +40,4 @@ pub fn draw_calls(scene: &Scene) -> usize {
 // The data types — geometry, colour, scene — come from the shared foundation.
 pub use frus_core::{Color, Rect, Scene};
 pub use offscreen::{render_offscreen, OffscreenFrame};
-pub use renderer::Renderer;
+pub use renderer::{RenderOutcome, Renderer};

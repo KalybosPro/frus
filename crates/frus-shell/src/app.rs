@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use web_time::Instant;
 
-use frus_gpu::{wgpu, Renderer};
+use frus_gpu::Renderer;
 use frus_widgets::{
     build_deferred, build_ui, collect_ids, find_by_key, find_path, find_widget,
     nearest_reorder_slot, reflow_reorder_cards, reflow_reorder_columns, reorder_drop_after,
@@ -2272,7 +2272,20 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 #[cfg(web)]
                 if self.renderer.is_none() {
                     match self.pending_renderer.borrow_mut().take() {
-                        Some(renderer) => self.renderer = Some(renderer),
+                        Some(mut renderer) => {
+                            // The renderer was sized from whatever `inner_size()` read
+                            // back when it was spawned — often 0×0, before the canvas
+                            // had been laid out by CSS. A `Resized` event carrying the
+                            // real size may have arrived and been dropped in the
+                            // meantime, since `self.renderer` was still `None` then.
+                            // Catching up here, against the size right now, is what
+                            // makes that race harmless either way.
+                            if let Some(window) = &self.window {
+                                let size = window.inner_size();
+                                renderer.resize(size.width.max(1), size.height.max(1));
+                            }
+                            self.renderer = Some(renderer);
+                        }
                         None => return,
                     }
                 }
@@ -2707,15 +2720,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.report_overflows(&ui);
                 if let Some(renderer) = self.renderer.as_mut() {
                     match renderer.render(&scene) {
-                        Ok(()) => {}
-                        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        frus_gpu::RenderOutcome::Presented => {}
+                        frus_gpu::RenderOutcome::NeedsReconfigure => {
                             renderer.reconfigure();
                         }
-                        Err(wgpu::SurfaceError::OutOfMemory) => {
-                            log::error!("GPU memory exhausted, shutting down.");
-                            event_loop.exit();
-                        }
-                        Err(err) => log::warn!("frame skipped: {err:?}"),
+                        frus_gpu::RenderOutcome::Skipped => {}
                     }
                 }
 
