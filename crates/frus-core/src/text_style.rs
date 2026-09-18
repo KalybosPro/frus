@@ -535,6 +535,8 @@ impl TextStyle {
         self
     }
 
+    /// Fills every unset field with its default, applying the ambient text scale to
+    /// the size on the way.
     pub fn resolved(self) -> ResolvedTextStyle {
         ResolvedTextStyle {
             size: self.size.unwrap_or(DEFAULT_TEXT_SIZE) * text_scale(),
@@ -763,10 +765,15 @@ impl TextSpan {
 /// colour, all **resolved** — nothing left to inherit.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextRun {
+    /// The run's text.
     pub text: String,
+    /// The font size, in logical pixels.
     pub size: f32,
+    /// The font weight.
     pub weight: FontWeight,
+    /// Whether the run is italic.
     pub italic: bool,
+    /// The run's colour.
     pub color: Color,
     /// The run's decoration lines (no effect on measurement).
     pub decoration: TextDecoration,

@@ -33,7 +33,9 @@ use crate::geometry::Point;
 /// A pointer speed, in logical pixels per second.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Velocity {
+    /// The horizontal component, in logical pixels per second.
     pub x: f32,
+    /// The vertical component, in logical pixels per second.
     pub y: f32,
 }
 
@@ -41,6 +43,7 @@ impl Velocity {
     /// Not moving.
     pub const ZERO: Velocity = Velocity { x: 0.0, y: 0.0 };
 
+    /// A velocity with the given components, in logical pixels per second.
     pub fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
