@@ -13,6 +13,8 @@
 //!
 //! Run on desktop with `cargo run -p frus-transforms`.
 
+#![deny(missing_docs)]
+
 use std::time::Duration;
 
 use frus_shell::{Application, Command, Subscription};
