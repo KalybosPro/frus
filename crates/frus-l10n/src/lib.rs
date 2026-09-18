@@ -17,6 +17,8 @@
 //! // Falls back to the default locale when the key is missing from the current one.
 //! ```
 
+#![deny(missing_docs)]
+
 // The README's example is compiled and run by `cargo test --doc`, so it cannot rot.
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]

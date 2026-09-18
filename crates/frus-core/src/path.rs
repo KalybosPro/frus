@@ -17,9 +17,21 @@ pub enum PathVerb {
     /// A straight segment from the current point to `to`.
     LineTo(Point),
     /// A **quadratic** Bézier curve (one control point).
-    QuadTo { ctrl: Point, to: Point },
+    QuadTo {
+        /// The curve's single control point.
+        ctrl: Point,
+        /// The curve's end point.
+        to: Point,
+    },
     /// A **cubic** Bézier curve (two control points).
-    CubicTo { c1: Point, c2: Point, to: Point },
+    CubicTo {
+        /// The first control point.
+        c1: Point,
+        /// The second control point.
+        c2: Point,
+        /// The curve's end point.
+        to: Point,
+    },
     /// Closes the current sub-path, joining it back to its starting point.
     Close,
 }
@@ -107,7 +119,9 @@ impl PathVerb {
 /// An **outline** (the line a path is drawn with): colour and width, in pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Stroke {
+    /// The line's colour.
     pub color: Color,
+    /// The line's width, in logical pixels.
     pub width: f32,
 }
 

@@ -633,3 +633,233 @@ mod padding_tests {
         );
     }
 }
+
+/// Milestone 533: content that shrinks under an offset it no longer reaches. Seen on a
+/// phone as a row of filters that overflowed at a large text size, was swiped to its end,
+/// and stayed swiped — its first label cut at the left, empty room at the right — once the
+/// text was small again and the row fitted.
+#[cfg(test)]
+mod shrunk_content_tests {
+    use super::*;
+    use crate::{build_ui, Container, ListView, PageView, Runtime, Size, Ui};
+    use frus_core::{Color, Primitive};
+
+    const MARK: Color = Color::rgb(1.0, 0.0, 0.0);
+    const FRAME: f32 = 1.0 / 60.0;
+
+    /// A strip 100 wide and 40 tall holding one marked box `width` wide: the demo's filter
+    /// row, reduced to its geometry.
+    fn strip(width: f32) -> SingleChildScrollView<()> {
+        SingleChildScrollView::<()>::new()
+            .axis(Axis::Horizontal)
+            .width(100.0)
+            .height(40.0)
+            .child(Container::<()>::new().width(width).height(40.0).color(MARK))
+    }
+
+    /// A list 200 tall of `count` marked rows, 40 each.
+    fn rows(count: usize) -> ListView<()> {
+        ListView::<()>::new(count, 40.0, |_| {
+            Container::<()>::new().height(40.0).color(MARK)
+        })
+        .width(100.0)
+        .height(200.0)
+    }
+
+    fn frame(widget: &dyn Widget<()>, runtime: &Runtime) -> Ui<()> {
+        build_ui(widget, Size::new(300.0, 400.0), runtime, &Theme::default())
+    }
+
+    /// Every rectangle painted in `color`, in paint order.
+    fn painted(ui: &Ui<()>, color: Color) -> Vec<Rect> {
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, color: c, .. } if *c == color => Some(*rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// One turn of the shell's loop over `ui`'s regions.
+    fn step(runtime: &mut Runtime, ui: &Ui<()>) {
+        let regions = ui.scroll_regions().to_vec();
+        runtime.advance_scroll(&regions, ScrollPhysics::Clamping, FRAME);
+    }
+
+    /// The phone's report: the row fits again and is drawn from its start, in the frame it
+    /// fits — and the runtime keeps it there.
+    #[test]
+    fn a_row_that_fits_again_is_drawn_from_its_start() {
+        let mut runtime = Runtime::default();
+        let wide = strip(300.0);
+        let id = frame(&wide, &runtime).scroll_regions()[0].id;
+        // Swiped to the end, and the swipe has settled: nothing owns the offset now.
+        runtime.scroll.insert(id, (200.0, 0.0));
+        let ui = frame(&wide, &runtime);
+        assert_eq!(painted(&ui, MARK)[0].x, -200.0, "the end of the row shows");
+        step(&mut runtime, &ui);
+
+        let narrow = strip(80.0);
+        let ui = frame(&narrow, &runtime);
+        assert_eq!(ui.scroll_regions()[0].max_x, 0.0, "nothing left to scroll");
+        assert_eq!(
+            painted(&ui, MARK)[0].x,
+            0.0,
+            "drawn from its start in the very frame it fits"
+        );
+        step(&mut runtime, &ui);
+        assert_eq!(runtime.scroll.get(&id), Some(&(0.0, 0.0)));
+        assert_eq!(painted(&frame(&narrow, &runtime), MARK)[0].x, 0.0);
+    }
+
+    /// Shrunk, but still too wide: it rests at its new end, not at its start.
+    #[test]
+    fn a_row_that_still_overflows_rests_at_its_new_end() {
+        let mut runtime = Runtime::default();
+        let wide = strip(300.0);
+        let id = frame(&wide, &runtime).scroll_regions()[0].id;
+        runtime.scroll.insert(id, (200.0, 0.0));
+        // A few frames at the end first, so the scrollbar's fade has seen the offset.
+        for _ in 0..3 {
+            let ui = frame(&wide, &runtime);
+            step(&mut runtime, &ui);
+        }
+
+        let narrower = strip(150.0);
+        let ui = frame(&narrower, &runtime);
+        let mark = painted(&ui, MARK)[0];
+        assert_eq!(
+            (mark.x, mark.x + mark.width),
+            (-50.0, 100.0),
+            "its last pixel on the viewport's right edge"
+        );
+        for _ in 0..10 {
+            let ui = frame(&narrower, &runtime);
+            step(&mut runtime, &ui);
+        }
+        assert_eq!(runtime.scroll.get(&id), Some(&(50.0, 0.0)));
+        // Nothing scrolled: the content changed. A bar that arrived for it would say
+        // otherwise.
+        assert_eq!(
+            runtime.scrollbar_fade_of(id).opacity,
+            0.0,
+            "no bar summoned"
+        );
+    }
+
+    /// The same down the screen: a list scrolled to its bottom that loses rows.
+    #[test]
+    fn a_list_that_loses_rows_keeps_its_last_row_on_the_floor() {
+        let mut runtime = Runtime::default();
+        let id = frame(&rows(10), &runtime).scroll_regions()[0].id;
+        runtime.scroll.insert(id, (0.0, 200.0));
+
+        // Six rows, 240 of content: the bottom is 40 down.
+        let ui = frame(&rows(6), &runtime);
+        let last = painted(&ui, MARK)
+            .into_iter()
+            .max_by(|a, b| a.y.total_cmp(&b.y))
+            .expect("a row is painted");
+        assert_eq!(last.y + last.height, 200.0, "the last row on the floor");
+        step(&mut runtime, &ui);
+        assert_eq!(runtime.scroll.get(&id), Some(&(0.0, 40.0)));
+
+        // Three rows fit: back to the top.
+        let ui = frame(&rows(3), &runtime);
+        let first = painted(&ui, MARK)
+            .into_iter()
+            .min_by(|a, b| a.y.total_cmp(&b.y))
+            .expect("a row is painted");
+        assert_eq!(first.y, 0.0);
+        assert_eq!(painted(&ui, MARK).len(), 3, "every row shows");
+        step(&mut runtime, &ui);
+        assert_eq!(runtime.scroll.get(&id), Some(&(0.0, 0.0)));
+    }
+
+    /// A paged view that loses pages while on its last one shows its new last page.
+    #[test]
+    fn a_paged_view_that_loses_pages_shows_its_new_last_page() {
+        let shade = |index: usize| Color::rgb(0.0, 0.0, (index + 1) as f32 / 10.0);
+        let pages = |count: usize| {
+            PageView::<()>::new(count, move |index| {
+                Container::<()>::new().color(shade(index))
+            })
+            .width(300.0)
+            .height(400.0)
+        };
+        let mut runtime = Runtime::default();
+        let id = frame(&pages(5), &runtime).scroll_regions()[0].id;
+        runtime.scroll.insert(id, (1200.0, 0.0));
+        assert_eq!(painted(&frame(&pages(5), &runtime), shade(4))[0].x, 0.0);
+
+        let ui = frame(&pages(2), &runtime);
+        assert_eq!(
+            painted(&ui, shade(1)).first().map(|r| r.x),
+            Some(0.0),
+            "page 1 fills the viewport"
+        );
+        assert!(painted(&ui, shade(4)).is_empty(), "no page past the end");
+        step(&mut runtime, &ui);
+        assert_eq!(runtime.scroll.get(&id), Some(&(300.0, 0.0)));
+    }
+
+    /// A reversed strip counts its offset from the right. The range is the same, so the
+    /// correction is too — and the content lands against the left edge, not off to the right.
+    #[test]
+    fn a_reversed_row_is_brought_back_the_same_way() {
+        let mut runtime = Runtime::default();
+        let wide = strip(300.0).reverse();
+        let id = frame(&wide, &runtime).scroll_regions()[0].id;
+        runtime.scroll.insert(id, (200.0, 0.0));
+        assert_eq!(
+            painted(&frame(&wide, &runtime), MARK)[0].x,
+            0.0,
+            "its start shows"
+        );
+
+        let narrower = strip(150.0).reverse();
+        let ui = frame(&narrower, &runtime);
+        assert_eq!(
+            painted(&ui, MARK)[0].x,
+            0.0,
+            "its start against the left edge: {:?}",
+            painted(&ui, MARK)
+        );
+        step(&mut runtime, &ui);
+        assert_eq!(runtime.scroll.get(&id), Some(&(50.0, 0.0)));
+    }
+
+    /// A finger owns the offset: the content shrinking under it moves nothing, in the
+    /// picture or the runtime, until it lets go — and then the release brings it home.
+    #[test]
+    fn a_held_row_is_not_yanked_from_under_the_finger() {
+        let mut runtime = Runtime::default();
+        let wide = strip(300.0);
+        let id = frame(&wide, &runtime).scroll_regions()[0].id;
+        runtime.scroll.insert(id, (200.0, 0.0));
+        runtime.hold_scroll(id);
+
+        let narrower = strip(150.0);
+        for _ in 0..10 {
+            let ui = frame(&narrower, &runtime);
+            assert_eq!(painted(&ui, MARK)[0].x, -200.0, "where the finger left it");
+            step(&mut runtime, &ui);
+        }
+        assert_eq!(runtime.scroll.get(&id), Some(&(200.0, 0.0)));
+
+        runtime.release_scroll(id);
+        let area = frame(&narrower, &runtime).scroll_regions()[0];
+        assert!(
+            runtime.fling_scroll(area, ScrollPhysics::Clamping, (0.0, 0.0)),
+            "a release out of range springs"
+        );
+        for _ in 0..600 {
+            let ui = frame(&narrower, &runtime);
+            step(&mut runtime, &ui);
+        }
+        let rest = runtime.scroll.get(&id).copied().unwrap_or_default();
+        assert!((rest.0 - 50.0).abs() < 1.0, "home at the new end: {rest:?}");
+    }
+}

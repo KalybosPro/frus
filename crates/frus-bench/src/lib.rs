@@ -5,6 +5,8 @@
 //! their own idea of "a realistic screen", which is how benchmark suites end up
 //! measuring their own fixtures.
 
+#![deny(missing_docs)]
+
 use frus_core::Size;
 use frus_widgets::{
     build_ui, button, row, text, Align, Card, Checkbox, Container, Flex, Icon, Icons, Runtime,

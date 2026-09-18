@@ -213,6 +213,7 @@ impl ClipShape {
 pub enum Primitive {
     /// A rectangle: rounded corners, border, gradient and/or soft shadow.
     Rect {
+        /// The rectangle's bounds.
         rect: Rect,
         /// Fill colour — the start colour when there is a gradient.
         color: Color,
@@ -222,7 +223,9 @@ pub enum Primitive {
         gradient_dir: [f32; 2],
         /// Corner radii, per corner.
         radius: BorderRadius,
+        /// Border width, in logical pixels; `0` draws no border.
         border_width: f32,
+        /// Border colour.
         border_color: Color,
         /// Edge softening, in pixels (0 = crisp; > 0 = a blurred shadow).
         blur: f32,
@@ -233,9 +236,13 @@ pub enum Primitive {
     },
     /// A line of text, anchored by its top-left corner.
     Text {
+        /// The top-left corner the text is anchored at.
         position: Point,
+        /// The text itself.
         text: String,
+        /// The font size, in logical pixels.
         size: f32,
+        /// The text's colour.
         color: Color,
         /// Font weight.
         weight: FontWeight,
@@ -281,7 +288,9 @@ pub enum Primitive {
     /// **Rich** text: a sequence of resolved runs, mixing styles and colours, laid
     /// out as one piece, on a single shared baseline.
     RichText {
+        /// The top-left corner the text is anchored at.
         position: Point,
+        /// The resolved runs, in reading order, sharing one baseline.
         runs: Vec<TextRun>,
         /// The width of the box the runs were given. See [`Primitive::Text`].
         max_width: Option<f32>,
@@ -299,6 +308,7 @@ pub enum Primitive {
     /// A **vector path**: arbitrary 2D geometry, filled (`fill`) and/or stroked
     /// (`stroke`). The building block of icons and custom drawing.
     Path {
+        /// The geometry to fill and/or stroke.
         path: Path,
         /// Interior fill colour (`None` = no fill), and the gradient's start colour
         /// when there is one.
@@ -1125,6 +1135,7 @@ impl Scene {
         }
     }
 
+    /// Adds a flat-coloured rectangle, with an optional border.
     pub fn draw_rect(
         &mut self,
         rect: Rect,

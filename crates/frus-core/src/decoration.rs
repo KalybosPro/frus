@@ -15,9 +15,13 @@ use crate::{Color, Insets, Rect, Scene, TextDirection};
 /// anywhere a radius is expected, a plain `10.0` still works.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct BorderRadius {
+    /// The top-left corner's radius, in logical pixels.
     pub top_left: f32,
+    /// The top-right corner's radius, in logical pixels.
     pub top_right: f32,
+    /// The bottom-right corner's radius, in logical pixels.
     pub bottom_right: f32,
+    /// The bottom-left corner's radius, in logical pixels.
     pub bottom_left: f32,
 }
 

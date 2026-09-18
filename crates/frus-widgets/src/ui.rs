@@ -3625,7 +3625,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     ..keep
                 }
             });
-            let (offset_x, offset_y) = match self.runtime.scroll.get(&id).copied() {
+            // Inside the extent this frame has just measured, unless something owns the
+            // offset: content that shrank is drawn where it rests (milestone 533).
+            let (offset_x, offset_y) = match self.runtime.scroll_offset_within(id, (max_x, max_y)) {
                 Some(offset) => offset,
                 // Never scrolled, and something inside wants to be seen: **open** there
                 // rather than sliding across a frame later. A tab bar restored on its
@@ -3706,7 +3708,6 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // A virtualised list: only build/lay out/paint the visible window.
             let viewport = draw_rect;
             let content_clip = clip.intersect(viewport);
-            let (offset_x, offset_y) = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
             let reverse = widget.scroll_reverse();
             // Down the screen or across it. A list virtualises along **one** axis, which
             // is what lets it place item `n` without building the ones before it, so
@@ -3731,9 +3732,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 true => (viewport.width, viewport.height),
                 false => (viewport.height, viewport.width),
             };
-            let offset = if across { offset_x } else { offset_y };
             let content = lead + trail + vlist.count as f32 * vlist.item_extent;
             let max = (content - extent).max(0.0);
+            let bounds = if across { (max, 0.0) } else { (0.0, max) };
+            let offset = self
+                .runtime
+                .scroll_offset_within(id, bounds)
+                .map_or(0.0, |(x, y)| if across { x } else { y });
             self.scrollables.push(Scrollable {
                 id,
                 viewport,
@@ -3846,7 +3851,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // on the page it was asked for. Reading the initial page here rather than
             // correcting it a frame later is what keeps page 0 from flashing past on
             // the way to page 3.
-            let along = match self.runtime.scroll.get(&id).copied() {
+            let bounds = if snap.horizontal {
+                (max, 0.0)
+            } else {
+                (0.0, max)
+            };
+            let along = match self.runtime.scroll_offset_within(id, bounds) {
                 Some((x, y)) => {
                     if snap.horizontal {
                         x
