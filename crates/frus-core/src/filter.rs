@@ -246,12 +246,27 @@ pub enum ImageFilter {
     /// A Gaussian blur, with a **separate** standard deviation per axis, in logical
     /// pixels. `sigma_x` and `sigma_y` may differ, which is how a directional smear
     /// is written.
-    Blur { sigma_x: f32, sigma_y: f32 },
+    Blur {
+        /// The standard deviation along x, in logical pixels.
+        sigma_x: f32,
+        /// The standard deviation along y, in logical pixels.
+        sigma_y: f32,
+    },
     /// The brightest neighbour within the radius wins: light shapes **grow**. The
     /// building block of an outer glow or a fattened outline.
-    Dilate { radius_x: f32, radius_y: f32 },
+    Dilate {
+        /// The search radius along x, in logical pixels.
+        radius_x: f32,
+        /// The search radius along y, in logical pixels.
+        radius_y: f32,
+    },
     /// The dimmest neighbour within the radius wins: light shapes **shrink**.
-    Erode { radius_x: f32, radius_y: f32 },
+    Erode {
+        /// The search radius along x, in logical pixels.
+        radius_x: f32,
+        /// The search radius along y, in logical pixels.
+        radius_y: f32,
+    },
 }
 
 impl ImageFilter {

@@ -18,16 +18,31 @@ pub enum Curve {
     Decelerate,
     /// A cubic Bézier defined by its two control points `(x1,y1)` and `(x2,y2)` —
     /// the same parameterisation as CSS's `cubic-bezier()`.
-    Cubic { x1: f32, y1: f32, x2: f32, y2: f32 },
+    Cubic {
+        /// The first control point's x coordinate.
+        x1: f32,
+        /// The first control point's y coordinate.
+        y1: f32,
+        /// The second control point's x coordinate.
+        x2: f32,
+        /// The second control point's y coordinate.
+        y2: f32,
+    },
     /// The step response of a **critically** damped spring: starts at rest, settles
     /// gently with no overshoot, renormalised so that `f(1) = 1`. `omega` sets how
     /// lively it feels.
-    CriticalSpring { omega: f32 },
+    CriticalSpring {
+        /// The spring's natural frequency, in radians per second: higher settles faster.
+        omega: f32,
+    },
     /// Applies `inner` only over the sub-window `[begin, end]`: `0` before, `1`
     /// after. This is what unlocks staggered animations.
     Interval {
+        /// The progress at which `inner` starts, as a fraction of `[0,1]`.
         begin: f32,
+        /// The progress at which `inner` reaches `1`, as a fraction of `[0,1]`.
         end: f32,
+        /// The curve applied within `[begin, end]`.
         inner: Box<Curve>,
     },
     /// Mirrored: `f(t) = 1 − inner(1 − t)`, which turns an *ease-in* into an
