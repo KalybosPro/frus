@@ -65,27 +65,49 @@ jobs:
   # Golden / GPU tests — need a working Vulkan device. On CI that is lavapipe.
   #
   # The goldens are *blessed* under lavapipe too (llvmpipe under WSL is the only
-  # adapter there), so both sides run the same rasteriser. What differs is its
-  # **version**: mesa 25.2 on the maintainer's machine against whatever apt gives
-  # ubuntu-latest. That is why the golden step alone stays advisory. The rest of the
-  # GPU-backed tests — clipping, transforms, batching — assert on numbers rather than
-  # pixels, and they are required.
+  # adapter there), so both sides run the same rasteriser. What used to differ was
+  # its **version**: mesa 25.2 on the maintainer's machine against whatever apt gave
+  # `ubuntu-latest` on the day CI happened to run — not "lavapipe rasterises
+  # differently from hardware", the reason recorded here for years, since both sides
+  # are lavapipe. See milestone 294, where a text-metric change (289) left 47 goldens
+  # red for five milestones because the check that would have caught it was
+  # advisory.
   #
-  # This split exists because the old arrangement made the whole job advisory, and a
-  # deliberate text-metric change (milestone 289) left 47 goldens red for five
-  # milestones with nobody looking. See milestone 294.
-  #
-  # TODO: pin the rasteriser version here — a container image, or a mesa PPA — then
-  # drop `continue-on-error` from the golden step. A guessed tolerance would only
-  # hide the drift rather than remove it.
+  # Fixed at the root rather than papered over with a tolerance (a guessed number
+  # would hide drift, not remove it): the runner is pinned to the exact Ubuntu
+  # release the maintainer blesses under (`ubuntu-24.04`, not the `-latest` alias,
+  # which moves), and apt is pointed at a **frozen snapshot**
+  # (snapshot.ubuntu.com) taken the day mesa 25.2.8-0ubuntu0.24.04.2 — the version
+  # WSL's `noble-updates` currently serves — was published there. A snapshot never
+  # changes underneath us the way the live archive does, so this stays exact
+  # without anyone re-pinning it until the maintainer's own mesa moves and this
+  # comment is updated to match. The rest of the GPU-backed tests — clipping,
+  # transforms, batching — assert on numbers rather than pixels and were already
+  # required regardless.
   # ---------------------------------------------------------------------------
   gpu-test:
     name: GPU tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+
+      # Pin apt to a frozen snapshot instead of the live archive, so the mesa
+      # version installed below cannot drift out from under the goldens the way
+      # `ubuntu-latest` + the live archive did (see the block comment above).
+      # `Check-Valid-Until` is off because a snapshot's Release file is, by
+      # definition, always in the past.
+      - name: Pin apt to the snapshot mesa 25.2.8-0ubuntu0.24.04.2 was published in
+        run: |
+          echo 'Acquire::Check-Valid-Until "false";' | sudo tee /etc/apt/apt.conf.d/99snapshot
+          cat <<'EOF' | sudo tee /etc/apt/sources.list.d/ubuntu.sources
+          Types: deb
+          URIs: https://snapshot.ubuntu.com/ubuntu/20260910T000000Z
+          Suites: noble noble-updates noble-security
+          Components: main restricted universe multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
 
       - name: Install Vulkan (lavapipe) and windowing dependencies
         run: |
@@ -93,6 +115,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             mesa-vulkan-drivers vulkan-tools libvulkan-dev \
             libxkbcommon-dev libwayland-dev libx11-dev
+          dpkg-query -W -f '${Package} ${Version}\n' mesa-vulkan-drivers
           vulkaninfo --summary || true
 
       - name: Test (GPU, everything but the goldens — required)
@@ -104,8 +127,7 @@ jobs:
           cargo test -p frus-test --lib
           cargo test -p frus-test --test clip --test multiline_scroll --test transforms
 
-      - name: Goldens (advisory — the runner's mesa version is not pinned)
-        continue-on-error: true
+      - name: Goldens (required — the rasteriser is pinned, see the job comment)
         env:
           WGPU_BACKEND: vulkan
           LIBGL_ALWAYS_SOFTWARE: "1"

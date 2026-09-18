@@ -16,11 +16,11 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-wgpu = "22"
+wgpu = "30"
 winit = "0.30"
 taffy = "0.7"
-glyphon = "0.6"
-cosmic-text = "0.12"
+glyphon = "0.12"
+cosmic-text = "0.19"
 lyon = "1"
 # Image decoding (PNG/JPEG). The format list is kept short to lighten the dependency tree.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

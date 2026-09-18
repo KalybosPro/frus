@@ -220,14 +220,14 @@ impl TextPainter {
                         // still needs the width, to align inside it — so the two travel
                         // separately here.
                         if !soft_wrap {
-                            buffer.set_wrap(&mut self.font_system, glyphon::Wrap::None);
+                            buffer.set_wrap(glyphon::Wrap::None);
                         }
                         // A paragraph wraps at its layout width. Free text stays
                         // **unconstrained** (`None`) — and above all is not bounded to
                         // the surface: in RTL, cosmic-text right-aligns to the buffer's
                         // width, which would push the glyphs off screen past the right
                         // edge once `position.x` shifts them.
-                        buffer.set_size(&mut self.font_system, *max_width, Some(height as f32));
+                        buffer.set_size(*max_width, Some(height as f32));
                         // Weight and italic: cosmic-text picks the matching face of the
                         // family, falling back to the closest one when it is missing.
                         let attrs = glyphon::Attrs::new()
@@ -238,12 +238,7 @@ impl TextPainter {
                             // Upright when no oblique face is loaded: an application
                             // that dropped `bundled-italic` gets straight text, not none.
                             .style(frus_text::available_style(*italic));
-                        buffer.set_text(
-                            &mut self.font_system,
-                            text,
-                            attrs,
-                            glyphon::Shaping::Advanced,
-                        );
+                        buffer.set_text(text, &attrs, glyphon::Shaping::Advanced, None);
                         // Alignment is per buffer line, and it is only set when it was
                         // asked for: the default leaves cosmic-text to align by the
                         // paragraph's own direction, which is what every line of text in
@@ -305,12 +300,12 @@ impl TextPainter {
                         let metrics = glyphon::Metrics::new(base, base * LINE_HEIGHT_FACTOR);
                         let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
                         if !soft_wrap {
-                            buffer.set_wrap(&mut self.font_system, glyphon::Wrap::None);
+                            buffer.set_wrap(glyphon::Wrap::None);
                         }
                         // As for plain text: a rich paragraph wraps at its layout
                         // width, otherwise it is unconstrained (`None`) and never bounded
                         // to the surface, which would push RTL alignment off screen.
-                        buffer.set_size(&mut self.font_system, *max_width, Some(height as f32));
+                        buffer.set_size(*max_width, Some(height as f32));
                         let spans = runs.iter().enumerate().map(|(index, run)| {
                             (
                                 run.text.as_str(),
@@ -331,10 +326,10 @@ impl TextPainter {
                             )
                         });
                         buffer.set_rich_text(
-                            &mut self.font_system,
                             spans,
-                            glyphon::Attrs::new(),
+                            &glyphon::Attrs::new(),
                             glyphon::Shaping::Advanced,
+                            None,
                         );
                         if let Some(align) = to_align(*align) {
                             for line in &mut buffer.lines {

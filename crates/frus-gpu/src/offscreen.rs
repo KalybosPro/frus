@@ -85,15 +85,15 @@ pub fn render_offscreen(
         label: Some("frus.offscreen.copy"),
     });
     encoder.copy_texture_to_buffer(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: &texture,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        wgpu::ImageCopyBuffer {
+        wgpu::TexelCopyBufferInfo {
             buffer: &readback,
-            layout: wgpu::ImageDataLayout {
+            layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(padded_bytes_per_row),
                 rows_per_image: Some(height),
@@ -112,10 +112,10 @@ pub fn render_offscreen(
     slice.map_async(wgpu::MapMode::Read, move |result| {
         let _ = tx.send(result);
     });
-    device.poll(wgpu::Maintain::Wait);
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
     rx.recv().ok()?.ok()?;
 
-    let data = slice.get_mapped_range();
+    let data = slice.get_mapped_range().ok()?;
     let mut rgba = Vec::with_capacity((unpadded_bytes_per_row * height) as usize);
     for row in 0..height {
         let start = (row * padded_bytes_per_row) as usize;
@@ -135,24 +135,24 @@ pub fn render_offscreen(
 fn headless_device() -> Option<(wgpu::Device, wgpu::Queue, u32)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::all(),
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),
         compatible_surface: None,
         force_fallback_adapter: false,
-    }))?;
+        ..Default::default()
+    }))
+    .ok()?;
     let sample_count =
         crate::compositor::preferred_sample_count(&adapter, wgpu::TextureFormat::Rgba8UnormSrgb);
-    let (device, queue) = pollster::block_on(adapter.request_device(
-        &wgpu::DeviceDescriptor {
-            label: Some("frus.offscreen.device"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::downlevel_defaults(),
-            memory_hints: wgpu::MemoryHints::default(),
-        },
-        None,
-    ))
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("frus.offscreen.device"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::downlevel_defaults(),
+        memory_hints: wgpu::MemoryHints::default(),
+        ..Default::default()
+    }))
     .ok()?;
     Some((device, queue, sample_count))
 }

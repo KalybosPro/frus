@@ -34,7 +34,7 @@ impl Renderer {
     ) -> anyhow::Result<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
-            ..Default::default()
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
         let surface = instance.create_surface(target)?;
@@ -44,9 +44,9 @@ impl Renderer {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+                ..Default::default()
             })
-            .await
-            .ok_or_else(|| anyhow::anyhow!("no compatible GPU adapter found"))?;
+            .await?;
 
         log::info!("Adaptateur GPU : {:?}", adapter.get_info());
 
@@ -56,15 +56,13 @@ impl Renderer {
         let required_limits = wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("frus.device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits,
-                    memory_hints: wgpu::MemoryHints::Performance,
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("frus.device"),
+                required_features: wgpu::Features::empty(),
+                required_limits,
+                memory_hints: wgpu::MemoryHints::Performance,
+                ..Default::default()
+            })
             .await?;
 
         let caps = surface.get_capabilities(&adapter);
@@ -78,6 +76,7 @@ impl Renderer {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width,
             height,
             present_mode: caps.present_modes[0],
@@ -120,8 +119,21 @@ impl Renderer {
     }
 
     /// Draws the scene — rectangles, images, paths, text, layers — and presents it.
-    pub fn render(&mut self, scene: &Scene) -> Result<(), wgpu::SurfaceError> {
-        let frame = self.surface.get_current_texture()?;
+    pub fn render(&mut self, scene: &Scene) -> RenderOutcome {
+        let frame = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(frame)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return RenderOutcome::Skipped;
+            }
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                return RenderOutcome::NeedsReconfigure;
+            }
+            wgpu::CurrentSurfaceTexture::Validation => {
+                log::warn!("frame skipped: surface validation error");
+                return RenderOutcome::Skipped;
+            }
+        };
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -137,7 +149,18 @@ impl Renderer {
             Some(CLEAR_COLOR),
         );
 
-        frame.present();
-        Ok(())
+        self.queue.present(frame);
+        RenderOutcome::Presented
     }
+}
+
+/// What happened when [`Renderer::render`] tried to present a frame.
+pub enum RenderOutcome {
+    /// The frame was drawn and presented.
+    Presented,
+    /// The frame was skipped (occlusion, timeout, or a validation error); the caller
+    /// should just try again on the next redraw.
+    Skipped,
+    /// The surface is lost or outdated: call [`Renderer::reconfigure`] before retrying.
+    NeedsReconfigure,
 }
