@@ -21,6 +21,8 @@
 //! llvmpipe under WSL, which is deterministic. With no GPU adapter the render
 //! functions return `None` and the tests skip cleanly.
 
+#![deny(missing_docs)]
+
 // The README's example is compiled by `cargo test --doc`, so it cannot rot.
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
@@ -33,8 +35,11 @@ use frus_widgets::{build_ui, Runtime, ScrollPhysics, Theme, Ui, Widget};
 
 /// A rendered frame: sRGB RGBA bytes, origin at the top left.
 pub struct Snapshot {
+    /// The frame's width, in pixels.
     pub width: u32,
+    /// The frame's height, in pixels.
     pub height: u32,
+    /// The pixel data, four bytes per pixel, row-major from the top-left corner.
     pub rgba: Vec<u8>,
 }
 
