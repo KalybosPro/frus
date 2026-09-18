@@ -6,6 +6,8 @@
 //!
 //! Run it on the desktop with `cargo run -p frus-hello`.
 
+#![deny(missing_docs)]
+
 use std::time::Duration;
 
 // A **single** dependency: the `frus` facade supplies everything — framework layer,
