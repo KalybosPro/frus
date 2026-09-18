@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 549 so far, each documenting the objective, the alternatives
+> record — one per step, 550 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -184,6 +184,12 @@ any release may break.
 
 ### Changed
 
+- **158 goldens re-blessed for the new text stack** (J550, follows this branch's
+  wgpu upgrade and milestone 539, #15). glyphon 0.6→0.12 and cosmic-text
+  0.12→0.19 shifted anti-aliasing and hinting slightly; the now-blocking golden
+  check (milestone 539) caught 91 of 102 differing, all small pixel counts with
+  no layout or content change. Re-blessed under WSL; `goldens`, `widgets` and
+  `motion` all green afterward.
 - **The MSRV floor moves to 1.90** (J549, follows milestone 507, #8). The wgpu
   22→30 upgrade pulled in dependencies past the 1.88 floor:
   `cosmic-text@0.19.0` and `smol_str@0.3.6` need 1.89, `ordered-float@5.5.0`
