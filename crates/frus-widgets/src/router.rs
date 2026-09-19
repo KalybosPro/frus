@@ -812,7 +812,15 @@ impl GoRouter {
                             let page_state = if at + 1 == chain.len() {
                                 state.clone()
                             } else {
+                                // A page underneath stands for the part of the location it
+                                // answered — `/` under `/users/42` — so going back to it lands
+                                // on *its* location, not on where the person had been heading.
                                 GoRouterState {
+                                    location: if prefix.is_empty() {
+                                        "/".to_string()
+                                    } else {
+                                        prefix.clone()
+                                    },
                                     path: node.full_path.clone(),
                                     name: node.name.clone(),
                                     ..state.clone()
@@ -1157,6 +1165,31 @@ mod tests {
     }
 
     #[test]
+    fn a_page_underneath_stands_for_its_own_location() {
+        let r = router();
+        r.go("/users/42/posts/7?x=1");
+        let locations: Vec<String> = r
+            .inner
+            .stack
+            .borrow()
+            .pages
+            .iter()
+            .map(|p| p.state.location.clone())
+            .collect();
+        assert_eq!(
+            locations,
+            ["/", "/users/42", "/users/42/posts/7?x=1"],
+            "each page is the part of the location it answered; the top one, all of it"
+        );
+        r.pop();
+        assert_eq!(
+            r.location(),
+            "/users/42",
+            "so going back lands where that page is"
+        );
+    }
+
+    #[test]
     fn a_page_underneath_knows_the_parameters_too() {
         let r = router();
         r.go("/users/42/posts/7");
@@ -1394,5 +1427,29 @@ mod tests {
             ])
         });
         assert!(bad_child.is_err());
+    }
+}
+
+#[cfg(test)]
+mod animated_tests {
+    use super::*;
+    use crate::Container;
+
+    fn page(_: &BuildContext, _: &GoRouterState) -> Container {
+        Container::new()
+    }
+
+    /// The same moves with the slide on — the default — must land where they land with it off.
+    #[test]
+    fn the_slide_does_not_change_where_the_stack_ends_up() {
+        let router = GoRouter::new(vec![
+            GoRoute::new("/", page).routes(vec![GoRoute::new("users/:id", page)]),
+            GoRoute::new("/settings", page),
+        ]);
+        router.go("/users/42?tab=posts");
+        assert_eq!(router.location(), "/users/42?tab=posts");
+        assert!(router.can_pop());
+        assert!(router.pop());
+        assert_eq!(router.location(), "/");
     }
 }
