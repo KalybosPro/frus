@@ -65,7 +65,7 @@ use crate::widget::Widget;
 ///     .from((0, Route::Inbox), Text::new("Inbox"), 0.4, true);
 /// # let _ = (settled, pushing);
 /// ```
-pub struct Navigator<Msg> {
+pub struct Navigator<Msg = crate::callback::Callback> {
     width: f32,
     height: f32,
     /// Transition progress (`1.0` = no transition in flight).
@@ -74,8 +74,11 @@ pub struct Navigator<Msg> {
     clips: bool,
     /// `true` = push (entering from the right), `false` = pop (entering from the left).
     forward: bool,
-    /// `[screen]` or `[outgoing, incoming]`, each wrapped in the [`Keyed`] its key makes.
+    /// `[retained.., screen]` or `[retained.., outgoing, incoming]`, each wrapped in the
+    /// [`Keyed`] its key makes.
     children: Vec<Box<dyn Widget<Msg>>>,
+    /// How many of the first children are retained: kept, and not shown.
+    hidden: usize,
 }
 
 impl<Msg: 'static> Navigator<Msg> {
@@ -96,7 +99,23 @@ impl<Msg: 'static> Navigator<Msg> {
             forward: true,
             clips: true,
             children: vec![Box::new(Keyed::new(key, screen))],
+            hidden: 0,
         }
+    }
+
+    /// Keeps a page **under** the one on show: it is built, so what its components hold is
+    /// still there when the page is shown again, but it is not laid out, drawn or given
+    /// input while it is covered.
+    ///
+    /// It is an entry of the stack like the others, so `key` is its `(depth, route)` and must
+    /// not be the key of any page shown. Because the key — not the page's place among the
+    /// children — is what identifies it, a page that goes from kept to shown, or back,
+    /// is the same page throughout.
+    pub fn retain(mut self, key: impl Hash, page: impl Widget<Msg> + 'static) -> Self {
+        self.children
+            .insert(self.hidden, Box::new(Keyed::new(key, page)));
+        self.hidden += 1;
+        self
     }
 
     /// Whether the pages are **cut off at the navigator's own edge**. `true` by default,
@@ -140,7 +159,7 @@ impl<Msg: 'static> Navigator<Msg> {
             "a navigator's two pages share a key, and would share their state: key each \
              page by its entry of the stack, `(depth, route)`"
         );
-        self.children.insert(0, Box::new(previous));
+        self.children.insert(self.hidden, Box::new(previous));
         self.progress = progress.clamp(0.0, 1.0);
         self.forward = forward;
         self
@@ -172,6 +191,10 @@ impl<Msg> Widget<Msg> for Navigator<Msg> {
 
     fn navigator_clips(&self) -> bool {
         self.clips
+    }
+
+    fn navigator_retained(&self) -> usize {
+        self.hidden
     }
 }
 
@@ -535,5 +558,82 @@ mod tests {
         );
         // Without parallax the back would sit at -200; it is compressed toward 0.
         assert!(back > -200.0 && back < 0.0, "back parallaxed: {back}");
+    }
+}
+
+#[cfg(test)]
+mod retained_tests {
+    use super::*;
+    use crate::{build_ui, Container, Runtime, Size};
+    use frus_core::{Color, Primitive};
+
+    const RED: Color = Color::rgb(1.0, 0.0, 0.0);
+    const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
+    const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+
+    fn screen(color: Color) -> Container<()> {
+        Container::<()>::new()
+            .width(400.0)
+            .height(300.0)
+            .color(color)
+    }
+
+    fn painted(nav: &Navigator<()>) -> impl Fn(Color) -> bool {
+        let ui = build_ui(
+            nav,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            &crate::Theme::default(),
+        );
+        let colours: Vec<Color> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { color, .. } => Some(*color),
+                _ => None,
+            })
+            .collect();
+        move |c| colours.contains(&c)
+    }
+
+    /// **The pages under the one on show are kept, and stay out of the picture.** They are
+    /// children of the navigator, so a walk that builds the tree builds them — which is what
+    /// keeps what their components hold — and the paint walk does not reach them.
+    #[test]
+    fn retained_pages_are_in_the_tree_and_out_of_the_picture() {
+        let nav = Navigator::new((2, 0), screen(BLUE))
+            .size(400.0, 300.0)
+            .retain((0, 0), screen(RED))
+            .retain((1, 0), screen(GREEN));
+        assert_eq!(Widget::<()>::children(&nav).len(), 3);
+        assert_eq!(Widget::<()>::navigator_retained(&nav), 2);
+        let has = painted(&nav);
+        assert!(has(BLUE), "the page on show is drawn");
+        assert!(!has(RED) && !has(GREEN), "the pages under it are not");
+    }
+
+    /// A transition still draws its two pages, whatever is kept under them — and the outgoing
+    /// one goes *after* the retained ones, so the pair is where the walk expects it.
+    #[test]
+    fn a_transition_draws_its_two_pages_over_the_retained_ones() {
+        let nav = Navigator::new("c", screen(BLUE))
+            .size(400.0, 300.0)
+            .retain("a", screen(RED))
+            .from("b", screen(GREEN), 0.5, true);
+        assert_eq!(Widget::<()>::navigator_retained(&nav), 1);
+        let has = painted(&nav);
+        assert!(has(GREEN) && has(BLUE), "both pages of the transition");
+        assert!(!has(RED), "and not the one kept under them");
+    }
+
+    /// What identifies a page is its key, not where it sits among the children: the same page
+    /// kept and then shown is the same page.
+    #[test]
+    fn a_page_keeps_its_identity_from_kept_to_shown() {
+        let kept = Navigator::new("top", screen(BLUE)).retain("page", screen(RED));
+        let shown = Navigator::new("page", screen(RED));
+        let key = |nav: &Navigator<()>, at: usize| Widget::<()>::children(nav)[at].key();
+        assert_eq!(key(&kept, 0), key(&shown, 0));
     }
 }

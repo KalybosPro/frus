@@ -44,7 +44,7 @@ enum Source {
 }
 
 /// Describes the surface for its child and everything under it.
-pub struct MediaScope<Msg> {
+pub struct MediaScope<Msg = crate::callback::Callback> {
     source: Source,
     inner: Box<dyn Widget<Msg>>,
 }

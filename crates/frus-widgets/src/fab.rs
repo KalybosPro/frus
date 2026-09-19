@@ -76,8 +76,8 @@ const HOVER_ELEVATION: f32 = 8.0;
 /// ```
 /// # use frus_widgets::{FloatingActionButton, Icons};
 /// # #[derive(Clone)] enum Msg { Add }
-/// FloatingActionButton::new(Icons::ADD).on_press(Msg::Add);
-/// FloatingActionButton::extended("New list").icon(Icons::ADD).on_press(Msg::Add);
+/// FloatingActionButton::<Msg>::new(Icons::ADD).on_press(Msg::Add);
+/// FloatingActionButton::<Msg>::extended("New list").icon(Icons::ADD).on_press(Msg::Add);
 /// ```
 ///
 /// This framework had no such widget. It had `fab_button`, a **helper returning a
@@ -86,7 +86,7 @@ const HOVER_ELEVATION: f32 = 8.0;
 /// `on_primary` where the reference's takes `primary_container` on `on_primary_container`
 /// (`floating_action_button.dart:809`). Two roles out, on the most prominent control on
 /// the screen.
-pub struct FloatingActionButton<Msg> {
+pub struct FloatingActionButton<Msg = crate::callback::Callback> {
     icon: Option<IconData>,
     label: Option<String>,
     size: FabSize,
@@ -186,8 +186,8 @@ impl<Msg: Clone> FloatingActionButton<Msg> {
     /// What it does. A button with no message is **inert**, which is not the same as
     /// disabled: see [`enabled`](Self::enabled).
     #[must_use]
-    pub fn on_press(mut self, message: Msg) -> Self {
-        self.on_press = Some(message);
+    pub fn on_press(mut self, message: impl Into<Msg>) -> Self {
+        self.on_press = Some(message.into());
         self
     }
 

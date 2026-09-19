@@ -38,7 +38,7 @@ pub enum StackFit {
 }
 
 /// A container of overlaid layers.
-pub struct Stack<Msg> {
+pub struct Stack<Msg = crate::callback::Callback> {
     width: Dimension,
     height: Dimension,
     flex_grow: f32,
@@ -168,7 +168,7 @@ impl<Msg: Clone> Widget<Msg> for Stack<Msg> {
 /// The price is exactly that: every page laid out on every frame, however many are
 /// shown. It is what a handful of tabs wants, and what a list of ten thousand rows does
 /// not — an index past the end simply paints nothing.
-pub struct IndexedStack<Msg> {
+pub struct IndexedStack<Msg = crate::callback::Callback> {
     index: usize,
     width: Dimension,
     height: Dimension,

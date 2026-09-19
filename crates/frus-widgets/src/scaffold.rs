@@ -156,7 +156,7 @@ impl FabLocation {
 }
 
 /// The screen shell. A fluent builder finished by [`Scaffold::build`].
-pub struct Scaffold<Msg> {
+pub struct Scaffold<Msg = crate::callback::Callback> {
     width: f32,
     height: f32,
     insets: Insets,

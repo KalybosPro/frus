@@ -245,7 +245,7 @@ impl<Msg: Clone> Widget<Msg> for Wrapper<Msg> {
 
 /// Binds **keystrokes to intents** for its subtree. See the module's documentation for
 /// why that is two steps rather than one.
-pub struct Shortcuts<Msg>(Wrapper<Msg>);
+pub struct Shortcuts<Msg = crate::callback::Callback>(Wrapper<Msg>);
 
 impl<Msg> Shortcuts<Msg> {
     /// A shortcut scope around `child`.
@@ -264,7 +264,7 @@ impl<Msg> Shortcuts<Msg> {
 
 /// Binds **keystrokes straight to messages**, for when naming an intent would be
 /// ceremony — the reference's `CallbackShortcuts`.
-pub struct CallbackShortcuts<Msg>(Wrapper<Msg>);
+pub struct CallbackShortcuts<Msg = crate::callback::Callback>(Wrapper<Msg>);
 
 impl<Msg: Clone> CallbackShortcuts<Msg> {
     /// A shortcut scope around `child`.
@@ -282,7 +282,7 @@ impl<Msg: Clone> CallbackShortcuts<Msg> {
 
 /// Answers **intents** for its subtree: the innermost `Actions` that has the intent is
 /// the one that answers it.
-pub struct Actions<Msg>(Wrapper<Msg>);
+pub struct Actions<Msg = crate::callback::Callback>(Wrapper<Msg>);
 
 impl<Msg> Actions<Msg> {
     /// An action scope around `child`.
@@ -302,7 +302,7 @@ impl<Msg> Actions<Msg> {
 ///
 /// For the things that want to know an action happened — an undo stack, a telemetry
 /// counter, a status line — without becoming the one that performs it.
-pub struct ActionListener<Msg>(Wrapper<Msg>);
+pub struct ActionListener<Msg = crate::callback::Callback>(Wrapper<Msg>);
 
 impl<Msg> ActionListener<Msg> {
     /// A listener around `child`.
@@ -324,7 +324,7 @@ impl<Msg> ActionListener<Msg> {
 /// waited for this milestone because it is made of shortcuts as much as of focus. It is
 /// the composition, given one name because the three are always wanted together: a menu
 /// item that answers Enter, a card that answers Delete, a canvas that answers arrows.
-pub struct FocusableActionDetector<Msg>(Wrapper<Msg>);
+pub struct FocusableActionDetector<Msg = crate::callback::Callback>(Wrapper<Msg>);
 
 impl<Msg: Clone> FocusableActionDetector<Msg> {
     /// A focusable, key-answering wrapper around `child`.
@@ -364,7 +364,7 @@ impl<Msg: Clone> FocusableActionDetector<Msg> {
 
 /// Hands **every keystroke** in its subtree to a closure — the reference's
 /// `KeyboardListener`, and the escape hatch for anything the tables above cannot say.
-pub struct KeyboardListener<Msg> {
+pub struct KeyboardListener<Msg = crate::callback::Callback> {
     child: Vec<Box<dyn Widget<Msg>>>,
     /// Shared rather than borrowed: the interface the walk produces outlives the tree it
     /// was built from, so a closure it carries has to be owned.

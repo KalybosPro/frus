@@ -17,7 +17,7 @@ use crate::widget::Widget;
 /// The child is measured at its **natural** size, centred, then rotated about the
 /// centre of the box — hit-testing counter-rotates the point (as `Transform` does).
 /// A negative `quarter_turns` turns the other way; only the remainder modulo 4 counts.
-pub struct RotatedBox<Msg> {
+pub struct RotatedBox<Msg = crate::callback::Callback> {
     quarter_turns: i32,
     children: Vec<Box<dyn Widget<Msg>>>,
 }

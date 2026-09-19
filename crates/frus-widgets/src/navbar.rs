@@ -35,7 +35,7 @@ fn title_style_of(over: Option<TextStyle>, theme: &Theme) -> TextStyle {
 }
 
 /// A navigation bar: a title + an optional back button.
-pub struct NavigationBar<Msg> {
+pub struct NavigationBar<Msg = crate::callback::Callback> {
     title: String,
     /// The caller's title style, if one was named. Unset, the theme's `titleLarge`.
     title_style: Option<TextStyle>,
@@ -74,7 +74,7 @@ impl<Msg: Clone + 'static> NavigationBar<Msg> {
     /// whatever font is loaded, with no control over its weight and none over its size
     /// beside the glyphs around it, and named by hand here rather than by the thing that
     /// knows what it is. [`BackButton`](crate::BackButton) is that thing.
-    pub fn on_back(mut self, message: Msg) -> Self {
+    pub fn on_back(mut self, message: impl Into<Msg>) -> Self {
         self.children = vec![Box::new(
             crate::BackButton::new().icon_size(20.0).on_press(message),
         )];

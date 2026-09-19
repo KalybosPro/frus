@@ -50,7 +50,7 @@ pub enum CardVariant {
 ///
 /// Everything here is a **default**, not a rule: the colour, the rounding, the depth,
 /// the margin and the padding are all the caller's to set.
-pub struct Card<Msg> {
+pub struct Card<Msg = crate::callback::Callback> {
     /// `None` = the theme's, then [`CardVariant::Elevated`].
     variant: Option<CardVariant>,
     /// `None` = the theme's, then 16.

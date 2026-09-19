@@ -16,7 +16,7 @@ use crate::timepicker::TimePicker;
 use crate::widget::Widget;
 
 /// A date-and-time picker.
-pub struct DateTimePicker<Msg> {
+pub struct DateTimePicker<Msg = crate::callback::Callback> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 

@@ -236,7 +236,7 @@ impl<Msg: Clone> Widget<Msg> for Remove<Msg> {
 }
 
 /// A compact label — an attribute, a filter or an entry.
-pub struct Chip<Msg> {
+pub struct Chip<Msg = crate::callback::Callback> {
     label: String,
     selected: bool,
     leading: Option<IconData>,
@@ -309,14 +309,14 @@ impl<Msg: Clone + 'static> Chip<Msg> {
 
     /// The message the chip emits when pressed. A chip with none is inert, which is what
     /// an attribute chip is.
-    pub fn on_press(mut self, message: Msg) -> Self {
-        self.on_press = Some(message);
+    pub fn on_press(mut self, message: impl Into<Msg>) -> Self {
+        self.on_press = Some(message.into());
         self
     }
 
     /// Adds a delete cross that emits `message`.
-    pub fn on_remove(mut self, message: Msg) -> Self {
-        self.on_remove = Some(message);
+    pub fn on_remove(mut self, message: impl Into<Msg>) -> Self {
+        self.on_remove = Some(message.into());
         self.rebuild()
     }
 

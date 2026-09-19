@@ -18,7 +18,7 @@ fn ease(t: f32) -> f32 {
 }
 
 /// A decorated rectangular box.
-pub struct Container<Msg> {
+pub struct Container<Msg = crate::callback::Callback> {
     width: Dimension,
     height: Dimension,
     flex_grow: f32,
@@ -260,15 +260,15 @@ impl<Msg> Container<Msg> {
     }
 
     /// The message emitted when the container is clicked.
-    pub fn on_click(mut self, message: Msg) -> Self {
-        self.on_click = Some(message);
+    pub fn on_click(mut self, message: impl Into<Msg>) -> Self {
+        self.on_click = Some(message.into());
         self
     }
 
     /// The message emitted by a **long press** (a press held without movement). A
     /// long press supersedes the click.
-    pub fn on_long_press(mut self, message: Msg) -> Self {
-        self.on_long_press = Some(message);
+    pub fn on_long_press(mut self, message: impl Into<Msg>) -> Self {
+        self.on_long_press = Some(message.into());
         self
     }
 

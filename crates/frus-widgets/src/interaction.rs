@@ -76,7 +76,7 @@ impl WidgetId {
 /// A widget's response to a key received during the **leaf→root bubble** (the
 /// focused one first, then its ancestors for as long as the result is `Ignored`).
 #[derive(Clone, Debug, PartialEq)]
-pub enum KeyResponse<Msg> {
+pub enum KeyResponse<Msg = crate::callback::Callback> {
     /// Not concerned: the key keeps bubbling up.
     Ignored,
     /// Consumed (with an optional message to emit): the bubbling stops.

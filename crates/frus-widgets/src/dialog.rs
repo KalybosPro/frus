@@ -208,7 +208,7 @@ impl<Msg: Clone> Widget<Msg> for DialogSurface<Msg> {
 /// Controlled, like every overlay here: `open` says whether it is showing, and
 /// [`Dialog::on_dismiss`] is what a click on the scrim sends. The screen behind stays
 /// built and visible.
-pub struct Dialog<Msg> {
+pub struct Dialog<Msg = crate::callback::Callback> {
     open: bool,
     on_dismiss: Option<Msg>,
     content: Option<Box<dyn Widget<Msg>>>,
@@ -247,8 +247,8 @@ impl<Msg: Clone + 'static> Dialog<Msg> {
     /// What a click on the scrim sends. Without it the scrim is inert, which is the
     /// reference's `barrierDismissible: false` — for a dialog that must be answered.
     #[must_use]
-    pub fn on_dismiss(mut self, message: Msg) -> Self {
-        self.on_dismiss = Some(message);
+    pub fn on_dismiss(mut self, message: impl Into<Msg>) -> Self {
+        self.on_dismiss = Some(message.into());
         self
     }
 
@@ -402,7 +402,7 @@ pub type ActionsAlignment = Justify;
 /// padding, and a title with nothing below it keeps twenty of it (`dialog.dart:824`).
 /// An icon also **centres the title**, which is the one place the presence of one slot
 /// changes how another is aligned (`dialog.dart:844`).
-pub struct AlertDialog<Msg> {
+pub struct AlertDialog<Msg = crate::callback::Callback> {
     dialog: Dialog<Msg>,
     icon: Option<Box<dyn Widget<Msg>>>,
     icon_color: Option<Color>,
@@ -439,7 +439,7 @@ impl<Msg: Clone + 'static> AlertDialog<Msg> {
     /// What a click on the scrim sends. Without it the scrim is inert — the reference's
     /// `barrierDismissible: false`, for a question a button has to answer.
     #[must_use]
-    pub fn on_dismiss(mut self, message: Msg) -> Self {
+    pub fn on_dismiss(mut self, message: impl Into<Msg>) -> Self {
         self.dialog = self.dialog.on_dismiss(message);
         self
     }
@@ -761,7 +761,7 @@ const OPTION_PADDING: Insets = Insets {
 /// It is a widget of its own rather than a closure argument for the reason the reference
 /// makes it one — the row is the tappable thing, and its ink has to run the full width of
 /// the dialog, which only a widget that *is* the row can do.
-pub struct SimpleDialogOption<Msg> {
+pub struct SimpleDialogOption<Msg = crate::callback::Callback> {
     child: Option<Box<dyn Widget<Msg>>>,
     on_press: Option<Msg>,
     padding: Option<Insets>,
@@ -789,8 +789,8 @@ impl<Msg: Clone + 'static> SimpleDialogOption<Msg> {
     /// What choosing it sends. Without one it cannot be chosen, which is the reference's
     /// null `onPressed`.
     #[must_use]
-    pub fn on_press(mut self, message: Msg) -> Self {
-        self.on_press = Some(message);
+    pub fn on_press(mut self, message: impl Into<Msg>) -> Self {
+        self.on_press = Some(message.into());
         self
     }
 
@@ -826,7 +826,7 @@ impl<Msg: Clone + 'static> SimpleDialogOption<Msg> {
 /// The one the reference calls simple, and the difference from [`AlertDialog`] is what it
 /// is for: an alert dialog asks a question and puts the answers in a row of buttons at the
 /// bottom, this one lists them and each row *is* an answer.
-pub struct SimpleDialog<Msg> {
+pub struct SimpleDialog<Msg = crate::callback::Callback> {
     dialog: Dialog<Msg>,
     title: Option<Box<dyn Widget<Msg>>>,
     title_text_style: Option<TextStyle>,
@@ -852,7 +852,7 @@ impl<Msg: Clone + 'static> SimpleDialog<Msg> {
 
     /// What a click on the scrim sends — see [`Dialog::on_dismiss`].
     #[must_use]
-    pub fn on_dismiss(mut self, message: Msg) -> Self {
+    pub fn on_dismiss(mut self, message: impl Into<Msg>) -> Self {
         self.dialog = self.dialog.on_dismiss(message);
         self
     }

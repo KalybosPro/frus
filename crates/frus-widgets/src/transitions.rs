@@ -63,7 +63,7 @@ use crate::widget::Widget;
 ///
 /// It is [`crate::Opacity`] with the name the reference uses, which is worth having: a
 /// reader looking for the explicit half of the animation library looks for this word.
-pub struct FadeTransition<Msg> {
+pub struct FadeTransition<Msg = crate::callback::Callback> {
     inner: Box<dyn Widget<Msg>>,
 }
 
@@ -144,7 +144,7 @@ pub enum SlideFrom {
 /// [`SlideTransition::from_edge`] is the reason this has a name at all. *Coming in from
 /// the left* is a negative offset that shrinks to nought as the progress grows, and every
 /// application that writes it by hand gets the sign wrong once.
-pub struct SlideTransition<Msg> {
+pub struct SlideTransition<Msg = crate::callback::Callback> {
     inner: Box<dyn Widget<Msg>>,
 }
 
@@ -222,7 +222,7 @@ crate::transparent::forward_transparent!(SlideTransition {
 ///
 /// The pivot is a choice of origin rather than a quantity, so it is an argument here and
 /// never a thing to interpolate — the same rule [`crate::AnimatedScale`] states.
-pub struct ScaleTransition<Msg> {
+pub struct ScaleTransition<Msg = crate::callback::Callback> {
     inner: Box<dyn Widget<Msg>>,
 }
 
@@ -330,7 +330,7 @@ pub enum DecorationPosition {
 ///
 /// For a decoration that should catch up with a target on the framework's clock instead,
 /// [`crate::AnimatedContainer`] is the implicit half.
-pub struct DecoratedBoxTransition<Msg> {
+pub struct DecoratedBoxTransition<Msg = crate::callback::Callback> {
     children: Vec<Box<dyn Widget<Msg>>>,
     decoration: BoxDecoration,
     position: DecorationPosition,
@@ -422,7 +422,7 @@ impl<Msg: Clone> Widget<Msg> for DecoratedBoxTransition<Msg> {
 ///
 /// A text that names a field for itself keeps it: an inherited style answers a question,
 /// it does not overrule an answer.
-pub struct DefaultTextStyleTransition<Msg> {
+pub struct DefaultTextStyleTransition<Msg = crate::callback::Callback> {
     handed: crate::widgettheme::DefaultTextStyle,
     inner: Box<dyn Widget<Msg>>,
 }

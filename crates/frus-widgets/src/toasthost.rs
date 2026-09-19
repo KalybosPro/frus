@@ -62,7 +62,7 @@ impl SnackBarPosition {
 }
 
 /// A notification layer anchored in a corner.
-pub struct ScaffoldMessenger<Msg> {
+pub struct ScaffoldMessenger<Msg = crate::callback::Callback> {
     position: SnackBarPosition,
     padding: f32,
     children: Vec<Box<dyn Widget<Msg>>>,

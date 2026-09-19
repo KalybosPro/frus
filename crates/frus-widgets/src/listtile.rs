@@ -63,7 +63,7 @@ enum Slot<Msg> {
 /// The reference's Material 3 measurements — 16 px in front, 24 behind, a 16 px gap
 /// either side of the text, heights of 56 / 72 / 88 by line count and 48 / 64 / 76 dense —
 /// and every one of them replaceable, as is each of the four slots.
-pub struct ListTile<Msg> {
+pub struct ListTile<Msg = crate::callback::Callback> {
     leading: RefCell<Option<Box<dyn Widget<Msg>>>>,
     trailing: RefCell<Option<Box<dyn Widget<Msg>>>>,
     title: RefCell<Option<Slot<Msg>>>,
@@ -198,8 +198,8 @@ impl<Msg> ListTile<Msg> {
     }
 
     /// The message a tap sends.
-    pub fn on_tap(mut self, msg: Msg) -> Self {
-        self.on_tap = Some(msg);
+    pub fn on_tap(mut self, msg: impl Into<Msg>) -> Self {
+        self.on_tap = Some(msg.into());
         self
     }
 

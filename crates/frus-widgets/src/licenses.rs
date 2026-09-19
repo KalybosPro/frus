@@ -277,7 +277,7 @@ fn paragraphs(text: &str) -> Vec<String> {
 ///     .legalese("© 2026 Someone")
 ///     .build()
 /// ```
-pub struct LicensePage<Msg> {
+pub struct LicensePage<Msg = crate::callback::Callback> {
     notices: Vec<LicenseNotice>,
     selected: Option<usize>,
     on_select: Option<Rc<dyn Fn(Option<usize>) -> Msg>>,
@@ -509,7 +509,7 @@ impl<Msg: Clone + 'static> LicensePage<Msg> {
 /// A name, a version, an icon, a legal line, and two buttons: one to the licences, one to
 /// close. It is an [`crate::AlertDialog`] underneath, so everything an alert dialog can be
 /// told, this can be told too.
-pub struct AboutDialog<Msg> {
+pub struct AboutDialog<Msg = crate::callback::Callback> {
     open: bool,
     application: Option<String>,
     version: Option<String>,
@@ -567,8 +567,8 @@ impl<Msg: Clone + 'static> AboutDialog<Msg> {
 
     /// The button through to the licences, and what it says.
     #[must_use]
-    pub fn on_licences(mut self, message: Msg) -> Self {
-        self.on_licences = Some(message);
+    pub fn on_licences(mut self, message: impl Into<Msg>) -> Self {
+        self.on_licences = Some(message.into());
         self
     }
 
@@ -581,8 +581,8 @@ impl<Msg: Clone + 'static> AboutDialog<Msg> {
 
     /// The button that closes it — which is also what a tap outside sends.
     #[must_use]
-    pub fn on_close(mut self, message: Msg) -> Self {
-        self.on_close = Some(message);
+    pub fn on_close(mut self, message: impl Into<Msg>) -> Self {
+        self.on_close = Some(message.into());
         self
     }
 
@@ -644,7 +644,7 @@ impl<Msg: Clone + 'static> AboutDialog<Msg> {
 /// One line over [`crate::ListTile`], which is the point: the reference has this widget
 /// because every application writes the same row, and every application gets it slightly
 /// differently.
-pub struct AboutListTile<Msg> {
+pub struct AboutListTile<Msg = crate::callback::Callback> {
     application: Option<String>,
     icon: Option<crate::IconData>,
     title: Option<String>,

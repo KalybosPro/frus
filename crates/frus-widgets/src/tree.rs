@@ -161,7 +161,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
 }
 
 /// A hierarchical tree (visible rows, flattened).
-pub struct Tree<Msg> {
+pub struct Tree<Msg = crate::callback::Callback> {
     on_toggle: Box<dyn Fn(u64) -> Msg>,
     on_select: Option<Rc<dyn Fn(u64) -> Msg>>,
     selected: Option<u64>,
@@ -172,9 +172,9 @@ pub struct Tree<Msg> {
 
 impl<Msg: Clone + 'static> Tree<Msg> {
     /// Creates a tree; `on_toggle(id)` is emitted when a collapsible node's **chevron** is clicked.
-    pub fn new(on_toggle: impl Fn(u64) -> Msg + 'static) -> Self {
+    pub fn new<R: crate::callback::IntoMsg<Msg>>(on_toggle: impl Fn(u64) -> R + 'static) -> Self {
         Self {
-            on_toggle: Box::new(on_toggle),
+            on_toggle: Box::new(crate::callback::handler1(on_toggle)),
             on_select: None,
             selected: None,
             nodes: Vec::new(),
@@ -193,8 +193,11 @@ impl<Msg: Clone + 'static> Tree<Msg> {
 
     /// Makes the nodes **selectable**: `on_select(id)` when the row's body is clicked (outside
     /// the chevron), **leaves included**. Without it, clicking the row expands or collapses.
-    pub fn on_select(mut self, on_select: impl Fn(u64) -> Msg + 'static) -> Self {
-        self.on_select = Some(Rc::new(on_select));
+    pub fn on_select<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_select: impl Fn(u64) -> R + 'static,
+    ) -> Self {
+        self.on_select = Some(Rc::new(crate::callback::handler1(on_select)));
         self.rebuild();
         self
     }

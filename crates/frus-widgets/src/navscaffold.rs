@@ -36,7 +36,7 @@ type RailConfig<Msg> = Box<dyn FnOnce(NavigationRail<Msg>) -> NavigationRail<Msg
 type DrawerConfig<Msg> = Box<dyn FnOnce(NavigationDrawer<Msg>) -> NavigationDrawer<Msg>>;
 
 /// Adaptive navigation shell: a bottom bar, a rail, or an extended rail, by size.
-pub struct NavScaffold<Msg> {
+pub struct NavScaffold<Msg = crate::callback::Callback> {
     class: SizeClass,
     selected: usize,
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,

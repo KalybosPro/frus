@@ -81,7 +81,7 @@ fn paint_thumb_shadow(
 }
 
 /// A linear slider over `min..=max`, **controlled** and draggable.
-pub struct Slider<Msg> {
+pub struct Slider<Msg = crate::callback::Callback> {
     value: f32,
     min: f32,
     max: f32,
@@ -238,8 +238,11 @@ impl<Msg> Slider<Msg> {
     }
 
     /// A closure producing a message from the new value (`0..=1`).
-    pub fn on_change(mut self, on_change: impl Fn(f32) -> Msg + 'static) -> Self {
-        self.on_change = Some(Box::new(on_change));
+    pub fn on_change<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_change: impl Fn(f32) -> R + 'static,
+    ) -> Self {
+        self.on_change = Some(Box::new(crate::callback::handler1(on_change)));
         self
     }
 
@@ -251,8 +254,11 @@ impl<Msg> Slider<Msg> {
     /// video, writes a setting to disk or asks the network on each of them does it
     /// sixty times a second; the bracket is what lets it show a preview while the
     /// finger is down and commit when it lifts.
-    pub fn on_change_start(mut self, on_start: impl Fn(f32) -> Msg + 'static) -> Self {
-        self.on_change_start = Some(Box::new(on_start));
+    pub fn on_change_start<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_start: impl Fn(f32) -> R + 'static,
+    ) -> Self {
+        self.on_change_start = Some(Box::new(crate::callback::handler1(on_start)));
         self
     }
 
@@ -261,8 +267,11 @@ impl<Msg> Slider<Msg> {
     ///
     /// A press that never moved still gets one: it changed the value, and a caller
     /// waiting for the release would otherwise never be told it happened.
-    pub fn on_change_end(mut self, on_end: impl Fn(f32) -> Msg + 'static) -> Self {
-        self.on_change_end = Some(Box::new(on_end));
+    pub fn on_change_end<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_end: impl Fn(f32) -> R + 'static,
+    ) -> Self {
+        self.on_change_end = Some(Box::new(crate::callback::handler1(on_end)));
         self
     }
 
@@ -681,7 +690,7 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
 /// **controlled** and **sticky** (each thumb moves its own side, with no crossing).
 /// An optional discrete step ([`divisions`](RangeSlider::divisions)). The
 /// application receives the new `(low, high)` interval.
-pub struct RangeSlider<Msg> {
+pub struct RangeSlider<Msg = crate::callback::Callback> {
     low: f32,
     high: f32,
     width: f32,
@@ -739,8 +748,11 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
     }
 
     /// A closure producing a message from the new `(low, high)` interval.
-    pub fn on_change(mut self, on_change: impl Fn(f32, f32) -> Msg + 'static) -> Self {
-        self.on_change = Some(Rc::new(on_change));
+    pub fn on_change<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_change: impl Fn(f32, f32) -> R + 'static,
+    ) -> Self {
+        self.on_change = Some(Rc::new(crate::callback::handler2(on_change)));
         self.rebuild();
         self
     }
@@ -782,15 +794,21 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
     /// [`on_change`](Self::on_change), with the interval as it stands.
     ///
     /// See [`Slider::on_change_start`] for why the bracket earns its place.
-    pub fn on_change_start(mut self, on_start: impl Fn(f32, f32) -> Msg + 'static) -> Self {
-        self.on_change_start = Some(Rc::new(on_start));
+    pub fn on_change_start<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_start: impl Fn(f32, f32) -> R + 'static,
+    ) -> Self {
+        self.on_change_start = Some(Rc::new(crate::callback::handler2(on_start)));
         self
     }
 
     /// Sent **once**, when the drag ends — after the last
     /// [`on_change`](Self::on_change), with the interval it settled on.
-    pub fn on_change_end(mut self, on_end: impl Fn(f32, f32) -> Msg + 'static) -> Self {
-        self.on_change_end = Some(Rc::new(on_end));
+    pub fn on_change_end<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_end: impl Fn(f32, f32) -> R + 'static,
+    ) -> Self {
+        self.on_change_end = Some(Rc::new(crate::callback::handler2(on_end)));
         self
     }
 

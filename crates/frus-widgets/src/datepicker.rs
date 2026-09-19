@@ -207,7 +207,7 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
 }
 
 /// A month calendar (or a pair of months in [`range_dual`](DatePicker::range_dual) mode).
-pub struct DatePicker<Msg> {
+pub struct DatePicker<Msg = crate::callback::Callback> {
     children: Vec<Box<dyn Widget<Msg>>>,
     /// Two months side by side, which doubles its width.
     dual: bool,

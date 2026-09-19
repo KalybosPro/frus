@@ -19,7 +19,7 @@ use crate::widget::Widget;
 type PaintFn = dyn Fn(&mut Scene, Rect, &Theme);
 
 /// A fixed-size custom canvas, painted by a closure.
-pub struct CustomPaint<Msg> {
+pub struct CustomPaint<Msg = crate::callback::Callback> {
     width: f32,
     height: f32,
     painter: Box<PaintFn>,

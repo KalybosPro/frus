@@ -39,7 +39,7 @@ use crate::widget::{FilterContext, Widget};
 /// ColorFiltered::new(ColorFilter::Mode(theme.primary, BlendMode::SrcIn))
 ///     .child(Icon::new(icons::STAR))   // the icon as a flat silhouette
 /// ```
-pub struct ColorFiltered<Msg> {
+pub struct ColorFiltered<Msg = crate::callback::Callback> {
     filter: ColorFilter,
     enabled: bool,
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -118,7 +118,7 @@ impl<Msg: Clone> Widget<Msg> for ColorFiltered<Msg> {
 /// ImageFiltered::blur(8.0).child(Image::asset("photo.png"))
 /// ImageFiltered::new(ImageFilter::Dilate { radius_x: 2.0, radius_y: 2.0 }).child(logo)
 /// ```
-pub struct ImageFiltered<Msg> {
+pub struct ImageFiltered<Msg = crate::callback::Callback> {
     filter: ImageFilter,
     enabled: bool,
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -196,7 +196,7 @@ impl<Msg: Clone> Widget<Msg> for ImageFiltered<Msg> {
 ///     .blend(BlendMode::SrcIn)
 ///     .child(Text::new("gradient headline"))
 /// ```
-pub struct ShaderMask<Msg> {
+pub struct ShaderMask<Msg = crate::callback::Callback> {
     mask: FractionalMask,
     blend: BlendMode,
     enabled: bool,
@@ -313,7 +313,7 @@ impl<Msg: Clone> Widget<Msg> for ShaderMask<Msg> {
 /// A list of frosted rows is the case where that cost becomes a problem, and
 /// [`BackdropGroup`] with [`BackdropFilter::grouped`] is the answer: sixty rows,
 /// one blur.
-pub struct BackdropFilter<Msg> {
+pub struct BackdropFilter<Msg = crate::callback::Callback> {
     filter: ImageFilter,
     blend: BlendMode,
     enabled: bool,
@@ -445,7 +445,7 @@ impl<Msg: Clone> Widget<Msg> for BackdropFilter<Msg> {
 ///
 /// The group needs no key of its own. Its identity in the tree is the key, which is
 /// stable from frame to frame and unique without anything having to hand one out.
-pub struct BackdropGroup<Msg> {
+pub struct BackdropGroup<Msg = crate::callback::Callback> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 

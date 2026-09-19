@@ -48,7 +48,7 @@ const CHILDREN_PADDING: Insets = Insets::new(0.0, 16.0, 16.0, 16.0);
 ///     .subtitle("Arrives Thursday")
 ///     .content(Text::new("Two parcels, one signature."));
 /// ```
-pub struct ExpansionTile<Msg> {
+pub struct ExpansionTile<Msg = crate::callback::Callback> {
     title: String,
     /// A header **widget** in place of the title line; see
     /// [`ExpansionTile::title_child`].

@@ -62,7 +62,7 @@ enum Content {
 }
 
 /// A button holding one glyph.
-pub struct IconButton<Msg> {
+pub struct IconButton<Msg = crate::callback::Callback> {
     content: Content,
     variant: IconButtonVariant,
     selected: bool,
@@ -116,7 +116,7 @@ impl<Msg> IconButton<Msg> {
     /// use frus_widgets::{AnimatedIcons, IconButton};
     ///
     /// let drawer_open = false;
-    /// let _button = IconButton::animated(AnimatedIcons::MENU_CLOSE, drawer_open)
+    /// let _button = IconButton::<()>::animated(AnimatedIcons::MENU_CLOSE, drawer_open)
     ///     .label("Menu")
     ///     .on_press(());
     /// ```
@@ -169,8 +169,8 @@ impl<Msg> IconButton<Msg> {
     }
 
     /// The message emitted on click.
-    pub fn on_press(mut self, message: Msg) -> Self {
-        self.on_press = Some(message);
+    pub fn on_press(mut self, message: impl Into<Msg>) -> Self {
+        self.on_press = Some(message.into());
         self
     }
 

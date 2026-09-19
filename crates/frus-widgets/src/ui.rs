@@ -579,7 +579,7 @@ pub struct Focusable {
     pub group: Option<WidgetId>,
 }
 
-pub struct Ui<Msg> {
+pub struct Ui<Msg = crate::callback::Callback> {
     scene: Scene,
     hits: Vec<Hit<Msg>>,
     /// Long-press targets (id, visible bounds, message).
@@ -1603,6 +1603,9 @@ fn build_layout_scoped<'a, Msg>(
     layout: &mut Layout<'a, BaselineData>,
     baselines: bool,
 ) -> (NodeId, Fills) {
+    // A component is built into what it stands for before anything is asked of the node,
+    // the scope it introduces included — see `Widget::expand`.
+    widget.expand(id, runtime, theme);
     // A themed subtree lays out under **its** theme, not the frame's: a theme reaches
     // sizes and spacing (milestone 309), so this has to happen here and not only at paint
     // time. `hash_node`, which fingerprints this same walk for the relayout cache, makes
@@ -3369,7 +3372,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             } else {
                 clip
             };
-            if children.len() >= 2 {
+            // The pages under the one on show are kept in the tree and stay out of the picture.
+            let hidden = widget.navigator_retained().min(children.len());
+            let shown = &children[hidden..];
+            if shown.len() >= 2 {
                 // A transition: two offset screens. The screen "behind" (a negative offset)
                 // moves less (parallax) → the sense of depth.
                 let dir = if forward { 1.0 } else { -1.0 };
@@ -3407,8 +3413,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 // a back gesture alike. Whatever the other one defers is dropped.
                 let overlay_base = self.overlays.len();
                 self.render_screen(
-                    children[back].as_ref(),
-                    child_id(id, back, children[back].as_ref()),
+                    shown[back].as_ref(),
+                    child_id(id, hidden + back, shown[back].as_ref()),
                     bounds,
                     off[back],
                     clip,
@@ -3429,8 +3435,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 self.hero_screen = Some(front as u8);
                 let overlay_base = self.overlays.len();
                 self.render_screen(
-                    children[front].as_ref(),
-                    child_id(id, front, children[front].as_ref()),
+                    shown[front].as_ref(),
+                    child_id(id, hidden + front, shown[front].as_ref()),
                     bounds,
                     off[front],
                     clip,
@@ -3440,10 +3446,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 }
                 self.hero_screen = outer_screen;
                 self.fly_heroes(hero_base, scene_base, progress);
-            } else if let Some(screen) = children.first() {
+            } else if let Some(screen) = shown.first() {
                 self.render_screen(
                     screen.as_ref(),
-                    child_id(id, 0, screen.as_ref()),
+                    child_id(id, hidden, screen.as_ref()),
                     bounds,
                     0.0,
                     clip,
@@ -5452,6 +5458,7 @@ pub(crate) fn scoped_theme<Msg>(
 /// with itself rather than a builder disagreeing with the layout around it.
 pub fn build_deferred<Msg>(root: &dyn Widget<Msg>, theme: &Theme, runtime: &Runtime) {
     fn walk<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, runtime: &Runtime, theme: &Theme) {
+        widget.expand(id, runtime, theme);
         let scoped = scoped_theme(widget, id, runtime, theme);
         let theme = scoped.as_deref().unwrap_or(theme);
         let _surface = widget

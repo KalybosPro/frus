@@ -725,7 +725,7 @@ impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
 ///     )
 ///     .tab("Archive", Container::<Msg>::new());
 /// ```
-pub struct TabItem<Msg> {
+pub struct TabItem<Msg = crate::callback::Callback> {
     spec: TabSpec,
     child: Option<Rc<dyn Widget<Msg>>>,
 }
@@ -796,7 +796,7 @@ impl<Msg> TabItem<Msg> {
 }
 
 /// A tabbed view: the bar, and the selected tab's panel under it.
-pub struct TabBar<Msg> {
+pub struct TabBar<Msg = crate::callback::Callback> {
     selected: usize,
     on_select: Rc<dyn Fn(usize) -> Msg>,
     tabs: Vec<TabSpec>,

@@ -40,7 +40,7 @@ enum Source {
 }
 
 /// Applies a theme to its child and everything under it.
-pub struct Themed<Msg> {
+pub struct Themed<Msg = crate::callback::Callback> {
     source: Source,
     inner: Box<dyn Widget<Msg>>,
 }

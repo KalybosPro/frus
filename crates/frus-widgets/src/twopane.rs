@@ -11,7 +11,7 @@ use crate::theme::Theme;
 use crate::widget::Widget;
 
 /// An adaptive master-detail layout.
-pub struct TwoPane<Msg> {
+pub struct TwoPane<Msg = crate::callback::Callback> {
     class: SizeClass,
     ratio: f32,
     show_detail: bool,

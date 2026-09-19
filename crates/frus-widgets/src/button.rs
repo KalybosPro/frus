@@ -140,7 +140,7 @@ impl Heights {
 }
 
 /// A clickable button.
-pub struct Button<Msg> {
+pub struct Button<Msg = crate::callback::Callback> {
     label: String,
     variant: Variant,
     on_press: Option<Msg>,
@@ -279,8 +279,8 @@ impl<Msg> Button<Msg> {
     }
 
     /// Message emitted on click.
-    pub fn on_press(mut self, message: Msg) -> Self {
-        self.on_press = Some(message);
+    pub fn on_press(mut self, message: impl Into<Msg>) -> Self {
+        self.on_press = Some(message.into());
         self
     }
 

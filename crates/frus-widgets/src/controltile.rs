@@ -241,7 +241,7 @@ macro_rules! row_builders {
 ///     .title("Notify me")
 ///     .subtitle("About replies to my posts");
 /// ```
-pub struct CheckboxListTile<Msg> {
+pub struct CheckboxListTile<Msg = crate::callback::Callback> {
     row: Row<Msg>,
     value: Option<bool>,
     on_changed: Msg,
@@ -328,7 +328,7 @@ impl<Msg: Clone + 'static> CheckboxListTile<Msg> {
 /// It carries `selected` rather than a value and a group value: this framework's
 /// [`Radio`] reports being pressed and says nothing about what the answer becomes, so the
 /// application already holds the choice.
-pub struct RadioListTile<Msg> {
+pub struct RadioListTile<Msg = crate::callback::Callback> {
     row: Row<Msg>,
     selected: bool,
     on_changed: Msg,
@@ -374,7 +374,7 @@ impl<Msg: Clone + 'static> RadioListTile<Msg> {
 // ================================================================ the switch
 
 /// **A row whose whole width flips a switch.** The commonest shape a settings screen has.
-pub struct SwitchListTile<Msg> {
+pub struct SwitchListTile<Msg = crate::callback::Callback> {
     row: Row<Msg>,
     value: bool,
     on_changed: Msg,

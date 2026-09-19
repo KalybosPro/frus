@@ -85,7 +85,7 @@ type Arrange<Msg> = Box<dyn Fn(Vec<Box<dyn Widget<Msg>>>) -> Box<dyn Widget<Msg>
 ///
 /// An absent child is a value like any other: switch over an `Option` and build an empty
 /// box for `None`, and a child fades out to nothing.
-pub struct AnimatedSwitcher<Msg> {
+pub struct AnimatedSwitcher<Msg = crate::callback::Callback> {
     value: Rc<dyn Any>,
     same: fn(&dyn Any, &dyn Any) -> bool,
     build: Build<Msg>,

@@ -109,7 +109,7 @@ impl InteractiveView {
 /// Like [`crate::SingleChildScrollView`], the viewport needs a **bounded size** (otherwise it
 /// collapses): a fixed `width`/`height`, or `flex` within a column or row. The
 /// scale is bounded by `min_scale` / `max_scale`.
-pub struct InteractiveViewer<Msg> {
+pub struct InteractiveViewer<Msg = crate::callback::Callback> {
     width: Dimension,
     height: Dimension,
     flex_grow: f32,

@@ -62,7 +62,7 @@ enum Cells<Msg> {
 }
 
 /// A grid of `columns` equal columns.
-pub struct GridView<Msg> {
+pub struct GridView<Msg = crate::callback::Callback> {
     columns: usize,
     gap: f32,
     row_gap: Option<f32>,
@@ -300,8 +300,11 @@ impl<Msg> GridView<Msg> {
     ///
     /// A windowed grid only builds the tiles on screen, so what this reports is where the
     /// window is over the whole content — not over what happens to be built.
-    pub fn on_scroll(mut self, on_scroll: impl Fn(crate::ScrollPosition) -> Msg + 'static) -> Self {
-        self.on_scroll = Some(Box::new(on_scroll));
+    pub fn on_scroll<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_scroll: impl Fn(crate::ScrollPosition) -> R + 'static,
+    ) -> Self {
+        self.on_scroll = Some(Box::new(crate::callback::handler1(on_scroll)));
         self
     }
 

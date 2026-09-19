@@ -269,7 +269,7 @@ impl ToggleStyle {
 }
 
 /// A bank of buttons sharing their edges, any number of which may be on.
-pub struct ToggleButtons<Msg> {
+pub struct ToggleButtons<Msg = crate::callback::Callback> {
     selected: Vec<bool>,
     on_pressed: Box<dyn Fn(usize) -> Msg>,
     enabled: bool,

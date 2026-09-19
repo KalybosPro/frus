@@ -268,7 +268,7 @@ impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
 }
 
 /// A retractable side drawer: a background body + a panel, modal or docked.
-pub struct Drawer<Msg> {
+pub struct Drawer<Msg = crate::callback::Callback> {
     open: bool,
     right: bool,
     permanent: bool,
@@ -396,8 +396,8 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
     }
 
     /// Message emitted on a click on the scrim (outside the panel) — to close it.
-    pub fn on_dismiss(mut self, message: Msg) -> Self {
-        self.on_dismiss = Some(message);
+    pub fn on_dismiss(mut self, message: impl Into<Msg>) -> Self {
+        self.on_dismiss = Some(message.into());
         self
     }
 

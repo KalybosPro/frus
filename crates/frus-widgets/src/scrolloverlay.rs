@@ -71,7 +71,7 @@ pub type OverlayBuilder<Msg> = dyn Fn((f32, f32), Size) -> Box<dyn Widget<Msg>>;
 /// this reads is its own child's, so nothing has to be named, looked up, or kept in step.
 /// A builder floating free of the region it watches would need one of those three, and
 /// each of them can go stale without saying so.
-pub struct ScrollOverlay<Msg> {
+pub struct ScrollOverlay<Msg = crate::callback::Callback> {
     /// The scroll region, as the one-element slice [`Widget::children`] hands back.
     body: Vec<Box<dyn Widget<Msg>>>,
     /// `(offset, box) → overlay`, run once per frame the region moves.

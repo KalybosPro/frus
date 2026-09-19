@@ -20,7 +20,7 @@ fn arrow<Msg: Clone + 'static>(label: &str, message: Option<Msg>) -> Box<dyn Wid
 }
 
 /// A controlled carousel.
-pub struct CarouselView<Msg> {
+pub struct CarouselView<Msg = crate::callback::Callback> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 

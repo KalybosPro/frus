@@ -82,7 +82,7 @@ type Composed<Msg> = Box<dyn Fn(Size) -> Box<dyn Widget<Msg>>>;
 ///
 /// No child is ever wider than the bar: one that would be is capped, and ellipsises or
 /// wraps inside its own box rather than escaping it.
-pub struct OverflowBar<Msg> {
+pub struct OverflowBar<Msg = crate::callback::Callback> {
     children: Vec<Rc<dyn Widget<Msg>>>,
     spacing: f32,
     overflow_spacing: f32,

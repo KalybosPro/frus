@@ -40,7 +40,7 @@ const SHOULDER: f32 = 15.0;
 const CLEARANCE: f32 = 1.0;
 
 /// A bottom bar of actions, optionally notched for a docked floating action button.
-pub struct BottomAppBar<Msg> {
+pub struct BottomAppBar<Msg = crate::callback::Callback> {
     children: Vec<Box<dyn Widget<Msg>>>,
     color: Option<Color>,
     height: f32,

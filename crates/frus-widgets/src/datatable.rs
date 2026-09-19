@@ -255,8 +255,11 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
 
     /// Makes the headers **clickable**: `on_sort(column)` on click (the application then flips
     /// the direction and passes `sorted(...)` back).
-    pub fn on_sort(mut self, on_sort: impl Fn(usize) -> Msg + 'static) -> Self {
-        self.on_sort = Some(Rc::new(on_sort));
+    pub fn on_sort<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_sort: impl Fn(usize) -> R + 'static,
+    ) -> Self {
+        self.on_sort = Some(Rc::new(crate::callback::handler1(on_sort)));
         self.rebuild();
         self
     }
@@ -303,8 +306,11 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
     /// Makes the rows **clickable**: `on_select_row(source_row)` when a row is clicked. The
     /// index passed is that of the **source row** (before sorting and pagination) — the
     /// `DataTable` translates the displayed position into the original index.
-    pub fn on_select_row(mut self, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
-        self.on_select = Some(Rc::new(on_select));
+    pub fn on_select_row<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_select: impl Fn(usize) -> R + 'static,
+    ) -> Self {
+        self.on_select = Some(Rc::new(crate::callback::handler1(on_select)));
         self.rebuild();
         self
     }

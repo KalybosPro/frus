@@ -126,7 +126,7 @@ enum Action<Msg> {
 }
 
 /// An adaptive application bar. A fluent builder finished by [`AppBar::build`].
-pub struct AppBar<Msg> {
+pub struct AppBar<Msg = crate::callback::Callback> {
     title: Option<Box<dyn Widget<Msg>>>,
     title_style: Option<TextStyle>,
     /// Was the title's style left at the framework's default? Only then may the theme
@@ -1883,7 +1883,7 @@ mod tests {
                                 crate::IconButton::new(crate::Icons::MENU).on_press(Msg::A),
                             )
                         }
-                        "button" => bar = bar.leading(button("Menu", Msg::A)),
+                        "button" => bar = bar.leading(button::<Msg>("Menu", Msg::A)),
                         _ => {}
                     }
                     if let Some(padding) = padding {
@@ -1924,7 +1924,7 @@ mod tests {
                         "A title long enough to be cut short at every width this sweeps, and more",
                     ))
                     // A leading of an exact width, so no slack in its slot hides the gap.
-                    .leading(button("Menu", Msg::A))
+                    .leading(button::<Msg>("Menu", Msg::A))
                     .build()
             });
             let ui = build_ui(bar.as_ref(), size, &Runtime::default(), &Theme::default());

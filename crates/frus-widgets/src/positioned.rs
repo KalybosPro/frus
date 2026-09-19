@@ -79,7 +79,7 @@ impl Positioning {
 }
 
 /// A layer pinned against a [`crate::Stack`]'s edges. See the module documentation.
-pub struct Positioned<Msg> {
+pub struct Positioned<Msg = crate::callback::Callback> {
     inner: Box<dyn Widget<Msg>>,
     spec: Positioning,
 }

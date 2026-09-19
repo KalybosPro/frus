@@ -634,7 +634,7 @@ impl<Msg: Clone> Widget<Msg> for ResizeHandle<Msg> {
 }
 
 /// A data grid with fixed or flexible columns (see the module).
-pub struct Table<Msg> {
+pub struct Table<Msg = crate::callback::Callback> {
     columns: usize,
     headers: Vec<String>,
     /// Leading icon per header column (icon + label). Missing = none.
@@ -829,8 +829,11 @@ impl<Msg: Clone + 'static> Table<Msg> {
     }
 
     /// Makes the headers **clickable**: `on_sort(column)` on a click on a header.
-    pub fn on_sort(mut self, on_sort: impl Fn(usize) -> Msg + 'static) -> Self {
-        self.on_sort = Some(Box::new(on_sort));
+    pub fn on_sort<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_sort: impl Fn(usize) -> R + 'static,
+    ) -> Self {
+        self.on_sort = Some(Box::new(crate::callback::handler1(on_sort)));
         self.rebuild();
         self
     }
@@ -843,8 +846,11 @@ impl<Msg: Clone + 'static> Table<Msg> {
     }
 
     /// Makes the rows **clickable**: `on_select_row(row)` on a click on a row.
-    pub fn on_select_row(mut self, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
-        self.on_select = Some(Rc::new(on_select));
+    pub fn on_select_row<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_select: impl Fn(usize) -> R + 'static,
+    ) -> Self {
+        self.on_select = Some(Rc::new(crate::callback::handler1(on_select)));
         self.rebuild();
         self
     }
@@ -933,8 +939,11 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// `widths[col] = (widths[col] + delta).max(MIN)`, and hands it back through
     /// [`column_widths`](Self::column_widths). Only has an effect when **every** column has a
     /// fixed width (so the edges are known).
-    pub fn on_resize(mut self, on_resize: impl Fn(usize, f32) -> Msg + 'static) -> Self {
-        self.on_resize = Some(Rc::new(on_resize));
+    pub fn on_resize<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_resize: impl Fn(usize, f32) -> R + 'static,
+    ) -> Self {
+        self.on_resize = Some(Rc::new(crate::callback::handler2(on_resize)));
         self.rebuild();
         self
     }
@@ -943,8 +952,11 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// it on another emits `on_reorder(from, to)`; the application permutes its own column
     /// order. A plain **click** still sorts (`on_sort`). Does nothing when the headers are
     /// not clickable.
-    pub fn on_reorder(mut self, on_reorder: impl Fn(usize, usize) -> Msg + 'static) -> Self {
-        self.on_reorder = Some(Rc::new(on_reorder));
+    pub fn on_reorder<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_reorder: impl Fn(usize, usize) -> R + 'static,
+    ) -> Self {
+        self.on_reorder = Some(Rc::new(crate::callback::handler2(on_reorder)));
         self.rebuild();
         self
     }

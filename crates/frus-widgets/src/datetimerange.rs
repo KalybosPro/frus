@@ -18,7 +18,7 @@ use crate::timepicker::{Endpoint, TimeField, TimeRange};
 use crate::widget::Widget;
 
 /// A date-and-time range picker.
-pub struct DateTimeRange<Msg> {
+pub struct DateTimeRange<Msg = crate::callback::Callback> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 

@@ -36,7 +36,7 @@ impl Axis {
 }
 
 /// A scrollable container.
-pub struct SingleChildScrollView<Msg> {
+pub struct SingleChildScrollView<Msg = crate::callback::Callback> {
     width: Dimension,
     height: Dimension,
     /// Was the width **set** explicitly? If not, in flex mode the width must not
@@ -198,8 +198,11 @@ impl<Msg> SingleChildScrollView<Msg> {
     ///
     /// A message per frame while it moves, which is what a bar fading in needs and what
     /// a load-more does not; [`SingleChildScrollView::notify_every`] is for the second.
-    pub fn on_scroll(mut self, on_scroll: impl Fn(crate::ScrollPosition) -> Msg + 'static) -> Self {
-        self.on_scroll = Some(Box::new(on_scroll));
+    pub fn on_scroll<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_scroll: impl Fn(crate::ScrollPosition) -> R + 'static,
+    ) -> Self {
+        self.on_scroll = Some(Box::new(crate::callback::handler1(on_scroll)));
         self
     }
 

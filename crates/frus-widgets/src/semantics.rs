@@ -67,7 +67,7 @@ pub struct Description {
 /// its container node and keeps the shape. Two labels are joined into one string, one line
 /// each, which is what the reference does with a merged subtree too — but a nested
 /// structure a reader could descend into is not something ours can express yet.
-pub struct Semantics<Msg> {
+pub struct Semantics<Msg = crate::callback::Callback> {
     props: SemanticsProperties,
     merging: bool,
     children: Vec<Box<dyn Widget<Msg>>>,

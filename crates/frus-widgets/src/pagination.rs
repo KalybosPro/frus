@@ -46,7 +46,7 @@ fn page_button<Msg: Clone + 'static>(
 }
 
 /// A controlled page picker; pages are **1-indexed**.
-pub struct Pagination<Msg> {
+pub struct Pagination<Msg = crate::callback::Callback> {
     current: usize,
     total: usize,
     enabled: bool,

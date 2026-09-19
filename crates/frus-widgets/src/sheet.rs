@@ -634,7 +634,7 @@ pub(crate) fn advance_all(
 /// The retained height is keyed by identity, and forgotten on the first frame the sheet
 /// is not in the tree: an application that removes a dismissed sheet and shows it again
 /// gets it back at its initial height.
-pub struct DraggableScrollableSheet<Msg> {
+pub struct DraggableScrollableSheet<Msg = crate::callback::Callback> {
     spec: SheetSpec,
     sizes: Vec<f32>,
     on_dismiss: Option<Msg>,
@@ -706,8 +706,8 @@ impl<Msg: Clone + 'static> DraggableScrollableSheet<Msg> {
     /// The message sent once the sheet has been lowered to nothing — which this also
     /// allows, below `min`. Unset, `min` is as low as it goes.
     #[must_use]
-    pub fn on_dismiss(mut self, message: Msg) -> Self {
-        self.on_dismiss = Some(message);
+    pub fn on_dismiss(mut self, message: impl Into<Msg>) -> Self {
+        self.on_dismiss = Some(message.into());
         self.spec.dismissible = true;
         self.restop();
         self

@@ -59,7 +59,7 @@ const PADDING_X: f32 = 8.0;
 const DISABLED_OPACITY: f32 = 0.38;
 
 /// A raised pill holding a search field, with a slot before it and any number after.
-pub struct SearchBar<Msg> {
+pub struct SearchBar<Msg = crate::callback::Callback> {
     value: String,
     hint: Option<String>,
     leading: RefCell<Option<Box<dyn Widget<Msg>>>>,
@@ -82,6 +82,18 @@ pub struct SearchBar<Msg> {
     text_style: Option<TextStyle>,
     hint_style: Option<TextStyle>,
     built: OnceCell<Vec<Box<dyn Widget<Msg>>>>,
+}
+
+impl SearchBar<crate::callback::Callback> {
+    /// Drives the bar from `controller`: it shows the controller's text, and what is typed
+    /// in it is written to the controller.
+    ///
+    /// This sets the bar's text and its `on_input`, so it replaces both.
+    pub fn controller(mut self, controller: &crate::TextEditingController) -> Self {
+        self.value = controller.text();
+        let write = controller.clone();
+        self.on_input(move |text| write.set_text(text))
+    }
 }
 
 impl<Msg: Clone + 'static> SearchBar<Msg> {
@@ -147,15 +159,18 @@ impl<Msg: Clone + 'static> SearchBar<Msg> {
     }
 
     /// What to emit on every keystroke.
-    pub fn on_input(mut self, on_input: impl Fn(String) -> Msg + 'static) -> Self {
-        self.on_input = Some(Rc::new(on_input));
+    pub fn on_input<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_input: impl Fn(String) -> R + 'static,
+    ) -> Self {
+        self.on_input = Some(Rc::new(crate::callback::handler1(on_input)));
         self.rebuild();
         self
     }
 
     /// What to emit when the search is confirmed.
-    pub fn on_submit(mut self, message: Msg) -> Self {
-        self.on_submit = Some(message);
+    pub fn on_submit(mut self, message: impl Into<Msg>) -> Self {
+        self.on_submit = Some(message.into());
         self.rebuild();
         self
     }
@@ -163,8 +178,8 @@ impl<Msg: Clone + 'static> SearchBar<Msg> {
     /// What to emit when the bar itself is pressed — how a bar that only *looks* like a
     /// field opens the thing that really searches (`search_anchor.dart:1470`). It goes
     /// with [`Self::read_only`].
-    pub fn on_tap(mut self, message: Msg) -> Self {
-        self.on_tap = Some(message);
+    pub fn on_tap(mut self, message: impl Into<Msg>) -> Self {
+        self.on_tap = Some(message.into());
         self.rebuild();
         self
     }

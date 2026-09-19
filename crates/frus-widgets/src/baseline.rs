@@ -37,7 +37,7 @@ use crate::widget::Widget;
 /// baseline — the line Latin, Greek and Cyrillic sit on — because that is the one the
 /// text engine reports. An ideographic baseline is a different number and offering a
 /// name for it that resolved to the same value would be worse than not offering it.
-pub struct Baseline<Msg> {
+pub struct Baseline<Msg = crate::callback::Callback> {
     baseline: f32,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -98,7 +98,7 @@ impl<Msg: Clone> Widget<Msg> for Baseline<Msg> {
 ///
 /// It changes nothing else: the subtree lays out, paints and responds exactly as it
 /// would have.
-pub struct IgnoreBaseline<Msg> {
+pub struct IgnoreBaseline<Msg = crate::callback::Callback> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 

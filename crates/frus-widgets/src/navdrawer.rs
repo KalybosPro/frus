@@ -366,7 +366,7 @@ impl<Msg: Clone> Widget<Msg> for DrawerTile<Msg> {
 }
 
 /// A **panel of destinations**: the navigation's widest form.
-pub struct NavigationDrawer<Msg> {
+pub struct NavigationDrawer<Msg = crate::callback::Callback> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
     /// Destinations and whatever the caller put between them, in order.

@@ -145,7 +145,7 @@ impl<Msg: Clone> Widget<Msg> for TimeCell<Msg> {
 }
 
 /// A time picker.
-pub struct TimePicker<Msg> {
+pub struct TimePicker<Msg = crate::callback::Callback> {
     hour: u32,
     minute: u32,
     on_hour: Box<dyn Fn(u32) -> Msg>,
@@ -394,7 +394,7 @@ pub enum TimeField {
 /// ([`crate::DatePicker::range_dual`]): two [`TimePicker`]s labelled "Start" and "End",
 /// side by side. A **single** `on_change(endpoint, field, value)` callback receives every
 /// change (values always **24-hour**); the application decides how to update its state.
-pub struct TimeRange<Msg> {
+pub struct TimeRange<Msg = crate::callback::Callback> {
     start: (u32, u32),
     end: (u32, u32),
     on_change: Rc<dyn Fn(Endpoint, TimeField, u32) -> Msg>,

@@ -139,7 +139,7 @@ impl WheelGeometry {
 ///     .on_selected(|i| i)
 ///     .label(|i| format!("{i} minutes"));
 /// ```
-pub struct ListWheel<Msg> {
+pub struct ListWheel<Msg = crate::callback::Callback> {
     count: usize,
     extent: f32,
     geometry: WheelGeometry,
@@ -184,8 +184,11 @@ impl<Msg> ListWheel<Msg> {
     }
 
     /// What to send when the wheel comes to rest on a different row.
-    pub fn on_selected(mut self, message: impl Fn(usize) -> Msg + 'static) -> Self {
-        self.on_selected = Some(Box::new(message));
+    pub fn on_selected<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        message: impl Fn(usize) -> R + 'static,
+    ) -> Self {
+        self.on_selected = Some(Box::new(crate::callback::handler1(message)));
         self
     }
 

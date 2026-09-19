@@ -140,7 +140,7 @@ thread_local! {
 /// [`ScaffoldInfo::of`] — including a subtree deferred until
 /// [`Widget::build_themed`](crate::Widget::build_themed), which is where an
 /// [`AppBar`](crate::AppBar) is composed and therefore the whole point.
-pub struct ScaffoldScope<Msg> {
+pub struct ScaffoldScope<Msg = crate::callback::Callback> {
     info: ScaffoldInfo,
     inner: Box<dyn Widget<Msg>>,
 }

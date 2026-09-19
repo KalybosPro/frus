@@ -66,7 +66,7 @@ fn content_style(over: Option<TextStyle>, theme: Option<&Theme>) -> TextStyle {
 /// It sits **in the flow**, not over it: a banner is put above the content it is about,
 /// usually as the first child of a screen's column. Nothing hides it on a timer, which is
 /// the whole difference from a snack bar — an action does.
-pub struct MaterialBanner<Msg> {
+pub struct MaterialBanner<Msg = crate::callback::Callback> {
     content: Option<Box<dyn Widget<Msg>>>,
     content_text_style: Option<TextStyle>,
     leading: Option<Box<dyn Widget<Msg>>>,

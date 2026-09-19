@@ -61,7 +61,7 @@ const RADIUS: f32 = 12.0;
 const ELEVATION: f32 = 2.0;
 
 /// One panel of an [`ExpansionPanelList`]: a header and what it hides.
-pub struct ExpansionPanel<Msg> {
+pub struct ExpansionPanel<Msg = crate::callback::Callback> {
     title: Option<String>,
     header: RefCell<Option<Box<dyn Widget<Msg>>>>,
     subtitle: Option<String>,
@@ -129,7 +129,7 @@ enum Mode<Msg> {
 /// **The split is not tweened.** A panel's body appears in one frame, as `ExpansionTile`'s
 /// always has, and the gap and the corners follow it in the same frame; what is missing
 /// against the reference is the growing, and it belongs to `ExpansionTile` first.
-pub struct ExpansionPanelList<Msg> {
+pub struct ExpansionPanelList<Msg = crate::callback::Callback> {
     panels: Vec<ExpansionPanel<Msg>>,
     mode: Mode<Msg>,
     gap: Option<f32>,

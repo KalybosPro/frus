@@ -791,7 +791,7 @@ fn build_items<Msg: Clone + 'static>(
 }
 
 /// A **vertical** navigation rail (tablet / desktop).
-pub struct NavigationRail<Msg> {
+pub struct NavigationRail<Msg = crate::callback::Callback> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
     items: Vec<NavigationDestination>,
@@ -1345,7 +1345,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for NavigationRail<Msg> {
 }
 
 /// A **horizontal** navigation bar at the bottom (phone).
-pub struct BottomBar<Msg> {
+pub struct BottomBar<Msg = crate::callback::Callback> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
     items: Vec<NavigationDestination>,

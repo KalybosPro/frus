@@ -206,7 +206,7 @@ const SUMMARY_PAD: f32 = 12.0;
 /// one carries an application message emitted on click — typically to **focus** the
 /// offending field (via `Command::focus`), the summary then acting as a table of
 /// contents of the errors.
-pub struct ErrorSummary<Msg> {
+pub struct ErrorSummary<Msg = crate::callback::Callback> {
     empty: bool,
     items: Vec<(String, Option<Msg>)>,
     title_text_style: Option<TextStyle>,

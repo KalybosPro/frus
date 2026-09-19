@@ -21,7 +21,7 @@ use crate::widget::Widget;
 /// ```ignore
 /// FittedBox::new(BoxFit::Contain).width(120.0).height(40.0).child(Text::new("Big"))
 /// ```
-pub struct FittedBox<Msg> {
+pub struct FittedBox<Msg = crate::callback::Callback> {
     fit: BoxFit,
     width: Dimension,
     height: Dimension,

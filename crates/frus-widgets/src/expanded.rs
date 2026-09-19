@@ -59,7 +59,7 @@ use crate::widget::Widget;
 /// — because a bare grow factor does nothing for the case this exists for: a flex item's
 /// automatic minimum size is its own content, so `flex: 1` on a long label grows it and
 /// still lets it refuse to be narrower than its text.
-pub struct Expanded<Msg> {
+pub struct Expanded<Msg = crate::callback::Callback> {
     inner: Box<dyn Widget<Msg>>,
     flex: f32,
     /// A **loose** fit: the child may take less than its share. The reference calls this
@@ -165,7 +165,7 @@ pub(crate) fn flex_item(base: Style, flex: f32, fit: FlexFit) -> Style {
 /// is the widget for a label that should stay its natural width in a wide row and
 /// ellipsise in a narrow one. Reach for [`Expanded`] — or `Flexible::new(child).tight()`,
 /// the same box — when the child should fill its share whether it wanted to or not.
-pub struct Flexible<Msg> {
+pub struct Flexible<Msg = crate::callback::Callback> {
     inner: Box<dyn Widget<Msg>>,
     flex: f32,
     fit: FlexFit,

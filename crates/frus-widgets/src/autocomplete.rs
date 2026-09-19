@@ -143,7 +143,7 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
 }
 
 /// A text field with suggestions.
-pub struct Autocomplete<Msg> {
+pub struct Autocomplete<Msg = crate::callback::Callback> {
     value: String,
     width: f32,
     /// The **active** suggestion (stepped to from the keyboard, highlighted), if any.

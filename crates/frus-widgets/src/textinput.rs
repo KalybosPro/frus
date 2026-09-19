@@ -145,7 +145,7 @@ pub struct TextFieldStyle {
 /// function of the state); the field only displays its result through [`error`].
 ///
 /// [`error`]: TextField::error
-pub struct TextField<Msg> {
+pub struct TextField<Msg = crate::callback::Callback> {
     value: String,
     size: f32,
     width: Dimension,
@@ -207,6 +207,19 @@ pub struct TextField<Msg> {
     /// What the field is for, so the platform can fill it in; see
     /// [`TextField::autofill`].
     autofill: Vec<AutofillHint>,
+}
+
+impl TextField<crate::callback::Callback> {
+    /// Drives the field from `controller`: it shows the controller's text, and what is typed
+    /// in it is written to the controller.
+    ///
+    /// This sets the field's text and its `on_input`, so it replaces both. To do more when
+    /// the text changes, listen to the controller.
+    pub fn controller(mut self, controller: &crate::TextEditingController) -> Self {
+        self.value = controller.text();
+        let write = controller.clone();
+        self.on_input(move |text| write.set_text(text))
+    }
 }
 
 /// A "word" character (letter/digit/`_`) for word jumps (Ctrl+Arrow).
@@ -708,8 +721,8 @@ impl<Msg> TextField<Msg> {
     /// Makes the **suffix icon clickable**: a click on it emits `message` (a clear button,
     /// a reveal-password button…) instead of placing the caret. Implies a suffix icon
     /// (to be set through [`suffix_icon`](Self::suffix_icon)).
-    pub fn on_suffix(mut self, message: Msg) -> Self {
-        self.suffix_action = Some(message);
+    pub fn on_suffix(mut self, message: impl Into<Msg>) -> Self {
+        self.suffix_action = Some(message.into());
         self
     }
 
@@ -845,14 +858,17 @@ impl<Msg> TextField<Msg> {
     }
 
     /// Closure producing a message from the field's new value.
-    pub fn on_input(mut self, on_input: impl Fn(String) -> Msg + 'static) -> Self {
-        self.on_input = Some(Box::new(on_input));
+    pub fn on_input<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_input: impl Fn(String) -> R + 'static,
+    ) -> Self {
+        self.on_input = Some(Box::new(crate::callback::handler1(on_input)));
         self
     }
 
     /// Message emitted on submission (the Enter key), without changing the value.
-    pub fn on_submit(mut self, message: Msg) -> Self {
-        self.on_submit = Some(message);
+    pub fn on_submit(mut self, message: impl Into<Msg>) -> Self {
+        self.on_submit = Some(message.into());
         self
     }
 

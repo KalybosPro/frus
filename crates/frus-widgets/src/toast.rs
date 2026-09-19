@@ -106,7 +106,7 @@ pub enum SnackBarKind {
 
 /// A transient notification, with an optional **action** (Material Snackbar style:
 /// "UNDO"). The action is a text button on the right that emits a message on click.
-pub struct SnackBar<Msg> {
+pub struct SnackBar<Msg = crate::callback::Callback> {
     text: String,
     kind: SnackBarKind,
     /// Where it sits; `None` follows the theme, which follows the reference's `Fixed`.
@@ -287,8 +287,8 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
     /// draw a cross that does nothing, and a button that cannot say what it does is worse
     /// than no button. It takes the message instead.
     #[must_use]
-    pub fn close_icon(mut self, message: Msg) -> Self {
-        self.close = Some(message);
+    pub fn close_icon(mut self, message: impl Into<Msg>) -> Self {
+        self.close = Some(message.into());
         self.rebuild_controls();
         self
     }

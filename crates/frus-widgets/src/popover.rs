@@ -22,7 +22,7 @@ use crate::widget::Widget;
 /// rows on. Each of those answers to the builders below, then to
 /// [`MenuTheme`](crate::MenuTheme). Content that brings a surface of its own — a `Card` —
 /// would be a surface on a surface; hand the anchor what goes *on* the panel instead.
-pub struct MenuAnchor<Msg> {
+pub struct MenuAnchor<Msg = crate::callback::Callback> {
     open: bool,
     /// `[anchor]`, or `[anchor, panel]` when open with content.
     children: Vec<Box<dyn Widget<Msg>>>,

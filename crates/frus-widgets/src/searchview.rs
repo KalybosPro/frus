@@ -84,7 +84,7 @@ const fn full_screen_by_default() -> bool {
 }
 
 /// A search bar and the view it opens.
-pub struct SearchAnchor<Msg> {
+pub struct SearchAnchor<Msg = crate::callback::Callback> {
     open: bool,
     query: String,
     hint: Option<String>,
@@ -224,15 +224,15 @@ impl<Msg: Clone + 'static> SearchAnchor<Msg> {
 
     /// What the bar emits when it is pressed. Without it the anchor opens nothing, which
     /// is a bar and not an anchor.
-    pub fn on_open(mut self, message: Msg) -> Self {
-        self.on_open = Some(message);
+    pub fn on_open(mut self, message: impl Into<Msg>) -> Self {
+        self.on_open = Some(message.into());
         self.rebuild();
         self
     }
 
     /// What the back arrow and the scrim emit.
-    pub fn on_close(mut self, message: Msg) -> Self {
-        self.on_close = Some(message);
+    pub fn on_close(mut self, message: impl Into<Msg>) -> Self {
+        self.on_close = Some(message.into());
         self.rebuild();
         self
     }
@@ -240,22 +240,25 @@ impl<Msg: Clone + 'static> SearchAnchor<Msg> {
     /// What the clear cross emits. **The cross only exists when there is something to
     /// clear** (`search_anchor.dart:1048`) — and only when there is somewhere for it to
     /// say so.
-    pub fn on_clear(mut self, message: Msg) -> Self {
-        self.on_clear = Some(message);
+    pub fn on_clear(mut self, message: impl Into<Msg>) -> Self {
+        self.on_clear = Some(message.into());
         self.rebuild();
         self
     }
 
     /// What the view's field emits on every keystroke.
-    pub fn on_input(mut self, on_input: impl Fn(String) -> Msg + 'static) -> Self {
-        self.on_input = Some(Rc::new(on_input));
+    pub fn on_input<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_input: impl Fn(String) -> R + 'static,
+    ) -> Self {
+        self.on_input = Some(Rc::new(crate::callback::handler1(on_input)));
         self.rebuild();
         self
     }
 
     /// What it emits when the search is confirmed.
-    pub fn on_submit(mut self, message: Msg) -> Self {
-        self.on_submit = Some(message);
+    pub fn on_submit(mut self, message: impl Into<Msg>) -> Self {
+        self.on_submit = Some(message.into());
         self.rebuild();
         self
     }

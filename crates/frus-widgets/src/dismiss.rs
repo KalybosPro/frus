@@ -360,7 +360,7 @@ impl Dismissable {
 /// Wrap each item in a [`crate::Keyed`] when the list can reorder: the retained
 /// dismissal state is keyed by identity, and positional identity would hand a
 /// half-swiped state to whichever row moved into that slot.
-pub struct Dismissible<Msg> {
+pub struct Dismissible<Msg = crate::callback::Callback> {
     spec: DismissSpec,
     width: Dimension,
     height: Dimension,
@@ -394,21 +394,21 @@ impl<Msg: Clone> Dismissible<Msg> {
 
     /// The message dispatched once the item has flown out **and** its gap has closed,
     /// whichever way it went.
-    pub fn on_dismiss(mut self, message: Msg) -> Self {
-        self.message = Some(message);
+    pub fn on_dismiss(mut self, message: impl Into<Msg>) -> Self {
+        self.message = Some(message.into());
         self
     }
 
     /// The message for a swipe towards the reading start, overriding
     /// [`on_dismiss`](Self::on_dismiss) for that direction.
-    pub fn on_dismiss_to_start(mut self, message: Msg) -> Self {
-        self.to_start = Some(message);
+    pub fn on_dismiss_to_start(mut self, message: impl Into<Msg>) -> Self {
+        self.to_start = Some(message.into());
         self
     }
 
     /// The message for a swipe towards the reading end.
-    pub fn on_dismiss_to_end(mut self, message: Msg) -> Self {
-        self.to_end = Some(message);
+    pub fn on_dismiss_to_end(mut self, message: impl Into<Msg>) -> Self {
+        self.to_end = Some(message.into());
         self
     }
 

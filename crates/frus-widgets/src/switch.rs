@@ -33,7 +33,7 @@ const ICON_SIZE: f32 = 16.0;
 const TRACK_OUTLINE: f32 = 2.0;
 
 /// An on/off switch.
-pub struct Switch<Msg> {
+pub struct Switch<Msg = crate::callback::Callback> {
     on: bool,
     enabled: bool,
     track_color: Option<Color>,
@@ -136,8 +136,11 @@ impl<Msg> Switch<Msg> {
     }
 
     /// A closure producing a message from the new state.
-    pub fn on_toggle(mut self, on_toggle: impl Fn(bool) -> Msg + 'static) -> Self {
-        self.on_toggle = Some(Box::new(on_toggle));
+    pub fn on_toggle<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_toggle: impl Fn(bool) -> R + 'static,
+    ) -> Self {
+        self.on_toggle = Some(Box::new(crate::callback::handler1(on_toggle)));
         self
     }
 

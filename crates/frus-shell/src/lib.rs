@@ -50,6 +50,7 @@ mod subscription;
 mod theming;
 #[cfg(web)]
 mod web_clipboard;
+mod widget_app;
 
 /// A windowless driver for tests. Hidden: not part of what an application builds on.
 #[cfg(any(test, feature = "testing"))]
@@ -60,6 +61,7 @@ pub use application::{Application, Lifecycle};
 pub use command::Command;
 pub use remote::RemoteData;
 pub use subscription::Subscription;
+pub use widget_app::FrusApp;
 
 /// Cross-platform HTTP (`net` feature) — the [`fetch`] shorthand, the [`Request`]
 /// builder (method / headers / body / timeout) and the [`FetchError`] error type.

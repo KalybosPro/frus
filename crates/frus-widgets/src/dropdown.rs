@@ -269,7 +269,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
 ///     Msg::Pick,
 /// );
 /// ```
-pub struct DropdownOption<Msg> {
+pub struct DropdownOption<Msg = crate::callback::Callback> {
     label: Option<String>,
     child: Option<Rc<dyn Widget<Msg>>>,
     enabled: bool,
@@ -354,7 +354,7 @@ pub(crate) fn option_row<Msg: Clone + 'static>(
 }
 
 /// A single-selection dropdown list (a floating menu).
-pub struct DropdownButton<Msg> {
+pub struct DropdownButton<Msg = crate::callback::Callback> {
     header_label: String,
     on_toggle: Msg,
     width: f32,

@@ -10,7 +10,7 @@ use crate::theme::Theme;
 use crate::widget::Widget;
 
 /// An incremental numeric picker.
-pub struct Stepper<Msg> {
+pub struct Stepper<Msg = crate::callback::Callback> {
     value: i32,
     min: i32,
     max: i32,

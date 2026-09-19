@@ -1736,8 +1736,10 @@ mod tests {
         );
 
         // A tree row is a list tile's title.
-        let tree =
-            || crate::tree::Tree::<Msg>::new(|_| unreachable!()).node(1, 0, "root", false, false);
+        let tree = || {
+            crate::tree::Tree::<Msg>::new(|_| -> Msg { unreachable!() })
+                .node(1, 0, "root", false, false)
+        };
         assert_eq!(
             text_sizes(tree(), &plain),
             vec![plain.text.body_large.size.unwrap()]
@@ -1818,7 +1820,9 @@ mod tests {
         let plain = Theme::default();
 
         // Argued: a trail is a *secondary* line of navigation, `bodyMedium`.
-        let trail = || crate::breadcrumb::Breadcrumb::<Msg>::new(|_| unreachable!()).crumb("Home");
+        let trail = || {
+            crate::breadcrumb::Breadcrumb::<Msg>::new(|_| -> Msg { unreachable!() }).crumb("Home")
+        };
         assert_eq!(
             text_sizes(trail(), &plain),
             vec![plain.text.body_medium.size.unwrap()]

@@ -88,6 +88,17 @@ macro_rules! forward_transparent {
                 self.inner.build_in(id, runtime, theme)
             }
 
+            fn expand(
+                &self,
+                id: $crate::interaction::WidgetId,
+                runtime: &$crate::runtime::Runtime,
+                theme: &$crate::theme::Theme,
+            ) {
+                // Also with the identity untouched: what a component built is where the
+                // component is.
+                self.inner.expand(id, runtime, theme)
+            }
+
             fn switches(&self) -> bool {
                 self.inner.switches()
             }
@@ -659,6 +670,9 @@ macro_rules! forward_transparent {
             }
             fn navigator(&self) -> Option<(f32, bool)> {
                 self.inner.navigator()
+            }
+            fn navigator_retained(&self) -> usize {
+                self.inner.navigator_retained()
             }
 
             fn measure(&self, theme: &$crate::theme::Theme) -> Option<frus_layout::MeasureFn<'_>> {

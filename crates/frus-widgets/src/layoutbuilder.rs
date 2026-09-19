@@ -37,7 +37,7 @@ use crate::theme::Theme;
 use crate::widget::Widget;
 
 /// Builds its child from the available size (`size → widget`).
-pub struct LayoutBuilder<Msg> {
+pub struct LayoutBuilder<Msg = crate::callback::Callback> {
     width: Dimension,
     height: Dimension,
     flex_grow: f32,

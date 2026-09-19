@@ -141,7 +141,7 @@ impl AutofillHint {
 /// of* — and a password with no username beside it is a credential a service cannot save.
 ///
 /// It is the reference's `AutofillGroup`.
-pub struct AutofillGroup<Msg> {
+pub struct AutofillGroup<Msg = crate::callback::Callback> {
     inner: Box<dyn Widget<Msg>>,
 }
 

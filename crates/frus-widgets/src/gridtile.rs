@@ -53,7 +53,7 @@ const LOOSE_PADDING: f32 = 16.0;
 const GAP: f32 = 8.0;
 
 /// A cell of an image list: a child, with a strip laid over its top or its bottom.
-pub struct GridTile<Msg> {
+pub struct GridTile<Msg = crate::callback::Callback> {
     child: RefCell<Option<Box<dyn Widget<Msg>>>>,
     header: RefCell<Option<Box<dyn Widget<Msg>>>>,
     footer: RefCell<Option<Box<dyn Widget<Msg>>>>,
@@ -171,7 +171,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for GridTile<Msg> {
 }
 
 /// The strip of words laid over a [`GridTile`]: up to two lines, with a slot at each end.
-pub struct GridTileBar<Msg> {
+pub struct GridTileBar<Msg = crate::callback::Callback> {
     background_color: Option<Color>,
     foreground_color: Option<Color>,
     title_style: Option<TextStyle>,

@@ -19,7 +19,7 @@ use crate::widget::Widget;
 ///
 /// [`FractionallySizedBox::animated`] makes each change of factor a movement instead of a
 /// jump; [`crate::AnimatedFractionallySizedBox`] is the name for the same thing.
-pub struct FractionallySizedBox<Msg> {
+pub struct FractionallySizedBox<Msg = crate::callback::Callback> {
     width_factor: Option<f32>,
     height_factor: Option<f32>,
     animated: Option<(f32, Curve)>,

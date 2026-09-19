@@ -408,13 +408,15 @@ pub struct ReorderableList<Msg = ()> {
 impl<Msg: Clone + 'static> ReorderableList<Msg> {
     /// A list whose rows move; `on_reorder(from, to)` carries **the index the row ends up
     /// at**, both counted in this list's own rows.
-    pub fn new(on_reorder: impl Fn(usize, usize) -> Msg + 'static) -> Self {
+    pub fn new<R: crate::callback::IntoMsg<Msg>>(
+        on_reorder: impl Fn(usize, usize) -> R + 'static,
+    ) -> Self {
         Self {
             spec: Rc::new(RefCell::new(Spec {
                 grab: ReorderGrab::default(),
                 axis: ReorderAxis::Vertical,
                 enabled: true,
-                on_reorder: Some(Rc::new(on_reorder)),
+                on_reorder: Some(Rc::new(crate::callback::handler2(on_reorder))),
                 handle: None,
                 handle_icon: None,
                 handle_color: None,

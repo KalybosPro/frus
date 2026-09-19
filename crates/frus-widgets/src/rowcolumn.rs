@@ -68,7 +68,7 @@ pub enum VerticalDirection {
 /// to let it take that space without being forced to fill it,
 /// [`Expanded::loose`](crate::Expanded::loose). To put the children on one **text
 /// baseline** rather than on their centres, ask for [`Align::Baseline`].
-pub struct Row<Msg> {
+pub struct Row<Msg = crate::callback::Callback> {
     common: Common<Msg>,
 }
 
@@ -88,7 +88,7 @@ pub struct Row<Msg> {
 ///
 /// A column does not scroll. More children than fit is an overflow, reported as one; if
 /// the content can outgrow the screen, that is what [`crate::ListView`] is for.
-pub struct Column<Msg> {
+pub struct Column<Msg = crate::callback::Callback> {
     common: Common<Msg>,
 }
 

@@ -69,7 +69,7 @@ pub struct HeaderState {
 }
 
 /// A header over a scroll region, interpolated between two heights by the region's offset.
-pub struct CollapsingHeader<Msg> {
+pub struct CollapsingHeader<Msg = crate::callback::Callback> {
     body: Box<dyn Widget<Msg>>,
     build: Box<dyn Fn(HeaderState) -> Box<dyn Widget<Msg>>>,
     expanded: Option<f32>,

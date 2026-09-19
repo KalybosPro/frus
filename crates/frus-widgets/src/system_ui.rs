@@ -169,7 +169,7 @@ pub(crate) fn icons_on(color: Color) -> Brightness {
 /// the content under the status bar answers for the status bar, and one covering the last
 /// row above the navigation bar for the navigation bar. Nested regions answer field by
 /// field, the inner one first.
-pub struct AnnotatedRegion<Msg> {
+pub struct AnnotatedRegion<Msg = crate::callback::Callback> {
     style: SystemUiOverlayStyle,
     children: Vec<Box<dyn Widget<Msg>>>,
 }

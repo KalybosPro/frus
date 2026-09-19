@@ -39,7 +39,7 @@ use crate::widget::Widget;
 /// [`MediaScope`](crate::MediaScope) that removes the edges — the reference's safe area
 /// does the same with `MediaQuery.removePadding`. [`SafeArea::build`] still hands the
 /// consumed description to its closure, for code that reads it while composing.
-pub struct SafeArea<Msg> {
+pub struct SafeArea<Msg = crate::callback::Callback> {
     edges: Edges,
     minimum: Insets,
     keyboard: bool,

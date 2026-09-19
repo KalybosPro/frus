@@ -295,7 +295,7 @@ pub struct Refreshable {
 ///
 /// The child does not have to be a `SingleChildScrollView` directly — any scrollable anywhere inside
 /// feeds the pull, which is what lets a screen keep its own layout around the list.
-pub struct RefreshIndicator<Msg> {
+pub struct RefreshIndicator<Msg = crate::callback::Callback> {
     spec: RefreshSpec,
     message: Option<Msg>,
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -313,8 +313,8 @@ impl<Msg> RefreshIndicator<Msg> {
     }
 
     /// The message dispatched when an armed pull is released.
-    pub fn on_refresh(mut self, message: Msg) -> Self {
-        self.message = Some(message);
+    pub fn on_refresh(mut self, message: impl Into<Msg>) -> Self {
+        self.message = Some(message.into());
         self
     }
 

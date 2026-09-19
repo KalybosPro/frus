@@ -121,7 +121,7 @@ impl<Msg> Widget<Msg> for Event {
 }
 
 /// A vertical chronology.
-pub struct Timeline<Msg> {
+pub struct Timeline<Msg = crate::callback::Callback> {
     events: Vec<(String, String)>,
     title_text_style: Option<TextStyle>,
     detail_text_style: Option<TextStyle>,

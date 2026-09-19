@@ -94,7 +94,7 @@ fn collapsed() -> Style {
 /// The subtree keeps its accessibility nodes: a screen reader can still read a form
 /// that is momentarily inert, which is more useful than having it vanish. Wrap it in
 /// [`ExcludeSemantics`] as well if it really should be unreachable.
-pub struct IgnorePointer<Msg> {
+pub struct IgnorePointer<Msg = crate::callback::Callback> {
     ignoring: bool,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -148,7 +148,7 @@ impl<Msg: Clone> Widget<Msg> for IgnorePointer<Msg> {
 /// ```ignore
 /// AbsorbPointer::new(screen).absorbing(loading)
 /// ```
-pub struct AbsorbPointer<Msg> {
+pub struct AbsorbPointer<Msg = crate::callback::Callback> {
     absorbing: bool,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -200,7 +200,7 @@ impl<Msg: Clone> Widget<Msg> for AbsorbPointer<Msg> {
 /// ```ignore
 /// ExcludeSemantics::new(Icon::new(icons::CHEVRON))   // the button already says "next"
 /// ```
-pub struct ExcludeSemantics<Msg> {
+pub struct ExcludeSemantics<Msg = crate::callback::Callback> {
     excluding: bool,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -256,7 +256,7 @@ impl<Msg: Clone> Widget<Msg> for ExcludeSemantics<Msg> {
 /// — a caret position, a scroll offset — and starts fresh when it comes back. That is
 /// the right trade for a branch that is genuinely gone; [`Visibility::maintain_size`]
 /// is the one to reach for when the box has to stay.
-pub struct Offstage<Msg> {
+pub struct Offstage<Msg = crate::callback::Callback> {
     offstage: bool,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -320,7 +320,7 @@ impl<Msg: Clone> Widget<Msg> for Offstage<Msg> {
 ///
 /// `replacement` puts something else in the collapsed child's place instead — a
 /// spacer, a placeholder, a shorter message.
-pub struct Visibility<Msg> {
+pub struct Visibility<Msg = crate::callback::Callback> {
     visible: bool,
     maintain_size: bool,
     maintain_interactivity: bool,

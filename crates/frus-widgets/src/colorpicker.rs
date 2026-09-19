@@ -56,7 +56,7 @@ impl<Msg: Clone> Widget<Msg> for Swatch<Msg> {
 }
 
 /// A controlled colour picker, laid out as a grid of swatches.
-pub struct ColorPicker<Msg> {
+pub struct ColorPicker<Msg = crate::callback::Callback> {
     selected: Option<Color>,
     on_pick: Box<dyn Fn(Color) -> Msg>,
     grid: GridView<Msg>,

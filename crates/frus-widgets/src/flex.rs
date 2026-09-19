@@ -9,7 +9,7 @@ use crate::theme::Theme;
 use crate::widget::Widget;
 
 /// A flex container, row or column. It paints no decoration of its own.
-pub struct Flex<Msg> {
+pub struct Flex<Msg = crate::callback::Callback> {
     direction: FlexDirection,
     width: Dimension,
     height: Dimension,

@@ -51,7 +51,7 @@ type Deferred<Msg> = Box<dyn FnOnce(&Theme) -> Box<dyn Widget<Msg>>>;
 ///
 /// Transparent otherwise: it has no box, no paint and no identity of its own, so the
 /// child sits exactly where the builder does.
-pub struct ThemeBuilder<Msg> {
+pub struct ThemeBuilder<Msg = crate::callback::Callback> {
     /// Taken and run the first time the layout pass reaches this node. `FnOnce`, not
     /// `Fn`: what it captures is usually a builder holding boxed widgets, which cannot be
     /// produced twice.

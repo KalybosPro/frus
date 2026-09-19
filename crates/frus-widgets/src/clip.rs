@@ -22,7 +22,7 @@ use crate::widget::Widget;
 /// ClipRRect::new(12.0).child(Image::asset("photo.png"))              // uniform
 /// ClipRRect::rounded(BorderRadius::top(16.0)).child(header)          // top rounded
 /// ```
-pub struct ClipRRect<Msg> {
+pub struct ClipRRect<Msg = crate::callback::Callback> {
     radius: BorderRadius,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -82,7 +82,7 @@ impl<Msg: Clone> Widget<Msg> for ClipRRect<Msg> {
 /// ```ignore
 /// ClipOval::new().child(Image::asset("avatar.png"))
 /// ```
-pub struct ClipOval<Msg> {
+pub struct ClipOval<Msg = crate::callback::Callback> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -146,7 +146,7 @@ impl<Msg: Clone> Widget<Msg> for ClipOval<Msg> {
 ///     .close();
 /// ClipPath::new(diamond).child(Image::asset("photo.png"))
 /// ```
-pub struct ClipPath<Msg> {
+pub struct ClipPath<Msg = crate::callback::Callback> {
     path: Path,
     children: Vec<Box<dyn Widget<Msg>>>,
 }

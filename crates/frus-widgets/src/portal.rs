@@ -29,7 +29,7 @@ pub enum Placement {
 }
 
 /// A portal: an **anchor** (in the flow) and an optional floating **overlay**.
-pub struct OverlayPortal<Msg> {
+pub struct OverlayPortal<Msg = crate::callback::Callback> {
     /// `[anchor]` or `[anchor, overlay]`.
     children: Vec<Box<dyn Widget<Msg>>>,
     placement: Placement,
@@ -67,8 +67,8 @@ impl<Msg: 'static> OverlayPortal<Msg> {
     }
 
     /// Message emitted on a click **outside** the content (on the scrim) — to close.
-    pub fn dismiss(mut self, message: Msg) -> Self {
-        self.on_dismiss = Some(message);
+    pub fn dismiss(mut self, message: impl Into<Msg>) -> Self {
+        self.on_dismiss = Some(message.into());
         self
     }
 }

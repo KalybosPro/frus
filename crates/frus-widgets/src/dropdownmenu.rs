@@ -73,7 +73,7 @@ fn matches(label: &str, query: &str) -> bool {
 ///     .selected(chosen)
 ///     .options(&["Red", "Green", "Blue"], Msg::Pick);
 /// ```
-pub struct DropdownMenu<Msg> {
+pub struct DropdownMenu<Msg = crate::callback::Callback> {
     query: String,
     open: bool,
     enabled: bool,

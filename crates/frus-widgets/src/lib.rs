@@ -30,6 +30,7 @@ mod bottomappbar;
 mod bottomsheet;
 mod breadcrumb;
 mod button;
+mod callback;
 mod card;
 mod carousel;
 mod chart;
@@ -39,6 +40,7 @@ mod clip;
 mod collapsible;
 mod collapsingheader;
 mod colorpicker;
+mod component;
 mod constraints;
 mod container;
 mod controltile;
@@ -59,6 +61,7 @@ mod drawerheader;
 mod dropdown;
 mod dropdownmenu;
 mod dsl;
+mod editing;
 mod expanded;
 mod expansionpanel;
 mod fab;
@@ -105,6 +108,7 @@ mod navdrawer;
 mod navigator;
 mod navrail;
 mod navscaffold;
+mod notifier;
 mod overflowbar;
 mod overscroll;
 mod pageselector;
@@ -127,6 +131,7 @@ mod reorderable;
 mod responsive;
 mod richtext;
 mod rotatedbox;
+mod router;
 mod rowcolumn;
 mod runtime;
 mod safearea;
@@ -200,6 +205,7 @@ pub use button::{
     Button, Variant, BUTTON_BORDER_WIDTH, BUTTON_ELEVATION, BUTTON_HEIGHT, BUTTON_MIN_WIDTH,
     BUTTON_PADDING, BUTTON_TEXT_PADDING,
 };
+pub use callback::{Callback, IntoMsg};
 pub use card::{Card, CardVariant, CARD_ELEVATION, CARD_MARGIN};
 pub use carousel::CarouselView;
 pub use chart::{BarChart, LineChart};
@@ -212,6 +218,11 @@ pub use clip::{ClipOval, ClipPath, ClipRRect};
 pub use collapsible::{ControlAffinity, ExpansionTile};
 pub use collapsingheader::{header_rect, CollapsingHeader, HeaderState, COLLAPSED_HEIGHT};
 pub use colorpicker::ColorPicker;
+pub use component::{
+    component, rebuild_requested, request_rebuild, take_rebuild_request, BuildContext, Component,
+    IntoCleanup, State, StateContext, StateHandle, StateStore, StatefulWidget, StatelessWidget,
+    UseRef, UseState,
+};
 pub use constraints::{
     AxisConstraint, ConstrainedBox, ConstraintsTransform, ConstraintsTransformBox, Intrinsic,
     IntrinsicAxis, IntrinsicHeight, IntrinsicWidth, Overflow, OverflowBox, SizedBox,
@@ -245,6 +256,7 @@ pub use drawerheader::{DrawerHeader, UserAccountsDrawerHeader, DRAWER_HEADER_HEI
 pub use dropdown::{DropdownButton, DropdownOption};
 pub use dropdownmenu::DropdownMenu;
 pub use dsl::{button, expanded, flexible, keyed, spacer, text};
+pub use editing::TextEditingController;
 pub use expanded::{Expanded, FlexFit, Flexible};
 pub use expansionpanel::{ExpansionPanel, ExpansionPanelList};
 pub use fab::{FabSize, FloatingActionButton};
@@ -293,6 +305,7 @@ pub use navdrawer::NavigationDrawer;
 pub use navigator::Navigator;
 pub use navrail::{BottomBar, DestinationIcon, NavigationDestination, NavigationRail, RailLabels};
 pub use navscaffold::NavScaffold;
+pub use notifier::{ChangeNotifier, Listenable, Subscription, ValueNotifier};
 pub use overflowbar::OverflowBar;
 pub use overscroll::{
     cross_axis as glow_cross_axis, edge_for, GlowEdge, OverscrollGlow, ScrollGlows,
@@ -321,6 +334,7 @@ pub use reorderable::{settled_index, ReorderGrab, ReorderableList};
 pub use responsive::{responsive, Responsive};
 pub use richtext::RichText;
 pub use rotatedbox::RotatedBox;
+pub use router::{GoRoute, GoRouter, GoRouterState};
 pub use rowcolumn::{Column, MainAxisSize, Row, VerticalDirection};
 pub use runtime::{
     spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState, ScrollbarFade,

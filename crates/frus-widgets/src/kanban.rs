@@ -315,9 +315,11 @@ pub struct Kanban<Msg = ()> {
 impl<Msg: Clone + 'static> Kanban<Msg> {
     /// Creates a board; `on_move(from_col, from_pos, to_col, to_pos)` is emitted when a card is
     /// **dropped** onto a slot (another card, or the end of a column).
-    pub fn new(on_move: impl Fn(usize, usize, usize, usize) -> Msg + 'static) -> Self {
+    pub fn new<R: crate::callback::IntoMsg<Msg>>(
+        on_move: impl Fn(usize, usize, usize, usize) -> R + 'static,
+    ) -> Self {
         Self {
-            on_move: Some(Rc::new(on_move)),
+            on_move: Some(Rc::new(crate::callback::handler4(on_move))),
             on_add: None,
             card_area_height: None,
             fill_columns: false,
@@ -372,8 +374,11 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
 
     /// Adds a **"+ Add card"** button at the bottom of every column; `on_add(col)` on click (the
     /// app adds a card to the column). Without this call, there is no add button.
-    pub fn on_add(mut self, on_add: impl Fn(usize) -> Msg + 'static) -> Self {
-        self.on_add = Some(Rc::new(on_add));
+    pub fn on_add<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_add: impl Fn(usize) -> R + 'static,
+    ) -> Self {
+        self.on_add = Some(Rc::new(crate::callback::handler1(on_add)));
         self.rebuild();
         self
     }

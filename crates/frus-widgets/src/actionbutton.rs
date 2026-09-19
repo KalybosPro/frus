@@ -129,7 +129,7 @@ impl<Msg: Clone + 'static> Action<Msg> {
 ///
 /// Its glyph follows the platform: a chevron where the platform's own back control is a
 /// chevron, an arrow everywhere else (`action_buttons.dart:132`).
-pub struct BackButton<Msg>(Action<Msg>);
+pub struct BackButton<Msg = crate::callback::Callback>(Action<Msg>);
 
 impl<Msg: Clone + 'static> BackButton<Msg> {
     /// A back button, inert until it is given a message.
@@ -141,8 +141,8 @@ impl<Msg: Clone + 'static> BackButton<Msg> {
     /// What it does. Without a message it is **inert**: it draws, it is named, and it
     /// answers nothing. Disabled is the other thing, and says so.
     #[must_use]
-    pub fn on_press(mut self, message: Msg) -> Self {
-        self.0.on_press = Some(message);
+    pub fn on_press(mut self, message: impl Into<Msg>) -> Self {
+        self.0.on_press = Some(message.into());
         self
     }
 
@@ -193,7 +193,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for BackButton<Msg> {
 }
 
 /// **The cross that dismisses something**, named in the reader's language.
-pub struct CloseButton<Msg>(Action<Msg>);
+pub struct CloseButton<Msg = crate::callback::Callback>(Action<Msg>);
 
 impl<Msg: Clone + 'static> CloseButton<Msg> {
     /// A close button, inert until it is given a message.
@@ -205,8 +205,8 @@ impl<Msg: Clone + 'static> CloseButton<Msg> {
     /// What it does. Without a message it is **inert**: it draws, it is named, and it
     /// answers nothing. Disabled is the other thing, and says so.
     #[must_use]
-    pub fn on_press(mut self, message: Msg) -> Self {
-        self.0.on_press = Some(message);
+    pub fn on_press(mut self, message: impl Into<Msg>) -> Self {
+        self.0.on_press = Some(message.into());
         self
     }
 
@@ -258,7 +258,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for CloseButton<Msg> {
 
 /// **The bars that open the panel on the leading edge**, named in the reader's
 /// language.
-pub struct DrawerButton<Msg>(Action<Msg>);
+pub struct DrawerButton<Msg = crate::callback::Callback>(Action<Msg>);
 
 impl<Msg: Clone + 'static> DrawerButton<Msg> {
     /// A drawer button, inert until it is given a message.
@@ -270,8 +270,8 @@ impl<Msg: Clone + 'static> DrawerButton<Msg> {
     /// What it does. Without a message it is **inert**: it draws, it is named, and it
     /// answers nothing. Disabled is the other thing, and says so.
     #[must_use]
-    pub fn on_press(mut self, message: Msg) -> Self {
-        self.0.on_press = Some(message);
+    pub fn on_press(mut self, message: impl Into<Msg>) -> Self {
+        self.0.on_press = Some(message.into());
         self
     }
 
@@ -326,7 +326,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for DrawerButton<Msg> {
 /// It takes the *same* words as [`DrawerButton`], which is the reference's own
 /// arrangement: a reader told which edge a panel comes in from is being told about the
 /// layout rather than about the action.
-pub struct EndDrawerButton<Msg>(Action<Msg>);
+pub struct EndDrawerButton<Msg = crate::callback::Callback>(Action<Msg>);
 
 impl<Msg: Clone + 'static> EndDrawerButton<Msg> {
     /// An end-drawer button, inert until it is given a message.
@@ -338,8 +338,8 @@ impl<Msg: Clone + 'static> EndDrawerButton<Msg> {
     /// What it does. Without a message it is **inert**: it draws, it is named, and it
     /// answers nothing. Disabled is the other thing, and says so.
     #[must_use]
-    pub fn on_press(mut self, message: Msg) -> Self {
-        self.0.on_press = Some(message);
+    pub fn on_press(mut self, message: impl Into<Msg>) -> Self {
+        self.0.on_press = Some(message.into());
         self
     }
 

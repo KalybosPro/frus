@@ -148,8 +148,11 @@ impl<Msg> BarChart<Msg> {
     }
 
     /// Makes the **legend clickable**: `on_legend(index)` on a click on an entry — milestone 215.
-    pub fn on_legend(mut self, on_legend: impl Fn(usize) -> Msg + 'static) -> Self {
-        self.on_legend = Some(Box::new(on_legend));
+    pub fn on_legend<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_legend: impl Fn(usize) -> R + 'static,
+    ) -> Self {
+        self.on_legend = Some(Box::new(crate::callback::handler1(on_legend)));
         self
     }
 
@@ -162,8 +165,11 @@ impl<Msg> BarChart<Msg> {
 
     /// Makes the **bars clickable**: `on_point(category, series)` on a click on a visible bar
     /// (or stacked stratum). None by default — milestone 222.
-    pub fn on_point(mut self, on_point: impl Fn(usize, usize) -> Msg + 'static) -> Self {
-        self.on_point = Some(Box::new(on_point));
+    pub fn on_point<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_point: impl Fn(usize, usize) -> R + 'static,
+    ) -> Self {
+        self.on_point = Some(Box::new(crate::callback::handler2(on_point)));
         self
     }
 
@@ -960,8 +966,11 @@ impl<Msg> LineChart<Msg> {
     }
 
     /// Makes the **legend clickable**: `on_legend(index)` on a click on an entry — milestone 215.
-    pub fn on_legend(mut self, on_legend: impl Fn(usize) -> Msg + 'static) -> Self {
-        self.on_legend = Some(Box::new(on_legend));
+    pub fn on_legend<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_legend: impl Fn(usize) -> R + 'static,
+    ) -> Self {
+        self.on_legend = Some(Box::new(crate::callback::handler1(on_legend)));
         self
     }
 
@@ -974,8 +983,11 @@ impl<Msg> LineChart<Msg> {
 
     /// Makes the **points clickable**: `on_point(category, series)` on a click near a marker
     /// (of the visible series). None by default — milestone 221.
-    pub fn on_point(mut self, on_point: impl Fn(usize, usize) -> Msg + 'static) -> Self {
-        self.on_point = Some(Box::new(on_point));
+    pub fn on_point<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_point: impl Fn(usize, usize) -> R + 'static,
+    ) -> Self {
+        self.on_point = Some(Box::new(crate::callback::handler2(on_point)));
         self
     }
 

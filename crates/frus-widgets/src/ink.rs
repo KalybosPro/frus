@@ -362,7 +362,7 @@ impl Ripples {
 ///
 /// The splash sits **over this widget and under its child**, so a row of text tapped
 /// this way keeps its text on top of the ink, the way a material surface does.
-pub struct InkWell<Msg> {
+pub struct InkWell<Msg = crate::callback::Callback> {
     /// `None` = the theme's splash, resolved at paint time so a theme swap is followed.
     color: Option<Color>,
     radius: BorderRadius,
@@ -404,14 +404,14 @@ impl<Msg> InkWell<Msg> {
     }
 
     /// The message a tap emits.
-    pub fn on_click(mut self, msg: Msg) -> Self {
-        self.on_click = Some(msg);
+    pub fn on_click(mut self, msg: impl Into<Msg>) -> Self {
+        self.on_click = Some(msg.into());
         self
     }
 
     /// The message a long press emits.
-    pub fn on_long_press(mut self, msg: Msg) -> Self {
-        self.on_long_press = Some(msg);
+    pub fn on_long_press(mut self, msg: impl Into<Msg>) -> Self {
+        self.on_long_press = Some(msg.into());
         self
     }
 

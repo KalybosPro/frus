@@ -19,7 +19,7 @@ use crate::theme::Theme;
 use crate::widget::Widget;
 
 /// The description of a virtualised list, exposed to the render driver.
-pub struct VirtualList<'a, Msg> {
+pub struct VirtualList<'a, Msg = crate::callback::Callback> {
     /// Total number of items.
     pub count: usize,
     /// The (logical) extent of one item **along the axis the list scrolls**: its
@@ -32,7 +32,7 @@ pub struct VirtualList<'a, Msg> {
 }
 
 /// A virtualised list with a fixed item extent.
-pub struct ListView<Msg> {
+pub struct ListView<Msg = crate::callback::Callback> {
     count: usize,
     item_extent: f32,
     axis: Axis,
@@ -178,8 +178,11 @@ impl<Msg> ListView<Msg> {
     /// rebuild per frame of a fling, which is the honest cost of a view that reacts to
     /// the offset — and [`ListView::notify_every`] is how a list that only wants to know
     /// roughly where it is stops paying it.
-    pub fn on_scroll(mut self, on_scroll: impl Fn(crate::ScrollPosition) -> Msg + 'static) -> Self {
-        self.on_scroll = Some(Box::new(on_scroll));
+    pub fn on_scroll<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_scroll: impl Fn(crate::ScrollPosition) -> R + 'static,
+    ) -> Self {
+        self.on_scroll = Some(Box::new(crate::callback::handler1(on_scroll)));
         self
     }
 

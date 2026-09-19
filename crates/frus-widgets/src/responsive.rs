@@ -18,7 +18,7 @@ use crate::theme::Theme;
 use crate::widget::Widget;
 
 /// Selects a subtree from the size class, delegating to whichever is chosen.
-pub struct Responsive<Msg> {
+pub struct Responsive<Msg = crate::callback::Callback> {
     class_rank: u8,
     inner: Option<Box<dyn Widget<Msg>>>,
     inner_rank: u8,
@@ -106,6 +106,17 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
     ) {
         if let Some(w) = &self.inner {
             w.build_in(id, runtime, theme);
+        }
+    }
+
+    fn expand(
+        &self,
+        id: crate::interaction::WidgetId,
+        runtime: &crate::runtime::Runtime,
+        theme: &Theme,
+    ) {
+        if let Some(w) = &self.inner {
+            w.expand(id, runtime, theme);
         }
     }
 
@@ -537,6 +548,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
 
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.as_ref().and_then(|w| w.navigator())
+    }
+
+    fn navigator_retained(&self) -> usize {
+        self.inner.as_ref().map_or(0, |w| w.navigator_retained())
     }
 
     fn measure(&self, theme: &Theme) -> Option<frus_layout::MeasureFn<'_>> {

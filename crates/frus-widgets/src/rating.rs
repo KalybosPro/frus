@@ -79,7 +79,7 @@ impl<Msg: Clone> Widget<Msg> for Star<Msg> {
 }
 
 /// A star rating: `value` out of `max`.
-pub struct Rating<Msg> {
+pub struct Rating<Msg = crate::callback::Callback> {
     value: u32,
     max: u32,
     enabled: bool,

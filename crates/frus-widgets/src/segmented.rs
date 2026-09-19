@@ -320,7 +320,7 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
 }
 
 /// A single-selection segmented control.
-pub struct SegmentedButton<Msg> {
+pub struct SegmentedButton<Msg = crate::callback::Callback> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
     labels: Rc<Vec<String>>,

@@ -29,7 +29,7 @@ use crate::widget::Widget;
 /// the order translation → scale → rotation (the translation innermost, through the
 /// child offset). So `Transform::scale(1.5).and_rotate(0.2)` enlarges **and**
 /// rotates, exactly, with no composition approximation.
-pub struct Transform<Msg> {
+pub struct Transform<Msg = crate::callback::Callback> {
     dx: f32,
     dy: f32,
     /// `(sx, sy, pivot)` — `None` = no scaling.
@@ -243,7 +243,7 @@ impl<Msg: Clone> Widget<Msg> for Transform<Msg> {
 ///
 /// In a right-to-left script the horizontal fraction follows the reading direction, as
 /// `Transform::translate` does: a positive `x` moves towards the end of the line.
-pub struct FractionalTranslation<Msg> {
+pub struct FractionalTranslation<Msg = crate::callback::Callback> {
     fx: f32,
     fy: f32,
     /// `(duration, curve)` — `None` = the offset jumps to whatever it is told.

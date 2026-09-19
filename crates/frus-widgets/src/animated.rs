@@ -123,7 +123,7 @@ macro_rules! forward_to_container {
 
 /// Applies a fixed **group opacity** `[0,1]` to its child, as one block. See
 /// [`Container::opacity`].
-pub struct Opacity<Msg> {
+pub struct Opacity<Msg = crate::callback::Callback> {
     inner: Container<Msg>,
 }
 
@@ -140,7 +140,7 @@ forward_to_container!(Opacity);
 
 /// **Fades** its child toward `opacity` on every change. See
 /// [`Container::animated_opacity`].
-pub struct AnimatedOpacity<Msg> {
+pub struct AnimatedOpacity<Msg = crate::callback::Callback> {
     inner: Container<Msg>,
 }
 
@@ -173,7 +173,7 @@ forward_to_container!(AnimatedOpacity);
 ///     .radius(12.0)
 ///     .child(Text::new("hi"))
 /// ```
-pub struct AnimatedContainer<Msg> {
+pub struct AnimatedContainer<Msg = crate::callback::Callback> {
     inner: Container<Msg>,
     duration: f32,
     curve: Curve,
@@ -264,7 +264,7 @@ forward_to_container!(AnimatedContainer);
 /// Unlike a scale's pivot, an anchor **is** the quantity here — it says where the child
 /// is, not where the maths starts from — which is why this one animates and that one does
 /// not.
-pub struct AnimatedAlign<Msg> {
+pub struct AnimatedAlign<Msg = crate::callback::Callback> {
     inner: Container<Msg>,
 }
 
@@ -311,7 +311,7 @@ forward_to_container!(AnimatedAlign);
 ///
 /// Layout is untouched: the box stays where it was put and the neighbours do not move, so
 /// a child sliding out leaves its space behind rather than dragging the page after it.
-pub struct AnimatedSlide<Msg> {
+pub struct AnimatedSlide<Msg = crate::callback::Callback> {
     inner: Box<dyn Widget<Msg>>,
 }
 
@@ -442,7 +442,7 @@ mod tests {
 ///     Text::new("Tap"),
 /// );
 /// ```
-pub struct AnimatedScale<Msg> {
+pub struct AnimatedScale<Msg = crate::callback::Callback> {
     inner: Box<dyn Widget<Msg>>,
 }
 
@@ -530,7 +530,7 @@ crate::transparent::forward_transparent!(AnimatedScale {
 ///     Icon::new(Icons::EXPAND_MORE),
 /// );
 /// ```
-pub struct AnimatedRotation<Msg> {
+pub struct AnimatedRotation<Msg = crate::callback::Callback> {
     inner: Box<dyn Widget<Msg>>,
 }
 
@@ -625,7 +625,7 @@ crate::transparent::forward_transparent!(AnimatedRotation {
 ///     Text::new("Inbox"),
 /// );
 /// ```
-pub struct AnimatedPadding<Msg> {
+pub struct AnimatedPadding<Msg = crate::callback::Callback> {
     inner: Container<Msg>,
 }
 
@@ -682,7 +682,7 @@ forward_to_container!(AnimatedPadding);
 /// own** with the child beneath it. An animated value belongs to a node, and a wrapper
 /// that fused with its child would put the layer's timeline and the child's on the same
 /// one — the rule the whole of this module is built on.
-pub struct AnimatedPositioned<Msg> {
+pub struct AnimatedPositioned<Msg = crate::callback::Callback> {
     children: Vec<Box<dyn Widget<Msg>>>,
     spec: crate::positioned::Positioning,
     duration: f32,
@@ -825,7 +825,7 @@ impl<Msg: Clone> Widget<Msg> for AnimatedPositioned<Msg> {
 /// own**. Two of these nested — an outer one moving the colour, an inner one the size,
 /// which is a thing the cascade positively invites — would otherwise fuse into one node
 /// and put two timelines on it.
-pub struct AnimatedDefaultTextStyle<Msg> {
+pub struct AnimatedDefaultTextStyle<Msg = crate::callback::Callback> {
     children: Vec<Box<dyn Widget<Msg>>>,
     style: TextStyle,
     align: Option<TextAlign>,
@@ -965,7 +965,7 @@ impl<Msg: Clone> Widget<Msg> for AnimatedDefaultTextStyle<Msg> {
 ///
 /// An axis whose factor is **unset** follows its content, and does not travel to or from
 /// a factor: that is a change of arrangement, not of value.
-pub struct AnimatedFractionallySizedBox<Msg> {
+pub struct AnimatedFractionallySizedBox<Msg = crate::callback::Callback> {
     inner: crate::fractional::FractionallySizedBox<Msg>,
 }
 

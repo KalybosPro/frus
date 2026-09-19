@@ -64,7 +64,7 @@ pub fn lerp_rect(from: Rect, to: Rect, t: f32) -> Rect {
 
 /// Marks its child as **the same element** as the hero carrying the same tag on the
 /// other side of a route transition.
-pub struct Hero<Msg> {
+pub struct Hero<Msg = crate::callback::Callback> {
     tag: u64,
     children: Vec<Box<dyn Widget<Msg>>>,
 }

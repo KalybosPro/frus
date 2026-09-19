@@ -145,7 +145,7 @@ impl FillAxes {
     }
 }
 
-pub trait Widget<Msg> {
+pub trait Widget<Msg = crate::callback::Callback> {
     /// Layout style (handed to `frus-layout`).
     fn style(&self) -> Style;
 
@@ -1071,6 +1071,25 @@ pub trait Widget<Msg> {
         self.build_themed(theme)
     }
 
+    /// **Builds what this node stands for**, before anything else is asked of it.
+    ///
+    /// A [`Component`](crate::Component) is a widget that is built into another, and what it
+    /// is built into decides everything the walk asks next — its theme scope, its surface,
+    /// its children. So the walks call this first, on the way down, before those questions
+    /// and before [`Self::build_in`]; by the time they are asked, the node answers as what it
+    /// built. Called under the theme of the enclosing scope, since the scope a node introduces
+    /// is not known until it is built.
+    ///
+    /// Idempotent, and the default does nothing. A **transparent** wrapper must forward it
+    /// with the identity untouched, for the same reason as `build_in`.
+    fn expand(
+        &self,
+        _id: crate::interaction::WidgetId,
+        _runtime: &crate::runtime::Runtime,
+        _theme: &Theme,
+    ) {
+    }
+
     /// Whether this node is an [`AnimatedSwitcher`](crate::AnimatedSwitcher). An identity
     /// is a position, so a switcher and the widget that comes to stand where it stood have
     /// the same one: this is how the runtime tells the switcher still being there from its
@@ -1390,6 +1409,14 @@ pub trait Widget<Msg> {
         true
     }
 
+    /// How many of a navigator's first children are **kept but not shown**: the pages under
+    /// the one on show. They are built, so what their components hold survives, and they are
+    /// not laid out, drawn or given input. `0`, the default, is a navigator that shows every
+    /// page it holds.
+    fn navigator_retained(&self) -> usize {
+        0
+    }
+
     /// Message emitted by a **long press** (a press held ~500 ms without movement).
     /// The long press *pre-empts* the click: the release that follows does not emit
     /// `on_click`.
@@ -1466,6 +1493,14 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
         theme: &Theme,
     ) {
         (**self).build_in(id, runtime, theme)
+    }
+    fn expand(
+        &self,
+        id: crate::interaction::WidgetId,
+        runtime: &crate::runtime::Runtime,
+        theme: &Theme,
+    ) {
+        (**self).expand(id, runtime, theme)
     }
     fn switches(&self) -> bool {
         (**self).switches()
@@ -1877,6 +1912,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn navigator_clips(&self) -> bool {
         (**self).navigator_clips()
+    }
+    fn navigator_retained(&self) -> usize {
+        (**self).navigator_retained()
     }
     fn measure(&self, theme: &Theme) -> Option<frus_layout::MeasureFn<'_>> {
         (**self).measure(theme)

@@ -59,7 +59,7 @@ pub struct DropZone {
 /// drop, so the two ends of the gesture never have to know each other's types. What
 /// floats under the pointer is the widget's own appearance, lifted out of the frame
 /// — nothing to build twice, and nothing that can drift from what is on screen.
-pub struct Draggable<Msg> {
+pub struct Draggable<Msg = crate::callback::Callback> {
     payload: u64,
     long_press: bool,
     ghost_opacity: f32,
@@ -110,8 +110,11 @@ impl<Msg> Draggable<Msg> {
     ///
     /// A refused drop is worth knowing about: it is the moment to say why, and the
     /// only difference between "nothing happened" and "that is not allowed here".
-    pub fn on_dropped(mut self, message: impl Fn(bool) -> Msg + 'static) -> Self {
-        self.on_dropped = Some(Box::new(message));
+    pub fn on_dropped<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        message: impl Fn(bool) -> R + 'static,
+    ) -> Self {
+        self.on_dropped = Some(Box::new(crate::callback::handler1(message)));
         self
     }
 }
@@ -178,7 +181,7 @@ impl<Msg: Clone> Widget<Msg> for Draggable<Msg> {
 /// tasks of its own project, say — and a target that refuses is not highlighted and
 /// not offered the drop, so the answer is visible before the finger lifts rather
 /// than after.
-pub struct DragTarget<Msg> {
+pub struct DragTarget<Msg = crate::callback::Callback> {
     accepts: Option<Box<dyn Fn(u64) -> bool>>,
     on_drop: Option<Box<dyn Fn(u64) -> Msg>>,
     highlight: Option<Color>,
@@ -197,8 +200,11 @@ impl<Msg> DragTarget<Msg> {
     }
 
     /// The message sent when an accepted item is dropped here, given its payload.
-    pub fn on_drop(mut self, message: impl Fn(u64) -> Msg + 'static) -> Self {
-        self.on_drop = Some(Box::new(message));
+    pub fn on_drop<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        message: impl Fn(u64) -> R + 'static,
+    ) -> Self {
+        self.on_drop = Some(Box::new(crate::callback::handler1(message)));
         self
     }
 

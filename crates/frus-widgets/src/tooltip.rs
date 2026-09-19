@@ -52,7 +52,7 @@ const RADIUS: f32 = 4.0;
 /// screen. The framework shows the bubble while the anchor is hovered and hides it when
 /// the pointer leaves, which is the whole of what the overlay system can express today.
 /// See the roadmap.
-pub struct Tooltip<Msg> {
+pub struct Tooltip<Msg = crate::callback::Callback> {
     /// `[child]`, or `[child, bubble]` when there is something to show.
     children: Vec<Box<dyn Widget<Msg>>>,
     message: String,

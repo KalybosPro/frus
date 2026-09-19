@@ -24,14 +24,14 @@ const LABEL_SIZE: f32 = 18.0;
 /// ```
 /// # use frus_widgets::Radio;
 /// # #[derive(Clone)] enum Msg { Pick }
-/// Radio::new(true).label("Every day").on_select(Msg::Pick);
+/// Radio::<Msg>::new(true).label("Every day").on_select(Msg::Pick);
 /// ```
 ///
 /// A radio does **not** know how to turn itself off: the reference's takes a value and a
 /// group value and reports the value it stands for, and turning one off is choosing
 /// another. So this reports one message when pressed and says nothing about what the
 /// answer becomes.
-pub struct Radio<Msg> {
+pub struct Radio<Msg = crate::callback::Callback> {
     label: String,
     selected: bool,
     size: f32,
@@ -77,8 +77,8 @@ impl<Msg> Radio<Msg> {
 
     /// What to say when it is pressed. A radio with no message is inert.
     #[must_use]
-    pub fn on_select(mut self, message: Msg) -> Self {
-        self.on_click = Some(message);
+    pub fn on_select(mut self, message: impl Into<Msg>) -> Self {
+        self.on_click = Some(message.into());
         self
     }
 
@@ -274,7 +274,7 @@ struct RadioColors {
 }
 
 /// A single-selection group of radio buttons.
-pub struct RadioGroup<Msg> {
+pub struct RadioGroup<Msg = crate::callback::Callback> {
     selected: usize,
     size: f32,
     gap: f32,

@@ -605,6 +605,9 @@ fn approach(value: &mut f32, target: f32, step: f32, animating: &mut bool) {
 /// Runtime context handed to `build_ui`: all the state retained between frames.
 #[derive(Default)]
 pub struct Runtime {
+    /// What every [`Component`](crate::Component) keeps between rebuilds: the state of a
+    /// [`StatefulWidget`](crate::StatefulWidget), and the values a component's hooks hold.
+    pub states: crate::component::StateStore,
     /// **Motion is off**: the user has asked for animations to be reduced or removed,
     /// and the shell has passed that on from the platform.
     ///

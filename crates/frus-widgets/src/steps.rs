@@ -75,7 +75,7 @@ fn bar_height(label: &ResolvedTextStyle) -> f32 {
 /// // Three steps, the second in progress (so the first counts as "done").
 /// let steps: Steps<()> = Steps::new(["Account", "Profile", "Review"]).current(1);
 /// ```
-pub struct Steps<Msg> {
+pub struct Steps<Msg = crate::callback::Callback> {
     labels: Vec<String>,
     current: usize,
     /// Overridden accent color; `None` = the theme's `primary`.

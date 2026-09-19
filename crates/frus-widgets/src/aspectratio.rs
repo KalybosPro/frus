@@ -17,7 +17,7 @@ use crate::widget::Widget;
 ///
 /// The child inherits the box: it stretches in height, along the cross axis, and
 /// fills the width if it grows (`flex`) — typically an image or a solid background.
-pub struct AspectRatio<Msg> {
+pub struct AspectRatio<Msg = crate::callback::Callback> {
     ratio: f32,
     children: Vec<Box<dyn Widget<Msg>>>,
 }

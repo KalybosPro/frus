@@ -686,6 +686,9 @@ fn build_view<A: Application>(
         frus_widgets::MediaQuery::of().is_described(),
         "a view is being built with no surface described: install one first — milestone 416"
     );
+    // Every state a component keeps is marked as reached while the tree is built, and
+    // what a build did not reach is let go when the frame that laid it out is done.
+    runtime.states.begin_build();
     let tree = app.view(theme);
     build_deferred(tree.as_ref(), theme, runtime);
     tree
@@ -2455,6 +2458,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 };
                 // A switcher in flight carries each child's progress as a number built into
                 // the tree, so it is rebuilt — not only repainted — until the switch settles.
+                // Something a component keeps changed — a `set_state`, a hook, a controller —
+                // and what it builds is built again.
+                if frus_widgets::take_rebuild_request() {
+                    self.build_dirty = true;
+                }
                 let need_build = frame_needs_build(
                     self.build_dirty,
                     app_animating,
@@ -2718,6 +2726,13 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     (ui, scene)
                 };
                 self.report_overflows(&ui);
+                // Laid out: the components the build no longer reached are let go, and the
+                // effects it asked for run. An effect that changed something asks for the
+                // frame that shows it.
+                self.runtime.states.end_frame();
+                if frus_widgets::rebuild_requested() {
+                    self.request_redraw();
+                }
                 if let Some(renderer) = self.renderer.as_mut() {
                     match renderer.render(&scene) {
                         frus_gpu::RenderOutcome::Presented => {}
@@ -6676,7 +6691,7 @@ mod tests {
                 ReorderMotion::Slots(ReorderAxis::Horizontal),
             ),
         ] {
-            let list = frus_widgets::ReorderableList::new(|_, _| ())
+            let list = frus_widgets::ReorderableList::<()>::new(|_, _| ())
                 .axis(axis)
                 .row(frus_widgets::Container::new().width(60.0));
             let row = frus_widgets::Widget::children(&list)[0].as_ref();
@@ -7447,6 +7462,9 @@ pub mod testing {
             let _surface = s.media_query(width, height).install();
             s.runtime.still = settings.disable_animations;
             let was = std::mem::replace(&mut s.app_was_animating, app_animating);
+            if frus_widgets::take_rebuild_request() {
+                s.build_dirty = true;
+            }
             if frame_needs_build(
                 s.build_dirty,
                 app_animating,
@@ -7469,6 +7487,7 @@ pub mod testing {
             s.runtime.advance_scroll(&regions, physics, dt);
             let tree = s.tree.as_deref().expect("the view was built");
             let ui = build_ui(tree, Size::new(width, height), &s.runtime, &theme);
+            s.runtime.states.end_frame();
             let mut scene = ui.scene().clone();
             let ghost = if matches!(s.drag, Some(Drag::Reorder { moved: true, .. })) {
                 s.paint_reorder_preview(&ui, &theme, &mut scene);
@@ -7936,7 +7955,7 @@ mod press_tests {
                     .height(400.0)
                     .child(
                         Flex::column()
-                            .child(Button::new("Go").on_press(7))
+                            .child(Button::new("Go").on_press(7usize))
                             .child(Container::new().width(300.0).height(1200.0)),
                     ),
             ),

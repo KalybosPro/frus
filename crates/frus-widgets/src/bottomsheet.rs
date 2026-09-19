@@ -125,7 +125,7 @@ impl<Msg: Clone> Widget<Msg> for SheetPanel<Msg> {
 }
 
 /// A modal sheet sliding up from the bottom: a background body + a retractable panel.
-pub struct BottomSheet<Msg> {
+pub struct BottomSheet<Msg = crate::callback::Callback> {
     open: bool,
     on_dismiss: Option<Msg>,
     /// The sheet's content, supplied by the caller (before `SheetPanel` wrapping).
@@ -175,8 +175,8 @@ impl<Msg: Clone + 'static> BottomSheet<Msg> {
     }
 
     /// Message emitted on a click on the scrim (outside the sheet) — to close it.
-    pub fn on_dismiss(mut self, message: Msg) -> Self {
-        self.on_dismiss = Some(message);
+    pub fn on_dismiss(mut self, message: impl Into<Msg>) -> Self {
+        self.on_dismiss = Some(message.into());
         self
     }
 

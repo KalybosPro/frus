@@ -15,7 +15,7 @@ const MIXED_THICKNESS: f32 = 2.0;
 const GAP: f32 = 10.0;
 
 /// A checkbox, with an optional label.
-pub struct Checkbox<Msg> {
+pub struct Checkbox<Msg = crate::callback::Callback> {
     /// On, off, or **partly** on; see [`Checkbox::maybe`].
     value: Option<bool>,
     /// Whether a click may land on the partly-on answer.
@@ -147,16 +147,22 @@ impl<Msg> Checkbox<Msg> {
     }
 
     /// A closure producing a message from the new state, checked or not.
-    pub fn on_toggle(mut self, on_toggle: impl Fn(bool) -> Msg + 'static) -> Self {
-        self.on_toggle = Some(Box::new(on_toggle));
+    pub fn on_toggle<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_toggle: impl Fn(bool) -> R + 'static,
+    ) -> Self {
+        self.on_toggle = Some(Box::new(crate::callback::handler1(on_toggle)));
         self
     }
 
     /// A closure producing a message from the new state, **including** the partly-on
     /// one. What [`Checkbox::maybe`] wants; it wins over
     /// [`on_toggle`](Checkbox::on_toggle) when both are given.
-    pub fn on_change(mut self, on_change: impl Fn(Option<bool>) -> Msg + 'static) -> Self {
-        self.on_change = Some(Box::new(on_change));
+    pub fn on_change<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_change: impl Fn(Option<bool>) -> R + 'static,
+    ) -> Self {
+        self.on_change = Some(Box::new(crate::callback::handler1(on_change)));
         self
     }
 

@@ -15,7 +15,7 @@ use std::hash::{Hash, Hasher};
 use crate::widget::Widget;
 
 /// Wraps a widget in a stable identity key, delegating everything else.
-pub struct Keyed<Msg> {
+pub struct Keyed<Msg = crate::callback::Callback> {
     key: u64,
     inner: Box<dyn Widget<Msg>>,
 }

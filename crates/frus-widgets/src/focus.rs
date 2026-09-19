@@ -105,7 +105,7 @@ impl<Msg: Clone> Widget<Msg> for Wrapper<Msg> {
 
 /// Makes its child a **focus stop**: somewhere Tab can land and a click can focus, even
 /// when the child itself has no opinion about focus.
-pub struct Focus<Msg>(Wrapper<Msg>);
+pub struct Focus<Msg = crate::callback::Callback>(Wrapper<Msg>);
 
 impl<Msg> Focus<Msg> {
     /// A focus stop around `child`.
@@ -131,7 +131,7 @@ impl<Msg> Focus<Msg> {
 
 /// **Nothing inside can take focus.** The subtree is still drawn and still measured; it
 /// is simply not somewhere the keyboard can go.
-pub struct ExcludeFocus<Msg>(Wrapper<Msg>);
+pub struct ExcludeFocus<Msg = crate::callback::Callback>(Wrapper<Msg>);
 
 impl<Msg> ExcludeFocus<Msg> {
     /// Puts `child` out of the keyboard's reach.
@@ -146,7 +146,7 @@ impl<Msg> ExcludeFocus<Msg> {
 /// [`ExcludeFocus`], which takes the subtree out of the keyboard's reach altogether. A
 /// panel behind a sheet is unreachable; a toolbar button is reachable and simply does not
 /// belong in a form's keyboard order.
-pub struct ExcludeFocusTraversal<Msg>(Wrapper<Msg>);
+pub struct ExcludeFocusTraversal<Msg = crate::callback::Callback>(Wrapper<Msg>);
 
 impl<Msg> ExcludeFocusTraversal<Msg> {
     /// Takes `child`'s focus stops out of Tab's order.
@@ -161,7 +161,7 @@ impl<Msg> ExcludeFocusTraversal<Msg> {
 ///
 /// Ordered stops come before unordered ones, and everything without an order keeps tree
 /// order — so this is a local statement rather than a rearrangement of the frame.
-pub struct FocusTraversalOrder<Msg>(Wrapper<Msg>);
+pub struct FocusTraversalOrder<Msg = crate::callback::Callback>(Wrapper<Msg>);
 
 impl<Msg> FocusTraversalOrder<Msg> {
     /// Gives `child`'s focus stops the position `order`.
@@ -174,7 +174,7 @@ impl<Msg> FocusTraversalOrder<Msg> {
 
 /// A **traversal group**: an order set inside it is resolved among its own members and
 /// nowhere else, so a reordered dialog does not reshuffle the page behind it.
-pub struct FocusTraversalGroup<Msg>(Wrapper<Msg>);
+pub struct FocusTraversalGroup<Msg = crate::callback::Callback>(Wrapper<Msg>);
 
 impl<Msg> FocusTraversalGroup<Msg> {
     /// Scopes `child`'s traversal order to `child`.

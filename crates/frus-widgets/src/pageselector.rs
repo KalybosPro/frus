@@ -34,7 +34,7 @@ pub const PAGE_DOT_GAP: f32 = 8.0;
 ///
 /// let dots = TabPageSelector::<()>::new(4, 1);
 /// ```
-pub struct TabPageSelector<Msg> {
+pub struct TabPageSelector<Msg = crate::callback::Callback> {
     count: usize,
     selected: usize,
     size: Option<f32>,

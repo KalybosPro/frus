@@ -636,7 +636,7 @@ impl<Msg: Clone> Widget<Msg> for Panel<Msg> {
 ///     .divider()
 ///     .checked_item("Word wrap", true, Msg::Wrap);
 /// ```
-pub struct MenuItem<Msg> {
+pub struct MenuItem<Msg = crate::callback::Callback> {
     label: Option<String>,
     /// The caller's own drawing, shared so the panel can be built again.
     child: Option<Rc<dyn Widget<Msg>>>,
@@ -740,7 +740,7 @@ impl<Msg> MenuItem<Msg> {
 }
 
 /// A controlled action menu, opened and closed by the application.
-pub struct PopupMenuButton<Msg> {
+pub struct PopupMenuButton<Msg = crate::callback::Callback> {
     open: bool,
     enabled: bool,
     /// `[anchor]`, or `[anchor, list]` when the menu is showing.

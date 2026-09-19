@@ -63,7 +63,7 @@ const PICTURE_GAP: f32 = 8.0;
 ///
 /// It sizes and places its content and paints two things: a background, when it was given
 /// one, and the rule. Everything else is the child's.
-pub struct DrawerHeader<Msg> {
+pub struct DrawerHeader<Msg = crate::callback::Callback> {
     child: RefCell<Option<Box<dyn Widget<Msg>>>>,
     background: Option<Color>,
     padding: Option<Insets>,
@@ -216,7 +216,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for DrawerHeader<Msg> {
 /// A [`DrawerHeader`] laid out for the account the application is signed in to: a
 /// picture, up to three others, a name, an address, and a control for switching between
 /// them.
-pub struct UserAccountsDrawerHeader<Msg> {
+pub struct UserAccountsDrawerHeader<Msg = crate::callback::Callback> {
     account_name: Option<String>,
     account_email: Option<String>,
     current_picture: RefCell<Option<Box<dyn Widget<Msg>>>>,
@@ -356,8 +356,8 @@ impl<Msg: Clone + 'static> UserAccountsDrawerHeader<Msg> {
     /// other accounts. Without it there is **no control at all**, which is the
     /// reference's rule (`user_accounts_drawer_header.dart:169`): an arrow that opened
     /// nothing would be a promise the header cannot keep.
-    pub fn on_details_pressed(mut self, message: Msg) -> Self {
-        self.on_details_pressed = Some(message);
+    pub fn on_details_pressed(mut self, message: impl Into<Msg>) -> Self {
+        self.on_details_pressed = Some(message.into());
         self.built.take();
         self
     }

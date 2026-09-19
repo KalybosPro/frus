@@ -87,7 +87,7 @@ impl<Msg: Clone> Widget<Msg> for Crumb<Msg> {
 }
 
 /// A controlled breadcrumb trail.
-pub struct Breadcrumb<Msg> {
+pub struct Breadcrumb<Msg = crate::callback::Callback> {
     on_select: Box<dyn Fn(usize) -> Msg>,
     labels: Vec<String>,
     text_style: Option<TextStyle>,
@@ -96,9 +96,9 @@ pub struct Breadcrumb<Msg> {
 
 impl<Msg: Clone + 'static> Breadcrumb<Msg> {
     /// Creates a breadcrumb; `on_select(i)` is emitted when the i-th segment is clicked.
-    pub fn new(on_select: impl Fn(usize) -> Msg + 'static) -> Self {
+    pub fn new<R: crate::callback::IntoMsg<Msg>>(on_select: impl Fn(usize) -> R + 'static) -> Self {
         Self {
-            on_select: Box::new(on_select),
+            on_select: Box::new(crate::callback::handler1(on_select)),
             labels: Vec::new(),
             text_style: None,
             children: Vec::new(),

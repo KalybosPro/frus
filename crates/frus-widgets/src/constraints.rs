@@ -24,7 +24,7 @@ use crate::widget::Widget;
 ///
 /// `SizedBox::empty()` with a size is also the plainest way to put a gap somewhere
 /// that has no gap of its own; with no child it draws nothing at all.
-pub struct SizedBox<Msg> {
+pub struct SizedBox<Msg = crate::callback::Callback> {
     width: Dimension,
     height: Dimension,
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -133,7 +133,7 @@ impl<Msg: Clone> Widget<Msg> for SizedBox<Msg> {
 /// A floor and a ceiling that are equal make the box **tight**: whatever the child
 /// or the space on offer says, that is the size. Set nothing and the box is
 /// transparent — it is the constraints that make it worth having, not the box.
-pub struct ConstrainedBox<Msg> {
+pub struct ConstrainedBox<Msg = crate::callback::Callback> {
     min_width: Dimension,
     max_width: Dimension,
     min_height: Dimension,
@@ -243,7 +243,7 @@ pub enum IntrinsicAxis {
 /// It is not free. The content is measured **once more**, unconstrained, before it
 /// is laid out for real — which is why it is a widget you reach for deliberately and
 /// not a property every box carries. Nested one inside another, the cost multiplies.
-pub struct Intrinsic<Msg> {
+pub struct Intrinsic<Msg = crate::callback::Callback> {
     axis: IntrinsicAxis,
     step: Option<f32>,
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -344,7 +344,7 @@ pub struct Overflow {
 /// This is the escape hatch for a background that should bleed past its slot, or a
 /// decoration wider than the row it belongs to. It does **not** clip: put a
 /// [`crate::ClipRRect`] above it if the spill should stop somewhere.
-pub struct OverflowBox<Msg> {
+pub struct OverflowBox<Msg = crate::callback::Callback> {
     overflow: Overflow,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -451,7 +451,7 @@ impl Overflow {
 /// showing a 40 px control, a caption strip under an image that reaches past both sides.
 ///
 /// It does **not** clip: put a [`crate::ClipRRect`] above it if the spill should stop.
-pub struct SizedOverflowBox<Msg> {
+pub struct SizedOverflowBox<Msg = crate::callback::Callback> {
     width: f32,
     height: f32,
     overflow: Overflow,
@@ -648,7 +648,7 @@ impl AxisConstraint {
 /// reported with the debug band. That is the point of the widget — it asks what the space
 /// on offer is doing to the content, and answers on the screen. Turn the band off with
 /// [`ConstraintsTransformBox::report`] when the spill is deliberate.
-pub struct ConstraintsTransformBox<Msg> {
+pub struct ConstraintsTransformBox<Msg = crate::callback::Callback> {
     transform: ConstraintsTransform,
     children: Vec<Box<dyn Widget<Msg>>>,
 }

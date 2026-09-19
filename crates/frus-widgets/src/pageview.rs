@@ -62,7 +62,7 @@ impl PageSnap {
 }
 
 /// The description of a paged view, exposed to the render driver.
-pub struct PagedView<'a, Msg> {
+pub struct PagedView<'a, Msg = crate::callback::Callback> {
     /// Total number of pages.
     pub count: usize,
     /// Which way the pages are laid out.
@@ -128,7 +128,7 @@ impl<Msg> PagedView<'_, Msg> {
 }
 
 /// A scrollable that rests only on page boundaries.
-pub struct PageView<Msg> {
+pub struct PageView<Msg = crate::callback::Callback> {
     count: usize,
     axis: Axis,
     viewport_fraction: f32,
@@ -259,8 +259,11 @@ impl<Msg> PageView<Msg> {
     /// The message sent when the page a reader would name changes — mid-drag, as
     /// soon as the rounding tips, not once the motion has settled. A title above a
     /// gallery should follow the picture, not trail it.
-    pub fn on_page_changed(mut self, message: impl Fn(usize) -> Msg + 'static) -> Self {
-        self.on_page_changed = Some(Box::new(message));
+    pub fn on_page_changed<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        message: impl Fn(usize) -> R + 'static,
+    ) -> Self {
+        self.on_page_changed = Some(Box::new(crate::callback::handler1(message)));
         self
     }
 

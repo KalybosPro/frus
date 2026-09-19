@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 550 so far, each documenting the objective, the alternatives
+> record — one per step, 553 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -310,6 +310,34 @@ any release may break.
 
 ### Added
 
+- **A router** (J553). Routes are named by a pattern of path (`/users/:id`, `files/*`) and
+  build a page; `GoRouter` holds them and the stack of pages, and moves it when told a
+  *location* — `go` makes the stack the routes the location is made of (so there is somewhere to
+  go back to), `push` adds a page on top, `replace`, `pop`, and the named forms. Path parameters,
+  the query and an object carried along reach the page in a `GoRouterState`; redirects — one for
+  the router, one per route — run on every navigation and again when a `refresh_listenable`
+  changes. The slide between pages and the back gesture, which every application that had more
+  than one screen wrote for itself, are handled once. `FrusApp::router(router)` is the
+  application whose interface is the router, and `cx.router()` reaches it from below. A page
+  covered by another is **kept** — `Navigator::retain` — so what its components hold is still
+  there when the top page is popped.
+- **`TextEditingController`, `ChangeNotifier`, `ValueNotifier`** (J552). A text field's text held
+  outside the field: what is typed lands in the controller, what the program writes appears in
+  the field, and it can be listened to. `TextField::controller(&c)`, `SearchBar::controller(&c)`,
+  and `cx.use_text_controller("")` to keep one for the life of a component.
+- **Components: `StatelessWidget`, `StatefulWidget` / `State`, hooks** (J551). An
+  application no longer has to be a message type, an `update` and a `view`. A widget can be
+  a small object that says what it looks like (`StatelessWidget::build`); one with something
+  to remember has a `State` that outlives the rebuilds — found again by where its widget
+  sits, or by its key — with `init_state`, `did_update_widget`, `dispose` and a `set_state`
+  reachable from any handler; and a plain function of `&BuildContext` can keep state too
+  through `use_state`, `use_ref`, `use_memo` and `use_effect`. An interaction runs the closure
+  the widget was given: `button("+", move || count.update(|n| *n += 1))`. `FrusApp` is the
+  whole declaration of such an application, and `frus::main!(FrusApp::from_fn(..))` its entry
+  point. The old `Application` model is unchanged underneath — every widget type now defaults
+  its message to `Callback` (`Button<Msg = Callback>`), so an application never has to name one.
+  A value handler (`on_toggle`, `on_change`, `on_input`, …) may return nothing; its work runs
+  when the message is delivered, once per interaction.
 - **`frus-core` denies a missing doc comment** (J548, answers #14, continuing the
   sweep). The fundamental types shared by the whole framework — 12,600 lines
   across fourteen modules, all private except `animation`, the rest reaching the
