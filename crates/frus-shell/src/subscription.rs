@@ -72,6 +72,33 @@ impl<Msg: Send + 'static> Subscription<Msg> {
         }
     }
 
+    /// [`Subscription::every`] under an identity of the caller's: two timers of the same period
+    /// are two subscriptions when their keys differ, and one that keeps its key from one cycle
+    /// to the next keeps running.
+    pub fn every_keyed(
+        key: u64,
+        interval: Duration,
+        make: impl Fn(Instant) -> Msg + Send + 'static,
+    ) -> Self {
+        let id = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            "every-keyed".hash(&mut hasher);
+            key.hash(&mut hasher);
+            interval.as_millis().hash(&mut hasher);
+            hasher.finish()
+        };
+        Self {
+            entries: vec![Entry {
+                id,
+                kind: Kind::Every {
+                    interval,
+                    make: Box::new(make),
+                },
+            }],
+        }
+    }
+
     /// `true` when there is no subscription.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
@@ -104,6 +131,21 @@ mod tests {
         let c = Subscription::every(Duration::from_secs(2), |_| 0u32);
         assert_eq!(a.ids(), b.ids(), "same duration → same id");
         assert_ne!(a.ids(), c.ids(), "different duration → different id");
+    }
+
+    #[test]
+    fn a_key_tells_two_timers_of_one_period_apart() {
+        let period = Duration::from_secs(1);
+        let a = Subscription::every_keyed(1, period, |_| 0u32);
+        let b = Subscription::every_keyed(2, period, |_| 0u32);
+        let again = Subscription::every_keyed(1, period, |_| 0u32);
+        assert_ne!(a.ids(), b.ids());
+        assert_eq!(
+            a.ids(),
+            again.ids(),
+            "and one that keeps its key keeps its identity"
+        );
+        assert_ne!(a.ids(), Subscription::every(period, |_| 0u32).ids());
     }
 
     #[test]

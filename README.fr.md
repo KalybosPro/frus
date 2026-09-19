@@ -6,7 +6,7 @@
 
 **Un framework UI multiplateforme écrit entièrement en Rust.**
 
-Un seul code → bureau, Android et le Web. Rendu GPU. Architecture Elm. Pas de DSL, pas de génération de code, pas de CLI maison — juste `cargo`.
+Un seul code → bureau, Android et le Web. Rendu GPU. Construit à partir de composants. Pas de DSL, pas de génération de code, pas de CLI maison — juste `cargo`.
 
 [![CI](https://github.com/KalybosPro/frus/actions/workflows/ci.yml/badge.svg)](https://github.com/KalybosPro/frus/actions/workflows/ci.yml)
 [![Licence](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-blue.svg)](#licence)
@@ -32,49 +32,60 @@ frus est une tentative *greenfield* de framework UI conçu en Rust dès le premi
 Les parties qui *doivent* être natives (création de fenêtre, IME, lecteurs d'écran, activité Android) vivent derrière une seule crate mince, `frus-shell`. Tout ce qui est au-dessus est portable.
 
 ```rust
-use frus::{button, column, row, text, Align, Application, Command, Theme, Variant, Widget};
+use frus::{button, column, row, text, Align, BuildContext, FrusApp, Variant, Widget};
 
-#[derive(Default)]
-struct Counter { count: i32 }
-
-#[derive(Clone)]
-enum Msg { Increment, Decrement }
-
-impl Application for Counter {
-    type Message = Msg;
-
-    // `update` est pur — testable sans GPU ni fenêtre.
-    fn update(&mut self, message: Msg) -> Command<Msg> {
-        match message {
-            Msg::Increment => self.count += 1,
-            Msg::Decrement => self.count -= 1,
-        }
-        Command::none()
-    }
-
-    fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
-        Box::new(column![
-            text(format!("{}", self.count)).size(48.0),
-            row![
-                button("+", Msg::Increment).variant(Variant::Primary),
-                button("−", Msg::Decrement).variant(Variant::Secondary),
-            ].gap(20.0),
-        ].gap(16.0).align(Align::Center))
-    }
+// Un widget est ce qu'il construit. Celui qui a quelque chose à retenir le garde avec un hook.
+fn counter(cx: &BuildContext) -> Box<dyn Widget> {
+    let count = cx.use_state(|| 0);
+    let (up, down) = (count.clone(), count.clone());
+    Box::new(column![
+        text(format!("{}", count.get())).size(48.0),
+        row![
+            button("+", move || up.update(|n| *n += 1)).variant(Variant::Filled),
+            button("−", move || down.update(|n| *n -= 1)).variant(Variant::Outlined),
+        ].gap(20.0),
+    ].gap(16.0).align(Align::Center))
 }
 
-// Une seule déclaration câble les points d'entrée bureau, Android et Web.
-frus::main!(Counter::default());
+// Une seule déclaration branche les points d'entrée bureau, Android et web.
+frus::main!(FrusApp::from_fn(counter));
 ```
 
-C'est une application complète et exécutable. `cargo run` sur bureau, `cargo apk run` sur Android, `wasm-bindgen` pour le navigateur — la source ne change pas.
+C'est une application complète et exécutable. `cargo run` sur le bureau, `cargo apk run` sur Android, `wasm-bindgen` pour le navigateur — le code ne change pas.
+
+### Composants, état, contrôleurs, routes
+
+Un widget sans rien à retenir est un `StatelessWidget` ; un widget qui garde quelque chose est un `StatefulWidget` dont le `State` survit aux reconstructions — avec `init_state`, `did_update_widget`, `dispose` et un `set_state` appelable depuis n'importe quel gestionnaire. Une simple fonction peut aussi garder un état, avec `use_state`, `use_ref`, `use_memo` et `use_effect`.
+
+```rust
+use frus::{button, column, BuildContext, GoRoute, GoRouter, FrusApp, TextField, Widget};
+
+fn sign_in(cx: &BuildContext) -> Box<dyn Widget> {
+    let email = cx.use_text_controller("");          // le texte du champ, tenu hors du champ
+    let router = cx.router();
+    Box::new(column![
+        TextField::new("").label("Email").controller(&email),
+        button("Continuer", move || router.go(format!("/welcome/{}", email.text()))),
+    ])
+}
+
+let router = GoRouter::new(vec![
+    GoRoute::new("/", |_, _| frus::component(sign_in)),
+    GoRoute::new("/welcome/:name", |_, state| {
+        frus::text(format!("Bonjour, {}", state.param("name").unwrap_or("vous")))
+    }),
+]);
+frus::main!(FrusApp::router(router));
+```
+
+Le routeur garde une pile de pages, glisse de l'une à l'autre, répond au geste retour, suit les redirections et conserve l'état d'une page recouverte jusqu'à ce qu'elle soit retirée.
 
 ### Pourquoi un framework de plus ?
 
 | | |
 |---|---|
 | **Un seul langage, de bout en bout** | Logique applicative, widgets, layout et moteur de rendu sont tous en Rust. Pas de frontière FFI dans le chemin chaud, pas de sérialisation à travers un pont. |
-| **`update` pur, cœur testable** | L'architecture Elm fait de votre machine à états une fonction pure. Plus de 1 900 tests de ce dépôt tournent sans GPU ni fenêtre. |
+| **Des composants testables sans fenêtre** | Un composant est une valeur qui dit à quoi elle ressemble, et son état est du Rust ordinaire à côté. Créé, mis à jour, supprimé : tout le cycle de vie se joue en test sans GPU ni fenêtre — comme plus de 1 900 tests de ce dépôt. |
 | **Rendu GPU natif** | `wgpu` vise Vulkan, Metal, DX12 et WebGPU depuis un seul backend. Les chemins vectoriels sont tessellés par `lyon`, le texte façonné par `cosmic-text`. |
 | **Tout est surchargeable** | Les widgets fournissent des valeurs par défaut *thémées*, jamais codées en dur. Si un widget le dessine, vous pouvez le restyler ou remplacer l'emplacement. |
 | **cargo-natif** | Pas de `frus doctor`, pas de gestionnaire de paquets maison, pas de dossier de build généré. `cargo build`, `cargo test`, `cargo apk run`. |

@@ -2517,6 +2517,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     self.runtime.mounted.retain(|id| present.contains(id));
 
                     self.tree = Some(tree);
+                    // What the build asked for may be a timer — a component's
+                    // `use_interval` — and it is the build that says so, which is later than
+                    // the message that changed it. Diffing here starts and stops it now, not
+                    // on the next message.
+                    self.sync_subscriptions();
 
                     // The configuration may have changed, so invalidate the paint
                     // cache and its repaint boundaries. Entries from a stale generation

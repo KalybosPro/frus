@@ -1,4 +1,4 @@
-//! `{{project-name}}` — a frus application (the Elm model: state, `update`, `view`).
+//! `{{project-name}}` — a frus application: a counter, built from a component.
 //!
 //! - Desktop: `cargo run`
 //! - Android: `cargo apk run`   (see https://… the getting-started guide)
@@ -6,49 +6,54 @@
 // A **single** dependency: the `frus` facade provides everything (framework layer +
 // widgets + DSL).
 use frus::{
-    button, column, text, Align, Application, Command, Container, Justify, MediaQuery, Size, Theme,
-    Variant, Widget,
+    button, column, text, Align, Container, FrusApp, Justify, MediaQuery, Size, State,
+    StateContext, StatefulWidget, Variant, Widget,
 };
 
-/// The application state: a simple counter.
+/// The counter: a widget with nothing to configure.
+#[derive(Clone)]
+struct Counter;
+
+/// What the counter keeps between rebuilds: a plain struct.
 #[derive(Default)]
-struct App {
+struct CounterState {
     count: i32,
 }
 
-/// The messages the interface emits.
-#[derive(Clone)]
-enum Msg {
-    Increment,
-    Decrement,
-}
-
-impl Application for App {
-    type Message = Msg;
-
-    /// `update` is **pure**: it advances the state and returns any effects
-    /// (none here). Testable with no GPU and no window.
-    fn update(&mut self, message: Msg) -> Command<Msg> {
-        match message {
-            Msg::Increment => self.count += 1,
-            Msg::Decrement => self.count -= 1,
-        }
-        Command::none()
+impl CounterState {
+    fn increment(&mut self) {
+        self.count += 1;
     }
 
-    /// `view` describes the interface for the current state — a pure function of
-    /// `(state, theme, surface)`.
+    fn decrement(&mut self) {
+        self.count -= 1;
+    }
+}
+
+impl StatefulWidget for Counter {
+    type State = CounterState;
+
+    fn create_state(&self) -> CounterState {
+        CounterState::default()
+    }
+}
+
+impl State for CounterState {
+    type Widget = Counter;
+
+    /// `build` describes the interface for the current state. A handler is a closure:
+    /// `cx.callback(..)` is `set_state` wrapped up as one.
     ///
     /// It is **not** given the size. The framework installs a description of the surface
-    /// around this call, and `MediaQuery::of()` is how anything here asks about it: a
+    /// around the build, and `MediaQuery::of()` is how anything here asks about it: a
     /// `Scaffold`, an `AppBar` or a `SafeArea` reads it without being told.
-    fn view(&self, theme: &Theme) -> Box<dyn Widget<Msg>> {
+    fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> {
         let Size { width, height } = MediaQuery::of().size;
         let content = column![
             text(format!("{}", self.count)).size(48.0),
             column![
-                button("+", Msg::Increment).variant(Variant::Primary),
-                button("−", Msg::Decrement).variant(Variant::Secondary),
+                button("+", cx.callback(CounterState::increment)).variant(Variant::Filled),
+                button("−", cx.callback(CounterState::decrement)).variant(Variant::Outlined),
             ]
             .gap(8.0)
             .align(Align::Center),
@@ -67,32 +72,28 @@ impl Application for App {
             Container::new()
                 .width(width)
                 .height(height)
-                .color(theme.background)
+                .color(cx.theme().background)
                 .child(centered),
         )
-    }
-
-    fn title(&self) -> String {
-        "{{project-name}}".to_string()
     }
 }
 
 // **One entry point** — a single declaration generates the desktop / Android / Web
 // entries (see `frus::main!`). The thin `src/bin/{{project-name}}.rs` binary calls the
 // `run()` it produces for the desktop.
-frus::main!(App::default());
+frus::main!(FrusApp::stateful(Counter).title("{{project-name}}"));
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The Elm advantage: `update` is testable with no GPU and no window.
+    /// The counter's rules are plain Rust: testable with no widget, no GPU and no window.
     #[test]
-    fn counting_is_pure() {
-        let mut app = App::default();
-        app.update(Msg::Increment);
-        app.update(Msg::Increment);
-        app.update(Msg::Decrement);
-        assert_eq!(app.count, 1);
+    fn counting_is_plain_state() {
+        let mut state = CounterState::default();
+        state.increment();
+        state.increment();
+        state.decrement();
+        assert_eq!(state.count, 1);
     }
 }

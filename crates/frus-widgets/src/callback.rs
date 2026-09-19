@@ -95,7 +95,7 @@ fn collect_abandoned() {
 /// A piece of work that an interaction sets off.
 ///
 /// Cheap to clone: every clone runs the same closure. `Send` and `Sync` — it is a handle —
-/// but it only *runs* on the thread that made it; see the [module](self) documentation.
+/// but it only *runs* on the thread that made it: the closure stays there.
 #[derive(Clone)]
 pub struct Callback {
     slot: Arc<Slot>,

@@ -21,14 +21,14 @@ frus is four layers of crates. **Dependencies only point downward.** Nothing bel
       │  SHELL                                platform layer       │
       │  frus-shell                                                │
       │  window · event loop · lifecycle · IME · a11y · net        │
-      │  Application · Command · Subscription · main!              │
+      │  FrusApp · Application · Command · Subscription · main!    │
       └────────────────────────────────────────────────────────────┘
                                    ▲
       ┌────────────────────────────────────────────────────────────┐
       │  WIDGETS                              UI & interaction     │
       │  frus-widgets                                              │
-      │  Widget trait · Ui/scene build · hit-testing · focus        │
-      │  scrolling · drag & drop · theme                           │
+      │  Widget trait · components · router · Ui/scene build       │
+      │  hit-testing · focus · scrolling · drag & drop · theme     │
       └────────────────────────────────────────────────────────────┘
                                    ▲
       ┌────────────────────────────────────────────────────────────┐
@@ -77,7 +77,7 @@ frus is four layers of crates. **Dependencies only point downward.** Nothing bel
 
 **`frus-widgets`** — the largest crate, ~80 modules. Two halves:
 
-*The tree.* The `Widget<Msg>` trait is the core abstraction — generic over the app's message type, which is how interaction stays type-safe end to end:
+*The tree.* The `Widget<Msg>` trait is the core abstraction — generic over the app's message type, which is how interaction stays type-safe end to end. An application made of components never names it: `Msg` defaults to `Callback`, a small `Send` handle to a closure that stays on the interface's thread, so a handler is just `|| …`:
 
 ```rust
 pub trait Widget<Msg> {
@@ -91,6 +91,8 @@ pub trait Widget<Msg> {
 }
 ```
 
+*Components.* `component.rs` holds `StatelessWidget`, `StatefulWidget`/`State` and the hooks. A component is a node that is built into another before the walk asks anything of it (`Widget::expand`) and is transparent once built. What it keeps lives in the runtime's `StateStore`, under the node's place in the tree or its key, and is disposed at the end of the frame that no longer reaches it. `router.rs` holds `GoRouter`: routes, the stack of pages, redirects and the transition; a page under the top is kept by `Navigator::retain`.
+
 *The runtime.* `ui.rs` builds a `Ui<Msg>` from a widget tree: it runs layout, walks the tree painting into a `Scene`, and populates the registries that make interaction work — hit-testing, focus order and directional focus, scrollable viewports and extents, draggables, reorderables, interactive bounds, semantics.
 
 > **This is the subtlety most new contributors hit.** `Ui` resolves a widget's rect through *per-kind registries*. A new interactive widget that isn't registered in the right one will pass its unit tests and still silently do nothing on live hover, drag, or scroll paths. If you add an interactive widget, wire it into the registry it belongs to.
@@ -101,7 +103,8 @@ Everything else in the crate is widgets — `button.rs`, `scroll.rs`, `datatable
 
 **`frus-shell`** — the only crate that knows about platforms. Everything platform-specific is `#[cfg]`-gated here and nowhere else.
 
-- `application.rs` — the **`Application` trait**: `update`, `view`, `subscription`, `init`, `on_lifecycle`, `title`, theming. This is the app-facing contract.
+- `application.rs` — the **`Application` trait**: `update`, `view`, `subscription`, `init`, `on_lifecycle`, `title`, theming. This is the contract the shell drives.
+- `widget_app.rs` — **`FrusApp`**, an `Application` whose message is a `Callback` and whose `update` runs it: the application an author writes with components. It carries the root component or the router, and forwards the router's transition and back gesture.
 - `app.rs` — the driver: event loop, frame scheduling, animation ticking, input dispatch into `Ui`
 - `command.rs` — `Command<Msg>`: effects. Sync tasks, `perform_async` futures, batching. Native runs them on a thread; the web runs them through `spawn_local`.
 - `subscription.rs` — continuous message sources (timers, streams), started and stopped by diffing what `Application::subscription` returns each cycle
@@ -160,6 +163,8 @@ Two properties fall out of this and are worth protecting:
 | I want to… | It goes in |
 |---|---|
 | Add a widget | `frus-widgets/src/<name>.rs`, exported from `lib.rs`. Register it if it's interactive. |
+| Change what a component can keep, or how a `State` lives | `frus-widgets/src/component.rs` |
+| Change how pages are matched, redirected or moved between | `frus-widgets/src/router.rs` |
 | Add a paintable shape or effect | A new `Primitive` in `frus-core/src/scene.rs`, handled in `frus-gpu/src/painter.rs` |
 | Change how things are measured or positioned | `frus-layout`, or the widget's `style()` |
 | Change text shaping or metrics | `frus-text` |
@@ -173,7 +178,7 @@ Two properties fall out of this and are worth protecting:
 
 Things that look like limitations and are in fact choices:
 
-- **No retained widget tree between frames.** `view` rebuilds; identity is carried by `key()` where it matters. This keeps state in one place — the app struct — at the cost of rebuild work. If rebuild cost becomes real, the fix is memoization, not a mutable tree.
+- **No retained widget tree between frames.** The tree is rebuilt from `view` — or from the root component — and identity is carried by position and by `key()`. What a component keeps is held beside the tree, in the runtime's state store, and found again by that identity; `set_state` asks for a rebuild, it does not patch anything. This costs rebuild work. If it becomes real, the fix is memoization, not a mutable tree.
 - **`Box<dyn Widget<Msg>>` everywhere.** Dynamic dispatch is a real cost, and it's what makes heterogeneous children and a stable trait boundary possible. Measured, it has not been the bottleneck.
 - **One renderer backend.** `wgpu` covers Vulkan, Metal, DX12, and WebGPU. There is no software fallback, and adding one is not currently a goal.
 - **Layout is taffy, text is cosmic-text.** These are hard, well-solved problems. We wrap them; we don't reimplement them.

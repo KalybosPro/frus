@@ -118,6 +118,25 @@ use crate::widget::Widget;
 thread_local! {
     static REBUILD: Cell<bool> = const { Cell::new(false) };
     static DEPTH: Cell<u32> = const { Cell::new(0) };
+    static INTERVALS: RefCell<Vec<Interval>> = const { RefCell::new(Vec::new()) };
+}
+
+/// A timer a component asked for with [`BuildContext::use_interval`].
+#[derive(Clone)]
+pub struct Interval {
+    /// What tells this timer from the others, and the same one from one build to the next: it
+    /// is what the shell diffs to start a timer, keep it running, and stop it.
+    pub id: u64,
+    /// How often it fires.
+    pub period: std::time::Duration,
+    /// What it does when it does.
+    pub callback: Callback,
+}
+
+/// The timers the components of the latest build asked for. The shell starts the ones it is not
+/// running and stops the ones no longer here.
+pub fn intervals() -> Vec<Interval> {
+    INTERVALS.with(|intervals| intervals.borrow().clone())
 }
 
 /// Asks the shell to rebuild the tree on its next frame. Anything that changed what a
@@ -209,6 +228,8 @@ impl StateStore {
     pub fn begin_build(&self) {
         self.epoch.set(self.epoch.get() + 1);
         self.building.set(true);
+        // Each build says which timers it wants, from scratch.
+        INTERVALS.with(|intervals| intervals.borrow_mut().clear());
     }
 
     /// The frame is done laying out: the states a rebuild did not reach are disposed, and
@@ -571,6 +592,7 @@ pub struct BuildContext<'a> {
     theme: &'a Theme,
     hooks: OnceCell<Rc<Hooks>>,
     cursor: Cell<usize>,
+    intervals: Cell<usize>,
 }
 
 impl<'a> BuildContext<'a> {
@@ -582,6 +604,7 @@ impl<'a> BuildContext<'a> {
             theme,
             hooks: OnceCell::new(),
             cursor: Cell::new(0),
+            intervals: Cell::new(0),
         }
     }
 
@@ -663,6 +686,43 @@ impl<'a> BuildContext<'a> {
                 value
             }
         }
+    }
+
+    /// Calls `on_tick` every `period`, for as long as this component asks for it.
+    ///
+    /// It asks again on every build: a build that does not call this any more stops the timer,
+    /// and a build that calls it with another `period` starts a new one. So, unlike the other
+    /// hooks, it may be called conditionally — a timer that is only wanted while something is on
+    /// is `if on { cx.use_interval(..) }`.
+    ///
+    /// `on_tick` runs on the interface's thread, like any other handler, so it may change
+    /// state: `cx.use_interval(period, cx.callback(|state| state.seconds += 1))`.
+    ///
+    /// ```
+    /// # use std::time::Duration;
+    /// # use frus_widgets::{text, BuildContext, Widget};
+    /// fn clock(cx: &BuildContext) -> Box<dyn Widget> {
+    ///     let seconds = cx.use_state(|| 0);
+    ///     let tick = seconds.clone();
+    ///     cx.use_interval(Duration::from_secs(1), move || tick.update(|s| *s += 1));
+    ///     Box::new(text(format!("{}s", seconds.get())))
+    /// }
+    /// ```
+    pub fn use_interval(&self, period: std::time::Duration, on_tick: impl Into<Callback>) {
+        let index = self.intervals.get();
+        self.intervals.set(index + 1);
+        let id = {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            (self.key.0.as_u64(), self.key.1, index, period.as_millis()).hash(&mut hasher);
+            hasher.finish()
+        };
+        INTERVALS.with(|intervals| {
+            intervals.borrow_mut().push(Interval {
+                id,
+                period,
+                callback: on_tick.into(),
+            })
+        });
     }
 
     /// Work to do *after* the tree is built — start a timer, subscribe, read a controller —
@@ -1487,6 +1547,45 @@ mod tests {
             }
         }
         frame(&Runtime::default(), &Greedy.into_widget());
+    }
+
+    #[test]
+    fn an_interval_is_asked_for_by_each_build_that_wants_it() {
+        let runtime = Runtime::default();
+        let on = Rc::new(Cell::new(true));
+        let build: Builder = {
+            let on = on.clone();
+            Rc::new(move |cx| {
+                if on.get() {
+                    cx.use_interval(std::time::Duration::from_secs(1), || {});
+                    cx.use_interval(std::time::Duration::from_secs(5), || {});
+                }
+                Box::new(Container::new())
+            })
+        };
+        let make = || {
+            let build = build.clone();
+            Component::stateless(move |cx: &BuildContext| build(cx))
+        };
+        frame(&runtime, &make());
+        let first = intervals();
+        assert_eq!(first.len(), 2);
+        assert_ne!(first[0].id, first[1].id, "two timers are told apart");
+
+        frame(&runtime, &make());
+        let second = intervals();
+        assert_eq!(
+            first.iter().map(|i| i.id).collect::<Vec<_>>(),
+            second.iter().map(|i| i.id).collect::<Vec<_>>(),
+            "and each is the same timer from one build to the next"
+        );
+
+        on.set(false);
+        frame(&runtime, &make());
+        assert!(
+            intervals().is_empty(),
+            "a build that stops asking stops the timer"
+        );
     }
 
     #[test]

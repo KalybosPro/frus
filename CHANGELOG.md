@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 553 so far, each documenting the objective, the alternatives
+> record — one per step, 554 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -206,6 +206,14 @@ any release may break.
 
 ### Changed
 
+- **The way in is a component** (J554). `frus-hello`, the `cargo generate` template, the README
+  (English and French), the getting-started guide and the crate READMEs now show an application
+  made of components — a `StatefulWidget` with plain-Rust state and handlers that are closures —
+  instead of a message type, an `update` and a `view`, which remain available as the
+  `Application` model `FrusApp` is built on. The template's `Variant::Primary` and
+  `Variant::Secondary` had been renamed `Filled` and `Outlined` a long time ago and nothing
+  compiled it to say so; it compiles again.
+
 - **158 goldens re-blessed for the new text stack** (J550, follows this branch's
   wgpu upgrade and milestone 539, #15). glyphon 0.6→0.12 and cosmic-text
   0.12→0.19 shifted anti-aliasing and hinting slightly; the now-blocking golden
@@ -310,6 +318,9 @@ any release may break.
 
 ### Added
 
+- **`use_interval`** (J554). A component asks for a timer with `cx.use_interval(period, callback)`;
+  the shell starts it, keeps it while it is asked for on every build, and stops it when a build
+  stops asking — on every platform the subscriptions already run on.
 - **A router** (J553). Routes are named by a pattern of path (`/users/:id`, `files/*`) and
   build a page; `GoRouter` holds them and the stack of pages, and moves it when told a
   *location* — `go` makes the stack the routes the location is made of (so there is somewhere to

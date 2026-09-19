@@ -9,15 +9,15 @@
 //! use frus_widgets::{text, GoRoute, GoRouter};
 //!
 //! let router = GoRouter::new(vec![
-//!     GoRoute::new("/", |_, _| Box::new(text("home"))).routes(vec![
+//!     GoRoute::new("/", |_, _| text("home")).routes(vec![
 //!         // relative to its parent: `/users/:id`
 //!         GoRoute::new("users/:id", |_, state| {
 //!             let id = state.param("id").unwrap_or("?").to_string();
-//!             Box::new(text(format!("user {id}")))
+//!             text(format!("user {id}"))
 //!         })
 //!         .name("user"),
 //!     ]),
-//!     GoRoute::new("/settings", |_, _| Box::new(text("settings"))),
+//!     GoRoute::new("/settings", |_, _| text("settings")),
 //! ]);
 //!
 //! router.go("/users/42?tab=posts");

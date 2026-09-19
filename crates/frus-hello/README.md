@@ -10,8 +10,8 @@ to one belongs in the other. See
 
 ## What to read
 
-- `src/lib.rs`: the state, a pure `update`, a `subscription` and a `view`, then
-  `frus::main!`.
+- `src/lib.rs`: a `StatefulWidget` and its `State` — a plain struct, handlers that are closures, a
+  timer asked for by the build that wants it — then `frus::main!`.
 - `src/bin/frus-hello.rs`: the thin desktop binary that calls the generated `run()`.
 - `res/values/styles.xml`: the Android launch theme.
 

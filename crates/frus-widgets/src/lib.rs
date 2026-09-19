@@ -219,9 +219,9 @@ pub use collapsible::{ControlAffinity, ExpansionTile};
 pub use collapsingheader::{header_rect, CollapsingHeader, HeaderState, COLLAPSED_HEIGHT};
 pub use colorpicker::ColorPicker;
 pub use component::{
-    component, rebuild_requested, request_rebuild, take_rebuild_request, BuildContext, Component,
-    IntoCleanup, State, StateContext, StateHandle, StateStore, StatefulWidget, StatelessWidget,
-    UseRef, UseState,
+    component, intervals, rebuild_requested, request_rebuild, take_rebuild_request, BuildContext,
+    Component, Interval, IntoCleanup, State, StateContext, StateHandle, StateStore, StatefulWidget,
+    StatelessWidget, UseRef, UseState,
 };
 pub use constraints::{
     AxisConstraint, ConstrainedBox, ConstraintsTransform, ConstraintsTransformBox, Intrinsic,

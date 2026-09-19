@@ -5,20 +5,24 @@ frus stays **cargo-native**: no proprietary tooling, no in-house CLI.
 
 ## The smallest application
 
-A frus app is the Elm model in full: a state struct, a **pure** `update`, and a
-`view`. The canonical example lives in
-[`crates/frus-hello`](../crates/frus-hello/src/lib.rs) (~60 lines, a counter) —
-copy it, or generate a fresh project with the template below.
+A frus app is a root component: a widget that says what it builds, and keeps what it
+has to remember. The canonical example lives in
+[`crates/frus-hello`](../crates/frus-hello/src/lib.rs) (~60 lines, a counter) — copy it,
+or generate a fresh project with the template below.
 
 ```rust
-impl Application for Counter {
-    type Message = Msg;
-    fn update(&mut self, m: Msg) -> Command<Msg> {
-        match m { Msg::Increment => self.count += 1, Msg::Decrement => self.count -= 1 }
-        Command::none()
-    }
-    fn view(&self, theme: &Theme) -> Box<dyn Widget<Msg>> { /* … */ }
+use frus::{button, column, text, BuildContext, FrusApp, Widget};
+
+fn counter(cx: &BuildContext) -> Box<dyn Widget> {
+    let count = cx.use_state(|| 0);          // kept between rebuilds
+    let add = count.clone();
+    Box::new(column![
+        text(format!("{}", count.get())).size(48.0),
+        button("+", move || add.update(|n| *n += 1)),
+    ])
 }
+
+frus::main!(FrusApp::from_fn(counter));
 ```
 
 Run it on the desktop:
@@ -26,6 +30,86 @@ Run it on the desktop:
 ```sh
 cargo run -p frus-hello
 ```
+
+## State, in three sizes
+
+**A hook**, for a function component: `use_state`, `use_ref`, `use_memo`, `use_effect`. They are
+matched to their values by the order they are called in, so call them unconditionally and in
+the same order every time.
+
+**A `StatefulWidget`**, when the state deserves a struct, or a lifecycle. The widget is its
+configuration, made again on every rebuild; the `State` is what is kept.
+
+```rust
+struct Counter;
+struct CounterState { count: i32 }
+
+impl StatefulWidget for Counter {
+    type State = CounterState;
+    fn create_state(&self) -> CounterState { CounterState { count: 0 } }
+}
+
+impl State for CounterState {
+    type Widget = Counter;
+    // `init_state`, `did_update_widget` and `dispose` are optional
+    fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> {
+        Box::new(button("+", cx.callback(|state| state.count += 1)))
+    }
+}
+```
+
+`cx.callback(..)` is `set_state` wrapped up as a handler; `cx.handle()` gives a `StateHandle` to
+call `set_state` from anywhere — a timer, a listener. Changing the state from inside `build`
+itself is refused: a build that changes what it builds from never settles.
+
+**A controller**, when something outside a widget needs to read or write what it holds.
+`TextEditingController` is a text field's text: what is typed lands in it, what the program
+writes appears in the field.
+
+```rust
+let email = cx.use_text_controller("");
+TextField::new("").label("Email").controller(&email);
+button("Send", move || send(&email.text()));
+```
+
+A state is found again by where its widget sits, or by its key (`keyed(id, widget)`), and is
+disposed at the end of the frame that no longer builds it.
+
+## Moving between screens
+
+Routes are named by a pattern of path; a router holds them and the stack of pages.
+
+```rust
+let router = GoRouter::new(vec![
+    GoRoute::new("/", |_, _| Home.into_widget()).routes(vec![
+        GoRoute::new("users/:id", |_, state| {
+            UserPage { id: state.param("id").unwrap_or_default().to_string() }.into_widget()
+        })
+        .name("user"),
+    ]),
+    GoRoute::new("/settings", |_, _| Settings.into_widget()),
+]);
+
+frus::main!(FrusApp::router(router));
+```
+
+From any handler, `cx.router()` gives a handle: `go("/users/42")` makes the stack the routes
+that location is made of (so there is a page to go back to), `push("/settings")` adds a page on
+top, `replace`, `pop`, `go_named("user", &[("id", "42")], &[])`. A page reads what the location
+said from its `GoRouterState` — `param("id")`, `query("tab")`, `extra::<T>()`.
+
+A **redirect** sends a navigation elsewhere — to a sign-in page while nobody is signed in:
+`GoRouter::new(..).redirect(move |state| ...)`, and `refresh_listenable(&auth)` asks it again
+whenever `auth` changes. The page transition and the back gesture are the router's; a page that
+is covered keeps its state until it is popped.
+
+## Messages, when you want them
+
+An application can instead be written as a state struct, a **pure** `update` and a `view` — the
+`Application` trait, with typed messages, effects (`Command`) and subscriptions. Everything
+above is built on it: `FrusApp` is an `Application` whose message is a closure. Reach for the
+typed model when an application's logic is worth testing as a pure function of its messages;
+[`crates/frus-demo`](../crates/frus-demo/src/lib.rs) is written that way.
 
 ## Generating a new project (`cargo generate`)
 

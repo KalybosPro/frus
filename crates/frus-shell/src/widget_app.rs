@@ -29,6 +29,7 @@ use frus_widgets::{
 
 use crate::application::Application;
 use crate::command::Command;
+use crate::subscription::Subscription;
 
 /// What builds the root: called on every rebuild.
 type Root = Rc<dyn Fn(&BuildContext) -> Box<dyn Widget>>;
@@ -85,8 +86,8 @@ impl FrusApp {
     /// use frus_widgets::{text, GoRoute, GoRouter};
     ///
     /// let router = GoRouter::new(vec![
-    ///     GoRoute::new("/", |_, _| Box::new(text("home"))),
-    ///     GoRoute::new("/about", |_, _| Box::new(text("about"))),
+    ///     GoRoute::new("/", |_, _| text("home")),
+    ///     GoRoute::new("/about", |_, _| text("about")),
     /// ]);
     /// let app = FrusApp::router(router).title("Pages");
     /// # let _ = app;
@@ -160,6 +161,15 @@ impl Application for FrusApp {
     fn view(&self, _theme: &Theme) -> Box<dyn Widget<Callback>> {
         let root = self.root.clone();
         Box::new(Component::stateless(move |cx: &BuildContext| root(cx)))
+    }
+
+    fn subscription(&self) -> Subscription<Callback> {
+        // The timers the components of the latest build asked for. The shell diffs them: a
+        // timer whose component no longer asks for it is stopped.
+        Subscription::batch(frus_widgets::intervals().into_iter().map(|interval| {
+            let callback = interval.callback;
+            Subscription::every_keyed(interval.id, interval.period, move |_| callback.clone())
+        }))
     }
 
     fn tick(&mut self, dt: f32) -> bool {
@@ -320,6 +330,32 @@ mod tests {
         driver.release(at);
         driver.frame(1.0 / 60.0);
         assert_eq!(*toggles.borrow(), [true], "one tap, one call");
+    }
+
+    #[test]
+    fn a_timer_a_component_asks_for_is_a_subscription_while_it_asks() {
+        let on = Rc::new(std::cell::Cell::new(true));
+        let wanted = on.clone();
+        let mut driver = Driver::new(
+            FrusApp::from_fn(move |cx| {
+                if wanted.get() {
+                    cx.use_interval(std::time::Duration::from_secs(1), || {});
+                }
+                target(|| {})
+            }),
+            SIDE,
+            SIDE,
+        );
+        assert!(driver.app().subscription().is_empty(), "nothing built yet");
+        driver.frame(1.0 / 60.0);
+        assert_eq!(driver.app().subscription().ids().len(), 1);
+        on.set(false);
+        frus_widgets::request_rebuild();
+        driver.frame(1.0 / 60.0);
+        assert!(
+            driver.app().subscription().is_empty(),
+            "and it stops when it is not asked for"
+        );
     }
 
     #[test]

@@ -1,8 +1,9 @@
 //! `frus-hello` — the smallest complete frus application: a counter.
 //!
 //! This is the framework's "Hello, world!" and the source of the `cargo generate`
-//! template (see `templates/app/`). It fits in one state struct, a pure `update` and a
-//! `view` — the whole Elm model.
+//! template (see `templates/app/`). A widget that has something to remember is a
+//! `StatefulWidget`: the widget is its configuration, its `State` is what stays between
+//! rebuilds, and a button runs a closure that changes it.
 //!
 //! Run it on the desktop with `cargo run -p frus-hello`.
 
@@ -13,77 +14,76 @@ use std::time::Duration;
 // A **single** dependency: the `frus` facade supplies everything — framework layer,
 // widgets and DSL.
 use frus::{
-    button, column, row, text, Align, Application, Command, Container, Justify, MediaQuery, Size,
-    Subscription, Theme, Variant, Widget,
+    button, column, row, text, Align, Container, FrusApp, Justify, MediaQuery, Size, State,
+    StateContext, StatefulWidget, Variant, Widget,
 };
 
-/// The application's state: a plain counter.
+/// The counter: a widget with nothing to configure.
+#[derive(Clone)]
+struct Counter;
+
+/// What the counter keeps between rebuilds: a plain struct.
 #[derive(Default)]
-struct Counter {
+struct CounterState {
     count: i32,
-    /// Automatic counting: when it is on, an `every(1s)` **subscription** increments
-    /// the counter. The same continuous source runs on the desktop (a thread), on
-    /// Android and on the Web (`setInterval`) — the app knows only
-    /// `Subscription::every`.
+    /// Automatic counting: while it is on, a one-second timer increments the counter. The
+    /// same timer runs on the desktop (a thread), on Android and on the Web (`setInterval`) —
+    /// the widget only asks for it.
     auto: bool,
 }
 
-/// The messages the interface emits.
-#[derive(Clone)]
-enum Msg {
-    Increment,
-    Decrement,
-    /// Turns automatic counting on or off.
-    ToggleAuto,
-    /// A tick from the subscription: increment.
-    Tick,
+impl CounterState {
+    fn increment(&mut self) {
+        self.count += 1;
+    }
+
+    fn decrement(&mut self) {
+        if self.count > 0 {
+            self.count -= 1;
+        }
+    }
+
+    fn toggle_auto(&mut self) {
+        self.auto = !self.auto;
+    }
 }
 
-impl Application for Counter {
-    type Message = Msg;
+impl StatefulWidget for Counter {
+    type State = CounterState;
 
-    /// `update` is **pure**: it advances the state and returns whatever effects there
-    /// are — none here. Testable with neither GPU nor window.
-    fn update(&mut self, message: Msg) -> Command<Msg> {
-        match message {
-            Msg::Increment | Msg::Tick => self.count += 1,
-            Msg::Decrement => {
-                if self.count > 0 {
-                    self.count -= 1;
-                }
-            }
-            Msg::ToggleAuto => self.auto = !self.auto,
-        }
-        Command::none()
+    fn create_state(&self) -> CounterState {
+        CounterState::default()
     }
+}
 
-    /// Subscriptions **from the state**: in automatic mode it emits one `Tick` a
-    /// second, otherwise none. The framework starts and stops the source by diffing.
-    fn subscription(&self) -> Subscription<Msg> {
+impl State for CounterState {
+    type Widget = Counter;
+
+    /// `build` describes the interface for the current state. A handler is a closure:
+    /// `cx.callback(..)` is `set_state` wrapped up as one.
+    ///
+    /// It is **not** given the size. The framework installs a description of the surface
+    /// around the build, and `MediaQuery::of()` is how anything here asks about it: a
+    /// `Scaffold`, an `AppBar` or a `SafeArea` reads it without being told.
+    fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> {
+        // A timer is asked for by the build that wants it, and stops as soon as a build stops
+        // asking: automatic mode off, no timer left.
         if self.auto {
-            Subscription::every(Duration::from_secs(1), |_| Msg::Tick)
-        } else {
-            Subscription::none()
+            cx.use_interval(Duration::from_secs(1), cx.callback(CounterState::increment));
         }
-    }
 
-    /// `view` describes the interface for the current state — a pure function of
-    /// `(state, theme, surface)`. The framework (re)builds it as needed, with the
-    /// surface's description installed around the call: `MediaQuery::of()` is how this
-    /// asks how big the window is, and nothing is passed in.
-    fn view(&self, theme: &Theme) -> Box<dyn Widget<Msg>> {
         let Size { width, height } = MediaQuery::of().size;
         let content = column![
             text(format!("{}", self.count)).size(48.0),
             column![
                 row![
-                    button("+", Msg::Increment).variant(Variant::Filled),
-                    button("−", Msg::Decrement).variant(Variant::Outlined)
+                    button("+", cx.callback(CounterState::increment)).variant(Variant::Filled),
+                    button("−", cx.callback(CounterState::decrement)).variant(Variant::Outlined)
                 ]
                 .gap(20.0),
                 button(
                     if self.auto { "Stop auto" } else { "Start auto" },
-                    Msg::ToggleAuto,
+                    cx.callback(CounterState::toggle_auto),
                 )
                 .variant(Variant::Outlined),
             ]
@@ -105,52 +105,52 @@ impl Application for Counter {
             Container::new()
                 .width(width)
                 .height(height)
-                .color(theme.background)
+                .color(cx.theme().background)
                 .child(centered),
         )
-    }
-
-    fn title(&self) -> String {
-        "frus — counter".to_string()
     }
 }
 
 // **A single entry point**: one declaration generates the desktop, Android and Web
 // entry points (see `frus::main!`). The thin `src/bin/frus-hello.rs` binary calls the
 // `run()` it produces, for the desktop.
-frus::main!(Counter::default());
+frus::main!(FrusApp::stateful(Counter).title("frus — counter"));
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use frus::{build_deferred, Runtime, Theme};
 
-    /// The Elm advantage: `update` is tested with neither GPU nor window.
+    /// The counter's rules are plain Rust: testable with no widget, no GPU and no window.
     #[test]
-    fn counting_is_pure() {
-        let mut app = Counter::default();
-        app.update(Msg::Increment);
-        app.update(Msg::Increment);
-        app.update(Msg::Decrement);
-        assert_eq!(app.count, 1);
+    fn counting_is_plain_state() {
+        let mut state = CounterState::default();
+        state.increment();
+        state.increment();
+        state.decrement();
+        assert_eq!(state.count, 1);
+        state.decrement();
+        state.decrement();
+        assert_eq!(state.count, 0, "it does not go below zero");
+        state.toggle_auto();
+        assert!(state.auto);
     }
 
-    /// Automatic mode drives the subscription: absent at rest, present once turned on
-    /// — the framework starts and stops it from that diff — and a `Tick` counts.
+    /// The whole widget builds headless, and at rest asks for no timer: only automatic mode
+    /// does, and a build that does not ask stops it.
     #[test]
-    fn auto_mode_drives_the_subscription() {
-        let mut app = Counter::default();
-        assert!(app.subscription().is_empty(), "at rest: no subscription");
-        app.update(Msg::ToggleAuto);
+    fn the_widget_builds_and_at_rest_wants_no_timer() {
+        let runtime = Runtime::default();
+        let counter = Counter.into_widget();
+        MediaQuery::new(Size::new(400.0, 800.0)).scope(|| {
+            runtime.states.begin_build();
+            build_deferred(&counter, &Theme::default(), &runtime);
+            runtime.states.end_frame();
+        });
         assert!(
-            !app.subscription().is_empty(),
-            "automatic: one every(1s) source"
+            frus::intervals().is_empty(),
+            "automatic mode is off: no timer"
         );
-        app.update(Msg::Tick);
-        assert_eq!(app.count, 1, "a tick increments");
-        app.update(Msg::ToggleAuto);
-        assert!(
-            app.subscription().is_empty(),
-            "automatic off: no subscription left"
-        );
+        assert_eq!(runtime.states.len(), 1, "and it keeps one state");
     }
 }

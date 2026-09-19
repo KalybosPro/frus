@@ -1,7 +1,7 @@
 # frus-shell
 
-The platform layer of frus: the window, the event loop, and the `Application` model an
-application is written against, on desktop, Android and the web.
+The platform layer of frus: the window, the event loop, and the `Application` contract an
+application is driven through, on desktop, Android and the web.
 
 **Layer:** Shell. It is the only crate that knows which platform it runs on; everything
 platform-specific (winit, the Android input and clipboard bridges, AccessKit, the browser)
@@ -10,8 +10,9 @@ is gated here and nowhere else. See
 
 ## What you reach for
 
+- `FrusApp`: an application made of components — a root widget, and how it is dressed.
 - `Application`: `update`, `view`, and optionally `subscription`, `init`, `title` and
-  the rest.
+  the rest. `FrusApp` is one whose message is a closure.
 - `Command` and `Subscription`: effects, including `perform_async` futures, and
   continuous sources such as `Subscription::every`.
 - `main!`: one declaration that generates the desktop `run()`, Android's `android_main`

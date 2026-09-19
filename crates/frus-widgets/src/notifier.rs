@@ -6,7 +6,7 @@
 //! one of these underneath.
 //!
 //! ```
-//! use frus_widgets::ValueNotifier;
+//! use frus_widgets::{Listenable, ValueNotifier};
 //! use std::{cell::Cell, rc::Rc};
 //!
 //! let volume = ValueNotifier::new(3);
