@@ -18,6 +18,8 @@ pub struct ReadmeDoctests;
 // Accessibility (AccessKit): desktop only — not Android, not iOS, not web.
 #[cfg(desktop)]
 mod a11y;
+#[cfg(web)]
+mod address;
 #[cfg(android)]
 mod android_autofill;
 #[cfg(android)]
@@ -35,6 +37,8 @@ mod autofill;
 mod caret;
 mod command;
 mod gesture;
+#[cfg(any(web, test))]
+mod history;
 mod hover;
 #[cfg(any(android, test))]
 mod ime;
@@ -59,7 +63,7 @@ mod widget_app;
 #[doc(hidden)]
 pub use app::testing;
 pub use app::App;
-pub use application::{Application, Lifecycle};
+pub use application::{Application, Lifecycle, LocationStrategy};
 pub use command::Command;
 pub use remote::RemoteData;
 pub use subscription::Subscription;

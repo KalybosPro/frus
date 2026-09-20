@@ -106,6 +106,14 @@ web-sys = { version = "0.3", features = [
     "Navigator",
     # `navigator.clipboard`: copy and paste (milestone 526, #17).
     "Clipboard",
+    # The address bar and the browser history (deep links): `location`, `history`, the base URL
+    # of the document and the `popstate` listener.
+    "History",
+    "Location",
+    "Url",
+    "Node",
+    "Event",
+    "EventTarget",
     "Element",
     "Response",
     "Request",

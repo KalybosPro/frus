@@ -472,6 +472,9 @@ struct Inner {
     config: RefCell<Config>,
     stack: RefCell<Stack>,
     started: Cell<bool>,
+    /// Whether a tree has been built from this router yet: until then nobody has seen a page,
+    /// so there is nothing to move away from.
+    built: Cell<bool>,
     unique: Cell<u64>,
     refresh: RefCell<Option<Subscription>>,
 }
@@ -518,6 +521,7 @@ impl GoRouter {
                 }),
                 stack: RefCell::new(Stack::default()),
                 started: Cell::new(false),
+                built: Cell::new(false),
                 unique: Cell::new(0),
                 refresh: RefCell::new(None),
             }),
@@ -683,6 +687,23 @@ impl GoRouter {
         match self.location_for(name, params, query) {
             Some(location) => self.push(location),
             None => debug_assert!(false, "no route called `{name}`, or a parameter is missing"),
+        }
+    }
+
+    /// Goes to a location that came from **outside** the application: an address typed, a
+    /// link followed, the browser's back button. Like [`go`](Self::go), except that a
+    /// location the router is already at is left alone, and that before anything has been
+    /// built there is no page to slide away from, so the router simply starts there.
+    ///
+    /// It is what the shell's `FrusApp` hands an address to.
+    pub fn open(&self, location: impl AsRef<str>) {
+        let location = location.as_ref();
+        if self.location() == location {
+            return;
+        }
+        self.go(location);
+        if !self.inner.built.get() {
+            self.inner.stack.borrow_mut().transition = None;
         }
     }
 
@@ -1013,6 +1034,7 @@ impl GoRouter {
     /// builds. It also makes the router reachable from below, with [`BuildContext::router`].
     pub fn build(&self, cx: &BuildContext) -> Box<dyn Widget> {
         self.start();
+        self.inner.built.set(true);
         cx.runtime().states.provide(Rc::new(self.clone()));
         let error_builder = self.inner.config.borrow().error.clone();
         // What is on the stack is copied out, so that a page's builder can ask the router
@@ -1470,5 +1492,69 @@ mod animated_tests {
         assert!(router.can_pop());
         assert!(router.pop());
         assert_eq!(router.location(), "/");
+    }
+}
+
+#[cfg(test)]
+mod open_tests {
+    use super::*;
+    use crate::Container;
+
+    fn page(_: &BuildContext, _: &GoRouterState) -> Container {
+        Container::new()
+    }
+
+    fn router() -> GoRouter {
+        GoRouter::new(vec![
+            GoRoute::new("/", page).routes(vec![GoRoute::new("users/:id", page)]),
+            GoRoute::new("/settings", page),
+        ])
+    }
+
+    fn sliding(router: &GoRouter) -> bool {
+        router.inner.stack.borrow().transition.is_some()
+    }
+
+    #[test]
+    fn an_address_the_router_is_already_at_changes_nothing() {
+        let r = router();
+        r.open("/");
+        assert_eq!((r.location(), r.depth()), ("/".to_string(), 1));
+        assert!(!sliding(&r));
+    }
+
+    #[test]
+    fn before_anything_is_built_the_router_starts_at_the_address_without_a_slide() {
+        let r = router();
+        r.open("/users/42");
+        assert_eq!(r.location(), "/users/42");
+        assert_eq!(r.depth(), 2, "home underneath, as with any `go`");
+        assert!(
+            !sliding(&r),
+            "nobody has seen a page to slide away from: an address is where it opens"
+        );
+    }
+
+    #[test]
+    fn once_a_page_has_been_seen_an_address_slides_to_it_like_any_other_move() {
+        let r = router();
+        r.inner.built.set(true);
+        r.open("/settings");
+        assert_eq!(r.location(), "/settings");
+        assert!(sliding(&r));
+    }
+
+    #[test]
+    fn an_address_that_is_a_page_underneath_goes_back_to_it() {
+        let r = router();
+        r.go("/users/42");
+        r.inner.built.set(true);
+        r.open("/");
+        assert_eq!((r.location(), r.depth()), ("/".to_string(), 1));
+        let stack = r.inner.stack.borrow();
+        assert!(
+            !stack.transition.as_ref().unwrap().forward,
+            "the browser's back button slides the page out, not in"
+        );
     }
 }
