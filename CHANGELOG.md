@@ -13,6 +13,61 @@ any release may break.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-20
+
+The second tagged release, **286 milestones after the first** (278 to 563). Like the first it is
+not an API commitment — the version is still 0.x, nothing is on crates.io, and the public surface
+will move — but this one moves a good deal from where 0.1.0 left it. The summary is what changed
+in kind; everything below it, up to `[0.1.0]`, is the full record.
+
+**What changed in kind**
+
+- **Applications are made of components now.** `StatelessWidget`, `StatefulWidget` with a
+  `State`, hooks (`use_state`, `use_effect`, `use_interval`, `use_text_controller`…),
+  `TextEditingController`, `ChangeNotifier` and `ValueNotifier`, and `FrusApp`, an application
+  that is a root widget and whatever it builds — no message type, no `update`, no `view`. The
+  Elm-style `Application` is still there, and `FrusApp` is one. A `host` module lets a component
+  change what is not a widget: the theme, the language, the zoom, a focus, a scroll, work for
+  another thread.
+- **A router, and addresses.** `GoRouter`: routes by pattern of path, `go` / `push` / `replace` /
+  `pop`, path parameters and query, redirects, the page transition and the back gesture. **On the
+  web its location is the address bar** — a page opens at `#/users/42`, the browser's back and
+  forward move the application, a reload comes back to the page — and it was seen working in a
+  real browser. Android reads its launch link and a desktop its argument, with an opt-in single
+  window (`FrusApp::single_instance`).
+- **The demo is written that way, and runs in a browser.** One widget per screen, routes as
+  addresses (`/task/:id`), and it compiles for the web and ships the page that serves it.
+- **Widgets, many.** A Material 3 restyle of the core (buttons, chips, cards, dividers, the app
+  bar, tabs, navigation); `DataTable::lazy`, `DropdownMenu`, `SearchAnchor`, `ToggleButtons`,
+  `ExpansionPanelList`, `ReorderableList`, a picker wheel, `DraggableScrollableSheet`, the whole
+  Material icon set, undo and redo in a text field, licence pages, `Colors` and `MaterialColor`.
+- **Motion.** Implicit animations (nine of the eleven), explicit transitions, `AnimatedSwitcher`,
+  sheets that follow the finger, drag to reorder that scrolls the list under it, a second bouncing
+  profile.
+- **Text and input on a phone.** Selection handles, autofill hints, a word held and two handles to
+  move it, the clipboard on Android and in the browser, emoji, a predicting keyboard that no longer
+  writes a word twice, the focused field brought back above the soft keyboard.
+- **The platform's words reach the application**: the device's language, and on Android the
+  reader's font size, night mode and reduced motion; a French table for the framework's own words.
+- **Quality.** All **fifteen** crates deny a missing doc comment; every crate has a README whose
+  example is compiled as a doctest; the minimum supported Rust version is pinned (1.90); the
+  smallest application has a size budget in CI; the goldens are re-blessed for the wgpu 30 /
+  cosmic-text 0.19 text stack. `cargo test --workspace` runs **2,550 tests in 47 suites, all
+  passing** (717 in 36 at 0.1.0).
+
+**Breaking, in short** (each is in the log below with what to change): `Application::view`,
+`Scaffold`, `AppBar` and `Navigator` no longer take the screen's size (J393); `Scaffold` no longer
+scrolls its body (J321); `Variant::Primary` and `Variant::Secondary` are `Variant::Filled` and
+`Variant::Outlined`, and buttons, chips, cards, dividers and the app bar change shape, size and
+colour (J307, J313 and the milestones beside them); `Image::new(handle)` takes its size with
+`.size(w, h)`; `AppBar::new()` takes no title (J522); the reorder helpers take the axis (J527);
+every `Navigator` page has a key (J528); `build_deferred` takes a runtime; `ScrollPhysics::Bouncing`
+carries a deceleration rate; the MSRV is 1.90.
+
+**What it still is not:** published to crates.io; an API anyone should treat as stable; a link
+opened while an Android application is already running, or a macOS build that receives links
+(nothing of the Android links has been run on a device). See [ROADMAP.md](ROADMAP.md).
+
 ### Fixed
 
 - **The log screen's list was taller than the safe area** (J556). It sized itself to the window
@@ -5025,5 +5080,6 @@ For releases, use this shape:
 ### Security
 -->
 
-[Unreleased]: https://github.com/KalybosPro/frus/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/KalybosPro/frus/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/KalybosPro/frus/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/KalybosPro/frus/releases/tag/v0.1.0
