@@ -715,6 +715,11 @@ impl<M: 'static> Mailbox<M> {
     }
 }
 
+/// The event handler that drives an [`Application`]: it owns the window, the renderer, the
+/// last interface built and the runtime, and turns each event of the loop into messages,
+/// frames and effects. [`run`](crate::run) and the other entry points build one; it is
+/// exported for a platform layer that supplies its own loop, not for an application to
+/// construct.
 pub struct App<A: Application> {
     /// The application being driven: its state and logic.
     app: A,

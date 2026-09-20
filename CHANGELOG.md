@@ -340,6 +340,17 @@ any release may break.
   no comment at all — and three comments that had slid onto a neighbour (`Theme::state_layer`,
   `Divider::color`, `TabBar::enabled`), now back on their own item. Checked on the host with
   every feature and on the wasm and Android targets. Promoted to `#![deny(missing_docs)]`.
+- **`frus-shell` denies a missing doc comment** (J558, answers #14, continuing the
+  sweep). The platform layer — the window, the loop, the IME and clipboard bridges — keeps
+  nearly everything private, and `#![warn(...)]` found seven locations: the exported `App`
+  handler, which had no doc at all, and the six verbs of `net::Method`. Checked on the host
+  with every feature and on the wasm and Android targets. Promoted to
+  `#![deny(missing_docs)]`.
+- **`frus-gpu` denies a missing doc comment** (J557, answers #14, continuing the
+  sweep). The crate that turns a `Scene` into pixels keeps every module private, and
+  `#![warn(...)]` found two locations: the `width` and `height` of `OffscreenFrame`, whose
+  siblings were already documented. Each now says what it is and its unit. Promoted to
+  `#![deny(missing_docs)]`.
 - **A page is told how far in it is** (J556). `GoRouterState::entering()` is the number the
   transition is driven by, seen from the page being built — `0` not yet arrived, `1` settled,
   and the other way round for the page that is leaving — so a page that wants to move its own

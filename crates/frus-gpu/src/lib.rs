@@ -7,6 +7,8 @@
 //! What is to be drawn is described in a [`Scene`] — coloured [`Rect`]s and the
 //! rest — which is then handed to [`Renderer::render`].
 
+#![deny(missing_docs)]
+
 // The README's example is compiled and run by `cargo test --doc`, so it cannot rot.
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
