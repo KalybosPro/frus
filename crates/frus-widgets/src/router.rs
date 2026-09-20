@@ -475,6 +475,8 @@ struct Inner {
     /// Whether a tree has been built from this router yet: until then nobody has seen a page,
     /// so there is nothing to move away from.
     built: Cell<bool>,
+    /// Whether the last move swapped the page on top rather than adding or removing one.
+    replaced: Cell<bool>,
     unique: Cell<u64>,
     refresh: RefCell<Option<Subscription>>,
 }
@@ -522,6 +524,7 @@ impl GoRouter {
                 stack: RefCell::new(Stack::default()),
                 started: Cell::new(false),
                 built: Cell::new(false),
+                replaced: Cell::new(false),
                 unique: Cell::new(0),
                 refresh: RefCell::new(None),
             }),
@@ -603,6 +606,26 @@ impl GoRouter {
             .pages
             .last()
             .map(|page| (*page.state).clone())
+    }
+
+    /// The location of every page in the stack, the one at the bottom first and the one on
+    /// top last.
+    pub fn locations(&self) -> Vec<String> {
+        self.start();
+        self.inner
+            .stack
+            .borrow()
+            .pages
+            .iter()
+            .map(|page| page.state.location.clone())
+            .collect()
+    }
+
+    /// Whether the last move swapped the page on top for another — [`replace`](Self::replace)
+    /// — rather than adding a page, removing one or rebuilding the stack. What an address bar
+    /// wants to know, to swap its entry too instead of adding one.
+    pub fn replaced(&self) -> bool {
+        self.inner.replaced.get()
     }
 
     /// How many pages the stack holds.
@@ -724,6 +747,7 @@ impl GoRouter {
             stack.pages[..stack.pages.len() - 1].to_vec()
         };
         self.commit(pages);
+        self.inner.replaced.set(false);
         true
     }
 
@@ -759,6 +783,7 @@ impl GoRouter {
         let current = self.inner.stack.borrow().pages.clone();
         let pages = self.pages_for(location, extra, mode, &current);
         self.commit(pages);
+        self.inner.replaced.set(mode == Mode::Replace);
     }
 
     /// The stack that results from `mode` to `location`, redirects followed.
@@ -1542,6 +1567,30 @@ mod open_tests {
         r.open("/settings");
         assert_eq!(r.location(), "/settings");
         assert!(sliding(&r));
+    }
+
+    #[test]
+    fn the_locations_of_the_stack_run_from_the_bottom_to_the_top() {
+        let r = router();
+        r.go("/users/42?tab=posts");
+        assert_eq!(r.locations(), ["/", "/users/42?tab=posts"]);
+    }
+
+    #[test]
+    fn only_a_replace_is_a_swap() {
+        let r = router();
+        assert!(!r.replaced());
+        r.push("/settings");
+        assert!(!r.replaced());
+        r.replace("/users/1");
+        assert!(r.replaced());
+        r.go("/settings");
+        assert!(!r.replaced(), "a go rebuilds the stack");
+        r.push("/users/3");
+        r.replace("/users/2");
+        assert!(r.replaced());
+        assert!(r.pop());
+        assert!(!r.replaced(), "and a pop removes a page");
     }
 
     #[test]

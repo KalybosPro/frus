@@ -112,6 +112,18 @@ hash, which needs a server that answers every address with the page. An applicat
 a router says where it is with `Application::location` and hears about the address with
 `Application::open_location`.
 
+**Links from outside** — `myapp://orders/42`, or `https://example.com/orders/42` on Android —
+reach the same `open_location` as a location (`/orders/42`); `frus_shell::location_of_link` is
+the translation. Android reads the launch intent, so the application declares an intent filter
+for its scheme in its manifest (`[[package.metadata.android.application.activity.intent_filter]]`
+with `actions = ["android.intent.action.VIEW"]`, the `DEFAULT` and `BROWSABLE` categories and a
+`data = [{ scheme = "myapp" }]`; the demo has one). A desktop starts the program with the link as
+an argument once the operating system knows the scheme — a `HKCU\Software\Classes\myapp` key on
+Windows, a `.desktop` file with `MimeType=x-scheme-handler/myapp` on Linux — and
+`FrusApp::single_instance("com.example.myapp")` makes a second process hand its link to the
+first instead of opening a second window. macOS delivers the link as an Apple Event that winit
+does not surface, so a macOS build gets none.
+
 ## Messages, when you want them
 
 An application can instead be written as a state struct, a **pure** `update` and a `view` — the

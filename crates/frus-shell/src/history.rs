@@ -52,6 +52,9 @@ pub(crate) struct History {
     going: Option<String>,
     /// The application was handed a location from outside and has not answered yet.
     handed: bool,
+    /// The page was opened as a new visit, not a reload or a return to an entry of this side's
+    /// making: the only time the entries beneath it can be made.
+    fresh: bool,
 }
 
 impl History {
@@ -63,16 +66,46 @@ impl History {
             reported: false,
             going: None,
             handed: false,
+            fresh: false,
         }
     }
 
     /// The page was opened at `location` (`None` if its address carried none), as the entry
     /// numbered `index` (`None` if it is not one this side made, which is the first).
     pub(crate) fn opened(&mut self, location: Option<String>, index: Option<usize>) {
+        self.fresh = index.is_none();
         let index = index.unwrap_or(0);
         self.entries = vec![None; index + 1];
         self.entries[index] = location;
         self.index = index;
+    }
+
+    /// The application answered the address the page opened at, and its pages are `stack`,
+    /// the lowest first. A page opened deep in the application has nothing behind it in the
+    /// browser's list, so going back — the application's or the browser's — would leave the
+    /// application; this makes an entry for each page beneath, so it does not. What the
+    /// browser is to be made to do, each with the number its entry is to carry; nothing for a
+    /// reload or a return to an entry made earlier, where the entries beneath already exist.
+    pub(crate) fn seed(&mut self, stack: &[String]) -> Vec<(Step, usize)> {
+        if !self.fresh || stack.len() < 2 || self.reported {
+            return Vec::new();
+        }
+        self.reported = true;
+        self.handed = false;
+        self.entries = stack.iter().cloned().map(Some).collect();
+        self.index = stack.len() - 1;
+        stack
+            .iter()
+            .enumerate()
+            .map(|(at, location)| {
+                let step = if at == 0 {
+                    Step::Replace(location.clone())
+                } else {
+                    Step::Push(location.clone())
+                };
+                (step, at)
+            })
+            .collect()
     }
 
     /// The number the current entry carries in the browser's `state`.
@@ -109,7 +142,10 @@ impl History {
 
     /// The application says it is at `location`. What, if anything, the browser is to be made
     /// to do about it.
-    pub(crate) fn reflect(&mut self, location: &str) -> Option<Step> {
+    ///
+    /// `replace` says the move that led there swapped the page, so the entry is swapped too
+    /// instead of one being added.
+    pub(crate) fn reflect(&mut self, location: &str, replace: bool) -> Option<Step> {
         if self.going.is_some() {
             // The browser has a move in flight; the answer will say where it is.
             return None;
@@ -129,8 +165,9 @@ impl History {
             self.handed = false;
             return None;
         }
-        if self.handed {
-            // Told to go somewhere and it went elsewhere: the address is corrected in place.
+        if self.handed || replace {
+            // Told to go somewhere and it went elsewhere, or a page swapped for another: the
+            // address is corrected in place.
             self.handed = false;
             self.entries[self.index] = Some(location.to_string());
             return Some(Step::Replace(location.to_string()));
@@ -406,9 +443,19 @@ mod tests {
             tab
         }
 
-        /// [`start`](Self::start), then the first report.
+        /// What the shell does once the application has answered the launch address: entries
+        /// for the pages beneath, if the page was opened deep.
+        fn seed(&mut self) {
+            let stack = self.app.0.clone();
+            for (step, index) in self.history.seed(&stack) {
+                self.browser.apply(step, index);
+            }
+        }
+
+        /// [`start`](Self::start), the pages beneath made, then the first report.
         fn open(address: Option<&str>) -> Self {
             let mut tab = Self::start(address);
+            tab.seed();
             tab.sync();
             tab
         }
@@ -416,7 +463,7 @@ mod tests {
         /// What the shell does after a message and at the top of a frame: the application's
         /// location, reflected.
         fn sync(&mut self) {
-            if let Some(step) = self.history.reflect(self.app.at()) {
+            if let Some(step) = self.history.reflect(self.app.at(), false) {
                 let index = self.history.index();
                 self.browser.apply(step, index);
             }
@@ -474,7 +521,65 @@ mod tests {
     fn a_page_opened_at_an_address_starts_the_application_there() {
         let tab = Tab::open(Some("/users/42"));
         assert_eq!(tab.app.at(), "/users/42");
-        assert_eq!(tab.browser.locations(), ["/users/42"]);
+        assert_eq!(
+            tab.browser.locations(),
+            ["/", "/users/42"],
+            "and the page beneath has an entry of its own, so going back stays in the application"
+        );
+        assert_eq!(tab.browser.at, 1);
+    }
+
+    #[test]
+    fn the_applications_own_back_from_a_deep_page_goes_back_in_the_browser() {
+        let mut tab = Tab::open(Some("/users/42"));
+        tab.app.pop();
+        tab.sync();
+        tab.settle();
+        assert_eq!(tab.app.0, ["/"]);
+        assert_eq!(
+            tab.browser.locations(),
+            ["/", "/users/42"],
+            "not `/users/42`, `/`, with the application's page twice"
+        );
+        assert_eq!(tab.browser.at, 0);
+    }
+
+    #[test]
+    fn the_browsers_back_from_a_deep_page_lands_in_the_application() {
+        let mut tab = Tab::open(Some("/users/42"));
+        tab.press_back();
+        assert_eq!(tab.app.0, ["/"]);
+    }
+
+    #[test]
+    fn a_reload_partway_makes_no_entries_beneath_it() {
+        // The tab reloaded on its second entry: it comes back carrying its number.
+        let mut history = History::new();
+        history.opened(Some("/users/42".to_string()), Some(1));
+        assert!(history
+            .seed(&["/".to_string(), "/users/42".to_string()])
+            .is_empty());
+    }
+
+    #[test]
+    fn a_page_opened_at_the_top_of_the_application_has_nothing_beneath_to_make() {
+        let mut history = History::new();
+        history.opened(Some("/".to_string()), None);
+        assert!(history.seed(&["/".to_string()]).is_empty());
+    }
+
+    #[test]
+    fn a_page_swapped_for_another_swaps_the_entry_too() {
+        let mut tab = Tab::open(None);
+        tab.app.push("/a");
+        tab.sync();
+        tab.app.pop();
+        tab.app.push("/b");
+        assert_eq!(
+            tab.history.reflect("/b", true),
+            Some(Step::Replace("/b".to_string()))
+        );
+        assert_eq!(tab.history.index(), 1, "the same entry, not a new one");
     }
 
     #[test]
@@ -590,10 +695,13 @@ mod tests {
         let mut history = History::new();
         history.opened(Some("/a/b".to_string()), Some(2));
         assert_eq!(history.index(), 2);
-        assert_eq!(history.reflect("/a/b"), None);
+        assert_eq!(history.reflect("/a/b", false), None);
         // The application goes back a page it never saw as an entry: a new entry, which is
         // the honest answer when the entry behind is not known to be that page.
-        assert_eq!(history.reflect("/a"), Some(Step::Push("/a".to_string())));
+        assert_eq!(
+            history.reflect("/a", false),
+            Some(Step::Push("/a".to_string()))
+        );
         assert_eq!(history.index(), 3);
     }
 
@@ -601,7 +709,7 @@ mod tests {
     fn an_address_edited_by_hand_is_a_new_entry_after_the_current() {
         let mut history = History::new();
         history.opened(Some("/".to_string()), None);
-        history.reflect("/");
+        history.reflect("/", false);
         assert!(
             history.popped("/typed".to_string(), None),
             "the application is told"
@@ -613,19 +721,22 @@ mod tests {
     fn a_new_entry_drops_what_lay_ahead_of_it() {
         let mut history = History::new();
         history.opened(Some("/".to_string()), None);
-        history.reflect("/");
-        history.reflect("/a");
+        history.reflect("/", false);
+        history.reflect("/a", false);
         // Back to `/`, then somewhere else: `/a` is gone from the browser's list.
         assert!(history.popped("/".to_string(), Some(0)));
         assert_eq!(
-            history.reflect("/"),
+            history.reflect("/", false),
             None,
             "the application went where it was told"
         );
-        assert_eq!(history.reflect("/b"), Some(Step::Push("/b".to_string())));
+        assert_eq!(
+            history.reflect("/b", false),
+            Some(Step::Push("/b".to_string()))
+        );
         assert_eq!(history.index(), 1);
         assert_eq!(
-            history.reflect("/a"),
+            history.reflect("/a", false),
             Some(Step::Push("/a".to_string())),
             "a new entry, not a step back to an entry that no longer exists"
         );
@@ -635,9 +746,9 @@ mod tests {
     fn the_answer_to_our_own_go_is_not_repeated_to_the_application() {
         let mut history = History::new();
         history.opened(Some("/".to_string()), None);
-        history.reflect("/");
-        history.reflect("/a");
-        assert_eq!(history.reflect("/"), Some(Step::Go(-1)));
+        history.reflect("/", false);
+        history.reflect("/a", false);
+        assert_eq!(history.reflect("/", false), Some(Step::Go(-1)));
         assert!(!history.popped("/".to_string(), Some(0)));
     }
 
@@ -645,10 +756,10 @@ mod tests {
     fn a_different_answer_than_the_go_asked_for_is_told_to_the_application() {
         let mut history = History::new();
         history.opened(Some("/".to_string()), None);
-        history.reflect("/");
-        history.reflect("/a");
-        history.reflect("/b");
-        assert_eq!(history.reflect("/"), Some(Step::Go(-2)));
+        history.reflect("/", false);
+        history.reflect("/a", false);
+        history.reflect("/b", false);
+        assert_eq!(history.reflect("/", false), Some(Step::Go(-2)));
         // A back press lands the browser one entry short of where the `Go` was headed.
         assert!(history.popped("/a".to_string(), Some(1)));
     }

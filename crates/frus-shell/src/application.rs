@@ -83,6 +83,22 @@ pub trait Application {
         None
     }
 
+    /// Whether the move that led to [`location`](Self::location) **swapped** the page — a
+    /// router's `replace` — rather than adding one. The browser's entry is then swapped too,
+    /// instead of a new one being added behind it. `false` by default.
+    fn location_replaces(&self) -> bool {
+        false
+    }
+
+    /// The locations of the pages beneath the one shown, the lowest first, and
+    /// [`location`](Self::location) last. Used once, when the page is opened at an address
+    /// deep in the application: the browser's history is made to hold the pages beneath too,
+    /// so that going back — the application's own or the browser's — has somewhere to land
+    /// inside the application. The default is the location alone.
+    fn location_stack(&self) -> Vec<String> {
+        self.location().into_iter().collect()
+    }
+
     /// **A location was asked for from outside**: the address the page was opened at, or the
     /// one the browser's back and forward buttons landed on. Move to it — or to wherever it
     /// redirects, and the shell corrects the address bar to match. Called with a location
@@ -93,6 +109,18 @@ pub trait Application {
     fn open_location(&mut self, location: &str) -> Command<Self::Message> {
         let _ = location;
         Command::none()
+    }
+
+    /// Whether the application is **one window**, and its name: on a desktop, a second process
+    /// started with a link — the operating system's way of opening `myapp://orders/42` — hands
+    /// the link to the first and ends, instead of opening a second window. `None`, the default,
+    /// lets every process be its own.
+    ///
+    /// The name tells this application from the others on the machine; a reverse domain
+    /// (`com.example.myapp`) is what one is. Links reach [`open_location`](Self::open_location)
+    /// as locations — see [`location_of_link`](crate::location_of_link).
+    fn instance_id(&self) -> Option<String> {
+        None
     }
 
     /// How [`location`](Self::location) is written in the address bar. See
