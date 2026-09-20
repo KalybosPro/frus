@@ -47,6 +47,14 @@ pub trait Application {
         Command::none()
     }
 
+    /// Effects the application asked for **outside** an [`update`](Application::update) — from
+    /// a build, say, or from a component that has no message to return them with. The shell
+    /// asks after every frame and after every message, and runs what comes back like any
+    /// other command. An application that returns its effects from `update` never needs it.
+    fn effects(&mut self) -> Command<Self::Message> {
+        Command::none()
+    }
+
     /// **Continuous** sources of messages — timers and so on — declared from the
     /// state. The framework starts and stops them by diffing every cycle.
     fn subscription(&self) -> Subscription<Self::Message> {

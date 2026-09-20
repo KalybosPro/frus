@@ -1,5 +1,11 @@
-//! One module per screen, and the routing that decides which one you are looking
-//! at.
+//! One module per screen, and the routes that say where each one lives.
+//!
+//! A screen is a widget — a `StatelessWidget` when it only shows what it is given, a
+//! `StatefulWidget` when it keeps something — and a route is the address it answers to. The
+//! router builds the widget for the address it was told, keeps the ones under it while
+//! another is on top, and moves between them with the slide and the back gesture. Which route
+//! is open, how deep the stack is and what each page was told when it was built are the
+//! router's; nothing here keeps them.
 
 mod board;
 mod charts;
@@ -19,9 +25,9 @@ pub(crate) use charts::*;
 pub(crate) use data::*;
 pub(crate) use grid::*;
 pub(crate) use journal::*;
-pub(crate) use licenses::licenses_screen;
+pub(crate) use licenses::*;
 pub(crate) use settings::*;
-pub(crate) use sheet::PLACES_SHEET;
+pub(crate) use sheet::*;
 pub(crate) use task::*;
 pub(crate) use todo::*;
 pub(crate) use tour::*;
@@ -29,81 +35,40 @@ pub(crate) use wizard::*;
 
 use crate::prelude::*;
 
-/// The view's entry point: a `Navigator` around the current screen.
-///
-/// Each screen is told **how far in it is** — `1.0` settled, `0.0` not arrived — which is
-/// the number the navigator itself is driven by, read from the other end. It is the
-/// reference's `ModalRoute.of(context).animation`: a screen that wants to move its own
-/// contents as it arrives needs the route's progress, and the application is what has it.
-/// A screen that does not care ignores it, which is all but one of them.
-///
-/// Each page is keyed by **its entry of the stack** — how deep it is and which route it
-/// shows — so that what one page keeps, its scroll first of all, is never read by another,
-/// and a page keeps it through the transitions that bring it in and take it out
-/// (milestone 528). Home is depth 0, below everything the stack holds.
-pub(crate) fn build_view(app: &TodoApp, theme: &Theme) -> Navigator<Msg> {
-    let depth = app.routes.len();
-    let top_key = (depth, current_route(app));
-
-    // A back gesture in progress: it previews the pop, driven by the finger. The top
-    // screen is the one leaving, so its own progress runs the other way. A gesture only
-    // starts on a stack with something to go back to, so the page below is one entry
-    // down.
-    if let Some(gesture) = &app.back {
-        let progress = gesture.progress;
-        let top = screen(current_route(app), app, theme, 1.0 - progress);
-        let below_route = app
-            .routes
-            .split_last()
-            .and_then(|(_, rest)| rest.last().copied())
-            .unwrap_or(Route::Home);
-        let below = screen(below_route, app, theme, progress);
-        return Navigator::new((depth.saturating_sub(1), below_route), below)
-            .from(top_key, top, progress, false);
-    }
-
-    match app.nav_from {
-        Some(from) => {
-            let progress = app.nav.value();
-            let current = screen(current_route(app), app, theme, progress);
-            let leaving = screen(from, app, theme, 1.0 - progress);
-            // A push left the page it came from one entry down; a pop took the page it
-            // left off the top, one entry up.
-            let from_depth = if app.nav_forward {
-                depth.saturating_sub(1)
-            } else {
-                depth + 1
-            };
-            Navigator::new(top_key, current).from(
-                (from_depth, from),
-                leaving,
-                progress,
-                app.nav_forward,
-            )
-        }
-        None => Navigator::new(top_key, screen(current_route(app), app, theme, 1.0)),
-    }
-}
-
-/// Builds the screen matching a route.
-pub(crate) fn screen(
-    route: Route,
-    app: &TodoApp,
-    theme: &Theme,
-    entering: f32,
-) -> Box<dyn Widget<Msg>> {
-    match route {
-        Route::Home => todo_screen(app, theme),
-        Route::Settings => Box::new(settings_screen(app, theme)),
-        Route::Journal => Box::new(journal_screen(app, theme)),
-        Route::Wizard => wizard_screen(app, theme),
-        Route::GridView => grid_screen(app, theme),
-        Route::Charts => charts_screen(app, theme),
-        Route::Data => data_screen(app, theme),
-        Route::Board => board_screen(app, theme),
-        Route::Tour => tour_screen(app, theme),
-        Route::Sheet => sheet::sheet_screen(app, theme),
-        Route::Task(id) => task_screen(app, theme, id, entering),
-        Route::Licenses => Box::new(licenses_screen(app, theme)),
-    }
+/// The demo's routes. Home is the root; every other screen is a sub-route of it, so going
+/// back from any of them lands on the task list — and a task's own screen is `/task/:id`.
+pub(crate) fn router(demo: Rc<Demo>) -> GoRouter {
+    let with_demo = |path: &str, build: fn(Rc<Demo>) -> Component| {
+        let demo = demo.clone();
+        GoRoute::new(path.to_string(), move |_, _| build(demo.clone()))
+    };
+    let home = with_demo("/", |demo| HomePage { demo }.into_widget());
+    let task = {
+        let demo = demo.clone();
+        GoRoute::new("task/:id", move |_, state| {
+            TaskPage {
+                demo: demo.clone(),
+                id: state
+                    .param("id")
+                    .and_then(|id| id.parse().ok())
+                    .unwrap_or(0),
+                entering: state.entering(),
+            }
+            .into_widget()
+        })
+        .name("task")
+    };
+    GoRouter::new(vec![home.routes(vec![
+        with_demo("settings", |demo| SettingsPage { demo }.into_widget()),
+        with_demo("wizard", |demo| WizardPage { demo }.into_widget()),
+        with_demo("grid", |demo| GridPage { demo }.into_widget()),
+        GoRoute::new("journal", |_, _| JournalPage.into_widget()),
+        GoRoute::new("charts", |_, _| ChartsPage.into_widget()),
+        GoRoute::new("data", |_, _| DataPage.into_widget()),
+        GoRoute::new("board", |_, _| BoardPage.into_widget()),
+        GoRoute::new("tour", |_, _| TourPage.into_widget()),
+        GoRoute::new("sheet", |_, _| SheetPage.into_widget()),
+        GoRoute::new("licenses", |_, _| LicensesPage.into_widget()),
+        task,
+    ])])
 }

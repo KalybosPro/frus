@@ -2474,6 +2474,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // the tree, so it is rebuilt — not only repainted — until the switch settles.
                 // Something a component keeps changed — a `set_state`, a hook, a controller —
                 // and what it builds is built again.
+                // What components asked of the shell since the last frame — a focus, a scroll,
+                // work for another thread — is run first: it may ask for this very rebuild.
+                let asked = self.app.effects();
+                self.run_command(asked);
                 if frus_widgets::take_rebuild_request() {
                     self.build_dirty = true;
                 }
@@ -3947,6 +3951,8 @@ impl<A: Application> App<A> {
         self.build_dirty = true;
         let command = self.app.update(message);
         self.run_command(command);
+        let asked = self.app.effects();
+        self.run_command(asked);
         self.sync_subscriptions();
     }
 
@@ -7373,6 +7379,9 @@ pub mod testing {
     use super::*;
     use crate::gesture::{PointerEvent, PointerKind, LONG_PRESS_DELAY};
 
+    /// What the last frame left behind: the interface it laid out, and the tree it laid out from.
+    pub type FrameParts<'a, Msg> = (&'a Ui<Msg>, &'a dyn Widget<Msg>);
+
     /// The shell around an application, on a surface of a stated logical size.
     pub struct Driver<A: Application> {
         shell: App<A>,
@@ -7419,6 +7428,46 @@ pub mod testing {
                         .collect()
                 })
                 .unwrap_or_default()
+        }
+
+        /// The interface the last frame laid out — what a tap is asked about, what the registries
+        /// hold — and the tree it was laid out from.
+        pub fn frame_parts(&self) -> Option<FrameParts<'_, A::Message>> {
+            let s = &self.shell;
+            Some((s.ui.as_ref()?, s.tree.as_deref()?))
+        }
+
+        /// The words the last frame drew and the box each was drawn in, in paint order.
+        pub fn texts(&self) -> Vec<(String, Rect)> {
+            self.shell
+                .ui
+                .as_ref()
+                .map(|ui| {
+                    ui.scene()
+                        .primitives()
+                        .iter()
+                        .filter_map(|p| match p {
+                            frus_widgets::Primitive::Text { text, .. } => {
+                                Some((text.clone(), p.bounds()))
+                            }
+                            _ => None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+
+        /// A tap on the first word of the last frame that reads `label`, and a frame after it:
+        /// how a test presses a button by what it says. Whether there was such a word.
+        pub fn tap_text(&mut self, label: &str) -> bool {
+            let Some((_, rect)) = self.texts().into_iter().find(|(text, _)| text == label) else {
+                return false;
+            };
+            let at = Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+            self.press(at);
+            self.release(at);
+            self.frame(1.0 / 60.0);
+            true
         }
 
         /// The application, as the shell holds it.
@@ -7499,6 +7548,8 @@ pub mod testing {
             let _surface = s.media_query(width, height).install();
             s.runtime.still = settings.disable_animations;
             let was = std::mem::replace(&mut s.app_was_animating, app_animating);
+            let asked = s.app.effects();
+            s.run_command(asked);
             if frus_widgets::take_rebuild_request() {
                 s.build_dirty = true;
             }

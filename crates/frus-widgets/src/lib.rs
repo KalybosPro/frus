@@ -78,6 +78,9 @@ mod fractional;
 mod grid;
 mod gridtile;
 mod hero;
+// Documented inside (`host.rs`): an outer doc comment here would make its links resolve from
+// this scope rather than from the module's.
+pub mod host;
 mod icon;
 mod iconbutton;
 mod icons;
@@ -219,9 +222,9 @@ pub use collapsible::{ControlAffinity, ExpansionTile};
 pub use collapsingheader::{header_rect, CollapsingHeader, HeaderState, COLLAPSED_HEIGHT};
 pub use colorpicker::ColorPicker;
 pub use component::{
-    component, intervals, rebuild_requested, request_rebuild, take_rebuild_request, BuildContext,
-    Component, Interval, IntoCleanup, State, StateContext, StateHandle, StateStore, StatefulWidget,
-    StatelessWidget, UseRef, UseState,
+    back_blocked, component, intervals, rebuild_requested, request_rebuild, take_rebuild_request,
+    BuildContext, Component, Interval, IntoCleanup, State, StateContext, StateHandle, StateStore,
+    StatefulWidget, StatelessWidget, UseRef, UseState,
 };
 pub use constraints::{
     AxisConstraint, ConstrainedBox, ConstraintsTransform, ConstraintsTransformBox, Intrinsic,
