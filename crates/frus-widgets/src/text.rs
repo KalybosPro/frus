@@ -192,6 +192,9 @@ impl Text {
         self
     }
 
+    /// Wraps the text at the width it is given: [`soft_wrap(true)`](Self::soft_wrap). It is
+    /// what an unset text does already; this says so, and undoes a
+    /// [`no_wrap`](Self::no_wrap) further up a chain.
     pub fn wrap(mut self) -> Self {
         self.wrap = Some(true);
         self

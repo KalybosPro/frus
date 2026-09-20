@@ -97,15 +97,35 @@ pub enum Key {
     /// Enter.
     Enter,
     /// Left arrow (`shift`: extends the selection; `word`: jumps a word, Ctrl).
-    Left { shift: bool, word: bool },
+    Left {
+        /// Whether Shift is held: the selection is extended.
+        shift: bool,
+        /// Whether Ctrl is held: the caret jumps a word.
+        word: bool,
+    },
     /// Right arrow (`shift`: extends it; `word`: jumps a word, Ctrl).
-    Right { shift: bool, word: bool },
+    Right {
+        /// Whether Shift is held: the selection is extended.
+        shift: bool,
+        /// Whether Ctrl is held: the caret jumps a word.
+        word: bool,
+    },
     /// Escape (close or cancel) — routed leaf→root, never to editing.
     Escape,
     /// Start of line (`doc`: the start of the whole **field**, Ctrl).
-    Home { shift: bool, doc: bool },
+    Home {
+        /// Whether Shift is held: the selection is extended.
+        shift: bool,
+        /// Whether Ctrl is held: the caret goes to the start of the whole field.
+        doc: bool,
+    },
     /// End of line (`doc`: the end of the whole **field**, Ctrl).
-    End { shift: bool, doc: bool },
+    End {
+        /// Whether Shift is held: the selection is extended.
+        shift: bool,
+        /// Whether Ctrl is held: the caret goes to the end of the whole field.
+        doc: bool,
+    },
 }
 
 /// A widget's visual pointer interaction state.
@@ -127,7 +147,9 @@ pub enum Interaction {
 /// caret and selection (for fields), animation progress and opacity.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Status {
+    /// Whether the pointer is over the widget or pressing it.
     pub interaction: Interaction,
+    /// Whether the widget holds the keyboard focus.
     pub focused: bool,
     /// The caret's (character) index, if this widget is a focused field.
     pub cursor: Option<usize>,

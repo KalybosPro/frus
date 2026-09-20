@@ -31,9 +31,13 @@ use frus_core::{
 /// extent along that axis — the yardstick the rubber band is measured against.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScrollMetrics {
+    /// The current scroll offset.
     pub pixels: f32,
+    /// The smallest offset the content may rest at; 0 in practice.
     pub min: f32,
+    /// The largest offset the content may rest at: how far the content overflows.
     pub max: f32,
+    /// The visible extent along the axis.
     pub viewport: f32,
 }
 

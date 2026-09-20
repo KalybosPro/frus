@@ -38,6 +38,7 @@ const TARGET_OUTLINE: f32 = 2.0;
 /// A widget that can be picked up, as the shell sees it.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct DragSource {
+    /// The widget's identity.
     pub id: WidgetId,
     /// Where it sits, in absolute coordinates.
     pub rect: Rect,
@@ -48,6 +49,7 @@ pub struct DragSource {
 /// A widget that can be dropped onto, as the shell sees it.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct DropZone {
+    /// The widget's identity.
     pub id: WidgetId,
     /// Where it sits, in absolute coordinates.
     pub rect: Rect,

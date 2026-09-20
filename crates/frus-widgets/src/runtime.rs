@@ -80,7 +80,9 @@ pub(crate) const PRESS_DURATION: f32 = 0.2;
 /// `Copy`, so sampling it costs no allocation.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ScrollBallistic {
+    /// The fling along the x axis, if there is one.
     pub x: Option<Ballistic>,
+    /// The fling along the y axis, if there is one.
     pub y: Option<Ballistic>,
     /// Seconds since the release.
     pub elapsed: f32,
@@ -161,7 +163,9 @@ fn inside_extent(offset: (f32, f32), max: (f32, f32)) -> (f32, f32) {
 /// A widget's animation progresses (`0.0..=1.0`).
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Anim {
+    /// The hover transition's progress.
     pub hover: f32,
+    /// The focus transition's progress.
     pub focus: f32,
     /// The press (0 at rest), on its own clock: 200 ms against the 120 the other two
     /// run on, because the reference gives the press highlight four times the fade it
@@ -2165,6 +2169,9 @@ impl Runtime {
         self.undo.get_mut(&id)?.redo(current)
     }
 
+    /// A finger takes hold of the region `id`. A scroll offset has one owner at a time, so
+    /// nothing else moves it until [`release_scroll`](Self::release_scroll); see
+    /// [`scroll_held`](Self::scroll_held).
     pub fn hold_scroll(&mut self, id: WidgetId) {
         self.scroll_held = Some(id);
     }

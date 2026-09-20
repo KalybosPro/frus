@@ -47,9 +47,13 @@ fn body_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextSty
 /// The nature of an alert box.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AlertKind {
+    /// Neutral information.
     Info,
+    /// Something went well.
     Success,
+    /// Something that deserves attention, short of an error.
     Warning,
+    /// Something went wrong.
     Error,
 }
 

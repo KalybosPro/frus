@@ -31,11 +31,17 @@ use crate::widget::Widget;
 /// edge means "not pinned there".
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Positioning {
+    /// The distance from the stack's left edge, or `None` to leave that edge free.
     pub left: Option<f32>,
+    /// The distance from the stack's top edge, or `None` to leave that edge free.
     pub top: Option<f32>,
+    /// The distance from the stack's right edge, or `None` to leave that edge free.
     pub right: Option<f32>,
+    /// The distance from the stack's bottom edge, or `None` to leave that edge free.
     pub bottom: Option<f32>,
+    /// A fixed width, or `None` to take the one the edges and the content leave.
     pub width: Option<f32>,
+    /// A fixed height, or `None` to take the one the edges and the content leave.
     pub height: Option<f32>,
 }
 

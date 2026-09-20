@@ -15,7 +15,9 @@ use crate::widget::Widget;
 /// A [`SingleChildScrollView`]'s scrolling axis, or axes.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Axis {
+    /// Up and down.
     Vertical,
+    /// Left and right.
     Horizontal,
     /// Both, which is a **convenience** rather than a third kind of area: a scrollable
     /// elsewhere has one axis and one only, and two of them means one nested inside the

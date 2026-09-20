@@ -292,6 +292,11 @@ impl<Msg> ColCards<Msg> {
     }
 }
 
+/// A **board** of columns holding cards, which can be dragged from one column to another
+/// or reordered inside one.
+///
+/// It is controlled: the application holds the columns and their cards, and the board only
+/// says where a card was dropped, through the callback given to [`Kanban::new`].
 pub struct Kanban<Msg = crate::callback::Callback> {
     on_move: Option<MoveFn<Msg>>,
     /// A "+ Add card" button at the bottom of every column (milestone 249): `on_add(col)` on adding.

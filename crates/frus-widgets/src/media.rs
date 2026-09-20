@@ -524,6 +524,10 @@ impl MediaQuery {
         }
     }
 
+    /// The query as a descendant sees it once `edges` of the padding have been **consumed** by
+    /// a widget that already made room for them — an app bar takes the top, say. What was
+    /// consumed is taken off the padding and off the view padding (floored at zero), so nothing
+    /// below insets for it a second time.
     pub fn remove_padding(mut self, edges: Edges) -> Self {
         let consumed = edges.select(self.padding);
         // The **view** padding loses the same amount, floored at zero. Without this a

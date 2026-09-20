@@ -68,20 +68,35 @@ impl ThemeMode {
 /// the theme at paint time).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextTheme {
+    /// The largest step of the display group: short, prominent text such as a hero figure.
     pub display_large: TextStyle,
+    /// The middle step of the display group: short, prominent text such as a hero figure.
     pub display_medium: TextStyle,
+    /// The smallest step of the display group: short, prominent text such as a hero figure.
     pub display_small: TextStyle,
+    /// The largest step of the headline group: the heading of a screen or of a large section.
     pub headline_large: TextStyle,
+    /// The middle step of the headline group: the heading of a screen or of a large section.
     pub headline_medium: TextStyle,
+    /// The smallest step of the headline group: the heading of a screen or of a large section.
     pub headline_small: TextStyle,
+    /// The largest step of the title group: the title of a smaller piece of content: a card, a dialog, a row.
     pub title_large: TextStyle,
+    /// The middle step of the title group: the title of a smaller piece of content: a card, a dialog, a row.
     pub title_medium: TextStyle,
+    /// The smallest step of the title group: the title of a smaller piece of content: a card, a dialog, a row.
     pub title_small: TextStyle,
+    /// The largest step of the body group: running text meant to be read.
     pub body_large: TextStyle,
+    /// The middle step of the body group: running text meant to be read.
     pub body_medium: TextStyle,
+    /// The smallest step of the body group: running text meant to be read.
     pub body_small: TextStyle,
+    /// The largest step of the label group: the text on a control: a button, a tab, a caption.
     pub label_large: TextStyle,
+    /// The middle step of the label group: the text on a control: a button, a tab, a caption.
     pub label_medium: TextStyle,
+    /// The smallest step of the label group: the text on a control: a button, a tab, a caption.
     pub label_small: TextStyle,
 }
 
@@ -146,9 +161,14 @@ pub struct ColorScheme {
     /// The reference's scrollbar reads exactly this field to choose the opacity of its
     /// thumb (`scrollbar.dart:232`); this framework's was guessing at it.
     pub brightness: Brightness,
+    /// The app's main accent: the colour of prominent controls, such as a filled button, and
+    /// of active states.
     pub primary: Color,
+    /// What is legible on [`primary`](Self::primary).
     pub on_primary: Color,
+    /// A quieter fill in the primary hue, for larger surfaces such as a tonal button.
     pub primary_container: Color,
+    /// What is legible on [`primary_container`](Self::primary_container).
     pub on_primary_container: Color,
     /// **A container that does not change when the theme does** (`color_scheme.dart:90`).
     ///
@@ -176,9 +196,13 @@ pub struct ColorScheme {
     /// The quieter of the two things that can be written there: a subtitle where
     /// [`on_primary_fixed`](Self::on_primary_fixed) is the title. Tone 30.
     pub on_primary_fixed_variant: Color,
+    /// The supporting accent, for the less prominent controls: a filter chip, say.
     pub secondary: Color,
+    /// What is legible on [`secondary`](Self::secondary).
     pub on_secondary: Color,
+    /// A quieter fill in the secondary hue, for larger surfaces.
     pub secondary_container: Color,
+    /// What is legible on [`secondary_container`](Self::secondary_container).
     pub on_secondary_container: Color,
     /// The supporting accent's fixed container {em} see
     /// [`primary_fixed`](Self::primary_fixed) for what "fixed" promises.
@@ -193,8 +217,11 @@ pub struct ColorScheme {
     /// one: a highlight that has to stand apart from both. Generated a sixth of the way
     /// round the wheel from the seed, which is what keeps it from reading as either.
     pub tertiary: Color,
+    /// What is legible on [`tertiary`](Self::tertiary).
     pub on_tertiary: Color,
+    /// A quieter fill in the tertiary hue, for larger surfaces.
     pub tertiary_container: Color,
+    /// What is legible on [`tertiary_container`](Self::tertiary_container).
     pub on_tertiary_container: Color,
     /// The third accent's fixed container {em} see
     /// [`primary_fixed`](Self::primary_fixed) for what "fixed" promises.
@@ -205,8 +232,12 @@ pub struct ColorScheme {
     pub on_tertiary_fixed: Color,
     /// The quieter thing that can be written there.
     pub on_tertiary_fixed_variant: Color,
+    /// The colour of the page behind everything.
     pub background: Color,
+    /// The base colour of the surfaces that sit on the page: cards, sheets, dialogs.
     pub surface: Color,
+    /// What is legible on [`surface`](Self::surface) and on the background: the main text and
+    /// icon colour.
     pub on_surface: Color,
     /// A discreet tonal surface (zone backgrounds, tracks).
     pub surface_variant: Color,
@@ -227,18 +258,22 @@ pub struct ColorScheme {
     pub surface_container_highest: Color,
     /// An inverted surface (toasts and snackbars that stand out from the background).
     pub inverse_surface: Color,
+    /// What is legible on [`inverse_surface`](Self::inverse_surface).
     pub on_inverse_surface: Color,
     /// Outlines at rest.
     pub outline: Color,
     /// Discreet outlines (thin separators).
     pub outline_variant: Color,
+    /// The colour of errors: an invalid field, a failure.
     pub error: Color,
+    /// What is legible on [`error`](Self::error).
     pub on_error: Color,
     /// The **quiet** form of `error`: a field's error surface, a warning that has to be
     /// read rather than shouted. `on_error_container` is what is legible on it — and it
     /// is what an errored field's border, label and helper take, not `error` itself
     /// (`input_decorator.dart:5981`).
     pub error_container: Color,
+    /// What is legible on [`error_container`](Self::error_container).
     pub on_error_container: Color,
     /// The accent as it must be drawn **on `inverse_surface`**: a snack bar's action
     /// (`snack_bar.dart:954`). `primary` on an inverted surface is the pair the scheme
@@ -251,6 +286,8 @@ pub struct ColorScheme {
     /// The **darkest** surface in either theme, and the **lightest** — the two ends the
     /// container ladder runs between.
     pub surface_dim: Color,
+    /// The **lightest** surface in either theme — the other end of the ladder from
+    /// [`surface_dim`](Self::surface_dim).
     pub surface_bright: Color,
     /// The scrim for modals and drawers (the alpha is applied at the point of use).
     pub scrim: Color,
@@ -788,18 +825,6 @@ impl Theme {
         Self::from_scheme(scheme, focus, selection)
     }
 
-    /// Applies the Material **state layer** over `base`: it overlays the content
-    /// color `on` at low opacity according to the interaction state — hover 8%,
-    /// focus 10%, press 12% — taking the animated progressions into account
-    /// (`hover_progress`/`focus_progress`/`press_progress`). This is the state rule
-    /// **baked** into the theme: widgets stay declarative (they pass their base color and
-    /// their content color, and the theme decides on the overlay).
-    ///
-    /// All three terms are **progressions**, the press included. It read the flag until
-    /// milestone 441, which meant that term could only ever be 0 or 12%: the layer
-    /// arrived whole under a finger and vanished whole when it left. Reading
-    /// `press_progress` is what lets it fade, and reading the flag *as well* would defeat
-    /// that — the term would reach full on the first frame and the fade would never run.
     /// **Whether this theme is a light one or a dark one** (`ThemeData.brightness`).
     ///
     /// The scheme is the source of truth for the colours, so it is the source of truth
@@ -812,6 +837,18 @@ impl Theme {
         self.scheme.brightness
     }
 
+    /// Applies the Material **state layer** over `base`: it overlays the content
+    /// color `on` at low opacity according to the interaction state — hover 8%,
+    /// focus 10%, press 12% — taking the animated progressions into account
+    /// (`hover_progress`/`focus_progress`/`press_progress`). This is the state rule
+    /// **baked** into the theme: widgets stay declarative (they pass their base color and
+    /// their content color, and the theme decides on the overlay).
+    ///
+    /// All three terms are **progressions**, the press included. It read the flag until
+    /// milestone 441, which meant that term could only ever be 0 or 12%: the layer
+    /// arrived whole under a finger and vanished whole when it left. Reading
+    /// `press_progress` is what lets it fade, and reading the flag *as well* would defeat
+    /// that — the term would reach full on the first frame and the fade would never run.
     pub fn state_layer(&self, base: Color, on: Color, status: &Status) -> Color {
         let overlay = 0.08 * status.hover_progress.clamp(0.0, 1.0)
             + 0.10 * status.focus_progress.clamp(0.0, 1.0)

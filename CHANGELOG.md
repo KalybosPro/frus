@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 556 so far, each documenting the objective, the alternatives
+> record — one per step, 559 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -333,6 +333,13 @@ any release may break.
 
 ### Added
 
+- **`frus-widgets` denies a missing doc comment** (J559, answers #14, and the last of the
+  fifteen crates). The widget tree, the theme, the runtime and the driver: `#![warn(...)]`
+  found 155 locations in twenty-seven files — each field of `WidgetThemes` and of the colour
+  and text scales, the variants of a dozen small enums, `Widget`, `Ui` and `Kanban`, which had
+  no comment at all — and three comments that had slid onto a neighbour (`Theme::state_layer`,
+  `Divider::color`, `TabBar::enabled`), now back on their own item. Checked on the host with
+  every feature and on the wasm and Android targets. Promoted to `#![deny(missing_docs)]`.
 - **A page is told how far in it is** (J556). `GoRouterState::entering()` is the number the
   transition is driven by, seen from the page being built — `0` not yet arrived, `1` settled,
   and the other way round for the page that is leaving — so a page that wants to move its own

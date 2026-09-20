@@ -9,6 +9,8 @@
 //! The state retained between frames — hover and focus, scroll offsets, caret and
 //! selection — lives in a [`Runtime`], keyed by widget identity.
 
+#![deny(missing_docs)]
+
 // The README's example is compiled and run by `cargo test --doc`, so it cannot rot.
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]

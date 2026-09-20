@@ -29,9 +29,13 @@ use frus_core::{Color, Curve, Path, Point, Rect, Scene, Size};
 /// Which edge of a viewport a glow sits on.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum GlowEdge {
+    /// The top edge.
     Top,
+    /// The bottom edge.
     Bottom,
+    /// The left edge.
     Left,
+    /// The right edge.
     Right,
 }
 

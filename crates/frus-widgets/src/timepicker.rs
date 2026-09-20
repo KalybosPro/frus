@@ -386,7 +386,9 @@ pub enum Endpoint {
 /// Which field of a time ([`TimeRange`]) is changing.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum TimeField {
+    /// The hour.
     Hour,
+    /// The minute.
     Minute,
 }
 

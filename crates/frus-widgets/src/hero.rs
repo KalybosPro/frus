@@ -42,6 +42,7 @@ pub struct HeroSpot {
     /// `0` = the screen being left, `1` = the one being entered. Outside a transition
     /// there is no flight and this is meaningless.
     pub screen: u8,
+    /// The widget's identity.
     pub id: WidgetId,
     /// Where it sits, in absolute coordinates.
     pub rect: Rect,
