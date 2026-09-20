@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 556 so far, each documenting the objective, the alternatives
+> record — one per step, 557 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -333,6 +333,11 @@ any release may break.
 
 ### Added
 
+- **`frus-gpu` denies a missing doc comment** (J557, answers #14, continuing the
+  sweep). The crate that turns a `Scene` into pixels keeps every module private, and
+  `#![warn(...)]` found two locations: the `width` and `height` of `OffscreenFrame`, whose
+  siblings were already documented. Each now says what it is and its unit. Promoted to
+  `#![deny(missing_docs)]`.
 - **A page is told how far in it is** (J556). `GoRouterState::entering()` is the number the
   transition is driven by, seen from the page being built — `0` not yet arrived, `1` settled,
   and the other way round for the page that is leaving — so a page that wants to move its own
