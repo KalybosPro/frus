@@ -101,6 +101,7 @@ impl Demo {
     }
 
     /// The number of tasks.
+    #[cfg(any(test, feature = "shots"))]
     pub(crate) fn len(&self) -> usize {
         self.todos.borrow().len()
     }
