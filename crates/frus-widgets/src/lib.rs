@@ -79,6 +79,9 @@ mod grid;
 mod gridtile;
 mod hero;
 mod icon;
+/// What a component asks of the application around it: its theme, language and zoom, and the
+/// effects that are not widgets — a focus, a scroll, work on another thread.
+pub mod host;
 mod iconbutton;
 mod icons;
 mod image;
@@ -219,7 +222,7 @@ pub use collapsible::{ControlAffinity, ExpansionTile};
 pub use collapsingheader::{header_rect, CollapsingHeader, HeaderState, COLLAPSED_HEIGHT};
 pub use colorpicker::ColorPicker;
 pub use component::{
-    component, intervals, rebuild_requested, request_rebuild, take_rebuild_request, BuildContext,
+    back_blocked, component, intervals, rebuild_requested, request_rebuild, take_rebuild_request, BuildContext,
     Component, Interval, IntoCleanup, State, StateContext, StateHandle, StateStore, StatefulWidget,
     StatelessWidget, UseRef, UseState,
 };

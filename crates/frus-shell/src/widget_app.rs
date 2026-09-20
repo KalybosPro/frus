@@ -22,9 +22,10 @@
 
 use std::rc::Rc;
 
+use frus_widgets::host::{self, Effect};
 use frus_widgets::{
-    BuildContext, Callback, Component, GoRouter, StatefulWidget, StatelessWidget, Theme, ThemeMode,
-    Widget,
+    BuildContext, Callback, Component, GoRouter, Locale, Localizations, StatefulWidget,
+    StatelessWidget, Theme, ThemeMode, Widget,
 };
 
 use crate::application::Application;
@@ -47,15 +48,17 @@ type Root = Rc<dyn Fn(&BuildContext) -> Box<dyn Widget>>;
 ///     .theme_mode(ThemeMode::System);
 /// # let _ = app;
 /// ```
+///
+/// How it is dressed — its title, themes, language, zoom — is kept where a component can reach
+/// it too, in [`host::app`]: what the builders here set, a component changes with the same
+/// names (`host::app().set_theme_mode(..)`), and the shell reads it every frame.
 pub struct FrusApp {
     root: Root,
     router: Option<GoRouter>,
-    title: String,
-    theme: Theme,
-    dark_theme: Option<Theme>,
-    theme_mode: ThemeMode,
     window_size: Option<(f32, f32)>,
-    density: f32,
+    on_start: Option<Box<dyn FnOnce()>>,
+    save: Option<Box<dyn Fn() -> Option<Vec<u8>>>>,
+    restore: Option<Box<dyn Fn(&[u8])>>,
 }
 
 impl FrusApp {
@@ -100,40 +103,80 @@ impl FrusApp {
     }
 
     fn with_root(root: Root) -> Self {
+        // A new application starts from the defaults, whatever the last one left behind.
+        let app = host::app();
+        app.set_title("frus".to_string());
+        app.set_theme(Theme::light());
+        app.set_dark_theme(None);
+        app.set_theme_mode(ThemeMode::System);
+        app.set_density(1.0);
+        app.set_locale(None);
+        app.set_supported_locales(Vec::new());
+        app.set_localizations(None);
         Self {
             root,
             router: None,
-            title: "frus".to_string(),
-            theme: Theme::light(),
-            dark_theme: None,
-            theme_mode: ThemeMode::System,
             window_size: None,
-            density: 1.0,
+            on_start: None,
+            save: None,
+            restore: None,
         }
     }
 
     /// The window's title.
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.title = title.into();
+    pub fn title(self, title: impl Into<String>) -> Self {
+        host::app().set_title(title.into());
         self
     }
 
     /// The application's theme — its light one, where it has two.
-    pub fn theme(mut self, theme: Theme) -> Self {
-        self.theme = theme;
+    pub fn theme(self, theme: Theme) -> Self {
+        host::app().set_theme(theme);
         self
     }
 
     /// The theme for a dark interface. With one, the application follows the system's
     /// brightness, or [`theme_mode`](Self::theme_mode).
-    pub fn dark_theme(mut self, theme: Theme) -> Self {
-        self.dark_theme = Some(theme);
+    pub fn dark_theme(self, theme: Theme) -> Self {
+        host::app().set_dark_theme(Some(theme));
         self
     }
 
     /// Which of the two themes is on display: the system's choice by default.
-    pub fn theme_mode(mut self, mode: ThemeMode) -> Self {
-        self.theme_mode = mode;
+    pub fn theme_mode(self, mode: ThemeMode) -> Self {
+        host::app().set_theme_mode(mode);
+        self
+    }
+
+    /// The languages the application has, best first. The framework resolves the device's
+    /// list against them.
+    pub fn supported_locales(self, locales: Vec<Locale>) -> Self {
+        host::app().set_supported_locales(locales);
+        self
+    }
+
+    /// The words the framework says on the application's behalf, where they are not English.
+    pub fn localizations(self, table: std::rc::Rc<dyn Localizations>) -> Self {
+        host::app().set_localizations(Some(table));
+        self
+    }
+
+    /// Runs `start` once, when the application starts and before anything is drawn: the place
+    /// for what has to be true from the first frame — registering data, opening a store.
+    pub fn on_start(mut self, start: impl FnOnce() + 'static) -> Self {
+        self.on_start = Some(Box::new(start));
+        self
+    }
+
+    /// Keeps what `save` returns across a live reload, and hands it to `restore` afterwards.
+    /// A development convenience: the state of an application survives a recompilation.
+    pub fn persist(
+        mut self,
+        save: impl Fn() -> Option<Vec<u8>> + 'static,
+        restore: impl Fn(&[u8]) + 'static,
+    ) -> Self {
+        self.save = Some(Box::new(save));
+        self.restore = Some(Box::new(restore));
         self
     }
 
@@ -144,8 +187,8 @@ impl FrusApp {
     }
 
     /// A zoom on the whole interface, on top of the system's scale.
-    pub fn density(mut self, density: f32) -> Self {
-        self.density = density;
+    pub fn density(self, density: f32) -> Self {
+        host::app().set_density(density);
         self
     }
 }
@@ -156,6 +199,33 @@ impl Application for FrusApp {
     fn update(&mut self, callback: Callback) -> Command<Callback> {
         callback.call();
         Command::none()
+    }
+
+    fn init(&mut self) -> Command<Callback> {
+        if let Some(start) = self.on_start.take() {
+            start();
+        }
+        self.effects()
+    }
+
+    fn effects(&mut self) -> Command<Callback> {
+        Command::batch(host::take_effects().into_iter().map(|effect| match effect {
+            Effect::Focus(key) => Command::focus_hashed(key),
+            Effect::Scroll(key, to) => Command::scroll_hashed(key, to),
+            Effect::Sheet(key, to) => Command::sheet_hashed(key, to),
+            Effect::Spawn(task) => Command::run(task),
+            Effect::After(delay, callback) => Command::after(delay, callback),
+        }))
+    }
+
+    fn save_state(&self) -> Option<Vec<u8>> {
+        self.save.as_ref().and_then(|save| save())
+    }
+
+    fn restore_state(&mut self, bytes: &[u8]) {
+        if let Some(restore) = &self.restore {
+            restore(bytes);
+        }
     }
 
     fn view(&self, _theme: &Theme) -> Box<dyn Widget<Callback>> {
@@ -177,9 +247,12 @@ impl Application for FrusApp {
     }
 
     fn can_go_back(&self) -> bool {
-        self.router
-            .as_ref()
-            .is_some_and(|router| router.can_go_back())
+        // What an open menu or dialog takes first is not the router's to answer.
+        !frus_widgets::back_blocked()
+            && self
+                .router
+                .as_ref()
+                .is_some_and(|router| router.can_go_back())
     }
 
     fn back_gesture(&mut self, progress: f32) {
@@ -195,19 +268,31 @@ impl Application for FrusApp {
     }
 
     fn theme(&self) -> Theme {
-        self.theme.clone()
+        host::app().theme()
     }
 
     fn dark_theme(&self) -> Option<Theme> {
-        self.dark_theme.clone()
+        host::app().dark_theme()
     }
 
     fn theme_mode(&self) -> ThemeMode {
-        self.theme_mode
+        host::app().theme_mode()
+    }
+
+    fn supported_locales(&self) -> Vec<Locale> {
+        host::app().supported_locales()
+    }
+
+    fn locale(&self) -> Option<Locale> {
+        host::app().locale()
+    }
+
+    fn localizations(&self) -> Option<std::rc::Rc<dyn Localizations>> {
+        host::app().localizations()
     }
 
     fn title(&self) -> String {
-        self.title.clone()
+        host::app().title()
     }
 
     fn window_size(&self) -> Option<(f32, f32)> {
@@ -215,7 +300,7 @@ impl Application for FrusApp {
     }
 
     fn density(&self) -> f32 {
-        self.density
+        host::app().density()
     }
 }
 
@@ -500,5 +585,134 @@ mod router_tests {
         router.pop();
         driver.run(1.5);
         assert_eq!(disposed.get(), 1, "popped and gone, its cleanup has run");
+    }
+}
+
+#[cfg(test)]
+mod host_tests {
+    use super::*;
+    use crate::app::testing::Driver;
+    use frus_widgets::{component, Container, GoRoute, ScrollTo};
+    use std::cell::{Cell, RefCell};
+
+    const SIDE: f32 = 200.0;
+
+    fn target(on_tap: impl Into<Callback>) -> Box<dyn Widget> {
+        Box::new(Container::new().width(SIDE).height(SIDE).on_click(on_tap))
+    }
+
+    fn quiet() -> FrusApp {
+        FrusApp::from_fn(|_| target(|| {}))
+    }
+
+    #[test]
+    fn the_builders_and_a_component_write_to_the_same_settings_the_shell_reads() {
+        let app = quiet()
+            .title("first")
+            .theme_mode(ThemeMode::Light)
+            .density(1.1);
+        assert_eq!(Application::title(&app), "first");
+        assert_eq!(Application::theme_mode(&app), ThemeMode::Light);
+        assert_eq!(Application::density(&app), 1.1);
+        // What a handler does from inside the tree.
+        host::app().set_title("second".to_string());
+        host::app().set_theme_mode(ThemeMode::Dark);
+        host::app().set_dark_theme(Some(Theme::dark()));
+        assert_eq!(Application::title(&app), "second");
+        assert_eq!(Application::theme_mode(&app), ThemeMode::Dark);
+        assert!(Application::dark_theme(&app).is_some());
+    }
+
+    #[test]
+    fn a_new_application_starts_from_the_defaults_not_from_the_last_one() {
+        host::app().set_theme_mode(ThemeMode::Dark);
+        host::app().set_density(1.4);
+        host::app().set_locale(Some(Locale::new("fr")));
+        let app = quiet();
+        assert_eq!(Application::theme_mode(&app), ThemeMode::System);
+        assert_eq!(Application::density(&app), 1.0);
+        assert_eq!(Application::locale(&app), None);
+    }
+
+    #[test]
+    fn the_language_a_component_picks_is_the_one_the_application_answers() {
+        let app = quiet().supported_locales(vec![Locale::new("en"), Locale::new("fr")]);
+        assert_eq!(Application::supported_locales(&app).len(), 2);
+        host::app().set_locale(Some(Locale::new("fr")));
+        assert_eq!(Application::locale(&app), Some(Locale::new("fr")));
+    }
+
+    #[test]
+    fn what_a_component_asks_of_the_shell_becomes_a_command_once() {
+        let mut app = quiet();
+        let _ = host::take_effects();
+        assert!(app.effects().is_empty(), "nothing asked, nothing to run");
+        host::focus("name");
+        host::scroll_to("list", ScrollTo::start());
+        host::after(std::time::Duration::from_secs(1), || {});
+        host::spawn(|| 1 + 1, |_| {});
+        assert!(!app.effects().is_empty());
+        assert!(app.effects().is_empty(), "and taken once");
+    }
+
+    #[test]
+    fn on_start_runs_once_before_the_first_frame() {
+        let started = Rc::new(Cell::new(0));
+        let count = started.clone();
+        let mut app = quiet().on_start(move || count.set(count.get() + 1));
+        let _ = app.init();
+        let _ = app.init();
+        assert_eq!(started.get(), 1);
+    }
+
+    #[test]
+    fn a_state_can_be_kept_across_a_live_reload() {
+        let held = Rc::new(RefCell::new(0u8));
+        let (read, write) = (held.clone(), held.clone());
+        let mut app = quiet().persist(
+            move || Some(vec![*read.borrow()]),
+            move |bytes| *write.borrow_mut() = bytes[0],
+        );
+        *held.borrow_mut() = 7;
+        let bytes = app.save_state().expect("something to keep");
+        *held.borrow_mut() = 0;
+        app.restore_state(&bytes);
+        assert_eq!(*held.borrow(), 7);
+        assert!(quiet().save_state().is_none(), "nothing kept unless asked");
+    }
+
+    #[test]
+    fn an_open_menu_takes_the_back_gesture_before_the_router_does() {
+        let open = Rc::new(Cell::new(false));
+        let asked = open.clone();
+        let router = GoRouter::new(vec![GoRoute::new("/", |_, _| target(|| {})).routes(vec![
+            GoRoute::new("second", move |_, _| {
+                let asked = asked.clone();
+                component(move |cx| {
+                    cx.block_back(asked.get());
+                    target(|| {})
+                })
+            }),
+        ])]);
+        let mut driver = Driver::new(FrusApp::router(router.clone()), SIDE, SIDE);
+        driver.frame(1.0 / 60.0);
+        assert!(
+            !driver.app().can_go_back(),
+            "nowhere to go back to from the first page"
+        );
+        router.push("/second");
+        driver.run(1.5);
+        assert!(driver.app().can_go_back(), "a page to go back to");
+        open.set(true);
+        frus_widgets::request_rebuild();
+        driver.frame(1.0 / 60.0);
+        assert!(
+            !driver.app().can_go_back(),
+            "the menu is open: back closes it, it does not leave the page"
+        );
+        open.set(false);
+        frus_widgets::request_rebuild();
+        driver.frame(1.0 / 60.0);
+        assert!(driver.app().can_go_back(), "and once it is shut, it does");
     }
 }

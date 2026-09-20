@@ -2460,6 +2460,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // the tree, so it is rebuilt — not only repainted — until the switch settles.
                 // Something a component keeps changed — a `set_state`, a hook, a controller —
                 // and what it builds is built again.
+                // What components asked of the shell since the last frame — a focus, a scroll,
+                // work for another thread — is run first: it may ask for this very rebuild.
+                let asked = self.app.effects();
+                self.run_command(asked);
                 if frus_widgets::take_rebuild_request() {
                     self.build_dirty = true;
                 }
@@ -3915,6 +3919,8 @@ impl<A: Application> App<A> {
         self.build_dirty = true;
         let command = self.app.update(message);
         self.run_command(command);
+        let asked = self.app.effects();
+        self.run_command(asked);
         self.sync_subscriptions();
     }
 
@@ -7467,6 +7473,8 @@ pub mod testing {
             let _surface = s.media_query(width, height).install();
             s.runtime.still = settings.disable_animations;
             let was = std::mem::replace(&mut s.app_was_animating, app_animating);
+            let asked = s.app.effects();
+            s.run_command(asked);
             if frus_widgets::take_rebuild_request() {
                 s.build_dirty = true;
             }

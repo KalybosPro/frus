@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 554 so far, each documenting the objective, the alternatives
+> record — one per step, 555 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -318,6 +318,16 @@ any release may break.
 
 ### Added
 
+- **What a component asks of the application around it** (J555). `frus_widgets::host` gives a
+  component what an application of any size needs and had no way to say: `host::app()` changes
+  the theme, the dark theme, the mode, the language and the zoom the window is dressed in, and
+  `host::focus`, `host::scroll_to`, `host::sheet_to`, `host::spawn` (work on another thread, then
+  something on this one) and `host::after` ask the shell for the effects that are not widgets —
+  from a handler or a build, with no context to carry. `cx.block_back(open)` lets an open menu
+  take the back gesture before the router, and `cx.handler(|state, value| …)` is the handler for
+  a widget that reports a value. `FrusApp` reads its settings from the same place and gains
+  `.supported_locales`, `.localizations`, `.on_start` and `.persist`; `Application::effects` is
+  the defaulted hook the shell asks after every message and every frame.
 - **`use_interval`** (J554). A component asks for a timer with `cx.use_interval(period, callback)`;
   the shell starts it, keeps it while it is asked for on every build, and stops it when a build
   stops asking — on every platform the subscriptions already run on.
