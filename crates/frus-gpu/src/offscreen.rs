@@ -13,7 +13,9 @@ use crate::compositor::Painters;
 
 /// A frame rendered offscreen: **sRGB** RGBA bytes, row by row.
 pub struct OffscreenFrame {
+    /// The width of the frame, in pixels.
     pub width: u32,
+    /// The height of the frame, in pixels.
     pub height: u32,
     /// `width * height * 4` bytes in RGBA order, origin at the top left.
     pub rgba: Vec<u8>,
