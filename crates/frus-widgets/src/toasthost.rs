@@ -32,11 +32,17 @@ const STACK_GAP: f32 = 8.0;
 /// The corner the notifications are anchored to.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum SnackBarPosition {
+    /// The top corner at the start of the line: top left in a left-to-right layout.
     TopStart,
+    /// The middle of the top edge.
     TopCenter,
+    /// The top corner at the end of the line: top right in a left-to-right layout.
     TopEnd,
+    /// The bottom corner at the start of the line: bottom left in a left-to-right layout.
     BottomStart,
+    /// The middle of the bottom edge.
     BottomCenter,
+    /// The bottom corner at the end of the line: bottom right in a left-to-right layout.
     BottomEnd,
 }
 

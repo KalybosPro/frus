@@ -71,12 +71,17 @@ struct Bar {
 /// A scrollbar thumb (for hit-testing a drag).
 #[derive(Copy, Clone, Debug)]
 pub struct Scrollbar {
+    /// The scrollable area the bar belongs to.
     pub id: WidgetId,
+    /// Whether the bar runs vertically; otherwise it is horizontal.
     pub vertical: bool,
+    /// The thumb's rectangle, in absolute coordinates.
     pub thumb: Rect,
     /// Start and length of the track, along the axis.
     pub track_start: f32,
+    /// The track's length along the axis.
     pub track_len: f32,
+    /// The thumb's length along the axis.
     pub thumb_len: f32,
     /// Offset maximal correspondant.
     pub max: f32,
@@ -103,6 +108,7 @@ pub struct Scrollbar {
 /// the application's job, through [`Scrollable::physics_or`].
 #[derive(Copy, Clone, Debug)]
 pub struct Scrollable {
+    /// The scrollable area's identity.
     pub id: WidgetId,
     /// The viewport, in absolute coordinates.
     pub viewport: Rect,
@@ -360,9 +366,13 @@ pub struct KeepVisible {
 /// Direction of arrow-key focus navigation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FocusDirection {
+    /// The up arrow: focus moves to the widget above.
     Up,
+    /// The down arrow: focus moves to the widget below.
     Down,
+    /// The left arrow: focus moves to the widget on the left.
     Left,
+    /// The right arrow: focus moves to the widget on the right.
     Right,
 }
 
@@ -579,6 +589,13 @@ pub struct Focusable {
     pub group: Option<WidgetId>,
 }
 
+/// The **interface** of one frame: what the walk over a widget tree produced.
+///
+/// Besides the [`Scene`] to paint it holds everything the shell asks of a frame afterwards —
+/// what a click, a long press or a dismissal answers, what can take the focus, which areas
+/// scroll, which widgets can be dragged or dropped on — so that events are routed against
+/// the frame the reader saw. It is made by [`build_ui`] and read until the next frame
+/// replaces it.
 pub struct Ui<Msg = crate::callback::Callback> {
     scene: Scene,
     hits: Vec<Hit<Msg>>,
@@ -653,6 +670,7 @@ impl<Msg: Clone> Ui<Msg> {
         &self.scrollbars
     }
 
+    /// The [`Scene`] this frame painted.
     pub fn scene(&self) -> &Scene {
         &self.scene
     }
@@ -5478,6 +5496,9 @@ pub fn build_deferred<Msg>(root: &dyn Widget<Msg>, theme: &Theme, runtime: &Runt
     walk(root, WidgetId::ROOT, runtime, theme);
 }
 
+/// The widget of the tree under `root` that has the identity `target`, or `None` if none
+/// does. Identities are the ones the walk that built the frame gave, so an id read from a
+/// [`Ui`] finds its widget here.
 pub fn find_widget<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Option<&dyn Widget<Msg>> {
     fn walk<Msg>(
         widget: &dyn Widget<Msg>,

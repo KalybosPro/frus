@@ -365,6 +365,8 @@ impl<Msg> TextField<Msg> {
         self
     }
 
+    /// The **filled** variant: a tinted container with a single line under it, the label
+    /// floating inside. See [`TextFieldVariant::Filled`].
     pub fn filled(mut self) -> Self {
         self.variant = TextFieldVariant::Filled;
         self

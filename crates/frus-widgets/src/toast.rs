@@ -99,8 +99,11 @@ pub enum SnackBarBehavior {
 /// The nature of a notification (its accent color).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum SnackBarKind {
+    /// Neutral information.
     Info,
+    /// Something went well.
     Success,
+    /// Something went wrong.
     Error,
 }
 

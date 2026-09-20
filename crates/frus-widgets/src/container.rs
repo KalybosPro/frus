@@ -409,6 +409,9 @@ impl<Msg> Container<Msg> {
         self
     }
 
+    /// Sets the box's fill, gradient, border and shadow from a
+    /// [`BoxDecoration`](frus_core::BoxDecoration) at once. What the decoration leaves unset
+    /// changes nothing.
     pub fn decoration(mut self, decoration: BoxDecoration) -> Self {
         if let Some(color) = decoration.color {
             self.color = Some(color);

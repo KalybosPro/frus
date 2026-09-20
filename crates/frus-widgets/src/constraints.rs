@@ -230,7 +230,9 @@ impl<Msg: Clone> Widget<Msg> for ConstrainedBox<Msg> {
 /// the space on offer.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum IntrinsicAxis {
+    /// The width.
     Width,
+    /// The height.
     Height,
 }
 

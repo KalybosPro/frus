@@ -145,6 +145,13 @@ impl FillAxes {
     }
 }
 
+/// A **widget**: a node of the tree that is laid out by [`Widget::style`], painted by
+/// [`Widget::paint`] and asked what a click means by [`Widget::on_click`]; `Msg` is the
+/// message it emits when the reader interacts with it.
+///
+/// Only those four are required. Everything else — focus, scrolling, editing, semantics,
+/// the hooks a container uses to build its children late — has a default that does nothing,
+/// so a widget implements what it takes part in and no more.
 pub trait Widget<Msg = crate::callback::Callback> {
     /// Layout style (handed to `frus-layout`).
     fn style(&self) -> Style;

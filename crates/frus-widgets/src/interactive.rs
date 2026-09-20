@@ -29,6 +29,7 @@ pub struct InteractiveView {
     pub scale: f32,
     /// The paint translation, in logical pixels.
     pub tx: f32,
+    /// The paint translation along the y axis, in logical pixels; `tx` is the x axis.
     pub ty: f32,
 }
 

@@ -82,7 +82,6 @@ impl Divider {
         self
     }
 
-    /// Overrides the line's colour. Defaults to the theme's discreet outline.
     /// **The rule's own corner radius** — the reference's `Divider.radius`
     /// (`divider.dart:68`). A thick rule reads as a bar, and a bar with square ends is the
     /// only thing in an interface that still has them.
@@ -91,6 +90,7 @@ impl Divider {
         self
     }
 
+    /// Overrides the line's colour. Defaults to the theme's discreet outline.
     pub fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self

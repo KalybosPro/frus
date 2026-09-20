@@ -138,6 +138,8 @@ impl<Msg> Card<Msg> {
         self
     }
 
+    /// Rounds the card's corners with `radius`. It is the same field as
+    /// [`shape`](Self::shape): the last of the two called is the one that counts.
     pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
         self.shape = Some(ShapeBorder::rounded(radius));
         self

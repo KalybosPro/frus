@@ -955,11 +955,6 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
         self
     }
 
-    /// Whether the bar can be switched. Disabled every tab is **inert** - no press, no
-    /// ink, out of the tab order - and the **panel stays**, because which tab is showing
-    /// is still the answer even when it cannot be changed.
-    ///
-    /// See [`crate::disabled`] for the whole contract.
     /// Lets the bar **scroll** rather than sharing its width between the tabs.
     ///
     /// Off by default, which is the reference's default and the right one for the two or
@@ -989,6 +984,11 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
         self
     }
 
+    /// Whether the bar can be switched. Disabled every tab is **inert** - no press, no
+    /// ink, out of the tab order - and the **panel stays**, because which tab is showing
+    /// is still the answer even when it cannot be changed.
+    ///
+    /// See [`crate::disabled`] for the whole contract.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self.rebuild_bar();

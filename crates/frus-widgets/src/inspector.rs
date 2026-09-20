@@ -16,9 +16,13 @@ use crate::theme::Theme;
 /// (`debug_name`) and its depth in the tree.
 #[derive(Clone, Copy, Debug)]
 pub struct InspectorNode {
+    /// The widget's identity.
     pub id: WidgetId,
+    /// The box it painted, in absolute coordinates.
     pub rect: Rect,
+    /// Its short name, from [`Widget::debug_name`](crate::Widget::debug_name).
     pub name: &'static str,
+    /// How deep it sits in the tree; the outermost widget is at 0.
     pub depth: usize,
 }
 

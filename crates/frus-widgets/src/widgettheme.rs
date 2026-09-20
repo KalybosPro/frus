@@ -53,26 +53,43 @@ pub fn resolve_shape(
 /// widget already has, resolved in the same order everywhere.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WidgetThemes {
+    /// Defaults for [`Alert`](crate::Alert).
     pub alert: AlertTheme,
+    /// Defaults for [`Dialog`](crate::Dialog) and [`AlertDialog`](crate::AlertDialog).
     pub dialog: DialogTheme,
     /// Which glyphs the four named buttons carry.
     pub action_icons: ActionIconTheme,
+    /// Defaults for [`AppBar`](crate::AppBar).
     pub app_bar: AppBarTheme,
+    /// Defaults for [`Autocomplete`](crate::Autocomplete).
     pub autocomplete: AutocompleteTheme,
+    /// Defaults for [`Badge`](crate::Badge).
     pub badge: BadgeTheme,
+    /// Defaults for [`MaterialBanner`](crate::MaterialBanner).
     pub banner: BannerTheme,
+    /// Defaults for [`BottomAppBar`](crate::BottomAppBar).
     pub bottom_app_bar: BottomAppBarTheme,
+    /// Defaults for [`BottomSheet`](crate::BottomSheet).
     pub bottom_sheet: BottomSheetTheme,
+    /// Defaults for [`Breadcrumb`](crate::Breadcrumb).
     pub breadcrumb: BreadcrumbTheme,
+    /// Defaults for [`Button`](crate::Button).
     pub button: ButtonTheme,
+    /// Defaults for [`Card`](crate::Card).
     pub card: CardTheme,
+    /// Defaults for [`Checkbox`](crate::Checkbox).
     pub checkbox: CheckboxTheme,
+    /// Defaults for [`Chip`](crate::Chip).
     pub chip: ChipTheme,
+    /// Defaults for [`DatePicker`](crate::DatePicker).
     pub date_picker: DatePickerTheme,
+    /// Defaults for [`Divider`](crate::Divider).
     pub divider: DividerTheme,
+    /// Defaults for [`Drawer`](crate::Drawer).
     pub drawer: DrawerTheme,
     /// Defaults for [`ListTile`](crate::ListTile).
     pub list_tile: ListTileTheme,
+    /// Defaults for [`DropdownButton`](crate::DropdownButton) and its options.
     pub dropdown: DropdownTheme,
     /// Defaults for [`ExpansionTile`](crate::ExpansionTile).
     pub expansion_tile: ExpansionTileTheme,
@@ -80,44 +97,69 @@ pub struct WidgetThemes {
     pub expansion_panel_list: ExpansionPanelListTheme,
     /// Defaults for [`FloatingActionButton`](crate::FloatingActionButton).
     pub fab: FabTheme,
+    /// Defaults for a form's error summary, [`ErrorSummary`](crate::ErrorSummary).
     pub form: FormTheme,
     /// Defaults for [`GridTileBar`](crate::GridTileBar).
     pub grid_tile_bar: GridTileBarTheme,
+    /// Defaults for [`Icon`](crate::Icon).
     pub icon: IconTheme,
+    /// Defaults for [`IconButton`](crate::IconButton).
     pub icon_button: IconButtonTheme,
+    /// Defaults for the **ink ripple** — every surface that splashes, including [`InkWell`](crate::InkWell) and [`Button`](crate::Button).
     pub ink: InkTheme,
+    /// Defaults for [`Kanban`](crate::Kanban).
     pub kanban: KanbanTheme,
     /// Defaults for [`ReorderableList`](crate::ReorderableList).
     pub reorderable: ReorderableTheme,
+    /// Defaults for [`Kbd`](crate::Kbd).
     pub kbd: KbdTheme,
+    /// Defaults for [`PopupMenuButton`](crate::PopupMenuButton) and its items.
     pub menu: MenuTheme,
     /// Defaults for [`NavigationBar`](crate::NavigationBar).
     pub nav_bar: NavBarTheme,
+    /// Defaults for [`NavigationRail`](crate::NavigationRail) and [`BottomBar`](crate::BottomBar).
     pub nav_rail: NavRailTheme,
+    /// Defaults for [`NavigationDrawer`](crate::NavigationDrawer).
     pub nav_drawer: NavDrawerTheme,
     /// Defaults for the **scrollbars** the framework draws over a scrollable.
     pub scrollbar: ScrollbarTheme,
+    /// Defaults for [`SearchBar`](crate::SearchBar).
     pub search_bar: SearchBarTheme,
+    /// Defaults for the view a [`SearchAnchor`](crate::SearchAnchor) opens.
     pub search_view: SearchViewTheme,
     /// Defaults for the two progress indicators.
     pub progress: ProgressTheme,
+    /// Defaults for [`RadioGroup`](crate::RadioGroup).
     pub radio: RadioTheme,
+    /// Defaults for [`SegmentedButton`](crate::SegmentedButton).
     pub segmented: SegmentedTheme,
+    /// Defaults for [`Slider`](crate::Slider) and [`RangeSlider`](crate::RangeSlider).
     pub slider: SliderTheme,
+    /// Defaults for [`SnackBar`](crate::SnackBar).
     pub snack_bar: SnackBarTheme,
+    /// Defaults for [`Steps`](crate::Steps).
     pub steps: StepsTheme,
+    /// Defaults for [`Switch`](crate::Switch).
     pub switch: SwitchTheme,
+    /// Defaults for [`TabPageSelector`](crate::TabPageSelector).
     pub page_selector: PageSelectorTheme,
+    /// Defaults for [`TabBar`](crate::TabBar).
     pub tab_bar: TabBarTheme,
+    /// Defaults for [`Table`](crate::Table).
     pub table: TableTheme,
+    /// The text style that text takes when it names none of its own.
     pub text: DefaultTextStyle,
+    /// Defaults for [`TextField`](crate::TextField).
     pub text_field: TextFieldTheme,
+    /// Defaults for [`TimePicker`](crate::TimePicker) and [`TimeRange`](crate::TimeRange).
     pub time_picker: TimePickerTheme,
+    /// Defaults for [`Timeline`](crate::Timeline).
     pub timeline: TimelineTheme,
     /// Defaults for [`ToggleButtons`](crate::ToggleButtons).
     pub toggle_buttons: ToggleButtonsTheme,
     /// Defaults for [`Tooltip`](crate::Tooltip).
     pub tooltip: TooltipTheme,
+    /// Defaults for [`Tree`](crate::Tree).
     pub tree: TreeTheme,
 }
 
