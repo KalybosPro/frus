@@ -4,6 +4,8 @@
 //! [`frus_gpu::Renderer`] and drives the `event → frame` loop for any [`Application`]. This
 //! is the only platform-dependent layer.
 
+#![deny(missing_docs)]
+
 // The README's example is compiled by `cargo test --doc`, so it cannot rot.
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]

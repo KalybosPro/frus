@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 554 so far, each documenting the objective, the alternatives
+> record — one per step, 558 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -318,6 +318,12 @@ any release may break.
 
 ### Added
 
+- **`frus-shell` denies a missing doc comment** (J558, answers #14, continuing the
+  sweep). The platform layer — the window, the loop, the IME and clipboard bridges — keeps
+  nearly everything private, and `#![warn(...)]` found seven locations: the exported `App`
+  handler, which had no doc at all, and the six verbs of `net::Method`. Checked on the host
+  with every feature and on the wasm and Android targets. Promoted to
+  `#![deny(missing_docs)]`.
 - **`use_interval`** (J554). A component asks for a timer with `cx.use_interval(period, callback)`;
   the shell starts it, keeps it while it is asked for on every build, and stops it when a build
   stops asking — on every platform the subscriptions already run on.
