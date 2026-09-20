@@ -1,15 +1,23 @@
 //! Sample application: a **to-do list** written with frus, as an **external consumer** of the
-//! framework (it implements [`frus_shell::Application`]).
+//! framework — with the framework's own vocabulary: `StatelessWidget`, `StatefulWidget` and
+//! `State`, a router that maps a location to a screen, and `FrusApp` to run it.
 //!
 //! Two entry points for the same code:
 //! - desktop: `cargo run -p frus-demo` → the `src/bin/frus-demo.rs` binary → `run()`;
 //! - Android: the `cdylib` library exposes `android_main`, called by the native activity.
+//!
+//! Where things are kept:
+//! - **a screen's own state** lives in its `State` — the filter of the list, the value of a
+//!   setting, the step of the wizard;
+//! - **what more than one screen needs** — the tasks, how the demo is dressed, the
+//!   notifications — lives in `Demo` (the `demo` module), handed to the screens that ask for it;
+//! - **where the reader is** belongs to the router.
 
 #![deny(missing_docs)]
 
 mod assets;
+mod demo;
 mod l10n;
-mod message;
 mod model;
 mod parts;
 mod prelude;
@@ -21,348 +29,55 @@ mod storage;
 #[cfg(test)]
 mod tests;
 mod theme;
-mod update;
 
+use crate::l10n::LANGS;
 use crate::prelude::*;
-use crate::screens::build_view;
+use frus_shell::FrusApp;
+use frus_widgets::Locale;
+
+/// The demo application: its routes, and how it is dressed at the start.
+///
+/// Public so that the tool that renders the README's pictures and the tests can build the same
+/// application the entry point runs.
+pub fn app() -> FrusApp {
+    build().0
+}
+
+/// The application, and the two handles a test or a tool wants beside it: the router it moves
+/// with, and the state its screens share.
+pub(crate) fn build() -> (FrusApp, GoRouter, Rc<Demo>) {
+    let demo = Rc::new(Demo::default());
+    let router = screens::router(demo.clone());
+    let (save, restore, start) = (demo.clone(), demo.clone(), demo.clone());
+    let app = FrusApp::router(router.clone())
+        .title("frus — Todo")
+        .window_size(900.0, 680.0)
+        // **The languages this demonstration has**, best first — the three it embeds as
+        // Fluent resources. The framework resolves the device's list against these.
+        .supported_locales(LANGS.iter().map(|(_, tag)| Locale::new(*tag)).collect())
+        // Here rather than in `main`, because there are three entry points (desktop,
+        // Android, web) and only one of them is a `main`.
+        .on_start(move || {
+            // **The licences of everything this binary links**, generated from its own
+            // dependency graph by `scripts/gen_licenses.py` and embedded. One call, and the
+            // list cannot drift from what is linked without the file changing — which is the
+            // one failure mode that matters for a licence list.
+            frus_widgets::licenses::add_all(include_str!("../assets/licenses.txt"));
+            // Loads the persisted tasks at start-up.
+            start.start();
+        })
+        // Live-reload: the essentials of the state survive a recompilation — the tasks, the
+        // theme (light/dark + seed).
+        .persist(
+            move || Some(save.snapshot()),
+            move |bytes| restore.restore(bytes),
+        );
+    // `FrusApp` starts from the defaults; how the demo is dressed is `Demo`'s to say, and it
+    // says it after, so the builders above cannot undo it.
+    demo.apply();
+    (app, router, demo)
+}
 
 // A **single** entry point: one declaration generates both the desktop entry (`run()`,
 // called by the binary) and the Android one (`android_main`). See `frus_shell::main!`.
-frus_shell::main!(TodoApp::default());
-
-impl Application for TodoApp {
-    type Message = Msg;
-
-    fn update(&mut self, message: Msg) -> Command<Msg> {
-        reduce(self, message)
-    }
-
-    fn init(&mut self) -> Command<Msg> {
-        // **The licences of everything this binary links**, generated from its own
-        // dependency graph by `scripts/gen_licenses.py` and embedded. One call, and the
-        // list cannot drift from what is linked without the file changing — which is the
-        // one failure mode that matters for a licence list.
-        //
-        // Here rather than in `main`, because there are three entry points (desktop,
-        // Android, web) and only one of them is a `main`.
-        frus_widgets::licenses::add_all(include_str!("../assets/licenses.txt"));
-        // Seeds the demonstration state and loads the persisted tasks at start-up.
-        self.page = 1;
-        self.year = 2026;
-        self.month = 7;
-        self.density = 1.0;
-        // Demonstration data for the editable grid.
-        self.grid = vec![
-            vec![
-                "Ada Lovelace".into(),
-                "Engineer".into(),
-                "ada@example.com".into(),
-            ],
-            vec![
-                "Alan Turing".into(),
-                "Cryptographer".into(),
-                "alan@example.com".into(),
-            ],
-            vec![
-                "Grace Hopper".into(),
-                "Admiral".into(),
-                "grace@example.com".into(),
-            ],
-        ];
-        if self.restored {
-            // Live-reload: the snapshot is the authority, do not overwrite it from disk.
-            return Command::none();
-        }
-        Command::perform(|| Msg::Loaded(load_todos(&todos_path())))
-    }
-
-    /// Live-reload: the essentials of the state survive a recompilation — the tasks, the draft,
-    /// the filter, the theme (light/dark + seed), the tab and the screen.
-    fn save_state(&self) -> Option<Vec<u8>> {
-        let mut out = String::from("frus-demo-state v1\n");
-        out.push_str(&format!("light {}\n", self.light as u8));
-        out.push_str(&format!("seed {}\n", self.seed_index));
-        out.push_str(&format!("filter {}\n", filter_index(self.filter)));
-        out.push_str(&format!("section {}\n", self.section));
-        let route = match current_route(self) {
-            Route::Home => 0,
-            Route::Settings => 1,
-            Route::Journal => 2,
-            Route::Wizard => 3,
-            Route::GridView => 4,
-            Route::Charts => 5,
-            Route::Data => 6,
-            Route::Board => 7,
-            Route::Tour => 8,
-            Route::Sheet => 9,
-            // A task screen is not restored: the task it names may not exist any more,
-            // and reopening a screen about nothing is worse than opening the list.
-            Route::Task(_) => 0,
-            // Nor a licence page: it is somewhere you go on purpose, once.
-            Route::Licenses => 0,
-        };
-        out.push_str(&format!("route {route}\n"));
-        out.push_str(&format!("draft {}\n", self.draft));
-        for todo in &self.todos {
-            out.push_str(&format!("todo {}\t{}\n", todo.done as u8, todo.text));
-        }
-        Some(out.into_bytes())
-    }
-
-    /// Rehydrates an [`Application::save_state`] snapshot — tolerantly: any unknown line (from
-    /// another version of the code) is ignored.
-    fn restore_state(&mut self, bytes: &[u8]) {
-        let Ok(text) = std::str::from_utf8(bytes) else {
-            return;
-        };
-        let mut lines = text.lines();
-        if lines.next() != Some("frus-demo-state v1") {
-            return;
-        }
-        for line in lines {
-            let (key, value) = line.split_once(' ').unwrap_or((line, ""));
-            match key {
-                "light" => self.light = value == "1",
-                "seed" => self.seed_index = value.parse().unwrap_or(0),
-                "filter" => self.filter = filter_from_index(value.parse().unwrap_or(0)),
-                "section" => self.section = value.parse().unwrap_or(0),
-                "route" => {
-                    self.routes.clear();
-                    match value {
-                        "1" => self.routes.push(Route::Settings),
-                        "2" => self.routes.push(Route::Journal),
-                        "3" => self.routes.push(Route::Wizard),
-                        "4" => self.routes.push(Route::GridView),
-                        "5" => self.routes.push(Route::Charts),
-                        "6" => self.routes.push(Route::Data),
-                        "7" => self.routes.push(Route::Board),
-                        "8" => self.routes.push(Route::Tour),
-                        "9" => self.routes.push(Route::Sheet),
-                        _ => {}
-                    }
-                }
-                "draft" => self.draft = value.to_string(),
-                "todo" => {
-                    if let Some((done, text)) = value.split_once('\t') {
-                        let id = self.next_id;
-                        self.next_id += 1;
-                        self.todos.push(Todo {
-                            id,
-                            text: text.to_string(),
-                            done: done == "1",
-                        });
-                    }
-                }
-                _ => {}
-            }
-        }
-        self.restored = true;
-    }
-
-    fn density(&self) -> f32 {
-        if self.density > 0.0 {
-            self.density
-        } else {
-            1.0
-        }
-    }
-
-    fn on_resize(&mut self, width: f32, height: f32) {
-        // Reacts to a change of size class: it closes the Stats detail when narrow.
-        let class = SizeClass::from_width(width);
-        if self.size_class != Some(class) {
-            self.size_class = Some(class);
-            if class == SizeClass::Compact {
-                self.stat_detail_open = false;
-            }
-            eprintln!("[demo] size class: {class:?}");
-        }
-        // A further axis of responsiveness: portrait/landscape orientation.
-        let orientation = Orientation::from_size(width, height);
-        if self.orientation != Some(orientation) {
-            self.orientation = Some(orientation);
-            eprintln!("[demo] orientation : {orientation:?}");
-        }
-    }
-
-    fn on_insets(&mut self, insets: WindowInsets) {
-        // The total safe area: system bars **and** the soft keyboard — the content (input
-        // fields included) stays above the keyboard.
-        //
-        // **The layout does not read this.** Since milestone 393 the intrusions reach the
-        // widgets through the surface description the framework installs around `view`,
-        // and the `Scaffold` and every `SafeArea` read them there. This hook is kept for
-        // what it is good for — knowing, in the *state*, that the keyboard opened — and
-        // to show that the notification exists.
-        let safe = insets.safe();
-        if self.insets != safe {
-            self.insets = safe;
-            eprintln!("[demo] insets : {safe:?}");
-        }
-    }
-
-    fn on_lifecycle(&mut self, state: Lifecycle) {
-        // The lifecycle contract (milestone 259), traced to logcat so that a device run can
-        // see the transitions. An app with timers or sensors would cut them on `Paused` and
-        // restart them on `Resumed`; this one has none left.
-        eprintln!("[demo] lifecycle: {state:?}");
-    }
-
-    fn view(&self, theme: &Theme) -> Box<dyn Widget<Msg>> {
-        // **No arithmetic.** This used to measure the window, subtract the system insets
-        // from it, build the interface at the remainder and wrap the whole thing in a
-        // full-window background held off by `padding`. Every one of those steps is the
-        // shell's work, and since milestone 393 the shell does it: the `Scaffold` reads
-        // the size and the intrusions from the surface description the framework
-        // installed around this call, paints its background across the window and keeps
-        // its own slots clear of the bars and the notch.
-        Box::new(build_view(self, theme))
-    }
-
-    /// **The languages this demonstration has**, best first — the three it embeds as
-    /// Fluent resources. The framework resolves the device's list against these.
-    fn supported_locales(&self) -> Vec<Locale> {
-        LANGS.iter().map(|(_, tag)| Locale::new(*tag)).collect()
-    }
-
-    /// And the one the reader picked in the application, over the device's. `None` — the
-    /// default — follows the device, which is where the language menu starts.
-    fn locale(&self) -> Option<Locale> {
-        self.lang.map(|index| Locale::new(LANGS[index].1))
-    }
-
-    /// **And the words the framework says on this application's behalf** — a calendar's
-    /// months, the label a screen reader announces on a back arrow, the word on the cross
-    /// that dismisses a notification.
-    ///
-    /// Answered per language rather than once, because it is not the same question as
-    /// [`locale`](Self::locale): that one picks which of *this application's* Fluent
-    /// resources to read, and this one hands the framework a table of its own words. The
-    /// shell installs it every frame, so the menu switches both together.
-    ///
-    /// **Arabic gets English here**, deliberately and not by omission: there is no Arabic
-    /// table in the framework yet, and a machine-translated one would be worse than none —
-    /// it silences the question for that language and leaves a native reader with something
-    /// subtly wrong and nobody looking at it. Its layout still mirrors.
-    fn localizations(&self) -> Option<std::rc::Rc<dyn frus_widgets::Localizations>> {
-        match LANGS[crate::l10n::lang_of(self)].1 {
-            "fr" => Some(std::rc::Rc::new(frus_widgets::French)),
-            _ => None,
-        }
-    }
-
-    /// The **light** theme, whatever the platform says: the framework asks this one for
-    /// light and [`Self::dark_theme`] for dark, and chooses with [`Self::theme_mode`].
-    ///
-    /// It read the platform's brightness for a while, which made the pinned light theme
-    /// come back dark on a phone in night mode — the demonstration's own switch did nothing
-    /// there. Found on a device while photographing the light theme's status bar (#46).
-    fn theme(&self) -> Theme {
-        theme_of(self, false)
-    }
-
-    fn dark_theme(&self) -> Option<Theme> {
-        Some(theme_of(self, true))
-    }
-
-    /// The demonstration has a light/dark switch of its own, so it **pins** the mode
-    /// rather than following the platform. An application with no such switch says
-    /// nothing here and gets [`ThemeMode::System`], which is the default.
-    fn theme_mode(&self) -> ThemeMode {
-        if self.light {
-            ThemeMode::Light
-        } else {
-            ThemeMode::Dark
-        }
-    }
-
-    fn tick(&mut self, dt: f32) -> bool {
-        let mut animating = false;
-
-        // The stand-in reload behind the log list's pull-to-refresh.
-        if self.journal_reloading > 0.0 {
-            self.journal_reloading -= dt;
-            if self.journal_reloading <= 0.0 {
-                self.journal_reloading = 0.0;
-                self.journal_reloads += 1;
-            }
-            animating = true;
-        }
-
-        // The screen transition: the controller samples the shared spring.
-        if self.nav_from.is_some() {
-            if self.nav.tick(dt) {
-                animating = true;
-            } else {
-                self.nav_from = None;
-            }
-        }
-
-        // The back gesture's settle (the same spring, primed by the finger's momentum).
-        let mut commit_back = false;
-        if let Some(g) = self.back.as_mut() {
-            if let Some(settle) = g.settle.as_mut() {
-                if settle.tick(dt) {
-                    g.progress = settle.value();
-                    animating = true;
-                } else {
-                    commit_back = g.commit;
-                    self.back = None;
-                }
-            }
-        }
-        if commit_back {
-            self.routes.pop();
-        }
-
-        animating
-    }
-
-    fn title(&self) -> String {
-        "frus — Todo".to_string()
-    }
-
-    fn window_size(&self) -> Option<(f32, f32)> {
-        Some((900.0, 680.0))
-    }
-
-    fn can_go_back(&self) -> bool {
-        !self.routes.is_empty()
-            && !self.confirm_clear
-            && !self.data_confirm_delete
-            && !self.menu_open
-            && !self.city_open
-            && !self.drawer_open
-            && !self.sheet_open
-    }
-
-    fn back_gesture(&mut self, progress: f32) {
-        match self.back.as_mut() {
-            Some(g) => g.progress = progress,
-            None => {
-                self.back = Some(BackGesture {
-                    progress,
-                    velocity: 0.0,
-                    settle: None,
-                    commit: false,
-                })
-            }
-        }
-    }
-
-    fn back_gesture_end(&mut self, velocity: f32) {
-        if let Some(g) = self.back.as_mut() {
-            g.velocity = velocity;
-            // An iOS-style projection: the position plus the momentum decide.
-            let projected = g.progress + velocity * BACK_PROJECT;
-            let commit = projected > BACK_COMMIT_POS && !self.routes.is_empty();
-            g.commit = commit;
-            // A spring settle from the current position, primed by the finger's momentum,
-            // towards the target (committed `1` or cancelled `0`).
-            let mut settle = AnimationController::unit();
-            settle.set_value(g.progress);
-            settle.spring_to(if commit { 1.0 } else { 0.0 }, nav_spring(), velocity);
-            g.settle = Some(settle);
-        }
-    }
-}
+frus_shell::main!(app());

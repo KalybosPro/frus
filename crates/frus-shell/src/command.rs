@@ -282,6 +282,30 @@ impl<Msg: Send + 'static> Command<Msg> {
         }
     }
 
+    /// A focus request whose key is already a hash — what a component's effect carries.
+    pub(crate) fn focus_hashed(key: u64) -> Self {
+        Self {
+            focus: vec![key],
+            ..Self::none()
+        }
+    }
+
+    /// A scroll request whose key is already a hash.
+    pub(crate) fn scroll_hashed(key: u64, to: ScrollTo) -> Self {
+        Self {
+            scrolls: vec![(key, to)],
+            ..Self::none()
+        }
+    }
+
+    /// A sheet request whose key is already a hash.
+    pub(crate) fn sheet_hashed(key: u64, to: SheetTo) -> Self {
+        Self {
+            sheets: vec![(key, to)],
+            ..Self::none()
+        }
+    }
+
     /// `true` when the command has no effect and no request of any kind.
     pub fn is_empty(&self) -> bool {
         self.tasks.is_empty()

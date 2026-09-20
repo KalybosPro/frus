@@ -3,130 +3,139 @@
 use crate::prelude::*;
 use frus_widgets::{column, AnnotatedRegion, SystemUiOverlayStyle};
 
-/// A paged walkthrough: the finger and the picker drive **one** page number, held by
-/// the application (milestone 283).
+/// One task on its own screen (milestone 286): which one, and how far in the screen is.
 ///
-/// This is the whole point of the two-way binding: `on_page_changed` writes the page
-/// the finger reached into the state, and `page` reads it back out. Neither side owns
-/// it, so neither can drift from the other.
-/// One task on its own screen (milestone 286).
-///
-/// The avatar carries the **same** `Hero` tag as the one on the row this screen was
-/// opened from, so the two are understood to be one thing and the transition flies it
-/// from the row into place instead of fading one out and the other in.
-pub(crate) fn task_screen(
-    app: &TodoApp,
-    theme: &Theme,
-    id: u64,
-    entering: f32,
-) -> Box<dyn Widget<Msg>> {
-    let todo = app.todos.iter().find(|t| t.id == id);
-    let (label, done) = match todo {
-        Some(todo) => (todo.text.clone(), todo.done),
-        // Deleted while its screen was open: say so rather than show an empty page.
-        None => ("This task no longer exists.".to_string(), false),
-    };
-    let avatar = Hero::new(id, CircleAvatar::new(label.clone()).size(96.0));
-    let state = if done { "Done" } else { "Still to do" };
-    // **The words follow the picture in.** `entering` is the route's own progress, which
-    // the application owns and hands to the navigator at the same time — an explicit
-    // transition, driven by a number nothing in the framework had to be asked for
-    // (milestone 489). Eased here rather than in the state, because the curve is a
-    // property of this movement and not of the route.
-    let arriving = eased(entering, &Curve::ease_out());
-    //
-    // The **full width** is the box the words are given, and it has to be said here: the
-    // column below centres its children, so anything with no width of its own comes out at
-    // the width of its own content — and a title that wraps needs a box to wrap inside.
-    // Without this the title measured at its natural length, which is one long line, and
-    // ran under the label below it (the failure milestone 334 first caught, and the test
-    // that has watched for it since).
-    let words = Container::new()
-        .width_fraction(1.0)
-        .child(SlideTransition::from_edge(
-            SlideFrom::Bottom,
-            arriving,
-            FadeTransition::new(
-                arriving,
-                column![
-                    // The title **grows into place** as it arrives, handed its size by the
-                    // same number that slides and fades it, so the three arrive together
-                    // (milestone 501). It names no size of its own for that reason: a text
-                    // that states its size keeps it, and the handed-down one would never be
-                    // asked. At rest it is the 24 it always was.
-                    DefaultTextStyleTransition::between(
-                        TextStyle::NONE.size(20.0),
-                        TextStyle::NONE.size(24.0),
-                        arriving,
-                        text(label).weight(FontWeight::Bold).wrap(),
-                    ),
-                    text(state).size(15.0).color(theme.muted),
-                ]
-                .gap(18.0)
-                .align(Align::Center),
-            ),
-        ));
-    // The avatar is deliberately **not** in there: it is a shared element, and the
-    // framework is already flying it from the row this screen was opened from. A second
-    // animation on top would be two hands on the same object.
-    let body = column![avatar, words]
-        .gap(18.0)
-        .align(Align::Center)
-        .justify(Justify::Center)
-        .flex(1.0);
+/// `entering` is the route's own progress — the number the transition is driven by, which the
+/// router hands every page it builds. A screen that wants to move its own contents as it
+/// arrives reads it; one that does not ignores it, which is all but this one.
+pub(crate) struct TaskPage {
+    pub(crate) demo: Rc<Demo>,
+    pub(crate) id: u64,
+    pub(crate) entering: f32,
+}
 
-    // A bottom app bar and a **docked** button (milestone 291): the screen's own
-    // actions along the bottom, and the one that matters most astride the bar's top
-    // edge, in a notch cut to receive it.
-    let screen = Scaffold::new()
-        .background(theme.background)
-        .app_bar(NavigationBar::new("Task").on_back(Msg::Pop))
-        // No scroller: this screen's content is centred in whatever room it is given, so
-        // it wants the **whole** of that room and nothing more. `flex(1.0)` is how a body
-        // asks to fill, now that the Scaffold places it rather than expanding it
-        // (milestone 321) — without it the centring would have nothing to centre within.
-        .body(
-            // No width: the body **is** the slot the Scaffold hands it, and a lone child
-            // is bounded by the box it is given (milestone 392). `flex(1)` is the height
-            // — the slot's, so that the centring below has something to centre within.
-            Container::new().flex(1.0).padding(24.0).child(body),
-        )
-        .bottom_app_bar(
-            // Unfilled actions, as a bottom app bar carries: icons and words, not
-            // filled buttons. Also the only thing that works today — see the renderer
-            // note in milestone 291: a filled button on a **notched** bar is painted
-            // over by the bar's own outline.
-            BottomAppBar::new().color(theme.surface).child(
-                Flex::row()
-                    .align(Align::Center)
-                    .gap(16.0)
-                    .child(
-                        Container::new()
-                            .padding(8.0)
-                            .on_click(Msg::DeleteTodo(id))
-                            .child(text("Delete").size(15.0).color(theme.error)),
-                    )
-                    .child(
-                        Container::new()
-                            .padding(8.0)
-                            .on_click(Msg::Pop)
-                            .child(text("Back").size(15.0).color(theme.muted)),
-                    )
-                    .child(bar_spacer()),
-            ),
-        )
-        .fab_location(FabLocation::EndDocked)
-        .fab(fab_button(
-            if done { "↺" } else { "✓" },
-            Msg::ToggleTodo(id),
+impl StatelessWidget for TaskPage {
+    /// The avatar carries the **same** `Hero` tag as the one on the row this screen was
+    /// opened from, so the two are understood to be one thing and the transition flies it
+    /// from the row into place instead of fading one out and the other in.
+    fn build(&self, cx: &BuildContext) -> Box<dyn Widget> {
+        let theme = cx.theme();
+        let (id, entering) = (self.id, self.entering);
+        let router = cx.router();
+        let todo = self.demo.todo(id);
+        let (label, done) = match todo {
+            Some(todo) => (todo.text, todo.done),
+            // Deleted while its screen was open: say so rather than show an empty page.
+            None => ("This task no longer exists.".to_string(), false),
+        };
+        let avatar = Hero::new(id, CircleAvatar::new(label.clone()).size(96.0));
+        let state = if done { "Done" } else { "Still to do" };
+        // **The words follow the picture in.** `entering` is the route's own progress, handed
+        // to the page at the same time as it is handed to the navigator — an explicit
+        // transition, driven by a number nothing in the framework had to be asked for
+        // (milestone 489). Eased here rather than in the state, because the curve is a
+        // property of this movement and not of the route.
+        let arriving = eased(entering, &Curve::ease_out());
+        //
+        // The **full width** is the box the words are given, and it has to be said here: the
+        // column below centres its children, so anything with no width of its own comes out at
+        // the width of its own content — and a title that wraps needs a box to wrap inside.
+        // Without this the title measured at its natural length, which is one long line, and
+        // ran under the label below it (the failure milestone 334 first caught, and the test
+        // that has watched for it since).
+        let words = Container::new()
+            .width_fraction(1.0)
+            .child(SlideTransition::from_edge(
+                SlideFrom::Bottom,
+                arriving,
+                FadeTransition::new(
+                    arriving,
+                    column![
+                        // The title **grows into place** as it arrives, handed its size by the
+                        // same number that slides and fades it, so the three arrive together
+                        // (milestone 501). It names no size of its own for that reason: a text
+                        // that states its size keeps it, and the handed-down one would never be
+                        // asked. At rest it is the 24 it always was.
+                        DefaultTextStyleTransition::between(
+                            TextStyle::NONE.size(20.0),
+                            TextStyle::NONE.size(24.0),
+                            arriving,
+                            text(label).weight(FontWeight::Bold).wrap(),
+                        ),
+                        text(state).size(15.0).color(theme.muted),
+                    ]
+                    .gap(18.0)
+                    .align(Align::Center),
+                ),
+            ));
+        // The avatar is deliberately **not** in there: it is a shared element, and the
+        // framework is already flying it from the row this screen was opened from. A second
+        // animation on top would be two hands on the same object.
+        let body = column![avatar, words]
+            .gap(18.0)
+            .align(Align::Center)
+            .justify(Justify::Center)
+            .flex(1.0);
+
+        let (pop, delete, toggle) = (router.clone(), self.demo.clone(), self.demo.clone());
+        let back = router.clone();
+        // A bottom app bar and a **docked** button (milestone 291): the screen's own
+        // actions along the bottom, and the one that matters most astride the bar's top
+        // edge, in a notch cut to receive it.
+        let screen = Scaffold::new()
+            .background(theme.background)
+            .app_bar(NavigationBar::new("Task").on_back(on(move || {
+                pop.pop();
+            })))
+            // No scroller: this screen's content is centred in whatever room it is given, so
+            // it wants the **whole** of that room and nothing more. `flex(1.0)` is how a body
+            // asks to fill, now that the Scaffold places it rather than expanding it
+            // (milestone 321) — without it the centring would have nothing to centre within.
+            .body(
+                // No width: the body **is** the slot the Scaffold hands it, and a lone child
+                // is bounded by the box it is given (milestone 392). `flex(1)` is the height
+                // — the slot's, so that the centring below has something to centre within.
+                Container::new().flex(1.0).padding(24.0).child(body),
+            )
+            .bottom_app_bar(
+                // Unfilled actions, as a bottom app bar carries: icons and words, not
+                // filled buttons. Also the only thing that works today — see the renderer
+                // note in milestone 291: a filled button on a **notched** bar is painted
+                // over by the bar's own outline.
+                BottomAppBar::new().color(theme.surface).child(
+                    Flex::row()
+                        .align(Align::Center)
+                        .gap(16.0)
+                        .child(
+                            Container::new()
+                                .padding(8.0)
+                                .on_click(on(move || delete.delete(id)))
+                                .child(text("Delete").size(15.0).color(theme.error)),
+                        )
+                        .child(
+                            Container::new()
+                                .padding(8.0)
+                                .on_click(on(move || {
+                                    back.pop();
+                                }))
+                                .child(text("Back").size(15.0).color(theme.muted)),
+                        )
+                        .child(bar_spacer()),
+                ),
+            )
+            .fab_location(FabLocation::EndDocked)
+            .fab(fab_button(
+                if done { "↺" } else { "✓" },
+                on(move || toggle.toggle(id)),
+            ))
+            .build();
+        // The bottom app bar **continues into the system's navigation bar** under it, rather
+        // than stopping at a line where the platform's own colour starts (#46). The screen
+        // asks for the navigation bar in the bar's colour and says nothing of the status bar,
+        // which stays the theme's.
+        Box::new(AnnotatedRegion::new(
+            SystemUiOverlayStyle::NONE.navigation_bar_color(theme.surface),
+            screen,
         ))
-        .build();
-    // The bottom app bar **continues into the system's navigation bar** under it, rather
-    // than stopping at a line where the platform's own colour starts (#46). The screen asks
-    // for the navigation bar in the bar's colour and says nothing of the status bar, which
-    // stays the theme's.
-    Box::new(AnnotatedRegion::new(
-        SystemUiOverlayStyle::NONE.navigation_bar_color(theme.surface),
-        screen,
-    ))
+    }
 }

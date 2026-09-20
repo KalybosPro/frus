@@ -119,6 +119,14 @@ thread_local! {
     static REBUILD: Cell<bool> = const { Cell::new(false) };
     static DEPTH: Cell<u32> = const { Cell::new(0) };
     static INTERVALS: RefCell<Vec<Interval>> = const { RefCell::new(Vec::new()) };
+    static BACK_BLOCKS: Cell<u32> = const { Cell::new(0) };
+}
+
+/// Whether some component of the latest build has said that the back gesture and the back
+/// button are not for the router to answer — an open menu or dialog is what they close first.
+/// See [`BuildContext::block_back`].
+pub fn back_blocked() -> bool {
+    BACK_BLOCKS.with(|blocks| blocks.get() > 0)
 }
 
 /// A timer a component asked for with [`BuildContext::use_interval`].
@@ -228,8 +236,10 @@ impl StateStore {
     pub fn begin_build(&self) {
         self.epoch.set(self.epoch.get() + 1);
         self.building.set(true);
-        // Each build says which timers it wants, from scratch.
+        // Each build says which timers it wants, and what stands in the way of going back,
+        // from scratch.
         INTERVALS.with(|intervals| intervals.borrow_mut().clear());
+        BACK_BLOCKS.with(|blocks| blocks.set(0));
     }
 
     /// The frame is done laying out: the states a rebuild did not reach are disposed, and
@@ -725,6 +735,18 @@ impl<'a> BuildContext<'a> {
         });
     }
 
+    /// Says, for this build, whether something this component shows — a menu, a dialog, a
+    /// drawer — should take the back gesture and the back button before the router does.
+    /// While any component says `true`, the router is not asked to go back.
+    ///
+    /// Like [`use_interval`](Self::use_interval) it is asked again on every build and may be
+    /// called conditionally: `cx.block_back(self.menu_open)`.
+    pub fn block_back(&self, blocked: bool) {
+        if blocked {
+            BACK_BLOCKS.with(|blocks| blocks.set(blocks.get() + 1));
+        }
+    }
+
     /// Work to do *after* the tree is built — start a timer, subscribe, read a controller —
     /// run again whenever `deps` change, not otherwise. Pass `()` to run it once.
     ///
@@ -923,6 +945,24 @@ impl<S: State> StateHandle<S> {
         let handle = self.clone();
         Callback::new(move || handle.set_state(|state| change(state)))
     }
+
+    /// A handler for a widget that reports a **value** — a field's text, a slider's position, a
+    /// switch's new setting: `TextField::new(..).on_input(cx.handler(|s, text: String| s.name = text))`.
+    ///
+    /// It answers the value with a [`Callback`] that makes the change when it is delivered, which
+    /// is what every widget's setter takes and what leaves no doubt about the message type — a
+    /// closure that returns nothing could be a handler for any.
+    pub fn handler<T: Clone + 'static>(
+        &self,
+        change: impl Fn(&mut S, T) + 'static,
+    ) -> impl Fn(T) -> Callback + 'static {
+        let handle = self.clone();
+        let change = Rc::new(change);
+        move |value| {
+            let (handle, change) = (handle.clone(), change.clone());
+            Callback::new(move || handle.set_state(|state| change(state, value.clone())))
+        }
+    }
 }
 
 /// What a [`State`] is told when it builds and when its lifecycle runs: everything a
@@ -956,6 +996,15 @@ impl<S: State> StateContext<'_, '_, S> {
     /// A handler that changes this state — [`StateHandle::callback`], from here.
     pub fn callback(&self, change: impl Fn(&mut S) + 'static) -> Callback {
         self.handle().callback(change)
+    }
+
+    /// A handler that changes this state from a value the widget reports —
+    /// [`StateHandle::handler`], from here.
+    pub fn handler<T: Clone + 'static>(
+        &self,
+        change: impl Fn(&mut S, T) + 'static,
+    ) -> impl Fn(T) -> Callback + 'static {
+        self.handle().handler(change)
     }
 }
 
@@ -1296,6 +1345,45 @@ mod tests {
             Dimension::Length(15.0),
             "and it is the kept one"
         );
+    }
+
+    #[test]
+    fn a_handler_carries_the_value_a_widget_reports_into_the_state() {
+        let (runtime, log, out) = (Runtime::default(), log(), handle());
+        frame(&runtime, &life(1, &log, &out));
+        let handle = out.borrow().clone().unwrap();
+        let on_value = handle.handler(|s, by: i32| s.count += by);
+        let (three, four) = (on_value(3), on_value(4));
+        assert_eq!(
+            handle.read(|s| s.count),
+            0,
+            "nothing changes until it is delivered"
+        );
+        three.call();
+        four.call();
+        four.call();
+        assert_eq!(
+            handle.read(|s| s.count),
+            11,
+            "each delivery makes the change"
+        );
+        assert!(take_rebuild_request(), "and it asks for the rebuild");
+    }
+
+    #[test]
+    fn a_component_that_blocks_back_does_so_for_one_build_only() {
+        let runtime = Runtime::default();
+        let open = Rc::new(Cell::new(true));
+        let asked = open.clone();
+        let root = component(move |cx| {
+            cx.block_back(asked.get());
+            Box::new(Container::new().width(4.0).height(4.0))
+        });
+        frame(&runtime, &root);
+        assert!(back_blocked(), "an open menu is in the way");
+        open.set(false);
+        frame(&runtime, &root);
+        assert!(!back_blocked(), "each build says it afresh");
     }
 
     #[test]

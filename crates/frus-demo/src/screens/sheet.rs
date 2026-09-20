@@ -1,7 +1,8 @@
 //! The draggable sheet screen (milestone 515): a sheet over a page, dragged between a
 //! quarter, half and the whole of it, holding a list long enough to scroll at every one.
 
-use frus_widgets::Text;
+use frus_widgets::host;
+use frus_widgets::{SheetTo, Text};
 
 use crate::prelude::*;
 
@@ -33,63 +34,100 @@ pub(crate) const PLACES: [&str; 20] = [
 pub(crate) const PLACES_SHEET: &str = "places-sheet";
 
 /// The screen: a page, and the sheet over it until a flick down puts it away.
-pub(crate) fn sheet_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> {
-    let page = Container::new().padding(24.0).child(
-        Flex::column()
-            .gap(12.0)
-            .child(
-                text("A sheet over the page")
-                    .size(20.0)
-                    .color(theme.on_surface),
-            )
-            .child(
-                text(
-                    "Drag it by its handle or by its list. It rests at a quarter, at half and \
-                     at full height, and a flick down from the lowest puts it away.",
+pub(crate) struct SheetPage;
+
+/// The draggable sheet was lowered to nothing, and stays down until it is asked back
+/// (milestone 515). `false` — shown — by default.
+#[derive(Default)]
+pub(crate) struct SheetState {
+    pub(crate) hidden: bool,
+}
+
+impl StatefulWidget for SheetPage {
+    type State = SheetState;
+
+    fn create_state(&self) -> SheetState {
+        SheetState::default()
+    }
+}
+
+impl State for SheetState {
+    type Widget = SheetPage;
+
+    fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> {
+        let theme = cx.theme().clone();
+        let theme = &theme;
+        let page = Container::new().padding(24.0).child(
+            Flex::column()
+                .gap(12.0)
+                .child(
+                    text("A sheet over the page")
+                        .size(20.0)
+                        .color(theme.on_surface),
                 )
-                .size(15.0)
-                .color(theme.muted),
-            )
-            .child(
-                Flex::row()
-                    .gap(12.0)
-                    .child(
-                        button("Show the sheet", Msg::ShowPlaces)
-                            .variant(Variant::Filled)
-                            .size(15.0),
+                .child(
+                    text(
+                        "Drag it by its handle or by its list. It rests at a quarter, at half and \
+                         at full height, and a flick down from the lowest puts it away.",
                     )
-                    .child(
-                        button("Raise it", Msg::RaisePlaces)
+                    .size(15.0)
+                    .color(theme.muted),
+                )
+                .child(
+                    Flex::row()
+                        .gap(12.0)
+                        .child(
+                            button("Show the sheet", cx.callback(|s| s.hidden = false))
+                                .variant(Variant::Filled)
+                                .size(15.0),
+                        )
+                        .child(
+                            // A height the sheet goes to once, so an effect rather than state:
+                            // the height it leaves behind is the runtime's, as a finger's
+                            // would be.
+                            button(
+                                "Raise it",
+                                on(|| {
+                                    host::sheet_to(
+                                        PLACES_SHEET,
+                                        SheetTo::size(1.0).animate(0.3, Curve::ease()),
+                                    )
+                                }),
+                            )
                             .variant(Variant::Outlined)
                             .size(15.0),
-                    ),
-            ),
-    );
-    let mut stack = Stack::new().flex(1.0).layer(page);
-    if !app.places_hidden {
-        stack = stack.layer(keyed(
-            PLACES_SHEET,
-            frus_widgets::DraggableScrollableSheet::new(places_panel(theme))
-                .min(0.25)
-                .snap_sizes([0.5])
-                .on_dismiss(Msg::PlacesDismissed),
-        ));
+                        ),
+                ),
+        );
+        let mut stack = Stack::new().flex(1.0).layer(page);
+        if !self.hidden {
+            stack = stack.layer(keyed(
+                PLACES_SHEET,
+                frus_widgets::DraggableScrollableSheet::new(places_panel(theme))
+                    .min(0.25)
+                    .snap_sizes([0.5])
+                    .on_dismiss(cx.callback(|s| s.hidden = true)),
+            ));
+        }
+        let router = cx.router();
+        Scaffold::new()
+            .background(theme.background)
+            .app_bar(
+                AppBar::new()
+                    .title(Text::new("Draggable sheet"))
+                    .leading(IconButton::new(Icons::ARROW_BACK).on_press(on(move || {
+                        router.pop();
+                    })))
+                    .build(),
+            )
+            .body(stack)
+            .build()
     }
-    Scaffold::new()
-        .background(theme.background)
-        .app_bar(
-            AppBar::new()
-                .title(Text::new("Draggable sheet"))
-                .leading(IconButton::new(Icons::ARROW_BACK).on_press(Msg::Pop))
-                .build(),
-        )
-        .body(stack)
-        .build()
 }
 
 /// What the sheet holds: a handle, a heading and the list. The sheet draws nothing of its
 /// own, so the surface and its rounding are the content's.
-fn places_panel(theme: &Theme) -> Container<Msg> {
+fn places_panel(theme: &Theme) -> Container {
     let list = PLACES
         .iter()
         .enumerate()

@@ -109,7 +109,25 @@ An application can instead be written as a state struct, a **pure** `update` and
 `Application` trait, with typed messages, effects (`Command`) and subscriptions. Everything
 above is built on it: `FrusApp` is an `Application` whose message is a closure. Reach for the
 typed model when an application's logic is worth testing as a pure function of its messages;
-[`crates/frus-demo`](../crates/frus-demo/src/lib.rs) is written that way.
+[`crates/frus-transforms`](../crates/frus-transforms/src/lib.rs) is written that way.
+
+## An application of some size
+
+[`crates/frus-demo`](../crates/frus-demo/src/lib.rs) is a dozen screens written with everything
+above, and it shows where things are kept:
+
+- **A screen's own state is its `State`.** The filter of the task list, the value of every
+  control on the settings screen, the step of the sign-up wizard: each is a field of the
+  screen's state struct, changed by a handler with `cx.callback(..)` or `cx.handler(..)`.
+- **What more than one screen needs is one shared object** — the tasks, how the application is
+  dressed, the notifications — handed to the screens that ask for it as part of their
+  configuration, and changed through methods that ask for a rebuild.
+- **Where the reader is belongs to the router.** Each screen is a route, a task's own screen is
+  `/task/:id`, and `router.push(..)` is the whole of navigating.
+- **What is not a widget goes through `host`.** `host::app().set_theme_mode(..)` dresses the
+  window, `host::focus(key)` and `host::scroll_to(key, ..)` move the focus and a list,
+  `host::spawn(work, then)` runs something on another thread and uses the answer, and
+  `cx.block_back(open)` lets an open menu take the back gesture before the router does.
 
 ## Generating a new project (`cargo generate`)
 
