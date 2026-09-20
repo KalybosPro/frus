@@ -23,30 +23,60 @@ const TOOLBAR_HEIGHT: f32 = 60.0;
 /// Since milestone 494 the bar over it is a [`CollapsingHeader`]: four hundred packages
 /// are the longest list in this application, so it is the one where a header that keeps
 /// its whole height for ever costs the most.
-pub(crate) fn licenses_screen(app: &TodoApp, theme: &Theme) -> Container<Msg> {
-    let Size { width, height } = surface();
-    let page = LicensePage::new(app.licence_open, Msg::OpenLicence)
+///
+/// Which package's licence is open is this screen's own: the index into the page's list, and
+/// `None` is the list itself.
+pub(crate) struct LicensesPage;
+
+/// What the licence screen keeps: which package's licence is open.
+#[derive(Default)]
+pub(crate) struct LicensesState {
+    pub(crate) open: Option<usize>,
+}
+
+impl StatefulWidget for LicensesPage {
+    type State = LicensesState;
+
+    fn create_state(&self) -> LicensesState {
+        LicensesState::default()
+    }
+}
+
+impl State for LicensesState {
+    type Widget = LicensesPage;
+
+    fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> {
+        let theme = cx.theme().clone();
+        let Size { width, height } = surface();
+        let page = LicensePage::new(
+            self.open,
+            cx.handler(|s, which: Option<usize>| s.open = which),
+        )
         .application("frus demo")
         .version(format!("version {}", env!("CARGO_PKG_VERSION")))
         .legalese("The demo itself is MIT OR Apache-2.0. What follows is everything it links.")
         .build();
-    let body = SingleChildScrollView::new()
-        .width(width)
-        .flex(1.0)
-        // The header's room, **inside** the viewport and scrolling with the content — so
-        // the first package clears the header at rest and passes under it on the way up.
-        // This is also where the header reads its expanded height from.
-        .padding_each(HEADER_HEIGHT, 0.0, 0.0, 0.0)
-        .child(Container::new().padding(20.0).child(page));
-    let t = theme.clone();
-    let bar = CollapsingHeader::new(body, move |state| header(state, &t))
-        .collapsed_height(TOOLBAR_HEIGHT)
-        .build();
-    Container::new()
-        .width(width)
-        .height(height)
-        .color(theme.background)
-        .child(SafeArea::new(column![bar].flex(1.0)))
+        let body = SingleChildScrollView::new()
+            .width(width)
+            .flex(1.0)
+            // The header's room, **inside** the viewport and scrolling with the content — so
+            // the first package clears the header at rest and passes under it on the way up.
+            // This is also where the header reads its expanded height from.
+            .padding_each(HEADER_HEIGHT, 0.0, 0.0, 0.0)
+            .child(Container::new().padding(20.0).child(page));
+        let router = cx.router();
+        let t = theme.clone();
+        let bar = CollapsingHeader::new(body, move |state| header(state, &t, &router))
+            .collapsed_height(TOOLBAR_HEIGHT)
+            .build();
+        Box::new(
+            Container::new()
+                .width(width)
+                .height(height)
+                .color(theme.background)
+                .child(SafeArea::new(column![bar].flex(1.0))),
+        )
+    }
 }
 
 /// The header itself, at whatever height it has been given.
@@ -54,7 +84,7 @@ pub(crate) fn licenses_screen(app: &TodoApp, theme: &Theme) -> Container<Msg> {
 /// Everything that moves is interpolated on `state.fraction` rather than on the height,
 /// so the two constants above can change without this having to: `0` is fully open and
 /// `1` is a toolbar, whatever those are worth in pixels.
-fn header(state: HeaderState, theme: &Theme) -> Container<Msg> {
+fn header(state: HeaderState, theme: &Theme, router: &GoRouter) -> Container {
     let f = state.fraction;
     // The title ends at the size a bar's title has and starts half again as big. Read off
     // the theme's own step rather than a number typed here, so a theme that changes its
@@ -78,6 +108,7 @@ fn header(state: HeaderState, theme: &Theme) -> Container<Msg> {
             .color(subtitle),
     ]
     .gap(2.0);
+    let back = router.clone();
     Container::new()
         .width(state.width)
         .height(state.height)
@@ -88,7 +119,13 @@ fn header(state: HeaderState, theme: &Theme) -> Container<Msg> {
             Expanded::new(Container::new()),
             Container::new().padding_each(0.0, 16.0, 10.0, 8.0).child(
                 row![
-                    button("←", Msg::Pop).variant(Variant::Text),
+                    button(
+                        "←",
+                        on(move || {
+                            back.pop();
+                        })
+                    )
+                    .variant(Variant::Text),
                     Expanded::new(title),
                 ]
                 .gap(4.0)

@@ -1,12 +1,13 @@
-//! The **state**, and the questions worth asking it.
+//! The demo's **data**: what a task is, the fixed sets the screens draw, and the rules that
+//! read them.
 //!
-//! Derived answers (`active_count`, `current_route`) live here rather than in the
-//! views that want them: computed next to the state, they cannot drift into three
-//! slightly different versions of the same count.
-
-use crate::prelude::*;
+//! Nothing here holds state. What is kept lives where it is used — a screen's own in its
+//! `State`, what more than one screen needs in [`Demo`](crate::demo::Demo) — and what is
+//! *derived* from it lives here as plain functions, so it cannot drift into three slightly
+//! different versions of the same count.
 
 /// One task of the list.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Todo {
     pub(crate) id: u64,
     pub(crate) text: String,
@@ -14,7 +15,7 @@ pub(crate) struct Todo {
 }
 
 /// Display filter of the task list.
-#[derive(Copy, Clone, PartialEq, Eq, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub(crate) enum Filter {
     #[default]
     All,
@@ -22,316 +23,53 @@ pub(crate) enum Filter {
     Done,
 }
 
-/// The application's screens.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum Route {
-    Home,
-    Settings,
-    Journal,
-    /// Multi-step sign-up wizard (an integration demo: Steps + Form + Snackbar).
-    Wizard,
-    /// **Inline-editable** data grid (an integration demo: Table + one TextField per cell).
-    GridView,
-    /// **Chart** dashboard (an integration demo: LineChart + a clickable legend, milestone 218).
-    Charts,
-    /// **Read-only** data table (an integration demo: a self-sorting, paginated DataTable —
-    /// milestone 237).
-    Data,
-    /// A **Kanban** board: columns of cards, drag-and-drop between columns (milestone 247).
-    Board,
-    /// A paged **walkthrough**: one panel per swipe, dots, and buttons that drive the
-    /// same view the finger does (milestone 283).
-    Tour,
-    /// One task, on its own screen. Its avatar is a **shared element** with the row it
-    /// was opened from, and flies between the two (milestone 286).
-    Task(u64),
-    /// The licences of everything this application links (milestone 492).
-    Licenses,
-    /// A sheet dragged between three heights over a page, holding a list that scrolls
-    /// (milestone 515).
-    Sheet,
-}
-
-/// The back gesture: the progress follows the finger, then a spring settle (commit/cancel)
-/// driven by an [`AnimationController`].
-pub(crate) struct BackGesture {
-    pub(crate) progress: f32,
-    pub(crate) velocity: f32,
-    /// `Some` once released: the spring settle in progress (`None` = still following the
-    /// finger).
-    pub(crate) settle: Option<AnimationController>,
-    /// Does the settle, when it ends, commit the back (a pop)?
-    pub(crate) commit: bool,
-}
-
-/// The to-do application: state + logic. A consumer of the `frus-shell` framework.
-#[derive(Default)]
-pub(crate) struct TodoApp {
-    /// The tasks, in the order they were added.
-    pub(crate) todos: Vec<Todo>,
-    /// The text currently being typed.
-    pub(crate) draft: String,
-    /// The current filter.
-    pub(crate) filter: Filter,
-    /// The next task id.
-    pub(crate) next_id: u64,
-    /// Is the "clear completed" confirmation modal open?
-    pub(crate) confirm_clear: bool,
-    /// A light theme (otherwise dark) — read by `theme_mode`, and nothing else. The
-    /// **fade** between the two used to live here as well, as an outgoing theme and a
-    /// progress value; milestone 452 moved it into the framework, where it belongs.
-    pub(crate) light: bool,
-    /// Does the log list bounce at its ends rather than stop dead? `false` leaves
-    /// it on the platform's own behaviour.
-    pub(crate) journal_bounces: bool,
-    /// Is the log list reloading? The pull-to-refresh indicator spins for exactly as
-    /// long as this is true — the application owns the answer, not the framework.
-    pub(crate) journal_reloading: f32,
-    /// How many times the log has been reloaded, so a completed pull leaves a trace.
-    pub(crate) journal_reloads: usize,
-    /// **Where the log list is**, as the list itself last said. `None` until it has
-    /// moved at all — which is not the same as resting at the top, and the header says
-    /// so: a list that has never moved shows no row number, because nothing has been
-    /// measured yet.
-    pub(crate) journal_scroll: Option<ScrollPosition>,
-    /// The walkthrough's page. The application owns it: the finger reports its changes
-    /// here, and the buttons write to it, so both drive the same one value.
-    pub(crate) tour_page: usize,
-    /// The screen stack (empty = the home screen).
-    pub(crate) routes: Vec<Route>,
-    /// The outgoing screen during a transition.
-    pub(crate) nav_from: Option<Route>,
-    /// Progress of the screen transition (`0 → 1`), driven by a spring.
-    pub(crate) nav: AnimationController,
-    pub(crate) nav_forward: bool,
-    /// The back gesture in progress.
-    pub(crate) back: Option<BackGesture>,
-    // --- Controls of the Settings screen ---
-    pub(crate) notifs: bool,
-    pub(crate) volume: f32,
-    pub(crate) radio: usize,
-    pub(crate) menu_open: bool,
-    pub(crate) menu_choice: usize,
-    /// The filtering dropdown's own open flag, query and choice. Three pieces of state
-    /// rather than one, because the query is **only** what the field shows while the menu
-    /// is open: shut, the widget derives the display from `city_choice`, so there is
-    /// nothing here to reset when it closes.
-    pub(crate) city_open: bool,
-    pub(crate) city_query: String,
-    pub(crate) city_choice: Option<usize>,
-    /// The Settings screen's active tab.
-    pub(crate) settings_tab: usize,
-    /// Is the about box open?
-    pub(crate) about_open: bool,
-    /// Which package's licence is open on the licence page, as an index into the page's
-    /// own list. `None` is the list itself.
-    pub(crate) licence_open: Option<usize>,
-    /// Is the (header) actions menu open?
-    pub(crate) actions_open: bool,
-    /// Is the "Advanced options" section expanded?
-    pub(crate) advanced_open: bool,
-    /// The star rating (Settings).
-    pub(crate) rating: u32,
-    /// The stepper's counter (Settings).
-    pub(crate) count: i32,
-    /// How many minutes the reminder wheel is resting on (Settings, milestone 496).
-    pub(crate) reminder: usize,
-    /// The notification (Snackbar) queue: one at a time, with an animated exit (milestone 193).
-    pub(crate) snackbars: SnackBarQueue<String>,
-    /// The pagination selector's current page (a demo).
-    pub(crate) page: usize,
-    /// The expanded tree nodes (the Tree demo).
-    pub(crate) expanded: std::collections::HashSet<u64>,
-    /// The selected tree node (the Tree demo, milestone 246); `None` = none.
-    pub(crate) tree_selected: Option<u64>,
-    /// The colour picked (the ColorPicker demo).
-    pub(crate) picked: Option<Color>,
-    /// The calendar: year / month (1..12) / selected day.
-    pub(crate) year: i32,
-    pub(crate) month: u32,
-    pub(crate) selected_day: Option<u32>,
-    /// The showcase calendar: should weekends be disabled (`DatePicker::filtered`)? — milestone 238.
-    pub(crate) weekdays_only: bool,
-    /// The carousel's current slide (a demo).
-    pub(crate) slide: usize,
-    /// Is the info popover open?
-    pub(crate) info_open: bool,
-    /// What is typed in the autocomplete (a demo).
-    pub(crate) tag_draft: String,
-    /// The active section of the home screen (0 = Tasks, 1 = Stats, 2 = About).
-    pub(crate) section: usize,
-    /// The metric selected in the Stats section (a master-detail TwoPane).
-    pub(crate) stat_sel: usize,
-    /// In single-pane (narrow) mode, is the Stats detail open?
-    pub(crate) stat_detail_open: bool,
-    /// Density (an application-level zoom over the whole UI) — `1.0` by default.
-    pub(crate) density: f32,
-    /// The current size class (updated by `on_resize`).
-    pub(crate) size_class: Option<SizeClass>,
-    /// The current orientation (updated by `on_resize`).
-    pub(crate) orientation: Option<Orientation>,
-    /// Is the side navigation drawer open?
-    pub(crate) drawer_open: bool,
-    /// Is the quick-actions modal sheet open?
-    pub(crate) sheet_open: bool,
-    /// The draggable sheet was lowered to nothing, and stays down until it is asked back
-    /// (milestone 515). `false` — shown — by default.
-    pub(crate) places_hidden: bool,
-    /// System insets (the safe area): status/navigation bars, notches.
-    pub(crate) insets: Insets,
-    /// The theme seed: `0` = the hand-written scheme, otherwise `from_seed` (HCT).
-    pub(crate) seed_index: usize,
-    /// A right-to-left layout (Arabic/Hebrew)?
-    pub(crate) rtl: bool,
-    /// The language **the reader picked in this application** (an index into `LANGS`).
-    ///
-    /// `None` — the default — follows the device, which is what an application should do
-    /// until it is told otherwise. The framework resolves the platform's languages against
-    /// [`Application::supported_locales`](frus_shell::Application::supported_locales) and
-    /// installs the answer; `lang_of` reads it.
-    pub(crate) lang: Option<usize>,
-    /// The state came from a live-reload snapshot: `init` does not reload the tasks from disk
-    /// (the snapshot is the authority).
-    pub(crate) restored: bool,
-    // --- Sign-up wizard (an integration demo) ---
-    /// The wizard's current step (0 = Account, 1 = Security, 2 = Review).
-    pub(crate) wizard_step: usize,
-    pub(crate) wizard_name: String,
-    pub(crate) wizard_email: String,
-    pub(crate) wizard_pass: String,
-    pub(crate) wizard_confirm: String,
-    /// Has the wizard been submitted at least once? (the errors only show afterwards.)
-    pub(crate) wizard_submitted: bool,
-    /// Are the wizard's passwords **revealed** (unmasked)?
-    pub(crate) wizard_reveal: bool,
-    /// The editable grid's data (rows × columns of text).
-    pub(crate) grid: Vec<Vec<String>>,
-    /// The grid's current sort: `(column, ascending)`; `None` = the order it was typed in.
-    pub(crate) grid_sort: Option<(usize, bool)>,
-    /// The last faulty cell "Next error" targeted (milestone 214) — so it can cycle to the next.
-    pub(crate) grid_error_cursor: Option<(usize, usize)>,
-    /// Indices of the chart's **hidden** series (toggled through the legend, milestone 218).
-    pub(crate) chart_hidden: Vec<usize>,
-    /// The kind of chart shown: 0 lines, 1 stacked areas, 2 grouped bars, 3 stacked bars (milestone 219).
-    pub(crate) chart_kind: usize,
-    /// The **pinned** detail of a clicked point (`series · category = value`), if there is one (milestone 221).
-    pub(crate) chart_pin: Option<String>,
-    /// The **selected** point/bar `(category, series)`, highlighted in the chart (milestone 223).
-    pub(crate) chart_sel: Option<(usize, usize)>,
-    /// **100%** stacking (proportions) turned on for the stacked charts (milestone 224).
-    pub(crate) chart_normalized: bool,
-    /// The data table's sort `(column, ascending)`; `None` = the source order (milestone 237).
-    /// The display sort is done by the `DataTable`, **not** duplicated here.
-    pub(crate) data_sort: Option<(usize, bool)>,
-    /// The data table's current page (1-indexed); `0` = page 1 (milestone 237).
-    pub(crate) data_page: usize,
-    /// The data table's page size; `0` = the default (milestone 237).
-    pub(crate) data_page_size: usize,
-    /// The data table's selected **source** row; `None` = none (milestone 239). The `DataTable`
-    /// translates that original index into a highlighted position through sorting/pagination.
-    pub(crate) data_selected: Option<usize>,
-    /// The data table's checked **source** rows (multi-selection, milestone 241). It drives the
-    /// boxes and the highlighting; the app decides what "check all" covers (here, all 12 rows).
-    pub(crate) data_checked: Vec<usize>,
-    /// The data table's search query (milestone 242); the `DataTable` filters the display.
-    pub(crate) data_query: String,
-    /// The data table's rows (milestone 243): `None` = the `DATA_PEOPLE` starting set; `Some` as
-    /// soon as a bulk action (Delete) changes them. See [`TodoApp::data_rows`].
-    pub(crate) data_rows: Option<Vec<(String, String, u32, String)>>,
-    /// Is the data table's bulk-delete confirmation modal open? (milestone 245)
-    pub(crate) data_confirm_delete: bool,
-    /// The Kanban cards, per column (milestone 247); `None` = the `KANBAN_SEED` starting set.
-    /// `Some` as soon as a card is moved. See [`TodoApp::kanban_cols`].
-    pub(crate) kanban: Option<Vec<Vec<String>>>,
-    /// The order of the board's label strip, as indices into `BOARD_LABELS` (milestone 527);
-    /// `None` = the order they are declared in. See [`TodoApp::board_labels`].
-    pub(crate) label_order: Option<Vec<usize>>,
-}
-
-pub(crate) fn current_route(app: &TodoApp) -> Route {
-    app.routes.last().copied().unwrap_or(Route::Home)
-}
-
-impl TodoApp {
-    /// The data table's current rows: the ones held in the state if they have been changed (a
-    /// bulk Delete), otherwise the `DATA_PEOPLE` starting set (milestone 243).
-    pub(crate) fn data_rows(&self) -> Vec<(String, String, u32, String)> {
-        match &self.data_rows {
-            Some(rows) => rows.clone(),
-            None => DATA_PEOPLE
-                .iter()
-                .map(|(n, r, s, l)| (n.to_string(), r.to_string(), *s, l.to_string()))
-                .collect(),
+impl Filter {
+    /// This filter's index (for the segmented control).
+    pub(crate) fn index(self) -> usize {
+        match self {
+            Filter::All => 0,
+            Filter::Active => 1,
+            Filter::Done => 2,
         }
     }
 
-    /// The Kanban cards per column: the ones held in the state if any have moved, otherwise the
-    /// `KANBAN_SEED` starting set (milestone 247).
-    pub(crate) fn kanban_cols(&self) -> Vec<Vec<String>> {
-        match &self.kanban {
-            Some(cols) => cols.clone(),
-            None => KANBAN_SEED
-                .iter()
-                .map(|col| col.iter().map(|s| s.to_string()).collect())
-                .collect(),
+    /// The filter matching a segment index.
+    pub(crate) fn from_index(index: usize) -> Filter {
+        match index {
+            1 => Filter::Active,
+            2 => Filter::Done,
+            _ => Filter::All,
         }
     }
 
-    /// The board's labels in the order the strip shows them, as indices into `BOARD_LABELS`:
-    /// the order held in the state once a label has moved, otherwise the declared one
-    /// (milestone 527).
-    pub(crate) fn board_labels(&self) -> Vec<usize> {
-        self.label_order
-            .clone()
-            .unwrap_or_else(|| (0..BOARD_LABELS.len()).collect())
+    /// Does this filter show `todo`?
+    pub(crate) fn shows(self, todo: &Todo) -> bool {
+        match self {
+            Filter::All => true,
+            Filter::Active => !todo.done,
+            Filter::Done => todo.done,
+        }
     }
 }
 
-/// A filter's index (for the segmented control).
-pub(crate) fn filter_index(filter: Filter) -> usize {
-    match filter {
-        Filter::All => 0,
-        Filter::Active => 1,
-        Filter::Done => 2,
-    }
-}
-
-/// The filter matching a segment index.
-pub(crate) fn filter_from_index(index: usize) -> Filter {
-    match index {
-        1 => Filter::Active,
-        2 => Filter::Done,
-        _ => Filter::All,
-    }
-}
-
-/// The tasks the list is **showing**, in the order it shows them: the filter, in one
-/// place, because a screen that decides which rows to draw and an update that decides
-/// which row was moved have to agree on the answer.
-pub(crate) fn visible_todos(app: &TodoApp) -> impl Iterator<Item = &Todo> {
-    app.todos.iter().filter(|t| match app.filter {
-        Filter::All => true,
-        Filter::Active => !t.done,
-        Filter::Done => t.done,
-    })
+/// The tasks a list is **showing**, in the order it shows them: the filter, in one place,
+/// because a screen that decides which rows to draw and a move that decides which row was
+/// carried have to agree on the answer.
+pub(crate) fn visible(todos: &[Todo], filter: Filter) -> Vec<&Todo> {
+    todos.iter().filter(|t| filter.shows(t)).collect()
 }
 
 /// Number of tasks that are not done.
-pub(crate) fn active_count(app: &TodoApp) -> usize {
-    app.todos.iter().filter(|t| !t.done).count()
+pub(crate) fn active_count(todos: &[Todo]) -> usize {
+    todos.iter().filter(|t| !t.done).count()
 }
 
 /// Number of tasks that are done.
-pub(crate) fn done_count(app: &TodoApp) -> usize {
-    app.todos.iter().filter(|t| t.done).count()
+pub(crate) fn done_count(todos: &[Todo]) -> usize {
+    todos.iter().filter(|t| t.done).count()
 }
 
 // --- The demo's fixed data, and the validation that reads it ---
-//
-// These sat in the screens that happened to draw them, until the application was
-// split across files and the direction became visible: `update` was importing a
-// view module to read a dataset. A dataset is not a view, and validating a cell is
-// not drawing one.
 
 /// The data table's static dataset (name, role, score) — milestone 237.
 pub(crate) const DATA_PEOPLE: [(&str, &str, u32, &str); 12] = [
@@ -423,5 +161,50 @@ pub(crate) fn grid_next_error(
             .copied()
             .find(|&f| f > cur)
             .or_else(|| faults.first().copied()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn todo(id: u64, done: bool) -> Todo {
+        Todo {
+            id,
+            text: format!("task {id}"),
+            done,
+        }
+    }
+
+    #[test]
+    fn a_filter_shows_what_it_says() {
+        let todos = vec![todo(1, false), todo(2, true), todo(3, false)];
+        let ids = |f| visible(&todos, f).iter().map(|t| t.id).collect::<Vec<_>>();
+        assert_eq!(ids(Filter::All), [1, 2, 3]);
+        assert_eq!(ids(Filter::Active), [1, 3]);
+        assert_eq!(ids(Filter::Done), [2]);
+        assert_eq!((active_count(&todos), done_count(&todos)), (2, 1));
+    }
+
+    #[test]
+    fn a_filter_round_trips_through_its_segment_index() {
+        for f in [Filter::All, Filter::Active, Filter::Done] {
+            assert_eq!(Filter::from_index(f.index()), f);
+        }
+        assert_eq!(Filter::from_index(9), Filter::All, "nonsense is everything");
+    }
+
+    #[test]
+    fn grid_next_error_cycles_through_all_faults() {
+        let grid = vec![
+            vec!["".to_string(), "Engineer".into(), "a@b.c".into()],
+            vec!["Alan".into(), "x".into(), "nope".into()],
+        ];
+        assert_eq!(grid_faults(&grid), [(0, 0), (1, 2)]);
+        assert_eq!(grid_error_count(&grid), 2);
+        assert_eq!(grid_next_error(&grid, None), Some((0, 0)));
+        assert_eq!(grid_next_error(&grid, Some((0, 0))), Some((1, 2)));
+        assert_eq!(grid_next_error(&grid, Some((1, 2))), Some((0, 0)), "wraps");
+        assert_eq!(grid_next_error(&[vec!["ok".to_string()]], None), None);
     }
 }

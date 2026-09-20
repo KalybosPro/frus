@@ -31,7 +31,7 @@ pub struct ReadmeDoctests;
 use std::path::Path;
 
 use frus_core::{Color, Scene, Size};
-use frus_widgets::{build_ui, Runtime, ScrollPhysics, Theme, Ui, Widget};
+use frus_widgets::{build_deferred, build_ui, Runtime, ScrollPhysics, Theme, Ui, Widget};
 
 /// A rendered frame: sRGB RGBA bytes, origin at the top left.
 pub struct Snapshot {
@@ -126,7 +126,15 @@ impl Stage {
     /// widget's identity (`scroll_regions`, `dismissables`, `refresh_areas`) before
     /// putting a gesture on it.
     pub fn build<'a, Msg: Clone + 'static>(&'a self, root: &'a dyn Widget<Msg>) -> Ui<Msg> {
-        build_ui(root, self.size(), &self.runtime, &self.theme)
+        // The steps the shell takes around a build, so a tree with components in it — an
+        // application made of them — is laid out as it would be in a window: the components
+        // marked as reached and built before anything asks for their children, and the ones
+        // no longer reached let go.
+        self.runtime.states.begin_build();
+        build_deferred(root, &self.theme, &self.runtime);
+        let ui = build_ui(root, self.size(), &self.runtime, &self.theme);
+        self.runtime.states.end_frame();
+        ui
     }
 
     /// One turn of the shell's loop: builds the tree, then advances every family of

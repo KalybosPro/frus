@@ -15,10 +15,10 @@
 
 use std::path::Path;
 
+use frus_shell::{Application, FrusApp};
 use frus_test::Stage;
 
 use crate::prelude::*;
-use crate::TodoApp;
 
 /// One frame of the animation, in seconds. The GIF is written at the same rate.
 const DT: f32 = 1.0 / 30.0;
@@ -26,7 +26,7 @@ const DT: f32 = 1.0 / 30.0;
 /// A screen worth a picture: where to go, how big, and in which theme.
 struct Shot {
     name: &'static str,
-    route: Option<Route>,
+    location: Option<&'static str>,
     width: u32,
     height: u32,
     light: bool,
@@ -38,28 +38,28 @@ const SHOTS: &[Shot] = &[
     // buys empty margins.
     Shot {
         name: "tasks",
-        route: None,
+        location: None,
         width: 900,
         height: 640,
         light: false,
     },
     Shot {
         name: "charts",
-        route: Some(Route::Charts),
+        location: Some("/charts"),
         width: 900,
         height: 640,
         light: false,
     },
     Shot {
         name: "board",
-        route: Some(Route::Board),
+        location: Some("/board"),
         width: 900,
         height: 640,
         light: false,
     },
     Shot {
         name: "data",
-        route: Some(Route::Data),
+        location: Some("/data"),
         width: 900,
         height: 640,
         light: false,
@@ -68,7 +68,7 @@ const SHOTS: &[Shot] = &[
     // not a coat of paint over a dark design.
     Shot {
         name: "light",
-        route: Some(Route::Settings),
+        location: Some("/settings"),
         width: 900,
         height: 640,
         light: true,
@@ -85,12 +85,12 @@ pub fn write_previews(dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Builds the application, walks it to `shot.route`, lets every animation settle,
+/// Builds the application, walks it to `shot.location`, lets every animation settle,
 /// and writes one frame.
 fn write_shot(dir: &Path, shot: &Shot) -> anyhow::Result<()> {
-    let mut app = seeded_app(shot.light);
-    if let Some(route) = shot.route {
-        let _ = app.update(Msg::Push(route));
+    let (mut app, router) = seeded_app(shot.light);
+    if let Some(location) = shot.location {
+        router.push(location);
     }
     // A route change is a spring: settle it, rather than photographing the application
     // mid-thought. The theme's own crossing is the framework's since milestone 452, and
@@ -139,9 +139,9 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
 
     // Three stops, not every screen. Each one costs two transitions, and the stills
     // below the GIF can show the rest for the price of a PNG.
-    let stops = [Route::Charts, Route::Board, Route::Data];
+    let stops = ["/charts", "/board", "/data"];
 
-    let mut app = seeded_app(false);
+    let (mut app, router) = seeded_app(false);
     let theme = shot_theme(&app);
     let mut stage = Stage::new(WIDTH, HEIGHT).theme(theme.clone());
     {
@@ -151,7 +151,7 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
     }
 
     let mut frames: Vec<Vec<u8>> = Vec::new();
-    let capture = |app: &TodoApp, stage: &mut Stage, frames: &mut Vec<Vec<u8>>| {
+    let capture = |app: &FrusApp, stage: &mut Stage, frames: &mut Vec<Vec<u8>>| {
         let theme = shot_theme(app);
         stage.theme = theme.clone();
         let root =
@@ -163,7 +163,7 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
     };
     // Runs the application's own clock until it says it has stopped moving,
     // capturing as it goes — so the picture is the transition, not a guess at it.
-    let play = |app: &mut TodoApp, stage: &mut Stage, frames: &mut Vec<Vec<u8>>| {
+    let play = |app: &mut FrusApp, stage: &mut Stage, frames: &mut Vec<Vec<u8>>| {
         for _ in 0..MAX_FRAMES {
             capture(app, stage, frames);
             if !app.tick(DT) {
@@ -171,7 +171,7 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
             }
         }
     };
-    let hold = |app: &mut TodoApp, stage: &mut Stage, frames: &mut Vec<Vec<u8>>| {
+    let hold = |app: &mut FrusApp, stage: &mut Stage, frames: &mut Vec<Vec<u8>>| {
         for _ in 0..HOLD {
             app.tick(DT);
             capture(app, stage, frames);
@@ -179,11 +179,11 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
     };
 
     hold(&mut app, &mut stage, &mut frames);
-    for route in stops {
-        let _ = app.update(Msg::Push(route));
+    for location in stops {
+        router.push(location);
         play(&mut app, &mut stage, &mut frames);
         hold(&mut app, &mut stage, &mut frames);
-        let _ = app.update(Msg::Pop);
+        router.pop();
         play(&mut app, &mut stage, &mut frames);
     }
     // Back where it started, so the loop closes instead of cutting.
@@ -231,34 +231,31 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
 ///
 /// The shell resolves this every frame from the platform's brightness and the reader's
 /// contrast setting; nothing here has a platform, so it asks for a light one and lets the
-/// application's own `theme_mode` — which this demonstration pins — decide.
-fn shot_theme(app: &TodoApp) -> Theme {
+/// application's own theme mode — which this demonstration pins — decide.
+fn shot_theme(app: &FrusApp) -> Theme {
     Application::resolved_theme(app, frus_widgets::Brightness::Light, false)
 }
 
 /// The application as it starts, with its demonstration data, in the asked-for theme.
-fn seeded_app(light: bool) -> TodoApp {
-    let mut app = TodoApp::default();
-    let _ = app.init();
-    // `init` loads the persisted tasks asynchronously, which a rendering will not
-    // wait for; seed the list directly so the picture never comes out empty.
-    if app.todos.is_empty() {
+fn seeded_app(light: bool) -> (FrusApp, GoRouter) {
+    let (app, router, demo) = crate::build();
+    // The persisted tasks load asynchronously at start-up, which a rendering will not wait
+    // for; seed the list directly so the picture never comes out empty.
+    if demo.len() == 0 {
         for (text, done) in [
             ("Read the design notes", true),
             ("Ship the Android build", false),
             ("Answer the issue about theming", false),
         ] {
-            let id = app.next_id;
-            app.next_id += 1;
-            app.todos.push(Todo {
-                id,
-                text: text.to_string(),
-                done,
-            });
+            demo.add(text);
+            if done {
+                let id = demo.todos().last().map_or(0, |t| t.id);
+                demo.set_done(id, true);
+            }
         }
     }
-    if light != app.light {
-        let _ = app.update(Msg::ToggleTheme);
+    if light != demo.prefs().light {
+        demo.toggle_theme();
     }
-    app
+    (app, router)
 }

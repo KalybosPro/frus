@@ -292,7 +292,7 @@ impl<Msg> ColCards<Msg> {
     }
 }
 
-pub struct Kanban<Msg = ()> {
+pub struct Kanban<Msg = crate::callback::Callback> {
     on_move: Option<MoveFn<Msg>>,
     /// A "+ Add card" button at the bottom of every column (milestone 249): `on_add(col)` on adding.
     on_add: Option<Rc<dyn Fn(usize) -> Msg>>,

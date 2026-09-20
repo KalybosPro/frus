@@ -396,7 +396,7 @@ crate::transparent::forward_transparent!(ReorderContent {
 /// own. Rows are told apart by position otherwise, and a list whose rows are about to swap
 /// positions is exactly where that goes wrong: the hover and the animations of the row
 /// that moved would stay behind with its index.
-pub struct ReorderableList<Msg = ()> {
+pub struct ReorderableList<Msg = crate::callback::Callback> {
     spec: Shared<Msg>,
     rows: Vec<Box<dyn Widget<Msg>>>,
     gap: f32,

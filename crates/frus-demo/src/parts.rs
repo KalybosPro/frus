@@ -14,8 +14,39 @@ pub(crate) fn surface() -> Size {
     MediaQuery::of().size
 }
 
+/// A handler that does its work and returns nothing, as the callback every widget's setter takes.
+///
+/// A bare closure would do for most setters, but one that returns nothing could stand for a
+/// message of any type, and where nothing else says which the compiler cannot choose. Naming
+/// the callback is what says it.
+pub(crate) fn on(work: impl Fn() + 'static) -> Callback {
+    Callback::new(work)
+}
+
+/// The same for a widget that reports a value: `on_value(move |text| demo.rename(text))`.
+pub(crate) fn on_value<T: Clone + 'static>(
+    work: impl Fn(T) + 'static,
+) -> impl Fn(T) -> Callback + 'static {
+    let work = Rc::new(work);
+    move |value| {
+        let work = work.clone();
+        Callback::new(move || work(value.clone()))
+    }
+}
+
+/// The same for a widget that reports two values: `on_values(move |from, to| demo.move(from, to))`.
+pub(crate) fn on_values<A: Clone + 'static, B: Clone + 'static>(
+    work: impl Fn(A, B) + 'static,
+) -> impl Fn(A, B) -> Callback + 'static {
+    let work = Rc::new(work);
+    move |a, b| {
+        let work = work.clone();
+        Callback::new(move || work(a.clone(), b.clone()))
+    }
+}
+
 /// A statistic tile (a big number + a label) for the grid.
-pub(crate) fn stat_tile(theme: &Theme, label: &str, value: usize) -> Container<Msg> {
+pub(crate) fn stat_tile(theme: &Theme, label: &str, value: usize) -> Container {
     Container::new()
         .height(64.0)
         .radius(10.0)
@@ -40,90 +71,6 @@ pub(crate) fn is_weekend(y: i32, m: u32, d: u32) -> bool {
     matches!(weekday(y, m, d), 0 | 6)
 }
 
-/// The showcase calendar: `DatePicker::filtered`, greying out **weekends** when `weekdays_only`
-/// is set (milestone 238), otherwise every day is clickable (`DatePicker::new`).
-pub(crate) fn demo_calendar(app: &TodoApp) -> Box<dyn Widget<Msg>> {
-    if app.weekdays_only {
-        Box::new(DatePicker::filtered(
-            app.year,
-            app.month,
-            app.selected_day,
-            |(y, m, d)| !is_weekend(y, m, d),
-            Msg::PickDay,
-            Msg::NavMonth,
-        ))
-    } else {
-        Box::new(DatePicker::new(
-            app.year,
-            app.month,
-            app.selected_day,
-            Msg::PickDay,
-            Msg::NavMonth,
-        ))
-    }
-}
-
-/// The "Stats" section: a responsive master-detail layout (`TwoPane`). Side by side when large,
-/// a single pane when narrow (tapping a metric opens the detail).
-pub(crate) fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> TwoPane<Msg> {
-    let total = app.todos.len();
-    let metrics = [
-        ("Total tasks", total),
-        ("Active tasks", active_count(app)),
-        ("Completed", done_count(app)),
-    ];
-
-    // The master pane: the list of metrics (a selection).
-    let mut cats = Flex::column().gap(6.0);
-    for (i, (label, _)) in metrics.iter().enumerate() {
-        let variant = if app.stat_sel == i {
-            Variant::Filled
-        } else {
-            Variant::Outlined
-        };
-        cats = cats.child(
-            button(*label, Msg::SelectStat(i))
-                .variant(variant)
-                .size(15.0),
-        );
-    }
-    let list = Card::new().padding(12.0).child(cats);
-
-    // The detail pane: the selected metric.
-    let (label, value) = metrics[app.stat_sel.min(metrics.len() - 1)];
-    // The number **changes in place** rather than jumping — a task ticked, another metric
-    // picked — and the old figure shrinks away as the new one grows in over it.
-    let primary = theme.primary;
-    let figure = AnimatedSwitcher::new(0.25, value, move |n: &usize| {
-        text(n.to_string()).size(44.0).color(primary)
-    })
-    .switch_in_curve(Curve::ease_out())
-    .transition(|child, t| ScaleTransition::new(0.6 + 0.4 * t, FadeTransition::new(t, child)));
-    let mut detail_col = column![
-        text(label).size(22.0),
-        figure,
-        text("Detail for the selected metric.")
-            .size(14.0)
-            .color(theme.muted),
-    ]
-    .gap(10.0);
-    // In single-pane mode, a way back to the list.
-    if class != SizeClass::Expanded {
-        detail_col = detail_col.child(
-            button("← Back", Msg::CloseDetail)
-                .variant(Variant::Outlined)
-                .size(15.0),
-        );
-    }
-    let detail = Card::new().padding(20.0).child(detail_col);
-
-    TwoPane::new(class)
-        .ratio(0.36)
-        .show_detail(app.stat_detail_open)
-        .list(list)
-        .detail(detail)
-}
-
 /// The "About" section: static introductory content.
 ///
 /// **Nothing here counts pixels.** The column fills the card it sits in, and the only
@@ -133,7 +80,7 @@ pub(crate) fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> T
 /// It used to subtract the paddings by hand — the container's 24×2 plus the card's
 /// 20×2 — and forgot that a card carries a margin of its own. Eight pixels out, on
 /// every phone, drawn past the card it was inside. Milestone 392 is why that showed.
-pub(crate) fn about_section(theme: &Theme) -> Container<Msg> {
+pub(crate) fn about_section(theme: &Theme) -> Container {
     Container::new().padding(24.0).child(
         Card::new().padding(20.0).child(
             ConstrainedBox::new(
@@ -169,4 +116,18 @@ pub(crate) fn about_section(theme: &Theme) -> Container<Msg> {
             .max_width(560.0),
         ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn weekdays_are_where_the_calendar_says() {
+        // 2026-07-01 is a Wednesday; the 4th a Saturday.
+        assert_eq!(weekday(2026, 7, 1), 3);
+        assert!(is_weekend(2026, 7, 4));
+        assert!(is_weekend(2026, 7, 5));
+        assert!(!is_weekend(2026, 7, 6));
+    }
 }

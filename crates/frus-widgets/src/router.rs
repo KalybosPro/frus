@@ -169,9 +169,18 @@ pub struct GoRouterState {
     params: HashMap<String, String>,
     query: HashMap<String, String>,
     extra: Option<Rc<dyn Any>>,
+    entering: f32,
 }
 
 impl GoRouterState {
+    /// How far into view this page is: `1.0` once it has settled, and while a transition
+    /// brings it in or takes it out, the number that transition is driven by — `0.0` not yet
+    /// arrived. A page that wants to move its own contents as it arrives reads it, and one
+    /// that does not ignores it.
+    pub fn entering(&self) -> f32 {
+        self.entering
+    }
+
     /// The whole location, query included: `/users/42?tab=posts`.
     pub fn location(&self) -> &str {
         &self.location
@@ -758,6 +767,7 @@ impl GoRouter {
                 params: params.clone(),
                 query: query.clone(),
                 extra: extra.clone(),
+                entering: 1.0,
             };
 
             // Redirects: the router's own, then each route's, parent first.
@@ -780,6 +790,7 @@ impl GoRouter {
                         params: HashMap::new(),
                         query: HashMap::new(),
                         extra: None,
+                        entering: 1.0,
                     };
                     return self.error_pages(state, current, mode);
                 }
@@ -1018,14 +1029,20 @@ impl GoRouter {
             )
         };
         let depth = pages.len();
-        let make = |page: &Page| -> Box<dyn Widget> {
+        // A page is built told how far in it is: the transition's own number, seen from
+        // this page — the one arriving has it as it is, the one leaving has it the other way.
+        let make = |page: &Page, entering: f32| -> Box<dyn Widget> {
+            let state = GoRouterState {
+                entering,
+                ..(*page.state).clone()
+            };
             match &page.node {
-                Some(node) => (node.builder)(cx, &page.state),
+                Some(node) => (node.builder)(cx, &state),
                 None => match &error_builder {
-                    Some(builder) => builder(cx, &page.state),
+                    Some(builder) => builder(cx, &state),
                     None => Box::new(crate::Text::new(format!(
                         "Page not found: {}",
-                        page.state.location
+                        state.location
                     ))),
                 },
             }
@@ -1037,14 +1054,15 @@ impl GoRouter {
         if let Some(progress) = back {
             if depth >= 2 {
                 let below = &pages[depth - 2];
-                let mut navigator = Navigator::new(key_of(below, depth - 2), make(below)).from(
-                    key_of(top, depth - 1),
-                    make(top),
-                    progress,
-                    false,
-                );
+                let mut navigator = Navigator::new(key_of(below, depth - 2), make(below, progress))
+                    .from(
+                        key_of(top, depth - 1),
+                        make(top, 1.0 - progress),
+                        progress,
+                        false,
+                    );
                 for (at, page) in pages[..depth - 2].iter().enumerate() {
-                    navigator = navigator.retain(key_of(page, at), make(page));
+                    navigator = navigator.retain(key_of(page, at), make(page, 1.0));
                 }
                 return Box::new(navigator);
             }
@@ -1058,23 +1076,24 @@ impl GoRouter {
                     .iter()
                     .position(|page| page.key == from.key)
                     .unwrap_or(depth);
-                let mut navigator = Navigator::new(key_of(top, depth - 1), make(top)).from(
-                    key_of(&from, from_depth),
-                    make(&from),
-                    progress,
-                    forward,
-                );
+                let mut navigator = Navigator::new(key_of(top, depth - 1), make(top, progress))
+                    .from(
+                        key_of(&from, from_depth),
+                        make(&from, 1.0 - progress),
+                        progress,
+                        forward,
+                    );
                 for (at, page) in pages[..depth - 1].iter().enumerate() {
                     if page.key != from.key {
-                        navigator = navigator.retain(key_of(page, at), make(page));
+                        navigator = navigator.retain(key_of(page, at), make(page, 1.0));
                     }
                 }
                 Box::new(navigator)
             }
             None => {
-                let mut navigator = Navigator::new(key_of(top, depth - 1), make(top));
+                let mut navigator = Navigator::new(key_of(top, depth - 1), make(top, 1.0));
                 for (at, page) in pages[..depth - 1].iter().enumerate() {
-                    navigator = navigator.retain(key_of(page, at), make(page));
+                    navigator = navigator.retain(key_of(page, at), make(page, 1.0));
                 }
                 Box::new(navigator)
             }

@@ -8,13 +8,18 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 554 so far, each documenting the objective, the alternatives
+> record — one per step, 556 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **The log screen's list was taller than the safe area** (J556). It sized itself to the window
+  less a hand-counted 196 pixels and forgot the system's bars, so on a phone with a status bar
+  and a navigation bar the last rows sat under the bar. The test written to catch exactly this
+  pushed the screen without waiting for the slide and so checked a page a whole width off the
+  glass; it waits now, and the list is sized to what is left.
 - **A segment a swipe started on stayed grey** (J534). A finger that landed on a button inside
   a scroll view and then scrolled it — the demo's filters in a horizontal strip — scrolled the
   strip and selected nothing, but left the button highlighted for good: the release of a
@@ -206,6 +211,16 @@ any release may break.
 
 ### Changed
 
+- **The demo is made of components** (J556). `frus-demo` — twelve screens, a task list and a
+  widget gallery — was one struct of eighty fields, a hundred and thirty messages and a
+  `reduce`; it is now a `StatefulWidget` or `StatelessWidget` per screen, each keeping only what
+  it cares about, one shared object for what more than one screen needs (the tasks, the
+  preferences, the notifications), a router for where the reader is, and `TextEditingController`s
+  for the fields. Theme, language and zoom go through `host::app()`, focus, scroll and threads
+  through `host`. The message type, the reducer and the hand-written screen stack are gone.
+  `Msg = Callback` is now the default for `BarChart`, `LineChart`, `DataTable`, `Kanban` and
+  `ReorderableList` too, `cx.handler(..)` answers with a `Callback`, and `frus_test::Stage`
+  builds components the way the shell does.
 - **The way in is a component** (J554). `frus-hello`, the `cargo generate` template, the README
   (English and French), the getting-started guide and the crate READMEs now show an application
   made of components — a `StatefulWidget` with plain-Rust state and handlers that are closures —
@@ -318,6 +333,22 @@ any release may break.
 
 ### Added
 
+- **A page is told how far in it is** (J556). `GoRouterState::entering()` is the number the
+  transition is driven by, seen from the page being built — `0` not yet arrived, `1` settled,
+  and the other way round for the page that is leaving — so a page that wants to move its own
+  contents as it arrives does not need a controller of its own. The shell's test driver gains
+  `texts`, `tap_text` and `frame_parts`: the words a frame painted and where, a tap on a word,
+  and the interface and tree of the last frame.
+- **What a component asks of the application around it** (J555). `frus_widgets::host` gives a
+  component what an application of any size needs and had no way to say: `host::app()` changes
+  the theme, the dark theme, the mode, the language and the zoom the window is dressed in, and
+  `host::focus`, `host::scroll_to`, `host::sheet_to`, `host::spawn` (work on another thread, then
+  something on this one) and `host::after` ask the shell for the effects that are not widgets —
+  from a handler or a build, with no context to carry. `cx.block_back(open)` lets an open menu
+  take the back gesture before the router, and `cx.handler(|state, value| …)` is the handler for
+  a widget that reports a value. `FrusApp` reads its settings from the same place and gains
+  `.supported_locales`, `.localizations`, `.on_start` and `.persist`; `Application::effects` is
+  the defaulted hook the shell asks after every message and every frame.
 - **`use_interval`** (J554). A component asks for a timer with `cx.use_interval(period, callback)`;
   the shell starts it, keeps it while it is asked for on every build, and stops it when a build
   stops asking — on every platform the subscriptions already run on.
