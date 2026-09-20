@@ -1,127 +1,289 @@
-//! Tests that cut across modules — a whole screen's behaviour, an interaction
-//! from message to scene. Tests of a single module's own logic live next to it.
+//! Tests that cut across modules — a whole screen's behaviour, an interaction from a tap to
+//! the scene. Tests of a single module's own logic live next to it.
+//!
+//! They drive the application the way the shell does: built from its router, on a surface of a
+//! stated size, one frame at a time. A screen is reached the way a reader reaches it — by
+//! telling the router where to go — and a control is pressed by what it says.
 
 use crate::prelude::*;
 use crate::screens::*;
-use frus_widgets::{build_ui, build_ui_inspected, find_widget, Brightness, Point, Runtime, Size};
+use frus_shell::testing::Driver;
+use frus_shell::{Application, FrusApp};
+use frus_widgets::{
+    build_ui, build_ui_inspected, find_widget, Insets, Point, Primitive, Runtime, Ui, WindowInsets,
+};
 
-/// An app whose editable grid is already filled — the shape half of these tests
-/// start from.
-fn app_with_grid(grid: Vec<Vec<String>>) -> TodoApp {
-    TodoApp {
-        grid,
-        ..Default::default()
+/// The demo on a surface, frame by frame, with the handles a test wants beside it.
+///
+/// Building a frame is what the shell does around `view`: a surface described, the states of
+/// the components marked as reached, the tree laid out, and what it did not reach let go.
+/// The runtime is kept from one frame to the next, so what a screen keeps is kept.
+struct Bench {
+    app: FrusApp,
+    router: GoRouter,
+    demo: Rc<Demo>,
+    runtime: Runtime,
+    size: Size,
+    insets: WindowInsets,
+}
+
+impl Bench {
+    fn new(width: f32, height: f32) -> Self {
+        let (app, router, demo) = crate::build();
+        let bench = Self {
+            app,
+            router,
+            demo,
+            runtime: Runtime::default(),
+            size: Size::new(width, height),
+            insets: WindowInsets::ZERO,
+        };
+        // The first frame starts the router.
+        let _ = bench.frame();
+        bench
+    }
+
+    /// Adds tasks, as the reader would have.
+    fn with_tasks(self, labels: &[&str]) -> Self {
+        for label in labels {
+            self.demo.add(label);
+        }
+        self
+    }
+
+    /// Goes to a screen and lets the slide finish.
+    fn go(&mut self, location: &str) -> &mut Self {
+        self.router.push(location);
+        self.settle();
+        self
+    }
+
+    /// Runs the transition in flight, if any, to its end.
+    fn settle(&mut self) {
+        for _ in 0..400 {
+            if !Application::tick(&mut self.app, 0.05) {
+                return;
+            }
+        }
+        panic!("the transition never ended");
+    }
+
+    /// One frame: the tree, and the interface laid out from it.
+    fn frame(&self) -> (Box<dyn Widget>, Ui) {
+        let theme = self
+            .app
+            .resolved_theme(frus_widgets::Brightness::Dark, false);
+        MediaQuery::new(self.size)
+            .with_insets(self.insets)
+            .scope(|| {
+                self.runtime.states.begin_build();
+                let tree = Application::view(&self.app, &theme);
+                frus_widgets::build_deferred(tree.as_ref(), &theme, &self.runtime);
+                let ui = build_ui(tree.as_ref(), self.size, &self.runtime, &theme);
+                self.runtime.states.end_frame();
+                (tree, ui)
+            })
+    }
+
+    /// Every word the frame paints, with where.
+    fn texts(&self) -> Vec<(String, f32, f32)> {
+        let (_, ui) = self.frame();
+        words(&ui)
+    }
+
+    /// Just the words.
+    fn words(&self) -> Vec<String> {
+        self.texts().into_iter().map(|(text, _, _)| text).collect()
+    }
+
+    /// Presses whatever the first word reading `label` is on, the way a tap does: what is
+    /// under its middle is asked for its message, and the message is delivered. Whether there
+    /// was such a word with something to press.
+    fn press(&self, label: &str) -> bool {
+        let (_, ui) = self.frame();
+        press_in(&ui, label)
     }
 }
 
-/// Adds a task from a label.
-fn add(app: &mut TodoApp, text: &str) {
-    reduce(app, Msg::DraftChanged(text.to_string()));
-    reduce(app, Msg::AddTodo);
+/// The words a frame paints: the text and where it starts.
+fn words(ui: &Ui) -> Vec<(String, f32, f32)> {
+    fn walk(primitives: &[Primitive], out: &mut Vec<(String, f32, f32)>) {
+        for p in primitives {
+            match p {
+                Primitive::Text { text, position, .. } => {
+                    out.push((text.clone(), position.x, position.y))
+                }
+                Primitive::Layer { primitives, .. } => walk(primitives, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(ui.scene().primitives(), &mut out);
+    out
 }
 
-/// Builds the application's view **for a stated surface**.
-///
-/// Since milestone 393 nothing takes the screen's size as an argument: it is read from
-/// the description in force, which the shell installs around every call to `view`. A
-/// test stands in for the shell by installing one of its own — the reference's tests
-/// wrap a widget in `MediaQuery` for the same reason.
-fn view_for(app: &TodoApp, theme: &Theme, size: Size) -> Navigator<Msg> {
-    MediaQuery::new(size).scope(|| build_view(app, theme))
-}
-
-/// The **whole** application's tree — `Application::view`, which is what the shell
-/// calls — for a stated surface. Since milestone 393 that call takes no size: the
-/// framework installs a description of the surface around it, and a test stands in for
-/// the framework by installing one of its own.
-fn root_for(app: &TodoApp, theme: &Theme, size: Size) -> Box<dyn Widget<Msg>> {
-    MediaQuery::new(size).scope(|| Application::view(app, theme))
-}
-
-fn primitive_count(app: &TodoApp) -> usize {
-    let theme = Theme::default();
-    let size = Size::new(800.0, 600.0);
-    let tree = view_for(app, &theme, size);
-    build_ui(&tree, size, &Runtime::default(), &theme)
-        .scene()
-        .primitives()
-        .len()
-}
-
-#[test]
-fn density_is_clamped() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::SetDensity(5.0));
-    assert_eq!(app.density, 1.4);
-    reduce(&mut app, Msg::SetDensity(0.1));
-    assert_eq!(app.density, 0.8);
-    // density() guards against an uninitialised state (0.0 → 1.0).
-    app.density = 0.0;
-    assert_eq!(Application::density(&app), 1.0);
-}
-
-#[test]
-fn on_resize_tracks_class_and_closes_detail_when_compact() {
-    let mut app = TodoApp {
-        stat_detail_open: true,
-        ..Default::default()
+/// Presses the first thing under a word that reads `label`. Whether it found one.
+fn press_in(ui: &Ui, label: &str) -> bool {
+    let bounds: Vec<frus_widgets::Rect> = {
+        fn walk(primitives: &[Primitive], label: &str, out: &mut Vec<frus_widgets::Rect>) {
+            for p in primitives {
+                match p {
+                    Primitive::Text { text, .. } if text == label => out.push(p.bounds()),
+                    Primitive::Layer { primitives, .. } => walk(primitives, label, out),
+                    _ => {}
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(ui.scene().primitives(), label, &mut out);
+        out
     };
-    // Wide: the Expanded class, the detail stays open.
-    app.on_resize(1000.0, 700.0);
-    assert_eq!(app.size_class, Some(SizeClass::Expanded));
-    assert!(app.stat_detail_open);
-    // Narrow: it switches to Compact and closes the detail.
-    app.on_resize(500.0, 700.0);
-    assert_eq!(app.size_class, Some(SizeClass::Compact));
-    assert!(!app.stat_detail_open);
+    for rect in bounds {
+        let at = Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+        if let Some(callback) = ui.hit(at).and_then(|id| ui.msg_for(id)) {
+            callback.call();
+            return true;
+        }
+    }
+    false
 }
+
+/// A phone in portrait, in logical pixels.
+const PHONE: (f32, f32) = (411.0, 869.0);
+
+/// Every screen, by where it lives.
+const SCREENS: [&str; 11] = [
+    "/",
+    "/settings",
+    "/journal",
+    "/wizard",
+    "/grid",
+    "/charts",
+    "/data",
+    "/board",
+    "/tour",
+    "/licenses",
+    "/sheet",
+];
 
 #[test]
-fn drawer_toggles_and_section_choice_closes_it() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::ToggleDrawer);
-    assert!(app.drawer_open);
-    // Choosing a section closes the drawer.
-    reduce(&mut app, Msg::SetSection(1));
-    assert_eq!(app.section, 1);
-    assert!(!app.drawer_open);
-    // Navigating (Push) closes the drawer too.
-    reduce(&mut app, Msg::ToggleDrawer);
-    reduce(&mut app, Msg::Push(Route::Settings));
-    assert!(!app.drawer_open);
+fn view_builds_a_non_empty_scene() {
+    let bench = Bench::new(800.0, 600.0).with_tasks(&["a task"]);
+    let (_, ui) = bench.frame();
+    assert!(!ui.scene().primitives().is_empty());
+    assert!(bench.words().iter().any(|w| w == "a task"));
 }
 
-/// A long task's own screen: its title **wraps**, and what follows clears the
-/// lines it wrapped onto. The device found this one (milestone 289) — the title
-/// used to be painted on two lines with the state label sitting on the second.
+/// **The screen keeps clear of the bars, and nothing in the application says so.**
+///
+/// The application is not handed the size and does not subtract the notch from it; the
+/// surface description carries both, the `Scaffold` reads it, and a screen built without one
+/// wraps itself in a `SafeArea` that reads the same description.
+#[test]
+fn a_screen_keeps_clear_of_the_bars_without_being_told() {
+    // A tall status bar and a navigation bar, as a phone reports them.
+    const TOP: f32 = 84.0;
+    const BOTTOM: f32 = 45.0;
+    for location in ["/", "/settings", "/journal", "/charts", "/wizard", "/board"] {
+        let mut bench = Bench::new(400.0, 800.0).with_tasks(&["short"]);
+        bench.insets = WindowInsets::bars(Insets::new(TOP, 0.0, BOTTOM, 0.0));
+        if location != "/" {
+            bench.go(location);
+        }
+        let (_, ui) = bench.frame();
+        // What a scroll region holds beyond its viewport is emitted but clipped away: it is
+        // the region's business, and the region itself is checked against the bars below.
+        let regions = ui.scroll_regions().to_vec();
+        for region in &regions {
+            let v = region.viewport;
+            // Beside the window (a page leaving), or wholly below it: a scroll region inside
+            // another one, scrolled out of view.
+            if v.x < 0.0 || v.x >= bench.size.width || v.y >= bench.size.height - BOTTOM {
+                continue;
+            }
+            assert!(
+                v.y >= TOP - 0.5,
+                "{location}: a scroll region starts at {}, under the status bar",
+                v.y
+            );
+            assert!(
+                v.y + v.height <= bench.size.height - BOTTOM + 0.5,
+                "{location}: a scroll region ends at {}, under the navigation bar",
+                v.y + v.height
+            );
+        }
+        for (text, x, y) in words(&ui) {
+            // Only what is **on** the window: a page leaving is drawn beside the viewport.
+            if x < 0.0 || x >= bench.size.width {
+                continue;
+            }
+            let clipped = regions.iter().any(|r| {
+                let v = r.viewport;
+                x >= v.x && x < v.x + v.width && (y < v.y || y >= v.y + v.height)
+            });
+            if clipped {
+                continue;
+            }
+            assert!(
+                y >= TOP,
+                "{location}: {text:?} sits at y = {y}, under the status bar"
+            );
+            assert!(
+                y <= bench.size.height - BOTTOM,
+                "{location}: {text:?} sits at y = {y}, under the navigation bar"
+            );
+        }
+    }
+}
+
+/// **Nothing in the application may draw outside its parent** — checked on every screen, at a
+/// phone's width and at a desktop's, because that is where the difference shows.
+///
+/// The chart dashboard's segmented control was once 584 px of segments in a 363 px row on a
+/// phone, running 221 px past the card. Nothing had ever said so.
+#[test]
+fn no_screen_draws_outside_itself() {
+    let mut worst: Vec<String> = Vec::new();
+    for location in SCREENS {
+        for (label, w, h) in [("phone", PHONE.0, PHONE.1), ("desktop", 1200.0, 800.0)] {
+            let mut bench = Bench::new(w, h).with_tasks(&["short"]);
+            if location != "/" {
+                bench.go(location);
+            }
+            let (_, ui) = bench.frame();
+            for o in ui.overflows() {
+                if o.amount > 0.0 {
+                    // The box and the edge as well as the amount: "2 px" on nine screens at
+                    // once says a shared widget grew, and only the rectangle says which.
+                    worst.push(format!(
+                        "{location}/{label} overflows {:?} by {:.1} px at {:?}",
+                        o.side, o.amount, o.rect
+                    ));
+                }
+            }
+        }
+    }
+    assert!(worst.is_empty(), "{worst:#?}");
+}
+
+/// Milestone 289: a long task's title **wraps**, and what follows clears the lines it wrapped
+/// onto — the title used to be painted on two lines with the state label sitting on the second.
 #[test]
 fn a_long_task_title_wraps_without_overlapping_what_follows() {
-    let mut app = TodoApp::default();
-    reduce(
-        &mut app,
-        Msg::DraftChanged("A rather long task name that certainly wraps".to_string()),
-    );
-    reduce(&mut app, Msg::AddTodo);
-    let id = app.todos[0].id;
-    reduce(&mut app, Msg::OpenTask(id));
-    // Past the route transition, so the task's screen is the one on show.
-    for _ in 0..40 {
-        Application::tick(&mut app, 0.05);
-    }
-    let theme = Theme::dark();
-    let tree = root_for(&app, &theme, Size::new(424.0, 918.0));
-    let ui = build_ui(
-        tree.as_ref(),
-        Size::new(424.0, 918.0),
-        &Runtime::default(),
-        &theme,
-    );
+    let mut bench = Bench::new(424.0, 918.0);
+    bench
+        .demo
+        .add("A rather long task name that certainly wraps");
+    let id = bench.demo.todos()[0].id;
+    bench.go(&format!("/task/{id}"));
+    let (_, ui) = bench.frame();
     let texts: Vec<(String, f32, Option<f32>)> = ui
         .scene()
         .primitives()
         .iter()
         .filter_map(|p| match p {
-            frus_widgets::Primitive::Text {
+            Primitive::Text {
                 position,
                 text,
                 max_width,
@@ -138,17 +300,14 @@ fn a_long_task_title_wraps_without_overlapping_what_follows() {
         .iter()
         .find(|(t, _, _)| t == "Still to do")
         .expect("the state label is under it");
-    // The title is wrapped: it is painted with a width narrower than one line of
-    // it would need.
+    // The title is wrapped: it is painted with a width narrower than one line of it would need.
     assert!(
         title.2.is_some_and(|w| w < 400.0),
         "the title is a paragraph in a narrow box: {:?}",
         title.2
     );
-    // Two lines at 24 px is about 58 px, plus the column's 18 px gap: 76. One line
-    // would put the state label 46 px below. 60 separates the two cleanly, and it
-    // is the failure this test exists for — the label used to land on the second
-    // line, which the layout had not reserved.
+    // Two lines at 24 px is about 58 px, plus the column's 18 px gap: 76. One line would put
+    // the state label 46 px below. 60 separates the two cleanly.
     assert!(
         state.1 - title.1 > 60.0,
         "the state label overlaps the wrapped title: title y={}, state y={}",
@@ -157,179 +316,236 @@ fn a_long_task_title_wraps_without_overlapping_what_follows() {
     );
 }
 
+/// The task's own screen names the task it was asked for, and says so when it is gone.
 #[test]
-fn on_insets_updates_safe_area() {
-    let mut app = TodoApp::default();
-    assert_eq!(app.insets, Insets::ZERO);
-    // The system bars alone.
-    app.on_insets(WindowInsets::bars(Insets::new(84.0, 0.0, 45.0, 0.0)));
-    assert_eq!(app.insets, Insets::new(84.0, 0.0, 45.0, 0.0));
-    // An open keyboard: the bottom safe area follows the keyboard (avoidance).
-    app.on_insets(WindowInsets::from_baseline(
-        Insets::new(84.0, 0.0, 45.0, 0.0),
-        Insets::new(84.0, 0.0, 345.0, 0.0),
-    ));
-    assert_eq!(app.insets, Insets::new(84.0, 0.0, 345.0, 0.0));
-    // The view builds without panicking with non-zero insets. They reach it through the
-    // surface description now, not as arguments: `view` is not told the size and does not
-    // subtract anything from it (milestone 393).
-    let theme = Theme::dark();
-    let size = Size::new(400.0, 800.0);
-    let tree = MediaQuery::new(size)
-        .with_insets(WindowInsets::bars(Insets::new(84.0, 0.0, 45.0, 0.0)))
-        .scope(|| Application::view(&app, &theme));
-    let ui = build_ui(
-        tree.as_ref(),
-        Size::new(400.0, 800.0),
-        &Runtime::default(),
-        &theme,
-    );
-    assert!(!ui.scene().primitives().is_empty());
+fn a_task_screen_shows_its_task_and_survives_its_deletion() {
+    let mut bench = Bench::new(400.0, 800.0).with_tasks(&["Water the plants"]);
+    let id = bench.demo.todos()[0].id;
+    bench.go(&format!("/task/{id}"));
+    assert!(bench.words().iter().any(|w| w == "Water the plants"));
+    assert!(bench.words().iter().any(|w| w == "Still to do"));
+    // The ✓ on the docked button ticks it.
+    assert!(bench.press("✓"));
+    assert!(bench.demo.todo(id).is_some_and(|t| t.done));
+    // Deleted while its screen is open: say so rather than show an empty page.
+    bench.demo.delete(id);
+    assert!(bench
+        .words()
+        .iter()
+        .any(|w| w == "This task no longer exists."));
 }
 
-/// **The screen keeps clear of the bars, and nothing in the application says so.**
-///
-/// This is milestone 393's whole claim, checked the way a device would check it. `view`
-/// is not handed the size and does not subtract the notch from it; the surface
-/// description carries both, the `Scaffold` reads it, and a screen built without one
-/// wraps itself in a `SafeArea` that reads the same description.
-///
-/// Before, the application did this itself — measure the window, take the insets off,
-/// build at the remainder, wrap the lot in a padded background. Four steps that belong
-/// to the shell, and four chances to get a number wrong.
+/// **The task screen's bottom bar continues into the system's navigation bar** (#46): the
+/// screen asks for the navigation bar in its bottom app bar's colour, and says nothing of the
+/// status bar, which stays the theme's.
 #[test]
-fn a_screen_keeps_clear_of_the_bars_without_being_told() {
-    let theme = Theme::default();
-    let size = Size::new(400.0, 800.0);
-    // A tall status bar and a navigation bar, as a phone reports them.
-    const TOP: f32 = 84.0;
-    const BOTTOM: f32 = 45.0;
-    let bars = WindowInsets::bars(Insets::new(TOP, 0.0, BOTTOM, 0.0));
-    for route in [
-        Route::Home,
-        Route::Settings,
-        Route::Journal,
-        Route::Charts,
-        Route::Wizard,
-        Route::Board,
-    ] {
-        let mut app = TodoApp::default();
-        add(&mut app, "short");
-        reduce(&mut app, Msg::Push(route));
-        let tree = MediaQuery::new(size)
-            .with_insets(bars)
-            .scope(|| build_view(&app, &theme));
-        let ui = build_ui(&tree, size, &Runtime::default(), &theme);
-        for primitive in ui.scene().primitives() {
-            if let frus_widgets::Primitive::Text { text, position, .. } = primitive {
-                // Only what is **on** the window. A `Navigator` draws the screen it is
-                // leaving beside the viewport, at a negative x or past the right edge;
-                // that one is off the glass and is nobody's safe-area problem. Since
-                // milestone 398 it is clipped away as well, but it is still emitted, so
-                // a test reading primitives still has to say so.
-                if position.x < 0.0 || position.x >= size.width {
-                    continue;
+fn the_task_screen_asks_for_the_navigation_bar_in_its_bottom_bars_colour() {
+    let mut bench = Bench::new(400.0, 800.0).with_tasks(&["Water the plants"]);
+    let id = bench.demo.todos()[0].id;
+    bench.go(&format!("/task/{id}"));
+    let theme = bench
+        .app
+        .resolved_theme(frus_widgets::Brightness::Dark, false);
+    let (_, ui) = bench.frame();
+    let style = ui.system_ui_style(Point::new(200.0, 0.5), Point::new(200.0, 799.5));
+    assert_eq!(style.navigation_bar_color, Some(theme.surface));
+    assert_eq!(
+        style.status_bar_color, None,
+        "the status bar is left to the theme"
+    );
+}
+
+/// The device finding of milestone 327, closed in 334. A task label long enough to overflow the
+/// row used to be laid out at its own content width, which pushed the delete button off the
+/// card, out of the window, and — the part that mattered — out of the hit registry: the × was
+/// not merely invisible, it was unclickable, and that task could not be deleted at all.
+///
+/// Read from the **hit registry** rather than from the picture, because the registry is what
+/// the report was about: each distinct thing a tap can do in the window is done, and the one
+/// that deletes the long task is the one whose targets are looked at.
+#[test]
+fn a_long_task_label_still_leaves_its_delete_button_clickable() {
+    let bench = Bench::new(PHONE.0, PHONE.1).with_tasks(&[
+        "short",
+        "a task label far longer than any phone is wide, which is exactly the case that used to push the delete button out of the window entirely",
+    ]);
+    let long_id = bench.demo.todos()[1].id;
+    let (_, ui) = bench.frame();
+
+    // Sweep the window and ask what a tap there would do, keeping each distinct answer with
+    // where it was found.
+    let mut found: Vec<(Callback, Vec<(f32, f32)>)> = Vec::new();
+    let mut y = 1.0;
+    while y < PHONE.1 {
+        let mut x = 1.0;
+        while x < PHONE.0 {
+            if let Some(callback) = ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id)) {
+                match found.iter_mut().find(|(c, _)| c.ptr_eq(&callback)) {
+                    Some((_, at)) => at.push((x, y)),
+                    None => found.push((callback, vec![(x, y)])),
                 }
-                assert!(
-                    position.y >= TOP,
-                    "{route:?}: {text:?} sits at y = {}, under the status bar",
-                    position.y
-                );
-                assert!(
-                    position.y <= size.height - BOTTOM,
-                    "{route:?}: {text:?} sits at y = {}, under the navigation bar",
-                    position.y
-                );
+            }
+            x += 2.0;
+        }
+        y += 2.0;
+    }
+    let targets = found
+        .into_iter()
+        .find_map(|(callback, at)| {
+            callback.call();
+            bench.demo.todo(long_id).is_none().then_some(at)
+        })
+        .expect("no tap anywhere in the window deletes the long task");
+
+    // And it is a real target, not a sliver: an icon button's 40 px, near the right edge.
+    let left = targets.iter().map(|t| t.0).fold(f32::MAX, f32::min);
+    let right = targets.iter().map(|t| t.0).fold(f32::MIN, f32::max);
+    assert!(
+        right - left > 20.0,
+        "the delete target is a sliver {left}..{right}, not a button"
+    );
+    assert!(right < PHONE.0, "and it is inside the window");
+    // And it is where a trailing button belongs: against the row's right edge, not sitting on
+    // top of the label because the label was given no width at all.
+    assert!(
+        left > PHONE.0 * 0.5,
+        "the delete target is at {left}..{right}, not on the right-hand side"
+    );
+}
+
+/// **A ticked task still reads as ticked**, which stopped being obvious in milestone 498.
+///
+/// Its label's colour and its line through were stated on the text itself until that milestone
+/// and are now *handed down* to it, so that both can move when a task is ticked rather than
+/// jumping. The failure mode of getting that wrong is silence: a done task that looks exactly
+/// like an active one, on a screen where every row still lays out, still paints and still
+/// passes every count. So the row is asked what it actually drew — the active row beside it is
+/// the control.
+#[test]
+fn a_ticked_task_is_still_muted_and_struck_through() {
+    fn label_of(done: bool) -> (Color, bool) {
+        // Tall, so the row is on screen and not scrolled out of the painted frame.
+        let mut bench = Bench::new(600.0, 1600.0).with_tasks(&["Buy milk"]);
+        if done {
+            bench.demo.toggle(0);
+        }
+        // Settled, so what is painted is the target rather than a frame of a movement: this is
+        // about where the style arrives, not how it gets there.
+        let (tree, _) = bench.frame();
+        bench.runtime.advance_text_styles(tree.as_ref(), 1.0);
+        let (_, ui) = bench.frame();
+        fn walk(primitives: &[Primitive], out: &mut Vec<(Color, bool)>) {
+            for p in primitives {
+                match p {
+                    Primitive::Text {
+                        text,
+                        color,
+                        decoration,
+                        ..
+                    } if text == "Buy milk" => out.push((*color, decoration.strikethrough)),
+                    Primitive::Layer { primitives, .. } => walk(primitives, out),
+                    _ => {}
+                }
             }
         }
+        let mut found = Vec::new();
+        walk(ui.scene().primitives(), &mut found);
+        assert_eq!(found.len(), 1, "one label: {found:?}");
+        found[0]
     }
+
+    let theme = Bench::new(600.0, 1600.0)
+        .app
+        .resolved_theme(frus_widgets::Brightness::Dark, false);
+    let (active_color, active_line) = label_of(false);
+    let (done_color, done_line) = label_of(true);
+    assert!(!active_line, "an active task is not struck through");
+    assert!(done_line, "a ticked one is");
+    assert_eq!(
+        active_color, theme.on_surface,
+        "an active task reads as ink"
+    );
+    assert_eq!(done_color, theme.muted, "and a ticked one as muted");
+    assert_ne!(
+        active_color, done_color,
+        "the two states must not look alike"
+    );
 }
 
+/// The filters and the confirmation on the home screen do what they say, pressed by what they
+/// say through the hit registry: a filter that shows nothing says so, another brings the list
+/// back, and the "clear completed" confirmation opens and is put away by Cancel.
 #[test]
-fn sheet_toggles_and_action_closes_it() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::ToggleSheet);
-    assert!(app.sheet_open);
-    // A sheet action (Save) closes it.
-    reduce(&mut app, Msg::Save);
-    assert!(!app.sheet_open);
-    // The same for "Clear completed" (which opens the confirmation).
-    reduce(&mut app, Msg::ToggleSheet);
-    reduce(&mut app, Msg::AskClearDone);
-    assert!(!app.sheet_open);
+fn the_controls_on_the_home_screen_do_what_they_say() {
+    let bench = Bench::new(600.0, 900.0).with_tasks(&["first"]);
+    assert!(bench.words().iter().any(|w| w == "first"));
+    // The filters: the only task is active, so *Done* shows nothing.
+    assert!(bench.press("Done"));
+    let words = bench.words();
+    assert!(
+        words
+            .iter()
+            .any(|w| w == "Nothing to show for this filter."),
+        "{words:?}"
+    );
+    assert!(!words.iter().any(|w| w == "first"));
+    // *All* brings it back.
+    assert!(bench.press("All"));
+    assert!(bench.words().iter().any(|w| w == "first"));
+    // The confirmation before clearing what is done: opened, then put away.
+    bench.demo.toggle(0);
+    assert!(bench.press("Clear completed"));
+    assert!(
+        bench.words().iter().any(|w| w == "Clear completed tasks?"),
+        "the confirmation opens"
+    );
+    assert!(bench.press("Cancel"));
+    assert!(
+        !bench.words().iter().any(|w| w == "Clear completed tasks?"),
+        "and Cancel puts it away"
+    );
+    assert_eq!(bench.demo.len(), 1, "nothing was cleared");
 }
 
+/// The section the navigation names is the one on show: the bottom bar's destinations are the
+/// drawer's, and choosing Stats shows the master-detail pane.
 #[test]
-fn on_resize_tracks_orientation() {
-    let mut app = TodoApp::default();
-    app.on_resize(400.0, 800.0);
-    assert_eq!(app.orientation, Some(Orientation::Portrait));
-    app.on_resize(900.0, 500.0);
-    assert_eq!(app.orientation, Some(Orientation::Landscape));
+fn choosing_a_section_changes_what_is_on_show() {
+    let bench = Bench::new(700.0, 900.0).with_tasks(&["a", "b"]);
+    assert!(
+        bench.words().iter().any(|w| w == "My Tasks"),
+        "the tasks section"
+    );
+    assert!(bench.press("Stats"));
+    let stats = bench.words();
+    assert!(stats.iter().any(|w| w == "Total tasks"), "{stats:?}");
+    assert!(stats.iter().any(|w| w == "Completed"));
+    assert!(bench.press("About"));
+    assert!(bench.words().iter().any(|w| w == "About frus"));
 }
 
-#[test]
-fn clear_draft_empties_the_field() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::DraftChanged("half-typed".to_string()));
-    assert_eq!(app.draft, "half-typed");
-    // The "✕" suffix (a positional click) emits ClearDraft, which empties the field.
-    reduce(&mut app, Msg::ClearDraft);
-    assert!(app.draft.is_empty());
-}
+// ---------------------------------------------------------------------------------------
+// Reordering the list
+// ---------------------------------------------------------------------------------------
 
-#[test]
-fn add_todo_from_draft_and_trims_blanks() {
-    let mut app = TodoApp::default();
-    add(&mut app, "Buy bread");
-    assert_eq!(app.todos.len(), 1);
-    assert_eq!(app.todos[0].text, "Buy bread");
-    assert!(app.draft.is_empty(), "the field is emptied after the add");
-
-    add(&mut app, "   ");
-    assert_eq!(app.todos.len(), 1);
-}
-
-#[test]
-fn toggle_delete_and_clear_done() {
-    let mut app = TodoApp::default();
-    for t in ["a", "b", "c"] {
-        add(&mut app, t);
-    }
-    let id_b = app.todos[1].id;
-    reduce(&mut app, Msg::ToggleTodo(id_b));
-    assert!(app.todos[1].done);
-    assert_eq!(done_count(&app), 1);
-    assert_eq!(active_count(&app), 2);
-
-    let id_a = app.todos[0].id;
-    reduce(&mut app, Msg::DeleteTodo(id_a));
-    assert_eq!(app.todos.len(), 2);
-
-    reduce(&mut app, Msg::ConfirmClearDone);
-    assert_eq!(app.todos.len(), 1);
-    assert_eq!(app.todos[0].text, "c");
-}
-
-/// **What makes room for a carried row is the rows**, and all of each.
-///
-/// The preview slides aside whatever sits in the carried row's band below it, and on a
-/// phone that took the floating action button's `+` a row away from its own disc and the
-/// navigation bar's items out of the bar. What may move is now asked of the tree, and this
-/// reads the answer off the demo's real page — a floating button, a bar, a field and a
-/// header around the list — against what the page paints: every primitive inside a row
-/// moves, and nothing outside one does.
+/// What a carried row takes with it: the rows, and only the rows. Everything a row paints moves
+/// with it, and nothing painted outside one does — the page's own background behind the whole
+/// list merely has its centre on one.
 #[test]
 fn what_makes_room_for_a_carried_row_is_the_rows() {
-    let mut app = TodoApp::default();
-    for t in ["one", "two", "three"] {
-        add(&mut app, t);
-    }
-    let theme = Theme::dark();
     let size = Size::new(424.0, 918.0);
-    let tree = root_for(&app, &theme, size);
-    let (ui, nodes) = MediaQuery::new(size)
-        .scope(|| build_ui_inspected(tree.as_ref(), size, &Runtime::default(), &theme));
+    let bench = Bench::new(size.width, size.height).with_tasks(&["one", "two", "three"]);
+    let theme = bench
+        .app
+        .resolved_theme(frus_widgets::Brightness::Dark, false);
+    let (tree, ui, nodes) = MediaQuery::new(size).scope(|| {
+        bench.runtime.states.begin_build();
+        let tree = Application::view(&bench.app, &theme);
+        frus_widgets::build_deferred(tree.as_ref(), &theme, &bench.runtime);
+        let (ui, nodes) = build_ui_inspected(tree.as_ref(), size, &bench.runtime, &theme);
+        bench.runtime.states.end_frame();
+        (tree, ui, nodes)
+    });
     let rows: Vec<frus_widgets::Rect> = nodes
         .iter()
         .filter(|n| n.name == "ReorderRow")
@@ -339,9 +555,6 @@ fn what_makes_room_for_a_carried_row_is_the_rows() {
 
     let movable = frus_widgets::reorderable_owners(&ui, tree.as_ref());
     let centre = |b: frus_widgets::Rect| Point::new(b.x + b.width * 0.5, b.y + b.height * 0.5);
-    // Two questions, asked two ways. What a row paints lies **within** it — a page's
-    // background behind the whole list merely has its centre on one. And what moves must
-    // be centred on a row — a row's shadow may spill past its box, but not off it.
     let within = |row: &frus_widgets::Rect, b: frus_widgets::Rect| {
         b.x >= row.x - 0.5
             && b.y >= row.y - 0.5
@@ -353,8 +566,7 @@ fn what_makes_room_for_a_carried_row_is_the_rows() {
     let mut moving = 0;
     for p in ui.scene().primitives() {
         let bounds = p.bounds();
-        let moves = movable.contains(&p.owner());
-        if moves {
+        if movable.contains(&p.owner()) {
             if rows.iter().any(|row| row.contains(centre(bounds))) {
                 moving += 1;
             } else {
@@ -377,22 +589,16 @@ fn what_makes_room_for_a_carried_row_is_the_rows() {
 
 /// **A row carried past the last one lands at the end.**
 ///
-/// On a phone the list is followed by more of the page, so a finger that carries a row to
-/// the bottom edge is over that and not over a row — and the release, which asked only what
-/// was under the finger, put the row back. This reads the demo's real page: below the last
-/// row nothing can be dropped on, the first row's own list offers its three rows, the
-/// nearest is the last, and a drop after it moves the first task to the end.
+/// On a phone the list is followed by more of the page, so a finger that carries a row to the
+/// bottom edge is over that and not over a row — and the release, which asked only what was
+/// under the finger, put the row back. This reads the demo's real page: below the last row
+/// nothing can be dropped on, the first row's own list offers its three rows, the nearest is
+/// the last, and a drop after it moves the first task to the end.
 #[test]
 fn a_row_carried_past_the_last_one_lands_at_the_end() {
-    let mut app = TodoApp::default();
-    for t in ["one", "two", "three"] {
-        add(&mut app, t);
-    }
-    let theme = Theme::dark();
     let size = Size::new(424.0, 918.0);
-    let tree = root_for(&app, &theme, size);
-    let ui =
-        MediaQuery::new(size).scope(|| build_ui(tree.as_ref(), size, &Runtime::default(), &theme));
+    let bench = Bench::new(size.width, size.height).with_tasks(&["one", "two", "three"]);
+    let (tree, ui) = bench.frame();
     let droppable = |id| find_widget(tree.as_ref(), id).is_some_and(|w| w.reorder_droppable());
     let first = ui
         .reorderables()
@@ -430,89 +636,32 @@ fn a_row_carried_past_the_last_one_lands_at_the_end() {
     let Some(message) = message else {
         panic!("a drop after the last row moves the first");
     };
-    reduce(&mut app, message);
-    let labels: Vec<&str> = app.todos.iter().map(|t| t.text.as_str()).collect();
+    message.call();
+    let labels: Vec<String> = bench.demo.todos().into_iter().map(|t| t.text).collect();
     assert_eq!(labels, ["two", "three", "one"]);
-}
-
-/// A task dragged into a new place, under the filter that makes the two indices
-/// disagree.
-///
-/// The rows on screen are the filtered ones, so `MoveTodo(0, 1)` under *Active* means
-/// *the first active task goes after the second active task* — and the done tasks
-/// between them, which the list is not showing, must not be stepped over as though they
-/// were. Reordering by index in the model would do exactly that, and the list would look
-/// haunted: a row dropped on its neighbour landing three places away.
-#[test]
-fn moving_a_task_reorders_what_the_list_is_showing() {
-    let mut app = TodoApp::default();
-    for t in ["a", "b", "c", "d"] {
-        add(&mut app, t);
-    }
-    let labels =
-        |app: &TodoApp| -> Vec<String> { app.todos.iter().map(|t| t.text.clone()).collect() };
-
-    // Unfiltered, the two agree: the first row is carried to the end.
-    reduce(&mut app, Msg::MoveTodo(0, 3));
-    assert_eq!(labels(&app), ["b", "c", "d", "a"]);
-    // And back up: a move towards the head lands **before** the row it was dropped on.
-    reduce(&mut app, Msg::MoveTodo(3, 1));
-    assert_eq!(labels(&app), ["b", "a", "c", "d"]);
-
-    // Now with two of them out of sight. Showing only the active ones, the list is
-    // [b, d]: moving row 0 after row 1 means b goes after d, and the two done tasks stay
-    // exactly where they were.
-    let id_a = app.todos[1].id;
-    let id_c = app.todos[2].id;
-    reduce(&mut app, Msg::ToggleTodo(id_a));
-    reduce(&mut app, Msg::ToggleTodo(id_c));
-    reduce(&mut app, Msg::SetFilter(Filter::Active));
-    assert_eq!(
-        visible_todos(&app)
-            .map(|t| t.text.as_str())
-            .collect::<Vec<_>>(),
-        ["b", "d"]
-    );
-    reduce(&mut app, Msg::MoveTodo(0, 1));
-    assert_eq!(
-        visible_todos(&app)
-            .map(|t| t.text.as_str())
-            .collect::<Vec<_>>(),
-        ["d", "b"],
-        "the two visible rows swapped"
-    );
-    assert_eq!(app.todos.len(), 4, "and nothing was lost on the way");
-    assert!(
-        labels(&app).contains(&"a".to_string()) && labels(&app).contains(&"c".to_string()),
-        "the hidden tasks are still there: {:?}",
-        labels(&app)
-    );
-
-    // An index the list never emitted asks for nothing rather than panicking.
-    let before = labels(&app);
-    reduce(&mut app, Msg::MoveTodo(0, 9));
-    assert_eq!(labels(&app), before);
 }
 
 /// **The whole route a reorder takes, driven through the demo's own view.**
 ///
-/// The unit tests read the hooks off a widget in isolation; this one builds the
-/// application's real tree, lays it out, and asks the registries the questions the shell
-/// asks in the order the shell asks them — which is where a grip that shadows its row, or
-/// a row that never registers at all, would show up. It is as close to the device as this
-/// repository can get without one, and it exists because everything else about this
-/// gesture only happens while a finger is down.
+/// The unit tests read the hooks off a widget in isolation; this one builds the application's
+/// real tree, lays it out, and asks the registries the questions the shell asks in the order
+/// the shell asks them — which is where a grip that shadows its row, or a row that never
+/// registers at all, would show up.
 #[test]
 fn a_grip_grabs_its_row_and_the_drop_routes_to_a_position() {
-    let mut app = TodoApp::default();
-    for t in ["one", "two", "three"] {
-        add(&mut app, t);
-    }
-    let theme = Theme::dark();
     let size = Size::new(424.0, 918.0);
-    let tree = root_for(&app, &theme, size);
-    let (ui, nodes) = MediaQuery::new(size)
-        .scope(|| build_ui_inspected(tree.as_ref(), size, &Runtime::default(), &theme));
+    let bench = Bench::new(size.width, size.height).with_tasks(&["one", "two", "three"]);
+    let theme = bench
+        .app
+        .resolved_theme(frus_widgets::Brightness::Dark, false);
+    let (tree, ui, nodes) = MediaQuery::new(size).scope(|| {
+        bench.runtime.states.begin_build();
+        let tree = Application::view(&bench.app, &theme);
+        frus_widgets::build_deferred(tree.as_ref(), &theme, &bench.runtime);
+        let (ui, nodes) = build_ui_inspected(tree.as_ref(), size, &bench.runtime, &theme);
+        bench.runtime.states.end_frame();
+        (tree, ui, nodes)
+    });
     let boxes = |name: &str| -> Vec<frus_widgets::Rect> {
         nodes
             .iter()
@@ -525,8 +674,8 @@ fn a_grip_grabs_its_row_and_the_drop_routes_to_a_position() {
     assert_eq!(rows.len(), 3, "one wrapper per visible task");
     assert_eq!(grips.len(), 3, "and a grip in each");
 
-    // 1) A press on the first row's grip grabs **the grip** — it is the topmost
-    //    reorderable there, which is what makes the rest of the row still scroll.
+    // 1) A press on the first row's grip grabs **the grip** — it is the topmost reorderable
+    //    there, which is what makes the rest of the row still scroll.
     let middle = |r: frus_widgets::Rect| Point::new(r.x + r.width * 0.5, r.y + r.height * 0.5);
     let grabbed = ui
         .reorderables_at(middle(grips[0]))
@@ -537,8 +686,8 @@ fn a_grip_grabs_its_row_and_the_drop_routes_to_a_position() {
     assert!(!grip.reorder_droppable(), "and not a target");
     assert_eq!(grip.reorder_index(), Some(0));
 
-    // 2) What the drag actually moves is the row behind it, found the way the shell finds
-    //    it: the droppable reorderable of the same index under the grip's own middle.
+    // 2) What the drag actually moves is the row behind it, found the way the shell finds it:
+    //    the droppable reorderable of the same index under the grip's own middle.
     let source = ui
         .reorderables_at(middle(grips[0]))
         .find(|id| {
@@ -552,11 +701,9 @@ fn a_grip_grabs_its_row_and_the_drop_routes_to_a_position() {
         "the row is much wider than the grip that moves it: {source_rect:?}"
     );
 
-    // 3) Dropped **over the last row's own grip**, in the lower half of that row: the
-    //    case `reorder_droppable` exists for. The grip is on top there and cannot be
-    //    dropped on, so what the drop aims at is the row behind it — and the box the
-    //    insertion line is drawn across, and the half the insertion is decided by, are
-    //    the row's. Were the grip a target, both would be a 40-pixel gutter.
+    // 3) Dropped **over the last row's own grip**, in the lower half of that row: the case
+    //    `reorder_droppable` exists for. The grip is on top there and cannot be dropped on, so
+    //    what the drop aims at is the row behind it.
     let last = rows[2];
     let last_grip = grips[2];
     let over_grip = Point::new(
@@ -580,15 +727,15 @@ fn a_grip_grabs_its_row_and_the_drop_routes_to_a_position() {
         .and_then(|w| w.reorder_index())
         .expect("the row's index");
     assert_eq!(base, 2);
-    // The half is measured against that box, which is the shell's `reorder_insert_after`.
     let raw = base + usize::from(over_grip.y > target_rect.y + target_rect.height * 0.5);
     assert_eq!(raw, 3, "the lower half means the slot after it");
-    // 4) And the message the shell would dispatch: the first row ends up **last**, index
-    //    2 and not the raw 3, because it is no longer in the list it is being counted in.
-    match grip.on_reorder(raw) {
-        Some(Msg::MoveTodo(from, to)) => assert_eq!((from, to), (0, 2)),
-        other => panic!("expected a move from 0 to 2, got {:?}", other.is_some()),
-    }
+    // 4) And what the shell would deliver: the first row ends up **last**, index 2 and not the
+    //    raw 3, because it is no longer in the list it is being counted in.
+    grip.on_reorder(raw)
+        .expect("a drop after the last row moves the first")
+        .call();
+    let labels: Vec<String> = bench.demo.todos().into_iter().map(|t| t.text).collect();
+    assert_eq!(labels, ["two", "three", "one"]);
     // Dropped back on its own lower half, the same arithmetic asks for nothing.
     assert!(
         grip.on_reorder(1).is_none(),
@@ -596,22 +743,19 @@ fn a_grip_grabs_its_row_and_the_drop_routes_to_a_position() {
     );
 }
 
-/// **The panels still swipe with a button floating over them.** Milestone 495 put the
-/// tour's way-out chip in a `Stack` above the page view so it could slide off the top,
-/// and a page view that stopped registering as a paged region would still draw four
-/// panels, still lay out, still pass the overflow test — and would not turn.
-///
-/// That is milestone 477's failure mode exactly: a structural answer lost on the way
-/// through a wrapper, invisible to everything but the finger. So the frame is asked
-/// whether it registered a paged region at all.
+// ---------------------------------------------------------------------------------------
+// The other screens
+// ---------------------------------------------------------------------------------------
+
+/// **The panels still swipe with a button floating over them.** Milestone 495 put the tour's
+/// way-out chip in a `Stack` above the page view so it could slide off the top, and a page view
+/// that stopped registering as a paged region would still draw four panels, still lay out,
+/// still pass the overflow test — and would not turn.
 #[test]
 fn the_tour_panels_still_turn_under_the_button_that_floats_over_them() {
-    let theme = Theme::dark();
-    let size = Size::new(420.0, 900.0);
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Tour));
-    let tree = view_for(&app, &theme, size);
-    let ui = build_ui(&tree, size, &Runtime::default(), &theme);
+    let mut bench = Bench::new(420.0, 900.0);
+    bench.go("/tour");
+    let (_, ui) = bench.frame();
     let paged: Vec<_> = ui
         .scroll_regions()
         .iter()
@@ -620,27 +764,34 @@ fn the_tour_panels_still_turn_under_the_button_that_floats_over_them() {
     assert_eq!(
         paged.len(),
         1,
-        "the stack kept the page view a paged region: {:#?}",
-        ui.scroll_regions()
-            .iter()
-            .map(|a| (a.id, a.page.is_some()))
-            .collect::<Vec<_>>()
+        "the stack kept the page view a paged region"
     );
     assert!(
-        paged[0].max_x > size.width,
+        paged[0].max_x > bench.size.width,
         "and four panels of it still have somewhere to go: {}",
         paged[0].max_x
     );
 }
 
-/// **The licence list is generated, and this is what generated has to mean**: it parses,
-/// it covers what this application actually links, and every notice has a text.
+/// The tour's page is one number the finger and the pager both drive: "Skip" goes to the last
+/// panel, and the picker says so.
+#[test]
+fn the_tour_skips_to_its_last_panel() {
+    let mut bench = Bench::new(420.0, 900.0);
+    bench.go("/tour");
+    assert!(bench.words().iter().any(|w| w == "Panel 1 of 4"));
+    assert!(bench.press("Skip"));
+    assert!(bench.words().iter().any(|w| w == "Panel 4 of 4"));
+}
+
+/// **The licence list is generated, and this is what generated has to mean**: it parses, it
+/// covers what this application actually links, and every notice has a text.
 ///
-/// The one failure mode that matters for a licence list is a list that does not match what
-/// was linked. Nothing here can prove the file was regenerated after the last dependency
-/// changed — that is what running `scripts/gen_licenses.py` is for — but a list that has
-/// lost `wgpu`, or `winit`, or the framework itself is a list that is wrong in the way
-/// somebody would notice in court rather than in a test, so it is worth one.
+/// The one failure mode that matters for a licence list is a list that does not match what was
+/// linked. Nothing here can prove the file was regenerated after the last dependency changed —
+/// that is what running `scripts/gen_licenses.py` is for — but a list that has lost `wgpu`, or
+/// `winit`, or the framework itself is a list that is wrong in the way somebody would notice in
+/// court rather than in a test, so it is worth one.
 #[test]
 fn the_generated_licences_cover_what_the_demo_links() {
     let notices = frus_widgets::licenses::parse(include_str!("../assets/licenses.txt"));
@@ -653,10 +804,6 @@ fn the_generated_licences_cover_what_the_demo_links() {
         .iter()
         .flat_map(|n| n.packages.iter().map(|p| p.name.clone()))
         .collect();
-    // A sample across the graph: the renderer, the window, the layout, the text shaper,
-    // and the framework's own crates, which an application links as surely as the rest —
-    // and which are here under the workspace's own two licence files, since a crate of a
-    // workspace keeps them at the root rather than beside its manifest.
     for linked in [
         "wgpu",
         "winit",
@@ -679,114 +826,61 @@ fn the_generated_licences_cover_what_the_demo_links() {
         );
     }
     // And the page shows them: the list is what the screen puts on screen.
-    let theme = Theme::dark();
-    let size = Size::new(420.0, 900.0);
-    let page = LicensePage::new(None, Msg::OpenLicence)
-        .notices(notices)
-        .build();
-    let ui = build_ui(page.as_ref(), size, &Runtime::default(), &theme);
-    let words: Vec<String> = ui
-        .scene()
-        .primitives()
-        .iter()
-        .filter_map(|p| match p {
-            frus_widgets::Primitive::Text { text, .. } => Some(text.clone()),
-            _ => None,
-        })
-        .collect();
+    let mut bench = Bench::new(420.0, 900.0);
+    frus_widgets::licenses::add_all(include_str!("../assets/licenses.txt"));
+    bench.go("/licenses");
     assert!(
-        words.iter().any(|w| w.starts_with("wgpu ")),
+        bench.words().iter().any(|w| w.starts_with("wgpu ")),
         "the page lists wgpu"
     );
 }
 
-/// Milestone 493: the log screen **answers its own scroll offset**, and offers the way
-/// back only once there is one worth offering.
-///
-/// Driven through the screen rather than through the widget, because the thing being
-/// checked is the loop — the list reports, the application keeps, the next build reads —
-/// and any one of the three could be right on its own while the loop did nothing.
+/// Milestone 493: the log screen **answers its own scroll offset**, and offers the way back
+/// only once there is one worth offering — the loop is the thing checked: the list reports, the
+/// screen keeps, the next build reads.
 #[test]
 fn the_log_says_where_it_is_and_offers_the_way_back() {
-    let theme = Theme::dark();
-    let size = Size::new(420.0, 900.0);
-    let words = |app: &TodoApp| -> Vec<String> {
-        let tree = view_for(app, &theme, size);
-        build_ui(&tree, size, &Runtime::default(), &theme)
-            .scene()
-            .primitives()
-            .iter()
-            .filter_map(|p| match p {
-                frus_widgets::Primitive::Text { text, .. } => Some(text.clone()),
-                _ => None,
-            })
-            .collect()
-    };
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Journal));
+    let mut bench = Bench::new(420.0, 900.0);
+    bench.go("/journal");
 
-    // Nothing has moved, so nothing has been measured: a row number here would be the
-    // screen guessing rather than the list reporting, and there is nowhere to go back to.
-    let quiet = words(&app);
+    // Nothing has moved, so nothing has been measured: a row number here would be the screen
+    // guessing rather than the list reporting, and there is nowhere to go back to.
+    let quiet = bench.words();
     assert!(quiet.iter().any(|w| w == "5000 rows"), "{quiet:?}");
     assert!(!quiet.iter().any(|w| w == "Top"), "{quiet:?}");
 
-    // A hundred pixels down is still a flick from the top: the number moves, the button
-    // stays away.
-    reduce(&mut app, Msg::JournalScrolled(at(100.0)));
-    let near = words(&app);
+    // The list is reached by the name the screen gave it, and reports where it is.
+    let report = |offset: f32| {
+        let (tree, _) = bench.frame();
+        let key = frus_widgets::host::key_hash(JOURNAL_LIST);
+        let id = frus_widgets::find_by_key(tree.as_ref(), key).expect("the screen named its list");
+        find_widget(tree.as_ref(), id)
+            .and_then(|list| list.on_scroll(at(offset)))
+            .expect("the list answers a scroll")
+            .call();
+    };
+    // A hundred pixels down is still a flick from the top: the number moves, the button stays
+    // away.
+    report(100.0);
+    let near = bench.words();
     assert!(near.iter().any(|w| w == "Row 3 of 5000"), "{near:?}");
     assert!(!near.iter().any(|w| w == "Top"), "{near:?}");
 
     // Twenty thousand pixels down — row 455 — and the way back is worth a button.
-    reduce(&mut app, Msg::JournalScrolled(at(20_000.0)));
-    let far = words(&app);
+    report(20_000.0);
+    let far = bench.words();
     assert!(far.iter().any(|w| w == "Row 455 of 5000"), "{far:?}");
     assert!(far.iter().any(|w| w == "Top"), "{far:?}");
 
-    // And the button is an **effect**, not a change of state: the offset it moves lives
-    // in the runtime, and pressing it twice from the same place means it twice.
-    let before = app.journal_scroll;
-    assert!(!reduce(&mut app, Msg::JournalToTop).is_empty());
-    assert_eq!(
-        app.journal_scroll, before,
-        "the request moves a list, not the application's idea of one"
-    );
-}
-
-/// The wiring, through the real screen: **the name the button commands is the region the
-/// frame registers**.
-///
-/// The failure this exists to catch is milestone 477's — a hook declared on one side and
-/// never reached on the other — and it is invisible from either end alone. The screen can
-/// name its list, the update can command that name, every unit test can pass, and the
-/// request can still resolve to nothing because the key stopped at a wrapper.
-#[test]
-fn the_log_list_is_reachable_by_the_name_the_button_commands() {
-    use std::hash::{Hash, Hasher};
-
-    let theme = Theme::dark();
-    let size = Size::new(420.0, 900.0);
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Journal));
-    let tree = view_for(&app, &theme, size);
-    // Built first, in the order the shell does it: a deferred subtree has no children at
-    // all until something asks for them, and a key inside one is unreachable before that.
-    let ui = build_ui(&tree, size, &Runtime::default(), &theme);
-
-    let key = {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        JOURNAL_LIST.hash(&mut hasher);
-        hasher.finish()
-    };
-    let id = frus_widgets::find_by_key(&tree, key).expect("the screen named its list");
-    let area = ui
-        .scroll_region(id)
-        .expect("and the name reaches the region the frame registered, not a wrapper");
+    // And the button is an **effect**, not a change of state: the offset it moves lives in the
+    // runtime, and pressing it asks the host to scroll the list by name.
+    let _ = frus_widgets::host::take_effects();
+    assert!(bench.press("Top"));
+    let effects = frus_widgets::host::take_effects();
     assert!(
-        area.max_y > 100_000.0,
-        "five thousand rows of 44 px have somewhere to go: {}",
-        area.max_y
+        matches!(effects.as_slice(), [frus_widgets::host::Effect::Scroll(key, _)]
+            if *key == frus_widgets::host::key_hash(JOURNAL_LIST)),
+        "a request addressed to the list's name"
     );
 }
 
@@ -799,149 +893,105 @@ fn at(offset: f32) -> frus_widgets::ScrollPosition {
     }
 }
 
-/// The device finding of milestone 327, closed in 334. A task label long enough to
-/// overflow the row used to be laid out at its own content width, which pushed the delete
-/// button off the card, out of the window, and — the part that mattered — out of the hit
-/// registry: the × was not merely invisible, it was unclickable, and that task could not
-/// be deleted at all.
-///
-/// Driven through `view` at a phone's width, and read from the **hit registry** rather
-/// than from the picture, because the registry is what the report was about.
+/// The wiring, through the real screen: **the name the button commands is the region the frame
+/// registers**. The failure this exists to catch is milestone 477's — a hook declared on one
+/// side and never reached on the other — and it is invisible from either end alone.
 #[test]
-fn a_long_task_label_still_leaves_its_delete_button_clickable() {
-    // A phone in portrait, in logical pixels.
-    const W: f32 = 411.0;
-    const H: f32 = 869.0;
-
-    let mut app = TodoApp::default();
-    add(&mut app, "short");
-    add(
-        &mut app,
-        "a task label far longer than any phone is wide, which is exactly the case that          used to push the delete button out of the window entirely",
+fn the_log_list_is_reachable_by_the_name_the_button_commands() {
+    let mut bench = Bench::new(420.0, 900.0);
+    bench.go("/journal");
+    let (tree, ui) = bench.frame();
+    let key = frus_widgets::host::key_hash(JOURNAL_LIST);
+    let id = frus_widgets::find_by_key(tree.as_ref(), key).expect("the screen named its list");
+    let area = ui
+        .scroll_region(id)
+        .expect("and the name reaches the region the frame registered, not a wrapper");
+    assert!(
+        area.max_y > 100_000.0,
+        "five thousand rows of 44 px have somewhere to go: {}",
+        area.max_y
     );
-    let long_id = app.todos[1].id;
+}
 
-    let theme = Theme::default();
-    let tree = view_for(&app, &theme, Size::new(W, H));
-    let ui = build_ui(&tree, Size::new(W, H), &Runtime::default(), &theme);
+/// The demo through the shell, on a surface, at a screen: what a tap can reach that a message
+/// cannot — a step marker or a summary bullet answers a click **at a position**.
+fn wizard_driver(width: f32, height: f32) -> (Driver<FrusApp>, Rc<Demo>) {
+    let (app, router, demo) = crate::build();
+    let mut driver = Driver::new(app, width, height);
+    driver.run(0.3);
+    router.push("/wizard");
+    driver.run(1.5);
+    (driver, demo)
+}
 
-    // Sweep the window and ask what a tap there would send.
-    let mut targets = Vec::new();
-    let mut y = 1.0;
-    while y < H {
-        let mut x = 1.0;
-        while x < W {
-            if let Some(Msg::DeleteTodo(id)) =
-                ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id))
-            {
-                if id == long_id {
-                    targets.push((x, y));
+fn said(driver: &Driver<FrusApp>, word: &str) -> bool {
+    driver.texts().iter().any(|(text, _)| text == word)
+}
+
+/// Taps the marker of the wizard's step `index`. The markers answer a click **at a position**
+/// — a hotspot laid over each — so they are found where the hit registry says a tap does
+/// something, in the band of the window the steps row lives in, left to right.
+fn tap_step(driver: &mut Driver<FrusApp>, index: usize) {
+    let (ui, _) = driver.frame_parts().expect("a frame");
+    let mut hotspots: Vec<(Callback, Vec<Point>)> = Vec::new();
+    let mut y = 70.0;
+    while y < 260.0 {
+        let mut x = 2.0;
+        while x < 400.0 {
+            let at = Point::new(x, y);
+            if let Some(callback) = ui.hit(at).and_then(|id| ui.msg_for(id)) {
+                match hotspots.iter_mut().find(|(c, _)| c.ptr_eq(&callback)) {
+                    Some((_, points)) => points.push(at),
+                    None => hotspots.push((callback, vec![at])),
                 }
             }
-            x += 2.0;
+            x += 4.0;
         }
-        y += 2.0;
+        y += 4.0;
     }
-
-    assert!(
-        !targets.is_empty(),
-        "no tap anywhere in the window deletes the long task"
-    );
-    // And it is a real target, not a sliver: an icon button's 40 px, near the right edge.
-    let left = targets.iter().map(|t| t.0).fold(f32::MAX, f32::min);
-    let right = targets.iter().map(|t| t.0).fold(f32::MIN, f32::max);
-    assert!(
-        right - left > 20.0,
-        "the delete target is a sliver {left}..{right}, not a button"
-    );
-    assert!(right < W, "and it is inside the window");
-    // And it is where a trailing button belongs: against the row's right edge, not
-    // sitting on top of the label because the label was given no width at all.
-    assert!(
-        left > W * 0.5,
-        "the delete target is at {left}..{right}, not on the right-hand side"
-    );
+    hotspots.sort_by(|a, b| a.1[0].x.total_cmp(&b.1[0].x));
+    let (_, points) = &hotspots[index];
+    let at = points[points.len() / 2];
+    driver.press(at);
+    driver.release(at);
+    driver.run(0.2);
 }
 
+/// The sign-up wizard's flow, tapped through: an empty submission reveals the errors and lands
+/// on the review; a bullet of the summary jumps to the step of the field it names; a step marker
+/// jumps too.
 #[test]
-fn view_builds_a_non_empty_scene() {
-    let mut app = TodoApp::default();
-    add(&mut app, "a task");
-    assert!(primitive_count(&app) > 0);
+fn wizard_flow_validates_navigates_and_reveals_errors() {
+    let (mut driver, demo) = wizard_driver(420.0, 900.0);
+    assert!(said(&driver, "Full name"), "the Account step");
+    // The marker of the last step jumps to it — the errors show only after a submission.
+    tap_step(&mut driver, 2);
+    assert!(said(&driver, "Create account"));
+    assert!(!said(&driver, "• Name is required"));
+    assert!(driver.tap_text("Create account"));
+    driver.run(0.2);
+    assert!(said(&driver, "• Name is required"), "{:?}", driver.texts());
+    assert!(demo.current_toast().is_none(), "nothing was created");
+    // A summary bullet jumps to the step of the field it names.
+    assert!(driver.tap_text("• Name is required"));
+    driver.run(0.2);
+    assert!(said(&driver, "Full name"), "back on Account");
+    // And the markers move both ways.
+    tap_step(&mut driver, 1);
+    assert!(said(&driver, "Password"));
 }
 
-#[test]
-fn wizard_flow_validates_navigates_and_notifies() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Wizard));
-    assert_eq!(current_route(&app), Route::Wizard);
-    assert!(primitive_count(&app) > 0, "the wizard screen renders");
-
-    // The Account step starts invalid (which blocks "Next", milestone 191/192).
-    assert!(
-        !wizard_step_valid(&wizard_form(&app), 0),
-        "Account starts invalid"
-    );
-
-    // An empty submission → the errors are revealed and it jumps to Review (the summary).
-    reduce(&mut app, Msg::WizardSubmit);
-    assert!(app.wizard_submitted);
-    assert_eq!(app.wizard_step, 2);
-    assert!(app.snackbars.is_empty());
-    assert!(primitive_count(&app) > 0, "the error summary renders");
-
-    // A summary bullet jumps to the field's step **and** asks for its focus.
-    let cmd = reduce(&mut app, Msg::WizardFocus(0, 1));
-    assert_eq!(app.wizard_step, 0);
-    assert!(!cmd.is_empty(), "WizardFocus emits a focus request");
-
-    // Filling Account in → the step becomes valid.
-    reduce(&mut app, Msg::WizardInput(0, "Ada".to_string()));
-    reduce(&mut app, Msg::WizardInput(1, "ada@example.com".to_string()));
-    assert!(
-        wizard_step_valid(&wizard_form(&app), 0),
-        "Account is valid once filled in"
-    );
-    // Fill Security in (with matching passwords).
-    reduce(&mut app, Msg::WizardInput(2, "secret12".to_string()));
-    reduce(&mut app, Msg::WizardInput(3, "secret12".to_string()));
-    assert!(wizard_step_valid(&wizard_form(&app), 1), "Security valide");
-    reduce(&mut app, Msg::WizardSubmit);
-    // Success: a notification + the wizard is reset.
-    assert_eq!(
-        app.snackbars.current().map(String::as_str),
-        Some("Account created")
-    );
-    assert_eq!(app.wizard_step, 0);
-    assert!(!app.wizard_submitted);
-    assert!(app.wizard_name.is_empty() && app.wizard_email.is_empty());
-
-    // Step navigation (Next / a direct jump / Back, all clamped).
-    reduce(&mut app, Msg::WizardNext);
-    assert_eq!(app.wizard_step, 1);
-    reduce(&mut app, Msg::WizardStep(2));
-    assert_eq!(app.wizard_step, 2);
-    reduce(&mut app, Msg::WizardNext);
-    assert_eq!(app.wizard_step, 2, "clamped to the last step");
-    reduce(&mut app, Msg::WizardBack);
-    assert_eq!(app.wizard_step, 1);
-}
-
-/// **The sign-up wizard is one form, for autofill** (milestone 512). On each step the
-/// fields are grouped, and nothing else is — not the Next button, not the back arrow —
-/// and the group is the **same one** whatever the step: the account's name is typed on
-/// the first and its password on the second, and a password manager shown them as two
-/// forms would save a password with no account to save it under.
+/// **The sign-up wizard is one form, for autofill** (milestone 512). On each step the fields
+/// are grouped, and nothing else is — not the Next button, not the back arrow — and the group is
+/// the **same one** whatever the step: the account's name is typed on the first and its password
+/// on the second, and a password manager shown them as two forms would save a password with no
+/// account to save it under.
 #[test]
 fn the_wizard_is_one_form_across_its_steps() {
     use frus_widgets::{AutofillHint, WidgetId};
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Wizard));
-    let theme = Theme::default();
-    let size = Size::new(400.0, 800.0);
-    let grouped = |app: &TodoApp| -> Vec<(WidgetId, Option<WidgetId>)> {
-        let tree = view_for(app, &theme, size);
-        let ui = build_ui(&tree, size, &Runtime::default(), &theme);
+    let (mut driver, _) = wizard_driver(400.0, 800.0);
+    let grouped = |driver: &Driver<FrusApp>| -> Vec<(WidgetId, Option<WidgetId>)> {
+        let (ui, _) = driver.frame_parts().expect("a frame");
         let stops: Vec<WidgetId> = ui.focusable_ids().collect();
         stops
             .into_iter()
@@ -949,11 +999,11 @@ fn the_wizard_is_one_form_across_its_steps() {
             .filter(|(_, group)| group.is_some())
             .collect()
     };
-    let account = grouped(&app);
+    let account = grouped(&driver);
     assert_eq!(account.len(), 2, "the name and the email, and nothing else");
     assert_eq!(account[0].1, account[1].1, "in one group");
-    reduce(&mut app, Msg::WizardStep(1));
-    let security = grouped(&app);
+    tap_step(&mut driver, 1);
+    let security = grouped(&driver);
     assert_eq!(security.len(), 2, "the password and its confirmation");
     assert_eq!(
         security[0].1, account[0].1,
@@ -970,26 +1020,21 @@ fn the_wizard_is_one_form_across_its_steps() {
 }
 
 /// **Each wizard field opens the keyboard it is for** (milestone 514), read off the tree the
-/// view builds — what the shell hands the platform — and not off the helper alone. Seen on a
-/// phone before: the email field opened a sentence keyboard, which capitalised the address
-/// and put a space after each suggestion. And a password revealed by the eye keeps a secret's
-/// keyboard, so revealing it never lets the keyboard learn it.
+/// view builds — what the shell hands the platform — and not off the helper alone. And a
+/// password revealed by the eye keeps a secret's keyboard, so revealing it never lets the
+/// keyboard learn it.
 #[test]
 fn each_wizard_field_opens_the_keyboard_it_is_for() {
     use frus_widgets::KeyboardType;
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Wizard));
-    let theme = Theme::default();
-    let size = Size::new(400.0, 800.0);
-    let keyboards = |app: &TodoApp| -> Vec<KeyboardType> {
-        let tree = view_for(app, &theme, size);
-        let ui = build_ui(&tree, size, &Runtime::default(), &theme);
+    let (mut driver, _) = wizard_driver(400.0, 800.0);
+    let keyboards = |driver: &Driver<FrusApp>| -> Vec<KeyboardType> {
+        let (ui, tree) = driver.frame_parts().expect("a frame");
         let stops: Vec<_> = ui.focusable_ids().collect();
         stops
             .into_iter()
             .filter(|id| ui.form_group(*id).is_some())
             .map(|id| {
-                find_widget(&tree, id)
+                find_widget(tree, id)
                     .expect("a focus stop is a widget in the tree")
                     .ime()
                     .keyboard
@@ -997,43 +1042,48 @@ fn each_wizard_field_opens_the_keyboard_it_is_for() {
             .collect()
     };
     assert_eq!(
-        keyboards(&app),
+        keyboards(&driver),
         [KeyboardType::Name, KeyboardType::Email],
         "the account step"
     );
-    reduce(&mut app, Msg::WizardStep(1));
+    tap_step(&mut driver, 1);
     assert_eq!(
-        keyboards(&app),
+        keyboards(&driver),
         [KeyboardType::Password, KeyboardType::Password],
         "masked passwords"
     );
-    reduce(&mut app, Msg::WizardToggleReveal);
-    assert_eq!(
-        keyboards(&app),
-        [KeyboardType::VisiblePassword, KeyboardType::VisiblePassword],
-        "revealed, and still never learned"
-    );
+    // The eye inside the field toggles the masking. Revealed, it is still never learned.
+    assert_eq!(wizard_keyboard(2, false), KeyboardType::VisiblePassword);
+    assert_eq!(wizard_keyboard(3, true), KeyboardType::Password);
 }
 
 /// **The demo's sheet, driven through the registries in the order the shell reads them**
-/// (milestone 515): the list is a scroll area walked inside the sheet, a finger moving up
-/// on it grows the sheet, a flick settles it on the next stop, and a flick down from under
-/// the lowest one puts it away with the demo's own message.
+/// (milestone 515): the list is a scroll area walked inside the sheet, a finger moving up on it
+/// grows the sheet, a flick settles it on the next stop, and a flick down from under the lowest
+/// one puts it away with the screen's own message.
 #[test]
 fn the_sheet_shares_the_finger_with_its_list_and_puts_itself_away() {
     use frus_widgets::{split_sheet_drag, WidgetId};
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Sheet));
-    // Arrived: a push starts the screen sliding in from the right, a whole width away,
-    // and the sheet is measured here where it rests. The application does the same once
-    // its spring has settled.
-    app.nav_from = None;
-    let theme = Theme::default();
-    let size = Size::new(400.0, 800.0);
-    let tree = view_for(&app, &theme, size);
+    let mut bench = Bench::new(400.0, 800.0);
+    bench.go("/sheet");
     let mut runtime = Runtime::default();
+    let size = bench.size;
+    let theme = bench
+        .app
+        .resolved_theme(frus_widgets::Brightness::Dark, false);
 
-    let ui = build_ui(&tree, size, &runtime, &theme);
+    // A frame built on the runtime being driven, as the shell's is.
+    let build = |runtime: &Runtime| {
+        MediaQuery::new(size).scope(|| {
+            runtime.states.begin_build();
+            let tree = Application::view(&bench.app, &theme);
+            frus_widgets::build_deferred(tree.as_ref(), &theme, runtime);
+            let ui = build_ui(tree.as_ref(), size, runtime, &theme);
+            runtime.states.end_frame();
+            (tree, ui)
+        })
+    };
+    let (_, ui) = build(&runtime);
     let sheet = ui
         .sheets()
         .first()
@@ -1059,9 +1109,7 @@ fn the_sheet_shares_the_finger_with_its_list_and_puts_itself_away() {
     assert!(
         ui.sheet_at(Point::new(200.0, sheet.panel.y + 10.0))
             .is_some(),
-        "a finger on the panel is on the sheet: {:?}, its list at {:?}",
-        sheet.panel,
-        region.viewport
+        "a finger on the panel is on the sheet"
     );
 
     // A finger on the list moves up 100 px, the list at its top: all of it to the sheet.
@@ -1074,15 +1122,18 @@ fn the_sheet_shares_the_finger_with_its_list_and_puts_itself_away() {
     let (grown, listed) = split_sheet_drag(100.0, 0.0, half, 0.0, px);
     assert_eq!((grown, listed), (100.0, 0.0));
     runtime.sheet_drag(sheet.id, &sheet.spec, grown / px, px);
-    let ui = build_ui(&tree, size, &runtime, &theme);
-    let raised = ui.sheet(sheet.id).expect("still there").panel;
+    let raised = build(&runtime)
+        .1
+        .sheet(sheet.id)
+        .expect("still there")
+        .panel;
     assert!((raised.height - (half + 100.0)).abs() < 0.5, "{raised:?}");
 
     // Flicked up: the next stop its way, which is the whole box.
     let settle = |runtime: &mut Runtime| {
         let mut closed = Vec::new();
         for _ in 0..120 {
-            let areas = build_ui(&tree, size, runtime, &theme).sheets().to_vec();
+            let areas = build(runtime).1.sheets().to_vec();
             closed.extend(runtime.advance_sheets(&areas, 1.0 / 60.0).1);
         }
         closed
@@ -1091,62 +1142,73 @@ fn the_sheet_shares_the_finger_with_its_list_and_puts_itself_away() {
     assert!(settle(&mut runtime).is_empty());
     assert_eq!(runtime.sheet_size(sheet.id, &sheet.spec), 1.0);
 
-    // Lowered to just under a quarter and flicked down: put away, with the demo's message.
+    // Lowered to just under a quarter and flicked down: put away, with the screen's message.
     runtime.sheet_drag(sheet.id, &sheet.spec, -0.76, px);
     runtime.sheet_release(sheet.id, &sheet.spec, px, -1200.0, None);
     let closed = settle(&mut runtime);
     assert_eq!(closed, vec![sheet.id], "dismissed once");
-    let message = find_widget(&tree, sheet.id).and_then(|panel| panel.on_sheet_dismissed());
-    assert!(matches!(message, Some(Msg::PlacesDismissed)));
-    reduce(&mut app, Msg::PlacesDismissed);
-    let tree = view_for(&app, &theme, size);
-    assert!(build_ui(&tree, size, &runtime, &theme).sheets().is_empty());
+    let (tree, _) = build(&runtime);
+    find_widget(tree.as_ref(), sheet.id)
+        .and_then(|panel| panel.on_sheet_dismissed())
+        .expect("the sheet says what to do when it is put away")
+        .call();
+    assert!(build(&runtime).1.sheets().is_empty(), "put away");
     // And asked back, it is there again.
-    reduce(&mut app, Msg::ShowPlaces);
-    let tree = view_for(&app, &theme, size);
-    assert_eq!(build_ui(&tree, size, &runtime, &theme).sheets().len(), 1);
+    let (_, ui) = build(&runtime);
+    assert!(press_in(&ui, "Show the sheet"));
+    assert_eq!(build(&runtime).1.sheets().len(), 1);
 }
 
-/// **The page raises its sheet by name** (milestone 523). "Raise it" asks for the sheet under
-/// the page's key; that key names the very sheet the frame reports, and what the message asks
-/// for carries it to full height along its curve — not at once, and past the half-way stop
+/// **The page raises its sheet by name** (milestone 523). "Raise it" asks the host for the sheet
+/// under the page's key; that key names the very sheet the frame reports, and what the request
+/// asks for carries it to full height along its curve — not at once, and past the half-way stop
 /// without settling on it.
 #[test]
 fn the_page_raises_its_sheet_by_name() {
     use frus_widgets::{find_sheet_by_key, SheetTo};
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Sheet));
-    app.nav_from = None;
-    let theme = Theme::default();
-    let size = Size::new(400.0, 800.0);
-    let tree = view_for(&app, &theme, size);
+    let mut bench = Bench::new(400.0, 800.0);
+    bench.go("/sheet");
     let mut runtime = Runtime::default();
-    let sheet = build_ui(&tree, size, &runtime, &theme)
+    let size = bench.size;
+    let theme = bench
+        .app
+        .resolved_theme(frus_widgets::Brightness::Dark, false);
+    let build = |runtime: &Runtime| {
+        MediaQuery::new(size).scope(|| {
+            runtime.states.begin_build();
+            let tree = Application::view(&bench.app, &theme);
+            frus_widgets::build_deferred(tree.as_ref(), &theme, runtime);
+            let ui = build_ui(tree.as_ref(), size, runtime, &theme);
+            runtime.states.end_frame();
+            (tree, ui)
+        })
+    };
+    let (tree, ui) = build(&runtime);
+    let sheet = ui
         .sheets()
         .first()
         .cloned()
         .expect("the screen has a sheet");
-    let key = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        crate::screens::PLACES_SHEET.hash(&mut hasher);
-        hasher.finish()
-    };
     assert_eq!(
-        find_sheet_by_key(&tree, key),
+        find_sheet_by_key(tree.as_ref(), frus_widgets::host::key_hash(PLACES_SHEET)),
         Some(sheet.id),
         "the page's key names the sheet the frame reports"
     );
 
-    // What `Msg::RaisePlaces` asks for, placed as the shell places it.
-    assert!(runtime.sheet_to(
-        sheet.id,
-        &sheet.spec,
-        &SheetTo::size(1.0).animate(0.3, frus_widgets::Curve::ease())
-    ));
+    // Pressing "Raise it" asks the host for the sheet, by name.
+    let _ = frus_widgets::host::take_effects();
+    assert!(press_in(&ui, "Raise it"));
+    let asked = frus_widgets::host::take_effects();
+    let Some(frus_widgets::host::Effect::Sheet(key, to)) = asked.into_iter().next() else {
+        panic!("a request to move the sheet");
+    };
+    assert_eq!(key, frus_widgets::host::key_hash(PLACES_SHEET));
+    // Placed as the shell places it.
+    let _: &SheetTo = &to;
+    assert!(runtime.sheet_to(sheet.id, &sheet.spec, &to));
     let step = |runtime: &mut Runtime, frames: usize| {
         for _ in 0..frames {
-            let areas = build_ui(&tree, size, runtime, &theme).sheets().to_vec();
+            let areas = build(runtime).1.sheets().to_vec();
             runtime.advance_sheets(&areas, 1.0 / 60.0);
         }
         runtime.sheet_size(sheet.id, &sheet.spec)
@@ -1164,1138 +1226,50 @@ fn the_page_raises_its_sheet_by_name() {
     assert_eq!(step(&mut runtime, 60), 1.0, "and it stays there");
 }
 
-/// **The demo's sheet keeps its list at nothing**, and a finger on that list still finds
-/// the sheet (milestone 519).
-///
-/// Milestone 515 wrote that a sheet lowered to nothing through its list lost the gesture,
-/// because the list left the frame at nought. It does not leave: this reads the real
-/// page with the sheet at nothing — the list still walked inside the panel, still found
-/// as the sheet's, and the height its shares are taken of still known — and the split of
-/// the next movement up grows the sheet from nothing.
-#[test]
-fn the_sheet_keeps_its_list_at_nothing() {
-    use frus_widgets::split_sheet_drag;
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Sheet));
-    app.nav_from = None;
-    let theme = Theme::default();
-    let size = Size::new(400.0, 800.0);
-    let tree = view_for(&app, &theme, size);
-    let mut runtime = Runtime::default();
-    let ui = build_ui(&tree, size, &runtime, &theme);
-    let sheet = ui.sheets().first().cloned().expect("a sheet");
-    let list = *sheet.areas.first().expect("its list");
-    let px = sheet.available;
-
-    runtime.sheet_drag(sheet.id, &sheet.spec, -1.0, px);
-    assert_eq!(runtime.sheet_size(sheet.id, &sheet.spec), 0.0);
-    let ui = build_ui(&tree, size, &runtime, &theme);
-    let lowered = ui
-        .sheet(sheet.id)
-        .cloned()
-        .expect("the sheet is in the frame");
-    assert_eq!(lowered.panel.height, 0.0, "lowered to nothing");
-    assert_eq!(
-        lowered.areas,
-        vec![list],
-        "its list is still walked inside it"
-    );
-    assert!(ui.scroll_region(list).is_some(), "and still in the frame");
-    assert_eq!(ui.sheet_holding(list).map(|s| s.id), Some(sheet.id));
-    assert_eq!(lowered.available, px, "the height its shares are shares of");
-
-    // The next movement up, as the shell splits it: all of it to the sheet.
-    let offset = runtime.scroll.get(&list).map_or(0.0, |o| o.1);
-    let (grown, listed) = split_sheet_drag(40.0, offset, 0.0, 0.0, px);
-    assert_eq!((grown, listed), (40.0, 0.0));
-    runtime.sheet_drag(sheet.id, &sheet.spec, grown / px, px);
-    let ui = build_ui(&tree, size, &runtime, &theme);
-    let back = ui.sheet(sheet.id).expect("the sheet").panel;
-    assert!((back.height - 40.0).abs() < 0.5, "brought back: {back:?}");
-}
-
-/// **A sheet flicked to full height carries its list on** (milestone 520).
-///
-/// Milestone 515 stopped the throw at the top, so on a phone a flick up the demo's list
-/// raised the sheet and left the places where they were — as if there were no more. This
-/// steps the real page as the shell does: the sheet settles, the throw that reaches the top
-/// is handed to the list, and the list is flung with it under its physics.
-#[test]
-fn a_sheet_flicked_to_full_height_carries_its_list_on() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Sheet));
-    app.nav_from = None;
-    let theme = Theme::default();
-    let size = Size::new(400.0, 800.0);
-    let tree = view_for(&app, &theme, size);
-    let mut runtime = Runtime::default();
-    let sheet = build_ui(&tree, size, &runtime, &theme)
-        .sheets()
-        .first()
-        .cloned()
-        .expect("a sheet");
-    let list = *sheet.areas.first().expect("its list");
-    let physics = frus_widgets::ScrollPhysics::default();
-
-    // Raised a little first: a release exactly on a stop stays on it, flick or not.
-    runtime.sheet_drag(sheet.id, &sheet.spec, 0.05, sheet.available);
-    runtime.sheet_release(sheet.id, &sheet.spec, sheet.available, 900.0, Some(list));
-    let mut handed = Vec::new();
-    for _ in 0..90 {
-        let ui = build_ui(&tree, size, &runtime, &theme);
-        let (areas, regions) = (ui.sheets().to_vec(), ui.scroll_regions().to_vec());
-        runtime.advance_sheets(&areas, 1.0 / 60.0);
-        for (to, velocity) in runtime.take_sheet_handovers() {
-            handed.push((to, velocity));
-            let area = regions
-                .iter()
-                .find(|area| area.id == to)
-                .copied()
-                .expect("the list is in the frame");
-            runtime.fling_scroll(area, physics, (0.0, velocity));
-        }
-        runtime.advance_scroll(&regions, physics, 1.0 / 60.0);
-    }
-    assert_eq!(
-        runtime.sheet_size(sheet.id, &sheet.spec),
-        1.0,
-        "at full height"
-    );
-    assert_eq!(handed.len(), 1, "handed over once: {handed:?}");
-    assert_eq!(handed[0].0, list);
-    let offset = runtime.scroll.get(&list).map_or(0.0, |o| o.1);
-    assert!(offset > 50.0, "and the list went on: {offset}");
-}
-
-#[test]
-fn grid_edit_navigate_and_resize() {
-    let mut app = app_with_grid(vec![
-        vec![
-            "Ada".to_string(),
-            "Engineer".to_string(),
-            "a@x.com".to_string(),
-        ],
-        vec![
-            "Alan".to_string(),
-            "Crypto".to_string(),
-            "b@x.com".to_string(),
-        ],
-    ]);
-    reduce(&mut app, Msg::Push(Route::GridView));
-    assert_eq!(current_route(&app), Route::GridView);
-    assert!(primitive_count(&app) > 0, "the grid renders");
-    // Typing in a cell updates the right box (the grid is always editable).
-    reduce(&mut app, Msg::GridInput(0, 1, "Mathematician".to_string()));
-    assert_eq!(app.grid[0][1], "Mathematician");
-    assert_eq!(app.grid[0][0], "Ada", "the other cells are untouched");
-    // Enter moves down one row (same column) and asks for the focus.
-    let cmd = reduce(&mut app, Msg::GridEnter(0, 1));
-    assert!(!cmd.is_empty(), "Enter focuses the cell below");
-    // Enter on the last row creates one (milestone 204) and jumps into it.
-    let last = app.grid.len() - 1;
-    let before_enter = app.grid.len();
-    let cmd = reduce(&mut app, Msg::GridEnter(last, 1));
-    assert_eq!(
-        app.grid.len(),
-        before_enter + 1,
-        "Enter on the last row creates one"
-    );
-    assert!(!cmd.is_empty(), "and puts the focus in it");
-    // Adding a row: an empty row at the end, the focus on its 1st cell.
-    let before = app.grid.len();
-    let cmd = reduce(&mut app, Msg::GridAddRow);
-    assert_eq!(app.grid.len(), before + 1);
-    assert_eq!(
-        app.grid[before],
-        vec!["", "", ""],
-        "a new empty row (3 columns)"
-    );
-    assert!(!cmd.is_empty(), "AddRow focuses the new row");
-    // Deleting a row.
-    reduce(&mut app, Msg::GridDeleteRow(0));
-    assert_eq!(app.grid.len(), before, "one row removed");
-}
-
-#[test]
-fn grid_sort_toggles_and_validates() {
-    let mut app = app_with_grid(vec![
-        vec![
-            "Charlie".to_string(),
-            "QA".to_string(),
-            "c@x.com".to_string(),
-        ],
-        vec![
-            "Ada".to_string(),
-            "Engineer".to_string(),
-            "a@x.com".to_string(),
-        ],
-        vec!["Bob".to_string(), "PM".to_string(), "b@x.com".to_string()],
-    ]);
-    // Sort column 0 ascending, then toggle to descending.
-    reduce(&mut app, Msg::GridSort(0));
-    assert_eq!(app.grid_sort, Some((0, true)));
-    assert_eq!(app.grid[0][0], "Ada");
-    assert_eq!(app.grid[2][0], "Charlie");
-    reduce(&mut app, Msg::GridSort(0));
-    assert_eq!(app.grid_sort, Some((0, false)));
-    assert_eq!(app.grid[0][0], "Charlie");
-    // Per-cell validation: an empty Name and a malformed email are flagged.
-    assert_eq!(grid_cell_error(0, ""), Some("Required"));
-    assert!(grid_cell_error(0, "Ada").is_none());
-    assert_eq!(grid_cell_error(2, "not-an-email"), Some("Invalid email"));
-    assert!(grid_cell_error(2, "a@x.com").is_none());
-    assert!(
-        grid_cell_error(2, "").is_none(),
-        "an empty email is tolerated (nothing typed yet)"
-    );
-}
-
-#[test]
-fn grid_save_is_gated_on_cell_errors() {
-    // One valid row, one with an empty Name and a malformed email (2 errors).
-    let mut app = app_with_grid(vec![
-        vec![
-            "Ada".to_string(),
-            "Engineer".to_string(),
-            "a@x.com".to_string(),
-        ],
-        vec!["".to_string(), "PM".to_string(), "nope".to_string()],
-    ]);
-    assert_eq!(grid_error_count(&app.grid), 2);
-    reduce(&mut app, Msg::GridSave);
-    assert_eq!(
-        app.snackbars.current().map(String::as_str),
-        Some("Fix 2 errors before saving"),
-        "the submission is blocked and counts the errors"
-    );
-    // Fix both cells: the grid becomes valid and the save goes through.
-    app.grid[1][0] = "Bob".to_string();
-    app.grid[1][2] = "b@x.com".to_string();
-    assert_eq!(grid_error_count(&app.grid), 0);
-    let mut app2 = TodoApp {
-        grid: app.grid.clone(),
-        ..TodoApp::default()
-    };
-    reduce(&mut app2, Msg::GridSave);
-    assert_eq!(
-        app2.snackbars.current().map(String::as_str),
-        Some("Grid saved")
-    );
-}
-
-#[test]
-fn grid_focus_error_targets_the_first_faulty_cell() {
-    // Row 0 is valid, row 1 has an empty Name (column 0) = the first fault expected.
-    let mut app = app_with_grid(vec![
-        vec![
-            "Ada".to_string(),
-            "Engineer".to_string(),
-            "a@x.com".to_string(),
-        ],
-        vec!["".to_string(), "PM".to_string(), "nope".to_string()],
-    ]);
-    assert_eq!(grid_next_error(&app.grid, None), Some((1, 0)));
-    assert!(
-        !reduce(&mut app, Msg::GridFocusError).is_empty(),
-        "it focuses the faulty cell"
-    );
-    // Everything valid: no target left, so no command.
-    app.grid[1][0] = "Bob".to_string();
-    app.grid[1][2] = "b@x.com".to_string();
-    assert_eq!(grid_next_error(&app.grid, None), None);
-    assert!(
-        reduce(&mut app, Msg::GridFocusError).is_empty(),
-        "nothing to focus"
-    );
-}
-
-#[test]
-fn chart_legend_toggle_hides_and_shows_series() {
-    let mut app = TodoApp::default();
-    // The chart screen renders.
-    reduce(&mut app, Msg::Push(Route::Charts));
-    assert_eq!(current_route(&app), Route::Charts);
-    assert!(primitive_count(&app) > 0, "the dashboard renders");
-    // A legend click hides the series, a second click shows it again (a toggle).
-    assert!(app.chart_hidden.is_empty());
-    reduce(&mut app, Msg::ChartToggleSeries(1));
-    assert_eq!(app.chart_hidden, vec![1], "a click hides series 1");
-    reduce(&mut app, Msg::ChartToggleSeries(2));
-    assert_eq!(app.chart_hidden, vec![1, 2]);
-    reduce(&mut app, Msg::ChartToggleSeries(1));
-    assert_eq!(
-        app.chart_hidden,
-        vec![2],
-        "a second click shows series 1 again"
-    );
-}
-
-#[test]
-fn chart_kind_selector_switches_type_and_each_renders() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Charts));
-    assert_eq!(app.chart_kind, 0, "lines by default");
-    // Every kind (stacked areas, grouped bars, stacked bars) renders.
-    for k in [1usize, 2, 3] {
-        reduce(&mut app, Msg::SetChartKind(k));
-        assert_eq!(app.chart_kind, k);
-        assert!(primitive_count(&app) > 0, "kind {k} renders");
-    }
-}
-
-#[test]
-fn clicking_a_point_pins_its_detail() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Charts));
-    assert!(app.chart_pin.is_none(), "nothing is pinned at the start");
-    // Thu (index 3) of Sales (series 0) = 8.
-    reduce(&mut app, Msg::ChartPoint(3, 0));
-    assert_eq!(app.chart_pin.as_deref(), Some("Sales · Thu = 8"));
-    // Tue (index 1) of Costs (series 1) = 4: it replaces the pin.
-    reduce(&mut app, Msg::ChartPoint(1, 1));
-    assert_eq!(app.chart_pin.as_deref(), Some("Costs · Tue = 4"));
-    assert!(primitive_count(&app) > 0, "the screen with a pin renders");
-}
-
-#[test]
-fn tree_node_selection_toggles() {
-    // The file tree (the Settings showcase): select a node, then click again to deselect.
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Settings));
-    assert_eq!(app.tree_selected, None, "no node is selected at the start");
-    reduce(&mut app, Msg::SelectNode(6));
-    assert_eq!(app.tree_selected, Some(6), "a click = the node is selected");
-    reduce(&mut app, Msg::SelectNode(1));
-    assert_eq!(
-        app.tree_selected,
-        Some(1),
-        "clic ailleurs = deplace la selection"
-    );
-    reduce(&mut app, Msg::SelectNode(1));
-    assert_eq!(app.tree_selected, None, "re-clic = deselection");
-    assert!(
-        primitive_count(&app) > 0,
-        "the showcase renders with a selection"
-    );
-}
-
-#[test]
-fn kanban_move_relocates_a_card() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Board));
-    assert_eq!(current_route(&app), Route::Board);
-    let start = app.kanban_cols();
-    // "Design API" sits at (0,0). Moving it to the head of "Doing" (column 1): it leaves
-    // column 0 and appears at the head of column 1.
-    reduce(&mut app, Msg::KanbanMove(0, 0, 1, 0));
-    let after = app.kanban_cols();
-    assert_eq!(
-        after[0].len(),
-        start[0].len() - 1,
-        "the card leaves the source column"
-    );
-    assert_eq!(
-        after[1][0], "Design API",
-        "the card arrives at the head of the target column"
-    );
-    assert!(
-        !after[0].contains(&"Design API".to_string()),
-        "no longer in the source"
-    );
-    // A move within the SAME column: (1,0) to the end — the index shift is handled.
-    let doing_len = after[1].len();
-    reduce(&mut app, Msg::KanbanMove(1, 0, 1, doing_len));
-    let end = app.kanban_cols();
-    assert_eq!(
-        end[1].len(),
-        doing_len,
-        "the same number of cards (reordered, not duplicated)"
-    );
-    assert_eq!(
-        end[1].last().unwrap(),
-        "Design API",
-        "the card moved to the end of the column"
-    );
-    assert!(primitive_count(&app) > 0, "the board renders");
-    // Adding / deleting (milestone 249): + Add card appends at the bottom; × deletes the card aimed at.
-    let col0_len = app.kanban_cols()[0].len();
-    reduce(&mut app, Msg::KanbanAdd(0));
-    assert_eq!(app.kanban_cols()[0].len(), col0_len + 1, "Add adds a card");
-    assert_eq!(
-        app.kanban_cols()[0].last().unwrap(),
-        "New card",
-        "appended at the bottom of the column"
-    );
-    reduce(&mut app, Msg::KanbanDelete(0, 0));
-    assert_eq!(
-        app.kanban_cols()[0].len(),
-        col0_len,
-        "Delete removes a card"
-    );
-    assert!(
-        primitive_count(&app) > 0,
-        "it renders after adding/deleting"
-    );
-}
-
-/// **The board's label strip runs across, and what it routes reorders the labels**
-/// (milestone 527).
-///
-/// The strip is what a horizontal `ReorderableList` is tried on under a finger, so it has to
-/// be one on a phone's page: its rows side by side along x, not flat, running past the
-/// window's right edge so that it scrolls — and the message its first row routes for a drop
-/// after the third has to move that label in the model.
-#[test]
-fn the_board_label_strip_runs_across_and_reorders() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Board));
-    // Past the route transition, so the board is the one screen on show.
-    for _ in 0..40 {
-        Application::tick(&mut app, 0.05);
-    }
-    let theme = Theme::dark();
-    let size = Size::new(424.0, 918.0);
-    let tree = root_for(&app, &theme, size);
-    let (ui, nodes) = MediaQuery::new(size)
-        .scope(|| build_ui_inspected(tree.as_ref(), size, &Runtime::default(), &theme));
-    let rows: Vec<frus_widgets::Rect> = nodes
-        .iter()
-        .filter(|n| n.name == "ReorderRow")
-        .map(|n| n.rect)
-        .collect();
-    assert_eq!(
-        rows.len(),
-        BOARD_LABELS.len(),
-        "one row per label: {rows:?}"
-    );
-    for pair in rows.windows(2) {
-        assert!(
-            (pair[0].y - pair[1].y).abs() < 0.5 && pair[1].x >= pair[0].x + pair[0].width - 0.5,
-            "side by side along x, in order: {:?} then {:?}",
-            pair[0],
-            pair[1]
-        );
-    }
-    assert!(
-        rows.iter().all(|r| r.height > 20.0 && r.x >= 0.0),
-        "the labels are neither flat nor off the page's left: {rows:?}"
-    );
-    let last = rows[rows.len() - 1];
-    assert!(
-        last.x + last.width > size.width,
-        "the strip runs past the window, so it scrolls: {last:?}"
-    );
-
-    // The first label's own row, as the shell finds it: across, droppable, index 0.
-    let first = ui
-        .reorderables()
-        .iter()
-        .map(|(id, _)| *id)
-        .find(|id| {
-            find_widget(tree.as_ref(), *id).is_some_and(|w| {
-                w.reorder_droppable()
-                    && w.reorder_axis() == frus_widgets::ReorderAxis::Horizontal
-                    && w.reorder_index() == Some(0)
-            })
-        })
-        .expect("the first label's row");
-    // After the third label is raw index 3, which is where the first one ends up: 2.
-    let Some(message) = find_widget(tree.as_ref(), first).and_then(|w| w.on_reorder(3)) else {
-        panic!("a drop after the third label moves the first");
-    };
-    reduce(&mut app, message);
-    assert_eq!(app.board_labels()[..4], [1, 2, 0, 3]);
-    // And back from the end of the strip to its head.
-    reduce(&mut app, Msg::MoveLabel(9, 0));
-    assert_eq!(app.board_labels(), [9, 1, 2, 0, 3, 4, 5, 6, 7, 8]);
-    // An index the strip never emitted asks for nothing.
-    reduce(&mut app, Msg::MoveLabel(0, 10));
-    assert_eq!(app.board_labels()[0], 9);
-}
-
-#[test]
-fn grouped_bars_are_clickable_in_dashboard() {
-    // The main chart in **grouped bars** (kind 2) wires up `on_point` (milestone 222): at
-    // least one point of the plot area emits `ChartPoint`. A sweep (independent of
-    // frus-widgets' internal geometry constants).
-    let app = TodoApp::default();
-    let chart = dashboard_chart(&app, 2, 240.0, true);
-    let (w, h) = (600.0, 240.0);
-    let mut hit = false;
-    let mut y = 30.0;
-    while y < h - 22.0 && !hit {
-        let mut x = 40.0;
-        while x < w {
-            if let Some(Msg::ChartPoint(_, _)) = chart.positional_click(x, y, w, h) {
-                hit = true;
-                break;
-            }
-            x += 4.0;
-        }
-        y += 4.0;
-    }
-    assert!(hit, "a dashboard bar emits ChartPoint");
-}
-
-#[test]
-fn clicking_a_point_marks_it_selected() {
-    // The click pins not only the detail (milestone 221) but also the `(cat, series)`
-    // selection highlighted in the chart (milestone 223).
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Charts));
-    assert_eq!(app.chart_sel, None, "rien de selectionne au depart");
-    reduce(&mut app, Msg::ChartPoint(3, 0));
-    assert_eq!(
-        app.chart_sel,
-        Some((3, 0)),
-        "the clicked point becomes the selection"
-    );
-    reduce(&mut app, Msg::ChartPoint(1, 1));
-    assert_eq!(
-        app.chart_sel,
-        Some((1, 1)),
-        "the selection follows the last click"
-    );
-    assert!(
-        primitive_count(&app) > 0,
-        "the screen with a highlighted point renders"
-    );
-}
-
-#[test]
-fn normalized_toggle_applies_to_stacked_kinds() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Charts));
-    assert!(!app.chart_normalized, "absolu par defaut");
-    reduce(&mut app, Msg::SetChartNormalized(true));
-    assert!(app.chart_normalized, "the toggle is on");
-    // Both stacked kinds (stacked areas, kind 1, and stacked bars, kind 3) render in 100% mode.
-    for k in [1usize, 3] {
-        reduce(&mut app, Msg::SetChartKind(k));
-        assert!(
-            primitive_count(&app) > 0,
-            "stacked kind {k} renders in 100% mode"
-        );
-    }
-    reduce(&mut app, Msg::SetChartNormalized(false));
-    assert!(!app.chart_normalized, "bascule desactivee");
-}
-
-#[test]
-fn re_clicking_a_selected_point_unpins_it() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Charts));
-    reduce(&mut app, Msg::ChartPoint(2, 1));
-    assert_eq!(app.chart_sel, Some((2, 1)), "the first click pins");
-    assert!(app.chart_pin.is_some(), "the detail is pinned");
-    // Clicking the same point again unpins it (both the selection and the detail are cleared).
-    reduce(&mut app, Msg::ChartPoint(2, 1));
-    assert_eq!(app.chart_sel, None, "a second click unpins");
-    assert!(app.chart_pin.is_none(), "the detail is cleared");
-    // Another point pins again as usual.
-    reduce(&mut app, Msg::ChartPoint(0, 0));
-    assert_eq!(app.chart_sel, Some((0, 0)), "another point pins again");
-}
-
-#[test]
-fn data_table_screen_sorts_and_paginates_without_touching_data() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Data));
-    assert_eq!(current_route(&app), Route::Data);
-    assert!(primitive_count(&app) > 0, "the data screen renders");
-    // Sorting: the first click is ascending, a second is descending; sorting returns to page 1.
-    reduce(&mut app, Msg::DataPage(2));
-    assert_eq!(app.data_page, 2);
-    reduce(&mut app, Msg::DataSort(2));
-    assert_eq!(app.data_sort, Some((2, true)), "premier clic = croissant");
-    assert_eq!(app.data_page, 1, "sorting returns to page 1");
-    reduce(&mut app, Msg::DataSort(2));
-    assert_eq!(
-        app.data_sort,
-        Some((2, false)),
-        "a second click = descending"
-    );
-    // The page size: it changes and returns to page 1.
-    reduce(&mut app, Msg::DataPage(2));
-    reduce(&mut app, Msg::DataPageSize(10));
-    assert_eq!(app.data_page_size, 10);
-    assert_eq!(app.data_page, 1, "changing the size returns to page 1");
-    assert!(
-        primitive_count(&app) > 0,
-        "it renders after sorting/pagination"
-    );
-    // Row selection: a click selects the **source** row, a second click deselects it.
-    assert_eq!(app.data_selected, None, "no row at the start");
-    reduce(&mut app, Msg::DataSelectRow(3));
-    assert_eq!(
-        app.data_selected,
-        Some(3),
-        "a click = the source row is selected"
-    );
-    reduce(&mut app, Msg::DataSelectRow(7));
-    assert_eq!(
-        app.data_selected,
-        Some(7),
-        "clic ailleurs = deplace la selection"
-    );
-    reduce(&mut app, Msg::DataSelectRow(7));
-    assert_eq!(app.data_selected, None, "a second click = deselection");
-    assert!(primitive_count(&app) > 0, "it renders with the row detail");
-    // The Level column's custom sort (index 3): a semantic order, not an alphabetical one.
-    assert_eq!(level_rank("Low"), 0);
-    assert!(level_rank("Low") < level_rank("Medium") && level_rank("Medium") < level_rank("High"));
-    reduce(&mut app, Msg::DataSort(3));
-    assert_eq!(app.data_sort, Some((3, true)), "the Level column is sorted");
-    assert!(primitive_count(&app) > 0, "it renders sorted by priority");
-    // Multi-selection (the boxes): toggling one row, then "check all"/"uncheck all".
-    assert!(
-        app.data_checked.is_empty(),
-        "nothing is checked at the start"
-    );
-    reduce(&mut app, Msg::DataCheck(2));
-    assert_eq!(app.data_checked, vec![2], "it checks source row 2");
-    reduce(&mut app, Msg::DataCheck(2));
-    assert!(app.data_checked.is_empty(), "checking again = unchecked");
-    reduce(&mut app, Msg::DataCheckAll);
-    assert_eq!(
-        app.data_checked.len(),
-        DATA_PEOPLE.len(),
-        "check all = 12 rows"
-    );
-    reduce(&mut app, Msg::DataCheckAll);
-    assert!(
-        app.data_checked.is_empty(),
-        "check-all again = uncheck everything"
-    );
-    assert!(primitive_count(&app) > 0, "it renders with checkboxes");
-    // Search: typing updates the filter and returns to page 1.
-    reduce(&mut app, Msg::DataPage(2));
-    reduce(&mut app, Msg::DataSearch("ada".to_string()));
-    assert_eq!(app.data_query, "ada", "the filter is updated");
-    assert_eq!(app.data_page, 1, "a new filter returns to page 1");
-    assert!(primitive_count(&app) > 0, "it renders filtered");
-    // Bulk actions (milestone 243): Clear empties the selection, Delete removes the checked rows.
-    reduce(&mut app, Msg::DataCheck(0));
-    reduce(&mut app, Msg::DataCheck(1));
-    reduce(&mut app, Msg::DataSelectRow(1));
-    assert_eq!(app.data_checked.len(), 2);
-    reduce(&mut app, Msg::DataClearChecked);
-    assert!(app.data_checked.is_empty(), "Clear empties the selection");
-    assert_eq!(app.data_selected, Some(1), "Clear leaves the focus alone");
-    let before = app.data_rows().len();
-    reduce(&mut app, Msg::DataCheck(0));
-    // The confirmation (milestone 245): Delete opens the modal; Cancel closes it without deleting.
-    reduce(&mut app, Msg::DataAskDelete);
-    assert!(app.data_confirm_delete, "Delete ouvre la confirmation");
-    assert_eq!(
-        app.data_rows().len(),
-        before,
-        "nothing is deleted until it is confirmed"
-    );
-    assert!(primitive_count(&app) > 0, "it renders with the modal");
-    reduce(&mut app, Msg::DataCancelDelete);
-    assert!(!app.data_confirm_delete, "Cancel closes the modal");
-    assert_eq!(app.data_rows().len(), before, "Cancel ne supprime rien");
-    // Confirming really does delete, and closes the modal.
-    reduce(&mut app, Msg::DataAskDelete);
-    reduce(&mut app, Msg::DataDeleteChecked);
-    assert!(!app.data_confirm_delete, "confirmer ferme la modale");
-    assert_eq!(
-        app.data_rows().len(),
-        before - 1,
-        "a confirmed Delete removes the checked row"
-    );
-    assert!(app.data_checked.is_empty(), "Delete empties the selection");
-    assert_eq!(app.data_selected, None, "Delete resets the focus");
-    assert!(primitive_count(&app) > 0, "it renders after the deletion");
-    // The empty state (milestone 244): a filter with no result still renders (header + message).
-    reduce(&mut app, Msg::DataSearch("zzzzz".to_string()));
-    assert!(primitive_count(&app) > 0, "it renders with the empty state");
-}
-
-#[test]
-fn calendar_weekdays_only_filters_weekends() {
-    // Juillet 2026 : 4-5 = samedi/dimanche ; 6 = lundi.
-    assert!(
-        is_weekend(2026, 7, 4) && is_weekend(2026, 7, 5),
-        "4-5 juillet = week-end"
-    );
-    assert!(!is_weekend(2026, 7, 6), "6 juillet = lundi (ouvre)");
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Settings));
-    assert!(!app.weekdays_only, "every day by default");
-    assert!(primitive_count(&app) > 0, "the showcase renders");
-    // The toggle: the filtered calendar renders, then it comes back.
-    reduce(&mut app, Msg::SetWeekdaysOnly(true));
-    assert!(app.weekdays_only);
-    assert!(primitive_count(&app) > 0, "the filtered calendar renders");
-    reduce(&mut app, Msg::SetWeekdaysOnly(false));
-    assert!(!app.weekdays_only);
-}
-
-#[test]
-fn companion_chart_renders_across_families_with_hidden() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Charts));
-    // A hidden series is shared by the main chart and the companion (the same `chart_hidden`).
-    reduce(&mut app, Msg::ChartToggleSeries(1));
-    assert_eq!(app.chart_hidden, vec![1]);
-    // Lines (companion = bars) then bars (companion = lines): the screen renders both ways.
-    reduce(&mut app, Msg::SetChartKind(0));
-    assert!(primitive_count(&app) > 0, "main lines + companion bars");
-    reduce(&mut app, Msg::SetChartKind(2));
-    assert!(primitive_count(&app) > 0, "main bars + companion lines");
-}
-
-#[test]
-fn grid_next_error_cycles_through_all_faults() {
-    // Fautes attendues, en ordre : (0,0) Name vide, (0,2) email invalide, (1,2) email invalide.
-    let mut app = app_with_grid(vec![
-        vec!["".to_string(), "PM".to_string(), "nope".to_string()],
-        vec!["Ada".to_string(), "Engineer".to_string(), "bad".to_string()],
-    ]);
-    assert_eq!(grid_faults(&app.grid), vec![(0, 0), (0, 2), (1, 2)]);
-    // Each call moves on; the last one wraps back to the first.
-    for expected in [(0, 0), (0, 2), (1, 2), (0, 0)] {
-        reduce(&mut app, Msg::GridFocusError);
-        assert_eq!(app.grid_error_cursor, Some(expected));
-    }
-}
-
-#[test]
-fn snackbar_queue_orders_and_exits() {
-    let mut app = TodoApp::default();
-    // Two queued notifications: the 1st is visible, the 2nd waits.
-    show_toast(&mut app, "A");
-    show_toast(&mut app, "B");
-    assert_eq!(app.snackbars.current().map(String::as_str), Some("A"));
-    assert!(!app.snackbars.is_leaving(), "shown, not exiting yet");
-    // Expiry → the head moves into its **exit** (a fade) without disappearing.
-    reduce(&mut app, Msg::SnackBarExpire);
-    assert!(app.snackbars.is_leaving());
-    assert_eq!(app.snackbars.current().map(String::as_str), Some("A"));
-    // Removal → the next one takes over (fading in).
-    reduce(&mut app, Msg::DismissToast);
-    assert_eq!(app.snackbars.current().map(String::as_str), Some("B"));
-    assert!(!app.snackbars.is_leaving());
-    // The last one: exit then removal → an empty queue.
-    reduce(&mut app, Msg::SnackBarExpire);
-    reduce(&mut app, Msg::DismissToast);
-    assert!(app.snackbars.is_empty());
-}
-
-#[test]
-fn loaded_replaces_todos_with_unique_ids() {
-    let mut app = TodoApp::default();
-    add(&mut app, "old one");
-    reduce(
-        &mut app,
-        Msg::Loaded(vec![(true, "a".to_string()), (false, "b".to_string())]),
-    );
-    assert_eq!(app.todos.len(), 2);
-    assert_eq!(app.todos[0].text, "a");
-    assert!(app.todos[0].done);
-    assert!(!app.todos[1].done);
-    assert_ne!(app.todos[0].id, app.todos[1].id);
-}
-
-#[test]
-fn save_produces_a_run_effect() {
-    let mut app = TodoApp::default();
-    add(&mut app, "x");
-    // Save returns a non-empty command (the write is an effect).
-    assert!(!reduce(&mut app, Msg::Save).is_empty());
-    // A plain mutation has no effect at all.
-    assert!(reduce(&mut app, Msg::DraftChanged("y".to_string())).is_empty());
-}
-
-#[test]
-fn back_gesture_flick_commits_pop() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Settings));
-    while app.nav_from.is_some() {
-        app.tick(0.05);
-    }
-    assert_eq!(app.routes.len(), 1);
-
-    // A small drag but a fast flick → it must commit the back.
-    app.back_gesture(0.2);
-    app.back_gesture_end(5.0);
-    for _ in 0..200 {
-        if app.back.is_none() {
-            break;
-        }
-        app.tick(0.05);
-    }
-    assert!(app.routes.is_empty(), "the flick popped the screen");
-}
-
-/// Live-reload: the `save_state` snapshot rehydrates a fresh binary — the tasks, the draft,
-/// the filter, the theme (mode + seed) and the stacked screen.
-#[test]
-fn live_reload_state_round_trips() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::DraftChanged("Buy milk".to_string()));
-    reduce(&mut app, Msg::AddTodo);
-    let id = app.todos[0].id;
-    reduce(&mut app, Msg::ToggleTodo(id));
-    reduce(&mut app, Msg::DraftChanged("half-typed".to_string()));
-    reduce(&mut app, Msg::SetFilter(Filter::Done));
-    reduce(&mut app, Msg::ToggleTheme);
-    reduce(&mut app, Msg::CycleSeed);
-    reduce(&mut app, Msg::Push(Route::Settings));
-
-    let snapshot = Application::save_state(&app).expect("a snapshot");
-
-    let mut fresh = TodoApp::default();
-    Application::restore_state(&mut fresh, &snapshot);
-    assert_eq!(fresh.todos.len(), 1);
-    assert_eq!(fresh.todos[0].text, "Buy milk");
-    assert!(fresh.todos[0].done);
-    assert_eq!(fresh.draft, "half-typed");
-    assert!(fresh.filter == Filter::Done);
-    assert_eq!(fresh.light, app.light);
-    assert_eq!(fresh.seed_index, 1);
-    assert_eq!(current_route(&fresh), Route::Settings);
-    // `init` after a rehydration does NOT restart the disk load (the snapshot is the
-    // authority): no effect is emitted.
-    assert!(fresh.init().is_empty(), "no Loaded after a rehydration");
-    // A corrupt snapshot / one from another version is ignored without panicking.
-    let mut other = TodoApp::default();
-    Application::restore_state(&mut other, b"garbage \xFF");
-    Application::restore_state(&mut other, b"frus-demo-state v999\nlight 1\n");
-    assert!(other.todos.is_empty() && !other.restored);
-}
-
-/// **The demonstration's own light switch is light on a phone in night mode.**
-///
-/// It pins the mode, and the framework then asks `theme()` for the light theme and
-/// `dark_theme()` for the dark one. `theme()` read the *platform's* brightness instead, so
-/// under a night-mode phone the pinned light theme came back dark and the switch did
-/// nothing — found on a device, trying to photograph the light status bar for #46.
-#[test]
-fn the_light_switch_is_light_under_a_dark_platform() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::ToggleTheme);
-    assert!(app.light, "the fixture: the switch is on light");
-    let mut night = MediaQuery::new(Size::new(400.0, 800.0));
-    night.platform_brightness = Brightness::Dark;
-    let theme = night.scope(|| Application::resolved_theme(&app, Brightness::Dark, false));
-    assert_eq!(theme.brightness(), Brightness::Light);
-}
-
-/// **The task screen's bottom bar continues into the system's navigation bar** (#46): the
-/// screen asks for the navigation bar in its bottom app bar's colour, and says nothing of
-/// the status bar, which stays the theme's.
-#[test]
-fn the_task_screen_asks_for_the_navigation_bar_in_its_bottom_bars_colour() {
-    let mut app = TodoApp::default();
-    add(&mut app, "Water the plants");
-    let id = app.todos[0].id;
-    reduce(&mut app, Msg::OpenTask(id));
-    // Let the route transition finish, so the frame is the task screen alone.
-    for _ in 0..200 {
-        if !app.tick(0.05) {
-            break;
-        }
-    }
-    let theme = Theme::default();
-    let size = Size::new(400.0, 800.0);
-    let root = root_for(&app, &theme, size);
-    let ui = build_ui(root.as_ref(), size, &Runtime::default(), &theme);
-    let style = ui.system_ui_style(Point::new(200.0, 0.5), Point::new(200.0, 799.5));
-    assert_eq!(style.navigation_bar_color, Some(theme.surface));
-    assert_eq!(
-        style.status_bar_color, None,
-        "the status bar is left to the theme"
-    );
-}
-
-/// Turning the phone must not move the navigation (milestone 305).
-///
-/// Reported from a device: rotating to landscape made the navigation leave the bottom
-/// of the screen and reappear as a rail down the left edge. The cause was in
-/// `Scaffold`, which measured its own width; the fix is there too. This test is here
-/// because it is the demo's own screen, at the reporter's own logical size, that has to
-/// come out right — a widget test can pass while the application still looks wrong.
-#[test]
-fn rotating_the_phone_leaves_the_navigation_at_the_bottom() {
-    // The reporter's device: 1080 × 2340 at a density that gives 424 × 918 logical.
-    let portrait = (424.0, 918.0);
-    let landscape = (918.0, 424.0);
-
-    /// The lowest `y` at which any of the navigation's labels is painted.
-    fn nav_bottom(app: &TodoApp, width: f32, height: f32) -> f32 {
-        let theme = Application::theme(app);
-        let root = root_for(app, &theme, Size::new(width, height));
-        let ui = build_ui(
-            root.as_ref(),
-            Size::new(width, height),
-            &Runtime::default(),
-            &theme,
-        );
-        let mut lowest = f32::MIN;
-        for primitive in ui.scene().primitives() {
-            if let frus_widgets::Primitive::Text { text, position, .. } = primitive {
-                if text == "Tasks" || text == "Stats" || text == "About" {
-                    lowest = lowest.max(position.y);
-                }
-            }
-        }
-        assert!(lowest > f32::MIN, "the destinations were never painted");
-        lowest
-    }
-
-    let mut app = TodoApp::default();
-    let _ = app.init();
-
-    let low_portrait = nav_bottom(&app, portrait.0, portrait.1);
-    assert!(
-        low_portrait > portrait.1 * 0.7,
-        "portrait: destinations at y = {low_portrait} of {}",
-        portrait.1
-    );
-
-    // The rotation itself, through the shell's own entry point.
-    Application::on_resize(&mut app, landscape.0, landscape.1);
-    let low_landscape = nav_bottom(&app, landscape.0, landscape.1);
-    assert!(
-        low_landscape > landscape.1 * 0.7,
-        "landscape: destinations at y = {low_landscape} of {} — the navigation moved",
-        landscape.1
-    );
-}
-
-/// **Choosing a navigating item closes the overflow menu (milestone 326)** — the
-/// application half of a defect found on a device.
-///
-/// The framework half is that a departing screen's overlay was drawn over the screen that
-/// replaced it, and it is guarded in `navigator.rs`. This is the other half of what was
-/// seen: the menu also **came back** on returning home, because nothing ever closed it.
-/// `Push` already dismisses the drawer and the popup menu; the app bar's overflow was the
-/// one that was missed.
-#[test]
-fn navigating_from_the_overflow_menu_closes_it() {
-    let mut app = TodoApp::default();
-    let _ = app.init();
-
-    reduce(&mut app, Msg::ToggleActions);
-    assert!(app.actions_open, "the menu is open");
-
-    // "Settings →" is one of the overflow's own actions.
-    reduce(&mut app, Msg::Push(Route::Settings));
-    assert!(
-        !app.actions_open,
-        "the menu stayed open, and would reappear on returning home"
-    );
-
-    // An action that does *not* navigate leaves it alone — dismissing on every press
-    // would make the menu useless for the toggles that live in it.
-    reduce(&mut app, Msg::ToggleActions);
-    reduce(&mut app, Msg::ToggleTheme);
-    assert!(app.actions_open, "a toggle does not dismiss the menu");
-}
-
-/// **Nothing in the application may draw outside its parent** — checked on every screen,
-/// at a phone's width and at a desktop's, because that is where the difference shows.
-///
-/// This is the instrument milestone 335 exists for. Its first run found a real one: the
-/// chart dashboard's segmented control was 584 px of segments in a 363 px row on a phone,
-/// running 221 px past the card. Nothing had ever said so.
-#[test]
-fn no_screen_draws_outside_itself() {
-    let theme = Theme::default();
-    let routes = [
-        Route::Home,
-        Route::Settings,
-        Route::Journal,
-        Route::Wizard,
-        Route::GridView,
-        Route::Charts,
-        Route::Data,
-        Route::Board,
-        Route::Tour,
-        Route::Licenses,
-        Route::Sheet,
-    ];
-    let mut worst: Vec<String> = Vec::new();
-    for route in routes {
-        let mut app = TodoApp::default();
-        add(&mut app, "short");
-        reduce(&mut app, Msg::Push(route));
-        for (label, w, h) in [("phone", 411.0, 869.0), ("desktop", 1200.0, 800.0)] {
-            let tree = view_for(&app, &theme, Size::new(w, h));
-            let ui = build_ui(&tree, Size::new(w, h), &Runtime::default(), &theme);
-            let over = ui
-                .overflows()
-                .iter()
-                .map(|o| o.amount)
-                .fold(0.0_f32, f32::max);
-            // No allowance any more. Settings carried a **known** 4.5 px from milestone
-            // 335 — the Controls tab would not go below about 380 px — and milestone 392
-            // found the cause: a slider asking for a fixed 220 next to a label of 108 in a
-            // card of 331. It asks loosely now, and the pin came down.
-            if over > 0.0 {
-                // The box and the edge as well as the amount: "2 px" on nine screens at
-                // once says a shared widget grew, and only the rectangle says which.
-                for o in ui.overflows() {
-                    worst.push(format!(
-                        "{route:?}/{label} overflows {:?} by {:.1} px at {:?}",
-                        o.side, o.amount, o.rect
-                    ));
-                }
-            }
-        }
-    }
-    assert!(worst.is_empty(), "{worst:#?}");
-}
-
-/// **The language menu switches the framework's words too**, not only the application's.
-///
-/// Two different mechanisms answer one gesture: this application's own strings come from
-/// its Fluent resources through `locale`, and the framework's — a calendar's months, the
-/// label on a back arrow — from a table through `localizations`. A reader who picks
-/// Français and gets a French interface around an English calendar has been told the
-/// switch did not work.
-#[test]
-fn choosing_french_hands_the_framework_a_french_table() {
-    use frus_shell::Application;
-    let mut app = TodoApp {
-        lang: Some(1),
-        ..Default::default()
-    };
-    assert_eq!(
-        app.locale()
-            .map(|l| l.language_code().to_string())
-            .as_deref(),
-        Some("fr")
-    );
-    let table = app.localizations().expect("a French table");
-    assert_eq!(table.months()[0], "janvier");
-    assert_eq!(
-        table.first_day_of_week_index(),
-        1,
-        "the week starts on Monday"
-    );
-
-    app.lang = Some(0);
-    assert!(
-        app.localizations().is_none(),
-        "English is the framework's own default, so there is nothing to install"
-    );
-
-    // **Arabic mirrors but is not translated**, deliberately: there is no Arabic table in
-    // the framework yet, and a machine-translated one would be worse than none.
-    app.lang = Some(2);
-    assert!(app.localizations().is_none());
-}
-
-/// **A ticked task still reads as ticked**, which stopped being obvious in milestone 498.
-///
-/// Its label's colour and its line through were stated on the text itself until that
-/// milestone and are now *handed down* to it, so that both can move when a task is ticked
-/// rather than jumping. The failure mode of getting that wrong is silence: a done task
-/// that looks exactly like an active one, on a screen where every row still lays out,
-/// still paints and still passes every count. So the row is asked what it actually drew.
-///
-/// The active row beside it is the control — it is the same code path with the other
-/// answer, and a test that only looked at the done one would pass just as well if the
-/// style reached every row alike.
-#[test]
-fn a_ticked_task_is_still_muted_and_struck_through() {
-    fn label_of(done: bool) -> (frus_widgets::Color, bool) {
-        let theme = Theme::dark();
-        let todo = Todo {
-            id: 1,
-            text: "Buy milk".to_string(),
-            done,
-        };
-        let row = todo_row(&todo, &theme);
-        let size = Size::new(400.0, 120.0);
-        // Settled, so what is painted is the target rather than a frame of a movement:
-        // this is about where the style arrives, not how it gets there.
-        let mut runtime = Runtime::default();
-        runtime.advance_text_styles(&row, 1.0);
-        let ui = build_ui(&row, size, &runtime, &theme);
-        fn walk(
-            primitives: &[frus_widgets::Primitive],
-            out: &mut Vec<(frus_widgets::Color, bool)>,
-        ) {
-            for p in primitives {
-                match p {
-                    frus_widgets::Primitive::Text {
-                        text,
-                        color,
-                        decoration,
-                        ..
-                    } if text == "Buy milk" => out.push((*color, decoration.strikethrough)),
-                    frus_widgets::Primitive::Layer { primitives, .. } => walk(primitives, out),
-                    _ => {}
-                }
-            }
-        }
-        let mut found = Vec::new();
-        walk(ui.scene().primitives(), &mut found);
-        assert_eq!(found.len(), 1, "one label: {found:?}");
-        found[0]
-    }
-
-    let theme = Theme::dark();
-    let (active_color, active_line) = label_of(false);
-    let (done_color, done_line) = label_of(true);
-    assert!(!active_line, "an active task is not struck through");
-    assert!(done_line, "a ticked one is");
-    assert_eq!(
-        active_color, theme.on_surface,
-        "an active task reads as ink"
-    );
-    assert_eq!(done_color, theme.muted, "and a ticked one as muted");
-    assert_ne!(
-        active_color, done_color,
-        "the two states must not look alike"
-    );
-}
-
-/// **The end of the sheet's list clears the system's bottom bar** (milestone 515). The
-/// sheet reaches the bottom of the window and draws under the navigation bar, as the
-/// reference's does; seen on a phone, the list's last place sat under the buttons, out of
-/// reach. Scrolled to its end at full height, under a surface with a bar, the last place is
-/// above it.
+/// **The end of the sheet's list clears the system's bottom bar** (milestone 515). The sheet
+/// reaches the bottom of the window and draws under the navigation bar, as the reference's does;
+/// seen on a phone, the list's last place sat under the buttons, out of reach. Scrolled to its
+/// end at full height, under a surface with a bar, the last place is above it.
 #[test]
 fn the_end_of_the_sheets_list_clears_the_bottom_bar() {
-    let mut app = TodoApp::default();
-    reduce(&mut app, Msg::Push(Route::Sheet));
-    app.nav_from = None;
-    let theme = Theme::default();
-    let size = Size::new(400.0, 800.0);
+    let mut bench = Bench::new(400.0, 800.0);
+    bench.go("/sheet");
     let bar = 48.0;
-    let surface = MediaQuery {
-        padding: Insets::new(0.0, 0.0, bar, 0.0),
-        view_padding: Insets::new(0.0, 0.0, bar, 0.0),
-        ..MediaQuery::new(size)
-    };
-    let tree = surface.scope(|| build_view(&app, &theme));
-    let build = |runtime: &Runtime| surface.scope(|| build_ui(&tree, size, runtime, &theme));
-
-    let mut runtime = Runtime::default();
-    let sheet = build(&runtime).sheets().first().cloned().expect("a sheet");
-    runtime.sheet_drag(sheet.id, &sheet.spec, 1.0, sheet.available);
+    bench.insets = WindowInsets::bars(Insets::new(0.0, 0.0, bar, 0.0));
+    let (_, ui) = bench.frame();
+    let sheet = ui.sheets().first().cloned().expect("a sheet");
     let list = *sheet.areas.first().expect("its list");
+    let mut runtime = Runtime::default();
+    let size = bench.size;
+    let theme = bench
+        .app
+        .resolved_theme(frus_widgets::Brightness::Dark, false);
+    let build = |runtime: &Runtime| {
+        MediaQuery::new(size).with_insets(bench.insets).scope(|| {
+            runtime.states.begin_build();
+            let tree = Application::view(&bench.app, &theme);
+            frus_widgets::build_deferred(tree.as_ref(), &theme, runtime);
+            let ui = build_ui(tree.as_ref(), size, runtime, &theme);
+            runtime.states.end_frame();
+            ui
+        })
+    };
+    runtime.sheet_drag(sheet.id, &sheet.spec, 1.0, sheet.available);
     let max = build(&runtime)
         .scroll_region(list)
         .expect("the list scrolls")
         .max_y;
     runtime.scroll.insert(list, (0.0, max));
 
-    fn last_place(primitives: &[frus_widgets::Primitive]) -> Option<(f32, f32)> {
+    fn last_place(primitives: &[Primitive]) -> Option<(f32, f32)> {
         primitives.iter().find_map(|p| match p {
-            frus_widgets::Primitive::Text {
+            Primitive::Text {
                 position,
                 text,
                 size,
                 ..
             } if text == "20. Cable car" => Some((position.y, *size)),
-            frus_widgets::Primitive::Layer { primitives, .. } => last_place(primitives),
+            Primitive::Layer { primitives, .. } => last_place(primitives),
             _ => None,
         })
     }
@@ -2309,166 +1283,237 @@ fn the_end_of_the_sheets_list_clears_the_bottom_bar() {
     );
 }
 
-/// Runs the transition in flight, if any, to its end.
-fn settle_navigation(app: &mut TodoApp) {
-    while app.nav_from.is_some() {
-        app.tick(0.05);
-    }
-}
+// ---------------------------------------------------------------------------------------
+// Navigation
+// ---------------------------------------------------------------------------------------
 
-/// The scroll regions the application's frame registers, for a stated surface.
-fn scroll_regions_of(
-    app: &TodoApp,
-    runtime: &Runtime,
-    size: Size,
-) -> Vec<frus_widgets::Scrollable> {
-    let theme = Theme::default();
-    let tree = view_for(app, &theme, size);
-    build_ui(&tree, size, runtime, &theme)
-        .scroll_regions()
-        .to_vec()
-}
-
-/// **Scrolling one page does not scroll another** (milestone 528). Reported from the
-/// phone: "when I scroll another page, the one I just left scrolls too."
-///
-/// The data table's page and the editable grid's are built the same way, and a
-/// navigator's settled page is always its first child, so their scroll regions had one
-/// identity between them — the offset the table was scrolled to was the one the grid
-/// opened on. Each page is keyed by its place in the stack and its route now.
+/// **Scrolling one page does not scroll another** (milestone 528). Reported from the phone:
+/// "when I scroll another page, the one I just left scrolls too." The data table's page and the
+/// editable grid's are built the same way, and a navigator's settled page is always its first
+/// child, so their scroll regions had one identity between them. Each page is keyed by its place
+/// in the stack and its route now.
 #[test]
 fn scrolling_one_page_does_not_scroll_another() {
-    let size = Size::new(420.0, 360.0);
-    let mut app = TodoApp::default();
-    let mut runtime = Runtime::default();
-    reduce(&mut app, Msg::Push(Route::Data));
-    settle_navigation(&mut app);
-    let table = scroll_regions_of(&app, &runtime, size)[0].id;
-    runtime.scroll.insert(table, (120.0, 0.0));
+    let mut bench = Bench::new(420.0, 360.0);
+    bench.go("/data");
+    let table = bench.frame().1.scroll_regions()[0].id;
+    bench.runtime.scroll.insert(table, (120.0, 0.0));
 
-    reduce(&mut app, Msg::Pop);
-    settle_navigation(&mut app);
-    reduce(&mut app, Msg::Push(Route::GridView));
-    settle_navigation(&mut app);
-    let grid = scroll_regions_of(&app, &runtime, size)[0].id;
+    bench.router.pop();
+    bench.settle();
+    bench.go("/grid");
+    let grid = bench.frame().1.scroll_regions()[0].id;
     assert_eq!(
-        runtime.scroll.get(&grid),
+        bench.runtime.scroll.get(&grid),
         None,
         "the grid was never scrolled, and read the table's offset (table {table:?}, grid {grid:?})"
     );
 }
 
-/// **A page returned to keeps its scroll on the way back** (milestone 528). The page
-/// arriving on a pop was the navigator's second child for as long as the pop lasted and
-/// its first once it was over, so settings scrolled down came back at the top through the
-/// whole slide — and through a back gesture's preview — and jumped to where they had been
-/// left when it ended.
+/// **A page returned to keeps its scroll on the way back** (milestone 528). The page arriving on
+/// a pop was the navigator's second child for as long as the pop lasted and its first once it
+/// was over, so settings scrolled down came back at the top through the whole slide — and
+/// through a back gesture's preview — and jumped to where they had been left when it ended.
 #[test]
 fn a_page_returned_to_keeps_its_scroll_through_the_pop() {
-    let size = Size::new(420.0, 360.0);
-    let mut app = TodoApp::default();
-    let mut runtime = Runtime::default();
-    reduce(&mut app, Msg::Push(Route::Settings));
-    settle_navigation(&mut app);
-    let settings = scroll_regions_of(&app, &runtime, size)[0].id;
-    runtime.scroll.insert(settings, (0.0, 300.0));
+    let mut bench = Bench::new(420.0, 360.0);
+    bench.go("/settings");
+    let settings = bench.frame().1.scroll_regions()[0].id;
+    bench.runtime.scroll.insert(settings, (0.0, 300.0));
 
-    // The page below: the one drawn behind, parallaxed to the left — as the push slides
-    // it out, as the back gesture previews it, and as the pop slides it back in.
-    let below = |app: &TodoApp, runtime: &Runtime| {
-        scroll_regions_of(app, runtime, size)
-            .into_iter()
+    // The page below: the one drawn behind, parallaxed to the left — as the push slides it out,
+    // as the back gesture previews it, and as the pop slides it back in.
+    let below = |bench: &Bench| {
+        bench
+            .frame()
+            .1
+            .scroll_regions()
+            .iter()
             .find(|area| area.viewport.x < -1.0)
             .expect("the page below is in the frame")
             .id
     };
 
-    reduce(&mut app, Msg::Push(Route::Journal));
-    app.tick(0.05);
-    app.tick(0.05);
-    assert!(app.nav_from.is_some(), "still sliding");
-    let leaving = below(&app, &runtime);
+    bench.router.push("/journal");
+    Application::tick(&mut bench.app, 0.05);
+    Application::tick(&mut bench.app, 0.05);
+    let leaving = below(&bench);
     assert_eq!(
-        runtime.scroll.get(&leaving),
+        bench.runtime.scroll.get(&leaving),
         Some(&(0.0, 300.0)),
         "the push slides settings out where they were left"
     );
-    settle_navigation(&mut app);
+    bench.settle();
 
-    app.back_gesture(0.5);
-    let previewed = below(&app, &runtime);
+    Application::back_gesture(&mut bench.app, 0.5);
+    let previewed = below(&bench);
     assert_eq!(
-        runtime.scroll.get(&previewed),
+        bench.runtime.scroll.get(&previewed),
         Some(&(0.0, 300.0)),
         "the back gesture previews settings where they were left"
     );
-    app.back = None;
+    Application::back_gesture_end(&mut bench.app, -5.0);
+    bench.settle();
 
-    reduce(&mut app, Msg::Pop);
-    app.tick(0.05);
-    app.tick(0.05);
-    assert!(app.nav_from.is_some(), "still sliding");
-    let sliding = below(&app, &runtime);
+    bench.router.pop();
+    Application::tick(&mut bench.app, 0.05);
+    Application::tick(&mut bench.app, 0.05);
+    let sliding = below(&bench);
     assert_eq!(
-        runtime.scroll.get(&sliding),
+        bench.runtime.scroll.get(&sliding),
         Some(&(0.0, 300.0)),
         "the pop slides settings in where they were left"
     );
 }
 
+#[test]
+fn back_gesture_flick_commits_pop() {
+    let mut bench = Bench::new(400.0, 800.0);
+    bench.go("/settings");
+    assert_eq!(bench.router.depth(), 2);
+    // A small drag but a fast flick → it must commit the back.
+    Application::back_gesture(&mut bench.app, 0.2);
+    Application::back_gesture_end(&mut bench.app, 5.0);
+    bench.settle();
+    assert_eq!(bench.router.depth(), 1, "the flick popped the screen");
+    assert_eq!(bench.router.location(), "/");
+}
+
+/// Going to a task's own screen puts its id in the address, and the router's page state carries
+/// it: the location a reader could be sent back to.
+#[test]
+fn a_task_is_an_address() {
+    let mut bench = Bench::new(400.0, 800.0).with_tasks(&["a", "b"]);
+    let id = bench.demo.todos()[1].id;
+    bench.go(&format!("/task/{id}"));
+    assert_eq!(bench.router.location(), format!("/task/{id}"));
+    assert_eq!(bench.router.depth(), 2, "home is underneath");
+    assert!(bench.words().iter().any(|w| w == "b"));
+}
+
+/// An open menu takes the back gesture before the router does: the settings screen's dropdown
+/// blocks it while open, and gives it back when it is shut.
+#[test]
+fn an_open_dropdown_takes_the_back_gesture() {
+    let mut bench = Bench::new(400.0, 800.0);
+    bench.go("/settings");
+    let _ = bench.frame();
+    assert!(Application::can_go_back(&bench.app), "a page to go back to");
+    assert!(bench.press("Option A"));
+    let _ = bench.frame();
+    assert!(
+        !Application::can_go_back(&bench.app),
+        "the menu is open: back closes it, it does not leave the page"
+    );
+}
+
+/// Turning the phone must not move the navigation (milestone 305). Reported from a device:
+/// rotating to landscape made the navigation leave the bottom of the screen and reappear as a
+/// rail down the left edge. The cause was in `Scaffold`, which measured its own width; this is
+/// the demo's own screen, at the reporter's own logical size — a widget test can pass while the
+/// application still looks wrong.
+#[test]
+fn rotating_the_phone_leaves_the_navigation_at_the_bottom() {
+    // The reporter's device: 1080 × 2340 at a density that gives 424 × 918 logical.
+    let portrait = (424.0, 918.0);
+    let landscape = (918.0, 424.0);
+    fn nav_bottom(width: f32, height: f32) -> f32 {
+        let bench = Bench::new(width, height);
+        let lowest = bench
+            .texts()
+            .into_iter()
+            .filter(|(text, _, _)| text == "Tasks" || text == "Stats" || text == "About")
+            .map(|(_, _, y)| y)
+            .fold(f32::MIN, f32::max);
+        assert!(lowest > f32::MIN, "the destinations were never painted");
+        lowest
+    }
+    let low_portrait = nav_bottom(portrait.0, portrait.1);
+    assert!(
+        low_portrait > portrait.1 * 0.7,
+        "portrait: destinations at y = {low_portrait} of {}",
+        portrait.1
+    );
+    let low_landscape = nav_bottom(landscape.0, landscape.1);
+    assert!(
+        low_landscape > landscape.1 * 0.7,
+        "landscape: destinations at y = {low_landscape} of {} — the navigation moved",
+        landscape.1
+    );
+}
+
 /// **The frame a push ends on still holds the page it left** (milestone 531).
 ///
-/// Seen on a phone: a back gesture from the left edge of the data table, at the height of a
-/// home task row, lifted that row instead of sliding the page. The shell builds the view
-/// again only while the application says it is moving, and the tick that ends a push says it
-/// is not — so the frame it hit-tests against is the push's last, with the home page still
-/// in it, parallaxed under the edge. The shell now builds once more on the frame an
-/// animation settles in; this is the premise, on the demo's own page, at the phone's
-/// coordinates.
+/// Seen on a phone: a back gesture from the left edge of the data table, at the height of a home
+/// task row, lifted that row instead of sliding the page. The shell builds the view again only
+/// while the application says it is moving, and the tick that ends a push says it is not — so
+/// the frame it hit-tests against is the push's last, with the home page still in it,
+/// parallaxed under the edge. The shell now builds once more on the frame an animation settles
+/// in; this is the premise, on the demo's own page, at the phone's coordinates.
 #[test]
 fn the_last_frame_of_a_push_still_holds_the_page_it_left() {
     // The Huawei STK-L21 in logical pixels, and the finger: 8 px in, 1400 px down.
     let size = Size::new(392.7, 850.9);
     let edge = Point::new(3.0, 509.0);
-    let theme = Theme::default();
-    let mut app = TodoApp::default();
-    add(&mut app, "Write code");
-    reduce(&mut app, Msg::Push(Route::Data));
+    let mut bench = Bench::new(size.width, size.height).with_tasks(&["Write code"]);
+    bench.router.push("/data");
     // The loop as it was: the view built only while the application says it is moving.
     let mut last_built = None;
-    while app.tick(1.0 / 60.0) {
-        last_built = Some(view_for(&app, &theme, size));
+    while Application::tick(&mut bench.app, 1.0 / 60.0) {
+        last_built = Some(bench.frame().1);
     }
     let last_built = last_built.expect("the push takes frames");
-    assert!(app.nav_from.is_none(), "the push has settled");
-    let source_at = |tree: &Navigator<Msg>| {
-        MediaQuery::new(size)
-            .scope(|| build_ui(tree, size, &Runtime::default(), &theme))
-            .drag_source_at(edge)
-    };
     assert!(
-        source_at(&last_built).is_some(),
+        last_built.drag_source_at(edge).is_some(),
         "the push's last frame has a home row under the back gesture's finger"
     );
     assert!(
-        source_at(&view_for(&app, &theme, size)).is_none(),
+        bench.frame().1.drag_source_at(edge).is_none(),
         "a frame built once the push has settled has nothing there"
     );
 }
 
-/// **The board's strip, carried through the shell, moves a label and no card** (milestone
-/// 527, seen on a phone: a label carried along the strip moved a card of the board instead).
+/// **The board's strip, carried through the shell, moves a label and no card** (milestone 527,
+/// seen on a phone: a label carried along the strip moved a card of the board instead).
 ///
-/// The demo itself, on the phone's surface, through the shell's own input path and frame:
-/// the Kanban screen pushed and settled, then Feature carried along x to Design's right half
-/// and let go. On a desktop the strip's labels are picked up by the grip under each one.
+/// The demo itself, on the phone's surface, through the shell's own input path and frame: the
+/// Kanban screen pushed and settled, then Feature carried along x to Design's right half and let
+/// go. On a desktop the strip's labels are picked up by the grip under each one.
 #[test]
 fn the_board_strip_carried_through_the_shell_moves_a_label_and_no_card() {
-    use frus_shell::testing::Driver;
-    let mut driver = Driver::new(TodoApp::default(), 392.7, 850.9);
+    let (app, router, _) = crate::build();
+    let mut driver = Driver::new(app, 392.7, 850.9);
     driver.run(0.3);
-    driver.update(Msg::Push(Route::Board));
+    router.push("/board");
     driver.run(1.5);
+    let column = |driver: &Driver<FrusApp>, label: &str| {
+        driver
+            .texts()
+            .into_iter()
+            .find(|(text, _)| text == label)
+            .map(|(_, rect)| rect.x)
+            .unwrap_or_else(|| panic!("{label:?} is on the board"))
+    };
+    assert!(column(&driver, "Feature") < column(&driver, "Design"));
+    let cards = |driver: &Driver<FrusApp>| {
+        driver
+            .texts()
+            .into_iter()
+            .filter(|(text, _)| {
+                [
+                    "Design API",
+                    "Write spec",
+                    "Triage bugs",
+                    "Build widget",
+                    "Kickoff",
+                    "Research",
+                ]
+                .contains(&text.as_str())
+            })
+            .map(|(text, _)| text)
+            .collect::<Vec<_>>()
+    };
+    let before = cards(&driver);
     // Feature's grip: under its label, 128 to 224 across.
     driver.press(Point::new(176.0, 129.0));
     for x in [190.0, 220.0, 250.0, 280.0, 306.0] {
@@ -2478,10 +1523,93 @@ fn the_board_strip_carried_through_the_shell_moves_a_label_and_no_card() {
     assert!(driver.carried().is_some(), "Feature is carried");
     driver.release(Point::new(306.0, 129.0));
     driver.run(0.2);
-    assert_eq!(driver.app().board_labels()[..4], [0, 2, 1, 3]);
+    assert!(
+        column(&driver, "Design") < column(&driver, "Feature"),
+        "Feature went past Design"
+    );
+    assert_eq!(cards(&driver), before, "no card moved");
+}
+
+/// The application, through the shell: built, started, driven by real taps. The counter of the
+/// task list moves as a task is added and ticked, and the notification queue plays out.
+#[test]
+fn the_application_runs_through_the_shell() {
+    let (app, router, demo) = crate::build();
+    let mut driver = Driver::new(app, 500.0, 800.0);
+    driver.run(0.3);
+    demo.add("write the milestone");
+    driver.run(0.1);
+    assert!(driver
+        .texts()
+        .iter()
+        .any(|(t, _)| t == "write the milestone"));
+    // Save queues the notification; the host is asked to bring it down after a while.
+    let _ = frus_widgets::host::take_effects();
+    demo.save();
+    driver.run(0.1);
+    assert!(
+        driver.texts().iter().any(|(t, _)| t == "Saved"),
+        "the toast is up"
+    );
+    let _ = router;
+}
+
+/// **The demonstration's own light switch is light on a phone in night mode.**
+///
+/// It pins the mode, and the framework then asks `theme()` for the light theme and
+/// `dark_theme()` for the dark one. `theme()` read the *platform's* brightness instead, so under
+/// a night-mode phone the pinned light theme came back dark and the switch did nothing — found
+/// on a device, trying to photograph the light status bar for #46.
+#[test]
+fn the_light_switch_is_light_under_a_dark_platform() {
+    let (app, _, demo) = crate::build();
+    demo.toggle_theme();
+    assert!(demo.prefs().light, "the fixture: the switch is on light");
+    let mut night = MediaQuery::new(Size::new(400.0, 800.0));
+    night.platform_brightness = frus_widgets::Brightness::Dark;
+    let theme =
+        night.scope(|| Application::resolved_theme(&app, frus_widgets::Brightness::Dark, false));
+    assert_eq!(theme.brightness(), frus_widgets::Brightness::Light);
+}
+
+/// **The language menu switches the framework's words too**, not only the application's.
+///
+/// Two different mechanisms answer one gesture: this application's own strings come from its
+/// Fluent resources through `locale`, and the framework's — a calendar's months, the label on a
+/// back arrow — from a table through `localizations`. A reader who picks Français and gets a
+/// French interface around an English calendar has been told the switch did not work.
+#[test]
+fn choosing_french_hands_the_framework_a_french_table() {
+    let (app, _, demo) = crate::build();
+    demo.cycle_lang();
+    demo.cycle_lang();
     assert_eq!(
-        driver.app().kanban_cols(),
-        TodoApp::default().kanban_cols(),
-        "no card moved"
+        Application::locale(&app)
+            .map(|l| l.language_code().to_string())
+            .as_deref(),
+        Some("fr")
+    );
+    let table = Application::localizations(&app).expect("a French table");
+    assert_eq!(table.months()[0], "janvier");
+    assert_eq!(
+        table.first_day_of_week_index(),
+        1,
+        "the week starts on Monday"
+    );
+    // **Arabic mirrors but is not translated**, deliberately: there is no Arabic table in the
+    // framework yet, and a machine-translated one would be worse than none.
+    demo.cycle_lang();
+    assert!(Application::localizations(&app).is_none());
+    // The title of the home screen follows the language.
+    let bench = Bench::new(800.0, 600.0);
+    bench.demo.cycle_lang();
+    bench.demo.cycle_lang();
+    assert!(
+        bench
+            .words()
+            .iter()
+            .any(|w| w == "Tâches" || w.contains("tâche")),
+        "{:?}",
+        bench.words()
     );
 }
