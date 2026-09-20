@@ -103,6 +103,15 @@ A **redirect** sends a navigation elsewhere — to a sign-in page while nobody i
 whenever `auth` changes. The page transition and the back gesture are the router's; a page that
 is covered keeps its state until it is popped.
 
+**On the web the router's location is the address.** `https://host/app/#/users/42` opens the
+application at that page, with home underneath; moving between pages changes the address and
+adds an entry to the browser's history; the back and forward buttons move the router; and a
+reload comes back to the same page. Nothing is written for it — a `FrusApp::router(..)` does it.
+`.location_strategy(LocationStrategy::Path)` writes plain paths (`/app/users/42`) instead of the
+hash, which needs a server that answers every address with the page. An application that is not
+a router says where it is with `Application::location` and hears about the address with
+`Application::open_location`.
+
 ## Messages, when you want them
 
 An application can instead be written as a state struct, a **pure** `update` and a `view` — the

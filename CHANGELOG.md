@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 559 so far, each documenting the objective, the alternatives
+> record — one per step, 560 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -333,6 +333,18 @@ any release may break.
 
 ### Added
 
+- **On the web, the router's location is the address** (J560, answers #31 for the web).
+  A page opened at `https://host/app/#/users/42` opens there, with home underneath and no slide;
+  moving between pages changes the address and adds an entry to the browser's history; the back
+  and forward buttons move the router; a reload comes back to the page. A `FrusApp::router(..)`
+  does it with nothing written. Two defaulted hooks on `Application` — `location` (where it is)
+  and `open_location` (an address was asked for) — and `LocationStrategy::{Hash, Path}`; and
+  `GoRouter::open`, a `go` that leaves the place it is at alone and does not slide before
+  anything is built. Who owns the history is argued in `docs/milestone-560.md` and is a state
+  machine with no browser in it, tried against a stand-in (a redirect on the way in leaves no
+  entry to be trapped by; the application's own back goes back in the list rather than adding
+  to it). **Not seen in a real browser**; Android app links, a desktop URL scheme and a web
+  build of the demo are left.
 - **`frus-widgets` denies a missing doc comment** (J559, answers #14, and the last of the
   fifteen crates). The widget tree, the theme, the runtime and the driver: `#![warn(...)]`
   found 155 locations in twenty-seven files — each field of `WidgetThemes` and of the colour

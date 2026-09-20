@@ -732,6 +732,13 @@ pub struct App<A: Application> {
     /// to block on GPU init.
     #[cfg(web)]
     pending_renderer: std::rc::Rc<std::cell::RefCell<Option<Renderer>>>,
+    /// What this side knows of the browser's history — see [`crate::history`].
+    #[cfg(web)]
+    history: crate::history::History,
+    /// How the application's location is written in the address bar, and the document's base
+    /// path, which the `Path` way of writing needs. Read once, at launch.
+    #[cfg(web)]
+    address: (crate::LocationStrategy, String),
     /// The window's accessibility bridge (AccessKit) — desktop only.
     #[cfg(desktop)]
     a11y: Option<crate::a11y::A11y>,
@@ -952,6 +959,10 @@ impl<A: Application> App<A> {
             renderer: None,
             #[cfg(web)]
             pending_renderer: std::rc::Rc::new(std::cell::RefCell::new(None)),
+            #[cfg(web)]
+            history: crate::history::History::new(),
+            #[cfg(web)]
+            address: (crate::LocationStrategy::Hash, "/".to_string()),
             #[cfg(desktop)]
             a11y: None,
             ui: None,
@@ -1556,6 +1567,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 let command = self.app.init();
                 self.run_command(command);
                 self.sync_subscriptions();
+                self.open_launch_address(&window);
             }
             let slot = self.pending_renderer.clone();
             let win = window.clone();
@@ -2478,6 +2490,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // work for another thread — is run first: it may ask for this very rebuild.
                 let asked = self.app.effects();
                 self.run_command(asked);
+                #[cfg(web)]
+                self.sync_address();
                 if frus_widgets::take_rebuild_request() {
                     self.build_dirty = true;
                 }
@@ -3953,7 +3967,47 @@ impl<A: Application> App<A> {
         self.run_command(command);
         let asked = self.app.effects();
         self.run_command(asked);
+        #[cfg(web)]
+        self.sync_address();
         self.sync_subscriptions();
+    }
+
+    /// The address the page was opened at, handed to the application, and the browser's own
+    /// moves from here on listened to. Once, before the first frame.
+    #[cfg(web)]
+    fn open_launch_address(&mut self, window: &Arc<Window>) {
+        let strategy = self.app.location_strategy();
+        let base = crate::address::base();
+        let (location, index) = crate::address::current(strategy, &base);
+        self.history.opened(location.clone(), index);
+        crate::address::listen(window.clone(), strategy, base.clone());
+        self.address = (strategy, base);
+        if let Some(location) = location {
+            let command = self.app.open_location(&location);
+            self.run_command(command);
+        }
+    }
+
+    /// What the browser did since the last look is told to the application, and where the
+    /// application is is shown in the address bar — the agreement of [`crate::history`].
+    #[cfg(web)]
+    fn sync_address(&mut self) {
+        if !self.started {
+            return;
+        }
+        for (location, state) in crate::address::take_popped() {
+            if self.history.popped(location.clone(), state) {
+                let command = self.app.open_location(&location);
+                self.run_command(command);
+                self.build_dirty = true;
+            }
+        }
+        if let Some(location) = self.app.location() {
+            if let Some(step) = self.history.reflect(&location) {
+                let (strategy, base) = &self.address;
+                crate::address::apply(step, *strategy, base, self.history.index());
+            }
+        }
     }
 
     /// Runs a command, and whatever message it produces comes back into the loop

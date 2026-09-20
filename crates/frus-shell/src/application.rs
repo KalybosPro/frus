@@ -31,6 +31,21 @@ pub enum Lifecycle {
     Detached,
 }
 
+/// How a location is written in a browser's address bar — see [`Application::location`].
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum LocationStrategy {
+    /// After a `#`: `https://host/app/#/users/42`. Any static host serves it, because the
+    /// server only ever sees the page's own address; a reload comes back to the same screen
+    /// with nothing configured. The default.
+    #[default]
+    Hash,
+    /// As a path under the document's base: `https://host/app/users/42`. The addresses read
+    /// as an ordinary site's would, and the server has to answer every one of them with the
+    /// application's page, which a static host does not do without a rule for it. The base
+    /// is the document's `<base href>`, or `/` without one.
+    Path,
+}
+
 /// What an application supplies to the framework: an Elm-style message model.
 pub trait Application {
     /// The message type the interface emits and [`Application::update`] consumes.
@@ -53,6 +68,37 @@ pub trait Application {
     /// other command. An application that returns its effects from `update` never needs it.
     fn effects(&mut self) -> Command<Self::Message> {
         Command::none()
+    }
+
+    /// **Where the application is**, as an address: `/users/42?tab=posts`. `None` — the
+    /// default — for an application with no addresses, which the shell then leaves alone.
+    ///
+    /// On the **web** the shell asks after every message and every frame, and shows the
+    /// answer in the address bar: a new location becomes a new entry of the browser's history,
+    /// going back to a location the history already holds goes back in it rather than adding
+    /// one, and the very first answer replaces the address the page was opened at instead of
+    /// adding to it — so a redirect on the way in leaves no entry to be trapped by. Other
+    /// platforms have nowhere to show it yet.
+    fn location(&self) -> Option<String> {
+        None
+    }
+
+    /// **A location was asked for from outside**: the address the page was opened at, or the
+    /// one the browser's back and forward buttons landed on. Move to it — or to wherever it
+    /// redirects, and the shell corrects the address bar to match. Called with a location
+    /// the application may already be at; that is a no-op to do, not to report.
+    ///
+    /// The launch address is delivered once, before the first frame, and only when the
+    /// address carried one: a bare page keeps the application's own start.
+    fn open_location(&mut self, location: &str) -> Command<Self::Message> {
+        let _ = location;
+        Command::none()
+    }
+
+    /// How [`location`](Self::location) is written in the address bar. See
+    /// [`LocationStrategy`].
+    fn location_strategy(&self) -> LocationStrategy {
+        LocationStrategy::Hash
     }
 
     /// **Continuous** sources of messages — timers and so on — declared from the

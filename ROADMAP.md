@@ -359,7 +359,7 @@ Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` a
     of carry. Left: a typed payload, a fly-back on a refused drop, and migrating
     `Kanban`/`Table` onto it.
   - 🟡 Rich text editing, video, maps, virtualized lists for very large datasets.
-- 🔴 **Router / deep linking.** `navigator.rs` handles in-app navigation; URLs, deep links, and browser history are not modelled.
+- 🟡 **Router / deep linking — the web half done, milestone 560 (#31).** `GoRouter` (milestone 553) handles in-app navigation, and on the web its location is now the **address**: opened at `#/users/42` the application starts there with home underneath, each move adds a history entry, the back and forward buttons move the router, and a reload comes back to the page. `Application::location` / `open_location` are the two hooks, `LocationStrategy` picks hash or path. **The agreement about who owns history is a small state machine with no browser in it** (`history.rs`), tried against a stand-in for one; the calls to a real browser are not, and **have not been seen in one**. **Left**: Android intent filters and app links, a desktop URL scheme with the second-instance handoff, a router `replace` reported as a replace rather than a new entry, and a web build of the demo to serve as the "done when" of the issue.
 - 🟡 **State persistence.** A blessed way to save and restore app state across lifecycle transitions.
 
 ### Developer experience

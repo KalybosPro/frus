@@ -28,7 +28,7 @@ use frus_widgets::{
     StatelessWidget, Theme, ThemeMode, Widget,
 };
 
-use crate::application::Application;
+use crate::application::{Application, LocationStrategy};
 use crate::command::Command;
 use crate::subscription::Subscription;
 
@@ -63,6 +63,7 @@ pub struct FrusApp {
     on_start: Option<Box<dyn FnOnce()>>,
     save: Option<Save>,
     restore: Option<Restore>,
+    strategy: LocationStrategy,
 }
 
 impl FrusApp {
@@ -124,7 +125,17 @@ impl FrusApp {
             on_start: None,
             save: None,
             restore: None,
+            strategy: LocationStrategy::Hash,
         }
+    }
+
+    /// How the router's location is written in a browser's address bar: after a `#` (the
+    /// default, which any static host serves) or as a path (which needs the server to answer
+    /// every address with the page). Only the web has an address bar to show it in. See
+    /// [`LocationStrategy`].
+    pub fn location_strategy(mut self, strategy: LocationStrategy) -> Self {
+        self.strategy = strategy;
+        self
     }
 
     /// The window's title.
@@ -248,6 +259,21 @@ impl Application for FrusApp {
 
     fn tick(&mut self, dt: f32) -> bool {
         self.router.as_ref().is_some_and(|router| router.tick(dt))
+    }
+
+    fn location(&self) -> Option<String> {
+        self.router.as_ref().map(GoRouter::location)
+    }
+
+    fn open_location(&mut self, location: &str) -> Command<Callback> {
+        if let Some(router) = &self.router {
+            router.open(location);
+        }
+        Command::none()
+    }
+
+    fn location_strategy(&self) -> LocationStrategy {
+        self.strategy
     }
 
     fn can_go_back(&self) -> bool {
@@ -744,5 +770,110 @@ mod host_tests {
         frus_widgets::request_rebuild();
         driver.frame(1.0 / 60.0);
         assert!(driver.app().can_go_back(), "and once it is shut, it does");
+    }
+}
+
+#[cfg(test)]
+mod address_tests {
+    use super::*;
+    use crate::history::{History, Step};
+    use frus_widgets::{text, GoRoute};
+
+    fn router() -> GoRouter {
+        GoRouter::new(vec![
+            GoRoute::new("/", |_, _| text("home"))
+                .routes(vec![GoRoute::new("users/:id", |_, _| text("user"))]),
+            GoRoute::new("/settings", |_, _| text("settings")),
+        ])
+    }
+
+    #[test]
+    fn an_application_of_pages_reports_the_page_it_is_on() {
+        let router = router();
+        let app = FrusApp::router(router.clone());
+        assert_eq!(app.location(), Some("/".to_string()));
+        router.push("/settings");
+        assert_eq!(app.location(), Some("/settings".to_string()));
+    }
+
+    #[test]
+    fn an_application_with_no_router_has_no_address() {
+        let mut app = FrusApp::from_fn(|_| Box::new(text("one screen")));
+        assert_eq!(app.location(), None);
+        let _ = app.open_location("/anywhere");
+        assert_eq!(app.location(), None, "nothing to move");
+    }
+
+    #[test]
+    fn an_address_opens_the_page_it_names_with_the_pages_before_it_underneath() {
+        let router = router();
+        let mut app = FrusApp::router(router.clone());
+        let _ = app.open_location("/users/42");
+        assert_eq!(router.location(), "/users/42");
+        assert_eq!(router.depth(), 2, "home is underneath, to go back to");
+        assert!(
+            !app.tick(1.0),
+            "opened at an address, nothing slides: there was no page to leave"
+        );
+    }
+
+    #[test]
+    fn the_same_address_twice_changes_nothing() {
+        let router = router();
+        let mut app = FrusApp::router(router.clone());
+        let _ = app.open_location("/settings");
+        let _ = app.open_location("/settings");
+        assert_eq!(router.depth(), 1);
+    }
+
+    #[test]
+    fn the_strategy_is_the_hash_unless_the_application_says_otherwise() {
+        let app = FrusApp::router(router());
+        assert_eq!(Application::location_strategy(&app), LocationStrategy::Hash);
+        let app = app.location_strategy(LocationStrategy::Path);
+        assert_eq!(Application::location_strategy(&app), LocationStrategy::Path);
+    }
+
+    /// The application and the browser's history, wired the way the shell wires them, with
+    /// the router as the application.
+    #[test]
+    fn a_page_opened_deep_has_no_earlier_entry_so_its_own_back_is_a_new_one() {
+        let router = router();
+        let mut app = FrusApp::router(router.clone());
+        let mut history = History::new();
+        history.opened(Some("/users/42".to_string()), None);
+        let _ = app.open_location("/users/42");
+        assert_eq!(
+            history.reflect(&app.location().unwrap()),
+            None,
+            "the entry is right"
+        );
+
+        router.pop();
+        assert_eq!(router.location(), "/");
+        assert_eq!(
+            history.reflect(&app.location().unwrap()),
+            Some(Step::Push("/".to_string())),
+            "the browser never held `/`, so this is a new entry, with `/users/42` behind it"
+        );
+    }
+
+    #[test]
+    fn a_redirect_at_the_door_is_the_first_address() {
+        let router = GoRouter::new(vec![
+            GoRoute::new("/", |_, _| text("home")),
+            GoRoute::new("/login", |_, _| text("login")),
+        ])
+        .redirect(|state| (state.location() != "/login").then(|| "/login".to_string()));
+        let mut app = FrusApp::router(router);
+        let mut history = History::new();
+        history.opened(Some("/private".to_string()), None);
+        let _ = app.open_location("/private");
+        assert_eq!(app.location(), Some("/login".to_string()));
+        assert_eq!(
+            history.reflect("/login"),
+            Some(Step::Replace("/login".to_string())),
+            "the address the page opened at is replaced, so back has no `/private` to bounce off"
+        );
     }
 }
