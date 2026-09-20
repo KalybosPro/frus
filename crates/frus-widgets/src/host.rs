@@ -298,7 +298,7 @@ mod tests {
             panic!("a spawn is an effect");
         };
         // The shell runs it on another thread; the callback it returns is a Send handle.
-        let callback = std::thread::spawn(move || task())
+        let callback = std::thread::spawn(task)
             .join()
             .expect("the work ran")
             .expect("and answered");

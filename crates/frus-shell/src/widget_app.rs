@@ -32,6 +32,10 @@ use crate::application::Application;
 use crate::command::Command;
 use crate::subscription::Subscription;
 
+/// What a live reload keeps, and what it hands back.
+type Save = Box<dyn Fn() -> Option<Vec<u8>>>;
+type Restore = Box<dyn Fn(&[u8])>;
+
 /// What builds the root: called on every rebuild.
 type Root = Rc<dyn Fn(&BuildContext) -> Box<dyn Widget>>;
 
@@ -57,8 +61,8 @@ pub struct FrusApp {
     router: Option<GoRouter>,
     window_size: Option<(f32, f32)>,
     on_start: Option<Box<dyn FnOnce()>>,
-    save: Option<Box<dyn Fn() -> Option<Vec<u8>>>>,
-    restore: Option<Box<dyn Fn(&[u8])>>,
+    save: Option<Save>,
+    restore: Option<Restore>,
 }
 
 impl FrusApp {
@@ -679,6 +683,32 @@ mod host_tests {
         app.restore_state(&bytes);
         assert_eq!(*held.borrow(), 7);
         assert!(quiet().save_state().is_none(), "nothing kept unless asked");
+    }
+
+    #[test]
+    fn a_page_is_told_how_far_in_it_is_while_it_arrives() {
+        let seen = Rc::new(RefCell::new(Vec::<f32>::new()));
+        let log = seen.clone();
+        let router = GoRouter::new(vec![GoRoute::new("/", |_, _| target(|| {})).routes(vec![
+            GoRoute::new("second", move |_, state| {
+                log.borrow_mut().push(state.entering());
+                target(|| {})
+            }),
+        ])]);
+        let mut driver = Driver::new(FrusApp::router(router.clone()), SIDE, SIDE);
+        driver.frame(1.0 / 60.0);
+        router.push("/second");
+        driver.run(1.5);
+        let seen = seen.borrow();
+        assert!(
+            seen.iter().any(|e| (0.0..1.0).contains(e)),
+            "it was built part of the way in: {seen:?}"
+        );
+        assert!(
+            seen.windows(2).all(|w| w[1] >= w[0] - 1e-3),
+            "and only ever further in: {seen:?}"
+        );
+        assert_eq!(seen.last(), Some(&1.0), "settled, it is all the way in");
     }
 
     #[test]

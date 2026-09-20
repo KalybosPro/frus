@@ -43,7 +43,7 @@ const AXIS_SIZE: f32 = 11.0;
 /// use frus_widgets::BarChart;
 /// let chart: BarChart = BarChart::new([("Mon", 3.0), ("Tue", 5.0), ("Wed", 2.0)]).height(160.0);
 /// ```
-pub struct BarChart<Msg = ()> {
+pub struct BarChart<Msg = crate::callback::Callback> {
     values: Vec<(String, f32)>,
     /// Colour of the bars; `None` = the theme's `primary`.
     color: Option<Color>,
@@ -840,7 +840,7 @@ const LINE_W: f32 = 2.0;
 /// use frus_widgets::LineChart;
 /// let chart: LineChart = LineChart::new([("Mon", 3.0), ("Tue", 5.0), ("Wed", 2.0)]).height(160.0);
 /// ```
-pub struct LineChart<Msg = ()> {
+pub struct LineChart<Msg = crate::callback::Callback> {
     values: Vec<(String, f32)>,
     /// Colour of the stroke and of the markers; `None` = the theme's `primary`.
     color: Option<Color>,
@@ -1438,7 +1438,7 @@ mod tests {
 
     fn paint_chart(chart: &BarChart, w: f32, h: f32) -> Vec<Primitive> {
         let mut scene = Scene::new();
-        Widget::<()>::paint(
+        Widget::<crate::callback::Callback>::paint(
             chart,
             Rect::new(0.0, 0.0, w, h),
             Status::default(),
@@ -1613,7 +1613,7 @@ mod tests {
                 hover_cursor: Some(Point::new(75.0, 90.0)),
                 ..Default::default()
             };
-            Widget::<()>::paint(
+            Widget::<crate::callback::Callback>::paint(
                 chart,
                 Rect::new(0.0, 0.0, 300.0, 200.0),
                 status,
@@ -1713,7 +1713,7 @@ mod tests {
         let chart = BarChart::new([("A", 2.0), ("B", 6.0), ("C", 4.0)]);
         let guides = |status: Status| {
             let mut scene = Scene::new();
-            Widget::<()>::paint(
+            Widget::<crate::callback::Callback>::paint(
                 &chart,
                 Rect::new(0.0, 0.0, 300.0, 220.0),
                 status,
@@ -1733,11 +1733,11 @@ mod tests {
         assert_eq!(guides(hovering), 1, "one guide when the area is hovered");
         assert_eq!(guides(Status::default()), 0, "no tooltip without hover");
         assert_eq!(
-            Widget::<()>::cursor_icon(&chart, 150.0, 100.0, 300.0, 220.0),
+            Widget::<crate::callback::Callback>::cursor_icon(&chart, 150.0, 100.0, 300.0, 220.0),
             Some(Cursor::Default)
         );
         assert_eq!(
-            Widget::<()>::cursor_icon(&chart, 150.0, 5.0, 300.0, 220.0),
+            Widget::<crate::callback::Callback>::cursor_icon(&chart, 150.0, 5.0, 300.0, 220.0),
             None
         );
     }
@@ -1825,7 +1825,7 @@ mod tests {
 
     fn paint_line(chart: &LineChart, w: f32, h: f32) -> Vec<Primitive> {
         let mut scene = Scene::new();
-        Widget::<()>::paint(
+        Widget::<crate::callback::Callback>::paint(
             chart,
             Rect::new(0.0, 0.0, w, h),
             Status::default(),
@@ -1900,7 +1900,7 @@ mod tests {
         // Thin, tall vertical rects = the tooltip's guide.
         let guides = |status: Status| {
             let mut scene = Scene::new();
-            Widget::<()>::paint(
+            Widget::<crate::callback::Callback>::paint(
                 &chart,
                 Rect::new(0.0, 0.0, 300.0, 220.0),
                 status,
@@ -1928,11 +1928,11 @@ mod tests {
         assert_eq!(guides(Status::default()), 0, "no tooltip without hover");
         // `cursor_icon` turns tracking on over the plot area (Default), not outside it.
         assert_eq!(
-            Widget::<()>::cursor_icon(&chart, 150.0, 100.0, 300.0, 220.0),
+            Widget::<crate::callback::Callback>::cursor_icon(&chart, 150.0, 100.0, 300.0, 220.0),
             Some(Cursor::Default)
         );
         assert_eq!(
-            Widget::<()>::cursor_icon(&chart, 150.0, 5.0, 300.0, 220.0),
+            Widget::<crate::callback::Callback>::cursor_icon(&chart, 150.0, 5.0, 300.0, 220.0),
             None,
             "above the area"
         );
@@ -2023,11 +2023,11 @@ mod tests {
         let animated = LineChart::new([("A", 2.0), ("B", 6.0)]).animated(true);
         let plain = LineChart::new([("A", 2.0), ("B", 6.0)]);
         assert!(
-            Widget::<()>::continuous(&animated),
+            Widget::<crate::callback::Callback>::continuous(&animated),
             "animated => a continuous repaint"
         );
         assert!(
-            !Widget::<()>::continuous(&plain),
+            !Widget::<crate::callback::Callback>::continuous(&plain),
             "static => no continuous repaint"
         );
         // Filled circles (markers/halo: filled paths with no straight segment) on hover.
@@ -2038,7 +2038,7 @@ mod tests {
                 time: t,
                 ..Default::default()
             };
-            Widget::<()>::paint(
+            Widget::<crate::callback::Callback>::paint(
                 chart,
                 Rect::new(0.0, 0.0, 300.0, 200.0),
                 status,
@@ -2254,7 +2254,7 @@ mod tests {
                 hover_cursor: Some(Point::new(75.0, 90.0)),
                 ..Default::default()
             };
-            Widget::<()>::paint(
+            Widget::<crate::callback::Callback>::paint(
                 chart,
                 Rect::new(0.0, 0.0, 300.0, 200.0),
                 status,
@@ -2315,7 +2315,7 @@ mod tests {
     #[test]
     fn max_value_spans_all_series() {
         // The scale spans the extra series (max 9 > the main series' max of 6).
-        let chart = LineChart::<()>::new([("A", 2.0), ("B", 6.0)]).series(
+        let chart = LineChart::<crate::callback::Callback>::new([("A", 2.0), ("B", 6.0)]).series(
             "x",
             Color::rgb8(1, 2, 3),
             [9.0, 1.0],

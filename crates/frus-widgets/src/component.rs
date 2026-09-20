@@ -948,13 +948,20 @@ impl<S: State> StateHandle<S> {
 
     /// A handler for a widget that reports a **value** — a field's text, a slider's position, a
     /// switch's new setting: `TextField::new(..).on_input(cx.handler(|s, text: String| s.name = text))`.
-    pub fn handler<T: 'static>(
+    ///
+    /// It answers the value with a [`Callback`] that makes the change when it is delivered, which
+    /// is what every widget's setter takes and what leaves no doubt about the message type — a
+    /// closure that returns nothing could be a handler for any.
+    pub fn handler<T: Clone + 'static>(
         &self,
         change: impl Fn(&mut S, T) + 'static,
-    ) -> impl Fn(T) + 'static {
+    ) -> impl Fn(T) -> Callback + 'static {
         let handle = self.clone();
         let change = Rc::new(change);
-        move |value| handle.set_state(|state| change(state, value))
+        move |value| {
+            let (handle, change) = (handle.clone(), change.clone());
+            Callback::new(move || handle.set_state(|state| change(state, value.clone())))
+        }
     }
 }
 
@@ -993,10 +1000,10 @@ impl<S: State> StateContext<'_, '_, S> {
 
     /// A handler that changes this state from a value the widget reports —
     /// [`StateHandle::handler`], from here.
-    pub fn handler<T: 'static>(
+    pub fn handler<T: Clone + 'static>(
         &self,
         change: impl Fn(&mut S, T) + 'static,
-    ) -> impl Fn(T) + 'static {
+    ) -> impl Fn(T) -> Callback + 'static {
         self.handle().handler(change)
     }
 }
@@ -1346,9 +1353,20 @@ mod tests {
         frame(&runtime, &life(1, &log, &out));
         let handle = out.borrow().clone().unwrap();
         let on_value = handle.handler(|s, by: i32| s.count += by);
-        on_value(3);
-        on_value(4);
-        assert_eq!(handle.read(|s| s.count), 7);
+        let (three, four) = (on_value(3), on_value(4));
+        assert_eq!(
+            handle.read(|s| s.count),
+            0,
+            "nothing changes until it is delivered"
+        );
+        three.call();
+        four.call();
+        four.call();
+        assert_eq!(
+            handle.read(|s| s.count),
+            11,
+            "each delivery makes the change"
+        );
         assert!(take_rebuild_request(), "and it asks for the rebuild");
     }
 

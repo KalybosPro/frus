@@ -7347,6 +7347,9 @@ pub mod testing {
     use super::*;
     use crate::gesture::{PointerEvent, PointerKind, LONG_PRESS_DELAY};
 
+    /// What the last frame left behind: the interface it laid out, and the tree it laid out from.
+    pub type FrameParts<'a, Msg> = (&'a Ui<Msg>, &'a dyn Widget<Msg>);
+
     /// The shell around an application, on a surface of a stated logical size.
     pub struct Driver<A: Application> {
         shell: App<A>,
@@ -7393,6 +7396,46 @@ pub mod testing {
                         .collect()
                 })
                 .unwrap_or_default()
+        }
+
+        /// The interface the last frame laid out — what a tap is asked about, what the registries
+        /// hold — and the tree it was laid out from.
+        pub fn frame_parts(&self) -> Option<FrameParts<'_, A::Message>> {
+            let s = &self.shell;
+            Some((s.ui.as_ref()?, s.tree.as_deref()?))
+        }
+
+        /// The words the last frame drew and the box each was drawn in, in paint order.
+        pub fn texts(&self) -> Vec<(String, Rect)> {
+            self.shell
+                .ui
+                .as_ref()
+                .map(|ui| {
+                    ui.scene()
+                        .primitives()
+                        .iter()
+                        .filter_map(|p| match p {
+                            frus_widgets::Primitive::Text { text, .. } => {
+                                Some((text.clone(), p.bounds()))
+                            }
+                            _ => None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+
+        /// A tap on the first word of the last frame that reads `label`, and a frame after it:
+        /// how a test presses a button by what it says. Whether there was such a word.
+        pub fn tap_text(&mut self, label: &str) -> bool {
+            let Some((_, rect)) = self.texts().into_iter().find(|(text, _)| text == label) else {
+                return false;
+            };
+            let at = Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+            self.press(at);
+            self.release(at);
+            self.frame(1.0 / 60.0);
+            true
         }
 
         /// The application, as the shell holds it.

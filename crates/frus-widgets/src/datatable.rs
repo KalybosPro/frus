@@ -110,7 +110,7 @@ pub fn page_range_label(current: usize, per_page: usize, total: usize) -> String
 /// let rows = vec![vec!["Bob".to_string(), "9".to_string()], vec!["Ada".to_string(), "10".to_string()]];
 /// let table: DataTable = DataTable::new(["Name", "Score"], rows).sorted(1, true);
 /// ```
-pub struct DataTable<Msg = ()> {
+pub struct DataTable<Msg = crate::callback::Callback> {
     headers: Vec<String>,
     rows: Vec<Vec<String>>,
     /// **Rows asked for one at a time**, for a set too big to hold: `(how many, how to
