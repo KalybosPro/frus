@@ -886,6 +886,11 @@ pub struct App<A: Application> {
     elapsed: f32,
     /// The last window insets handed to the app — padding plus keyboard — in logical px.
     last_insets: WindowInsets,
+    /// The soft keyboard has just grown, so the focused widget is brought back into view
+    /// once the frame that lays out the shortened window is built: the keyboard covers
+    /// the bottom of the screen, and a field under it is a field the reader cannot see
+    /// while typing in it.
+    reveal_after_keyboard: bool,
     /// What the **platform** last said about the person using it: the font-size slider,
     /// the night setting, the accessibility switches.
     ///
@@ -1000,6 +1005,7 @@ impl<A: Application> App<A> {
             occluded: false,
             elapsed: 0.0,
             last_insets: WindowInsets::ZERO,
+            reveal_after_keyboard: false,
             platform: PlatformSettings::default(),
             inset_baseline: None,
             // The app starts out detached; `resumed` will move it to `Resumed`.
@@ -2346,6 +2352,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 }
                 let insets = WindowInsets::from_baseline(baseline, raw);
                 if self.last_insets != insets {
+                    if insets.view_insets.bottom > self.last_insets.view_insets.bottom {
+                        self.reveal_after_keyboard = true;
+                    }
                     self.last_insets = insets;
                     self.build_dirty = true;
                     self.app.on_insets(insets);
@@ -2761,6 +2770,24 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
                 // Keep the interface, for hit testing. The tree is already retained.
                 self.ui = Some(ui);
+                // The keyboard took room from the bottom of the window: what the reader is
+                // typing in is brought back above it, by the least scroll that does it, and
+                // by the same glide Tab uses. This frame's layout is the shortened one, so
+                // the viewports asked are the ones left above the keyboard. A frame with
+                // nothing focused, or no region around what is, moves nothing.
+                let revealed = std::mem::take(&mut self.reveal_after_keyboard) && {
+                    let moves = match (self.runtime.input.focused, self.ui.as_ref()) {
+                        (Some(id), Some(ui)) => ui.reveal(id, &self.runtime),
+                        _ => Vec::new(),
+                    };
+                    let moved = !moves.is_empty();
+                    for (area, offset) in moves {
+                        self.runtime.scroll_ballistic.remove(&area);
+                        self.runtime.scroll_velocity.remove(&area);
+                        self.runtime.scroll_target.insert(area, offset);
+                    }
+                    moved
+                };
                 // The tree may have changed under a still pointer — a tap that opened a
                 // screen — so what it is over is asked of this frame, as the reference
                 // does after every frame. Not during a drag: a slider dragged past its
@@ -2779,7 +2806,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 if rehovered {
                     self.build_dirty = true;
                 }
-                let wants_animation = wants_animation || rehovered;
+                let wants_animation = wants_animation || rehovered || revealed;
 
                 // The paged views that have just turned a page, read off **this**
                 // frame's regions: a page change is worth reporting the moment it
