@@ -48,11 +48,17 @@ use std::time::Duration;
 /// A [`Request`]'s HTTP method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Method {
+    /// `GET`: read a resource.
     Get,
+    /// `POST`: send data for the server to process, most often to create something.
     Post,
+    /// `PUT`: replace a resource with the body sent.
     Put,
+    /// `DELETE`: remove a resource.
     Delete,
+    /// `PATCH`: change part of a resource.
     Patch,
+    /// `HEAD`: like `GET`, but answered with the headers and no body.
     Head,
 }
 
