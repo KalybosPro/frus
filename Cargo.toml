@@ -12,7 +12,7 @@ edition = "2021"
 # `url` ask for 1.88, and 1.87 refuses the lockfile before compiling anything. Raising
 # it is a decision, made here and in that job together.
 rust-version = "1.90"
-version = "0.1.0"
+version = "0.2.0"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
