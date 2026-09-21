@@ -64,6 +64,7 @@ pub struct FrusApp {
     save: Option<Save>,
     restore: Option<Restore>,
     strategy: LocationStrategy,
+    instance: Option<String>,
 }
 
 impl FrusApp {
@@ -126,7 +127,17 @@ impl FrusApp {
             save: None,
             restore: None,
             strategy: LocationStrategy::Hash,
+            instance: None,
         }
+    }
+
+    /// Makes the application **one window** on a desktop, named `id` — a reverse domain such as
+    /// `com.example.myapp`. A second process started with a link (`myapp://orders/42`, how a
+    /// desktop opens a registered scheme) hands it to the first, which opens the location it
+    /// names, and ends. See [`Application::instance_id`].
+    pub fn single_instance(mut self, id: impl Into<String>) -> Self {
+        self.instance = Some(id.into());
+        self
     }
 
     /// How the router's location is written in a browser's address bar: after a `#` (the
@@ -265,6 +276,17 @@ impl Application for FrusApp {
         self.router.as_ref().map(GoRouter::location)
     }
 
+    fn location_replaces(&self) -> bool {
+        self.router.as_ref().is_some_and(GoRouter::replaced)
+    }
+
+    fn location_stack(&self) -> Vec<String> {
+        self.router
+            .as_ref()
+            .map(GoRouter::locations)
+            .unwrap_or_default()
+    }
+
     fn open_location(&mut self, location: &str) -> Command<Callback> {
         if let Some(router) = &self.router {
             router.open(location);
@@ -274,6 +296,10 @@ impl Application for FrusApp {
 
     fn location_strategy(&self) -> LocationStrategy {
         self.strategy
+    }
+
+    fn instance_id(&self) -> Option<String> {
+        self.instance.clone()
     }
 
     fn can_go_back(&self) -> bool {
@@ -837,25 +863,46 @@ mod address_tests {
     /// The application and the browser's history, wired the way the shell wires them, with
     /// the router as the application.
     #[test]
-    fn a_page_opened_deep_has_no_earlier_entry_so_its_own_back_is_a_new_one() {
+    fn a_page_opened_deep_gets_the_pages_beneath_it_as_entries_so_its_own_back_goes_back() {
         let router = router();
         let mut app = FrusApp::router(router.clone());
         let mut history = History::new();
         history.opened(Some("/users/42".to_string()), None);
         let _ = app.open_location("/users/42");
+        assert_eq!(app.location_stack(), ["/", "/users/42"]);
         assert_eq!(
-            history.reflect(&app.location().unwrap()),
-            None,
-            "the entry is right"
+            history.seed(&app.location_stack()),
+            [
+                (Step::Replace("/".to_string()), 0),
+                (Step::Push("/users/42".to_string()), 1)
+            ],
+            "the entry the page opened at becomes home, and the deep page is pushed on it"
         );
+        assert_eq!(history.reflect(&app.location().unwrap(), false), None);
 
         router.pop();
         assert_eq!(router.location(), "/");
         assert_eq!(
-            history.reflect(&app.location().unwrap()),
-            Some(Step::Push("/".to_string())),
-            "the browser never held `/`, so this is a new entry, with `/users/42` behind it"
+            history.reflect(&app.location().unwrap(), false),
+            Some(Step::Go(-1)),
+            "back in the browser's list, not a copy of home on top of it"
         );
+    }
+
+    #[test]
+    fn a_swapped_page_is_reported_as_swapped_and_only_until_the_next_move() {
+        let router = router();
+        let app = FrusApp::router(router.clone());
+        assert!(!app.location_replaces());
+        router.push("/settings");
+        assert!(!app.location_replaces());
+        router.replace("/users/1");
+        assert!(app.location_replaces(), "a swap: the entry is swapped too");
+        router.push("/settings");
+        assert!(!app.location_replaces());
+        router.replace("/users/2");
+        router.pop();
+        assert!(!app.location_replaces(), "a pop is not a swap");
     }
 
     #[test]
@@ -871,7 +918,7 @@ mod address_tests {
         let _ = app.open_location("/private");
         assert_eq!(app.location(), Some("/login".to_string()));
         assert_eq!(
-            history.reflect("/login"),
+            history.reflect("/login", false),
             Some(Step::Replace("/login".to_string())),
             "the address the page opened at is replaced, so back has no `/private` to bounce off"
         );

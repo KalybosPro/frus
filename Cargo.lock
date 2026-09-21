@@ -1335,6 +1335,8 @@ dependencies = [
  "frus-widgets",
  "gif",
  "log",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

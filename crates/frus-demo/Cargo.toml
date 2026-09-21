@@ -39,6 +39,12 @@ log.workspace = true
 frus-test = { path = "../frus-test", optional = true }
 gif = { version = "0.13", optional = true }
 
+# Web (wasm): the `frus_shell::main!` macro generates the `#[wasm_bindgen(start)]` entry point
+# and names `wasm_bindgen`; the tasks are kept in the page's `localStorage`, there being no disk.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["Window", "Storage"] }
+
 [dev-dependencies]
 # The shell's windowless driver: a gesture seen on a phone, replayed through the shell.
 frus-shell = { path = "../frus-shell", features = ["testing"] }
@@ -59,6 +65,14 @@ label = "frus demo"
 # light mode. See `res/values/styles.xml`; it is NoActionBar, which matters for the safe
 # area as well (milestone 288).
 theme = "@style/LaunchTheme"
+
+# `frusdemo://task/3` opens the task's screen (milestone 563): a link with the application's own
+# scheme, from a browser, a mail or `adb shell am start -a android.intent.action.VIEW -d ...`.
+# Only the launch is read; a link opened while the demo runs is not forwarded to it.
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.VIEW"]
+categories = ["android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"]
+data = [{ scheme = "frusdemo" }]
 
 [package.metadata.android.sdk]
 min_sdk_version = 24

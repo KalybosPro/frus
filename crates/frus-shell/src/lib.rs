@@ -27,6 +27,8 @@ mod android_clipboard;
 #[cfg(android)]
 mod android_ime;
 #[cfg(android)]
+mod android_link;
+#[cfg(android)]
 mod android_settings;
 #[cfg(android)]
 mod android_system_bars;
@@ -42,6 +44,9 @@ mod history;
 mod hover;
 #[cfg(any(android, test))]
 mod ime;
+#[cfg(desktop)]
+mod instance;
+mod link;
 /// Cross-platform `fetch` HTTP helper (behind the `net` feature).
 #[cfg(feature = "net")]
 pub mod net;
@@ -65,6 +70,7 @@ pub use app::testing;
 pub use app::App;
 pub use application::{Application, Lifecycle, LocationStrategy};
 pub use command::Command;
+pub use link::{link_among, location_of_link};
 pub use remote::RemoteData;
 pub use subscription::Subscription;
 pub use widget_app::FrusApp;
@@ -167,6 +173,15 @@ pub fn run<A: Application>(mut app: A) -> anyhow::Result<()> {
     // Live-reload (dev): rehydrate the state left behind by the previous binary,
     // before `init` — see [`Application::restore_state`].
     reload::restore_from_env(&mut app);
+
+    // An application that means to be one window: the second process hands its link to the
+    // first and ends; the first serves the ones that come after it.
+    if let Some(id) = app.instance_id() {
+        match instance::claim(&id, link::link_among(std::env::args()).as_deref()) {
+            instance::Claim::Handed => return Ok(()),
+            instance::Claim::First(server) => instance::serve_into_queue(server),
+        }
+    }
 
     // A loop whose **user events** are messages: asynchronous effects deliver their
     // result through an `EventLoopProxy<Message>`.

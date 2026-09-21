@@ -1602,6 +1602,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     {
                         self.a11y = Some(crate::a11y::A11y::new(event_loop, &window));
                         window.set_visible(true);
+                        // A second process's link brings this window forward and asks it for
+                        // a frame.
+                        crate::instance::set_window(window.clone());
                     }
                     self.window = Some(window.clone());
                     // What the input bridge's wakes ask a frame of (milestone 513).
@@ -1617,6 +1620,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         let command = self.app.init();
                         self.run_command(command);
                         self.sync_subscriptions();
+                        #[cfg(any(android, desktop))]
+                        self.open_launch_link();
                     }
                     window.request_redraw();
                 }
@@ -2492,6 +2497,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.run_command(asked);
                 #[cfg(web)]
                 self.sync_address();
+                #[cfg(desktop)]
+                self.open_links_from_other_instances();
                 if frus_widgets::take_rebuild_request() {
                     self.build_dirty = true;
                 }
@@ -3972,6 +3979,36 @@ impl<A: Application> App<A> {
         self.sync_subscriptions();
     }
 
+    /// The link the program was started with — on Android the activity's intent, on a desktop an
+    /// argument — handed to the application as a location. Once, before the first frame.
+    #[cfg(any(android, desktop))]
+    fn open_launch_link(&mut self) {
+        #[cfg(android)]
+        let link = self
+            .android_app
+            .as_ref()
+            .and_then(crate::android_link::launch_link);
+        #[cfg(desktop)]
+        let link = crate::link::link_among(std::env::args());
+        if let Some(location) = link.as_deref().and_then(crate::link::location_of_link) {
+            let command = self.app.open_location(&location);
+            self.run_command(command);
+        }
+    }
+
+    /// The links a second process handed to this one since the last frame.
+    #[cfg(desktop)]
+    fn open_links_from_other_instances(&mut self) {
+        for link in crate::instance::take_links() {
+            if let Some(location) = crate::link::location_of_link(&link) {
+                let command = self.app.open_location(&location);
+                self.run_command(command);
+                self.build_dirty = true;
+                self.request_redraw();
+            }
+        }
+    }
+
     /// The address the page was opened at, handed to the application, and the browser's own
     /// moves from here on listened to. Once, before the first frame.
     #[cfg(web)]
@@ -3985,6 +4022,11 @@ impl<A: Application> App<A> {
         if let Some(location) = location {
             let command = self.app.open_location(&location);
             self.run_command(command);
+            // Opened deep in the application: the pages beneath get entries of their own.
+            let (strategy, base) = &self.address;
+            for (step, index) in self.history.seed(&self.app.location_stack()) {
+                crate::address::apply(step, *strategy, base, index);
+            }
         }
     }
 
@@ -4000,10 +4042,16 @@ impl<A: Application> App<A> {
                 let command = self.app.open_location(&location);
                 self.run_command(command);
                 self.build_dirty = true;
+                // The move it starts — a page sliding — is ticked by the frames after this
+                // one, which was decided to be still before the address was read.
+                self.request_redraw();
             }
         }
         if let Some(location) = self.app.location() {
-            if let Some(step) = self.history.reflect(&location) {
+            if let Some(step) = self
+                .history
+                .reflect(&location, self.app.location_replaces())
+            {
                 let (strategy, base) = &self.address;
                 crate::address::apply(step, *strategy, base, self.history.index());
             }

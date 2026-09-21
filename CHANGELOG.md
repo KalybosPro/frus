@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 560 so far, each documenting the objective, the alternatives
+> record — one per step, 563 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -333,6 +333,26 @@ any release may break.
 
 ### Added
 
+- **Links from outside the web** (J563, answers #31). `frus_shell::location_of_link` turns a
+  link — `https://example.com/orders/42?tab=items`, `myapp://orders/42` — into the location an
+  application understands, and it reaches `Application::open_location` the way the web's address
+  does. **Android**: the launch intent's data is read before the first frame (the demo declares
+  `frusdemo://`). **A desktop**: the link among the program's arguments is opened at start, and
+  `FrusApp::single_instance("com.example.app")` makes the application one window — a second
+  process hands its link to the first, over a token-guarded loopback socket, and ends. Only the
+  Android launch is covered, not a link opened while it runs; registering a scheme with the
+  operating system is documented, not done; a macOS build gets no links. Not run on a device.
+- **The demo runs in a browser** (J562). It compiles for `wasm32-unknown-unknown` — its entry point
+  names `wasm_bindgen`, and its storage no longer asks a filesystem-less platform for a temporary
+  directory, which panicked at start-up; the tasks are kept in `localStorage` there — and it has
+  a page to serve it (`crates/frus-demo/web/`).
+- **The addresses, seen in a real browser** (J561). A headless Edge, driven through the DevTools
+  protocol (`scripts/web-address-check.py`), found a bug no test could have: the browser's back
+  button changed the address and the screen stayed, because the slide it started was never ticked.
+  Fixed. The two costs J560 left are settled: a page opened deep now gets entries for the pages
+  beneath it (`Application::location_stack`), so its back stays inside the application, and a
+  router `replace` swaps the browser's entry instead of adding one (`GoRouter::replaced`,
+  `Application::location_replaces`).
 - **On the web, the router's location is the address** (J560, answers #31 for the web).
   A page opened at `https://host/app/#/users/42` opens there, with home underneath and no slide;
   moving between pages changes the address and adds an entry to the browser's history; the back
