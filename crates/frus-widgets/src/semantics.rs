@@ -176,18 +176,22 @@ impl<Msg: Clone> Widget<Msg> for Semantics<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{build_ui, Flex, Runtime, Text};
+    use crate::{build_ui, Button, Flex, Runtime, Text, Ui};
     use frus_core::Size as CoreSize;
 
-    /// Every annotation the built tree carries, in walk order.
-    fn described(root: &dyn Widget<()>) -> Vec<(Role, Option<String>)> {
-        let ui = build_ui(
+    fn built(root: &dyn Widget<()>) -> Ui<()> {
+        build_ui(
             root,
             CoreSize::new(300.0, 200.0),
             &Runtime::default(),
             &Theme::default(),
-        );
-        ui.semantics()
+        )
+    }
+
+    /// Every annotation the built tree carries, in walk order.
+    fn described(root: &dyn Widget<()>) -> Vec<(Role, Option<String>)> {
+        built(root)
+            .semantics()
             .iter()
             .map(|(_, _, s)| (s.role, s.label.clone()))
             .collect()
@@ -239,6 +243,50 @@ mod tests {
         let found = described(root.as_ref());
         assert_eq!(found.len(), 1, "one node: {found:?}");
         assert_eq!(found[0].1.as_deref(), Some("Notifications\nOn"));
+    }
+
+    /// **A merged control stays operable.** Found testing #18 in a real browser and a
+    /// real screen reader: `Semantics::merge` keyed the surviving node on the
+    /// *wrapper's* id, which nothing routes a click through, so a button merged with
+    /// its own caption announced correctly and did nothing on activation — on every
+    /// platform, AccessKit desktop included, since the bug was here rather than in
+    /// either bridge. The merged node now carries the id of the one child that was
+    /// clickable, so a click, a keyboard `Enter`, or an assistive technology's own
+    /// activation all still reach it.
+    #[test]
+    fn merging_keeps_the_clickable_childs_id_so_it_can_still_be_activated() {
+        let root: Box<dyn Widget<()>> = Box::new(Semantics::merge(
+            Flex::row()
+                .child(Button::new("Save").on_press(()))
+                .child(Text::new("your changes")),
+        ));
+        let ui = built(root.as_ref());
+        let found = ui.semantics();
+        assert_eq!(found.len(), 1, "one node: {found:?}");
+        let (id, _, props) = &found[0];
+        assert_eq!(props.label.as_deref(), Some("Save\nyour changes"));
+        assert_eq!(
+            ui.msg_for(*id),
+            Some(()),
+            "the merged node's id is the button's own — the one thing in the \
+             subtree a click, Enter, or an AT's activation can actually be routed to"
+        );
+    }
+
+    /// **Two clickable children have no single answer**, so nothing is guessed: the
+    /// merged node falls back to the wrapper's own id, exactly as before this fix —
+    /// silently picking one of two buttons would be its own, quieter bug.
+    #[test]
+    fn merging_two_clickable_children_falls_back_to_the_wrappers_id() {
+        let root: Box<dyn Widget<()>> = Box::new(Semantics::merge(
+            Flex::row()
+                .child(Button::new("Save").on_press(()))
+                .child(Button::new("Cancel").on_press(())),
+        ));
+        let ui = built(root.as_ref());
+        let found = ui.semantics();
+        assert_eq!(found.len(), 1, "one node: {found:?}");
+        assert_eq!(ui.msg_for(found[0].0), None);
     }
 
     /// An annotation that says nothing and swallows nothing puts **no node** in the tree.

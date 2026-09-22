@@ -5,7 +5,7 @@
 //! [`Demo`], handed in as its configuration.
 
 use crate::prelude::*;
-use frus_widgets::{column, row};
+use frus_widgets::{column, row, Semantics};
 
 /// The main screen: its configuration is the shared state it draws from.
 pub(crate) struct HomePage {
@@ -183,6 +183,13 @@ impl State for HomeState {
             .controller(&draft)
             .on_submit(add.clone());
         if !draft.is_empty() {
+            // Blank, `demo.add` refuses and clears nothing — so this is only reachable
+            // when a submit really does add a task, which is exactly when the screen
+            // reader should hear it. Found missing testing #18 in a real browser: a
+            // field's Enter goes through neither of the two paths that already read a
+            // widget's `announce()` (a click, or Enter/Space on a *clickable*), so
+            // nothing here had ever been able to speak at all.
+            draft_input = draft_input.announce(format!("{} added", draft.text()));
             let clear = draft.clone();
             draft_input = draft_input
                 .suffix_icon(Icons::CLOSE)
@@ -740,6 +747,24 @@ pub(crate) fn todo_row(
         text(todo.text.clone()).size(18.0).ellipsis(),
     );
     let (toggle, delete) = (demo.clone(), demo.clone());
+    // The checkbox has nothing beside it a screen reader can read — its caption is the
+    // row's own text, drawn separately so it can animate independently (see `label`
+    // above) — so alone it announced "checkbox, ticked" with no way to tell which task.
+    // Found testing #18 in a real browser: `Semantics::merge` joins the two into one
+    // control, the framework's own answer to exactly this shape, so the reader hears
+    // both without the text being drawn twice.
+    let checkbox_and_label = Expanded::new(Semantics::merge(
+        row![
+            Checkbox::new(todo.done).on_toggle(on_value(move |_: bool| toggle.toggle(id))),
+            // Cut with an ellipsis at the width the row leaves — laid out by its own
+            // content instead, a long task title pushed the delete button off the card
+            // and out of the hit registry: the task could no longer be deleted
+            // (milestones 333 and 334).
+            Expanded::new(label),
+        ]
+        .align(Align::Center)
+        .gap(10.0),
+    ));
     let line = row![
         // The shared element: the same avatar, tagged by the task's id, appears bigger
         // on the task's own screen and flies between the two.
@@ -749,13 +774,9 @@ pub(crate) fn todo_row(
                 id,
                 CircleAvatar::new(todo.text.clone()).size(30.0)
             )),
-        Checkbox::new(todo.done).on_toggle(on_value(move |_: bool| toggle.toggle(id))),
-        // The label takes what the rest of the row leaves, and is cut with an ellipsis
-        // at that width. Laid out by its own content instead, a long task title pushed
-        // the delete button off the card and out of the hit registry: the task could no
-        // longer be deleted (milestones 333 and 334). No `spacer()` is needed — the
-        // expanding label is what pushes the button to the right edge.
-        Expanded::new(label),
+        // No `spacer()` is needed — the expanding pair is what pushes the button to the
+        // right edge (milestone 334).
+        checkbox_and_label,
         IconButton::new(Icons::CLOSE)
             .label("Delete task")
             .icon_color(theme.error)

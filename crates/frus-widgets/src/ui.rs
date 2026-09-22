@@ -2600,11 +2600,33 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         own: Rect,
     ) {
         let mut props = described.props;
+        // Merging swallows every child's own entry, so **something** has to answer for
+        // this node when it is activated — the wrapper itself never does (see
+        // `Semantics::on_click`'s own reasoning: an annotation that swallowed a click
+        // would put a hit target over the widget it describes). Found testing #18 in a
+        // real browser and real screen reader: a `Checkbox::new(..).on_toggle(..)`
+        // merged with its row's caption read correctly and did **nothing** on
+        // activation, on every platform, because the merged entry carried the row's own
+        // id, which nothing routes a click through. When exactly one child in the
+        // swallowed subtree was clickable, its id is who a click or a keyboard
+        // activation has to reach, so the merged entry keys on that id instead — the
+        // wrapper's id is kept only when there is no such child, or more than one and
+        // "the one that gets clicked" has no single answer.
+        let mut operable = None;
         if described.merging {
-            for (_, _, child) in self.semantics.drain(base..).collect::<Vec<_>>() {
+            let mut clickable_count = 0;
+            for (child_id, _, child) in self.semantics.drain(base..).collect::<Vec<_>>() {
+                if child.clickable {
+                    clickable_count += 1;
+                    operable = Some(child_id);
+                }
                 props = props.over(&child);
             }
+            if clickable_count != 1 {
+                operable = None;
+            }
         }
+        let id = operable.unwrap_or(id);
         if props.is_meaningful() && own.width > 0.0 && own.height > 0.0 {
             self.semantics.insert(base, (id, own, props));
         }

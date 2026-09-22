@@ -121,6 +121,10 @@ web-sys = { version = "0.3", features = [
     "Headers",
     "AbortController",
     "AbortSignal",
+    # The accessibility bridge (milestone 564, #18): the canvas winit attached the
+    # window to, and the element type its fallback-content nodes are built as.
+    "HtmlCanvasElement",
+    "HtmlElement",
 ] }
 
 # On Android, winit goes through the native activity (android-activity) and the logs

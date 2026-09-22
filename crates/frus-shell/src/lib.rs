@@ -15,9 +15,12 @@ pub struct ReadmeDoctests;
 // for **this** crate only: the `main!` macro below expands in the user's crate, so
 // it keeps explicit `target_os` / `target_arch` predicates.
 
-// Accessibility (AccessKit): desktop only — not Android, not iOS, not web.
+// Accessibility: AccessKit on desktop, a hand-rolled DOM bridge on the web — not
+// Android, not iOS (see a11y.rs and a11y_web.rs).
 #[cfg(desktop)]
 mod a11y;
+#[cfg(web)]
+mod a11y_web;
 #[cfg(web)]
 mod address;
 #[cfg(android)]

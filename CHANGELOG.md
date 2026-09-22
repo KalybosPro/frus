@@ -8,10 +8,23 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 563 so far, each documenting the objective, the alternatives
+> record — one per step, 564 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Accessibility on the web** (J564, #18). A screen reader can now navigate and operate the
+  demo's task list on the web: every semantic node is a real, focusable element built as canvas
+  fallback content (unpainted, but reachable by `Tab` and by an assistive technology, the
+  platform's own documented technique), with an `aria-live` announcement region as the one
+  exception — that one is a real, visually-hidden sibling in the page, since live-region
+  machinery watches the render tree and an unpainted subtree gives it nothing to watch. Found on
+  the way and fixed for **every** platform, not only the web: `Semantics::merge` keyed its
+  surviving node on the wrapper's own id, so a clickable control merged with its caption
+  announced correctly and did nothing when activated — through AccessKit on the desktop as much
+  as through this. Verified against a real browser's own computed accessibility tree (the
+  DevTools protocol's `Accessibility`/`DOM` domains), not against a screen reader with the screen
+  off, which is recorded as what this milestone cannot claim.
 
 ## [0.2.0] - 2026-09-20
 
