@@ -150,7 +150,7 @@ The things standing between frus and someone else being able to use it.
 The web target renders and animates but is missing its platform integrations. Each of these is an independent, self-contained job.
 
 - 🟢 **Clipboard** via the async Clipboard API, behind the same interface desktop uses — done, milestone 526 (#17). Secure contexts only; not yet seen in a real browser.
-- 🟡 **Accessibility.** AccessKit has web support; the semantics tree already exists and is populated. This is a bridging job, not a from-scratch one.
+- 🟢 **Accessibility — done, milestone 564 (#18).** AccessKit has no web adapter to bridge to (its own README lists the web as planned, not shipped), so the semantic tree is projected straight into the DOM as canvas fallback content — real, focusable elements a screen reader's own tree includes, unpainted since the canvas never draws them. Verified against a real browser's computed accessibility tree, not against a screen reader with the screen off. Found and fixed on the way, for every platform: `Semantics::merge` kept a merged control from ever being activated through an assistive technology, desktop AccessKit included. Left: touch "explore by touch" (fallback content has no layout box to offer it), and only Chromium was driven.
 - 🟡 **IME / soft keyboard** on mobile browsers — a hidden input overlay, composition events, viewport insets.
 - 🟡 **Live-reload** for the wasm target.
 - 🟢 **A proper web example page — done, milestone 535 (#11).** A fixed header names the

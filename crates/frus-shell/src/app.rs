@@ -742,6 +742,9 @@ pub struct App<A: Application> {
     /// The window's accessibility bridge (AccessKit) — desktop only.
     #[cfg(desktop)]
     a11y: Option<crate::a11y::A11y>,
+    /// The window's accessibility bridge, projected into the canvas's DOM — web only.
+    #[cfg(web)]
+    a11y: Option<crate::a11y_web::A11y>,
     /// The last interface built, used for hit testing, focus and scrolling.
     ui: Option<Ui<A::Message>>,
     /// The last widget tree built, used for keyboard and editing routing.
@@ -821,10 +824,10 @@ pub struct App<A: Application> {
     /// hovered half, so that the line and the gap *slide* between cards instead of
     /// jumping — the vertical counterpart of the horizontal `reorder_x` spring.
     reorder_y: f32,
-    /// The last **announcement** pushed to AccessKit's live region, for the screen
-    /// reader. It persists as is: it is re-spoken only on a change, so the same text
-    /// carried over every frame does not repeat. Desktop only.
-    #[cfg(desktop)]
+    /// The last **announcement** pushed to the accessibility bridge's live region, for
+    /// the screen reader. It persists as is: it is re-spoken only on a change, so the
+    /// same text carried over every frame does not repeat. Desktop and web.
+    #[cfg(any(desktop, web))]
     announce: String,
     /// The tap-or-long-press recogniser (gesture tier 1).
     press: PressRecognizer,
@@ -965,6 +968,8 @@ impl<A: Application> App<A> {
             address: (crate::LocationStrategy::Hash, "/".to_string()),
             #[cfg(desktop)]
             a11y: None,
+            #[cfg(web)]
+            a11y: None,
             ui: None,
             tree: None,
             cursor: Point::new(0.0, 0.0),
@@ -993,7 +998,7 @@ impl<A: Application> App<A> {
             gesture_start: Instant::now(),
             reorder_x: 0.0,
             reorder_y: 0.0,
-            #[cfg(desktop)]
+            #[cfg(any(desktop, web))]
             announce: String::new(),
             press: PressRecognizer::new(),
             long_press_msg: None,
@@ -1040,6 +1045,32 @@ impl<A: Application> App<A> {
     #[cfg(desktop)]
     fn drain_a11y_actions(&mut self) {
         use crate::a11y::A11yAction;
+        let actions = match self.a11y.as_ref() {
+            Some(a11y) => a11y.take_actions(),
+            None => return,
+        };
+        for action in actions {
+            match action {
+                A11yAction::Click(id) => {
+                    if let Some(msg) = self.ui.as_ref().and_then(|ui| ui.msg_for(id)) {
+                        self.dispatch(msg);
+                        self.request_redraw();
+                    }
+                }
+                A11yAction::Focus(id) => {
+                    self.runtime.input.focused = Some(id);
+                    self.runtime.focus_visible = true;
+                    self.request_redraw();
+                }
+            }
+        }
+    }
+
+    /// The web's counterpart to `drain_a11y_actions` above — same replay, the DOM
+    /// bridge's own action type (#18).
+    #[cfg(web)]
+    fn drain_a11y_actions(&mut self) {
+        use crate::a11y_web::A11yAction;
         let actions = match self.a11y.as_ref() {
             Some(a11y) => a11y.take_actions(),
             None => return,
@@ -1561,6 +1592,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         {
             self.scale = window.scale_factor() as f32;
             self.window = Some(window.clone());
+            // The accessibility bridge (#18): the canvas exists as soon as the window
+            // does, so there is no "still hidden" step to wait for here.
+            self.a11y = crate::a11y_web::A11y::new(&window);
             self.build_dirty = true;
             if !self.started {
                 self.started = true;
@@ -1686,6 +1720,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
         // Actions an assistive technology asked for, through AccessKit.
         #[cfg(desktop)]
+        self.drain_a11y_actions();
+        // Actions a screen reader asked for, through the DOM bridge (#18).
+        #[cfg(web)]
         self.drain_a11y_actions();
 
         // Live reload, in development: the binary was replaced by a recompilation, so
@@ -2927,6 +2964,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         a11y.update(ui.semantics(), focus, &title, &self.announce);
                     }
                 }
+                // Publish the frame's semantic tree to the DOM bridge (#18).
+                #[cfg(web)]
+                if let Some(a11y) = self.a11y.as_mut() {
+                    let focus = self.runtime.input.focused;
+                    let title = self.app.title();
+                    if let Some(ui) = self.ui.as_ref() {
+                        a11y.update(ui.semantics(), focus, &title, &self.announce);
+                    }
+                }
 
                 // The system bars follow the frame: the regions under them, then the theme.
                 self.sync_system_bars(&theme);
@@ -3933,12 +3979,13 @@ impl<A: Application> App<A> {
 
     /// Speaks a message aloud through the screen reader's **live region**, for a
     /// column reorder and the like. With no screen reader running it costs nothing. The
-    /// text is re-spoken only on a change. Desktop only; a no-op elsewhere.
-    #[cfg(desktop)]
+    /// text is re-spoken only on a change. Desktop and web; a no-op on Android and iOS,
+    /// which have no bridge yet.
+    #[cfg(any(desktop, web))]
     fn set_announcement(&mut self, message: String) {
         self.announce = message;
     }
-    #[cfg(not(desktop))]
+    #[cfg(not(any(desktop, web)))]
     fn set_announcement(&mut self, _message: String) {}
 
     /// Returning focus when an overlay closes: if the focused widget has **vanished**
@@ -5520,12 +5567,20 @@ impl<A: Application> App<A> {
         let before = widget
             .and_then(|widget| widget.text_value())
             .map(str::to_owned);
+        // A field's own announcement (#18) — read here for the same reason the click
+        // and keyboard-activation paths read theirs off the widget **before**
+        // `dispatch_edit` rebuilds the tree: a plain keystroke leaves it unused, since
+        // `on_edit` answers `None` for one and the announcement below is never spoken.
+        let announce = widget.and_then(|widget| widget.announce());
         let message = widget.and_then(|widget| widget.on_edit(&mut edit, &key));
         self.runtime.edits.insert(id, edit);
         // In a multi-line field, make the retained scroll follow the caret and reveal it.
         self.reveal_caret(id, edit.cursor);
         if let Some(message) = message {
             self.dispatch_edit(message);
+            if let Some(announce) = announce {
+                self.set_announcement(announce);
+            }
         }
         // The history, recorded on the **evidence** of a changed value rather than on the
         // intent of a key that usually changes one: a filter may have refused the

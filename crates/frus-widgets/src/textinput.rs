@@ -151,6 +151,8 @@ pub struct TextField<Msg = crate::callback::Callback> {
     width: Dimension,
     on_input: Option<Box<dyn Fn(String) -> Msg>>,
     on_submit: Option<Msg>,
+    /// What to tell the screen reader when `on_submit` fires — see [`TextField::announce`].
+    announce: Option<String>,
     /// Label displayed above the field.
     label: Option<String>,
     /// Hint displayed **inside** the field while the value is empty.
@@ -323,6 +325,7 @@ impl<Msg> TextField<Msg> {
             width: Dimension::Length(220.0),
             on_input: None,
             on_submit: None,
+            announce: None,
             label: None,
             placeholder: None,
             helper: None,
@@ -871,6 +874,18 @@ impl<Msg> TextField<Msg> {
     /// Message emitted on submission (the Enter key), without changing the value.
     pub fn on_submit(mut self, message: impl Into<Msg>) -> Self {
         self.on_submit = Some(message.into());
+        self
+    }
+
+    /// Text to speak through the screen reader's live region when [`Self::on_submit`]
+    /// fires — the field's own counterpart to a button's [`Widget::announce`](
+    /// crate::Widget::announce), which only ever fires on a click or a plain Enter and
+    /// so never sees a field's submit (#18). Compute it from the value the caller
+    /// already has — `TextField::new(draft).announce(format!("{draft} added"))` — since
+    /// by the time this fires, the widget it is read from is the one built **before**
+    /// the keystroke, still holding what is about to be cleared.
+    pub fn announce(mut self, message: impl Into<String>) -> Self {
+        self.announce = Some(message.into());
         self
     }
 
@@ -1791,6 +1806,10 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
 
     fn draws_own_focus(&self) -> bool {
         true
+    }
+
+    fn announce(&self) -> Option<String> {
+        self.announce.clone()
     }
 }
 
