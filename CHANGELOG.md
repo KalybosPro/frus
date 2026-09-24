@@ -24,6 +24,11 @@ any release may break.
   per ten minutes) and Cargo's refusal to resume `--workspace` after a partial publish are
   written down in the milestone note.
 
+- **The README's web row caught up** (J566). It still said the clipboard and accessibility were
+  "not wired up" on the web — the clipboard has worked since milestone 526 and accessibility since
+  564. Only live-reload is missing there, and the contributor table loses the row that asked for
+  the other two.
+
 ## [0.2.1] - 2026-09-24
 
 A short release, cut so that what is uploaded to crates.io is not the `0.2.0` tag: master had
