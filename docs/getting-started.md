@@ -372,7 +372,7 @@ Each group is a feature, all on by default. An application that ships its own fa
 or simply never draws italics or Arabic, can turn off what it does not need:
 
 ```toml
-frus = { version = "0.1", default-features = false, features = ["bundled-sans"] }
+frus = { version = "0.2", default-features = false, features = ["bundled-sans"] }
 ```
 
 | feature          | what it bundles                  | cost   |

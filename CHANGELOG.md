@@ -29,6 +29,10 @@ any release may break.
   564. Only live-reload is missing there, and the contributor table loses the row that asked for
   the other two.
 
+- **Copy-paste snippets name a version that exists** (J566). Seven snippets — the guide's font
+  example, the manifests' comments on the `bundled-*` and icon features, two doc comments —
+  said `frus = { version = "0.1", .. }`, a version that was never published; they say `0.2`.
+
 ## [0.2.1] - 2026-09-24
 
 A short release, cut so that what is uploaded to crates.io is not the `0.2.0` tag: master had

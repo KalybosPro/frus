@@ -13,7 +13,7 @@ categories = ["rendering", "graphics"]
 
 # The **bundled fonts** are forwarded from `frus-text` (milestone 292) so that an
 # application can drop the faces it does not ship through the facade alone:
-#   frus = { version = "0.1", default-features = false, features = ["bundled-sans"] }
+#   frus = { version = "0.2", default-features = false, features = ["bundled-sans"] }
 [features]
 default = ["frus-text/default"]
 bundled-sans = ["frus-text/bundled-sans"]

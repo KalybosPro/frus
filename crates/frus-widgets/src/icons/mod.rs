@@ -22,7 +22,7 @@
 //! 1.3 MB and most applications want one of them at most:
 //!
 //! ```toml
-//! frus = { version = "0.1", features = ["icons-outlined"] }
+//! frus = { version = "0.2", features = ["icons-outlined"] }
 //! ```
 //!
 //! With the feature on, `Icons::ADD_OUTLINED` exists and [`Icons::by_name`] answers

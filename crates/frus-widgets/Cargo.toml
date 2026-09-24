@@ -13,7 +13,7 @@ categories = ["gui"]
 
 # The **bundled fonts** are forwarded from `frus-text` (milestone 292) so that an
 # application can drop the faces it does not ship through the facade alone:
-#   frus = { version = "0.1", default-features = false, features = ["bundled-sans"] }
+#   frus = { version = "0.2", default-features = false, features = ["bundled-sans"] }
 [features]
 default = ["frus-text/default", "images"]
 # Decoding embedded PNG/JPEG bytes, for `Image::memory` and `asset!`. On by default and

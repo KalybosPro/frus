@@ -40,7 +40,7 @@ use frus_core::DEFAULT_LINE_HEIGHT as LINE_HEIGHT_FACTOR;
 // application that ships its own faces can turn off the ones it does not need:
 //
 // ```toml
-// frus = { version = "0.1", default-features = false, features = ["bundled-sans"] }
+// frus = { version = "0.2", default-features = false, features = ["bundled-sans"] }
 // ```
 //
 // Turning one off never turns an API into a panic — see [`available_style`] and
