@@ -27,7 +27,11 @@ any release may break.
   no 900 by 680 desktop window, no 560 / 680 px ceiling on the task card, and the card's
   children stretch to its width instead of standing in a corner of it on a wide window. And
   the drawer's list scrolls: in a window shorter than its eleven entries the last ones ran off the
-  bottom of the panel with no way back.
+  bottom of the panel with no way back. And on the Web, **F5, Ctrl+F5, Ctrl+R, F12 and Ctrl+L
+  work again** while the canvas has the focus: winit cancelled the default of every key, the
+  browser's own included, so the page could not be reloaded from the keyboard. A capture-phase
+  listener on the window now lets the browser's shortcuts through and leaves the rest to the
+  application.
 
 - **The bar over a selection** (J568, second half of #23). After a hold selects a word, and
   after a handle has been dragged, the field floats **Cut, Copy, Paste and Select all** over

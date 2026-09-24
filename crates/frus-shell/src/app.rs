@@ -1648,6 +1648,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             // The accessibility bridge (#18): the canvas exists as soon as the window
             // does, so there is no "still hidden" step to wait for here.
             self.a11y = crate::a11y_web::A11y::new(&window);
+            // The browser keeps reload, the developer tools and the rest of its own shortcuts
+            // while the canvas has the focus, instead of winit cancelling them.
+            crate::web_keys::let_the_browser_keep_its_shortcuts();
             self.build_dirty = true;
             if !self.started {
                 self.started = true;

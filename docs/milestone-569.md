@@ -83,6 +83,34 @@ the window, and not the page's behind it — and that it has more to scroll than
 without the fix, it fails; its first draft passed either way, because it found the page's own scroll
 area behind the drawer, which is why it now insists on the narrower one.
 
+## The page could not be reloaded from the keyboard
+
+Reported as "Ctrl+F5 does not work". While the canvas has the focus, winit cancels the default of
+**every** key it is given, which is how an application owns its keyboard — and it cancelled
+**F5, Ctrl+F5, Ctrl+R, F12 and Ctrl+L** with the rest, so the page could not be reloaded, its
+developer tools opened or its address bar reached without the mouse. Measured before the fix in
+headless Edge by dispatching each key at the canvas and reading whether anyone cancelled it:
+all of them, the browser's shortcuts included.
+
+**Fix.** A listener on the **window**, in the capture phase — ahead of the canvas, so ahead of
+winit — recognises the browser's own keys and stops the event there (`web_keys.rs`). winit never
+sees the key, nothing cancels it, and the browser acts. The rule is `browser_owns`: F5, F11, F12;
+Ctrl/Cmd with R, L, T, N, W, P, F, H, J, D, U, the zoom keys, Tab and the page keys; Ctrl+Shift+I
+and C (the inspector — plain Ctrl+C is a copy, and the application's); Alt with Left, Right and
+Home (history). **Not** in it: Ctrl+C, X, V, A, Z, Y, Ctrl+S and Ctrl+O — an application may want
+them — and any key without a modifier that is not F5, F11 or F12; Tab, Enter, Escape, the arrows and
+typing stay the application's, and `Shift+F10` is the selection bar's.
+
+**Not `with_prevent_default(false)`**, which would have been shorter: winit's flag is global, and
+it also covers the wheel and pointer events, where the browser's defaults (a page that scrolls, a
+context menu, a text selection dragged over the canvas) are what the application does not want.
+
+`scripts/web-keys-check.py` dispatches thirteen keys at the canvas and reads whether each was
+cancelled: the browser's six are not, the application's seven are. The two earlier browser suites
+(`web-accessibility-check.py`, `web-selection-bar-check.py`) still pass; the first had pressed the
+add field with a click at fixed coordinates, which moved when the page's layout did, and finds it by
+role now.
+
 ## The drawer came from the wrong side
 
 The demo's hamburger is at the **start** of the app bar, and the drawer it opens slid in from the

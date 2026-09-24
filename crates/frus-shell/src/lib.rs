@@ -64,6 +64,8 @@ mod subscription;
 mod theming;
 #[cfg(web)]
 mod web_clipboard;
+#[cfg(any(web, test))]
+mod web_keys;
 mod widget_app;
 
 /// A windowless driver for tests. Hidden: not part of what an application builds on.
