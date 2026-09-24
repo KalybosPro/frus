@@ -8,10 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 569 so far, each documenting the objective, the alternatives
+> record — one per step, 570 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The arrows move the caret in a field that has text** (J570). Left and right moved the *focus*
+  to the next control instead, in any text field with something in it, on every platform: the
+  shell decided whether the focused widget was a text field with a caret probe at a corner of
+  the field, and the clear button a field shows once it holds text covers that corner. An empty
+  field, which has no button, worked — which is how it went unseen. It is asked of the widget
+  now, the answer milestone 510 had already given the soft keyboard. Checked in a browser: Left
+  three times and a letter, Right twice and a letter, Home and End all land where they should.
 
 - **The web demo fills its window, sits under its own header, and the drawer opens from the side of its button** (J569).
   Two faults found using the demo, both older than the selection bar. On the Web the canvas
