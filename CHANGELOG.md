@@ -8,10 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 566 so far, each documenting the objective, the alternatives
+> record — one per step, 567 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Shipping only the glyphs you draw** (J567, towards #20). The guide gains the step it lacked:
+  the bundled fonts off, a `pyftsubset` cut of the faces registered inside `frus::main!({ .. })`
+  — the one place that runs before the renderer on the desktop, Android and the web, which the
+  guide had not said. Measured on the template's counter, release, `arm64-v8a`: 5.20 MB by
+  default, 4.17 MB with `bundled-sans` alone, **3.45 MB** with two Latin cuts of 43 kB, checked
+  on a phone. The same run found that a character outside the subset is drawn as a box, and that
+  the template's own `−` button was one until U+2212 was added. No code changed; the tool
+  (a declared range file, a fallback that names the missing character) is what is left of #20.
 
 - **On crates.io** (J566, second half of #13). The ten library crates were published at 0.2.1 on
   2026-09-24, from the `v0.2.1` tag. The `cargo generate` template drops its `{{frus_path}}`
