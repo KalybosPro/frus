@@ -524,6 +524,70 @@ fn choosing_a_section_changes_what_is_on_show() {
     assert!(bench.words().iter().any(|w| w == "About frus"));
 }
 
+/// Presses the control the accessibility tree calls `label` — an icon button has no word to
+/// find it by. Whether there was one.
+fn press_labelled(bench: &Bench, label: &str) -> bool {
+    let (_, ui) = bench.frame();
+    let Some(rect) = ui
+        .semantics()
+        .iter()
+        .find(|(_, _, node)| node.label.as_deref() == Some(label))
+        .map(|(_, rect, _)| *rect)
+    else {
+        return false;
+    };
+    let at = Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+    match ui.hit(at).and_then(|id| ui.msg_for(id)) {
+        Some(callback) => {
+            callback.call();
+            true
+        }
+        None => false,
+    }
+}
+
+/// **The drawer's list scrolls** when the window is too short for it — a phone on its side, a
+/// browser tab. It was a column that only laid out its children, so the last entries ran off the
+/// bottom of the panel and nothing could bring them back. In a window tall enough for all of it
+/// there is nothing to scroll.
+#[test]
+fn the_drawers_list_scrolls_when_the_window_is_too_short_for_it() {
+    let inside_the_drawer = Point::new(100.0, 250.0);
+
+    let short = Bench::new(411.0, 400.0);
+    assert!(
+        press_labelled(&short, "Menu"),
+        "the menu button opens the drawer"
+    );
+    let (_, ui) = short.frame();
+    let area = ui
+        .scroll_hit(inside_the_drawer)
+        .expect("a scroll area under the drawer's list");
+    // The page behind the drawer scrolls too, across the whole window: what is asked for is the
+    // drawer's *own* area, which is the narrower one.
+    assert!(
+        area.viewport.width < 380.0,
+        "the drawer's own scroll area, not the page's behind it: {area:?}"
+    );
+    assert!(
+        area.max_y > 0.0,
+        "there is more list than window, so it can be scrolled: {area:?}"
+    );
+
+    let tall = Bench::new(411.0, 1400.0);
+    assert!(press_labelled(&tall, "Menu"));
+    let (_, ui) = tall.frame();
+    assert!(
+        ui.scroll_hit(inside_the_drawer)
+            .is_none_or(|area| area.max_y == 0.0),
+        "everything fits, so nothing is left to scroll to"
+    );
+    assert!(
+        tall.words().iter().any(|w| w == "Kanban board →"),
+        "and the last entry is on show"
+    );
+}
+
 // ---------------------------------------------------------------------------------------
 // Reordering the list
 // ---------------------------------------------------------------------------------------

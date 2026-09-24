@@ -87,20 +87,6 @@ impl State for HomeState {
         let prefs = demo.prefs();
         let lang = demo.lang();
 
-        // How wide the card is allowed to get — **a ceiling, not a width**. On a phone there
-        // is none: the card fills what it is given, and everything inside it stretches to the
-        // card. Wider windows cap it, because a line of prose across a desktop is unreadable.
-        //
-        // This used to be an arithmetic — the window minus the body's padding (24 × 2) minus
-        // the card's own (20 × 2) — and it was wrong by eight pixels, because a card carries a
-        // margin nobody had counted. It drew past its own card on every phone, and until
-        // milestone 392 nothing said so: each parent quietly grew to match.
-        let measure = match class {
-            SizeClass::Compact => None,
-            SizeClass::Medium => Some(560.0),
-            SizeClass::Expanded => Some(680.0),
-        };
-
         // The header: an adaptive AppBar. A title and some actions are declared; it decides on
         // its own how many fit on the line and folds the rest into a "⋯" overflow menu,
         // according to the width — without ever branching on mobile/desktop.
@@ -339,7 +325,13 @@ impl State for HomeState {
 
         // The app's card, of responsive width, centred at the top of the screen. The body is
         // built incrementally so the hint can be left out when the window is short.
-        let mut card_body = Flex::column().gap(16.0);
+        // **As wide as the card, its children stretched to it.** A column is only as wide as what
+        // is in it, and a row inside it likewise, so on a wide window the field, the filters and
+        // the banner stood in a corner of a card that reached across the screen.
+        let mut card_body = Flex::column()
+            .gap(16.0)
+            .width_fraction(1.0)
+            .align(Align::Stretch);
         if !short {
             // A **static** banner: a repaint boundary (milestone 88). It is replayed from the
             // cache on frames of pure interaction (hover, focus, scrolling elsewhere) instead
@@ -401,16 +393,11 @@ impl State for HomeState {
             .child(progress)
             .child(footer);
         let card = Card::new().padding(20.0).child(card_body);
-        // On a phone the card **is** the body's width; on a wide window it is capped and
-        // centred. Either way the number below is a ceiling the design chose, never a
-        // measurement of the screen.
-        let placed: Box<dyn Widget> = match measure {
-            Some(cap) => {
-                Box::new(row![ConstrainedBox::new(card).max_width(cap)].justify(Justify::Center))
-            }
-            None => Box::new(card),
-        };
-        let tasks_body = column![placed].padding(24.0);
+        // **The card is the body's width, at every size.** It used to be capped at 560 and 680
+        // on a wider window and centred, a number the design chose and not one the screen gave:
+        // on a big window the application stood in the middle of it at a size of its own. The
+        // card fills what it is given, and everything inside it stretches to the card.
+        let tasks_body = column![card].padding(24.0);
 
         // The body follows the active section (the adaptive navigation lives in the Scaffold).
         //
@@ -458,7 +445,10 @@ impl State for HomeState {
             // `NavScaffold` — the rail at a wider size all read the same declaration, so
             // there is nowhere for the three to drift apart. Milestone 473.
             .destinations(sections(active))
-            .end_drawer(
+            // The **start** drawer: the menu button that opens it is at the start of the bar,
+            // so the panel comes from there. It was an `end_drawer`, which slid in from the
+            // opposite edge to the button that had asked for it.
+            .drawer(
                 self.drawer_menu(cx, theme, active),
                 self.drawer_open,
                 toggle_drawer,
@@ -628,29 +618,35 @@ impl HomeState {
         // The same declaration the bottom bar reads, so the menu cannot name a section the
         // bar has not got, or call it something else.
         let sections = sections(active);
+        // **It scrolls.** The list is longer than a short window — a phone turned sideways, a
+        // browser tab — and a column that only lays out its children simply ran off the bottom
+        // of the panel, its last entries out of reach. The panel is the window's height, so the
+        // scroll area takes that height and the content scrolls inside it.
         SafeArea::new(
-            Container::new().padding(16.0).child(
-                column![
-                    text("frus").size(22.0),
-                    text("Navigation").size(13.0).color(theme.muted),
-                    Divider::new(),
-                    entry(sections[0].label(), 0),
-                    entry(sections[1].label(), 1),
-                    entry(sections[2].label(), 2),
-                    Divider::new(),
-                    text(format!("{active} task(s) pending"))
-                        .size(14.0)
-                        .color(theme.muted),
-                    link("Settings →", "/settings"),
-                    link("Sign-up wizard →", "/wizard"),
-                    link("Editable grid →", "/grid"),
-                    link("Charts →", "/charts"),
-                    link("Data table →", "/data"),
-                    link("Guided tour →", "/tour"),
-                    link("Draggable sheet →", "/sheet"),
-                    link("Kanban board →", "/board"),
-                ]
-                .gap(12.0),
+            SingleChildScrollView::new().flex(1.0).child(
+                Container::new().padding(16.0).child(
+                    column![
+                        text("frus").size(22.0),
+                        text("Navigation").size(13.0).color(theme.muted),
+                        Divider::new(),
+                        entry(sections[0].label(), 0),
+                        entry(sections[1].label(), 1),
+                        entry(sections[2].label(), 2),
+                        Divider::new(),
+                        text(format!("{active} task(s) pending"))
+                            .size(14.0)
+                            .color(theme.muted),
+                        link("Settings →", "/settings"),
+                        link("Sign-up wizard →", "/wizard"),
+                        link("Editable grid →", "/grid"),
+                        link("Charts →", "/charts"),
+                        link("Data table →", "/data"),
+                        link("Guided tour →", "/tour"),
+                        link("Draggable sheet →", "/sheet"),
+                        link("Kanban board →", "/board"),
+                    ]
+                    .gap(12.0),
+                ),
             ),
         )
     }

@@ -51,7 +51,6 @@ pub(crate) fn build() -> (FrusApp, GoRouter, Rc<Demo>) {
     let (save, restore, start) = (demo.clone(), demo.clone(), demo.clone());
     let app = FrusApp::router(router.clone())
         .title("frus — Todo")
-        .window_size(900.0, 680.0)
         // **The languages this demonstration has**, best first — the three it embeds as
         // Fluent resources. The framework resolves the device's list against these.
         .supported_locales(LANGS.iter().map(|(_, tag)| Locale::new(*tag)).collect())

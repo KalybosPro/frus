@@ -1615,6 +1615,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         {
             attributes = attributes.with_visible(false);
         }
+        // Not on the Web: there the page sizes the canvas, with its own CSS, and asking winit
+        // for a size writes it **inline** on the canvas, where it outranks the stylesheet — an
+        // application that named 900 by 680 then stayed 900 by 680 in a phone-sized window,
+        // cropped, its drawer off the edge of what could be seen.
+        #[cfg(not(web))]
         if let Some((w, h)) = self.app.window_size() {
             attributes = attributes.with_inner_size(winit::dpi::LogicalSize::new(w, h));
         }

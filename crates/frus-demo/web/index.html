@@ -5,21 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>frus — demo (Web / WebGPU)</title>
     <style>
+      /* The page is a column: a slim header, then the canvas taking **all the rest**. The header
+         used to float over the top of the canvas, and so over the application's own app bar —
+         the two titles and the buttons drew on top of each other. In the flow, it takes room
+         instead of stealing it. */
       html, body { margin: 0; height: 100%; background: #0d0d14; overflow: hidden; }
-      /* winit appends its canvas to <body>; we make it fill the window. */
-      canvas { display: block; width: 100vw; height: 100vh; }
+      body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+
+      /* winit appends its canvas to <body> and sizes it from this box (the shell asks it for no
+         size of its own on the Web), so what it fills is what the application is laid out in. */
+      canvas { display: block; flex: 1 1 0; min-height: 0; width: 100%; }
 
       #chrome {
-        position: fixed; top: 0; left: 0; right: 0; z-index: 2;
-        display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap;
-        padding: 0.6rem 1rem;
+        flex: none;
+        display: flex; align-items: baseline; gap: 0.75rem;
+        padding: 0.45rem 1rem;
         font: 14px/1.4 system-ui, sans-serif; color: #e6e6ef;
-        background: linear-gradient(#0d0d14cc, #0d0d1400);
-        pointer-events: none;
+        background: #0d0d14;
+        border-bottom: 1px solid #23232f;
       }
-      #chrome h1 { margin: 0; font-size: 15px; font-weight: 600; }
-      #chrome p { margin: 0; color: #a3a3b3; }
-      #chrome a { color: #9fd3ff; pointer-events: auto; }
+      #chrome h1 { margin: 0; font-size: 15px; font-weight: 600; white-space: nowrap; }
+      #chrome p {
+        margin: 0; color: #a3a3b3; flex: 1 1 auto; min-width: 0;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      #chrome a { color: #9fd3ff; white-space: nowrap; }
+      /* On a phone the sentence goes; the title and the link stay. */
+      @media (max-width: 640px) { #chrome p { display: none; } #chrome a { margin-left: auto; } }
 
       #loading, #unsupported {
         position: fixed; inset: 0; z-index: 1;

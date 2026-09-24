@@ -10,7 +10,7 @@ platform-specific.
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli   # a version matching wasm-bindgen 0.2
+cargo install wasm-bindgen-cli --version 0.2.127   # exactly the version in Cargo.lock
 ```
 
 A browser with **WebGPU**: Chrome or Edge 113+, or Firefox with WebGPU enabled. WebGPU
@@ -23,11 +23,9 @@ requires a **secure context** (`https` or `localhost`).
 #    131: opt-level=z, lto, codegen-units=1, panic=abort, strip).
 cargo build -p frus-hello --target wasm32-unknown-unknown --profile web-release
 
-# 2) Generate the JS glue and the bound .wasm into web/pkg/.
-wasm-bindgen \
-  --target web --no-typescript \
-  --out-dir crates/frus-hello/web/pkg \
-  target/wasm32-unknown-unknown/web-release/frus_hello.wasm
+# 2) Generate the JS glue and the bound .wasm into web/pkg/. One line, so that it also runs in
+#    PowerShell, where a trailing `\` is a syntax error.
+wasm-bindgen --target web --no-typescript --out-dir crates/frus-hello/web/pkg target/wasm32-unknown-unknown/web-release/frus_hello.wasm
 ```
 
 ### Size (milestone 131)
