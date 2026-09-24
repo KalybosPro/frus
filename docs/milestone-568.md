@@ -123,6 +123,23 @@ three silent bugs (milestones 477–495).
   shell, the rest of the workspace and the doctests besides); the shell checked for
   `wasm32-unknown-unknown`; and `frus-hello` for Android at 11,343,144 bytes, 87% of the
   budget. Goldens are advisory and were not run — nothing here paints into a golden.
-- Not run on a device at the time of writing: the phone was not attached. What the hold, the
-  handles and the bar do together under a finger — the press-on-the-bar path in particular —
-  lives in the shell's event loop, which no test reaches, and is what a device has to confirm.
+- **On a device**, the demo built from this branch (release, arm64) on a Huawei STK-L21,
+  Android 10, SwiftKey, in the task list's *add* field, `Hello world` typed:
+  - a hold on `Hello` selected it, put two handles under it and floated **Cut, Copy, Select all**
+    above it — no Paste, the clipboard being empty;
+  - **Copy** put the bar and the handles away and collapsed the selection to a caret after the
+    word, and the keyboard's own clipboard strip then offered `Hello`: it was on the system
+    clipboard;
+  - a hold on `world` now floated **Cut, Copy, Paste, Select all**, and **Paste** replaced the
+    word: `Hello Hello`;
+  - a hold and **Select all** selected the whole text and left the bar open with **Cut, Copy,
+    Paste** — no Select all, since everything was selected;
+  - a handle **held down and dragged** left: the bar was **away** and the selection followed the
+    handle; the finger lifted, the bar came back, with Select all again;
+  - a press on the page **elsewhere** put the bar and handles away and unfocused the field;
+  - a hold on `Hello` and **Cut** left `Hello`, caret at the start, bar closed.
+  No panic in the log at any point. The press on the bar, which lives in the shell's event loop
+  and no test reaches, is what this confirms.
+- **Not seen on a device:** the bar *below* the selection (nothing was near the top), an
+  application's own item, a masked field (the demo has none in this screen), and the
+  right-click, which is a desktop path and was not run on one.
