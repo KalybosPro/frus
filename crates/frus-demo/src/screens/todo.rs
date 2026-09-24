@@ -618,29 +618,35 @@ impl HomeState {
         // The same declaration the bottom bar reads, so the menu cannot name a section the
         // bar has not got, or call it something else.
         let sections = sections(active);
+        // **It scrolls.** The list is longer than a short window — a phone turned sideways, a
+        // browser tab — and a column that only lays out its children simply ran off the bottom
+        // of the panel, its last entries out of reach. The panel is the window's height, so the
+        // scroll area takes that height and the content scrolls inside it.
         SafeArea::new(
-            Container::new().padding(16.0).child(
-                column![
-                    text("frus").size(22.0),
-                    text("Navigation").size(13.0).color(theme.muted),
-                    Divider::new(),
-                    entry(sections[0].label(), 0),
-                    entry(sections[1].label(), 1),
-                    entry(sections[2].label(), 2),
-                    Divider::new(),
-                    text(format!("{active} task(s) pending"))
-                        .size(14.0)
-                        .color(theme.muted),
-                    link("Settings →", "/settings"),
-                    link("Sign-up wizard →", "/wizard"),
-                    link("Editable grid →", "/grid"),
-                    link("Charts →", "/charts"),
-                    link("Data table →", "/data"),
-                    link("Guided tour →", "/tour"),
-                    link("Draggable sheet →", "/sheet"),
-                    link("Kanban board →", "/board"),
-                ]
-                .gap(12.0),
+            SingleChildScrollView::new().flex(1.0).child(
+                Container::new().padding(16.0).child(
+                    column![
+                        text("frus").size(22.0),
+                        text("Navigation").size(13.0).color(theme.muted),
+                        Divider::new(),
+                        entry(sections[0].label(), 0),
+                        entry(sections[1].label(), 1),
+                        entry(sections[2].label(), 2),
+                        Divider::new(),
+                        text(format!("{active} task(s) pending"))
+                            .size(14.0)
+                            .color(theme.muted),
+                        link("Settings →", "/settings"),
+                        link("Sign-up wizard →", "/wizard"),
+                        link("Editable grid →", "/grid"),
+                        link("Charts →", "/charts"),
+                        link("Data table →", "/data"),
+                        link("Guided tour →", "/tour"),
+                        link("Draggable sheet →", "/sheet"),
+                        link("Kanban board →", "/board"),
+                    ]
+                    .gap(12.0),
+                ),
             ),
         )
     }

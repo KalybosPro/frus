@@ -63,6 +63,26 @@ Not touched, because they are widths of *content* and not of the screen: the Set
 showcase samples (`SHOWCASE_MAX`), the sign-up wizard's fields (360 px), and a 560 px cap in
 `parts.rs`.
 
+## The drawer's list did not scroll
+
+The demo's navigation list — three sections and eight screens — was a column that laid out its
+children and nothing more. In a window shorter than the list (a phone on its side, a browser tab,
+the 520-px window this was found in) the last entries ran off the bottom of the panel with no way to
+bring them back.
+
+**Fix.** The list is inside a `SingleChildScrollView` that takes the panel's height
+(`flex(1.0)`); the panel is the window's height, so the content scrolls inside it. Seen in headless
+Edge at 420 by 520: the panel shows down to *Editable grid*; six wheel notches later it shows down
+to *Kanban board*, the last entry. In a window tall enough for the whole list there is nothing to
+scroll and it looks as it did.
+
+**Test.** `the_drawers_list_scrolls_when_the_window_is_too_short_for_it` opens the drawer in a
+411 by 400 window and asks for the scroll area under the list — the *drawer's own*, narrower than
+the window, and not the page's behind it — and that it has more to scroll than it shows; in a
+411 by 1400 window there is nothing to scroll and the last entry is on screen. Run against the code
+without the fix, it fails; its first draft passed either way, because it found the page's own scroll
+area behind the drawer, which is why it now insists on the narrower one.
+
 ## The drawer came from the wrong side
 
 The demo's hamburger is at the **start** of the app bar, and the drawer it opens slid in from the
@@ -77,7 +97,7 @@ screenshots were looked at again, and the panel was on the right there too.
 
 ## Verification
 
-The demo's own tests, 75, pass. The rest is what only a browser shows: at 420 by 800 the drawer opens from the left, whole,
+The demo's own tests, 76, pass. The rest is what only a browser shows: at 420 by 800 the drawer opens from the left, whole,
 with every destination; before, at the same size, none of it was visible. On the phone (Huawei STK-L21,
 Android 10, the demo built from this branch): the menu button opens the drawer **from the
 left**, with every destination, and a tap on the dimmed page beside it closes it and returns
