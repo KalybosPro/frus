@@ -13,6 +13,12 @@ any release may break.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-24
+
+A short release, cut so that what is uploaded to crates.io is not the `0.2.0` tag: master had
+moved on (web accessibility) and the crates gained their publishing metadata, and a version
+number on crates.io cannot be rewritten. Nothing else changed in kind since 0.2.0.
+
 - **Ready to publish, and not published** (J565, first half of #13). Ten crates carry
   `repository`, `documentation`, `keywords` and `categories`, and every path dependency between
   them a `version`; `frus-demo`, `frus-fetch-example`, `frus-hello` and `frus-transforms` join
@@ -5102,6 +5108,7 @@ For releases, use this shape:
 ### Security
 -->
 
-[Unreleased]: https://github.com/KalybosPro/frus/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/KalybosPro/frus/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/KalybosPro/frus/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/KalybosPro/frus/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/KalybosPro/frus/releases/tag/v0.1.0

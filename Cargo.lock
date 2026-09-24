@@ -1298,7 +1298,7 @@ dependencies = [
 
 [[package]]
 name = "frus"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frus-shell",
  "frus-text",
@@ -1307,7 +1307,7 @@ dependencies = [
 
 [[package]]
 name = "frus-bench"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "criterion",
  "frus-core",
@@ -1318,14 +1318,14 @@ dependencies = [
 
 [[package]]
 name = "frus-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bytemuck",
 ]
 
 [[package]]
 name = "frus-demo"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "frus-image",
@@ -1341,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "frus-fetch-example"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frus",
  "wasm-bindgen",
@@ -1349,7 +1349,7 @@ dependencies = [
 
 [[package]]
 name = "frus-gpu"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -1364,7 +1364,7 @@ dependencies = [
 
 [[package]]
 name = "frus-hello"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frus",
  "wasm-bindgen",
@@ -1372,7 +1372,7 @@ dependencies = [
 
 [[package]]
 name = "frus-image"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frus-core",
  "image",
@@ -1380,7 +1380,7 @@ dependencies = [
 
 [[package]]
 name = "frus-l10n"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fluent-bundle",
  "unic-langid",
@@ -1388,7 +1388,7 @@ dependencies = [
 
 [[package]]
 name = "frus-layout"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frus-core",
  "taffy",
@@ -1396,7 +1396,7 @@ dependencies = [
 
 [[package]]
 name = "frus-shell"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -1430,7 +1430,7 @@ dependencies = [
 
 [[package]]
 name = "frus-test"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frus-core",
  "frus-gpu",
@@ -1440,7 +1440,7 @@ dependencies = [
 
 [[package]]
 name = "frus-text"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "cosmic-text",
  "frus-core",
@@ -1448,7 +1448,7 @@ dependencies = [
 
 [[package]]
 name = "frus-transforms"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "frus-core",
@@ -1459,7 +1459,7 @@ dependencies = [
 
 [[package]]
 name = "frus-widgets"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frus-core",
  "frus-image",
