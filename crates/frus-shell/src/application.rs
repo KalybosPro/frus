@@ -281,7 +281,8 @@ pub trait Application {
         "frus".to_string()
     }
 
-    /// The window's desired initial **logical** size; `None` for the system default.
+    /// The window's desired initial **logical** size; `None` for the system default. Ignored on
+    /// the Web, where the page decides how big the canvas is.
     fn window_size(&self) -> Option<(f32, f32)> {
         None
     }

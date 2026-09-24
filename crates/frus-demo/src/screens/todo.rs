@@ -458,7 +458,10 @@ impl State for HomeState {
             // `NavScaffold` — the rail at a wider size all read the same declaration, so
             // there is nowhere for the three to drift apart. Milestone 473.
             .destinations(sections(active))
-            .end_drawer(
+            // The **start** drawer: the menu button that opens it is at the start of the bar,
+            // so the panel comes from there. It was an `end_drawer`, which slid in from the
+            // opposite edge to the button that had asked for it.
+            .drawer(
                 self.drawer_menu(cx, theme, active),
                 self.drawer_open,
                 toggle_drawer,

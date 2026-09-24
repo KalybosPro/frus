@@ -8,10 +8,20 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 568 so far, each documenting the objective, the alternatives
+> record — one per step, 569 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The web demo fills its window, and the drawer opens from the side of its button** (J569).
+  Two faults found using the demo, both older than the selection bar. On the Web the canvas
+  stayed 900 by 680 px in any window: the shell asked winit for the size the application named,
+  winit wrote it **inline** on the canvas, and an inline style outranks the page's own CSS
+  (`canvas { width: 100vw }`). In a phone-sized browser the application was cropped and its
+  drawer fell off the edge of what could be seen. The size is now a desktop request; on the Web
+  the page decides, and the canvas follows the window as it is resized. And the demo's
+  navigation drawer was an `end_drawer`, sliding in from the edge **opposite** the menu button
+  that opened it, on every platform; it is the start drawer now.
 
 - **The bar over a selection** (J568, second half of #23). After a hold selects a word, and
   after a handle has been dragged, the field floats **Cut, Copy, Paste and Select all** over
