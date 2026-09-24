@@ -534,6 +534,10 @@ fn hash_status<H: Hasher>(s: &Status, h: &mut H) {
     s.cursor.hash(h);
     s.selection.hash(h);
     s.composing.hash(h);
+    // Both change what a field floats over itself without touching its selection: a bar
+    // that opens on a selection already made, handles put away by a press.
+    s.handles.hash(h);
+    s.toolbar.hash(h);
     quant(s.hover_progress).hash(h);
     quant(s.focus_progress).hash(h);
     quant(s.press_progress).hash(h);
@@ -603,6 +607,12 @@ pub struct Ui<Msg = crate::callback::Callback> {
     long_presses: Vec<Hit<Msg>>,
     /// Overlay dismissal messages, from the bottom to the **top**.
     dismisses: Vec<Msg>,
+    /// The buttons of a selection bar that carry no message, and the editing action each
+    /// performs (milestone 568) — what the shell resolves a press on one to.
+    edit_actions: Vec<(WidgetId, crate::EditAction)>,
+    /// The boxes selection bars were placed in this frame: a press inside one is a press
+    /// **on the bar**, which must not put the selection it acts on away.
+    toolbars: Vec<Rect>,
     focusables: Vec<Focusable>,
     /// **Focus scope**: index of the topmost modal overlay's first focusable —
     /// Tab/arrows/click-to-focus are trapped from there on (`None` = no modal, every
@@ -732,6 +742,40 @@ impl<Msg: Clone> Ui<Msg> {
             .iter()
             .find(|hit| hit.id == id)
             .and_then(|hit| hit.msg.clone())
+    }
+
+    /// The editing action the button `id` of a selection bar performs, for a button that
+    /// carries no message (Cut, Copy, Paste, Select all — see [`crate::EditAction`]). The
+    /// shell holds the clipboard and the editing state, so it is the shell that performs it.
+    pub fn edit_action_for(&self, id: WidgetId) -> Option<crate::EditAction> {
+        self.edit_actions
+            .iter()
+            .find(|(button, _)| *button == id)
+            .map(|(_, action)| *action)
+    }
+
+    /// Whether the target `id` is one **on** a selection bar shown this frame — the click of
+    /// an assistive technology names its target by identity, not by where a pointer is, so
+    /// this is the identity-side counterpart of [`toolbar_contains`](Self::toolbar_contains).
+    pub fn hit_is_on_toolbar(&self, id: WidgetId) -> bool {
+        self.hits
+            .iter()
+            .rev()
+            .find(|hit| hit.id == id)
+            .is_some_and(|hit| {
+                self.toolbars.iter().any(|bar| {
+                    bar.contains(Point::new(
+                        hit.rect.x + hit.rect.width * 0.5,
+                        hit.rect.y + hit.rect.height * 0.5,
+                    ))
+                })
+            })
+    }
+
+    /// Whether `point` is inside a selection bar shown this frame — which a press must not
+    /// treat as a press elsewhere.
+    pub fn toolbar_contains(&self, point: Point) -> bool {
+        self.toolbars.iter().any(|bar| bar.contains(point))
     }
 
     /// Dismissal message of the **topmost** overlay (for Escape).
@@ -2151,6 +2195,8 @@ struct Builder<'a, Msg> {
     hits: Vec<Hit<Msg>>,
     long_presses: Vec<Hit<Msg>>,
     dismisses: Vec<Msg>,
+    edit_actions: Vec<(WidgetId, crate::EditAction)>,
+    toolbars: Vec<Rect>,
     focusables: Vec<Focusable>,
     /// Start of the topmost modal overlay's focus scope.
     focus_scope_start: Option<usize>,
@@ -3260,6 +3306,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
         }
         self.draw_focus_ring(draw_rect, &status, widget);
+        if let Some(can_paste) = status.toolbar {
+            self.push_selection_toolbar(widget, id, draw_rect, clip, &status, can_paste);
+        }
 
         // A shared element is recorded **whether or not it is on screen**: half way
         // through a transition the one being left behind has usually slid off the edge,
@@ -3331,6 +3380,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     msg: Some(msg),
                     xform: None,
                 });
+            }
+            if let Some(action) = widget.edit_action() {
+                self.edit_actions.push((id, action));
             }
             if widget.draggable() {
                 self.draggables.push((id, visible));
@@ -4546,6 +4598,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 status.composing = edit.composing;
             }
             status.handles = self.runtime.selection_handles == Some(id);
+            status.toolbar = self
+                .runtime
+                .selection_toolbar
+                .filter(|mark| mark.id == id)
+                .map(|mark| mark.can_paste);
             status.caret_hidden = self.runtime.caret_hidden;
         }
         status
@@ -4720,6 +4777,64 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         );
     }
 
+    /// Floats field `id`'s **selection bar** over everything, when the shell has marked it as
+    /// showing (milestone 568): asks the field for the bar its situation calls for, and for
+    /// the box to place it against, and defers it like any other overlay.
+    ///
+    /// The three conditions are read where they are true — the selection from the retained
+    /// edit, the text from the widget, the clipboard from the mark the shell set when the
+    /// bar opened — so they are the same ones the field's default list is decided by.
+    fn push_selection_toolbar(
+        &mut self,
+        widget: &'a dyn Widget<Msg>,
+        id: WidgetId,
+        draw_rect: Rect,
+        clip: Rect,
+        status: &Status,
+        can_paste: bool,
+    ) {
+        let Some(edit) = self.runtime.edits.get(&id).copied() else {
+            return;
+        };
+        let Some(local) = widget.selection_anchor(draw_rect.width, &edit, status.scroll_y) else {
+            return;
+        };
+        let anchor = local.translate(draw_rect.x, draw_rect.y);
+        // The bar goes with what it points at: a selection scrolled out of the region it is
+        // drawn in takes its bar with it, rather than leaving it floating over nothing.
+        let seen = anchor.x + anchor.width >= clip.x
+            && anchor.x <= clip.x + clip.width
+            && anchor.y + anchor.height > clip.y
+            && anchor.y < clip.y + clip.height;
+        if !seen {
+            return;
+        }
+        let len = widget.text_value().map_or(0, |text| text.chars().count());
+        let selection = edit
+            .selection_range()
+            .map(|(start, end)| (start.min(len), end.min(len)))
+            .filter(|(start, end)| start < end);
+        let context = crate::ToolbarContext {
+            has_selection: selection.is_some(),
+            can_paste,
+            all_selected: len == 0 || selection == Some((0, len)),
+        };
+        let Some(content) = widget.selection_toolbar(context) else {
+            return;
+        };
+        self.overlays.push((
+            content,
+            id.toolbar(context.variant()),
+            anchor,
+            Placement::Selection,
+            None,
+            1.0,
+            false,
+            None,
+            self.theme.clone(),
+        ));
+    }
+
     /// Processes the deferred overlays: sub-layout, positioning and rendering **above**
     /// everything (their clickable areas win). May spawn further overlays (nested portals).
     fn process_overlays(&mut self) {
@@ -4807,6 +4922,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     (self.available.height - size.height) * 0.5,
                 ),
                 Placement::Tooltip => (anchor_x, anchor.y - size.height - 6.0),
+                // The bar over a selection: centred on it, above or below, inside the window.
+                Placement::Selection => crate::selectiontoolbar::place(
+                    anchor,
+                    Size::new(size.width, size.height),
+                    window,
+                    crate::textinput::HANDLE_SIZE,
+                ),
                 // `Left` = a drawer on the **start** side; in RTL, start = the right.
                 Placement::Left if self.rtl() => (from_right, 0.0),
                 Placement::Left => (from_left, 0.0),
@@ -4902,6 +5024,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             );
             if modal || traps {
                 self.focus_scope_start = Some(self.focusables.len());
+            }
+
+            // A bar over a selection: where it ended up, so that a press on it is known for
+            // one — see [`Ui::toolbar_contains`].
+            if placement == Placement::Selection {
+                self.toolbars
+                    .push(Rect::new(pos.0, pos.1, size.width, size.height));
             }
 
             let mut index = 0;
@@ -5147,6 +5276,8 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         hits: Vec::new(),
         long_presses: Vec::new(),
         dismisses: Vec::new(),
+        edit_actions: Vec::new(),
+        toolbars: Vec::new(),
         focusables: Vec::new(),
         focus_scope_start: None,
         scrollables: Vec::new(),
@@ -5223,6 +5354,8 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         hits: builder.hits,
         long_presses: builder.long_presses,
         dismisses: builder.dismisses,
+        edit_actions: builder.edit_actions,
+        toolbars: builder.toolbars,
         focusables: builder.focusables,
         focus_scope_start: builder.focus_scope_start,
         scrollables: builder.scrollables,
@@ -7061,6 +7194,332 @@ mod tests {
         assert_eq!(keyed.selection_handles(200.0, &edit, 0.0), direct);
         assert_eq!(responsive.selection_handles(200.0, &edit, 0.0), direct);
         assert_eq!(boxed.selection_handles(200.0, &edit, 0.0), direct);
+    }
+
+    /// The tree the selection-bar tests share: a field with `spacer` px of room above it, so
+    /// the bar has somewhere to go above the selection (or not, at 0).
+    fn bar_tree(spacer: f32, value: &str) -> impl Widget<Msg> {
+        Flex::column()
+            .width(300.0)
+            .height(400.0)
+            .child(Container::new().width(300.0).height(spacer))
+            .child(
+                TextField::new(value.to_string())
+                    .width(200.0)
+                    .on_input(Msg::Edited),
+            )
+    }
+
+    /// The identity of the field in [`bar_tree`].
+    fn bar_field_id(tree: &impl Widget<Msg>) -> WidgetId {
+        let ui = build_ui(
+            tree,
+            Size::new(300.0, 400.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let id = ui.focusable_ids().next().expect("the field");
+        id
+    }
+
+    /// A frame with the field's bar open: `edit` selected, the runtime's mark saying
+    /// `can_paste`, and the field focused and marked as the two flags say.
+    fn bar_frame(
+        tree: &impl Widget<Msg>,
+        edit: Edit,
+        can_paste: bool,
+        focused: bool,
+        marked: bool,
+    ) -> Ui<Msg> {
+        let id = bar_field_id(tree);
+        let mut rt = Runtime::default();
+        rt.edits.insert(id, edit);
+        rt.input.focused = focused.then_some(id);
+        rt.selection_toolbar = marked.then_some(crate::runtime::ToolbarMark { id, can_paste });
+        build_ui(tree, Size::new(300.0, 400.0), &rt, &Theme::default())
+    }
+
+    fn selected(cursor: usize, anchor: Option<usize>) -> Edit {
+        Edit {
+            cursor,
+            anchor,
+            composing: None,
+        }
+    }
+
+    /// The editing actions a finger can reach on the bar, found the way a finger finds
+    /// them: pressing along a line through the bar and asking what is there.
+    fn reachable_actions(ui: &Ui<Msg>) -> Vec<crate::EditAction> {
+        let Some(bar) = ui.toolbars.first().copied() else {
+            return Vec::new();
+        };
+        let mut found = Vec::new();
+        let mut x = bar.x + 1.0;
+        while x < bar.x + bar.width {
+            let at = Point::new(x, bar.y + bar.height * 0.5);
+            if let Some(action) = ui.hit(at).and_then(|id| ui.edit_action_for(id)) {
+                if !found.contains(&action) {
+                    found.push(action);
+                }
+            }
+            x += 2.0;
+        }
+        found
+    }
+
+    fn sorted_actions(mut actions: Vec<crate::EditAction>) -> Vec<crate::EditAction> {
+        actions.sort_by_key(|action| format!("{action:?}"));
+        actions
+    }
+
+    /// **The bar floats above a selection** (milestone 568): a focused field the shell has
+    /// marked, with a word selected and something on the clipboard, gets Cut, Copy, Paste and
+    /// Select all — in a box **above** the field, and each one a target a press can find.
+    #[test]
+    fn a_marked_field_floats_its_selection_bar_above_it() {
+        use crate::EditAction::{Copy, Cut, Paste, SelectAll};
+        let tree = bar_tree(200.0, "hello world");
+        let ui = bar_frame(&tree, selected(11, Some(6)), true, true, true);
+        assert_eq!(ui.toolbars.len(), 1, "one bar");
+        let bar = ui.toolbars[0];
+        // Above the **selection**, a gap clear of it: not above the field, whose top edge a
+        // bar over a line of text a few px down may overlap.
+        let field = ui.widget_rect(bar_field_id(&tree)).expect("the field");
+        let selection = Widget::<Msg>::selection_anchor(
+            &TextField::<Msg>::new("hello world").width(200.0),
+            field.width,
+            &selected(11, Some(6)),
+            0.0,
+        )
+        .expect("a selection box");
+        let gap = field.y + selection.y - (bar.y + bar.height);
+        assert!(
+            (gap - crate::selectiontoolbar::GAP).abs() < 0.01,
+            "the bar ends {gap} px above the selection: {bar:?}, selection at {selection:?} in {field:?}"
+        );
+        assert!(
+            bar.x >= 0.0 && bar.x + bar.width <= 300.0,
+            "inside the window"
+        );
+        assert_eq!(
+            sorted_actions(reachable_actions(&ui)),
+            sorted_actions(vec![Cut, Copy, Paste, SelectAll])
+        );
+    }
+
+    /// With no room above the field, the bar goes **below** the selection — clear of the
+    /// handles that hang there.
+    #[test]
+    fn with_no_room_above_the_bar_goes_below_the_field() {
+        let tree = bar_tree(0.0, "hello world");
+        let ui = bar_frame(&tree, selected(11, Some(6)), true, true, true);
+        let bar = *ui.toolbars.first().expect("a bar");
+        let field = ui.widget_rect(bar_field_id(&tree)).expect("the field");
+        assert!(
+            bar.y >= field.y + field.height * 0.5,
+            "below the selection's line: bar {bar:?}, field {field:?}"
+        );
+    }
+
+    /// **Only a marked, focused field shows its bar**: the same selection unmarked (made
+    /// with a mouse or the keyboard) shows none, and neither does a marked field that lost
+    /// the focus.
+    #[test]
+    fn the_bar_shows_only_for_the_marked_focused_field() {
+        let tree = bar_tree(200.0, "hello world");
+        let edit = selected(11, Some(6));
+        let shown = |focused, marked| bar_frame(&tree, edit, true, focused, marked).toolbars.len();
+        assert_eq!(shown(true, true), 1);
+        assert_eq!(shown(true, false), 0, "not marked");
+        assert_eq!(shown(false, true), 0, "a field left behind");
+    }
+
+    /// **The list follows the three conditions**: nothing selected offers Paste and Select
+    /// all; everything selected offers Cut and Copy; and a field with nothing in it and
+    /// nothing to paste has no bar at all.
+    #[test]
+    fn the_bar_offers_what_the_situation_allows() {
+        use crate::EditAction::{Copy, Cut, Paste, SelectAll};
+        let tree = bar_tree(200.0, "hello world");
+        // A caret, no selection, something to paste.
+        let caret = bar_frame(&tree, selected(3, None), true, true, true);
+        assert_eq!(
+            sorted_actions(reachable_actions(&caret)),
+            sorted_actions(vec![Paste, SelectAll])
+        );
+        // A caret and an empty clipboard: only Select all.
+        let bare = bar_frame(&tree, selected(3, None), false, true, true);
+        assert_eq!(reachable_actions(&bare), vec![SelectAll]);
+        // Everything selected (`usize::MAX` is "the end", as Select all leaves it).
+        let all = bar_frame(&tree, selected(usize::MAX, Some(0)), false, true, true);
+        assert_eq!(
+            sorted_actions(reachable_actions(&all)),
+            sorted_actions(vec![Cut, Copy])
+        );
+        // An empty field with nothing to paste has nothing to offer.
+        let empty = bar_tree(200.0, "");
+        let nothing = bar_frame(&empty, selected(0, None), false, true, true);
+        assert!(nothing.toolbars.is_empty());
+    }
+
+    /// A press on the bar is known for one — the shell must not treat it as a press
+    /// elsewhere, which puts the selection away.
+    #[test]
+    fn a_press_on_the_bar_is_a_press_on_the_bar() {
+        let tree = bar_tree(200.0, "hello world");
+        let ui = bar_frame(&tree, selected(11, Some(6)), true, true, true);
+        let bar = ui.toolbars[0];
+        assert!(ui.toolbar_contains(Point::new(bar.x + 3.0, bar.y + 3.0)));
+        assert!(!ui.toolbar_contains(Point::new(bar.x - 5.0, bar.y - 5.0)));
+        let unmarked = bar_frame(&tree, selected(11, Some(6)), true, true, false);
+        assert!(!unmarked.toolbar_contains(Point::new(bar.x + 3.0, bar.y + 3.0)));
+    }
+
+    /// The same, **by identity** — how an assistive technology names what it clicks: a button
+    /// of the bar is on the bar, the field it acts on is not.
+    #[test]
+    fn a_target_named_by_identity_is_on_the_bar_or_not() {
+        let tree = bar_tree(200.0, "hello world");
+        let ui = bar_frame(&tree, selected(11, Some(6)), true, true, true);
+        let bar = ui.toolbars[0];
+        let button = ui
+            .hit(Point::new(
+                bar.x + bar.width * 0.5,
+                bar.y + bar.height * 0.5,
+            ))
+            .filter(|id| ui.edit_action_for(*id).is_some())
+            .or_else(|| {
+                let mut x = bar.x + 1.0;
+                let mut found = None;
+                while x < bar.x + bar.width && found.is_none() {
+                    found = ui
+                        .hit(Point::new(x, bar.y + bar.height * 0.5))
+                        .filter(|id| ui.edit_action_for(*id).is_some());
+                    x += 2.0;
+                }
+                found
+            })
+            .expect("a button of the bar");
+        assert!(ui.hit_is_on_toolbar(button));
+        assert!(!ui.hit_is_on_toolbar(bar_field_id(&tree)));
+    }
+
+    /// **The hooks pass through the wrappers that fuse with a field** — the same three silent
+    /// bugs `Responsive` has already cost (milestones 477 to 495), for the bar's hooks.
+    #[test]
+    fn the_wrappers_that_fuse_with_a_field_pass_its_bar_on() {
+        use crate::ToolbarContext;
+        let field = || TextField::<Msg>::new("hello world").width(200.0);
+        let context = ToolbarContext {
+            has_selection: true,
+            can_paste: true,
+            all_selected: false,
+        };
+        let edit = selected(11, Some(6));
+        let count = |widget: &dyn Widget<Msg>| {
+            widget
+                .selection_toolbar(context)
+                .map(|bar| bar.children().len())
+        };
+        let direct = count(&field());
+        assert_eq!(direct, Some(4));
+        let anchor = Widget::<Msg>::selection_anchor(&field(), 200.0, &edit, 0.0);
+        assert!(anchor.is_some());
+        let keyed = crate::Keyed::new(1, field());
+        let responsive = crate::Responsive::new(crate::SizeClass::Compact).compact(field());
+        let boxed: Box<dyn Widget<Msg>> = Box::new(field());
+        assert_eq!(count(&keyed), direct);
+        assert_eq!(count(&responsive), direct);
+        assert_eq!(count(&boxed), direct);
+        assert_eq!(keyed.selection_anchor(200.0, &edit, 0.0), anchor);
+        assert_eq!(responsive.selection_anchor(200.0, &edit, 0.0), anchor);
+        assert_eq!(boxed.selection_anchor(200.0, &edit, 0.0), anchor);
+    }
+
+    /// Two fields, one marked: **one bar**, over the marked one — not one over each field
+    /// that happens to hold a selection.
+    #[test]
+    fn of_two_fields_only_the_marked_one_shows_a_bar() {
+        let tree = Flex::column()
+            .width(300.0)
+            .height(400.0)
+            .child(Container::new().width(300.0).height(150.0))
+            .child(
+                TextField::new("first field")
+                    .width(200.0)
+                    .on_input(Msg::Edited),
+            )
+            .child(
+                TextField::new("second field")
+                    .width(200.0)
+                    .on_input(Msg::Edited),
+            );
+        let theme = Theme::default();
+        let size = Size::new(300.0, 400.0);
+        let ids: Vec<WidgetId> = build_ui(&tree, size, &Runtime::default(), &theme)
+            .focusable_ids()
+            .collect();
+        assert_eq!(ids.len(), 2);
+        let mut rt = Runtime::default();
+        for id in &ids {
+            rt.edits.insert(*id, selected(5, Some(0)));
+        }
+        // Focus follows the marked field; the other holds a selection too, unfocused.
+        rt.input.focused = Some(ids[1]);
+        rt.selection_toolbar = Some(crate::runtime::ToolbarMark {
+            id: ids[1],
+            can_paste: true,
+        });
+        let ui = build_ui(&tree, size, &rt, &theme);
+        assert_eq!(ui.toolbars.len(), 1);
+        let second = ui.widget_rect(ids[1]).expect("the second field");
+        let bar = ui.toolbars[0];
+        // Above the second field's line and below the first: it belongs to the second.
+        assert!(
+            bar.y + bar.height <= second.y + second.height,
+            "{bar:?} vs {second:?}"
+        );
+        assert!(
+            bar.y > 100.0,
+            "not over the first field's row, which is at 150: {bar:?}"
+        );
+        // The bar is the *marked* field's: focus on the other one opens nothing.
+        rt.input.focused = Some(ids[0]);
+        let elsewhere = build_ui(&tree, size, &rt, &theme);
+        assert!(elsewhere.toolbars.is_empty());
+    }
+
+    /// **The paint cache tells a field with its bar open from one without** (milestone 568).
+    /// The fingerprint of a cached subtree is the statuses inside it, so two statuses that
+    /// differ only in the bar — or in the handles, which it had never held — must hash apart,
+    /// or the cache would replay the frame from before the bar opened.
+    #[test]
+    fn the_bar_and_the_handles_are_part_of_a_fields_fingerprint() {
+        let hashed = |status: &Status| {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            hash_status(status, &mut hasher);
+            hasher.finish()
+        };
+        let plain = Status::default();
+        let open = Status {
+            toolbar: Some(true),
+            ..Status::default()
+        };
+        let open_without_paste = Status {
+            toolbar: Some(false),
+            ..Status::default()
+        };
+        let handled = Status {
+            handles: true,
+            ..Status::default()
+        };
+        assert_ne!(hashed(&plain), hashed(&open), "the bar opening");
+        assert_ne!(
+            hashed(&open),
+            hashed(&open_without_paste),
+            "the clipboard emptying"
+        );
+        assert_ne!(hashed(&plain), hashed(&handled), "the handles appearing");
     }
 
     /// **A field knows the form it is part of** (milestone 512): the stops inside one

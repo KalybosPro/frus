@@ -73,7 +73,24 @@ struct Live {
     el: HtmlElement,
     clickable: bool,
     _click: Option<Closure<dyn FnMut(web_sys::Event)>>,
+    _keys: Option<Closure<dyn FnMut(web_sys::Event)>>,
     _focus: Closure<dyn FnMut(web_sys::Event)>,
+}
+
+/// A `keydown` listener for a **button**: an Enter or a Space on it is the browser's own
+/// "activate", which fires the `click` this module listens for, and must not *also* reach
+/// the shell's key handler — which would read it as a key of whatever widget has the focus.
+/// Found checking the selection bar in a browser (milestone 568): an Enter on the bar's
+/// *Select all* button reached the text field the bar acts on, and submitted it.
+fn key_listener() -> Closure<dyn FnMut(web_sys::Event)> {
+    Closure::wrap(Box::new(move |event: web_sys::Event| {
+        let activates = event
+            .dyn_ref::<web_sys::KeyboardEvent>()
+            .is_some_and(|key| matches!(key.key().as_str(), "Enter" | " "));
+        if activates {
+            event.stop_propagation();
+        }
+    }) as Box<dyn FnMut(web_sys::Event)>)
 }
 
 /// Attaches a `click` listener that queues an [`A11yAction::Click`] and **wakes the
@@ -159,9 +176,24 @@ impl A11y {
 
         let present: std::collections::HashSet<WidgetId> =
             nodes.iter().map(|(id, _, _)| *id).collect();
+        // The element that has the browser's focus, if it is one of ours: when it is taken out
+        // of the page below, the browser drops the focus on the document, and the keys that
+        // followed (an Escape, a Tab) would reach no one. Found checking the selection bar
+        // (milestone 568): activating one of its buttons replaces the bar's elements.
+        let active = self
+            .canvas
+            .owner_document()
+            .and_then(|document| document.active_element());
+        let is_active = |el: &HtmlElement| {
+            active
+                .as_ref()
+                .is_some_and(|active| active == AsRef::<web_sys::Element>::as_ref(el))
+        };
+        let mut lost_focus = false;
         self.nodes.retain(|id, live| {
             let keep = present.contains(id);
             if !keep {
+                lost_focus |= is_active(&live.el);
                 let _ = self.canvas.remove_child(&live.el);
             }
             keep
@@ -177,6 +209,7 @@ impl A11y {
                     // clickable widget needs the `<button>`, a native `Enter`/`Space`
                     // activator a `<div>` cannot offer).
                     if let Some(old) = self.nodes.remove(id) {
+                        lost_focus |= is_active(&old.el);
                         let _ = self.canvas.remove_child(&old.el);
                     }
                     if let Some(live) = self.spawn(*id, sem) {
@@ -187,7 +220,7 @@ impl A11y {
             }
         }
 
-        if focus != self.focus {
+        if focus != self.focus || lost_focus {
             self.focus = focus;
             if let Some(id) = focus {
                 if let Some(live) = self.nodes.get(&id) {
@@ -226,6 +259,12 @@ impl A11y {
                 .add_event_listener_with_callback("click", closure.as_ref().unchecked_ref());
             closure
         });
+        let keys = sem.clickable.then(|| {
+            let closure = key_listener();
+            let _ = (el.as_ref() as &web_sys::EventTarget)
+                .add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref());
+            closure
+        });
         let focus_closure = focus_listener(
             id,
             self.actions.clone(),
@@ -239,6 +278,7 @@ impl A11y {
             el,
             clickable: sem.clickable,
             _click: click,
+            _keys: keys,
             _focus: focus_closure,
         })
     }

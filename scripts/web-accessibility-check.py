@@ -77,6 +77,14 @@ class Page:
         self.call("Input.dispatchKeyEvent", type="rawKeyDown", key=key, code=code, windowsVirtualKeyCode=vk)
         self.call("Input.dispatchKeyEvent", type="keyUp", key=key, code=code, windowsVirtualKeyCode=vk)
 
+    def activate(self):
+        """A real Enter on the focused element: a keydown that **carries its character**, which is
+        what makes a browser activate a button. A bare `rawKeyDown` does not, and only ever
+        looked like it worked because the shell also read the key itself."""
+        self.call("Input.dispatchKeyEvent", type="keyDown", key="Enter", code="Enter",
+                  windowsVirtualKeyCode=13, text="\r")
+        self.call("Input.dispatchKeyEvent", type="keyUp", key="Enter", code="Enter", windowsVirtualKeyCode=13)
+
     def ax_tree(self):
         """Every node the browser's accessibility engine currently computes for the page."""
         return self.call("Accessibility.getFullAXTree")["nodes"]
@@ -176,8 +184,10 @@ def main(base):
         p.focus_backend_node(backend_id)
         p.wait(0.3)
         # The element is a real <button>: the platform itself fires `click` on Enter,
-        # the same as a screen reader's own "activate" would deliver.
-        p.press("Enter", "Enter", 13)
+        # the same as a screen reader's own "activate" would deliver. The bridge keeps that
+        # key from also reaching the shell as typing (milestone 568), so `click` is the one
+        # way in, and the Enter has to be a real one.
+        p.activate()
         p.wait(1)
         tree = p.ax_tree()
         box = p.find(tree, role="checkbox", name_contains="Wash the dog")

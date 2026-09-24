@@ -23,3 +23,6 @@ docs/new-idea.md
 
 # Goldens: comparison renders written when one fails (frus-test)
 *.actual.png
+
+# Python bytecode from the scripts/ helpers
+__pycache__/

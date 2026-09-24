@@ -118,6 +118,8 @@ web-sys = { version = "0.3", features = [
     "Node",
     "Event",
     "EventTarget",
+    # The bridge's buttons stop an Enter or a Space from reaching the shell as a key (#23).
+    "KeyboardEvent",
     "Element",
     "Response",
     "Request",

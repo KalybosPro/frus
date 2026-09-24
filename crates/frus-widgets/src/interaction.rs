@@ -63,6 +63,18 @@ impl WidgetId {
         WidgetId(h)
     }
 
+    /// Derives the identity of the **bar over a text selection** for one of its
+    /// [`ToolbarContext`](crate::ToolbarContext) variants. Each variant is a different
+    /// widget with a different list of buttons, so it needs an identity of its own: the
+    /// layout caches are kept by identity, and two lists sharing one would be measured as
+    /// whichever came first.
+    pub(crate) fn toolbar(self, variant: u8) -> WidgetId {
+        let mut h = self.0 ^ 0x13198a2e_03707344u64.wrapping_add(u64::from(variant));
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        h ^= h >> 31;
+        WidgetId(h)
+    }
+
     /// Derives a child's identity **by key** (stable whatever its position).
     /// Distinct from [`WidgetId::child`] (a different constant and shift).
     pub(crate) fn keyed(self, key: u64) -> WidgetId {
@@ -158,6 +170,10 @@ pub struct Status {
     /// The `(start, end)` range **being composed** by the IME (provisional,
     /// underlined text); `None` outside composition. In character indices.
     pub composing: Option<(usize, usize)>,
+    /// Is the field's **bar** (Cut, Copy, Paste, Select all) showing over its selection?
+    /// `Some(can_paste)` when it is — with whether the clipboard held text when it opened —
+    /// and `None` otherwise. Set by the shell, and only for the focused field.
+    pub toolbar: Option<bool>,
     /// Does the selection carry **handles**? A selection made with a finger does — a long
     /// press on a word — and one made with a mouse or the keyboard does not. Set by the
     /// shell, and only for the focused field.
@@ -247,6 +263,7 @@ impl Default for Status {
             cursor: None,
             selection: None,
             composing: None,
+            toolbar: None,
             handles: false,
             caret_hidden: false,
             drag_over: false,
@@ -295,6 +312,7 @@ impl InputState {
             cursor: None,
             selection: None,
             composing: None,
+            toolbar: None,
             handles: false,
             caret_hidden: false,
             drag_over: false,

@@ -242,6 +242,22 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
             .and_then(|w| w.selection_handles(width, edit, scroll_y))
     }
 
+    fn selection_toolbar(&self, context: crate::ToolbarContext) -> Option<&dyn Widget<Msg>> {
+        self.inner
+            .as_ref()
+            .and_then(|w| w.selection_toolbar(context))
+    }
+
+    fn selection_anchor(&self, width: f32, edit: &Edit, scroll_y: f32) -> Option<Rect> {
+        self.inner
+            .as_ref()
+            .and_then(|w| w.selection_anchor(width, edit, scroll_y))
+    }
+
+    fn edit_action(&self) -> Option<crate::EditAction> {
+        self.inner.as_ref().and_then(|w| w.edit_action())
+    }
+
     fn autofill_hints(&self) -> &[crate::AutofillHint] {
         self.inner
             .as_ref()

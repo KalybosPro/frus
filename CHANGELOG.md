@@ -8,10 +8,24 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 567 so far, each documenting the objective, the alternatives
+> record — one per step, 568 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The bar over a selection** (J568, second half of #23). After a hold selects a word, and
+  after a handle has been dragged, the field floats **Cut, Copy, Paste and Select all** over
+  its selection — above it, or below it clear of the handles, held inside the window — and a
+  right-click on a text field opens the same bar on a desktop. The list follows what is true
+  (a selection, text to paste, something left to select), and the application has the last
+  word: `TextField::selection_toolbar(|context, defaults| …)` drops an item, adds one of its own
+  (`ToolbarItem::custom`) or returns nothing for no bar. It is a real overlay through the
+  machinery menus and tooltips use, placed by a new `Placement::Selection` (a public addition
+  to the enum) against the selection's own box; a built-in button sends no message, carries an
+  `EditAction`, and the shell performs it on the field. Found on the way and fixed:
+  **Ctrl+C copied a masked field's real text**, and Ctrl+X cut it — a masked field now gives its
+  text to nobody, and a cut deletes only what it copied. A field inside a virtualised list has
+  no bar yet (a list item cannot defer an overlay). Reachable without a pointer — the context-menu key opens it, an assistive technology can press its buttons — and closed first by Back and Escape. Run on a phone (hold, Copy, Paste, Select all, a dragged handle, a press elsewhere, Cut, Back through a wizard's password field, which offers Paste only) and in a browser through the accessibility tree; using it found that Back left it open, that an AT could not press it, and two web-bridge faults — an Enter on a bridge button also reached the shell as typing (Select all submitted the field), and the focus fell to the page when the pressed button's element was replaced. The bar below the selection, an application's own item and the right-click were not run.
 
 - **Shipping only the glyphs you draw** (J567, towards #20). The guide gains the step it lacked:
   the bundled fonts off, a `pyftsubset` cut of the faces registered inside `frus::main!({ .. })`
