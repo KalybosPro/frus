@@ -5,8 +5,12 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 readme = "README.md"
+documentation = "https://docs.rs/frus-layout"
+keywords = ["layout", "flexbox", "taffy", "gui"]
+categories = ["gui"]
 
 [dependencies]
-frus-core = { path = "../frus-core" }
+frus-core = { path = "../frus-core", version = "0.2" }
 taffy.workspace = true

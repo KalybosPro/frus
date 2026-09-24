@@ -8,10 +8,19 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 564 so far, each documenting the objective, the alternatives
+> record — one per step, 565 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Ready to publish, and not published** (J565, first half of #13). Ten crates carry
+  `repository`, `documentation`, `keywords` and `categories`, and every path dependency between
+  them a `version`; `frus-demo`, `frus-fetch-example`, `frus-hello` and `frus-transforms` join
+  `frus-bench` in `publish = false`. `scripts/publish-dry-run.sh` runs
+  `cargo publish --workspace --dry-run`, which orders the crates by the dependency graph
+  (`frus-core` first, `frus` last) and builds each from its packaged tarball; it passes.
+  Nothing is uploaded — a name on crates.io cannot be taken back, so the first real
+  `cargo publish` is the maintainer's. All ten names were free on 2026-09-24.
 
 - **Accessibility on the web** (J564, #18). A screen reader can now navigate and operate the
   demo's task list on the web: every semantic node is a real, focusable element built as canvas

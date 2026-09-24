@@ -5,7 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 readme = "README.md"
+documentation = "https://docs.rs/frus-widgets"
+keywords = ["gui", "widgets", "material", "declarative", "wgpu"]
+categories = ["gui"]
 
 # The **bundled fonts** are forwarded from `frus-text` (milestone 292) so that an
 # application can drop the faces it does not ship through the facade alone:
@@ -29,10 +33,10 @@ icons-rounded = []
 icons-sharp = []
 
 [dependencies]
-frus-core = { path = "../frus-core" }
-frus-image = { path = "../frus-image", optional = true }
-frus-layout = { path = "../frus-layout" }
-frus-text = { path = "../frus-text", default-features = false }
+frus-core = { path = "../frus-core", version = "0.2" }
+frus-image = { path = "../frus-image", version = "0.2", optional = true }
+frus-layout = { path = "../frus-layout", version = "0.2" }
+frus-text = { path = "../frus-text", version = "0.2", default-features = false }
 
 [dev-dependencies]
 # Encoding a tiny PNG in-test, so the image tests carry no binary fixture.
