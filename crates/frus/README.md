@@ -55,7 +55,7 @@ icon styles. `images` (default) decodes embedded PNG and JPEG.
 
 ## Part of frus
 
-frus is not on crates.io yet; depend on it by `path` or git revision. See the
+Add it with `cargo add frus`. See the
 [workspace README](https://github.com/KalybosPro/frus#readme) and
 [the getting-started guide](https://github.com/KalybosPro/frus/blob/master/docs/getting-started.md).
 Licensed under MIT or Apache-2.0.

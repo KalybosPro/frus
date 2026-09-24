@@ -5,13 +5,42 @@ All notable changes to frus are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) — with the usual 0.x caveat that
 any release may break.
 
-> frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
-> depend on them by `path` or by git revision. For the reasoning behind any individual
+> frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
+> earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 565 so far, each documenting the objective, the alternatives
+> record — one per step, 567 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Shipping only the glyphs you draw** (J567, towards #20). The guide gains the step it lacked:
+  the bundled fonts off, a `pyftsubset` cut of the faces registered inside `frus::main!({ .. })`
+  — the one place that runs before the renderer on the desktop, Android and the web, which the
+  guide had not said. Measured on the template's counter, release, `arm64-v8a`: 5.20 MB by
+  default, 4.17 MB with `bundled-sans` alone, **3.45 MB** with two Latin cuts of 43 kB, checked
+  on a phone. The same run found that a character outside the subset is drawn as a box, and that
+  the template's own `−` button was one until U+2212 was added. No code changed; the tool
+  (a declared range file, a fallback that names the missing character) is what is left of #20.
+
+- **On crates.io** (J566, second half of #13). The ten library crates were published at 0.2.1 on
+  2026-09-24, from the `v0.2.1` tag. The `cargo generate` template drops its `{{frus_path}}`
+  question and depends on `frus = "0.2"`; a project generated from it was built against the
+  published crates. The README (both languages), the getting-started guide, `SECURITY.md` and
+  the roadmap stop saying nothing is published; the guide gains a short section on building a
+  generated project against a checkout (`[patch.crates-io]` on all ten crates). The `frus`
+  crate's own README, which is its crates.io page, still says "not on crates.io yet" in 0.2.1
+  and is corrected here, for the next release. crates.io's limit on new crates (five, then one
+  per ten minutes) and Cargo's refusal to resume `--workspace` after a partial publish are
+  written down in the milestone note.
+
+- **The README's web row caught up** (J566). It still said the clipboard and accessibility were
+  "not wired up" on the web — the clipboard has worked since milestone 526 and accessibility since
+  564. Only live-reload is missing there, and the contributor table loses the row that asked for
+  the other two.
+
+- **Copy-paste snippets name a version that exists** (J566). Seven snippets — the guide's font
+  example, the manifests' comments on the `bundled-*` and icon features, two doc comments —
+  said `frus = { version = "0.1", .. }`, a version that was never published; they say `0.2`.
 
 ## [0.2.1] - 2026-09-24
 

@@ -6,6 +6,3 @@
 # (From a remote repository: `cargo generate --git <url> templates/app`.)
 [template]
 description = "A minimal frus application (counter)"
-
-[placeholders]
-frus_path = { type = "string", prompt = "Path to your frus checkout (the one containing crates/)", default = "../frus" }

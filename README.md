@@ -152,7 +152,7 @@ cargo generate --path templates/app --name my-app
 cd my-app && cargo run
 ```
 
-The template asks for the path to your frus checkout — frus is not on crates.io yet, so dependencies resolve through `path`. See [`docs/getting-started.md`](docs/getting-started.md).
+The generated project depends on the published [`frus`](https://crates.io/crates/frus) crate (`frus = "0.2"`). To work against a checkout of this repository instead, see [`docs/getting-started.md`](docs/getting-started.md).
 
 ### Android
 
@@ -222,21 +222,20 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 
 ## Project status
 
-**Pre-alpha.** The core is real and exercised by three sample apps, but the API is not stable and nothing is published to crates.io yet.
+**Pre-alpha.** The core is real and exercised by three sample apps, but the API is not stable. The crates are on [crates.io](https://crates.io/crates/frus) (0.2), and any release may break.
 
 | Platform | State | Notes |
 |---|---|---|
 | **Desktop** (Windows / Linux / macOS) | Working | winit + wgpu, clipboard, screen-reader a11y via AccessKit, dev live-reload |
 | **Android** | Working | Native activity, Vulkan, real IME (composition & swipe), insets, system bars, the system clipboard, lifecycle — validated on device |
-| **Web** (wasm + WebGPU) | Functional | Rendering, input, animation, subscriptions, async effects & `fetch`. Clipboard, a11y and live-reload are not wired up |
+| **Web** (wasm + WebGPU) | Functional | Rendering, input, animation, subscriptions, async effects & `fetch`, the clipboard (`navigator.clipboard`), and accessibility through a DOM bridge. Live-reload is not wired up |
 | **iOS / macOS native** | Not started | The shell layer is isolated, so adding a target is a contained job |
 
 **What works today:** flex/grid/wrap layout, 1D & 2D scrolling with fill-then-scroll, text input with IME, drag-and-drop reordering with live reflow, data tables, editable grids, charts, date/time pickers, dropdowns, trees, toasts, modals, drawers, navigation with spring transitions and back-gesture, an overridable theme, RTL and i18n, spring, implicit and explicit animations, a wheel picker, lifecycle, effects and subscriptions, async HTTP with typed JSON, and golden-image testing (169 reference images).
 
 **Known gaps** — these are the best places to help:
 
-- Publishing to crates.io (everything is `path`-based today).
-- Web clipboard, accessibility, and live-reload.
+- Live-reload on the web.
 - iOS and native macOS shells.
 - Text rendering edge cases, and broader golden coverage.
 - A searchable documentation site built from the design notes.
@@ -251,9 +250,7 @@ real, open, and written up with where to look and how to know you are done:
 | | |
 |---|---|
 | 🟢 Turn on `missing_docs`, crate by crate | Start with the small crates. **One crate is a whole PR.** |
-| 🟡 [Publish to crates.io](https://github.com/KalybosPro/frus/labels/help%20wanted) | The single biggest thing between the project and anyone trying it. |
 | 🟡 The overscroll stretch effect | Current Android stretches the content instead of glowing. A render-target effect, and where to start reading is written down. |
-| 🟡 Clipboard and accessibility on the web | Both exist on desktop; the web drops them on the floor. |
 | 🔴 [An iOS shell](https://github.com/KalybosPro/frus/labels/design%20first) | The architecture bets this is a contained job. Nobody has tested the bet. |
 
 🟢 good first issue · 🟡 help wanted · 🔴 design first — [all open issues](https://github.com/KalybosPro/frus/issues)

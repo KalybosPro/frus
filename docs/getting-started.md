@@ -162,10 +162,28 @@ cd my-app
 cargo run
 ```
 
-`cargo generate` asks for the **path to your frus checkout** (the one that
-contains `crates/`) — that is where the generated `Cargo.toml` points its
-dependencies, for as long as frus is unpublished. Once it is on crates.io those
-dependencies become plain `frus-shell = "0.1"`.
+The generated `Cargo.toml` has one dependency, the published `frus = "0.2"`, and asks
+nothing.
+
+### Building against a checkout
+
+To try a change to frus itself from a generated project, point **every** frus crate at
+your checkout — they are versioned together, and a local `frus` beside published
+`frus-shell` and friends is not a combination anyone tests. In the generated project's `Cargo.toml`:
+
+```toml
+[patch.crates-io]
+frus         = { path = "../frus/crates/frus" }
+frus-core    = { path = "../frus/crates/frus-core" }
+frus-gpu     = { path = "../frus/crates/frus-gpu" }
+frus-image   = { path = "../frus/crates/frus-image" }
+frus-l10n    = { path = "../frus/crates/frus-l10n" }
+frus-layout  = { path = "../frus/crates/frus-layout" }
+frus-shell   = { path = "../frus/crates/frus-shell" }
+frus-test    = { path = "../frus/crates/frus-test" }
+frus-text    = { path = "../frus/crates/frus-text" }
+frus-widgets = { path = "../frus/crates/frus-widgets" }
+```
 
 ## Android
 
@@ -354,7 +372,7 @@ Each group is a feature, all on by default. An application that ships its own fa
 or simply never draws italics or Arabic, can turn off what it does not need:
 
 ```toml
-frus = { version = "0.1", default-features = false, features = ["bundled-sans"] }
+frus = { version = "0.2", default-features = false, features = ["bundled-sans"] }
 ```
 
 | feature          | what it bundles                  | cost   |
@@ -371,12 +389,64 @@ Be careful with that last one on **Android**, though, where the platform's answe
 nothing: `fonts.xml` is not a font list an application can resolve. Dropping
 `bundled-sans` there means you must supply a face yourself, or draw no text at all.
 
-To ship your own face instead, register it before the application starts:
+To ship your own face instead, register it before the application starts. `frus::main!`
+takes an expression, so a block is the place, and it runs first on every platform —
+desktop, Android and the web:
 
 ```rust
-frus::fonts::add_font(include_bytes!("../fonts/Inter-Regular.ttf").to_vec());
-frus::fonts::set_default_family("Inter");
+frus::main!({
+    frus::fonts::add_font(include_bytes!("../fonts/Inter-Regular.ttf").to_vec());
+    frus::fonts::set_default_family("Inter");
+    FrusApp::stateful(Counter).title("my-app")
+});
 ```
+
+### Shipping only the glyphs you draw
+
+A face covers thousands of characters and an application draws a few hundred. Subsetting
+keeps those and drops the rest. Measured on the template's counter, release build for
+`arm64-v8a`, rustc 1.96.1, NDK 26.3, each number read from the file:
+
+| fonts                                                      | APK     | `libmy_app.so` |
+| ---------------------------------------------------------- | ------- | -------------- |
+| all four bundled groups (the default)                      | 5.20 MB | 11.34 MB       |
+| `bundled-sans` only                                        | 4.17 MB | 9.36 MB        |
+| no bundled font, DejaVu Sans regular + bold cut to Latin   | 3.45 MB | 7.93 MB        |
+
+The last row's two faces weigh 43 kB together instead of 1.47 MB, and the APK is a third
+smaller than the default. The web build and the desktop binary were not measured.
+
+The step, with [`fonttools`](https://github.com/fonttools/fonttools) (`pip install fonttools`),
+once per face:
+
+```sh
+# Every character written in your sources, literals included, plus Basic Latin and Latin-1.
+cat src/*.rs > used.txt
+python -m fontTools.subset DejaVuSans.ttf     --unicodes=U+0020-007E,U+00A0-00FF --text-file=used.txt     --no-hinting --notdef-outline     --output-file=fonts/DejaVuSans-Subset.ttf
+```
+
+Take the faces from `crates/frus-text/assets/` in the repository, or use your own. Then
+turn the bundled ones off (`default-features = false`) and register the result as above.
+Three things to know before you rely on it:
+
+- **The subset cannot know your runtime text.** Reading your sources finds what the interface
+  says; a name from an API, a task the user types, a translation you load later are not in
+  them. Declare the ranges they can fall in with `--unicodes`, as above for Latin-1, and add
+  the scripts your languages need. A character outside the subset is not a crash.
+- **A missing character is drawn as a box** — the face's `.notdef` glyph, which
+  `--notdef-outline` keeps, so a missing character shows while you test. In the measured build the Latin line rendered, and Greek, Japanese and Arabic each
+  became boxes.
+- **The framework draws text too.** The template's `−` button is the character U+2212, which
+  a plain Latin cut leaves out: the button drew a box until it was added. Reading your sources
+  catches this one, because the character is in `src/lib.rs`; a widget's own glyphs, in a
+  build of yours, are found by running every screen, not by reading code.
+
+Give each weight you use its own subset: the renderer asks the family for an exact weight (the
+note on the bundled sans in `frus-text` says why), so the measured build carried a regular and a
+bold cut; a regular one alone was not tried with `.bold()` text. And the name you pass
+to `set_default_family` is the one written *inside* the file — `pyftsubset` keeps it, and
+`python -c "from fontTools.ttLib import TTFont; print(TTFont('fonts/DejaVuSans-Subset.ttf')['name'].getDebugName(1))"`
+prints it. What a face's licence allows you to modify is for its licence to say.
 
 ## Testing
 

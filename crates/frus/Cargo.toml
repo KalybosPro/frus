@@ -18,7 +18,7 @@ categories = ["gui", "graphics", "wasm"]
 # ~3.4 MB of faces, about 40% of a minimal frus app once compressed into the APK, so
 # an application that ships its own can drop the ones it does not need:
 #
-#     frus = { version = "0.1", default-features = false, features = ["bundled-sans"] }
+#     frus = { version = "0.2", default-features = false, features = ["bundled-sans"] }
 #
 # Dropping one is never a panic: italic falls back to upright, a missing script falls
 # back to the sans, and a missing sans falls back to the platform's own.
@@ -27,7 +27,7 @@ categories = ["gui", "graphics", "wasm"]
 # bundled; each of these adds one more blob of artwork, which is why none is on by
 # default:
 #
-#     frus = { version = "0.1", features = ["icons-outlined"] }
+#     frus = { version = "0.2", features = ["icons-outlined"] }
 #
 # Without one, its constants do not exist and `Icons::by_name` answers `None` for its
 # names rather than quietly handing back a different drawing.

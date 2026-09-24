@@ -152,7 +152,7 @@ cargo generate --path templates/app --name my-app
 cd my-app && cargo run
 ```
 
-Le template demande le chemin de votre checkout frus — frus n'est pas encore sur crates.io, les dépendances passent donc par `path`. Voir [`docs/getting-started.md`](docs/getting-started.md).
+Le projet généré dépend de la crate publiée [`frus`](https://crates.io/crates/frus) (`frus = "0.2"`). Pour travailler contre un checkout de ce dépôt à la place, voir [`docs/getting-started.md`](docs/getting-started.md).
 
 ### Android
 
@@ -222,21 +222,20 @@ Lisez [ARCHITECTURE.md](ARCHITECTURE.md) avant votre première modification non 
 
 ## État du projet
 
-**Pré-alpha.** Le cœur est réel et exercé par trois applications d'exemple, mais l'API n'est pas stable et rien n'est publié sur crates.io.
+**Pré-alpha.** Le cœur est réel et exercé par trois applications d'exemple, mais l'API n'est pas stable. Les crates sont sur [crates.io](https://crates.io/crates/frus) (0.2), et toute version peut casser.
 
 | Plateforme | État | Notes |
 |---|---|---|
 | **Bureau** (Windows / Linux / macOS) | Fonctionnel | winit + wgpu, presse-papier, accessibilité lecteur d'écran via AccessKit, live-reload en dev |
 | **Android** | Fonctionnel | Activité native, Vulkan, IME réel (composition et swipe), insets, cycle de vie — validé sur appareil |
-| **Web** (wasm + WebGPU) | Fonctionnel | Rendu, entrée, animations, souscriptions, effets async et `fetch`. Presse-papier, a11y et live-reload non câblés |
+| **Web** (wasm + WebGPU) | Fonctionnel | Rendu, entrée, animations, souscriptions, effets async et `fetch`, presse-papiers (`navigator.clipboard`) et accessibilité par un pont DOM. Le live-reload n'est pas câblé |
 | **iOS / macOS natif** | Non démarré | La couche shell est isolée : ajouter une cible reste un chantier circonscrit |
 
 **Ce qui marche aujourd'hui :** mise en page flex/grille/wrap, défilement 1D et 2D avec fill-then-scroll, saisie de texte avec IME, glisser-déposer avec reflow en direct, tables de données, grilles éditables, graphiques, sélecteurs de date/heure, listes déroulantes, arbres, toasts, modales, tiroirs, navigation à transitions ressort et geste de retour, thème surchargeable, RTL et i18n, animations à ressort, implicites et explicites, un sélecteur à roue, cycle de vie, effets et souscriptions, HTTP asynchrone avec JSON typé, et tests par images de référence (169 images).
 
 **Manques connus** — les meilleurs points d'entrée pour aider :
 
-- Publication sur crates.io (tout passe par `path` aujourd'hui).
-- Presse-papier, accessibilité et live-reload sur le Web.
+- Live-reload sur le Web.
 - Shells iOS et macOS natif.
 - Cas limites du rendu de texte, et couverture golden plus large.
 - Un site de documentation navigable, construit à partir des notes de conception.
@@ -252,9 +251,7 @@ c'est fini :
 | | |
 |---|---|
 | 🟢 Activer `missing_docs`, crate par crate | Commencer par les petites crates. **Une seule crate fait une PR entière.** |
-| 🟡 [Publier sur crates.io](https://github.com/KalybosPro/frus/labels/help%20wanted) | Le principal obstacle entre le projet et quiconque voudrait l'essayer. |
 | 🟡 L'effet d'étirement en bout de défilement | Les Android récents étirent le contenu au lieu de le faire luire. Un effet par rendu vers texture, et le point de départ est écrit. |
-| 🟡 Presse-papiers et accessibilité sur le Web | Les deux existent sur bureau ; le Web les laisse tomber. |
 | 🔴 [Une couche iOS](https://github.com/KalybosPro/frus/labels/design%20first) | L'architecture parie que c'est un travail circonscrit. Personne n'a testé le pari. |
 
 🟢 *good first issue* · 🟡 *help wanted* · 🔴 *design first* — [toutes les issues ouvertes](https://github.com/KalybosPro/frus/issues)
