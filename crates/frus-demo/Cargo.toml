@@ -5,7 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 readme = "README.md"
+# An example application, never a crate someone depends on.
+publish = false
 
 # Library: `rlib` for the desktop binary, `cdylib` (the `.so`) for Android.
 [lib]

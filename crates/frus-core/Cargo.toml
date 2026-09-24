@@ -5,7 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 readme = "README.md"
+documentation = "https://docs.rs/frus-core"
+keywords = ["gui", "geometry", "colour", "wgpu"]
+categories = ["gui", "graphics"]
 
 [dependencies]
 bytemuck.workspace = true

@@ -5,7 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 readme = "README.md"
+documentation = "https://docs.rs/frus-shell"
+keywords = ["gui", "winit", "window", "event-loop", "wasm"]
+categories = ["gui", "wasm"]
 
 # The `net` feature turns on the cross-platform `fetch` HTTP helper: the `ureq`
 # client natively, the browser's `fetch` on the Web. Off by default, so an app that
@@ -34,8 +38,8 @@ bundled-arabic = ["frus-gpu/bundled-arabic", "frus-widgets/bundled-arabic"]
 cfg_aliases = "0.2"
 
 [dependencies]
-frus-gpu = { path = "../frus-gpu", default-features = false }
-frus-widgets = { path = "../frus-widgets", default-features = false }
+frus-gpu = { path = "../frus-gpu", version = "0.2", default-features = false }
+frus-widgets = { path = "../frus-widgets", version = "0.2", default-features = false }
 winit.workspace = true
 anyhow.workspace = true
 log.workspace = true

@@ -5,7 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 readme = "README.md"
+documentation = "https://docs.rs/frus-text"
+keywords = ["text", "shaping", "fonts", "cosmic-text", "gui"]
+categories = ["text-processing", "gui"]
 
 # The **bundled fonts** (milestone 292). They are ~3.4 MB of faces — about 40% of a
 # minimal frus app once the APK has compressed them — so each group is a feature. All
@@ -25,5 +29,5 @@ bundled-mono = []
 bundled-arabic = []
 
 [dependencies]
-frus-core = { path = "../frus-core" }
+frus-core = { path = "../frus-core", version = "0.2" }
 cosmic-text.workspace = true

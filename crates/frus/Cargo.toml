@@ -5,7 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 readme = "README.md"
+documentation = "https://docs.rs/frus"
+keywords = ["gui", "ui", "wgpu", "cross-platform", "widgets"]
+categories = ["gui", "graphics", "wasm"]
 
 # The `net` feature forwards the shell layer's HTTP `fetch` helper (see `frus::fetch`).
 # `json` (implies `net`) forwards `Request::json_body` / `send_json` (typed JSON).
@@ -44,7 +48,7 @@ icons-sharp = ["frus-widgets/icons-sharp"]
 
 # The facade only re-exports: no `cdylib` of its own. The app stays `rlib` + `cdylib`.
 [dependencies]
-frus-shell = { path = "../frus-shell", default-features = false }
-frus-widgets = { path = "../frus-widgets", default-features = false }
+frus-shell = { path = "../frus-shell", version = "0.2", default-features = false }
+frus-widgets = { path = "../frus-widgets", version = "0.2", default-features = false }
 # Directly, for `frus::fonts`: registering the application's own faces.
-frus-text = { path = "../frus-text", default-features = false }
+frus-text = { path = "../frus-text", version = "0.2", default-features = false }

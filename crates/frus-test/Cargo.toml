@@ -5,11 +5,15 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 readme = "README.md"
+documentation = "https://docs.rs/frus-test"
+keywords = ["gui", "testing", "golden", "snapshot", "headless"]
+categories = ["development-tools::testing", "gui"]
 
 [dependencies]
-frus-core = { path = "../frus-core" }
-frus-gpu = { path = "../frus-gpu" }
-frus-widgets = { path = "../frus-widgets" }
+frus-core = { path = "../frus-core", version = "0.2" }
+frus-gpu = { path = "../frus-gpu", version = "0.2" }
+frus-widgets = { path = "../frus-widgets", version = "0.2" }
 # Reading and writing the reference images, that is, the goldens.
 png = "0.17"

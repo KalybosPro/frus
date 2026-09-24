@@ -5,7 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 readme = "README.md"
+documentation = "https://docs.rs/frus-gpu"
+keywords = ["wgpu", "gpu", "2d", "renderer", "gui"]
+categories = ["rendering", "graphics"]
 
 # The **bundled fonts** are forwarded from `frus-text` (milestone 292) so that an
 # application can drop the faces it does not ship through the facade alone:
@@ -18,8 +22,8 @@ bundled-mono = ["frus-text/bundled-mono"]
 bundled-arabic = ["frus-text/bundled-arabic"]
 
 [dependencies]
-frus-core = { path = "../frus-core" }
-frus-text = { path = "../frus-text", default-features = false }
+frus-core = { path = "../frus-core", version = "0.2" }
+frus-text = { path = "../frus-text", version = "0.2", default-features = false }
 wgpu.workspace = true
 glyphon.workspace = true
 bytemuck.workspace = true

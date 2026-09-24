@@ -5,7 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 readme = "README.md"
+documentation = "https://docs.rs/frus-l10n"
+keywords = ["i18n", "l10n", "fluent", "locale", "gui"]
+categories = ["internationalization", "localization"]
 
 [dependencies]
 # Fluent (Mozilla): the Rust i18n standard. Nothing to reinvent here.
