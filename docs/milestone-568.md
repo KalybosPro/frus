@@ -154,8 +154,8 @@ the accessibility tree. It found four things no test had.
 - The routine battery, all green: `cargo fmt --all --check`; clippy `-D warnings` on the whole
   workspace, on `frus-demo --features shots`, and for `aarch64-linux-android` on the shell and
   the widgets (the Android-only lines are linted by nobody otherwise); rustdoc `-D warnings`
-  over every feature; `cargo test --workspace` (1,730 tests in `frus-widgets`, 199 in the
-  shell, the rest of the workspace and the doctests besides); the shell checked for
+  over every feature; `cargo test --workspace` (1,733 tests in `frus-widgets`, 194 in the
+  shell's library, the rest of the workspace and the doctests besides); the shell checked for
   `wasm32-unknown-unknown`; and `frus-hello` for Android at 11,343,144 bytes, 87% of the
   budget. Goldens are advisory and were not run — nothing here paints into a golden.
 - **On a device**, the demo built from this branch (release, arm64) on a Huawei STK-L21,
