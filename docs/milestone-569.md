@@ -36,10 +36,11 @@ screenshots were looked at again, and the panel was on the right there too.
 ## Verification
 
 The demo's own tests, 75, pass. The rest is what only a browser shows: at 420 by 800 the drawer opens from the left, whole,
-with every destination; before, at the same size, none of it was visible. Not run: the phone with
-the drawer on the left (the change is the demo's declaration and one line of the shell), and a
-browser at a size larger than 900 by 680, where the canvas now fills the window rather than
-stopping at 900.
+with every destination; before, at the same size, none of it was visible. On the phone (Huawei STK-L21,
+Android 10, the demo built from this branch): the menu button opens the drawer **from the
+left**, with every destination, and a tap on the dimmed page beside it closes it and returns
+to the page. Not run: a browser at a size larger than 900 by 680, where the canvas now fills
+the window rather than stopping at 900.
 
 ## Left
 
