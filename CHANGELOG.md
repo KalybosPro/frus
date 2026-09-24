@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 570 so far, each documenting the objective, the alternatives
+> record — one per step, 571 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **A quiet console on the Web** (J571). Opening the demo logged, on every load, a Chrome warning
+  that `powerPreference` is ignored on Windows (the renderer asked for it on every target; a
+  browser is asked for no preference now), a log line in French (`Adaptateur GPU`, now
+  `GPU adapter`), cosmic-text's "failed to get system locale" twice (`sys-locale` reads the
+  browser's language only with its `js` feature, on for `wasm32` in `frus-text` now), and a 404
+  for the favicon the page does not have. The console holds two info lines.
 
 - **The arrows move the caret in a field that has text** (J570). Left and right moved the *focus*
   to the next control instead, in any text field with something in it, on every platform: the
