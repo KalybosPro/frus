@@ -1,59 +1,68 @@
 [workspace]
-members = [
-    "crates/*",
-    "frus-examples/forge/frontend/forge",
-]
-exclude = ["templates"]
 resolver = "2"
+members = ["crates/*"]
+# `templates/app` is a `cargo generate` template (`{{…}}` files, not compilable):
+# never a workspace member.
+exclude = ["templates"]
 
 [workspace.package]
+edition = "2021"
+# The minimum supported Rust version (milestone 507), checked in CI by the `msrv` job.
+# The dependencies set it, not the framework: `image` and the `icu` crates behind
+# `url` ask for 1.88, and 1.87 refuses the lockfile before compiling anything. Raising
+# it is a decision, made here and in that job together.
+rust-version = "1.90"
 version = "0.2.0"
 license = "MIT OR Apache-2.0"
-edition = "2021"
-rust-version = "1.90"
 
 [workspace.dependencies]
-anyhow = "1"
-arboard = "3"
-cosmic-text = "0.19"
-env_logger = "0.11"
-glyphon = "0.12"
-log = "0.4"
-lyon = "1"
-pollster = "0.3"
-taffy = "0.7"
 wgpu = "30"
 winit = "0.30"
+taffy = "0.7"
+glyphon = "0.12"
+cosmic-text = "0.19"
+lyon = "1"
+# Image decoding (PNG/JPEG). The format list is kept short to lighten the dependency tree.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+arboard = "3"
+pollster = "0.3"
+bytemuck = { version = "1", features = ["derive"] }
+anyhow = "1"
+env_logger = "0.11"
+log = "0.4"
 
-[workspace.dependencies.bytemuck]
-version = "1"
-features = ["derive"]
-
-[workspace.dependencies.image]
-version = "0.25"
-features = [
-    "png",
-    "jpeg",
-]
-default-features = false
-
+# Dev profile: faster compiles, without making the app unpleasant to use.
 [profile.dev]
 opt-level = 1
 
+# Heavy dependencies (wgpu, naga…) stay optimised even in dev.
 [profile.dev.package."*"]
 opt-level = 3
 
+# **Release** profile: what a user actually installs (milestone 292).
+#
+# The default `cargo apk build` is a *debug* build, and on Android that means a
+# 300 MB `.so` of which ~98% is symbols nobody ships. These settings are what turn
+# it into an app: build with `--release` for anything that leaves your machine.
+#
+# `opt-level = 3` and not `"z"` on purpose: a UI framework is measured in
+# milliseconds per frame, and the size saved by optimising for size is small next to
+# what `lto` + `strip` already take off. The web has its own profile below, where
+# the trade goes the other way because the binary is *downloaded*.
 [profile.release]
-opt-level = 3
-lto = "fat"
-codegen-units = 1
-panic = "abort"
-strip = true
+opt-level = 3        # frames first
+lto = "fat"          # cross-crate inlining, and the dead code goes out with it
+codegen-units = 1    # a single unit: better optimisation, slower build
+panic = "abort"      # no unwinding tables (cargo ignores this for tests)
+strip = true         # symbols and debuginfo out of the shipped binary
 
+# **Web** profile: optimises for the SIZE of the downloaded `.wasm` (milestone 131).
+# Kept separate from the native release profile (which stays tuned for speed) — select it
+# with `cargo build --profile web-release --target wasm32-unknown-unknown`.
 [profile.web-release]
-opt-level = "z"
-lto = true
-codegen-units = 1
-panic = "abort"
 inherits = "release"
-strip = true
+opt-level = "z"      # code size first (vs "3" = speed)
+lto = true           # cross-crate inlining + aggressive dead-code elimination
+codegen-units = 1    # a single unit: better optimisation (slower build)
+panic = "abort"      # drops the panic unwinding tables
+strip = true         # removes symbols and debuginfo from the binary
