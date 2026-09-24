@@ -13,7 +13,7 @@ any release may break.
 
 ## [Unreleased]
 
-- **The web demo fills its window, and the drawer opens from the side of its button** (J569).
+- **The web demo fills its window, sits under its own header, and the drawer opens from the side of its button** (J569).
   Two faults found using the demo, both older than the selection bar. On the Web the canvas
   stayed 900 by 680 px in any window: the shell asked winit for the size the application named,
   winit wrote it **inline** on the canvas, and an inline style outranks the page's own CSS
@@ -21,7 +21,9 @@ any release may break.
   drawer fell off the edge of what could be seen. The size is now a desktop request; on the Web
   the page decides, and the canvas follows the window as it is resized. And the demo's
   navigation drawer was an `end_drawer`, sliding in from the edge **opposite** the menu button
-  that opened it, on every platform; it is the start drawer now.
+  that opened it, on every platform; it is the start drawer now. And the page's own header was
+  fixed over the top of the canvas, drawing on top of the application's app bar; it is in the
+  flow above the canvas now, one slim row.
 
 - **The bar over a selection** (J568, second half of #23). After a hold selects a word, and
   after a handle has been dragged, the field floats **Cut, Copy, Paste and Select all** over

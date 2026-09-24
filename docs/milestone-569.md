@@ -1,4 +1,4 @@
-# Milestone 569 — The web demo fills its window, and the drawer opens from its button
+# Milestone 569 — The web demo fills its window, sits under its own header, and the drawer opens from its button
 
 Not part of an issue: two faults found by using the demo across its pages, on a phone and in a
 browser, while checking the selection bar (milestone 568). Both are older than it — the same
@@ -20,6 +20,22 @@ CSS and follows it.
 says so. Measured in headless Edge with the demo built for the web: a 420 by 800 viewport gives a
 420 by 800 canvas (it was 900 by 680), and resizing the viewport to 900 by 600 and then 380 by 700
 resized the canvas with it. The same page at 1000 by 760 still has a canvas 900 by 680 on `master`.
+
+## The page's header drew on top of the application's app bar
+
+The demo's page carried a `<header>` — the title, a sentence, a link to the source — positioned
+`fixed` over the top of the canvas. The application's own app bar is at the top of the canvas, so
+on the Web the two titles and the row of buttons under them were drawn on top of each other, and
+a canvas that filled the window (above) would have been a canvas taller than what was visible
+under a floating strip.
+
+**Fix.** The page is a column: the header in the flow, one slim row, then the canvas taking
+everything that is left (`flex: 1 1 0`, `min-height: 0`), which winit follows through the
+canvas's own box. On a window under 640 px the sentence goes and the title and the link stay.
+Measured in headless Edge at three sizes, the canvas is the window less a 36-px header, and its
+backing store the same: 1270 by 590 gives 1270 by 553, 420 by 800 gives 420 by 764, 900 by 600
+gives 900 by 563. The bottom navigation, which the fixed 900 by 680 canvas had cut off in a window
+shorter than 680 px, is in view at each.
 
 ## The drawer came from the wrong side
 
@@ -44,5 +60,7 @@ the window rather than stopping at 900.
 
 ## Left
 
-- The demo's page header (the HTML title and the *Source on GitHub* link) is fixed over the top
-  of the canvas and sits over the drawer's own title. It is page chrome and was left alone.
+- The page's header is now above the canvas, and so no longer over the drawer's own title.
+- At a device pixel ratio above 1 the canvas's backing store was measured equal to its CSS size
+  in the emulated browser, which is not what a real high-density screen should give. Whether that
+  is the emulation or a blur on a real one was not looked into.
