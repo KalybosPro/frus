@@ -25,7 +25,7 @@ any release may break.
   `EditAction`, and the shell performs it on the field. Found on the way and fixed:
   **Ctrl+C copied a masked field's real text**, and Ctrl+X cut it — a masked field now gives its
   text to nobody, and a cut deletes only what it copied. A field inside a virtualised list has
-  no bar yet (a list item cannot defer an overlay). Run on a phone: hold, Copy, Paste, Select all, a handle dragged (the bar away, then back), a press elsewhere, Cut. The bar below the selection, an application's own item and the right-click were not.
+  no bar yet (a list item cannot defer an overlay). Reachable without a pointer — the context-menu key opens it, an assistive technology can press its buttons — and closed first by Back and Escape. Run on a phone (hold, Copy, Paste, Select all, a dragged handle, a press elsewhere, Cut, Back through a wizard's password field, which offers Paste only) and in a browser through the accessibility tree; using it found that Back left it open, that an AT could not press it, and two web-bridge faults — an Enter on a bridge button also reached the shell as typing (Select all submitted the field), and the focus fell to the page when the pressed button's element was replaced. The bar below the selection, an application's own item and the right-click were not run.
 
 - **Shipping only the glyphs you draw** (J567, towards #20). The guide gains the step it lacked:
   the bundled fonts off, a `pyftsubset` cut of the faces registered inside `frus::main!({ .. })`

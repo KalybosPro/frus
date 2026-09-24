@@ -31,6 +31,13 @@ over the selection, and on a desktop what a right-click opens.
 - **A right-click on a text field opens the same bar** on a desktop: it focuses the field, puts
   the caret where the click landed unless it landed inside the selection there already is, and
   opens it. A right-click on anything else puts an open bar away.
+- **Without a pointer**: the **context-menu key**, or **Shift+F10**, opens it on the focused
+  text field. The bar's buttons are in the accessibility tree (a role, a label), and an
+  assistive technology's click on one performs its action — on the field the bar is open on,
+  which an AT's *focus* on the button does not take the focus from.
+- **Back and Escape close it first**, before anything behind it: Back closes the bar, then
+  the page. On Android the keyboard takes the first Back, so a bar over a field with the
+  keyboard up needs two.
 
 ## Faults found on the way
 
@@ -82,6 +89,32 @@ identity, and two lists under one would be measured as whichever came first.
 hand) and `Box<dyn Widget>`, and a test holds all three to it — the place `Responsive` has cost
 three silent bugs (milestones 477–495).
 
+## Found by using it
+
+The bar was then used the way the app is: on the phone, across pages, and in a browser through
+the accessibility tree. It found four things no test had.
+
+- **Back left the bar open.** With the bar up, the first Back closed the keyboard (Android's, as
+  it should) and the second went to the *page*, leaving the bar over whatever was next. Back and
+  Escape now close the bar first. Confirmed: wizard's password field, Back — keyboard away, bar
+  still there; Back — bar and handles away, page kept; Back — the page.
+- **An assistive technology could see the bar and not press it.** Its click resolved to a
+  message, and a built-in button has none. It resolves to the button's action now, and an AT's
+  *focus* on a button no longer takes the focus from the field (which would have closed the bar
+  before the click).
+- **On the web, an Enter on a button also reached the shell as a key.** The browser's own
+  "activate" fires a `click`, and the same Enter went on to the shell's key handler, which read
+  it as typing in the focused field: pressing *Select all* **submitted the text field**. The
+  bridge's buttons now keep an Enter or a Space from propagating; `click` is the one way in.
+  (`scripts/web-accessibility-check.py` had pressed a button with a key event that carries no
+  character, which a browser does not activate a button with; it passed only because the shell
+  also read the key. It now sends a real Enter.)
+- **On the web, activating a bar button dropped the browser's focus on the page**, so the next
+  key — an Escape — reached no one. The button's element is replaced when the bar's list
+  changes, and the browser gives the focus to the document when the focused element leaves it.
+  The bridge now puts the focus back on the shell's focused widget when it removes the element
+  that had it.
+
 ## What it does not do
 
 - **A field in a virtualised list has no bar.** A list item is built on the fly and cannot
@@ -91,9 +124,11 @@ three silent bugs (milestones 477–495).
   promise that may prompt the reader; Paste is always offered there.
 - **The handles are still painted in the field's pass**, with the limits milestone 511 wrote
   down; the bar no longer needs them to move, but they have not moved to the overlay.
-- **Not reachable by keyboard or by a screen reader.** The buttons carry a role and a label, and
-  are not focus stops. A keyboard user has Ctrl+C/X/V/A; an assistive technology does not yet
-  have the bar.
+- **The bar's buttons are not focus stops inside the application**: a keyboard user opens the
+  bar and has Ctrl+C/X/V/A; on the web the buttons are real `<button>`s a screen reader or Tab
+  reaches. **Shift+F10 was not seen to open it in the browser check** — a synthetic key
+  carrying a modifier flag gives the page no Shift press to read, so `shift` stayed false —
+  where the context-menu key did; the rule itself is a pure function with its own test.
 - **No single handle under a caret**, no magnifier, no extending by words after the hold: still
   as 511 left them.
 - **Right to left** was not looked at: the row of buttons flows as the layout does, and nothing
@@ -140,6 +175,20 @@ three silent bugs (milestones 477–495).
   - a hold on `Hello` and **Cut** left `Hello`, caret at the start, bar closed.
   No panic in the log at any point. The press on the bar, which lives in the shell's event loop
   and no test reaches, is what this confirms.
+- **Across pages, on the same device:** the bar open, a tap on the *Stats* tab — the page
+  changes, the keyboard closes, no bar is left; back on *Tasks* the field keeps its text and no
+  bar comes back; *Home* and back into the app restores the field, the selection, the handles,
+  the bar and the keyboard as they were; the *About* page, the navigation drawer and Back out of
+  it; the *Sign-up wizard* through its two steps. In its password field a hold selected the
+  masked text and the bar offered **Paste** only — no Cut, no Copy, no Select all (everything
+  was selected). Leaving the wizard made the phone's autofill service (*Password Vault*) offer
+  to save the credentials — it had been handed the form, which is evidence for #45's open
+  question, not the offer of a saved one.
+- **In a real browser** (headless Edge over the DevTools protocol, the demo built for the web):
+  `scripts/web-selection-bar-check.py` — the context-menu key opens the bar with **Paste and
+  Select all**, activating *Select all* through the accessibility tree leaves the bar open
+  offering **Cut, Copy, Paste**, the field is not submitted, and Escape closes the bar; and
+  `scripts/web-accessibility-check.py`, still ten of ten, with a real Enter.
 - **Not seen on a device:** the bar *below* the selection (nothing was near the top), an
   application's own item, a masked field (the demo has none in this screen), and the
   right-click, which is a desktop path and was not run on one.

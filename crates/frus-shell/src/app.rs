@@ -103,6 +103,18 @@ fn clipboard_command(logical: &WinitKey, physical: PhysicalKey, ctrl: bool) -> O
     }
 }
 
+/// Whether a key press asks for the **selection bar**: the context-menu key, which a
+/// keyboard may have between Alt Gr and Ctrl, or Shift+F10, which every desktop toolkit reads
+/// the same way (milestone 568). What lets someone with no pointer — and so no hold or
+/// right-click — open it.
+fn opens_selection_bar(logical: &WinitKey, shift: bool) -> bool {
+    match logical {
+        WinitKey::Named(NamedKey::ContextMenu) => true,
+        WinitKey::Named(NamedKey::F10) => shift,
+        _ => false,
+    }
+}
+
 /// Whether `widget` takes typing, and so wants the software keyboard while it has focus.
 ///
 /// Asked of the widget (milestone 510). It used to be asked of a **caret hit test** at
@@ -1054,6 +1066,26 @@ impl<A: Application> App<A> {
         }
     }
 
+    /// What an assistive technology's click on widget `id` does: what a pointer click on it
+    /// would — its message, or, for a built-in button of the selection bar that carries none,
+    /// its editing action (milestone 568), on the field the bar is open on.
+    #[cfg(any(desktop, web))]
+    fn activate_for_assistive_tech(&mut self, id: WidgetId) {
+        if let Some(action) = self.ui.as_ref().and_then(|ui| ui.edit_action_for(id)) {
+            self.perform_edit_action(action);
+            return;
+        }
+        if let Some(msg) = self.ui.as_ref().and_then(|ui| ui.msg_for(id)) {
+            // An item of the application's own on the bar closes it, as a press does.
+            if self.ui.as_ref().is_some_and(|ui| ui.hit_is_on_toolbar(id)) {
+                self.runtime.selection_handles = None;
+                self.hide_selection_toolbar();
+            }
+            self.dispatch(msg);
+            self.request_redraw();
+        }
+    }
+
     /// Replays the actions an assistive technology asked for: an AT click activates
     /// the widget, exactly as a pointer click would, and an AT focus focuses it.
     #[cfg(desktop)]
@@ -1065,13 +1097,14 @@ impl<A: Application> App<A> {
         };
         for action in actions {
             match action {
-                A11yAction::Click(id) => {
-                    if let Some(msg) = self.ui.as_ref().and_then(|ui| ui.msg_for(id)) {
-                        self.dispatch(msg);
-                        self.request_redraw();
-                    }
-                }
+                A11yAction::Click(id) => self.activate_for_assistive_tech(id),
                 A11yAction::Focus(id) => {
+                    // A button of the selection bar takes no focus: the bar acts on the
+                    // field, and a focus that left it would end the very selection the bar
+                    // is open on before the click that follows the focus got to use it.
+                    if self.ui.as_ref().is_some_and(|ui| ui.hit_is_on_toolbar(id)) {
+                        continue;
+                    }
                     self.runtime.input.focused = Some(id);
                     self.runtime.focus_visible = true;
                     self.request_redraw();
@@ -1091,13 +1124,14 @@ impl<A: Application> App<A> {
         };
         for action in actions {
             match action {
-                A11yAction::Click(id) => {
-                    if let Some(msg) = self.ui.as_ref().and_then(|ui| ui.msg_for(id)) {
-                        self.dispatch(msg);
-                        self.request_redraw();
-                    }
-                }
+                A11yAction::Click(id) => self.activate_for_assistive_tech(id),
                 A11yAction::Focus(id) => {
+                    // A button of the selection bar takes no focus: the bar acts on the
+                    // field, and a focus that left it would end the very selection the bar
+                    // is open on before the click that follows the focus got to use it.
+                    if self.ui.as_ref().is_some_and(|ui| ui.hit_is_on_toolbar(id)) {
+                        continue;
+                    }
                     self.runtime.input.focused = Some(id);
                     self.runtime.focus_visible = true;
                     self.request_redraw();
@@ -2157,6 +2191,20 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                             }
                         }
                     }
+                    return;
+                }
+
+                // The context-menu key, or Shift+F10: the selection bar for someone with no
+                // pointer to hold or right-click with (milestone 568). Only a text field has
+                // one, and it is opened on the field that has the focus.
+                if opens_selection_bar(&event.logical_key, self.shift)
+                    && self
+                        .tree
+                        .as_ref()
+                        .and_then(|tree| find_widget(tree.as_ref(), focused))
+                        .is_some_and(|widget| widget.text_value().is_some())
+                {
+                    self.show_selection_toolbar(focused);
                     return;
                 }
 
@@ -5465,6 +5513,11 @@ impl<A: Application> App<A> {
     /// animation; ③ failing that, at the root, back **quits the application**, as
     /// Android expects.
     fn system_back(&mut self, event_loop: &ActiveEventLoop) {
+        // An open selection bar goes first, as a platform's own text selection does: Back
+        // closes it before it closes anything behind it (milestone 568).
+        if self.close_selection_toolbar() {
+            return;
+        }
         if let Some(message) = self.ui.as_ref().and_then(|ui| ui.top_dismiss()) {
             self.dispatch(message);
             self.request_redraw();
@@ -5487,6 +5540,10 @@ impl<A: Application> App<A> {
     /// with no fallback — then falls back to closing the topmost overlay when nobody
     /// answered, or when nothing is focused.
     fn escape(&mut self) {
+        // The selection bar first, as for the system's Back (milestone 568).
+        if self.close_selection_toolbar() {
+            return;
+        }
         // 1) Walk up the focus path. `Some(None)` means consumed with no message; an
         // outer `None` means the whole path ignored it, so we fall back.
         let outcome: Option<Option<A::Message>> = self.runtime.input.focused.and_then(|focused| {
@@ -5857,6 +5914,17 @@ impl<A: Application> App<A> {
         let can_paste = self.clipboard.has_text();
         self.runtime.selection_toolbar = Some(ToolbarMark { id, can_paste });
         self.request_redraw();
+    }
+
+    /// What Back and Escape do to an open selection bar: put it away, with the handles that
+    /// went with it, and say so — `true` — so that the key goes no further.
+    fn close_selection_toolbar(&mut self) -> bool {
+        if self.runtime.selection_toolbar.is_none() {
+            return false;
+        }
+        self.runtime.selection_handles = None;
+        self.hide_selection_toolbar();
+        true
     }
 
     /// Puts the bar away, if one is open.
@@ -6464,6 +6532,31 @@ mod tests {
     use super::{clipboard_command, ClipCommand, KeyCode, PhysicalKey, WinitKey};
     use super::{collect_ids, find_widget, MediaQuery};
     use frus_widgets::Locale;
+
+    /// **The keys that open the selection bar** (milestone 568): the context-menu key, and
+    /// F10 with Shift — F10 alone is the menu bar's key in other toolkits and asks for nothing
+    /// here, and no ordinary key does.
+    #[test]
+    fn the_context_menu_key_and_shift_f10_open_the_bar() {
+        use super::opens_selection_bar;
+        assert!(opens_selection_bar(
+            &WinitKey::Named(winit::keyboard::NamedKey::ContextMenu),
+            false
+        ));
+        assert!(opens_selection_bar(
+            &WinitKey::Named(winit::keyboard::NamedKey::F10),
+            true
+        ));
+        assert!(!opens_selection_bar(
+            &WinitKey::Named(winit::keyboard::NamedKey::F10),
+            false
+        ));
+        assert!(!opens_selection_bar(
+            &WinitKey::Named(winit::keyboard::NamedKey::Enter),
+            true
+        ));
+        assert!(!opens_selection_bar(&character("m"), true));
+    }
 
     /// **What a Copy from the selection bar leaves behind** (milestone 568): the selection
     /// collapsed to its end, whichever way it was made — dragged backwards puts the caret at

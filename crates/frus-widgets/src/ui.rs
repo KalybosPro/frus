@@ -754,6 +754,24 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(_, action)| *action)
     }
 
+    /// Whether the target `id` is one **on** a selection bar shown this frame — the click of
+    /// an assistive technology names its target by identity, not by where a pointer is, so
+    /// this is the identity-side counterpart of [`toolbar_contains`](Self::toolbar_contains).
+    pub fn hit_is_on_toolbar(&self, id: WidgetId) -> bool {
+        self.hits
+            .iter()
+            .rev()
+            .find(|hit| hit.id == id)
+            .is_some_and(|hit| {
+                self.toolbars.iter().any(|bar| {
+                    bar.contains(Point::new(
+                        hit.rect.x + hit.rect.width * 0.5,
+                        hit.rect.y + hit.rect.height * 0.5,
+                    ))
+                })
+            })
+    }
+
     /// Whether `point` is inside a selection bar shown this frame — which a press must not
     /// treat as a press elsewhere.
     pub fn toolbar_contains(&self, point: Point) -> bool {
@@ -7355,6 +7373,35 @@ mod tests {
         assert!(!ui.toolbar_contains(Point::new(bar.x - 5.0, bar.y - 5.0)));
         let unmarked = bar_frame(&tree, selected(11, Some(6)), true, true, false);
         assert!(!unmarked.toolbar_contains(Point::new(bar.x + 3.0, bar.y + 3.0)));
+    }
+
+    /// The same, **by identity** — how an assistive technology names what it clicks: a button
+    /// of the bar is on the bar, the field it acts on is not.
+    #[test]
+    fn a_target_named_by_identity_is_on_the_bar_or_not() {
+        let tree = bar_tree(200.0, "hello world");
+        let ui = bar_frame(&tree, selected(11, Some(6)), true, true, true);
+        let bar = ui.toolbars[0];
+        let button = ui
+            .hit(Point::new(
+                bar.x + bar.width * 0.5,
+                bar.y + bar.height * 0.5,
+            ))
+            .filter(|id| ui.edit_action_for(*id).is_some())
+            .or_else(|| {
+                let mut x = bar.x + 1.0;
+                let mut found = None;
+                while x < bar.x + bar.width && found.is_none() {
+                    found = ui
+                        .hit(Point::new(x, bar.y + bar.height * 0.5))
+                        .filter(|id| ui.edit_action_for(*id).is_some());
+                    x += 2.0;
+                }
+                found
+            })
+            .expect("a button of the bar");
+        assert!(ui.hit_is_on_toolbar(button));
+        assert!(!ui.hit_is_on_toolbar(bar_field_id(&tree)));
     }
 
     /// **The hooks pass through the wrappers that fuse with a field** — the same three silent
