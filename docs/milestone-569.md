@@ -37,6 +37,32 @@ backing store the same: 1270 by 590 gives 1270 by 553, 420 by 800 gives 420 by 7
 gives 900 by 563. The bottom navigation, which the fixed 900 by 680 canvas had cut off in a window
 shorter than 680 px, is in view at each.
 
+## The demo named a screen size of its own
+
+Asked, after seeing the page in a browser, to stop fixing the screen's dimension. Three places did:
+
+- **A window of 900 by 680** — `FrusApp::window_size(900.0, 680.0)` in the demo's entry. It is gone:
+  the desktop window opens at the system's default size, which is what an application that has not
+  an opinion asks for. (On the Web it had already stopped mattering, above.)
+- **A ceiling on the task card**, 560 px on a medium window and 680 on a wide one, centred. It is
+  gone: the card is the body's width at every size, so on a big window the application no longer
+  stands in the middle of it at a width of its own.
+- **Everything inside the card kept the width of its content**, which a phone hides — the card is
+  narrow there, and the content already fills it. On a wide window the field, the filters, the
+  banner and the footer stood in one corner of a card that reached across the screen. The card's
+  column is now as wide as the card and its children stretch to it (`width_fraction(1.0)`,
+  `Align::Stretch`), so the field takes the room the *Add* button leaves it.
+
+Measured in headless Edge with the demo built for the web at 1270 by 590, 420 by 800 and 1900 by
+900: the card reaches both edges of the window, the field and the footer span it, and the app bar
+shows more of its actions the wider the window is (at 1900 it is *Light, Seed, RTL, English, A+, A-,
+Log, Settings, Quick actions, Save, Clear completed*; at 420 it is *Light* and an overflow menu).
+On the phone the screen is unchanged — nothing there was capped.
+
+Not touched, because they are widths of *content* and not of the screen: the Settings page's
+showcase samples (`SHOWCASE_MAX`), the sign-up wizard's fields (360 px), and a 560 px cap in
+`parts.rs`.
+
 ## The drawer came from the wrong side
 
 The demo's hamburger is at the **start** of the app bar, and the drawer it opens slid in from the
