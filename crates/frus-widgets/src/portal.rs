@@ -26,6 +26,11 @@ pub enum Placement {
     /// A full-width panel against the **bottom** edge of the window, sliding up,
     /// with a scrim (a modal sheet). See [`crate::BottomSheet`].
     Bottom,
+    /// Centred on the anchor and **above** it, or below it — clear of the handles that hang
+    /// there — when there is no room above; held inside the window. The bar over a text
+    /// selection (see [`crate::ToolbarItem`]), whose anchor is the selection's box rather
+    /// than a widget's.
+    Selection,
 }
 
 /// A portal: an **anchor** (in the flow) and an optional floating **overlay**.

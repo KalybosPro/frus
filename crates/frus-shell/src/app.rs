@@ -18,8 +18,8 @@ use frus_widgets::{
     reorder_siblings, reorderable_owners, subtree_ids, Accessibility, Brightness, Color,
     Cursor as UiCursor, Edit, EditKind, EditSnapshot, FocusDirection, Insets, Key, KeyResponse,
     KeyStroke, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, ScrollTo,
-    Scrollable, SheetTo, ShortcutKey, Size, Theme, Ui, VelocityEstimate, VelocityTracker, Widget,
-    WidgetId, WindowInsets,
+    Scrollable, SheetTo, ShortcutKey, Size, Theme, ToolbarMark, Ui, VelocityEstimate,
+    VelocityTracker, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -178,6 +178,9 @@ mod clip {
         pub fn get_text(&mut self) -> Option<String> {
             self.0.as_mut().and_then(|c| c.get_text().ok())
         }
+        pub fn has_text(&mut self) -> bool {
+            self.get_text().is_some_and(|text| !text.is_empty())
+        }
         pub fn set_text(&mut self, text: String) {
             if let Some(c) = self.0.as_mut() {
                 let _ = c.set_text(text);
@@ -195,6 +198,9 @@ mod clip {
         }
         pub fn get_text(&mut self) -> Option<String> {
             crate::android_clipboard::get_text()
+        }
+        pub fn has_text(&mut self) -> bool {
+            self.get_text().is_some_and(|text| !text.is_empty())
         }
         pub fn set_text(&mut self, text: String) {
             crate::android_clipboard::set_text(&text);
@@ -248,6 +254,11 @@ mod clip {
         pub fn set_text(&mut self, text: String) {
             crate::web_clipboard::set_text(&text);
         }
+        /// The browser's clipboard cannot be read without asking, and asking is a promise
+        /// that may prompt the reader: so a bar opening cannot know, and offers Paste.
+        pub fn has_text(&mut self) -> bool {
+            true
+        }
         pub fn paste(
             &mut self,
             into: WidgetId,
@@ -276,6 +287,9 @@ mod clip {
         }
         pub fn get_text(&mut self) -> Option<String> {
             None
+        }
+        pub fn has_text(&mut self) -> bool {
+            false
         }
         pub fn set_text(&mut self, _text: String) {}
     }
@@ -1870,6 +1884,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 },
             ),
 
+            // A right-click on a text field opens its selection bar (milestone 568), which is
+            // the desktop's context menu for the four things it holds.
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Right,
+                ..
+            } => self.context_click(),
+
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 // A keyboard interaction: the focus ring becomes visible again.
                 if !self.runtime.focus_visible {
@@ -2122,12 +2144,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     clipboard_command(&event.logical_key, event.physical_key, self.ctrl)
                 {
                     match command {
-                        ClipCommand::Copy => self.copy_selection(focused),
-                        ClipCommand::Cut => {
+                        ClipCommand::Copy => {
                             self.copy_selection(focused);
-                            self.apply_key(focused, Key::Backspace);
-                            self.request_redraw();
                         }
+                        ClipCommand::Cut => self.cut_selection(focused),
                         ClipCommand::Paste => {
                             // Answered now, or — on the Web — on a later frame.
                             if let Some(pasted) =
@@ -2144,18 +2164,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 if self.ctrl {
                     match &event.logical_key {
                         WinitKey::Character(c) if c.eq_ignore_ascii_case("a") => {
-                            self.runtime.edits.insert(
-                                focused,
-                                Edit {
-                                    cursor: usize::MAX,
-                                    anchor: Some(0),
-                                    composing: None,
-                                },
-                            );
-                            // A selection is a caret move: what is typed over it is a step
-                            // of its own, not more of whatever was being typed before.
-                            self.runtime.close_edit_run(focused);
-                            self.request_redraw();
+                            self.select_all(focused);
                             return;
                         }
                         // Undo, and redo under both its spellings — Ctrl+Y on Windows,
@@ -2362,6 +2371,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // finds nothing.
                 while let Some(pasted) = self.clipboard.take_answered() {
                     self.land_paste(pasted);
+                }
+                // A bar whose field is no longer the focused one is over: a field focused
+                // again later must not find it open.
+                if self
+                    .runtime
+                    .selection_toolbar
+                    .is_some_and(|mark| self.runtime.input.focused != Some(mark.id))
+                {
+                    self.runtime.selection_toolbar = None;
                 }
                 // Occluded window: rendering is suspended, resuming on Occluded(false).
                 if self.occluded {
@@ -3328,12 +3346,28 @@ impl<A: Application> App<A> {
         // the handles away (milestone 511).
         if let Some(drag) = self.grab_selection_handle() {
             self.drag = Some(drag);
+            // The bar is put away while a handle is dragged, and comes back when it is let
+            // go (`pointer_up`): a bar that followed a moving selection would flicker.
+            self.runtime.selection_toolbar = None;
+            self.request_redraw();
+            return;
+        }
+        // A press **on the bar** acts on the focused field, so nothing here may touch the
+        // focus, the selection or the handles: it is only recorded, and `pointer_up`
+        // resolves it to the button's action.
+        if self
+            .ui
+            .as_ref()
+            .is_some_and(|ui| ui.toolbar_contains(self.cursor))
+        {
+            press_at(&mut self.runtime, self.ui.as_ref(), self.cursor);
             self.request_redraw();
             return;
         }
         if self.runtime.selection_handles.take().is_some() {
             self.request_redraw();
         }
+        self.hide_selection_toolbar();
         // 0) The back gesture: a press on the **leading edge** — left under LTR,
         // right under RTL — if the app allows it.
         let on_back_edge = if self.is_rtl() {
@@ -3665,6 +3699,9 @@ impl<A: Application> App<A> {
         if let Some(Drag::SelectionHandle { id, .. }) = ended {
             self.push_ime_context(id);
         }
+        if let Some(Drag::SelectionHandle { id, .. }) = ended {
+            self.show_selection_toolbar(id);
+        }
         // Reordering: on the drop, the target column is the reorderable header under
         // the pointer, and we route the grabbed header's `on_reorder(from, to)`.
         if let Some(Drag::Reorder {
@@ -3924,7 +3961,20 @@ impl<A: Application> App<A> {
         }
         // A click only counts when press and release land on the same widget.
         let released = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
+        // A built-in button of the selection bar sends no message: the shell performs its
+        // action on the field the bar is open on (milestone 568).
+        let bar_action = match (self.runtime.input.pressed, released) {
+            (Some(pressed), Some(released)) if pressed == released => {
+                self.ui.as_ref().and_then(|ui| ui.edit_action_for(pressed))
+            }
+            _ => None,
+        };
+        let on_bar = self
+            .ui
+            .as_ref()
+            .is_some_and(|ui| ui.toolbar_contains(self.cursor));
         let (message, announce) = match (self.runtime.input.pressed, released) {
+            (Some(_), Some(_)) if bar_action.is_some() => (None, None),
             (Some(pressed), Some(released)) if pressed == released => {
                 // A **positional** click, on a sub-region such as a field's clickable
                 // suffix, takes priority over `on_click`. Local coordinates are the
@@ -3968,6 +4018,14 @@ impl<A: Application> App<A> {
             }
         }
         self.runtime.input.pressed = None;
+        if let Some(action) = bar_action {
+            self.perform_edit_action(action);
+        } else if on_bar && message.is_some() {
+            // An item of the application's own: it has sent its message, and the bar is
+            // done with.
+            self.runtime.selection_handles = None;
+            self.hide_selection_toolbar();
+        }
         if let Some(message) = message {
             self.dispatch(message);
             if let Some(announce) = announce {
@@ -5510,6 +5568,9 @@ impl<A: Application> App<A> {
             .and_then(|widget| widget.word_at(cursor))
             .filter(|(start, end)| start < end);
         let Some((start, end)) = word else {
+            // Nothing to select — an empty field, a hold past the end of the text. The
+            // bar still opens, at the caret, with Paste and whatever else applies.
+            self.show_selection_toolbar(id);
             return;
         };
         self.runtime.edits.insert(
@@ -5522,6 +5583,7 @@ impl<A: Application> App<A> {
         );
         self.runtime.selection_handles = Some(id);
         self.runtime.close_edit_run(id);
+        self.show_selection_toolbar(id);
         #[cfg(android)]
         self.push_ime_context(id);
     }
@@ -5554,8 +5616,10 @@ impl<A: Application> App<A> {
     fn apply_key(&mut self, id: WidgetId, key: Key) {
         // Any horizontal move, or any keystroke, forgets the vertical goal column.
         self.goal_x = None;
-        // Typing puts a touch selection's handles away, as a press does (milestone 511).
+        // Typing puts a touch selection's handles away, as a press does (milestone 511) —
+        // and the bar over it (milestone 568).
         self.runtime.selection_handles = None;
+        self.runtime.selection_toolbar = None;
         let was = self.runtime.edits.get(&id).copied().unwrap_or_default();
         let mut edit = was;
         let widget = self
@@ -5742,17 +5806,169 @@ impl<A: Application> App<A> {
         self.runtime.scroll_velocity.remove(&id);
     }
 
-    /// Copies field `id`'s selected text to the clipboard.
-    fn copy_selection(&mut self, id: WidgetId) {
+    /// Copies field `id`'s selected text to the clipboard. `false` when there was nothing
+    /// to copy — no selection, or a field that gives its text to nobody (a masked one).
+    fn copy_selection(&mut self, id: WidgetId) -> bool {
         let edit = self.runtime.edits.get(&id).copied().unwrap_or_default();
         let text = self
             .tree
             .as_ref()
             .and_then(|tree| find_widget(tree.as_ref(), id))
             .and_then(|widget| widget.selected_text(&edit));
-        if let Some(text) = text {
-            self.clipboard.set_text(text);
+        match text {
+            Some(text) => {
+                self.clipboard.set_text(text);
+                true
+            }
+            None => false,
         }
+    }
+
+    /// Cuts field `id`'s selection: copies it, then deletes it — **only if it was copied**.
+    /// A masked field refuses the copy, and a cut that deleted anyway would destroy the
+    /// text while putting it nowhere.
+    fn cut_selection(&mut self, id: WidgetId) {
+        if self.copy_selection(id) {
+            self.apply_key(id, Key::Backspace);
+            self.request_redraw();
+        }
+    }
+
+    /// Selects all of field `id`'s text.
+    fn select_all(&mut self, id: WidgetId) {
+        self.runtime.edits.insert(
+            id,
+            Edit {
+                cursor: usize::MAX,
+                anchor: Some(0),
+                composing: None,
+            },
+        );
+        // A selection is a caret move: what is typed over it is a step of its own, not more
+        // of whatever was being typed before.
+        self.runtime.close_edit_run(id);
+        self.request_redraw();
+    }
+
+    /// Opens field `id`'s **selection bar** — Cut, Copy, Paste, Select all — over its
+    /// selection (milestone 568). Whether the clipboard holds text is asked once, here, and
+    /// kept for as long as the bar is open: it is what decides whether Paste is offered.
+    fn show_selection_toolbar(&mut self, id: WidgetId) {
+        let can_paste = self.clipboard.has_text();
+        self.runtime.selection_toolbar = Some(ToolbarMark { id, can_paste });
+        self.request_redraw();
+    }
+
+    /// Puts the bar away, if one is open.
+    fn hide_selection_toolbar(&mut self) {
+        if self.runtime.selection_toolbar.take().is_some() {
+            self.request_redraw();
+        }
+    }
+
+    /// What pressing a built-in button of the selection bar does, to the field the bar is
+    /// open on. Copy, Cut and Paste close it and the handles with it; Select all leaves
+    /// both open, on the selection it has just made larger.
+    fn perform_edit_action(&mut self, action: frus_widgets::EditAction) {
+        use frus_widgets::EditAction;
+        let Some(id) = self.runtime.selection_toolbar.map(|mark| mark.id) else {
+            return;
+        };
+        match action {
+            EditAction::Copy => {
+                if self.copy_selection(id) {
+                    // As the platforms' own text fields do after a copy: the selection
+                    // collapses to its end, and what marked it is put away.
+                    if let Some(edit) = self.runtime.edits.get_mut(&id) {
+                        *edit = collapsed_to_end(*edit);
+                    }
+                    self.runtime.close_edit_run(id);
+                }
+                self.runtime.selection_handles = None;
+                self.hide_selection_toolbar();
+            }
+            EditAction::Cut => {
+                // `apply_key` puts the handles and the bar away, as any key does.
+                self.cut_selection(id);
+                self.hide_selection_toolbar();
+            }
+            EditAction::Paste => {
+                self.runtime.selection_handles = None;
+                self.hide_selection_toolbar();
+                // Answered now, or — on the Web — on a later frame.
+                if let Some(pasted) = self.clipboard.paste(id, self.window.as_ref()) {
+                    self.land_paste(pasted);
+                }
+            }
+            EditAction::SelectAll => {
+                self.select_all(id);
+                // Made with a finger or a right-click, the selection keeps whatever
+                // marked it; the bar stays, with the list its new state calls for.
+                if self.runtime.selection_handles.is_some() {
+                    self.runtime.selection_handles = Some(id);
+                }
+                self.show_selection_toolbar(id);
+            }
+        }
+        #[cfg(android)]
+        self.push_ime_context(id);
+    }
+
+    /// A right-click on a text field (a desktop's context menu, milestone 568): focuses it,
+    /// puts the caret where the click landed unless it landed inside the selection there
+    /// already is, and opens the bar. On anything else it puts an open bar away.
+    fn context_click(&mut self) {
+        let hit = self.ui.as_ref().and_then(|ui| ui.focus_hit(self.cursor));
+        let Some((id, rect)) = hit else {
+            self.hide_selection_toolbar();
+            return;
+        };
+        let was_focused = self.runtime.input.focused == Some(id);
+        let scroll_y = self.runtime.scroll.get(&id).map(|s| s.1).unwrap_or(0.0);
+        let scroll_cursor = if was_focused {
+            self.runtime.edits.get(&id).map(|e| e.cursor).unwrap_or(0)
+        } else {
+            0
+        };
+        let cursor = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| {
+                widget.cursor_at(
+                    self.cursor.x - rect.x,
+                    self.cursor.y - rect.y + scroll_y,
+                    rect.width,
+                    scroll_cursor,
+                )
+            });
+        // Only a text field has a bar; a button under the pointer is not one.
+        let Some(cursor) = cursor else {
+            self.hide_selection_toolbar();
+            return;
+        };
+        let inside = was_focused
+            && self
+                .runtime
+                .edits
+                .get(&id)
+                .and_then(|edit| edit.selection_range())
+                .is_some_and(|(start, end)| cursor >= start && cursor <= end);
+        self.runtime.input.focused = Some(id);
+        self.runtime.selection_handles = None;
+        if !inside {
+            self.goal_x = None;
+            self.runtime.edits.insert(
+                id,
+                Edit {
+                    cursor,
+                    anchor: None,
+                    composing: None,
+                },
+            );
+            self.runtime.close_edit_run(id);
+        }
+        self.show_selection_toolbar(id);
     }
 
     /// Types what the clipboard answered into the field that asked for it, if the paste
@@ -5762,6 +5978,18 @@ impl<A: Application> App<A> {
             self.apply_key(pasted.into, Key::Text(pasted.text));
             self.request_redraw();
         }
+    }
+}
+
+/// The edit a **copy** leaves behind: the selection collapsed to its end, the caret where
+/// the selection stopped. What the platforms' own text fields do after Copy from their bar,
+/// and what tells the reader it happened — the highlight goes.
+fn collapsed_to_end(edit: Edit) -> Edit {
+    let cursor = edit.selection_range().map_or(edit.cursor, |(_, end)| end);
+    Edit {
+        cursor,
+        anchor: None,
+        composing: None,
     }
 }
 
@@ -6236,6 +6464,46 @@ mod tests {
     use super::{clipboard_command, ClipCommand, KeyCode, PhysicalKey, WinitKey};
     use super::{collect_ids, find_widget, MediaQuery};
     use frus_widgets::Locale;
+
+    /// **What a Copy from the selection bar leaves behind** (milestone 568): the selection
+    /// collapsed to its end, whichever way it was made — dragged backwards puts the caret at
+    /// the far end, and Copy puts it at the *end* of the text, not where the caret was.
+    #[test]
+    fn a_copy_collapses_the_selection_to_its_end() {
+        use frus_widgets::Edit;
+        let forwards = Edit {
+            cursor: 11,
+            anchor: Some(6),
+            composing: None,
+        };
+        let backwards = Edit {
+            cursor: 6,
+            anchor: Some(11),
+            composing: None,
+        };
+        let expect = Edit {
+            cursor: 11,
+            anchor: None,
+            composing: None,
+        };
+        assert_eq!(super::collapsed_to_end(forwards), expect);
+        assert_eq!(super::collapsed_to_end(backwards), expect);
+        // Nothing selected: the caret stays where it is.
+        let caret = Edit {
+            cursor: 3,
+            anchor: None,
+            composing: None,
+        };
+        assert_eq!(super::collapsed_to_end(caret), caret);
+        // An anchor on the caret is no selection either.
+        let empty = Edit {
+            cursor: 3,
+            anchor: Some(3),
+            composing: Some((1, 2)),
+        };
+        assert_eq!(super::collapsed_to_end(empty).anchor, None);
+        assert_eq!(super::collapsed_to_end(empty).cursor, 3);
+    }
 
     /// **A field with a clear button kept the keyboard only until the first letter**
     /// (milestone 510). Whether the focused widget takes typing was asked of a caret

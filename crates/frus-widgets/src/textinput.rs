@@ -14,6 +14,7 @@ use crate::icons::IconData;
 use crate::ime::{Capitalization, Ime, KeyboardType, TextInputAction};
 use crate::interaction::{Key, Status};
 use crate::runtime::Edit;
+use crate::selectiontoolbar::{SelectionToolbar, ToolbarContext, ToolbarItem};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -209,7 +210,20 @@ pub struct TextField<Msg = crate::callback::Callback> {
     /// What the field is for, so the platform can fill it in; see
     /// [`TextField::autofill`].
     autofill: Vec<AutofillHint>,
+    /// The application's say over the bar shown above a selection; see
+    /// [`TextField::selection_toolbar`].
+    toolbar_build: Option<ToolbarBuild<Msg>>,
+    /// The bar for each context, built the first time it is asked for and kept: the walk
+    /// borrows the widget it floats for a whole frame, so it has to live as long as the
+    /// field does.
+    toolbars:
+        [std::cell::OnceCell<Option<Box<dyn Widget<Msg>>>>; ToolbarContext::VARIANTS as usize],
 }
+
+/// What an application gives [`TextField::selection_toolbar`]: the context, and the default
+/// list for it, answered with the list to show.
+type ToolbarBuild<Msg> =
+    Box<dyn Fn(&ToolbarContext, Vec<ToolbarItem<Msg>>) -> Vec<ToolbarItem<Msg>>>;
 
 impl TextField<crate::callback::Callback> {
     /// Drives the field from `controller`: it shows the controller's text, and what is typed
@@ -276,7 +290,7 @@ fn line_end(chars: &[char], cursor: usize) -> usize {
 }
 
 /// The side of a selection handle's box (`text_selection.dart:17`).
-const HANDLE_SIZE: f32 = 22.0;
+pub(crate) const HANDLE_SIZE: f32 = 22.0;
 
 /// A selection handle's outline in `rect`: a disc with the corner nearest the text
 /// squared off, so that it points at its end of the selection — up and right for the
@@ -348,6 +362,8 @@ impl<Msg> TextField<Msg> {
             read_only: false,
             style: TextFieldStyle::default(),
             autofill: Vec::new(),
+            toolbar_build: None,
+            toolbars: Default::default(),
         }
     }
 
@@ -862,6 +878,46 @@ impl<Msg> TextField<Msg> {
         self
     }
 
+    /// **What the bar over a selection offers** — Cut, Copy, Paste, Select all — decided by
+    /// the application (milestone 568, [#23]).
+    ///
+    /// `build` is handed the [`ToolbarContext`] (is something selected, is there text to
+    /// paste, is everything selected already) and the field's **default list** for it, and
+    /// returns the list to show. Drop an item, reorder them, add one of the application's own
+    /// ([`ToolbarItem::custom`]) — or return an empty list, and no bar shows at all.
+    ///
+    /// ```
+    /// use frus_widgets::{TextField, ToolbarItem};
+    ///
+    /// #[derive(Clone)]
+    /// enum Msg { Translate }
+    ///
+    /// // A field that never lets its text be pasted over, and offers a way to translate it.
+    /// let field: TextField<Msg> = TextField::new("Bonjour").selection_toolbar(|context, mut items| {
+    ///     items.retain(|item| item.label() != "Paste");
+    ///     if context.has_selection {
+    ///         items.push(ToolbarItem::custom("Translate", Msg::Translate));
+    ///     }
+    ///     items
+    /// });
+    /// # let _ = field;
+    /// ```
+    ///
+    /// The defaults already keep a secret: a masked field ([`obscure`](Self::obscure)) is
+    /// given neither Cut nor Copy, and a [`read_only`](Self::read_only) one neither Cut nor
+    /// Paste, so an application only has to change the list to depart from them.
+    ///
+    /// [#23]: https://github.com/KalybosPro/frus/issues/23
+    pub fn selection_toolbar(
+        mut self,
+        build: impl Fn(&ToolbarContext, Vec<ToolbarItem<Msg>>) -> Vec<ToolbarItem<Msg>> + 'static,
+    ) -> Self {
+        self.toolbar_build = Some(Box::new(build));
+        // Whatever was built for the old answer is not the answer any more.
+        self.toolbars = Default::default();
+        self
+    }
+
     /// Closure producing a message from the field's new value.
     pub fn on_input<R: crate::callback::IntoMsg<Msg>>(
         mut self,
@@ -933,22 +989,13 @@ impl<Msg> TextField<Msg> {
     }
 
     /// Text width (between the padding and the icons) for a given widget width.
-    /// The two selection handles for `edit`, in local coordinates — see
-    /// [`Widget::selection_handles`]. The paint's own geometry: the content's insets, the
-    /// alignment, the horizontal scroll that follows the caret and the retained vertical
-    /// one, so that a handle is taken exactly where it is drawn.
-    fn handles(
-        &self,
-        width: f32,
-        edit: &Edit,
-        scroll_y: f32,
-    ) -> Option<[crate::SelectionHandle; 2]> {
+    /// Where the text is drawn inside the field, for `edit`: its layout and the top-left
+    /// corner of the text, in the field's **local** coordinates. The paint's own geometry —
+    /// the content's insets, the alignment, the horizontal scroll that follows the caret and
+    /// the retained vertical one — so that whatever is placed against the text (a handle, the
+    /// bar over a selection) is where the text is drawn.
+    fn text_frame(&self, width: f32, edit: &Edit, scroll_y: f32) -> (TextLayout, f32, f32) {
         let len = self.value.chars().count();
-        let (start, end) = edit.selection_range()?;
-        let (start, end) = (start.min(len), end.min(len));
-        if start >= end {
-            return None;
-        }
         let content_w = self.content_width(width);
         let layout = self.layout(self.multiline.then_some(content_w));
         let scroll = (layout.caret_rect(edit.cursor.min(len)).x - content_w).max(0.0);
@@ -961,6 +1008,24 @@ impl<Msg> TextField<Msg> {
         };
         let origin_x = self.pad_x() + self.prefix_w() + align - scroll;
         let origin_y = self.label_block() + self.text_top() - vscroll;
+        (layout, origin_x, origin_y)
+    }
+
+    /// The two selection handles for `edit`, in local coordinates — see
+    /// [`Widget::selection_handles`].
+    fn handles(
+        &self,
+        width: f32,
+        edit: &Edit,
+        scroll_y: f32,
+    ) -> Option<[crate::SelectionHandle; 2]> {
+        let len = self.value.chars().count();
+        let (start, end) = edit.selection_range()?;
+        let (start, end) = (start.min(len), end.min(len));
+        if start >= end {
+            return None;
+        }
+        let (layout, origin_x, origin_y) = self.text_frame(width, edit, scroll_y);
         let at = |index: usize, start: bool| {
             let caret = layout.caret_rect(index);
             let x = origin_x + caret.x;
@@ -979,6 +1044,45 @@ impl<Msg> TextField<Msg> {
             }
         };
         Some([at(start, true), at(end, false)])
+    }
+
+    /// The box the bar over the selection is placed against: the selection's, line by line
+    /// joined into one box, or the caret's when nothing is selected.
+    fn selection_box(&self, width: f32, edit: &Edit, scroll_y: f32) -> Rect {
+        let len = self.value.chars().count();
+        let (layout, origin_x, origin_y) = self.text_frame(width, edit, scroll_y);
+        let selected = edit
+            .selection_range()
+            .map(|(start, end)| layout.selection_rects(start.min(len), end.min(len)))
+            .unwrap_or_default();
+        let mut boxed = selected.first().copied();
+        for rect in selected.iter().skip(1) {
+            boxed = boxed.map(|so_far| so_far.union(*rect));
+        }
+        let boxed = boxed.unwrap_or_else(|| layout.caret_rect(edit.cursor.min(len)));
+        boxed.translate(origin_x, origin_y)
+    }
+
+    /// The bar's **default** list for `context`: what the reference offers, decided by the
+    /// three conditions and by what this field allows. A masked field gives its text to
+    /// nobody, so it offers neither Cut nor Copy; a read-only one keeps its text as it is,
+    /// so it offers no Cut and no Paste.
+    fn default_toolbar_items(&self, context: &ToolbarContext) -> Vec<ToolbarItem<Msg>> {
+        let editable = self.enabled && !self.read_only;
+        let mut items = Vec::new();
+        if context.has_selection && editable && !self.obscure {
+            items.push(ToolbarItem::cut());
+        }
+        if context.has_selection && !self.obscure {
+            items.push(ToolbarItem::copy());
+        }
+        if context.can_paste && editable {
+            items.push(ToolbarItem::paste());
+        }
+        if !context.all_selected {
+            items.push(ToolbarItem::select_all());
+        }
+        items
     }
 
     fn content_width(&self, width: f32) -> f32 {
@@ -1030,7 +1134,7 @@ impl<Msg> TextField<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
+impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
     fn style(&self) -> Style {
         let height = self.label_block() + self.field_height() + self.sub_block();
         Style {
@@ -1753,6 +1857,11 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
     }
 
     fn selected_text(&self, edit: &Edit) -> Option<String> {
+        // A masked field gives its text to nobody: what is shown is dots, and what is
+        // copied must not be the thing they hide.
+        if self.obscure {
+            return None;
+        }
         let chars: Vec<char> = self.value.chars().collect();
         let len = chars.len();
         let cursor = edit.cursor.min(len);
@@ -1794,6 +1903,26 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         scroll_y: f32,
     ) -> Option<[crate::SelectionHandle; 2]> {
         self.handles(width, edit, scroll_y)
+    }
+
+    fn selection_toolbar(&self, context: ToolbarContext) -> Option<&dyn Widget<Msg>> {
+        self.toolbars[usize::from(context.variant())]
+            .get_or_init(|| {
+                let defaults = self.default_toolbar_items(&context);
+                let items = match &self.toolbar_build {
+                    Some(build) => build(&context, defaults),
+                    None => defaults,
+                };
+                (!items.is_empty()).then(|| {
+                    let bar: Box<dyn Widget<Msg>> = Box::new(SelectionToolbar::new(items));
+                    bar
+                })
+            })
+            .as_deref()
+    }
+
+    fn selection_anchor(&self, width: f32, edit: &Edit, scroll_y: f32) -> Option<Rect> {
+        Some(self.selection_box(width, edit, scroll_y))
     }
 
     fn autofill_hints(&self) -> &[AutofillHint] {
@@ -2337,6 +2466,180 @@ mod tests {
             composing: None,
         };
         assert_eq!(inp.selected_text(&edit), Some("llo".to_string()));
+    }
+
+    /// The words on the buttons of the bar a field shows for `context`, in order — `None`
+    /// when it shows none.
+    fn bar_words(field: &TextField<Msg>, context: ToolbarContext) -> Option<Vec<String>> {
+        let bar = Widget::<Msg>::selection_toolbar(field, context)?;
+        Some(
+            bar.children()
+                .iter()
+                .map(|button| {
+                    button
+                        .semantics()
+                        .and_then(|semantics| semantics.label)
+                        .unwrap_or_default()
+                })
+                .collect(),
+        )
+    }
+
+    fn context(has_selection: bool, can_paste: bool, all_selected: bool) -> ToolbarContext {
+        ToolbarContext {
+            has_selection,
+            can_paste,
+            all_selected,
+        }
+    }
+
+    /// **The default bar** is decided by the three conditions (milestone 568): Cut and Copy
+    /// want a selection, Paste wants something to paste, Select all wants something left
+    /// unselected — in the reference's order.
+    #[test]
+    fn the_default_bar_follows_the_three_conditions() {
+        let field = input("hello world");
+        let words = |ctx| bar_words(&field, ctx);
+        assert_eq!(
+            words(context(true, true, false)),
+            Some(vec![
+                "Cut".into(),
+                "Copy".into(),
+                "Paste".into(),
+                "Select all".into()
+            ])
+        );
+        assert_eq!(
+            words(context(false, true, false)),
+            Some(vec!["Paste".into(), "Select all".into()])
+        );
+        assert_eq!(
+            words(context(true, false, true)),
+            Some(vec!["Cut".into(), "Copy".into()])
+        );
+        assert_eq!(words(context(false, false, true)), None, "nothing to offer");
+    }
+
+    /// **A field that keeps a secret gives none away**: a masked field offers neither Cut
+    /// nor Copy, and its selected text is not readable for the clipboard either — Ctrl+C
+    /// used to put the password itself on the clipboard.
+    #[test]
+    fn a_masked_field_offers_neither_cut_nor_copy_and_copies_nothing() {
+        let field = input("hunter2").obscure(true);
+        assert_eq!(
+            bar_words(&field, context(true, true, false)),
+            Some(vec!["Paste".into(), "Select all".into()])
+        );
+        let selected = Edit {
+            cursor: 7,
+            anchor: Some(0),
+            composing: None,
+        };
+        assert_eq!(field.selected_text(&selected), None);
+        // The same field unmasked copies as before.
+        assert_eq!(
+            input("hunter2").selected_text(&selected),
+            Some("hunter2".to_string())
+        );
+    }
+
+    /// A read-only field keeps its text as it is: it can be copied from and selected, not
+    /// cut from and not pasted into.
+    #[test]
+    fn a_read_only_field_offers_copy_and_select_all_only() {
+        let field = input("REF-0042").read_only();
+        assert_eq!(
+            bar_words(&field, context(true, true, false)),
+            Some(vec!["Copy".into(), "Select all".into()])
+        );
+    }
+
+    /// **The application has the last word** on the list: it is handed the context and the
+    /// defaults, and what it returns is what shows — an item dropped, one of its own added,
+    /// or an empty list for no bar.
+    #[test]
+    fn the_application_rewrites_the_list() {
+        let field = input("hello").selection_toolbar(|context, mut items| {
+            items.retain(|item| item.label() != "Paste");
+            if context.has_selection {
+                items.push(ToolbarItem::custom("Translate", Msg::Submitted));
+            }
+            items
+        });
+        assert_eq!(
+            bar_words(&field, context(true, true, false)),
+            Some(vec![
+                "Cut".into(),
+                "Copy".into(),
+                "Select all".into(),
+                "Translate".into()
+            ])
+        );
+        assert_eq!(
+            bar_words(&field, context(false, true, false)),
+            Some(vec!["Select all".into()]),
+            "the custom item only for a selection"
+        );
+        let none = input("hello").selection_toolbar(|_, _| Vec::new());
+        assert_eq!(bar_words(&none, context(true, true, false)), None);
+    }
+
+    /// The application's own item sends its message, and a built-in one sends nothing (the
+    /// shell performs it).
+    #[test]
+    fn an_application_item_sends_its_message_and_a_built_in_one_does_not() {
+        let field = input("hello").selection_toolbar(|_, mut items| {
+            items.push(ToolbarItem::custom("Translate", Msg::Submitted));
+            items
+        });
+        let bar =
+            Widget::<Msg>::selection_toolbar(&field, context(true, false, false)).expect("a bar");
+        let buttons = bar.children();
+        let clicks: Vec<Option<Msg>> = buttons.iter().map(|b| b.on_click()).collect();
+        let actions: Vec<Option<crate::EditAction>> =
+            buttons.iter().map(|b| b.edit_action()).collect();
+        assert_eq!(clicks, vec![None, None, None, Some(Msg::Submitted)]);
+        assert_eq!(
+            actions,
+            vec![
+                Some(crate::EditAction::Cut),
+                Some(crate::EditAction::Copy),
+                Some(crate::EditAction::SelectAll),
+                None
+            ]
+        );
+    }
+
+    /// The bar is placed against the **selection's** box, in the field's own coordinates:
+    /// wider for a longer selection, at the caret (no width) when nothing is selected.
+    #[test]
+    fn the_bar_is_anchored_on_the_selection_or_the_caret() {
+        let field = input("hello world");
+        let word = Edit {
+            cursor: 5,
+            anchor: Some(0),
+            composing: None,
+        };
+        let all = Edit {
+            cursor: 11,
+            anchor: Some(0),
+            composing: None,
+        };
+        let caret = Edit {
+            cursor: 5,
+            anchor: None,
+            composing: None,
+        };
+        let anchor =
+            |edit: &Edit| Widget::<Msg>::selection_anchor(&field, 200.0, edit, 0.0).unwrap();
+        assert!(anchor(&all).width > anchor(&word).width);
+        assert_eq!(anchor(&caret).width, 0.0);
+        assert!(anchor(&caret).height > 0.0);
+        // Where the selection's own handles stand is where its box begins and ends.
+        let handles = Widget::<Msg>::selection_handles(&field, 200.0, &word, 0.0).unwrap();
+        let word_box = anchor(&word);
+        assert!((word_box.x - handles[0].line_center.x).abs() < 0.5);
+        assert!((word_box.x + word_box.width - handles[1].line_center.x).abs() < 0.5);
     }
 
     #[test]

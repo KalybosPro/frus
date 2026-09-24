@@ -234,6 +234,26 @@ macro_rules! forward_transparent {
                 self.inner.selection_handles(width, edit, scroll_y)
             }
 
+            fn selection_toolbar(
+                &self,
+                context: $crate::ToolbarContext,
+            ) -> Option<&dyn $crate::Widget<Msg>> {
+                self.inner.selection_toolbar(context)
+            }
+
+            fn selection_anchor(
+                &self,
+                width: f32,
+                edit: &$crate::runtime::Edit,
+                scroll_y: f32,
+            ) -> Option<$crate::Rect> {
+                self.inner.selection_anchor(width, edit, scroll_y)
+            }
+
+            fn edit_action(&self) -> Option<$crate::EditAction> {
+                self.inner.edit_action()
+            }
+
             fn autofill_hints(&self) -> &[$crate::AutofillHint] {
                 self.inner.autofill_hints()
             }

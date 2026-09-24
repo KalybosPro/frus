@@ -45,6 +45,16 @@ impl Edit {
     }
 }
 
+/// Which field shows its selection bar, and what the clipboard held when it opened: the
+/// shell asks the platform once, on opening, not on every frame.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ToolbarMark {
+    /// The field the bar acts on.
+    pub id: WidgetId,
+    /// Whether the clipboard held text when the bar opened, so whether Paste is offered.
+    pub can_paste: bool,
+}
+
 /// One of the two handles under a touch selection, in the field's **local** coordinates
 /// (px from its top-left corner, as on screen: any scroll of its content already applied).
 ///
@@ -717,6 +727,10 @@ pub struct Runtime {
     /// The field whose selection shows **handles** — one made with a finger (milestone
     /// 511). Put away by the next press or key; shown only while that field is focused.
     pub selection_handles: Option<WidgetId>,
+    /// The field whose **bar** — Cut, Copy, Paste, Select all — is showing over its
+    /// selection (milestone 568), with whether the clipboard held text when it opened.
+    /// Put away by the next press elsewhere or key; shown only while that field is focused.
+    pub selection_toolbar: Option<ToolbarMark>,
     /// The focused field's caret is in the **hidden** half of its blink (milestone 513).
     /// Kept by the shell, on the wall clock; `false` — shown — wherever nothing blinks it,
     /// which is every test and every picture.

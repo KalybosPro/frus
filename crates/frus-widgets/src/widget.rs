@@ -353,6 +353,31 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// The **bar** this field shows over its selection (Cut, Copy, Paste, Select all — see
+    /// [`crate::ToolbarItem`]) for `context`, or `None` when there is none to show: this is
+    /// not a text field, or the application's list for that context is empty.
+    ///
+    /// The runtime asks it when the shell has marked this field as showing its bar, and
+    /// floats the answer over everything, anchored on [`selection_anchor`](Self::selection_anchor).
+    /// One bar per context, built once and kept — a bar is a widget the walk borrows for
+    /// the frame, and two different lists must not share an identity.
+    fn selection_toolbar(&self, _context: crate::ToolbarContext) -> Option<&dyn Widget<Msg>> {
+        None
+    }
+
+    /// The box the bar is placed against, in the field's **local** coordinates: the
+    /// selection's, or the caret's when nothing is selected. Like
+    /// [`selection_handles`](Self::selection_handles) it is the paint's own geometry.
+    fn selection_anchor(&self, _width: f32, _edit: &Edit, _scroll_y: f32) -> Option<Rect> {
+        None
+    }
+
+    /// The editing action pressing this widget performs **on the focused field**, for a
+    /// button of the bar that carries no message (see [`crate::EditAction`]).
+    fn edit_action(&self) -> Option<crate::EditAction> {
+        None
+    }
+
     /// Keystrokes this subtree binds to **intents** — see [`crate::Shortcuts`].
     fn shortcut_bindings(&self) -> &[(crate::shortcuts::KeyStroke, crate::shortcuts::Intent)] {
         &[]
@@ -1595,6 +1620,15 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
         scroll_y: f32,
     ) -> Option<[crate::SelectionHandle; 2]> {
         (**self).selection_handles(width, edit, scroll_y)
+    }
+    fn selection_toolbar(&self, context: crate::ToolbarContext) -> Option<&dyn Widget<Msg>> {
+        (**self).selection_toolbar(context)
+    }
+    fn selection_anchor(&self, width: f32, edit: &Edit, scroll_y: f32) -> Option<Rect> {
+        (**self).selection_anchor(width, edit, scroll_y)
+    }
+    fn edit_action(&self) -> Option<crate::EditAction> {
+        (**self).edit_action()
     }
     fn focusable(&self) -> bool {
         (**self).focusable()

@@ -148,6 +148,7 @@ pub mod scrollposition;
 mod searchbar;
 mod searchview;
 mod segmented;
+mod selectiontoolbar;
 /// Stating what a widget **is** from outside it: the [`semantics::Semantics`] wrapper.
 pub mod semantics;
 mod sheet;
@@ -343,7 +344,7 @@ pub use router::{GoRoute, GoRouter, GoRouterState};
 pub use rowcolumn::{Column, MainAxisSize, Row, VerticalDirection};
 pub use runtime::{
     spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState, ScrollbarFade,
-    SelectionHandle, TransformValues, ValueAnim,
+    SelectionHandle, ToolbarMark, TransformValues, ValueAnim,
 };
 pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};
@@ -360,6 +361,7 @@ pub use segmented::{
     SegmentedButton, SEGMENTED_BORDER_WIDTH, SEGMENTED_HEIGHT, SEGMENTED_ICON_GAP,
     SEGMENTED_ICON_SIZE, SEGMENTED_PADDING,
 };
+pub use selectiontoolbar::{EditAction, ToolbarContext, ToolbarItem};
 pub use semantics::{Description, Semantics};
 pub use sheet::{
     sheet_takes_release, split_sheet_drag, DraggableScrollableSheet, SheetArea, SheetSpec,
