@@ -152,7 +152,7 @@ cargo generate --path templates/app --name my-app
 cd my-app && cargo run
 ```
 
-The template asks for the path to your frus checkout — frus is not on crates.io yet, so dependencies resolve through `path`. See [`docs/getting-started.md`](docs/getting-started.md).
+The generated project depends on the published [`frus`](https://crates.io/crates/frus) crate (`frus = "0.2"`). To work against a checkout of this repository instead, see [`docs/getting-started.md`](docs/getting-started.md).
 
 ### Android
 
@@ -222,7 +222,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 
 ## Project status
 
-**Pre-alpha.** The core is real and exercised by three sample apps, but the API is not stable and nothing is published to crates.io yet.
+**Pre-alpha.** The core is real and exercised by three sample apps, but the API is not stable. The crates are on [crates.io](https://crates.io/crates/frus) (0.2), and any release may break.
 
 | Platform | State | Notes |
 |---|---|---|
@@ -235,7 +235,6 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 
 **Known gaps** — these are the best places to help:
 
-- Publishing to crates.io (everything is `path`-based today).
 - Web clipboard, accessibility, and live-reload.
 - iOS and native macOS shells.
 - Text rendering edge cases, and broader golden coverage.
@@ -251,7 +250,6 @@ real, open, and written up with where to look and how to know you are done:
 | | |
 |---|---|
 | 🟢 Turn on `missing_docs`, crate by crate | Start with the small crates. **One crate is a whole PR.** |
-| 🟡 [Publish to crates.io](https://github.com/KalybosPro/frus/labels/help%20wanted) | The single biggest thing between the project and anyone trying it. |
 | 🟡 The overscroll stretch effect | Current Android stretches the content instead of glowing. A render-target effect, and where to start reading is written down. |
 | 🟡 Clipboard and accessibility on the web | Both exist on desktop; the web drops them on the floor. |
 | 🔴 [An iOS shell](https://github.com/KalybosPro/frus/labels/design%20first) | The architecture bets this is a contained job. Nobody has tested the bet. |

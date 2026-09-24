@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-frus is **pre-alpha** and nothing is published to crates.io yet. Only the `master` branch is supported. There are no maintained release branches and no backports.
+frus is **pre-alpha**; its crates are published on crates.io (0.2.x). Only the `master` branch is supported. There are no maintained release branches and no backports.
 
 Once versioned releases exist, this table will be filled in.
 

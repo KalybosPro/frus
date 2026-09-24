@@ -5,13 +5,24 @@ All notable changes to frus are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) — with the usual 0.x caveat that
 any release may break.
 
-> frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
-> depend on them by `path` or by git revision. For the reasoning behind any individual
+> frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
+> earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 565 so far, each documenting the objective, the alternatives
+> record — one per step, 566 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **On crates.io** (J566, second half of #13). The ten library crates were published at 0.2.1 on
+  2026-09-24, from the `v0.2.1` tag. The `cargo generate` template drops its `{{frus_path}}`
+  question and depends on `frus = "0.2"`; a project generated from it was built against the
+  published crates. The README (both languages), the getting-started guide, `SECURITY.md` and
+  the roadmap stop saying nothing is published; the guide gains a short section on building a
+  generated project against a checkout (`[patch.crates-io]` on all ten crates). The `frus`
+  crate's own README, which is its crates.io page, still says "not on crates.io yet" in 0.2.1
+  and is corrected here, for the next release. crates.io's limit on new crates (five, then one
+  per ten minutes) and Cargo's refusal to resume `--workspace` after a partial publish are
+  written down in the milestone note.
 
 ## [0.2.1] - 2026-09-24
 

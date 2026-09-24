@@ -162,10 +162,28 @@ cd my-app
 cargo run
 ```
 
-`cargo generate` asks for the **path to your frus checkout** (the one that
-contains `crates/`) — that is where the generated `Cargo.toml` points its
-dependencies, for as long as frus is unpublished. Once it is on crates.io those
-dependencies become plain `frus-shell = "0.1"`.
+The generated `Cargo.toml` has one dependency, the published `frus = "0.2"`, and asks
+nothing.
+
+### Building against a checkout
+
+To try a change to frus itself from a generated project, point **every** frus crate at
+your checkout — they are versioned together, and a local `frus` beside published
+`frus-shell` and friends is not a combination anyone tests. In the generated project's `Cargo.toml`:
+
+```toml
+[patch.crates-io]
+frus         = { path = "../frus/crates/frus" }
+frus-core    = { path = "../frus/crates/frus-core" }
+frus-gpu     = { path = "../frus/crates/frus-gpu" }
+frus-image   = { path = "../frus/crates/frus-image" }
+frus-l10n    = { path = "../frus/crates/frus-l10n" }
+frus-layout  = { path = "../frus/crates/frus-layout" }
+frus-shell   = { path = "../frus/crates/frus-shell" }
+frus-test    = { path = "../frus/crates/frus-test" }
+frus-text    = { path = "../frus/crates/frus-text" }
+frus-widgets = { path = "../frus/crates/frus-widgets" }
+```
 
 ## Android
 
