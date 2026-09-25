@@ -60,6 +60,7 @@ pub struct FrusApp {
     root: Root,
     router: Option<GoRouter>,
     window_size: Option<(f32, f32)>,
+    icon: crate::AppIcon,
     on_start: Option<Box<dyn FnOnce()>>,
     save: Option<Save>,
     restore: Option<Restore>,
@@ -123,6 +124,7 @@ impl FrusApp {
             root,
             router: None,
             window_size: None,
+            icon: crate::AppIcon::Frus,
             on_start: None,
             save: None,
             restore: None,
@@ -203,6 +205,15 @@ impl FrusApp {
     ) -> Self {
         self.save = Some(Box::new(save));
         self.restore = Some(Box::new(restore));
+        self
+    }
+
+    /// The application's icon. The frus logo is the default — an application has it without
+    /// writing a line — and this is how to change it: `.icon(AppIcon::from_png(include_bytes!(
+    /// "../assets/icon.png")))`, or `.icon(AppIcon::none())` for none of the framework's. On
+    /// Android the launcher icon is the manifest's instead; see [`AppIcon`](crate::AppIcon).
+    pub fn icon(mut self, icon: crate::AppIcon) -> Self {
+        self.icon = icon;
         self
     }
 
@@ -355,6 +366,10 @@ impl Application for FrusApp {
         self.window_size
     }
 
+    fn icon(&self) -> crate::AppIcon {
+        self.icon.clone()
+    }
+
     fn density(&self) -> f32 {
         host::app().density()
     }
@@ -380,6 +395,22 @@ mod tests {
         driver.press(at);
         driver.release(at);
         driver.frame(1.0 / 60.0);
+    }
+
+    /// **Every application has the frus logo** until it says otherwise, and can say otherwise or
+    /// say none: the default costs no line, the change costs one.
+    #[test]
+    fn an_application_has_the_frus_logo_until_it_names_its_own_icon() {
+        use crate::{AppIcon, Application};
+        let plain = FrusApp::from_fn(|_| target(|| {}));
+        assert!(
+            matches!(Application::icon(&plain), AppIcon::Frus),
+            "the default"
+        );
+        let own = FrusApp::from_fn(|_| target(|| {})).icon(AppIcon::from_png(&b"png"[..]));
+        assert_eq!(Application::icon(&own).png(), Some(&b"png"[..]));
+        let none = FrusApp::from_fn(|_| target(|| {})).icon(AppIcon::none());
+        assert_eq!(Application::icon(&none).png(), None);
     }
 
     #[test]

@@ -8,10 +8,21 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 571 so far, each documenting the objective, the alternatives
+> record — one per step, 572 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The frus logo is every application's icon, and the developer's to change** (J572). A window,
+  a browser tab and an Android launcher had the platform's blank icon; now they have the frus logo
+  without a line written. `AppIcon` (`Frus`, `Png`, `None`) and `FrusApp::icon` change or remove
+  it; on the desktop it is the window's icon and, on Windows, the taskbar's; on the Web the tab's,
+  yielding to an icon the page declares; on Android it is the manifest's, so the generated
+  project, the demo and `frus-hello` carry the logo as `res/mipmap-*/ic_launcher.png` — replace the
+  five files. Embedded at 256 px (22 kB), not the artwork's 806 kB. Checked: the Windows window
+  answers for both icons, the browser tab loads a 256-px `blob:` PNG, and the APK's manifest names
+  the launcher icon at every density, and the phone's *App info* page shows the logo for the
+  installed demo.
 
 - **A quiet console on the Web** (J571). Opening the demo logged, on every load, a Chrome warning
   that `powerPreference` is ignored on Windows (the renderer asked for it on every target; a

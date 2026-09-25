@@ -4,8 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>frus — demo (Web / WebGPU)</title>
-    <!-- No icon of its own yet: an empty one, so the browser does not ask for /favicon.ico and
-         log a 404 on every load. -->
+    <!-- An empty icon, so the browser does not ask for /favicon.ico and log a 404 before the
+         application has started. Once it has, the framework replaces this with the frus logo —
+         its default — unless the page names a real one here. -->
     <link rel="icon" href="data:," />
     <style>
       /* The page is a column: a slim header, then the canvas taking **all the rest**. The header

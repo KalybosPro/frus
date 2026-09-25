@@ -26,6 +26,9 @@ resources = "res"
 
 [package.metadata.android.application]
 label = "{{project-name}}"
+# The launcher icon: the frus logo by default, `res/mipmap-*/ic_launcher.png` — replace those
+# five files to change it. (On Android the icon is the manifest's, not the running code's.)
+icon = "@mipmap/ic_launcher"
 
 # The application's own theme, whose only job is the **window background**: what is on
 # screen between Android opening the window and the first frame being drawn. Left to the

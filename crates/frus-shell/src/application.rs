@@ -281,6 +281,13 @@ pub trait Application {
         "frus".to_string()
     }
 
+    /// The application's icon: the frus logo unless it says otherwise. On the desktop it is the
+    /// window's, on the Web the tab's; see [`AppIcon`](crate::AppIcon) for what it does on each platform, and
+    /// for how to change or remove it.
+    fn icon(&self) -> crate::AppIcon {
+        crate::AppIcon::Frus
+    }
+
     /// The window's desired initial **logical** size; `None` for the system default. Ignored on
     /// the Web, where the page decides how big the canvas is.
     fn window_size(&self) -> Option<(f32, f32)> {

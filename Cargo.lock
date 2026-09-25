@@ -1411,6 +1411,7 @@ dependencies = [
  "console_log",
  "env_logger",
  "frus-gpu",
+ "frus-image",
  "frus-widgets",
  "futures-lite",
  "jni 0.21.1",

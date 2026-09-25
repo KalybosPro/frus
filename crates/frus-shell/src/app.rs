@@ -1628,6 +1628,19 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         {
             attributes = attributes.with_visible(false);
         }
+        // The application's icon, on the window (Windows and X11; Wayland and macOS take it
+        // from the bundle and ignore this). Windows keeps a second, larger one for the taskbar
+        // and Alt+Tab, set on its own.
+        #[cfg(desktop)]
+        {
+            let icon = crate::icon::window_icon(&self.app.icon());
+            #[cfg(windows)]
+            {
+                use winit::platform::windows::WindowAttributesExtWindows;
+                attributes = attributes.with_taskbar_icon(icon.clone());
+            }
+            attributes = attributes.with_window_icon(icon);
+        }
         // Not on the Web: there the page sizes the canvas, with its own CSS, and asking winit
         // for a size writes it **inline** on the canvas, where it outranks the stylesheet — an
         // application that named 900 by 680 then stayed 900 by 680 in a phone-sized window,
@@ -1664,6 +1677,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             // The browser keeps reload, the developer tools and the rest of its own shortcuts
             // while the canvas has the focus, instead of winit cancelling them.
             crate::web_keys::let_the_browser_keep_its_shortcuts();
+            // The tab's icon: the application's, or the frus logo where the page has none.
+            crate::web_icon::apply(&self.app.icon());
             self.build_dirty = true;
             if !self.started {
                 self.started = true;
