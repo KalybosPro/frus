@@ -89,6 +89,9 @@ sys-locale = "0.3"
 # have no UIKit backend, and stderr is not readable on a device. Cargo does not
 # evaluate `build.rs` aliases here, hence the list spelled out in full.
 [target.'cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))'.dependencies]
+# Decodes the application's icon for the window (`AppIcon`); already in the tree through the
+# widgets' `images` feature.
+frus-image = { path = "../frus-image", version = "0.2" }
 arboard.workspace = true
 env_logger.workspace = true
 accesskit = "0.24"
@@ -120,6 +123,9 @@ web-sys = { version = "0.3", features = [
     "EventTarget",
     # The bridge's buttons stop an Enter or a Space from reaching the shell as a key (#23).
     "KeyboardEvent",
+    # The tab's icon: the PNG becomes a Blob, and its object URL the icon link's address.
+    "Blob",
+    "BlobPropertyBag",
     "Element",
     "Response",
     "Request",

@@ -166,7 +166,13 @@ def main(base):
         expect_true("the menu icon button is exposed, named 'Menu'", menu is not None)
 
         print("adding a task announces it and names the checkbox after it")
-        p.click(350, 287); p.wait(1)
+        # The field is found in the accessibility tree and given the focus the way an assistive
+        # technology would, rather than by a click at coordinates that move whenever the page's
+        # layout does (they moved when the demo stopped fixing its own size).
+        field = p.find(p.ax_tree(), role="textbox")
+        expect_true("the add field is exposed as a textbox", field is not None)
+        if field:
+            p.focus_backend_node(field["backendDOMNodeId"]); p.wait(0.5)
         p.type("Wash the dog"); p.wait(2)
         tree = p.ax_tree()
         box = p.find(tree, role="checkbox", name_contains="Wash the dog")

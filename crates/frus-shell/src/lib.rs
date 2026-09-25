@@ -45,6 +45,7 @@ mod gesture;
 #[cfg(any(web, test))]
 mod history;
 mod hover;
+mod icon;
 #[cfg(any(android, test))]
 mod ime;
 #[cfg(desktop)]
@@ -64,6 +65,10 @@ mod subscription;
 mod theming;
 #[cfg(web)]
 mod web_clipboard;
+#[cfg(web)]
+mod web_icon;
+#[cfg(any(web, test))]
+mod web_keys;
 mod widget_app;
 
 /// A windowless driver for tests. Hidden: not part of what an application builds on.
@@ -73,6 +78,7 @@ pub use app::testing;
 pub use app::App;
 pub use application::{Application, Lifecycle, LocationStrategy};
 pub use command::Command;
+pub use icon::AppIcon;
 pub use link::{link_among, location_of_link};
 pub use remote::RemoteData;
 pub use subscription::Subscription;

@@ -6,3 +6,6 @@
 # (From a remote repository: `cargo generate --git <url> templates/app`.)
 [template]
 description = "A minimal frus application (counter)"
+# The launcher icons are binary: their bytes are not template syntax, and a PNG that happens to hold
+# something that looks like it makes `cargo generate` fail. Not processed, copied as they are.
+exclude = ["*.png"]

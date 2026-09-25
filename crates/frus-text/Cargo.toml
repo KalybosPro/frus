@@ -31,3 +31,11 @@ bundled-arabic = []
 [dependencies]
 frus-core = { path = "../frus-core", version = "0.2" }
 cosmic-text.workspace = true
+
+# The Web: cosmic-text asks `sys-locale` for the reader's language when it builds a font system,
+# and `sys-locale` reads the browser's only with this feature. Without it the answer is nothing,
+# and cosmic-text logs "failed to get system locale, falling back to en-US" — once per font
+# system, so twice on every page load. `sys-locale` is already in the tree (cosmic-text pulls
+# it); this only turns on the part that talks to the browser.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+sys-locale = { version = "0.3", features = ["js"] }

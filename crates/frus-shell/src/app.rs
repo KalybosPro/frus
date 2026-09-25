@@ -125,7 +125,20 @@ fn opens_selection_bar(logical: &WinitKey, shift: bool) -> bool {
 /// beside the first: `F`, then `FFr`.
 #[cfg(any(android, test))]
 fn wants_keyboard<M>(widget: &dyn Widget<M>) -> bool {
-    widget.text_value().is_some() && widget.focusable()
+    is_text_field(widget) && widget.focusable()
+}
+
+/// Whether `widget` is a **text field**: what takes the left and right arrows for its caret
+/// instead of leaving them to focus navigation.
+///
+/// Asked of the widget, and not of a caret hit test at the corner of a field one pixel wide —
+/// which is how this was decided until milestone 570. A field that holds text shows a clear
+/// button, and the button covers that pixel, so the probe answered "no caret goes here" and the
+/// **left and right arrows moved the focus to the next control** instead of the caret: in any
+/// field with something in it, on every platform, and never in an empty one. It is the same
+/// trap milestone 510 had already got the keyboard out of, in the one place it was not looked for.
+fn is_text_field<M>(widget: &dyn Widget<M>) -> bool {
+    widget.text_value().is_some()
 }
 
 /// The clipboard: `arboard` on the desktop platforms, the platform's own on Android
@@ -1615,6 +1628,19 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         {
             attributes = attributes.with_visible(false);
         }
+        // The application's icon, on the window (Windows and X11; Wayland and macOS take it
+        // from the bundle and ignore this). Windows keeps a second, larger one for the taskbar
+        // and Alt+Tab, set on its own.
+        #[cfg(desktop)]
+        {
+            let icon = crate::icon::window_icon(&self.app.icon());
+            #[cfg(windows)]
+            {
+                use winit::platform::windows::WindowAttributesExtWindows;
+                attributes = attributes.with_taskbar_icon(icon.clone());
+            }
+            attributes = attributes.with_window_icon(icon);
+        }
         // Not on the Web: there the page sizes the canvas, with its own CSS, and asking winit
         // for a size writes it **inline** on the canvas, where it outranks the stylesheet — an
         // application that named 900 by 680 then stayed 900 by 680 in a phone-sized window,
@@ -1648,6 +1674,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             // The accessibility bridge (#18): the canvas exists as soon as the window
             // does, so there is no "still hidden" step to wait for here.
             self.a11y = crate::a11y_web::A11y::new(&window);
+            // The browser keeps reload, the developer tools and the rest of its own shortcuts
+            // while the canvas has the focus, instead of winit cancelling them.
+            crate::web_keys::let_the_browser_keep_its_shortcuts();
+            // The tab's icon: the application's, or the frus logo where the page has none.
+            crate::web_icon::apply(&self.app.icon());
             self.build_dirty = true;
             if !self.started {
                 self.started = true;
@@ -1668,7 +1699,6 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     Err(err) => log::error!("failed to initialise the renderer (Web): {err:#}"),
                 }
             });
-            return;
         }
 
         #[cfg(not(web))]
@@ -2097,8 +2127,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         .tree
                         .as_ref()
                         .and_then(|tree| find_widget(tree.as_ref(), focused))
-                        .and_then(|widget| widget.cursor_at(0.0, 0.0, 1.0, 0))
-                        .is_some();
+                        .is_some_and(is_text_field);
                     let navigates =
                         !is_text || matches!(direction, FocusDirection::Up | FocusDirection::Down);
                     if navigates {
@@ -6625,6 +6654,36 @@ mod tests {
         assert!(
             !super::wants_keyboard(&Container::<()>::new()),
             "and what is not a field wants no keyboard"
+        );
+    }
+
+    /// **Left and right moved the focus, not the caret, in a field with text in it**
+    /// (milestone 570). Whether the focused widget is a text field was asked of a caret probe
+    /// at a corner of the field one pixel wide, and a field that holds text shows a clear
+    /// button over that corner: the probe said no caret goes there, so the arrows navigated to
+    /// the next control. In an empty field, which has no button, they worked — which is how it
+    /// went unseen. The probe still answers no for such a field; the question is the widget's.
+    #[test]
+    fn a_field_with_a_clear_button_is_a_text_field_and_keeps_its_arrows() {
+        use frus_widgets::{Container, Icons, TextField};
+        let clearable = TextField::<()>::new("hello")
+            .suffix_icon(Icons::CLOSE)
+            .on_suffix(());
+        assert!(
+            frus_widgets::Widget::<()>::cursor_at(&clearable, 0.0, 0.0, 1.0, 0).is_none(),
+            "the trap: the probe finds no caret at the corner a clear button covers"
+        );
+        assert!(
+            super::is_text_field(&clearable),
+            "and it is a text field all the same"
+        );
+        assert!(
+            super::is_text_field(&TextField::<()>::new("")),
+            "empty, too"
+        );
+        assert!(
+            !super::is_text_field(&Container::<()>::new()),
+            "what is not a field leaves its arrows to focus navigation"
         );
     }
 

@@ -448,6 +448,36 @@ to `set_default_family` is the one written *inside* the file — `pyftsubset` ke
 `python -c "from fontTools.ttLib import TTFont; print(TTFont('fonts/DejaVuSans-Subset.ttf')['name'].getDebugName(1))"`
 prints it. What a face's licence allows you to modify is for its licence to say.
 
+## The application's icon
+
+Every frus application has the **frus logo** as its icon until it says otherwise, so a new one
+looks finished the moment it runs. Where that shows depends on the platform:
+
+| platform | where the icon is | what to do to change it |
+|---|---|---|
+| **Desktop** | the window's title bar, and on Windows the taskbar and Alt+Tab | `.icon(AppIcon::from_png(include_bytes!("../assets/icon.png")))` on your `FrusApp` |
+| **Web** | the browser tab | the same call — or declare `<link rel="icon" href="…">` in your page, which the default yields to |
+| **Android** | the launcher | replace the five `res/mipmap-*/ic_launcher.png` files |
+
+```rust
+use frus::{AppIcon, FrusApp};
+
+// Your own, from a PNG compiled into the binary (square; 64 px or more).
+let app = FrusApp::stateful(Counter).icon(AppIcon::from_png(include_bytes!("../assets/icon.png")));
+
+// None of the framework's: the platform's plain default, or whatever the page declares.
+let app = FrusApp::stateful(Counter).icon(AppIcon::none());
+```
+
+The Android icon is the manifest's, fixed when the package is built, and not the running code's to
+change — which is why it is five files in `res/` and a line in `Cargo.toml`
+(`icon = "@mipmap/ic_launcher"` under `[package.metadata.android.application]`), both of which the
+generated project already has. macOS and Wayland take a window's icon from the application bundle
+and ignore the window's own.
+
+The logo is embedded at 256 px (about 22 kB), not at the artwork's 1024, so an icon does not cost
+an application most of a megabyte.
+
 ## Testing
 
 Because `update` is pure, the logic is testable **without a GPU or a window**:

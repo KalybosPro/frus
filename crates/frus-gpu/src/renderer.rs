@@ -41,14 +41,21 @@ impl Renderer {
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
+                // The discrete GPU where there is a choice — but not in a browser, which
+                // ignores the hint and **says so** in the console (Chrome, on Windows) on
+                // every page load, for something the page cannot change.
+                power_preference: if cfg!(target_arch = "wasm32") {
+                    wgpu::PowerPreference::None
+                } else {
+                    wgpu::PowerPreference::HighPerformance
+                },
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
                 ..Default::default()
             })
             .await?;
 
-        log::info!("Adaptateur GPU : {:?}", adapter.get_info());
+        log::info!("GPU adapter: {:?}", adapter.get_info());
 
         // Downlevel limits, for GLES compatibility, but with the adapter's **real**
         // resolution: on mobile a screen of, say, 1080x2340 exceeds the downlevel

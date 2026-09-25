@@ -8,10 +8,38 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 569 so far, each documenting the objective, the alternatives
+> record — one per step, 572 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The frus logo is every application's icon, and the developer's to change** (J572). A window,
+  a browser tab and an Android launcher had the platform's blank icon; now they have the frus logo
+  without a line written. `AppIcon` (`Frus`, `Png`, `None`) and `FrusApp::icon` change or remove
+  it; on the desktop it is the window's icon and, on Windows, the taskbar's; on the Web the tab's,
+  yielding to an icon the page declares; on Android it is the manifest's, so the generated
+  project, the demo and `frus-hello` carry the logo as `res/mipmap-*/ic_launcher.png` — replace the
+  five files. Embedded at 256 px (22 kB), not the artwork's 806 kB. Checked: the Windows window
+  answers for both icons, the browser tab loads a 256-px `blob:` PNG, and the APK's manifest names
+  the launcher icon at every density, and the phone's *App info* page shows the logo for the
+  installed demo. Adding the five PNGs to the template broke `cargo generate` (it reads every file
+  for `{{ … }}`); the template now excludes `*.png` from substitution, and a generated project
+  has the icons byte for byte.
+
+- **A quiet console on the Web** (J571). Opening the demo logged, on every load, a Chrome warning
+  that `powerPreference` is ignored on Windows (the renderer asked for it on every target; a
+  browser is asked for no preference now), a log line in French (`Adaptateur GPU`, now
+  `GPU adapter`), cosmic-text's "failed to get system locale" twice (`sys-locale` reads the
+  browser's language only with its `js` feature, on for `wasm32` in `frus-text` now), and a 404
+  for the favicon the page does not have. The console holds two info lines.
+
+- **The arrows move the caret in a field that has text** (J570). Left and right moved the *focus*
+  to the next control instead, in any text field with something in it, on every platform: the
+  shell decided whether the focused widget was a text field with a caret probe at a corner of
+  the field, and the clear button a field shows once it holds text covers that corner. An empty
+  field, which has no button, worked — which is how it went unseen. It is asked of the widget
+  now, the answer milestone 510 had already given the soft keyboard. Checked in a browser: Left
+  three times and a letter, Right twice and a letter, Home and End all land where they should.
 
 - **The web demo fills its window, sits under its own header, and the drawer opens from the side of its button** (J569).
   Two faults found using the demo, both older than the selection bar. On the Web the canvas
@@ -27,7 +55,11 @@ any release may break.
   no 900 by 680 desktop window, no 560 / 680 px ceiling on the task card, and the card's
   children stretch to its width instead of standing in a corner of it on a wide window. And
   the drawer's list scrolls: in a window shorter than its eleven entries the last ones ran off the
-  bottom of the panel with no way back.
+  bottom of the panel with no way back. And on the Web, **F5, Ctrl+F5, Ctrl+R, F12 and Ctrl+L
+  work again** while the canvas has the focus: winit cancelled the default of every key, the
+  browser's own included, so the page could not be reloaded from the keyboard. A capture-phase
+  listener on the window now lets the browser's shortcuts through and leaves the rest to the
+  application.
 
 - **The bar over a selection** (J568, second half of #23). After a hold selects a word, and
   after a handle has been dragged, the field floats **Cut, Copy, Paste and Select all** over
