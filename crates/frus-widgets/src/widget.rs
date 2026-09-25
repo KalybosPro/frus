@@ -339,6 +339,19 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// The **bar** over the part of a selection area's selection that lies in this widget —
+    /// `range`, in characters — for `context`, and the box it is placed against in local
+    /// coordinates, for a widget `width` wide. `None` for anything that is not a text, or when
+    /// the list for `context` is empty.
+    fn region_toolbar(
+        &self,
+        _context: crate::ToolbarContext,
+        _width: f32,
+        _range: (usize, usize),
+    ) -> Option<(Rect, &dyn Widget<Msg>)> {
+        None
+    }
+
     /// Whether this widget takes **typing**: a field that can be changed, which is what
     /// the software keyboard is for. A text field that may only be read and selected — a
     /// [`read_only`](crate::TextField::read_only) one, a [`Text`](crate::Text) made
@@ -1638,6 +1651,14 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn selection_text(&self) -> Option<&str> {
         (**self).selection_text()
+    }
+    fn region_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+        width: f32,
+        range: (usize, usize),
+    ) -> Option<(Rect, &dyn Widget<Msg>)> {
+        (**self).region_toolbar(context, width, range)
     }
     fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
         (**self).selection_hit(local_x, local_y, width)

@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 575 so far, each documenting the objective, the alternatives
+> record — one per step, 576 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **A finger selects in a selection area** (J576). A finger held on words in a `SelectionArea`
+  selects the word under it and opens the bar over it — Copy and Select all. Select all takes the
+  whole area and keeps the bar; Copy puts the words on the clipboard and the selection away; Back,
+  Escape or a tap elsewhere put it away. A hold that a button, a tappable row, a lift or a widget's
+  own long press asked for stays theirs, and a moving finger still scrolls. A mouse selection has no
+  bar. Left: handles to widen a touch selection, and an application's say over the area's bar.
 
 - **One selection across several texts: `SelectionArea`** (J575, the second half of #24). Wrap a
   subtree in `SelectionArea::around(child)` and every `Text` in it takes part in one selection: a

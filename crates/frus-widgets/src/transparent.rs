@@ -225,6 +225,15 @@ macro_rules! forward_transparent {
                 self.inner.selection_text()
             }
 
+            fn region_toolbar(
+                &self,
+                context: $crate::ToolbarContext,
+                width: f32,
+                range: (usize, usize),
+            ) -> Option<($crate::Rect, &dyn $crate::Widget<Msg>)> {
+                self.inner.region_toolbar(context, width, range)
+            }
+
             fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
                 self.inner.selection_hit(local_x, local_y, width)
             }

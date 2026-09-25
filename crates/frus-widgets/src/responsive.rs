@@ -235,6 +235,17 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.selection_text())
     }
 
+    fn region_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+        width: f32,
+        range: (usize, usize),
+    ) -> Option<(Rect, &dyn Widget<Msg>)> {
+        self.inner
+            .as_ref()
+            .and_then(|w| w.region_toolbar(context, width, range))
+    }
+
     fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
         self.inner
             .as_ref()

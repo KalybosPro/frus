@@ -542,8 +542,10 @@ fn hash_status<H: Hasher>(s: &Status, h: &mut H) {
     // that opens on a selection already made, handles put away by a press.
     s.handles.hash(h);
     s.toolbar.hash(h);
-    // What a selection area has selected in this text: the highlight is part of its paint.
+    // What a selection area has selected in this text: the highlight is part of its paint,
+    // and the bar floats from it.
     s.region.hash(h);
+    s.region_bar.hash(h);
     quant(s.hover_progress).hash(h);
     quant(s.focus_progress).hash(h);
     quant(s.press_progress).hash(h);
@@ -2283,6 +2285,9 @@ struct Builder<'a, Msg> {
     text_stops: Vec<crate::TextStop>,
     /// The [`SelectionArea`](crate::SelectionArea) the walk is inside, if it is inside one.
     area: Option<WidgetId>,
+    /// Whether the bar over a selection area's selection has been placed this frame: it goes
+    /// against the first text the selection covers, and only that one.
+    region_bar_placed: bool,
     reorderables: Vec<(WidgetId, Rect)>,
     interactives: Vec<(WidgetId, Rect)>,
     /// Deferred overlays: (content, id, the anchor's bounds, placement, dismissal, progress
@@ -3382,6 +3387,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.draw_focus_ring(draw_rect, &status, widget);
         if let Some(can_paste) = status.toolbar {
             self.push_selection_toolbar(widget, id, draw_rect, clip, &status, can_paste);
+        }
+        if status.region_bar && !self.region_bar_placed {
+            if let Some(range) = status.region {
+                self.push_region_toolbar(widget, id, draw_rect, clip, range);
+            }
         }
 
         // A shared element is recorded **whether or not it is on screen**: half way
@@ -4682,6 +4692,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             .region
             .as_ref()
             .and_then(|selection| selection.ranges.get(&id).copied());
+        status.region_bar = status.region.is_some()
+            && self
+                .runtime
+                .region
+                .as_ref()
+                .is_some_and(|selection| selection.bar);
         if status.focused {
             if let Some(edit) = self.runtime.edits.get(&id) {
                 status.cursor = Some(edit.cursor);
@@ -4924,6 +4940,51 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         let Some(content) = widget.selection_toolbar(context) else {
             return;
         };
+        self.overlays.push((
+            content,
+            id.toolbar(context.variant()),
+            anchor,
+            Placement::Selection,
+            None,
+            1.0,
+            false,
+            None,
+            self.theme.clone(),
+        ));
+    }
+
+    /// Floats the bar of a selection area's selection over `range` of this text — the first
+    /// the selection covers, in reading order, since the walk meets them in that order.
+    fn push_region_toolbar(
+        &mut self,
+        widget: &'a dyn Widget<Msg>,
+        id: WidgetId,
+        draw_rect: Rect,
+        clip: Rect,
+        range: (usize, usize),
+    ) {
+        let all_selected = self
+            .runtime
+            .region
+            .as_ref()
+            .is_some_and(|selection| selection.all);
+        let context = crate::ToolbarContext {
+            has_selection: true,
+            can_paste: false,
+            all_selected,
+        };
+        let Some((local, content)) = widget.region_toolbar(context, draw_rect.width, range) else {
+            return;
+        };
+        let anchor = local.translate(draw_rect.x, draw_rect.y);
+        let seen = anchor.x + anchor.width >= clip.x
+            && anchor.x <= clip.x + clip.width
+            && anchor.y + anchor.height > clip.y
+            && anchor.y < clip.y + clip.height;
+        if !seen {
+            return;
+        }
+        self.region_bar_placed = true;
         self.overlays.push((
             content,
             id.toolbar(context.variant()),
@@ -5390,6 +5451,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         inks: Vec::new(),
         text_stops: Vec::new(),
         area: None,
+        region_bar_placed: false,
         reorderables: Vec::new(),
         interactives: Vec::new(),
         overlays: Vec::new(),
