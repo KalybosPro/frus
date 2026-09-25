@@ -17,9 +17,9 @@ use frus_widgets::{
     nearest_reorder_slot, reflow_reorder_cards, reflow_reorder_columns, reorder_drop_after,
     reorder_siblings, reorderable_owners, subtree_ids, Accessibility, Brightness, Color,
     Cursor as UiCursor, Edit, EditKind, EditSnapshot, FocusDirection, Insets, Key, KeyResponse,
-    KeyStroke, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, ScrollTo,
-    Scrollable, SheetTo, ShortcutKey, Size, Theme, ToolbarMark, Ui, VelocityEstimate,
-    VelocityTracker, Widget, WidgetId, WindowInsets,
+    KeyStroke, MediaQuery, Point, Primitive, Rect, RegionPoint, RegionSelection, ReorderAxis,
+    Runtime, Scene, ScrollTo, Scrollable, SheetTo, ShortcutKey, Size, TextStop, Theme, ToolbarMark,
+    Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -144,6 +144,10 @@ fn wants_keyboard<M>(widget: &dyn Widget<M>) -> bool {
 fn is_text_field<M>(widget: &dyn Widget<M>) -> bool {
     widget.text_value().is_some()
 }
+
+/// How far apart two presses may be and still be a double click on words in a selection area, in
+/// logical pixels.
+const REGION_DOUBLE_CLICK_SLOP: f32 = 8.0;
 
 /// The clipboard: `arboard` on the desktop platforms, the platform's own on Android
 /// (`ClipboardManager`, through the bundled dex — milestone 509, #22), the browser's
@@ -567,6 +571,10 @@ enum Drag {
         /// thumb's position along the track reads backwards.
         reverse: bool,
     },
+    /// A selection dragged out over the texts of a
+    /// [`SelectionArea`](frus_widgets::SelectionArea): it may leave the text it began in, and
+    /// never leaves the area.
+    RegionSelect { area: WidgetId },
     /// A text selection inside a field, with its bounds, for placement.
     TextSelect {
         id: WidgetId,
@@ -910,6 +918,9 @@ pub struct App<A: Application> {
     pending_reorder: Option<(WidgetId, usize, Point)>,
     /// The last click's instant, for double-click detection.
     last_click_time: Option<Instant>,
+    /// When and where the last press began a selection in a selection area: a second one soon
+    /// after and close by is a double click.
+    last_region_click: Option<(Instant, Point)>,
     /// A counter for the keys of leaving events, which fade out.
     leaving_counter: u64,
     /// The running subscriptions: id → cancellation handle, dropping which stops it.
@@ -1057,6 +1068,7 @@ impl<A: Application> App<A> {
             pending_lift: None,
             pending_reorder: None,
             last_click_time: None,
+            last_region_click: None,
             leaving_counter: 0,
             running_subs: HashMap::new(),
             pending_focus: Vec::new(),
@@ -2044,6 +2056,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         .and_then(|ui| ui.focus_next(self.runtime.input.focused, forward));
                     if next.is_some() {
                         self.runtime.input.focused = next;
+                        self.runtime.region = None;
                         self.reveal_focus();
                         self.request_redraw();
                     }
@@ -2062,6 +2075,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 }
 
                 let Some(focused) = self.runtime.input.focused else {
+                    // With nothing focused, a selection an area holds still answers to the
+                    // clipboard's Copy and to Select all.
+                    self.region_key(&event);
                     return;
                 };
 
@@ -3469,6 +3485,11 @@ impl<A: Application> App<A> {
             self.request_redraw();
         }
         self.hide_selection_toolbar();
+        // A selection an area holds goes with any press: the one that begins another puts a
+        // new one in its place, below.
+        if self.runtime.region.take().is_some() {
+            self.request_redraw();
+        }
         // 0) The back gesture: a press on the **leading edge** — left under LTR,
         // right under RTL — if the app allows it.
         let on_back_edge = if self.is_rtl() {
@@ -3628,6 +3649,13 @@ impl<A: Application> App<A> {
                     }
                 }
             }
+        }
+
+        // 2b) Words in a selection area, with nothing else having a claim on the press: a
+        // selection begins, and may be dragged across the texts of the area. A finger is
+        // left to scroll — selecting by touch is a long press, which is not here yet.
+        if !touch && self.drag.is_none() && focus.is_none() {
+            self.begin_region_selection();
         }
 
         // 3) Touch: when nothing captured the gesture — no scrollbar, no widget, no
@@ -4438,6 +4466,10 @@ impl<A: Application> App<A> {
                 let synced = *entry;
                 self.runtime.scroll_target.insert(*id, synced);
                 self.runtime.scroll_velocity.remove(&*id);
+            }
+            Drag::RegionSelect { area } => {
+                let area = *area;
+                self.extend_region_selection(area);
             }
             Drag::TextSelect { id, rect } => {
                 let local_x = self.cursor.x - rect.x;
@@ -5597,6 +5629,11 @@ impl<A: Application> App<A> {
         if self.close_selection_toolbar() {
             return;
         }
+        // Then a selection an area holds.
+        if self.runtime.region.take().is_some() {
+            self.request_redraw();
+            return;
+        }
         // 1) Walk up the focus path. `Some(None)` means consumed with no message; an
         // outer `None` means the whole path ignored it, so we fall back.
         let outcome: Option<Option<A::Message>> = self.runtime.input.focused.and_then(|focused| {
@@ -5932,6 +5969,198 @@ impl<A: Application> App<A> {
             }
             None => false,
         }
+    }
+
+    /// The texts of `area` in the frame on screen, in reading order, each with its length in
+    /// characters — what a selection over them is worked out from.
+    fn region_stops(&self, area: WidgetId) -> Vec<(WidgetId, usize)> {
+        let (Some(ui), Some(tree)) = (self.ui.as_ref(), self.tree.as_ref()) else {
+            return Vec::new();
+        };
+        ui.text_stops_in(area)
+            .filter_map(|stop| {
+                let text = find_widget(tree.as_ref(), stop.id)?.selection_text()?;
+                Some((stop.id, text.chars().count()))
+            })
+            .collect()
+    }
+
+    /// The selection from `anchor` to `extent` in `area`, in the frame on screen.
+    fn region_selection(
+        &self,
+        area: WidgetId,
+        anchor: RegionPoint,
+        extent: RegionPoint,
+    ) -> RegionSelection {
+        RegionSelection::new(area, anchor, extent, &self.region_stops(area))
+    }
+
+    /// The character boundary of `stop`'s text nearest `at`, by the layout it was drawn with.
+    fn region_index(&self, stop: &TextStop, at: Point) -> Option<usize> {
+        find_widget(self.tree.as_ref()?.as_ref(), stop.id)?.selection_hit(
+            at.x - stop.rect.x,
+            at.y - stop.rect.y,
+            stop.rect.width,
+        )
+    }
+
+    /// A press at the pointer over words in a selection area, if nothing else has a claim on
+    /// it: the selection begins there, empty, and follows the pointer until it lifts. A double
+    /// click selects the word.
+    fn begin_region_selection(&mut self) {
+        let Some(ui) = self.ui.as_ref() else {
+            return;
+        };
+        // Something that answers a press — a button, a link — keeps it.
+        let claimed = self
+            .runtime
+            .input
+            .pressed
+            .is_some_and(|pressed| ui.msg_for(pressed).is_some());
+        if claimed {
+            return;
+        }
+        let Some(stop) = ui.text_stop_at(self.cursor) else {
+            return;
+        };
+        let Some(index) = self.region_index(&stop, self.cursor) else {
+            return;
+        };
+        let now = Instant::now();
+        let here = self.cursor;
+        let double = self.last_region_click.is_some_and(|(then, there)| {
+            (now - then).as_secs_f32() < 0.4
+                && (here.x - there.x).hypot(here.y - there.y) <= REGION_DOUBLE_CLICK_SLOP
+        });
+        self.last_region_click = Some((now, here));
+        let word = double
+            .then(|| {
+                let tree = self.tree.as_ref()?;
+                let text = find_widget(tree.as_ref(), stop.id)?.selection_text()?;
+                Some(frus_widgets::word_bounds(text, index))
+            })
+            .flatten();
+        let (anchor, extent) = match word {
+            Some((start, end)) => (
+                RegionPoint {
+                    text: stop.id,
+                    index: start,
+                },
+                RegionPoint {
+                    text: stop.id,
+                    index: end,
+                },
+            ),
+            None => {
+                let point = RegionPoint {
+                    text: stop.id,
+                    index,
+                };
+                (point, point)
+            }
+        };
+        self.runtime.region = Some(self.region_selection(stop.area, anchor, extent));
+        // A word is a whole selection: there is nothing to drag out of it.
+        self.drag = word
+            .is_none()
+            .then_some(Drag::RegionSelect { area: stop.area });
+        self.request_redraw();
+    }
+
+    /// The pointer has moved during a drag in `area`: the far end of the selection goes to the
+    /// text nearest it.
+    fn extend_region_selection(&mut self, area: WidgetId) {
+        let Some(anchor) = self.runtime.region.as_ref().map(|region| region.anchor) else {
+            return;
+        };
+        let Some(stop) = self
+            .ui
+            .as_ref()
+            .and_then(|ui| ui.nearest_text_stop(area, self.cursor))
+        else {
+            return;
+        };
+        let Some(index) = self.region_index(&stop, self.cursor) else {
+            return;
+        };
+        let extent = RegionPoint {
+            text: stop.id,
+            index,
+        };
+        let selection = self.region_selection(area, anchor, extent);
+        if self.runtime.region.as_ref() != Some(&selection) {
+            self.runtime.region = Some(selection);
+            self.request_redraw();
+        }
+    }
+
+    /// The words a selection area has selected, as they are copied: one line per text. `None`
+    /// when nothing is selected.
+    fn region_text(&self) -> Option<String> {
+        let region = self.runtime.region.as_ref()?;
+        let (ui, tree) = (self.ui.as_ref()?, self.tree.as_ref()?);
+        let texts: Vec<(WidgetId, &str)> = ui
+            .text_stops_in(region.area)
+            .filter_map(|stop| {
+                let text = find_widget(tree.as_ref(), stop.id)?.selection_text()?;
+                Some((stop.id, text))
+            })
+            .collect();
+        let copied = frus_widgets::region_copy(&texts, &region.ranges);
+        (!copied.is_empty()).then_some(copied)
+    }
+
+    /// Puts the words a selection area has selected on the clipboard. Whether there were any.
+    fn copy_region(&mut self) -> bool {
+        match self.region_text() {
+            Some(copied) => {
+                self.clipboard.set_text(copied);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Selects every text of the area that holds a selection.
+    fn select_all_region(&mut self) {
+        let Some(area) = self.runtime.region.as_ref().map(|region| region.area) else {
+            return;
+        };
+        let stops = self.region_stops(area);
+        let (Some(first), Some(last)) = (stops.first(), stops.last()) else {
+            return;
+        };
+        let anchor = RegionPoint {
+            text: first.0,
+            index: 0,
+        };
+        let extent = RegionPoint {
+            text: last.0,
+            index: last.1,
+        };
+        self.runtime.region = Some(self.region_selection(area, anchor, extent));
+        self.request_redraw();
+    }
+
+    /// A key while nothing has the focus: Copy, and Select all, act on a selection an area
+    /// holds. Whether the key was one of them.
+    fn region_key(&mut self, event: &winit::event::KeyEvent) -> bool {
+        if self.runtime.region.is_none() {
+            return false;
+        }
+        if let Some(ClipCommand::Copy) =
+            clipboard_command(&event.logical_key, event.physical_key, self.ctrl)
+        {
+            self.copy_region();
+            return true;
+        }
+        let select_all = self.ctrl
+            && matches!(&event.logical_key, WinitKey::Character(c) if c.eq_ignore_ascii_case("a"));
+        if select_all {
+            self.select_all_region();
+            return true;
+        }
+        false
     }
 
     /// Cuts field `id`'s selection: copies it, then deletes it — **only if it was copied**.
@@ -8146,11 +8375,41 @@ pub mod testing {
             fired
         }
 
+        /// A mouse button down at `at` — a pointer that hovers, which is not a finger: nothing is
+        /// left to scroll, and a press on words in a selection area begins a selection.
+        pub fn press_mouse(&mut self, at: Point) {
+            self.pointer_of(PointerKind::Down, at, false);
+        }
+
+        /// The mouse moved to `at`, its button down.
+        pub fn move_mouse(&mut self, at: Point) {
+            self.pointer_of(PointerKind::Move, at, false);
+        }
+
+        /// The mouse button lifted at `at`.
+        pub fn release_mouse(&mut self, at: Point) {
+            self.pointer_of(PointerKind::Up, at, false);
+        }
+
+        /// The words a selection area has selected, as Copy would put them on the clipboard.
+        pub fn area_selection(&self) -> Option<String> {
+            self.shell.region_text()
+        }
+
+        /// Select all, as the keyboard asks it of a selection area that holds a selection.
+        pub fn area_select_all(&mut self) {
+            self.shell.select_all_region();
+        }
+
         fn pointer(&mut self, kind: PointerKind, at: Point) {
+            self.pointer_of(kind, at, true);
+        }
+
+        fn pointer_of(&mut self, kind: PointerKind, at: Point, touch: bool) {
             self.shell.pointer_event(PointerEvent {
                 kind,
                 position: at,
-                touch: true,
+                touch,
             });
         }
 
@@ -9031,5 +9290,323 @@ mod press_tests {
             true
         ));
         assert_eq!(input.pressed, Some(id));
+    }
+}
+
+/// The mouse, the words and the selection a [`SelectionArea`](frus_widgets::SelectionArea) holds,
+/// driven through the shell as a person drives it.
+#[cfg(test)]
+mod selection_area_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{Button, Container, Flex, Point, SelectionArea, Text, Theme, Widget};
+
+    const W: f32 = 400.0;
+    const H: f32 = 300.0;
+
+    /// A line outside the area, then an area of three lines with a button between two of them.
+    struct Doc;
+
+    impl Application for Doc {
+        type Message = ();
+
+        fn update(&mut self, _message: ()) -> Command<()> {
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<()>> {
+            Box::new(
+                Container::new().width(W).height(H).child(
+                    Flex::column()
+                        .child(Text::new("Outside the area").no_wrap())
+                        .child(SelectionArea::around(
+                            Flex::column()
+                                .child(Text::new("first line of words").no_wrap())
+                                .child(Text::new("second line").no_wrap())
+                                .child(Button::new("Press").on_press(()))
+                                .child(Text::new("third line ends here").no_wrap()),
+                        )),
+                ),
+            )
+        }
+    }
+
+    /// A row that answers a tap, with words in it, beside words that answer nothing.
+    struct Tappable;
+
+    impl Application for Tappable {
+        type Message = ();
+
+        fn update(&mut self, _message: ()) -> Command<()> {
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<()>> {
+            Box::new(
+                Container::new()
+                    .width(W)
+                    .height(H)
+                    .child(SelectionArea::around(
+                        Flex::column()
+                            .child(
+                                Container::new()
+                                    .on_click(())
+                                    .child(Text::new("tap this row").no_wrap()),
+                            )
+                            .child(Text::new("plain words here").no_wrap()),
+                    )),
+            )
+        }
+    }
+
+    /// **What answers a tap keeps it, even when it is not a focus stop**: words inside a row that
+    /// takes a tap begin no selection, and words beside it do. (A button is a focus stop and is
+    /// kept by that; a row that is only clickable is kept by nothing but this.)
+    #[test]
+    fn a_row_that_takes_a_tap_keeps_its_press() {
+        let mut d = Driver::new(Tappable, W, H);
+        d.run(0.2);
+        let find = |d: &Driver<Tappable>, label: &str| {
+            let (_, rect) = d
+                .texts()
+                .into_iter()
+                .find(|(text, _)| text == label)
+                .expect("on screen");
+            Point::new(rect.x + 20.0, rect.y + 8.0)
+        };
+        let (tap, plain) = (find(&d, "tap this row"), find(&d, "plain words here"));
+        let end = Point::new(plain.x + 60.0, plain.y);
+        d.press_mouse(tap);
+        d.run(0.05);
+        d.move_mouse(end);
+        d.run(0.05);
+        d.release_mouse(end);
+        d.run(0.05);
+        assert_eq!(d.area_selection(), None, "the row's press stayed the row's");
+
+        d.press_mouse(plain);
+        d.run(0.05);
+        d.move_mouse(end);
+        d.run(0.05);
+        d.release_mouse(end);
+        d.run(0.05);
+        assert!(d.area_selection().is_some(), "plain words still select");
+    }
+
+    fn driver() -> Driver<Doc> {
+        let mut driver = Driver::new(Doc, W, H);
+        driver.run(0.2);
+        driver
+    }
+
+    /// Where the word `label` starts, and a point on its line a fraction `across` of the way
+    /// along it.
+    fn on(driver: &Driver<Doc>, label: &str, across: f32) -> Point {
+        let (_, rect) = driver
+            .texts()
+            .into_iter()
+            .find(|(text, _)| text == label)
+            .unwrap_or_else(|| panic!("{label:?} is on screen"));
+        // A text primitive is a point at its top-left; the line is about 19 px tall and the
+        // words a few px per character.
+        Point::new(rect.x + across, rect.y + 8.0)
+    }
+
+    fn drag(driver: &mut Driver<Doc>, from: Point, to: Point) {
+        driver.press_mouse(from);
+        driver.run(0.05);
+        driver.move_mouse(to);
+        driver.run(0.05);
+        driver.release_mouse(to);
+        driver.run(0.05);
+    }
+
+    /// **A drag across texts selects across them**: the tail of the first, the whole of the one
+    /// between, the head of the last — and what the button between them says is not among the
+    /// words, because it is not a text of the area's.
+    #[test]
+    fn a_drag_selects_across_the_texts_of_an_area() {
+        let mut d = driver();
+        let (from, to) = (
+            on(&d, "first line of words", 60.0),
+            on(&d, "third line ends here", 40.0),
+        );
+        drag(&mut d, from, to);
+        let copied = d.area_selection().expect("something is selected");
+        let lines: Vec<&str> = copied.lines().collect();
+        assert_eq!(lines.len(), 3, "one line per text: {copied:?}");
+        assert!(
+            !lines[0].is_empty() && "first line of words".ends_with(lines[0]),
+            "the tail of the first: {:?}",
+            lines[0]
+        );
+        assert!(lines[0].len() < "first line of words".len());
+        assert_eq!(lines[1], "second line", "the whole of the middle one");
+        assert!(
+            !lines[2].is_empty() && "third line ends here".starts_with(lines[2]),
+            "the head of the last: {:?}",
+            lines[2]
+        );
+        assert!(lines[2].len() < "third line ends here".len());
+        assert!(!copied.contains("Press"), "a button's label is not text");
+    }
+
+    /// **Dragged upward it is the same words.**
+    #[test]
+    fn dragging_upward_selects_the_same_words() {
+        let (down, up) = {
+            let mut d = driver();
+            let (a, b) = (
+                on(&d, "first line of words", 60.0),
+                on(&d, "third line ends here", 40.0),
+            );
+            drag(&mut d, a, b);
+            let down = d.area_selection();
+            drag(&mut d, b, a);
+            (down, d.area_selection())
+        };
+        assert!(down.is_some());
+        assert_eq!(down, up);
+    }
+
+    /// **A drag that leaves the words still has an end**: past the right edge of the last line,
+    /// the selection ends with it, and below everything it ends at the last text.
+    #[test]
+    fn a_drag_past_the_words_ends_at_the_last_of_them() {
+        let mut d = driver();
+        let from = on(&d, "second line", 5.0);
+        drag(&mut d, from, Point::new(W - 2.0, H - 2.0));
+        let copied = d.area_selection().expect("a selection");
+        assert!(copied.ends_with("third line ends here"), "{copied:?}");
+    }
+
+    /// **Words outside the area are not part of it**: a drag over them selects nothing, and
+    /// one that starts inside never picks them up.
+    #[test]
+    fn words_outside_the_area_are_left_alone() {
+        let mut d = driver();
+        let outside = on(&d, "Outside the area", 30.0);
+        let end = on(&d, "third line ends here", 40.0);
+        drag(&mut d, outside, end);
+        assert_eq!(d.area_selection(), None, "the press began outside");
+
+        let inside = on(&d, "first line of words", 30.0);
+        drag(&mut d, inside, Point::new(20.0, 2.0));
+        let copied = d.area_selection().expect("a selection");
+        assert!(!copied.contains("Outside"), "{copied:?}");
+    }
+
+    /// **A press on a button is the button's**: no selection begins under it.
+    #[test]
+    fn a_button_keeps_its_press() {
+        let mut d = driver();
+        let button = on(&d, "Press", 10.0);
+        let end = on(&d, "third line ends here", 40.0);
+        drag(&mut d, button, end);
+        assert_eq!(d.area_selection(), None);
+    }
+
+    /// **A press without a drag puts the selection away**, in the area or out of it.
+    #[test]
+    fn a_click_puts_the_selection_away() {
+        let mut d = driver();
+        let (from, to) = (
+            on(&d, "first line of words", 60.0),
+            on(&d, "third line ends here", 40.0),
+        );
+        drag(&mut d, from, to);
+        assert!(d.area_selection().is_some());
+        let elsewhere = on(&d, "second line", 30.0);
+        drag(&mut d, elsewhere, elsewhere);
+        assert_eq!(d.area_selection(), None, "a click in the area");
+
+        drag(&mut d, from, to);
+        assert!(d.area_selection().is_some());
+        let outside = on(&d, "Outside the area", 30.0);
+        drag(&mut d, outside, outside);
+        assert_eq!(d.area_selection(), None, "a click outside it");
+    }
+
+    /// **A double click selects the word.**
+    #[test]
+    fn a_double_click_selects_the_word() {
+        let mut d = driver();
+        // "second" is the first word of the line: a few px in.
+        let at = on(&d, "second line", 12.0);
+        d.press_mouse(at);
+        d.release_mouse(at);
+        d.run(0.05);
+        d.press_mouse(at);
+        d.release_mouse(at);
+        d.run(0.05);
+        assert_eq!(d.area_selection().as_deref(), Some("second"));
+    }
+
+    /// **Select all takes every text of the area** — and none of what is outside it.
+    #[test]
+    fn select_all_takes_the_whole_area() {
+        let mut d = driver();
+        let at = on(&d, "second line", 12.0);
+        let end = on(&d, "second line", 40.0);
+        drag(&mut d, at, end);
+        assert!(d.area_selection().is_some());
+        d.area_select_all();
+        assert_eq!(
+            d.area_selection().as_deref(),
+            Some("first line of words\nsecond line\nthird line ends here")
+        );
+    }
+
+    /// **A finger scrolls, and does not select**: a touch drag over the words leaves them be.
+    #[test]
+    fn a_finger_does_not_select() {
+        let mut d = driver();
+        let (from, to) = (
+            on(&d, "first line of words", 60.0),
+            on(&d, "third line ends here", 40.0),
+        );
+        d.press(from);
+        d.run(0.05);
+        d.move_to(to);
+        d.run(0.05);
+        d.release(to);
+        d.run(0.05);
+        assert_eq!(d.area_selection(), None);
+    }
+
+    /// **The selection is painted**: a highlight over each text it covers, in the theme's
+    /// colour, and none over the one it does not.
+    #[test]
+    fn the_selection_is_highlighted_in_each_text() {
+        let mut d = driver();
+        let (from, to) = (
+            on(&d, "first line of words", 60.0),
+            on(&d, "third line ends here", 40.0),
+        );
+        let bare = rects(&d);
+        drag(&mut d, from, to);
+        // What the selection added to the frame: a box over each text it covers.
+        let boxes: Vec<frus_widgets::Rect> = rects(&d)
+            .into_iter()
+            .filter(|rect| !bare.contains(rect))
+            .collect();
+        assert_eq!(boxes.len(), 3, "one per text covered: {boxes:?}");
+        let outside = on(&d, "Outside the area", 0.0);
+        assert!(
+            boxes.iter().all(|b| b.y > outside.y + 10.0),
+            "none over the line outside the area: {boxes:?}"
+        );
+    }
+
+    fn rects(d: &Driver<Doc>) -> Vec<frus_widgets::Rect> {
+        let (ui, _) = d.frame_parts().expect("a frame");
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_widgets::Primitive::Rect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect()
     }
 }

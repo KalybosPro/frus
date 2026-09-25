@@ -130,6 +130,7 @@ mod radio;
 mod rating;
 /// Pull-to-refresh: the [`refresh::RefreshIndicator`] widget and its retained pull.
 pub mod refresh;
+mod region;
 mod relayout;
 mod reorder;
 mod reorderable;
@@ -332,6 +333,9 @@ pub use progressbar::LinearProgressIndicator;
 pub use radio::{Radio, RadioGroup};
 pub use rating::Rating;
 pub use refresh::{RefreshIndicator, RefreshPhase, RefreshPull, RefreshSpec, Refreshable};
+pub use region::{
+    region_copy, region_ranges, RegionPoint, RegionSelection, SelectionArea, TextStop,
+};
 pub use relayout::LayoutCache;
 pub use reorder::{
     nearest_reorder_slot, reflow_reorder_cards, reflow_reorder_columns, reorder_drop_after,
@@ -388,6 +392,7 @@ pub use tabs::{
     TAB_LABEL_PADDING, TAB_START_OFFSET,
 };
 pub use text::Text;
+pub use textinput::word_bounds;
 pub use textinput::{
     TextField, TextFieldStyle, TextFieldVariant, FIELD_BORDER_WIDTH,
     FIELD_DENSE_OUTLINED_PADDING_BOTTOM, FIELD_DENSE_OUTLINED_PADDING_TOP, FIELD_DENSE_PADDING_Y,

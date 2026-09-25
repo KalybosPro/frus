@@ -324,6 +324,21 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// The words this widget shows, **if it takes part in a
+    /// [`SelectionArea`](crate::SelectionArea)**: a [`Text`](crate::Text), and nothing that is
+    /// not made of words. The walk registers such a widget as a text stop when it is inside an
+    /// area, so that a selection can begin, end and pass through it.
+    fn selection_text(&self) -> Option<&str> {
+        None
+    }
+
+    /// The character boundary of [`selection_text`](Self::selection_text) nearest a local
+    /// position (px from the widget's top-left corner) in a box `width` wide — the layout the
+    /// widget was **drawn** with, which is what a press is hit against.
+    fn selection_hit(&self, _local_x: f32, _local_y: f32, _width: f32) -> Option<usize> {
+        None
+    }
+
     /// Whether this widget takes **typing**: a field that can be changed, which is what
     /// the software keyboard is for. A text field that may only be read and selected — a
     /// [`read_only`](crate::TextField::read_only) one, a [`Text`](crate::Text) made
@@ -1620,6 +1635,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn takes_typing(&self) -> bool {
         (**self).takes_typing()
+    }
+    fn selection_text(&self) -> Option<&str> {
+        (**self).selection_text()
+    }
+    fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
+        (**self).selection_hit(local_x, local_y, width)
     }
     fn replace_value(&self, value: String) -> Option<Msg> {
         (**self).replace_value(value)

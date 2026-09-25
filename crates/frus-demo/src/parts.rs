@@ -2,7 +2,7 @@
 //! it might be shared later; it moves in when the second screen asks for it.
 
 use crate::prelude::*;
-use frus_widgets::column;
+use frus_widgets::{column, SelectionArea};
 
 /// The surface this screen is being built for — the window, as the shell described it.
 ///
@@ -73,6 +73,9 @@ pub(crate) fn is_weekend(y: i32, m: u32, d: u32) -> bool {
 
 /// The "About" section: static introductory content.
 ///
+/// It is a **selection area** (milestone 575): a mouse drag from the title to the paragraph
+/// selects across both, and Ctrl+C copies the two as two lines.
+///
 /// **Nothing here counts pixels.** The column fills the card it sits in, and the only
 /// number is the one a designer would give: a measure no wider than 560, because a
 /// line of prose across a desktop is unreadable.
@@ -83,7 +86,7 @@ pub(crate) fn is_weekend(y: i32, m: u32, d: u32) -> bool {
 pub(crate) fn about_section(theme: &Theme) -> Container {
     Container::new().padding(24.0).child(
         Card::new().padding(20.0).child(
-            ConstrainedBox::new(
+            ConstrainedBox::new(SelectionArea::around(
                 column![
                     text("About frus").size(24.0),
                     // Rich text: mixed styles on one line, with cascading inheritance.
@@ -112,7 +115,7 @@ pub(crate) fn about_section(theme: &Theme) -> Container {
                     .wrap(),
                 ]
                 .gap(12.0),
-            )
+            ))
             .max_width(560.0),
         ),
     )

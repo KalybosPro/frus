@@ -415,6 +415,7 @@ struct BoundaryData<Msg> {
     drag_sources: Vec<DragSource>,
     drop_zones: Vec<DropZone>,
     inks: Vec<(WidgetId, Rect)>,
+    text_stops: Vec<crate::TextStop>,
     semantics: Vec<(WidgetId, Rect, frus_core::SemanticsProperties)>,
     system_ui: Vec<(Rect, crate::SystemUiOverlayStyle)>,
 }
@@ -432,6 +433,7 @@ struct Snapshot {
     drag_sources: usize,
     drop_zones: usize,
     inks: usize,
+    text_stops: usize,
     semantics: usize,
     system_ui: usize,
     overlays: usize,
@@ -467,6 +469,7 @@ struct BarrierBase {
     drag_sources: usize,
     drop_zones: usize,
     inks: usize,
+    text_stops: usize,
     reorderables: usize,
     interactives: usize,
     semantics: usize,
@@ -481,6 +484,7 @@ struct XformBase {
     drag_sources: usize,
     drop_zones: usize,
     inks: usize,
+    text_stops: usize,
     reorderables: usize,
     semantics: usize,
 }
@@ -538,6 +542,8 @@ fn hash_status<H: Hasher>(s: &Status, h: &mut H) {
     // that opens on a selection already made, handles put away by a press.
     s.handles.hash(h);
     s.toolbar.hash(h);
+    // What a selection area has selected in this text: the highlight is part of its paint.
+    s.region.hash(h);
     quant(s.hover_progress).hash(h);
     quant(s.focus_progress).hash(h);
     quant(s.press_progress).hash(h);
@@ -629,6 +635,9 @@ pub struct Ui<Msg = crate::callback::Callback> {
     /// landed inside it, and how far the circle has to travel to cover it — which a
     /// click target, recorded as its *visible* part, does not give.
     inks: Vec<(WidgetId, Rect)>,
+    /// The texts inside a [`SelectionArea`](crate::SelectionArea), in the order they were
+    /// painted — reading order — each with the area it is in.
+    text_stops: Vec<crate::TextStop>,
     /// **Reorderables** (column headers, Kanban cards): (id, visible bounds). Tracked
     /// independently of clicking — a card is not clickable but can still be picked up and
     /// dropped onto.
@@ -837,6 +846,50 @@ impl<Msg: Clone> Ui<Msg> {
             .rev()
             .find(|item| item.rect.contains(point))
             .copied()
+    }
+
+    /// Every text that took part in a selection area this frame, in the order it was painted.
+    pub fn text_stops(&self) -> &[crate::TextStop] {
+        &self.text_stops
+    }
+
+    /// The texts a [`SelectionArea`](crate::SelectionArea) holds, in reading order.
+    pub fn text_stops_in(&self, area: WidgetId) -> impl Iterator<Item = &crate::TextStop> {
+        self.text_stops.iter().filter(move |stop| stop.area == area)
+    }
+
+    /// The topmost text in a selection area whose box contains `point`.
+    pub fn text_stop_at(&self, point: Point) -> Option<crate::TextStop> {
+        self.text_stops
+            .iter()
+            .rev()
+            .find(|stop| stop.rect.contains(point))
+            .copied()
+    }
+
+    /// The text of `area` **nearest** `point`: the one under it, or the one closest to it —
+    /// which is what a drag that has left the words still points at. Distance across lines
+    /// counts four times what it does along one, so a point beside a line is nearest that
+    /// line and not the one above it; ties go to the later text, so that a drag past the end
+    /// of a paragraph ends at its last line.
+    pub fn nearest_text_stop(&self, area: WidgetId, point: Point) -> Option<crate::TextStop> {
+        let distance = |rect: Rect| {
+            let dx = (rect.x - point.x)
+                .max(point.x - (rect.x + rect.width))
+                .max(0.0);
+            let dy = (rect.y - point.y)
+                .max(point.y - (rect.y + rect.height))
+                .max(0.0);
+            dy * 4.0 + dx
+        };
+        let mut best: Option<(f32, crate::TextStop)> = None;
+        for stop in self.text_stops_in(area) {
+            let d = distance(stop.rect);
+            if best.is_none_or(|(so_far, _)| d <= so_far) {
+                best = Some((d, *stop));
+            }
+        }
+        best.map(|(_, stop)| stop)
     }
 
     /// Topmost focusable widget containing `point`: (id, its bounds).
@@ -2227,6 +2280,9 @@ struct Builder<'a, Msg> {
     drag_sources: Vec<DragSource>,
     drop_zones: Vec<DropZone>,
     inks: Vec<(WidgetId, Rect)>,
+    text_stops: Vec<crate::TextStop>,
+    /// The [`SelectionArea`](crate::SelectionArea) the walk is inside, if it is inside one.
+    area: Option<WidgetId>,
     reorderables: Vec<(WidgetId, Rect)>,
     interactives: Vec<(WidgetId, Rect)>,
     /// Deferred overlays: (content, id, the anchor's bounds, placement, dismissal, progress
@@ -2470,6 +2526,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drag_sources: self.drag_sources.len(),
             drop_zones: self.drop_zones.len(),
             inks: self.inks.len(),
+            text_stops: self.text_stops.len(),
             semantics: self.semantics.len(),
             system_ui: self.system_ui.len(),
             overlays: self.overlays.len(),
@@ -2496,6 +2553,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drag_sources: self.drag_sources[snap.drag_sources..].to_vec(),
             drop_zones: self.drop_zones[snap.drop_zones..].to_vec(),
             inks: self.inks[snap.inks..].to_vec(),
+            text_stops: self.text_stops[snap.text_stops..].to_vec(),
             semantics: self.semantics[snap.semantics..].to_vec(),
             system_ui: self.system_ui[snap.system_ui..].to_vec(),
         })
@@ -2516,6 +2574,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.drag_sources.extend(data.drag_sources);
         self.drop_zones.extend(data.drop_zones);
         self.inks.extend(data.inks);
+        self.text_stops.extend(data.text_stops);
         self.semantics.extend(data.semantics);
         self.system_ui.extend(data.system_ui);
     }
@@ -2534,6 +2593,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drag_sources: self.drag_sources.len(),
             drop_zones: self.drop_zones.len(),
             inks: self.inks.len(),
+            text_stops: self.text_stops.len(),
             reorderables: self.reorderables.len(),
             interactives: self.interactives.len(),
             semantics: self.semantics.len(),
@@ -2695,6 +2755,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.drag_sources.truncate(base.drag_sources);
             self.drop_zones.truncate(base.drop_zones);
             self.inks.truncate(base.inks);
+            self.text_stops.truncate(base.text_stops);
             self.reorderables.truncate(base.reorderables);
             self.interactives.truncate(base.interactives);
             // The modal focus scope is an index **into** `focusables`. A barrier that cut
@@ -2734,6 +2795,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drag_sources: self.drag_sources.len(),
             drop_zones: self.drop_zones.len(),
             inks: self.inks.len(),
+            text_stops: self.text_stops.len(),
             reorderables: self.reorderables.len(),
             semantics: self.semantics.len(),
         }
@@ -2772,6 +2834,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
             for (_, r) in &mut self.inks[base.inks..] {
                 *r = matrix.apply_rect(*r);
+            }
+            for stop in &mut self.text_stops[base.text_stops..] {
+                stop.rect = matrix.apply_rect(stop.rect);
             }
             for (_, r) in &mut self.draggables[base.draggables..] {
                 *r = matrix.apply_rect(*r);
@@ -3228,6 +3293,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             .map(|r| r.translate(translation.0, translation.1));
         let outer = scoped_theme(widget, id, self.runtime, &self.theme)
             .map(|theme| std::mem::replace(&mut self.theme, std::rc::Rc::from(theme)));
+        // The node that turns the texts under it selectable together is a selection area:
+        // the texts it registers below belong to it, until the walk leaves it.
+        let outer_area = outer
+            .as_ref()
+            .filter(|before| !before.widgets.text.selectable && self.theme.widgets.text.selectable)
+            .map(|_| self.area.replace(id));
         // The scoped surface, held for this subtree exactly as the layout walk holds it —
         // a widget that paints from `MediaQuery::of()` must see the same description it
         // was measured against, or the two disagree by whatever the scope removed.
@@ -3236,6 +3307,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             .map(crate::MediaQuery::install);
         let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
         self.walk_node_themed(widget, id, translation, clip, rects, index);
+        if let Some(before) = outer_area {
+            self.area = before;
+        }
         // Over its own children: the reference's `foregroundDecoration`, and the only
         // point in the walk where a widget paints after its subtree. Still under this
         // node's own theme, since it is this node's decoration.
@@ -3329,6 +3403,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         }
 
         let visible = draw_rect.intersect(clip);
+        // A text in a selection area: a place a selection can begin, end or pass through,
+        // registered as far as it is visible, in the order it is painted.
+        if self.theme.widgets.text.selectable && visible.width > 0.0 && visible.height > 0.0 {
+            if let (Some(area), Some(_)) = (self.area, widget.selection_text()) {
+                self.text_stops.push(crate::TextStop {
+                    id,
+                    rect: draw_rect,
+                    area,
+                });
+            }
+        }
         // A focus stop clipped entirely away by a **scroll** is still a focus stop.
         // Tab has to reach the field below the fold — the shell brings it into view
         // when it lands there — and registering only what the eye can see is how a long
@@ -4591,6 +4676,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         status.time = self.runtime.time;
         status.drag_over = self.runtime.drag_over == Some(id);
         status.scroll_y = self.runtime.scroll.get(&id).map(|s| s.1).unwrap_or(0.0);
+        // What a selection area has selected in this text, focused or not.
+        status.region = self
+            .runtime
+            .region
+            .as_ref()
+            .and_then(|selection| selection.ranges.get(&id).copied());
         if status.focused {
             if let Some(edit) = self.runtime.edits.get(&id) {
                 status.cursor = Some(edit.cursor);
@@ -4670,6 +4761,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.draw_focus_ring(draw_rect, &status, widget);
 
         let visible = draw_rect.intersect(clip);
+        // A text in a selection area: a place a selection can begin, end or pass through,
+        // registered as far as it is visible, in the order it is painted.
+        if self.theme.widgets.text.selectable && visible.width > 0.0 && visible.height > 0.0 {
+            if let (Some(area), Some(_)) = (self.area, widget.selection_text()) {
+                self.text_stops.push(crate::TextStop {
+                    id,
+                    rect: draw_rect,
+                    area,
+                });
+            }
+        }
         // A focus stop clipped entirely away by a **scroll** is still a focus stop.
         // Tab has to reach the field below the fold — the shell brings it into view
         // when it lands there — and registering only what the eye can see is how a long
@@ -5286,6 +5388,8 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         drag_sources: Vec::new(),
         drop_zones: Vec::new(),
         inks: Vec::new(),
+        text_stops: Vec::new(),
+        area: None,
         reorderables: Vec::new(),
         interactives: Vec::new(),
         overlays: Vec::new(),
@@ -5364,6 +5468,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         drag_sources: builder.drag_sources,
         drop_zones: builder.drop_zones,
         inks: builder.inks,
+        text_stops: builder.text_stops,
         reorderables: builder.reorderables,
         interactives: builder.interactives,
         refreshes: builder.refreshes,

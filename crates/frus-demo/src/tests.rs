@@ -1643,6 +1643,48 @@ fn the_board_strip_carried_through_the_shell_moves_a_label_and_no_card() {
     assert_eq!(cards(&driver), before, "no card moved");
 }
 
+/// **The About page is a selection area** (milestone 575): a mouse drag from its title to its
+/// paragraph selects across both, and Copy would put the two on the clipboard as two lines.
+#[test]
+fn the_about_page_selects_across_its_texts() {
+    let (app, _router, _) = crate::build();
+    let mut driver = Driver::new(app, 700.0, 900.0);
+    driver.run(0.3);
+    assert!(driver.tap_text("About"), "the About destination");
+    driver.run(0.5);
+    let word = |driver: &Driver<FrusApp>, start: &str| {
+        driver
+            .texts()
+            .into_iter()
+            .find(|(text, _)| text.starts_with(start))
+            .map(|(_, rect)| rect)
+            .unwrap_or_else(|| panic!("{start:?} is on the About page"))
+    };
+    let title = word(&driver, "About frus");
+    let paragraph = word(&driver, "Layout, painting");
+    let from = Point::new(title.x + 30.0, title.y + 8.0);
+    let to = Point::new(paragraph.x + 120.0, paragraph.y + 8.0);
+    driver.press_mouse(from);
+    driver.run(0.05);
+    driver.move_mouse(to);
+    driver.run(0.05);
+    driver.release_mouse(to);
+    driver.run(0.05);
+    let copied = driver.area_selection().expect("something is selected");
+    let lines: Vec<&str> = copied.lines().collect();
+    assert_eq!(
+        lines.len(),
+        2,
+        "the title's tail and the paragraph's head: {copied:?}"
+    );
+    assert!("About frus".ends_with(lines[0]), "{copied:?}");
+    assert!(
+        "Layout, painting, typography and animation are engine-level foundations shared by every widget in this gallery."
+            .starts_with(lines[1]),
+        "{copied:?}"
+    );
+}
+
 /// The application, through the shell: built, started, driven by real taps. The counter of the
 /// task list moves as a task is added and ticked, and the notification queue plays out.
 #[test]

@@ -231,6 +231,16 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().is_some_and(|w| w.takes_typing())
     }
 
+    fn selection_text(&self) -> Option<&str> {
+        self.inner.as_ref().and_then(|w| w.selection_text())
+    }
+
+    fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
+        self.inner
+            .as_ref()
+            .and_then(|w| w.selection_hit(local_x, local_y, width))
+    }
+
     fn word_at(&self, index: usize) -> Option<(usize, usize)> {
         self.inner.as_ref().and_then(|w| w.word_at(index))
     }

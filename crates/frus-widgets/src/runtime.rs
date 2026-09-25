@@ -731,6 +731,10 @@ pub struct Runtime {
     /// selection (milestone 568), with whether the clipboard held text when it opened.
     /// Put away by the next press elsewhere or key; shown only while that field is focused.
     pub selection_toolbar: Option<ToolbarMark>,
+    /// The selection a [`SelectionArea`](crate::SelectionArea) holds, if it holds one: kept
+    /// by the shell, read by the walk to paint the highlight. At most one — a press outside
+    /// the area, or in another, puts it away.
+    pub region: Option<crate::RegionSelection>,
     /// The focused field's caret is in the **hidden** half of its blink (milestone 513).
     /// Kept by the shell, on the wall clock; `false` — shown — wherever nothing blinks it,
     /// which is every test and every picture.
