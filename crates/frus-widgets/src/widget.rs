@@ -324,6 +324,17 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// Whether this widget takes **typing**: a field that can be changed, which is what
+    /// the software keyboard is for. A text field that may only be read and selected — a
+    /// [`read_only`](crate::TextField::read_only) one, a [`Text`](crate::Text) made
+    /// [`selectable`](crate::Text::selectable) — answers `false`: it has a caret and a
+    /// selection, and no use for a keyboard sliding up over the words being read.
+    ///
+    /// Defaults to whether it holds a text value at all.
+    fn takes_typing(&self) -> bool {
+        self.text_value().is_some()
+    }
+
     /// The message that puts `value` in this field: the one typing would have produced,
     /// for a value the **framework** restores rather than the user typing it.
     ///
@@ -1606,6 +1617,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn text_value(&self) -> Option<&str> {
         (**self).text_value()
+    }
+    fn takes_typing(&self) -> bool {
+        (**self).takes_typing()
     }
     fn replace_value(&self, value: String) -> Option<Msg> {
         (**self).replace_value(value)

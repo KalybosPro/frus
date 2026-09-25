@@ -8,10 +8,22 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 572 so far, each documenting the objective, the alternatives
+> record — one per step, 573 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Text that can be selected and copied** (J573, the first half of #24). `Text::selectable()`
+  opts one text in: a press, a drag, a double click or a long press selects words in it, Ctrl+A
+  and Ctrl+C work, and a bar with Copy and Select all opens over the selection
+  (`Text::selection_toolbar` changes its list). It is highlighted, has the touch handles a field
+  has, takes focus (Tab, a focus ring, the caret's keys) and does **not** raise the software
+  keyboard — through a new `Widget::takes_typing` hook, which also fixes a read-only `TextField`
+  raising the keyboard over the words it was there to be read from. The layout a selection is
+  measured against follows the paragraph's own line height, its size handed down by a subtree and
+  the reader's font setting (`TextLayout::resolved` in `frus-text`). Left: alignment, line limits
+  and ellipsis are not reflected in the highlight; a selection lives in one text, not across
+  several.
 
 - **The frus logo is every application's icon, and the developer's to change** (J572). A window,
   a browser tab and an Android launcher had the platform's blank icon; now they have the frus logo

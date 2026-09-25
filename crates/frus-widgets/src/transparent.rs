@@ -217,6 +217,10 @@ macro_rules! forward_transparent {
                 self.inner.text_value()
             }
 
+            fn takes_typing(&self) -> bool {
+                self.inner.takes_typing()
+            }
+
             fn replace_value(&self, value: String) -> Option<Msg> {
                 self.inner.replace_value(value)
             }

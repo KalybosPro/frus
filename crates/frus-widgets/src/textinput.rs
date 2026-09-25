@@ -4,7 +4,7 @@
 //! The value is controlled; the **caret / selection** are edit state retained at
 //! runtime ([`Edit`]), keyed by widget identity.
 
-use frus_core::{Point, Rect, ResolvedTextStyle, Scene, TextAlign, TextStyle};
+use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextAlign, TextStyle};
 use frus_layout::{Dimension, Style};
 use frus_text::TextLayout;
 
@@ -222,7 +222,7 @@ pub struct TextField<Msg = crate::callback::Callback> {
 
 /// What an application gives [`TextField::selection_toolbar`]: the context, and the default
 /// list for it, answered with the list to show.
-type ToolbarBuild<Msg> =
+pub(crate) type ToolbarBuild<Msg> =
     Box<dyn Fn(&ToolbarContext, Vec<ToolbarItem<Msg>>) -> Vec<ToolbarItem<Msg>>>;
 
 impl TextField<crate::callback::Callback> {
@@ -245,7 +245,7 @@ fn is_word(c: char) -> bool {
 
 /// Next word boundary **to the left** of `cursor`: skips the separators, then the word
 /// (editor behaviour — it stops at the **start** of the previous word).
-fn word_boundary_left(chars: &[char], cursor: usize) -> usize {
+pub(crate) fn word_boundary_left(chars: &[char], cursor: usize) -> usize {
     let mut i = cursor;
     while i > 0 && !is_word(chars[i - 1]) {
         i -= 1;
@@ -258,7 +258,7 @@ fn word_boundary_left(chars: &[char], cursor: usize) -> usize {
 
 /// Next word boundary **to the right**: skips the separators, then the word — it stops
 /// **after** the next word.
-fn word_boundary_right(chars: &[char], cursor: usize) -> usize {
+pub(crate) fn word_boundary_right(chars: &[char], cursor: usize) -> usize {
     let len = chars.len();
     let mut i = cursor;
     while i < len && !is_word(chars[i]) {
@@ -271,7 +271,7 @@ fn word_boundary_right(chars: &[char], cursor: usize) -> usize {
 }
 
 /// Start of the **logical line** (after the previous `\n`, or 0) containing `cursor`.
-fn line_start(chars: &[char], cursor: usize) -> usize {
+pub(crate) fn line_start(chars: &[char], cursor: usize) -> usize {
     let mut i = cursor;
     while i > 0 && chars[i - 1] != '\n' {
         i -= 1;
@@ -280,7 +280,7 @@ fn line_start(chars: &[char], cursor: usize) -> usize {
 }
 
 /// End of the **logical line** (before the next `\n`, or the end) containing `cursor`.
-fn line_end(chars: &[char], cursor: usize) -> usize {
+pub(crate) fn line_end(chars: &[char], cursor: usize) -> usize {
     let len = chars.len();
     let mut i = cursor;
     while i < len && chars[i] != '\n' {
@@ -291,6 +291,152 @@ fn line_end(chars: &[char], cursor: usize) -> usize {
 
 /// The side of a selection handle's box (`text_selection.dart:17`).
 pub(crate) const HANDLE_SIZE: f32 = 22.0;
+
+/// The two selection handles of `edit` over a text of `len` characters laid out as `layout`
+/// and drawn with its top-left corner at `origin`, in the same coordinates as `origin` — see
+/// [`Widget::selection_handles`]. Shared by every widget that shows a selection, so that a
+/// paragraph's handles hang exactly as a field's do.
+pub(crate) fn handles_in(
+    layout: &TextLayout,
+    origin: Point,
+    len: usize,
+    edit: &Edit,
+) -> Option<[crate::SelectionHandle; 2]> {
+    let (start, end) = edit.selection_range()?;
+    let (start, end) = (start.min(len), end.min(len));
+    if start >= end {
+        return None;
+    }
+    let at = |index: usize, start: bool| {
+        let caret = layout.caret_rect(index);
+        let x = origin.x + caret.x;
+        let top = origin.y + caret.y;
+        crate::SelectionHandle {
+            // The start handle hangs to the left of its position and the end one to
+            // the right (`text_selection.dart:115`), so that both point in at the
+            // text between them.
+            rect: Rect::new(
+                if start { x - HANDLE_SIZE } else { x },
+                top + caret.height,
+                HANDLE_SIZE,
+                HANDLE_SIZE,
+            ),
+            line_center: Point::new(x, top + caret.height * 0.5),
+        }
+    };
+    Some([at(start, true), at(end, false)])
+}
+
+/// The box a bar over the selection is placed against: the selection's, line by line joined
+/// into one box, or the caret's when nothing is selected — for a text laid out as `layout`
+/// and drawn at `origin`.
+pub(crate) fn selection_box_in(
+    layout: &TextLayout,
+    origin: Point,
+    len: usize,
+    edit: &Edit,
+) -> Rect {
+    let selected = edit
+        .selection_range()
+        .map(|(start, end)| layout.selection_rects(start.min(len), end.min(len)))
+        .unwrap_or_default();
+    let mut boxed = selected.first().copied();
+    for rect in selected.iter().skip(1) {
+        boxed = boxed.map(|so_far| so_far.union(*rect));
+    }
+    let boxed = boxed.unwrap_or_else(|| layout.caret_rect(edit.cursor.min(len)));
+    boxed.translate(origin.x, origin.y)
+}
+
+/// Paints `handles` — a touch selection's two grips — in `color`, `offset` being where the
+/// widget's local origin is on the surface.
+pub(crate) fn paint_handles(
+    scene: &mut Scene,
+    handles: [crate::SelectionHandle; 2],
+    offset: Point,
+    color: Color,
+) {
+    let [start, end] = handles;
+    let place = |r: Rect| r.translate(offset.x, offset.y);
+    scene.fill_path(&handle_path(place(start.rect), true), color);
+    scene.fill_path(&handle_path(place(end.rect), false), color);
+}
+
+/// The word around character `index` of `chars`, as a range — what a double click or a long
+/// press selects. A separator selects itself; an empty text, the empty range.
+pub(crate) fn word_range(chars: &[char], index: usize) -> Option<(usize, usize)> {
+    let len = chars.len();
+    if len == 0 {
+        return Some((0, 0));
+    }
+    let i = index.min(len - 1);
+    if !is_word(chars[i]) {
+        return Some((i, (i + 1).min(len)));
+    }
+    let mut start = i;
+    while start > 0 && is_word(chars[start - 1]) {
+        start -= 1;
+    }
+    let mut end = i + 1;
+    while end < len && is_word(chars[end]) {
+        end += 1;
+    }
+    Some((start, end))
+}
+
+/// Moves the caret as the arrow and home/end keys ask — a word at a time under Ctrl, to the
+/// ends of the line or of the text — extending the selection under Shift. Returns whether
+/// `key` was one of those. Shared by an editable field and a selectable paragraph, which move
+/// the caret the same way and differ only in what else a key may do.
+pub(crate) fn move_caret(
+    chars: &[char],
+    cursor: &mut usize,
+    anchor: &mut Option<usize>,
+    key: &Key,
+) -> bool {
+    let len = chars.len();
+    let target = match key {
+        Key::Left { word, .. } => {
+            if *word {
+                word_boundary_left(chars, *cursor)
+            } else {
+                cursor.saturating_sub(1)
+            }
+        }
+        Key::Right { word, .. } => {
+            if *word {
+                word_boundary_right(chars, *cursor)
+            } else {
+                (*cursor + 1).min(len)
+            }
+        }
+        // Ctrl (`doc`): the bounds of the whole text; otherwise those of the logical line.
+        Key::Home { doc, .. } => {
+            if *doc {
+                0
+            } else {
+                line_start(chars, *cursor)
+            }
+        }
+        Key::End { doc, .. } => {
+            if *doc {
+                len
+            } else {
+                line_end(chars, *cursor)
+            }
+        }
+        _ => return false,
+    };
+    let shift = matches!(
+        key,
+        Key::Left { shift: true, .. }
+            | Key::Right { shift: true, .. }
+            | Key::Home { shift: true, .. }
+            | Key::End { shift: true, .. }
+    );
+    move_cursor(cursor, anchor, target, shift);
+    true
+}
 
 /// A selection handle's outline in `rect`: a disc with the corner nearest the text
 /// squared off, so that it points at its end of the selection — up and right for the
@@ -1020,30 +1166,9 @@ impl<Msg> TextField<Msg> {
         scroll_y: f32,
     ) -> Option<[crate::SelectionHandle; 2]> {
         let len = self.value.chars().count();
-        let (start, end) = edit.selection_range()?;
-        let (start, end) = (start.min(len), end.min(len));
-        if start >= end {
-            return None;
-        }
+        edit.selection_range()?;
         let (layout, origin_x, origin_y) = self.text_frame(width, edit, scroll_y);
-        let at = |index: usize, start: bool| {
-            let caret = layout.caret_rect(index);
-            let x = origin_x + caret.x;
-            let top = origin_y + caret.y;
-            crate::SelectionHandle {
-                // The start handle hangs to the left of its position and the end one to
-                // the right (`text_selection.dart:115`), so that both point in at the
-                // text between them.
-                rect: Rect::new(
-                    if start { x - HANDLE_SIZE } else { x },
-                    top + caret.height,
-                    HANDLE_SIZE,
-                    HANDLE_SIZE,
-                ),
-                line_center: Point::new(x, top + caret.height * 0.5),
-            }
-        };
-        Some([at(start, true), at(end, false)])
+        handles_in(&layout, Point::new(origin_x, origin_y), len, edit)
     }
 
     /// The box the bar over the selection is placed against: the selection's, line by line
@@ -1051,16 +1176,7 @@ impl<Msg> TextField<Msg> {
     fn selection_box(&self, width: f32, edit: &Edit, scroll_y: f32) -> Rect {
         let len = self.value.chars().count();
         let (layout, origin_x, origin_y) = self.text_frame(width, edit, scroll_y);
-        let selected = edit
-            .selection_range()
-            .map(|(start, end)| layout.selection_rects(start.min(len), end.min(len)))
-            .unwrap_or_default();
-        let mut boxed = selected.first().copied();
-        for rect in selected.iter().skip(1) {
-            boxed = boxed.map(|so_far| so_far.union(*rect));
-        }
-        let boxed = boxed.unwrap_or_else(|| layout.caret_rect(edit.cursor.min(len)));
-        boxed.translate(origin_x, origin_y)
+        selection_box_in(&layout, Point::new(origin_x, origin_y), len, edit)
     }
 
     /// The bar's **default** list for `context`: what the reference offers, decided by the
@@ -1522,11 +1638,9 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
                     .map(|(a, b)| if cursor == a { b } else { a }),
                 composing: None,
             };
-            if let Some([start, end]) = self.handles(bounds.width, &edit, status.scroll_y) {
+            if let Some(handles) = self.handles(bounds.width, &edit, status.scroll_y) {
                 let color = s.handle_color.unwrap().fade(o);
-                let place = |r: Rect| r.translate(bounds.x, bounds.y);
-                scene.fill_path(&handle_path(place(start.rect), true), color);
-                scene.fill_path(&handle_path(place(end.rect), false), color);
+                paint_handles(scene, handles, Point::new(bounds.x, bounds.y), color);
             }
         }
     }
@@ -1632,31 +1746,10 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
                 }
                 anchor = None;
             }
-            Key::Left { shift, word } => {
-                let target = if *word {
-                    word_boundary_left(&chars, cursor)
-                } else {
-                    cursor.saturating_sub(1)
-                };
-                move_cursor(&mut cursor, &mut anchor, target, *shift);
-            }
-            Key::Right { shift, word } => {
-                let target = if *word {
-                    word_boundary_right(&chars, cursor)
-                } else {
-                    (cursor + 1).min(len)
-                };
-                move_cursor(&mut cursor, &mut anchor, target, *shift);
-            }
-            // Ctrl (`doc`): the bounds of the whole field; otherwise the bounds of the
-            // logical line (identical in a single-line field).
-            Key::Home { shift, doc } => {
-                let target = if *doc { 0 } else { line_start(&chars, cursor) };
-                move_cursor(&mut cursor, &mut anchor, target, *shift);
-            }
-            Key::End { shift, doc } => {
-                let target = if *doc { len } else { line_end(&chars, cursor) };
-                move_cursor(&mut cursor, &mut anchor, target, *shift);
+            // The caret's own keys: an arrow, a word under Ctrl, the ends of the line — of the
+            // whole field under Ctrl, which in a single-line field is the same.
+            Key::Left { .. } | Key::Right { .. } | Key::Home { .. } | Key::End { .. } => {
+                move_caret(&chars, &mut cursor, &mut anchor, key);
             }
             // Escape is none of editing's business (routed leaf→root by the shell).
             Key::Escape => {}
@@ -1825,6 +1918,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
         Some(&self.value)
     }
 
+    /// A field that is read-only, or that cannot be focused, takes no typing.
+    fn takes_typing(&self) -> bool {
+        self.enabled && !self.read_only
+    }
+
     fn replace_value(&self, value: String) -> Option<Msg> {
         // The same two refusals `on_edit` makes, for the same reason: a field the caller
         // has declared untouchable does not become touchable because the value being put
@@ -1876,24 +1974,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
 
     fn word_at(&self, index: usize) -> Option<(usize, usize)> {
         let chars: Vec<char> = self.value.chars().collect();
-        let len = chars.len();
-        if len == 0 {
-            return Some((0, 0));
-        }
-        let i = index.min(len - 1);
-        let is_word = |c: char| c.is_alphanumeric() || c == '_';
-        if !is_word(chars[i]) {
-            return Some((i, (i + 1).min(len)));
-        }
-        let mut start = i;
-        while start > 0 && is_word(chars[start - 1]) {
-            start -= 1;
-        }
-        let mut end = i + 1;
-        while end < len && is_word(chars[end]) {
-            end += 1;
-        }
-        Some((start, end))
+        word_range(&chars, index)
     }
 
     fn selection_handles(
