@@ -128,7 +128,8 @@ mod tests {
     fn the_default_icon_is_the_logo_at_256_pixels_with_a_transparent_background() {
         let image = frus_image::decode(FRUS_ICON_PNG).expect("the embedded icon decodes");
         assert_eq!((image.width(), image.height()), (256, 256));
-        let alphas: Vec<u8> = image.rgba().chunks_exact(4).map(|p| p[3]).collect();
+        // The alpha channel: every fourth byte of RGBA, from the fourth.
+        let alphas: Vec<u8> = image.rgba().iter().skip(3).step_by(4).copied().collect();
         assert!(alphas.contains(&255), "a drawn mark");
         assert!(alphas.contains(&0), "and a transparent corner");
         assert!(

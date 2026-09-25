@@ -1699,7 +1699,6 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     Err(err) => log::error!("failed to initialise the renderer (Web): {err:#}"),
                 }
             });
-            return;
         }
 
         #[cfg(not(web))]
