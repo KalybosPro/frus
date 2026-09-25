@@ -123,9 +123,13 @@ fn opens_selection_bar(logical: &WinitKey, shift: bool) -> bool {
 /// pixel is its clear button. So the first letter typed into such a field closed the
 /// keyboard and ended its composition, and the keyboard's next update was written
 /// beside the first: `F`, then `FFr`.
+///
+/// A field that can only be **read** — a read-only one, a selectable paragraph — is a text field
+/// with a caret and a selection and no use for a keyboard, which would slide up over the very
+/// words its reader has come to select.
 #[cfg(any(android, test))]
 fn wants_keyboard<M>(widget: &dyn Widget<M>) -> bool {
-    is_text_field(widget) && widget.focusable()
+    is_text_field(widget) && widget.focusable() && widget.takes_typing()
 }
 
 /// Whether `widget` is a **text field**: what takes the left and right arrows for its caret
@@ -1269,6 +1273,21 @@ impl<A: Application> App<A> {
     fn request_soft_input(&mut self) {
         #[cfg(android)]
         {
+            // Only a field that takes typing: a tap in a paragraph made selectable is a tap
+            // in words to select, not in a form.
+            let typing = self
+                .runtime
+                .input
+                .focused
+                .and_then(|id| {
+                    self.tree
+                        .as_ref()
+                        .and_then(|tree| find_widget(tree.as_ref(), id))
+                })
+                .is_some_and(wants_keyboard);
+            if !typing {
+                return;
+            }
             self.soft_input_shown = true;
             self.end_composition();
             if crate::android_ime::installed() {
@@ -6684,6 +6703,38 @@ mod tests {
         assert!(
             !super::is_text_field(&Container::<()>::new()),
             "what is not a field leaves its arrows to focus navigation"
+        );
+    }
+
+    /// **A text that can only be read does not raise the keyboard.** A read-only field and a
+    /// selectable paragraph are both text fields — they have a caret, and the arrows are
+    /// theirs — but the software keyboard is for typing, and sliding it up over the words a
+    /// reader has come to select hides the words. Before milestone 573 a read-only field
+    /// raised it all the same.
+    #[test]
+    fn a_text_that_can_only_be_read_wants_no_keyboard() {
+        use frus_widgets::{Text, TextField};
+        let read_only = TextField::<()>::new("REF-4417").read_only();
+        assert!(super::is_text_field(&read_only), "it has a caret");
+        assert!(
+            !super::wants_keyboard(&read_only),
+            "and no use for a keyboard"
+        );
+
+        let selectable = Text::new("ORDER-4417").selectable();
+        assert!(
+            super::is_text_field::<()>(&selectable),
+            "the arrows move its caret"
+        );
+        assert!(!super::wants_keyboard::<()>(&selectable));
+
+        assert!(
+            super::wants_keyboard(&TextField::<()>::new("typed")),
+            "and a field that can be typed into still does"
+        );
+        assert!(
+            !super::is_text_field::<()>(&Text::new("ORDER-4417")),
+            "an ordinary text leaves its arrows to focus navigation"
         );
     }
 

@@ -1,12 +1,21 @@
 //! [`Text`]: a widget that displays a line of text.
 
+use std::any::Any;
+use std::cell::{Cell, OnceCell};
+
 use frus_core::{
     fits, Color, FontWeight, MaskShader, Point, Rect, ResolvedTextStyle, Scene, ShaderMask,
     TextAlign, TextBlock, TextOverflow, TextStyle,
 };
 use frus_layout::{Dimension, Style};
+use frus_text::TextLayout;
 
-use crate::interaction::Status;
+use crate::interaction::{Key, Status};
+use crate::runtime::Edit;
+use crate::selectiontoolbar::{SelectionToolbar, ToolbarContext, ToolbarItem};
+use crate::textinput::{
+    handles_in, move_caret, paint_handles, selection_box_in, word_range, ToolbarBuild,
+};
 use crate::theme::Theme;
 use crate::widget::Widget;
 use crate::widgettheme::DefaultTextStyle;
@@ -41,6 +50,46 @@ pub struct Text {
     /// **inherited** limit says it just as much as a called one, which is why this is
     /// derived at resolution rather than stored.
     shrinkable: bool,
+    /// What makes the text **selectable** — see [`Text::selectable`]. Boxed, and absent for
+    /// the vast majority of texts, which are read and nothing more: the widget that is built
+    /// by the thousand does not carry a selection's state around.
+    selection: Option<Box<Selection>>,
+}
+
+/// The state of a text that can be selected and copied.
+struct Selection {
+    /// Whether the text is selectable at all. [`Text::selection_toolbar`] may have made
+    /// the state before [`Text::selectable`] is called, in either order.
+    on: bool,
+    /// The typography the text was **last laid out and painted with**, which is what a
+    /// selection has to be measured against.
+    ///
+    /// A hit test, a handle and the bar's anchor are asked for outside a frame, with no
+    /// theme and no reader's font setting in force — and a text's size may be handed down by
+    /// a subtree and scaled by that setting, neither of which the widget can see from where
+    /// it is asked. So layout and paint write down what they resolved, and the questions
+    /// read it back.
+    shaping: Cell<Option<Shaping>>,
+    /// The reader's font-size setting when the text was built, for a question asked before
+    /// any layout has: the best guess there is, and the right one for a text that sets its
+    /// own size.
+    scale: f32,
+    /// The application's say over the bar shown above a selection: a
+    /// [`ToolbarBuild`] of the application's message type, kept as `dyn Any` because a
+    /// `Text` is not generic over it.
+    toolbar_build: Option<Box<dyn Any>>,
+    /// The bar for each context, built the first time it is asked for and kept: the walk
+    /// borrows it for a frame, so it must live as long as the text does. Each holds an
+    /// `Option<Box<dyn Widget<Msg>>>`.
+    toolbars: [OnceCell<Box<dyn Any>>; ToolbarContext::VARIANTS as usize],
+}
+
+/// What a selection is measured against: the typography a text resolved, and whether it
+/// wraps at the width it is given.
+#[derive(Copy, Clone)]
+struct Shaping {
+    style: ResolvedTextStyle,
+    wrap: bool,
 }
 
 /// A [`Text`]'s questions, all answered: what the caller said where they said it, what the
@@ -174,6 +223,102 @@ impl Text {
             align: None,
             heading: false,
             shrinkable: false,
+            selection: None,
+        }
+    }
+
+    /// Makes this text **selectable**: a press, a drag, a double click or a long press
+    /// selects words in it, and Ctrl+C, or the bar that opens over the selection, copies
+    /// them. Ordinary text is not — it is drawn, and there is nothing under the pointer to
+    /// select — and choosing which of an application's texts a reader may copy from is
+    /// the application's business: an order number, an address, a code, an error message.
+    ///
+    /// A selectable text can take focus, so Tab reaches it and a screen reader announces
+    /// it as it does any text; it does **not** open the software keyboard, which is for
+    /// text that can be typed into. Its selection shows the highlight
+    /// ([`Theme::selection`]) and, when made with a finger, the handles.
+    ///
+    /// ```
+    /// use frus_widgets::Text;
+    ///
+    /// let code = Text::new("ORDER-4417").selectable();
+    /// # let _ = code;
+    /// ```
+    ///
+    /// **Limits.** What is selected is what is drawn from the start of each line: a text
+    /// aligned to the centre or the end, or one that a line limit or an ellipsis cuts short,
+    /// is highlighted as if it were not. Up and Down move focus rather than the caret.
+    /// A selectable text inside something that takes a tap — a button, a list tile — takes
+    /// the press instead of it: make selectable the texts that are not the button's label.
+    pub fn selectable(mut self) -> Self {
+        self.selection_mut().on = true;
+        self
+    }
+
+    /// Changes what the bar over a selectable text's selection offers — the application's
+    /// say, as [`TextField::selection_toolbar`](crate::TextField::selection_toolbar) is for a
+    /// field. `build` is given the context and the default list (Copy when something is
+    /// selected, Select all unless everything is) and answers with the list to show; an
+    /// empty one shows no bar.
+    ///
+    /// Only for a text that is [`selectable`](Self::selectable). The bar carries the
+    /// application's messages, so `Msg` is the message type of the view the text is in.
+    pub fn selection_toolbar<Msg: 'static>(
+        mut self,
+        build: impl Fn(&ToolbarContext, Vec<ToolbarItem<Msg>>) -> Vec<ToolbarItem<Msg>> + 'static,
+    ) -> Self {
+        let build: ToolbarBuild<Msg> = Box::new(build);
+        let selection = self.selection_mut();
+        selection.toolbar_build = Some(Box::new(build));
+        // Whatever was built for the old answer is not the answer any more.
+        selection.toolbars = Default::default();
+        self
+    }
+
+    /// The state of the selection, made when first asked for.
+    fn selection_mut(&mut self) -> &mut Selection {
+        self.selection.get_or_insert_with(|| {
+            Box::new(Selection {
+                on: false,
+                shaping: Cell::new(None),
+                scale: frus_core::text_scale(),
+                toolbar_build: None,
+                toolbars: Default::default(),
+            })
+        })
+    }
+
+    /// The selection state, if this text is selectable.
+    fn selecting(&self) -> Option<&Selection> {
+        self.selection.as_deref().filter(|selection| selection.on)
+    }
+
+    /// The layout of this text as it was drawn, at `width`: what a hit, a highlight, a
+    /// handle or the bar's anchor is worked out from. `None` for a text that is not
+    /// selectable.
+    fn selection_layout(&self, width: f32) -> Option<TextLayout> {
+        let selection = self.selecting()?;
+        let shaping = selection.shaping.get().unwrap_or_else(|| {
+            let resolved = frus_core::with_text_scale(selection.scale, || self.resolved(None));
+            Shaping {
+                style: resolved.style,
+                wrap: resolved.wrap,
+            }
+        });
+        Some(TextLayout::resolved(
+            &self.content,
+            &shaping.style,
+            shaping.wrap.then_some(width),
+        ))
+    }
+
+    /// Writes down what this text resolved, for the questions a selection is asked later.
+    fn remember(&self, r: &Resolved) {
+        if let Some(selection) = self.selecting() {
+            selection.shaping.set(Some(Shaping {
+                style: r.style,
+                wrap: r.wrap,
+            }));
         }
     }
 
@@ -447,6 +592,30 @@ impl Text {
 
     /// The fade that ends a cut text: opaque until the last stretch of the box, then out
     /// to nothing at the edge it ran past.
+    /// The two handles of a touch selection, hanging below their ends of it. Drawn last,
+    /// over the words, and outside the text's own clip: they hang past its last line.
+    fn paint_grips(&self, bounds: Rect, status: &Status, theme: &Theme, scene: &mut Scene) {
+        if !(status.focused && status.handles) {
+            return;
+        }
+        let Some((start, end)) = status.selection else {
+            return;
+        };
+        let Some(layout) = self.selection_layout(bounds.width) else {
+            return;
+        };
+        let edit = Edit {
+            cursor: end,
+            anchor: Some(start),
+            composing: None,
+        };
+        let len = self.content.chars().count();
+        if let Some(handles) = handles_in(&layout, Point::new(0.0, 0.0), len, &edit) {
+            let color = theme.scheme.primary.fade(status.opacity);
+            paint_handles(scene, handles, Point::new(bounds.x, bounds.y), color);
+        }
+    }
+
     fn fade(bounds: Rect, horizontal: bool, r: &Resolved) -> ShaderMask {
         // A fifth of the box, and never more than three line heights of it. Over a long
         // line a proportional fade would start halfway through words that are perfectly
@@ -525,7 +694,7 @@ impl Text {
     }
 }
 
-impl<Msg> Widget<Msg> for Text {
+impl<Msg: Clone + 'static> Widget<Msg> for Text {
     fn style(&self) -> Style {
         self.boxed(&self.resolved(None))
     }
@@ -535,7 +704,9 @@ impl<Msg> Widget<Msg> for Text {
     /// an app bar make the words inside it smaller and have them take less room, instead
     /// of the same room with smaller writing in it.
     fn style_themed(&self, theme: &Theme) -> Style {
-        self.boxed(&self.resolved(Some(theme)))
+        let r = self.resolved(Some(theme));
+        self.remember(&r);
+        self.boxed(&r)
     }
 
     /// A text will not be **squeezed along a row**: it runs past the end of one rather
@@ -642,12 +813,31 @@ impl<Msg> Widget<Msg> for Text {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let r = self.resolved(Some(theme));
+        self.remember(&r);
         let color = r
             .style
             .color
             .unwrap_or(theme.on_surface)
             .fade(status.opacity);
         let fitted = self.fitted(bounds.width, &r);
+        // A selectable text's selection: the highlight below the words (the handles of a
+        // touch selection are drawn after them).
+        if let Some((start, end)) = status.selection.filter(|_| status.focused) {
+            if let Some(layout) = self.selection_layout(bounds.width) {
+                let len = self.content.chars().count();
+                for rect in layout.selection_rects(start.min(len), end.min(len)) {
+                    scene.fill_rect(
+                        Rect::new(
+                            bounds.x + rect.x,
+                            bounds.y + rect.y,
+                            rect.width,
+                            rect.height,
+                        ),
+                        theme.selection.fade(status.opacity),
+                    );
+                }
+            }
+        }
         let block = TextBlock {
             // A width is handed over only when something is going to use it. Giving the
             // renderer one it did not have changes where right-to-left text lands, which
@@ -672,6 +862,7 @@ impl<Msg> Widget<Msg> for Text {
             || r.overflow == TextOverflow::Ellipsis
         {
             draw(scene);
+            self.paint_grips(bounds, &status, theme, scene);
             return;
         }
         // Only where it genuinely does not fit: a clip around every text would put a hard
@@ -686,10 +877,116 @@ impl<Msg> Widget<Msg> for Text {
             _ => draw(scene),
         }
         scene.set_clip(outer);
+        self.paint_grips(bounds, &status, theme, scene);
     }
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+
+    // What follows is a **selectable** text's: a read-only text field, in effect. None of it
+    // answers for a text that is not.
+
+    fn focusable(&self) -> bool {
+        self.selecting().is_some()
+    }
+
+    /// A selectable text's words, so that the shell treats it as the text field it is
+    /// for the caret's sake: the arrows move the caret, Ctrl+A selects, the context-menu
+    /// key opens the bar. Not for the keyboard's — see [`Widget::takes_typing`].
+    fn text_value(&self) -> Option<&str> {
+        self.selecting().map(|_| self.content.as_str())
+    }
+
+    fn takes_typing(&self) -> bool {
+        false
+    }
+
+    fn cursor_at(
+        &self,
+        local_x: f32,
+        local_y: f32,
+        width: f32,
+        _scroll_cursor: usize,
+    ) -> Option<usize> {
+        let layout = self.selection_layout(width)?;
+        Some(layout.hit_test(Point::new(local_x, local_y)))
+    }
+
+    fn word_at(&self, index: usize) -> Option<(usize, usize)> {
+        self.selecting()?;
+        let chars: Vec<char> = self.content.chars().collect();
+        word_range(&chars, index)
+    }
+
+    fn selected_text(&self, edit: &Edit) -> Option<String> {
+        self.selecting()?;
+        let chars: Vec<char> = self.content.chars().collect();
+        let len = chars.len();
+        let (start, end) = edit.selection_range()?;
+        let (start, end) = (start.min(len), end.min(len));
+        (start < end).then(|| chars[start..end].iter().collect())
+    }
+
+    /// The caret's keys — the arrows, home and end — and nothing else: a text that cannot
+    /// be typed into takes no other key, and answers no message.
+    fn on_edit(&self, edit: &mut Edit, key: &Key) -> Option<Msg> {
+        self.selecting()?;
+        let chars: Vec<char> = self.content.chars().collect();
+        let len = chars.len();
+        let mut cursor = edit.cursor.min(len);
+        let mut anchor = edit.anchor.map(|anchor| anchor.min(len));
+        if move_caret(&chars, &mut cursor, &mut anchor, key) {
+            edit.cursor = cursor;
+            edit.anchor = anchor;
+        }
+        None
+    }
+
+    fn selection_handles(
+        &self,
+        width: f32,
+        edit: &Edit,
+        _scroll_y: f32,
+    ) -> Option<[crate::SelectionHandle; 2]> {
+        let layout = self.selection_layout(width)?;
+        let len = self.content.chars().count();
+        handles_in(&layout, Point::new(0.0, 0.0), len, edit)
+    }
+
+    fn selection_anchor(&self, width: f32, edit: &Edit, _scroll_y: f32) -> Option<Rect> {
+        let layout = self.selection_layout(width)?;
+        let len = self.content.chars().count();
+        Some(selection_box_in(&layout, Point::new(0.0, 0.0), len, edit))
+    }
+
+    /// Copy, when something is selected, and Select all, unless everything is: a text
+    /// cannot be cut from or pasted into, so those are not offered.
+    fn selection_toolbar(&self, context: ToolbarContext) -> Option<&dyn Widget<Msg>> {
+        let selection = self.selecting()?;
+        selection.toolbars[usize::from(context.variant())]
+            .get_or_init(|| {
+                let mut items = Vec::new();
+                if context.has_selection {
+                    items.push(ToolbarItem::copy());
+                }
+                if !context.all_selected {
+                    items.push(ToolbarItem::select_all());
+                }
+                let build = selection
+                    .toolbar_build
+                    .as_ref()
+                    .and_then(|build| build.downcast_ref::<ToolbarBuild<Msg>>());
+                let items = match build {
+                    Some(build) => build(&context, items),
+                    None => items,
+                };
+                let bar: Option<Box<dyn Widget<Msg>>> = (!items.is_empty())
+                    .then(|| Box::new(SelectionToolbar::new(items)) as Box<dyn Widget<Msg>>);
+                Box::new(bar) as Box<dyn Any>
+            })
+            .downcast_ref::<Option<Box<dyn Widget<Msg>>>>()?
+            .as_deref()
     }
 
     fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
@@ -1702,5 +1999,424 @@ mod reader_font_size {
                 title_size(scale)
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod selectable_tests {
+    use super::*;
+    use crate::{build_ui, EditAction, Flex, Runtime, Size};
+    use frus_core::Primitive;
+
+    const WORDS: &str = "one two three four five six seven eight nine ten";
+
+    fn hit(text: &Text, x: f32, y: f32, width: f32) -> Option<usize> {
+        Widget::<()>::cursor_at(text, x, y, width, 0)
+    }
+
+    fn selected(cursor: usize, anchor: Option<usize>) -> Edit {
+        Edit {
+            cursor,
+            anchor,
+            composing: None,
+        }
+    }
+
+    /// The width of `prefix` in the framework's default text style.
+    fn width_of(prefix: &str) -> f32 {
+        frus_text::measure_resolved(prefix, &TextStyle::NONE.resolved()).width
+    }
+
+    /// The actions on the bar a context gets, in order.
+    fn bar_for(text: &Text, context: ToolbarContext) -> Option<Vec<EditAction>> {
+        let bar = Widget::<()>::selection_toolbar(text, context)?;
+        Some(
+            bar.children()
+                .iter()
+                .map(|button| button.edit_action().expect("a built-in action"))
+                .collect(),
+        )
+    }
+
+    /// **An ordinary text is not selectable**, and nothing about it changes: it takes no
+    /// focus, answers no hit test, and has no bar. Selectable is opted into, per text.
+    #[test]
+    fn an_ordinary_text_is_not_selectable() {
+        let text = Text::new("ORDER-4417");
+        assert!(!Widget::<()>::focusable(&text));
+        assert_eq!(Widget::<()>::text_value(&text), None);
+        assert_eq!(hit(&text, 10.0, 5.0, 200.0), None);
+        assert_eq!(Widget::<()>::word_at(&text, 2), None);
+        assert_eq!(
+            Widget::<()>::selected_text(&text, &selected(5, Some(0))),
+            None
+        );
+        assert!(Widget::<()>::selection_toolbar(&text, ToolbarContext::default()).is_none());
+        // A bar configured for a text that is not selectable changes nothing about it.
+        let configured = Text::new("x").selection_toolbar::<()>(|_, items| items);
+        assert!(!Widget::<()>::focusable(&configured));
+        assert_eq!(Widget::<()>::text_value(&configured), None);
+    }
+
+    /// **A selectable text takes focus and is a text field for the caret's sake, and not
+    /// for the keyboard's**: the arrows are its own, and the soft keyboard is not asked for.
+    #[test]
+    fn a_selectable_text_takes_focus_but_no_typing() {
+        let text = Text::new("ORDER-4417").selectable();
+        assert!(Widget::<()>::focusable(&text));
+        assert_eq!(Widget::<()>::text_value(&text), Some("ORDER-4417"));
+        assert!(!Widget::<()>::takes_typing(&text));
+    }
+
+    /// **A press lands on the character it is over**: at the start, between two letters, and
+    /// past the end.
+    #[test]
+    fn a_press_lands_between_the_letters_it_is_over() {
+        let text = Text::new("hello world").selectable();
+        assert_eq!(hit(&text, 0.0, 5.0, 400.0), Some(0));
+        assert_eq!(hit(&text, width_of("hello"), 5.0, 400.0), Some(5));
+        assert_eq!(hit(&text, width_of("hello w"), 5.0, 400.0), Some(7));
+        assert_eq!(hit(&text, 1000.0, 5.0, 400.0), Some(11));
+    }
+
+    /// **A wrapped paragraph is hit line by line**: the second line's first letter is the
+    /// first character after the break, not one on the first line at the same `x`.
+    #[test]
+    fn a_wrapped_paragraph_is_hit_line_by_line() {
+        let text = Text::new(WORDS).selectable();
+        let style = TextStyle::NONE.resolved();
+        let spans = frus_text::line_spans(
+            WORDS,
+            style.size,
+            style.weight,
+            style.italic,
+            Some(90.0),
+            true,
+        );
+        assert!(spans.len() >= 3, "the fixture wraps: {spans:?}");
+        let line = style.line_height();
+        for (index, span) in spans.iter().enumerate().take(3) {
+            let y = line * index as f32 + line * 0.5;
+            assert_eq!(
+                hit(&text, 0.0, y, 90.0),
+                Some(span.start),
+                "the start of line {index}"
+            );
+        }
+    }
+
+    /// **The layout follows the paragraph's leading**: a text set at twice the line height
+    /// has its second line twice as far down, and a hit test that assumed the default would
+    /// find the third line where the second is drawn.
+    #[test]
+    fn a_hit_follows_the_leading_the_paragraph_is_drawn_with() {
+        let text = Text::styled(WORDS, TextStyle::new(16.0).height(2.0)).selectable();
+        let spans =
+            frus_text::line_spans(WORDS, 16.0, FontWeight::Regular, false, Some(90.0), true);
+        assert!(spans.len() >= 3, "the fixture wraps: {spans:?}");
+        // 32 px a line: 48 is the middle of the second, which is the third at 19.2 a line.
+        assert_eq!(hit(&text, 0.0, 48.0, 90.0), Some(spans[1].start));
+    }
+
+    /// **A size handed down by a subtree is the size a press is measured at.** The hooks are
+    /// asked outside a frame, with no theme in reach, so the text writes down what its layout
+    /// resolved; answering from the framework's own default would put every press of a text in
+    /// a large-type section a few letters from where it was made.
+    #[test]
+    fn a_hit_follows_the_size_a_subtree_handed_down() {
+        let mut theme = Theme::default();
+        theme.widgets.text.style.size = Some(30.0);
+        let text = Text::new("hello world").selectable().no_wrap();
+        // Laid out and painted, as any tree on its way to the screen is.
+        let _ = build_ui::<()>(&text, Size::new(400.0, 100.0), &Runtime::default(), &theme);
+        let big = frus_text::measure_resolved("hello", &TextStyle::new(30.0).resolved()).width;
+        assert!(big > width_of("hello") * 1.5, "the fixture: {big}");
+        assert_eq!(hit(&text, big, 10.0, 400.0), Some(5));
+    }
+
+    /// **And the reader's font-size setting**, which is installed while a view is built and
+    /// not while a press is handled: the text remembers the one it was built under.
+    #[test]
+    fn a_hit_follows_the_readers_font_setting() {
+        let text =
+            frus_core::with_text_scale(2.0, || Text::new("hello world").selectable().no_wrap());
+        let doubled = frus_text::measure_resolved(
+            "hello",
+            &frus_core::with_text_scale(2.0, || TextStyle::NONE.resolved()),
+        )
+        .width;
+        assert!(doubled > width_of("hello") * 1.9, "the fixture: {doubled}");
+        assert_eq!(hit(&text, doubled, 10.0, 600.0), Some(5));
+    }
+
+    /// **What is copied is what is selected**, by character and not by byte, and in whichever
+    /// direction it was dragged.
+    #[test]
+    fn the_selected_text_is_the_characters_between_the_ends() {
+        let text = Text::new("héllo wörld").selectable();
+        let copy = |edit| Widget::<()>::selected_text(&text, &edit);
+        assert_eq!(copy(selected(4, Some(1))).as_deref(), Some("éll"));
+        assert_eq!(copy(selected(1, Some(4))).as_deref(), Some("éll"));
+        assert_eq!(copy(selected(3, Some(3))), None, "a caret selects nothing");
+        assert_eq!(copy(selected(3, None)), None);
+        assert_eq!(
+            copy(selected(usize::MAX, Some(0))).as_deref(),
+            Some("héllo wörld"),
+            "the end of everything, as Select all asks for it"
+        );
+    }
+
+    #[test]
+    fn a_double_click_selects_the_word() {
+        let text = Text::new("hello wörld_2!").selectable();
+        assert_eq!(Widget::<()>::word_at(&text, 8), Some((6, 13)));
+        assert_eq!(
+            Widget::<()>::word_at(&text, 13),
+            Some((13, 14)),
+            "a separator"
+        );
+    }
+
+    /// **The caret's keys move the caret, and no other key does anything** — a text that
+    /// cannot be typed into does not change, and answers no message.
+    #[test]
+    fn the_arrows_move_the_caret_and_typing_does_nothing() {
+        let text = Text::new("hello world").selectable();
+        let press = |edit: &mut Edit, key: Key| Widget::<()>::on_edit(&text, edit, &key);
+        let mut edit = selected(2, None);
+        let right = Key::Right {
+            shift: false,
+            word: false,
+        };
+        assert_eq!(press(&mut edit, right), None);
+        assert_eq!((edit.cursor, edit.anchor), (3, None));
+        let shift_right = Key::Right {
+            shift: true,
+            word: false,
+        };
+        press(&mut edit, shift_right);
+        assert_eq!(edit.selection_range(), Some((3, 4)), "Shift extends");
+        let word_left = Key::Left {
+            shift: false,
+            word: true,
+        };
+        press(&mut edit, word_left);
+        assert_eq!((edit.cursor, edit.anchor), (0, None), "a word to the left");
+        let select_to_end = Key::End {
+            shift: true,
+            doc: true,
+        };
+        press(&mut edit, select_to_end);
+        assert_eq!(edit.selection_range(), Some((0, 11)));
+
+        let before = edit;
+        for key in [
+            Key::Text("x".into()),
+            Key::Backspace,
+            Key::Delete,
+            Key::Enter,
+            Key::Escape,
+        ] {
+            assert_eq!(press(&mut edit, key.clone()), None);
+            assert_eq!(edit, before, "{key:?} changed nothing");
+        }
+    }
+
+    fn paint(text: &Text, status: Status) -> Vec<Primitive> {
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            text,
+            Rect::new(10.0, 20.0, 300.0, 40.0),
+            status,
+            &Theme::default(),
+            &mut scene,
+        );
+        scene.primitives().to_vec()
+    }
+
+    fn highlights(primitives: &[Primitive]) -> Vec<Rect> {
+        let selection = Theme::default().selection;
+        primitives
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if *color == selection => Some(*rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// **A focused selection is highlighted, under the words** — over the letters it
+    /// covers, in the theme's selection colour, and only while the text has the focus.
+    #[test]
+    fn a_selection_is_highlighted_under_the_words() {
+        let text = Text::new("hello world").selectable().no_wrap();
+        let focused = Status {
+            focused: true,
+            selection: Some((0, 5)),
+            ..Status::default()
+        };
+        let primitives = paint(&text, focused);
+        let boxes = highlights(&primitives);
+        assert_eq!(boxes.len(), 1, "one line, one box: {boxes:?}");
+        assert!(
+            (boxes[0].x - 10.0).abs() < 0.5,
+            "from the text's left: {:?}",
+            boxes[0]
+        );
+        assert!(
+            (boxes[0].width - width_of("hello")).abs() < 1.0,
+            "as wide as the word: {:?}",
+            boxes[0]
+        );
+        assert_eq!(boxes[0].y, 20.0, "on the text's line");
+        let rect = primitives
+            .iter()
+            .position(|p| matches!(p, Primitive::Rect { .. }));
+        let words = primitives
+            .iter()
+            .position(|p| matches!(p, Primitive::Text { .. }));
+        assert!(rect < words, "below the words, so they stay readable");
+
+        let unfocused = Status {
+            selection: Some((0, 5)),
+            ..Status::default()
+        };
+        assert!(
+            highlights(&paint(&text, unfocused)).is_empty(),
+            "not focused"
+        );
+        // And a text that is not selectable paints exactly what it always has.
+        assert!(highlights(&paint(&Text::new("hello world"), focused)).is_empty());
+    }
+
+    /// **A touch selection has its two handles**, hanging below the ends of it, and where
+    /// they are painted is where a finger is told to look for them.
+    #[test]
+    fn a_touch_selection_has_handles_where_they_are_painted() {
+        let text = Text::new("hello world").selectable().no_wrap();
+        let touched = Status {
+            focused: true,
+            handles: true,
+            selection: Some((0, 5)),
+            ..Status::default()
+        };
+        let paths = |primitives: &[Primitive]| {
+            primitives
+                .iter()
+                .filter(|p| matches!(p, Primitive::Path { .. }))
+                .count()
+        };
+        assert_eq!(paths(&paint(&text, touched)), 2, "two handles");
+        let no_handles = Status {
+            handles: false,
+            ..touched
+        };
+        assert_eq!(paths(&paint(&text, no_handles)), 0);
+
+        let [start, end] =
+            Widget::<()>::selection_handles(&text, 300.0, &selected(5, Some(0)), 0.0)
+                .expect("the handles of a selection");
+        assert!(
+            (end.line_center.x - start.line_center.x - width_of("hello")).abs() < 1.0,
+            "{start:?} {end:?}"
+        );
+        assert!(
+            start.rect.y > start.line_center.y,
+            "they hang below their line"
+        );
+        assert!(
+            Widget::<()>::selection_handles(&text, 300.0, &selected(5, None), 0.0).is_none(),
+            "a caret has none"
+        );
+    }
+
+    /// **The bar is placed against the selection's own box.**
+    #[test]
+    fn the_bar_is_anchored_on_the_selection() {
+        let text = Text::new("hello world").selectable().no_wrap();
+        let anchor = Widget::<()>::selection_anchor(&text, 300.0, &selected(5, Some(0)), 0.0)
+            .expect("an anchor");
+        assert!(anchor.x.abs() < 0.5, "{anchor:?}");
+        assert!((anchor.width - width_of("hello")).abs() < 1.0, "{anchor:?}");
+    }
+
+    /// **The bar offers what a text can do**: Copy of what is selected and Select all — no
+    /// Cut, and no Paste, for text that cannot be changed.
+    #[test]
+    fn the_bar_offers_copy_and_select_all_only() {
+        use EditAction::{Copy, SelectAll};
+        let text = Text::new("hello world").selectable();
+        let context = |has_selection, can_paste, all_selected| ToolbarContext {
+            has_selection,
+            can_paste,
+            all_selected,
+        };
+        assert_eq!(
+            bar_for(&text, context(true, true, false)),
+            Some(vec![Copy, SelectAll])
+        );
+        assert_eq!(bar_for(&text, context(true, false, true)), Some(vec![Copy]));
+        assert_eq!(
+            bar_for(&text, context(false, true, false)),
+            Some(vec![SelectAll])
+        );
+        assert_eq!(
+            bar_for(&text, context(false, false, true)),
+            None,
+            "nothing to offer"
+        );
+    }
+
+    /// **The application has its say over the bar**, as it has over a field's.
+    #[test]
+    fn the_application_can_change_the_bar() {
+        let context = ToolbarContext {
+            has_selection: true,
+            can_paste: false,
+            all_selected: false,
+        };
+        let more = Text::new("hello")
+            .selectable()
+            .selection_toolbar::<()>(|_, mut items| {
+                items.push(ToolbarItem::custom("Share", ()));
+                items
+            });
+        let bar = Widget::<()>::selection_toolbar(&more, context).expect("a bar");
+        assert_eq!(
+            bar.children().len(),
+            3,
+            "Copy, Select all and the application's"
+        );
+
+        let none = Text::new("hello")
+            .selection_toolbar::<()>(|_, _| Vec::new())
+            .selectable();
+        assert!(
+            Widget::<()>::selection_toolbar(&none, context).is_none(),
+            "an empty list shows no bar, whichever order the calls were made in"
+        );
+    }
+
+    /// **In a tree, a press on a selectable text finds it** — the widget the shell gives the
+    /// focus to and asks where the caret goes — and a text that is not selectable is not found.
+    #[test]
+    fn a_selectable_text_is_a_target_in_a_tree() {
+        let found = |selectable: bool| {
+            let text = if selectable {
+                Text::new("ORDER-4417").selectable()
+            } else {
+                Text::new("ORDER-4417")
+            };
+            let tree = Flex::column().width(300.0).height(100.0).child(text);
+            let ui = build_ui::<()>(
+                &tree,
+                Size::new(300.0, 100.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            ui.focus_hit(Point::new(5.0, 5.0)).is_some()
+        };
+        assert!(found(true));
+        assert!(!found(false));
     }
 }

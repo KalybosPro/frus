@@ -60,7 +60,7 @@ impl StatelessWidget for TaskPage {
                             TextStyle::NONE.size(20.0),
                             TextStyle::NONE.size(24.0),
                             arriving,
-                            text(label).weight(FontWeight::Bold).wrap(),
+                            text(label).weight(FontWeight::Bold).wrap().selectable(),
                         ),
                         text(state).size(15.0).color(theme.muted),
                     ]

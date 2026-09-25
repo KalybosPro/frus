@@ -920,7 +920,45 @@ impl TextLayout {
         italic: bool,
         max_width: Option<f32>,
     ) -> Self {
-        let fallback_h = line_height(size_px);
+        Self::shaped(
+            text,
+            size_px,
+            weight,
+            italic,
+            max_width,
+            line_height(size_px),
+            None,
+        )
+    }
+
+    /// Like [`TextLayout::wrapped`], under a style that has **already been resolved**: its
+    /// line height and its face, which `wrapped` knows nothing of.
+    ///
+    /// For text that is drawn from a [`ResolvedTextStyle`] and must be *hit* where it is
+    /// drawn — a selectable paragraph. A layout at the default leading over a paragraph
+    /// painted at another puts every line after the first somewhere else, and a tap lands
+    /// on the wrong word.
+    pub fn resolved(text: &str, style: &ResolvedTextStyle, max_width: Option<f32>) -> Self {
+        Self::shaped(
+            text,
+            style.size,
+            style.weight,
+            style.italic,
+            max_width,
+            style.line_height(),
+            style.family,
+        )
+    }
+
+    fn shaped(
+        text: &str,
+        size_px: f32,
+        weight: FontWeight,
+        italic: bool,
+        max_width: Option<f32>,
+        fallback_h: f32,
+        family: Option<frus_core::FontFamily>,
+    ) -> Self {
         let mut lines: Vec<LayoutLine> = Vec::new();
         let mut width = 0.0_f32;
         let mut height = 0.0_f32;
@@ -942,7 +980,7 @@ impl TextLayout {
             let mut buffer = Buffer::new(&mut font_system, metrics);
             buffer.set_size(max_width, None);
             let attrs = Attrs::new()
-                .family(family_for(text))
+                .family(family_for_style(text, family))
                 .weight(Weight(available_weight(weight)))
                 .style(available_style(italic));
             buffer.set_text(text, &attrs, Shaping::Advanced, None);
@@ -1106,6 +1144,31 @@ impl TextLayout {
 
 #[cfg(test)]
 mod tests {
+
+    /// **A layout under a resolved style has that style's leading**: the second line of a
+    /// paragraph set at twice the line height is twice as far down, and the same paragraph
+    /// laid out by [`TextLayout::wrapped`] — which knows the default alone — puts it where the
+    /// default does. A selection hit-tested against the wrong one lands on the wrong line.
+    #[test]
+    fn a_resolved_layout_takes_the_styles_leading() {
+        let text = "one two three four five six seven eight";
+        let open = ResolvedTextStyle {
+            height: Some(2.0),
+            ..ResolvedTextStyle::exact(16.0)
+        };
+        let styled = TextLayout::resolved(text, &open, Some(90.0));
+        let plain = TextLayout::wrapped(text, 16.0, FontWeight::Regular, false, Some(90.0));
+        let spans = line_spans(text, 16.0, FontWeight::Regular, false, Some(90.0), true);
+        assert!(spans.len() >= 3, "the fixture wraps: {spans:?}");
+        let second = spans[1].start;
+        assert_eq!(styled.caret_rect(second).y, 32.0, "two lines of 32 px");
+        assert_eq!(plain.caret_rect(second).y, line_height(16.0));
+        assert!(styled.size().height > plain.size().height * 1.5);
+        // The same style with nothing named is the layout `wrapped` gives.
+        let closed = TextLayout::resolved(text, &ResolvedTextStyle::exact(16.0), Some(90.0));
+        assert_eq!(closed.caret_rect(second), plain.caret_rect(second));
+        assert_eq!(closed.size(), plain.size());
+    }
 
     /// The spans come back **as the shaper broke them**: each one fits the box, and the
     /// words they cover are the words that were written, in order. That is what makes it
