@@ -40,6 +40,17 @@ so it wins.
 **`None` is not "remove the page's".** It means the framework supplies nothing: a page keeps its own,
 and a window keeps the platform's.
 
+## Found by generating a project
+
+Adding the five PNGs to the template **broke `cargo generate`** for every new project:
+`Substitution skipped, found invalid syntax` in each `ic_launcher.png`. `cargo generate` reads every
+file of a template as text with `{{ … }}` in it, and a PNG's bytes contained something that looked
+like it. Nothing in the repository would have said so — the template is not built by a test — and the
+first person to run `cargo generate` after a release would have met it. The template's
+`cargo-generate.toml` now says `exclude = ["*.png"]`, which keeps the images out of the
+substitution and copies them as they are: a project generated from it has the five icons
+byte-identical to the template's, and `icon = "@mipmap/ic_launcher"` in its `Cargo.toml`.
+
 ## Verification
 
 - Tests: the embedded icon decodes to 256 by 256 with a transparent background and a drawn mark;

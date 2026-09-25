@@ -22,7 +22,9 @@ any release may break.
   five files. Embedded at 256 px (22 kB), not the artwork's 806 kB. Checked: the Windows window
   answers for both icons, the browser tab loads a 256-px `blob:` PNG, and the APK's manifest names
   the launcher icon at every density, and the phone's *App info* page shows the logo for the
-  installed demo.
+  installed demo. Adding the five PNGs to the template broke `cargo generate` (it reads every file
+  for `{{ … }}`); the template now excludes `*.png` from substitution, and a generated project
+  has the icons byte for byte.
 
 - **A quiet console on the Web** (J571). Opening the demo logged, on every load, a Chrome warning
   that `powerPreference` is ignored on Windows (the renderer asked for it on every target; a
