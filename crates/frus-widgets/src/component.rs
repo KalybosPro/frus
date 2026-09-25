@@ -1206,6 +1206,13 @@ crate::transparent::forward_transparent!(Component {
     fn autofill_group(&self) -> bool {
         self.inner.autofill_group()
     }
+    /// Forwarded: the area's bar is the area's, whatever wraps it.
+    fn area_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+    ) -> Option<Option<&dyn crate::widget::Widget<Msg>>> {
+        self.inner.area_toolbar(context)
+    }
 });
 
 /// A component made of a function: `component(|cx| …)`. The closure is called whenever the

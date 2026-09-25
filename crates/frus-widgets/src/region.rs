@@ -15,10 +15,15 @@
 
 use std::collections::HashMap;
 
+use std::cell::OnceCell;
+
+use frus_core::Color;
+
 use crate::interaction::WidgetId;
+use crate::selectiontoolbar::{SelectionToolbar, ToolbarContext, ToolbarItem};
 use crate::theme::Theme;
-use crate::themed::Themed;
 use crate::widget::Widget;
+use crate::widgettheme::TextSelectionTheme;
 
 /// One end of a [`RegionSelection`]: a text, and a character boundary in it.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -182,7 +187,7 @@ pub struct TextStop {
 /// ```
 /// use frus_widgets::{column, SelectionArea, Text};
 ///
-/// let terms: frus_widgets::Themed<()> = SelectionArea::around(column![
+/// let terms: SelectionArea<()> = SelectionArea::around(column![
 ///     Text::new("Terms of service").heading(),
 ///     Text::new("You may copy any of this."),
 ///     Text::new("Drag from one line to another."),
@@ -190,23 +195,143 @@ pub struct TextStop {
 /// # let _ = terms;
 /// ```
 ///
+/// How it looks and what its bar offers are the application's: the highlight and the handles
+/// take [`TextSelectionTheme`](crate::TextSelectionTheme), which
+/// [`selection_color`](Self::selection_color) and [`handle_color`](Self::handle_color) set for
+/// one area, and [`selection_toolbar`](Self::selection_toolbar) changes the list on the bar.
+///
 /// A text that is itself [`selectable`](crate::Text::selectable) keeps its own selection, and
 /// what takes a press — a button, a field, a link — keeps that: a press begins a selection
 /// only over words nothing else has a claim on.
 ///
 /// The area does not draw anything and does not change the layout: it is a wrapper that is
 /// its child, and says so to the texts inside it.
-pub struct SelectionArea;
+pub struct SelectionArea<Msg = crate::callback::Callback> {
+    inner: Box<dyn Widget<Msg>>,
+    /// The application's say over the bar, if it has said anything.
+    toolbar_build: Option<ToolbarBuild<Msg>>,
+    /// The bar for each context, built the first time it is asked for and kept: the walk
+    /// borrows the widget it floats for a whole frame.
+    toolbars: [OnceCell<Option<Box<dyn Widget<Msg>>>>; ToolbarContext::VARIANTS as usize],
+    /// How the selection looks here, laid over what the theme says.
+    look: TextSelectionTheme,
+}
 
-impl SelectionArea {
+/// The bar for a context, as [`SelectionArea::selection_toolbar`] was told to make it.
+type ToolbarBuild<Msg> = Box<dyn Fn(&ToolbarContext) -> Option<Box<dyn Widget<Msg>>>>;
+
+impl<Msg: Clone + 'static> SelectionArea<Msg> {
     /// Wraps `child` so that the texts in it can be selected together.
-    pub fn around<Msg: 'static>(child: impl Widget<Msg> + 'static) -> Themed<Msg> {
-        Themed::tweak(
-            |theme: &mut Theme| theme.widgets.text.selectable = true,
-            child,
-        )
+    pub fn around(child: impl Widget<Msg> + 'static) -> Self {
+        Self {
+            inner: Box::new(child),
+            toolbar_build: None,
+            toolbars: Default::default(),
+            look: TextSelectionTheme::default(),
+        }
+    }
+
+    /// Changes what the bar over the area's selection offers, as
+    /// [`TextField::selection_toolbar`](crate::TextField::selection_toolbar) does for a field.
+    /// `build` is given the context and the default list — Copy, and Select all unless
+    /// everything is selected — and answers with the list to show; an empty one shows no bar.
+    ///
+    /// ```
+    /// use frus_widgets::{SelectionArea, Text, ToolbarItem};
+    ///
+    /// // Copy only: nothing to select all of on a one-line receipt.
+    /// let receipt: SelectionArea<()> = SelectionArea::around(Text::new("ORDER-4417"))
+    ///     .selection_toolbar(|_, items| {
+    ///         items.into_iter().filter(|item| item.label() == "Copy").collect()
+    ///     });
+    /// # let _ = receipt;
+    /// ```
+    #[must_use]
+    pub fn selection_toolbar(
+        mut self,
+        build: impl Fn(&ToolbarContext, Vec<ToolbarItem<Msg>>) -> Vec<ToolbarItem<Msg>> + 'static,
+    ) -> Self {
+        self.toolbar_build = Some(Box::new(move |context: &ToolbarContext| {
+            let mut items = Vec::new();
+            if context.has_selection {
+                items.push(ToolbarItem::copy());
+            }
+            if !context.all_selected {
+                items.push(ToolbarItem::select_all());
+            }
+            let items = build(context, items);
+            (!items.is_empty())
+                .then(|| Box::new(SelectionToolbar::new(items)) as Box<dyn Widget<Msg>>)
+        }));
+        self.toolbars = Default::default();
+        self
+    }
+
+    /// The highlight under the selected words in this area. Unset, the theme's
+    /// [`TextSelectionTheme::selection_color`].
+    #[must_use]
+    pub fn selection_color(mut self, color: Color) -> Self {
+        self.look.selection_color = Some(color);
+        self
+    }
+
+    /// The handles under a touch selection in this area. Unset, the theme's
+    /// [`TextSelectionTheme::handle_color`].
+    #[must_use]
+    pub fn handle_color(mut self, color: Color) -> Self {
+        self.look.handle_color = Some(color);
+        self
     }
 }
+
+impl<Msg> SelectionArea<Msg> {
+    /// An area is not a box: its child's own, unchanged.
+    fn restyle(&self, base: frus_layout::Style) -> frus_layout::Style {
+        base
+    }
+}
+
+crate::transparent::forward_transparent!(SelectionArea {
+    /// What makes the texts below selectable together, and how their selection looks —
+    /// laid over the inherited theme, then whatever the child says about the theme.
+    fn theme_override(&self, inherited: &Theme) -> Option<Box<Theme>> {
+        let mut mine = inherited.clone();
+        mine.widgets.text.selectable = true;
+        let look = &mut mine.widgets.text_selection;
+        look.selection_color = self.look.selection_color.or(look.selection_color);
+        look.handle_color = self.look.handle_color.or(look.handle_color);
+        Some(
+            self.inner
+                .theme_override(&mine)
+                .unwrap_or_else(|| Box::new(mine)),
+        )
+    }
+
+    /// The bar the application asked for; `None` when it asked for nothing, so that the
+    /// texts offer theirs.
+    fn area_toolbar(&self, context: ToolbarContext) -> Option<Option<&dyn Widget<Msg>>> {
+        let build = self.toolbar_build.as_ref()?;
+        let bar = self.toolbars[usize::from(context.variant())].get_or_init(|| build(&context));
+        Some(bar.as_deref())
+    }
+
+    /// Forwarded: an area is not an identity, a place, a surface nor a form.
+    fn key(&self) -> Option<u64> {
+        self.inner.key()
+    }
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        self.inner.positioned()
+    }
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        self.inner.media_override(inherited)
+    }
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        self.inner.scaffold_override()
+    }
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
+    }
+});
 
 #[cfg(test)]
 mod tests {
@@ -453,6 +578,93 @@ mod tests {
                 "the cached subtree was painted again"
             );
             let _: Rect = selected.text_stops()[0].rect;
+        }
+
+        /// **An area's colours paint its selection** (milestone 578): the highlight in the area's
+        /// selection colour and the two handles in its handle colour — and with neither set, the
+        /// theme's `selection` and `primary`, as before.
+        #[test]
+        fn an_areas_colours_paint_its_selection() {
+            let (red, blue) = (
+                frus_core::Color::rgb(1.0, 0.0, 0.0),
+                frus_core::Color::rgb(0.0, 0.0, 1.0),
+            );
+            let words = || Flex::column().child(Text::new("colour").no_wrap());
+            let theme = Theme::default();
+            let size = Size::new(200.0, 100.0);
+            let count = |ui: &crate::Ui<()>| {
+                let (mut rects, mut paths) = (Vec::new(), Vec::new());
+                for p in ui.scene().primitives() {
+                    match p {
+                        crate::Primitive::Rect { color, .. } => rects.push(*color),
+                        crate::Primitive::Path {
+                            fill: Some(color), ..
+                        } => paths.push(*color),
+                        _ => {}
+                    }
+                }
+                (rects, paths)
+            };
+            let selected = |tree: &dyn Widget<()>| {
+                let mut rt = Runtime::default();
+                let bare = build_ui::<()>(tree, size, &rt, &theme);
+                let stop = bare.text_stops()[0];
+                let (from, to) = (
+                    RegionPoint {
+                        text: stop.id,
+                        index: 1,
+                    },
+                    RegionPoint {
+                        text: stop.id,
+                        index: 4,
+                    },
+                );
+                rt.region =
+                    Some(RegionSelection::new(stop.area, from, to, &[(stop.id, 6)]).with_bar(true));
+                count(&build_ui::<()>(tree, size, &rt, &theme))
+            };
+
+            let tailored = SelectionArea::around(words())
+                .selection_color(red)
+                .handle_color(blue);
+            let (rects, paths) = selected(&tailored);
+            assert!(rects.contains(&red), "the highlight: {rects:?}");
+            assert!(!rects.contains(&theme.selection));
+            assert_eq!(paths.iter().filter(|c| **c == blue).count(), 2, "{paths:?}");
+
+            let plain = SelectionArea::around(words());
+            let (rects, paths) = selected(&plain);
+            assert!(rects.contains(&theme.selection));
+            let primary = theme.scheme.primary;
+            assert_eq!(paths.iter().filter(|c| **c == primary).count(), 2);
+        }
+
+        /// **What the application says about the bar is the area's answer**, through any wrapper
+        /// around it — nothing said, it says nothing and the texts offer theirs.
+        #[test]
+        fn the_area_answers_for_its_bar() {
+            let context = crate::ToolbarContext {
+                has_selection: true,
+                can_paste: false,
+                all_selected: false,
+            };
+            let plain = SelectionArea::<()>::around(Text::new("x"));
+            assert!(plain.area_toolbar(context).is_none());
+            let copy_only =
+                SelectionArea::<()>::around(Text::new("x")).selection_toolbar(|_, mut items| {
+                    items.truncate(1);
+                    items
+                });
+            assert!(matches!(copy_only.area_toolbar(context), Some(Some(_))));
+            let wrapped = crate::Keyed::new(7u64, copy_only);
+            assert!(matches!(wrapped.area_toolbar(context), Some(Some(_))));
+            let none =
+                SelectionArea::<()>::around(Text::new("x")).selection_toolbar(|_, _| Vec::new());
+            assert!(matches!(none.area_toolbar(context), Some(None)));
+            // And it is still an area: its texts take part.
+            let theme = Theme::default();
+            let scoped = Widget::<()>::theme_override(&none, &theme).expect("a theme");
+            assert!(scoped.widgets.text.selectable);
         }
     }
 }

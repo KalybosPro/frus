@@ -84,6 +84,13 @@ crate::transparent::forward_transparent!(Keyed {
     fn autofill_group(&self) -> bool {
         self.inner.autofill_group()
     }
+    /// Forwarded: the area's bar is the area's, whatever wraps it.
+    fn area_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+    ) -> Option<Option<&dyn crate::widget::Widget<Msg>>> {
+        self.inner.area_toolbar(context)
+    }
 });
 
 #[cfg(test)]

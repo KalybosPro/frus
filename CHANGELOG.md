@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 577 so far, each documenting the objective, the alternatives
+> record — one per step, 578 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **An application's say over a selection area** (J578). `SelectionArea` is now a widget of its
+  own, with `selection_toolbar` (the list on its bar, as a field has), `selection_color` and
+  `handle_color`. A new `TextSelectionTheme` (`theme.widgets.text_selection`) sets the highlight and
+  the handles of every selection in text that is not a field — a selectable `Text`'s and an area's.
+  **Breaking:** `SelectionArea::around` returns a `SelectionArea` rather than a `Themed`; a new hook,
+  `Widget::area_toolbar`, is forwarded by every transparent wrapper.
 
 - **Handles to widen a touch selection across texts** (J577). A selection a finger made in a
   `SelectionArea` carries two handles, at its start and its end, in whichever texts those are; a
