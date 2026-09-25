@@ -182,6 +182,9 @@ pub struct Status {
     /// selection covers, in characters. Kept by the shell, for any text in the area whether or
     /// not it has the focus — which is the difference from `selection`, a field's own.
     pub region: Option<(usize, usize)>,
+    /// Does the selection a selection area holds show its **bar**? Set for every text the
+    /// selection covers; the first of them in reading order carries the bar.
+    pub region_bar: bool,
     /// Is the caret in the hidden half of its blink? Set by the shell, and only for the
     /// focused field; a field paints no caret while it is.
     pub caret_hidden: bool,
@@ -270,6 +273,7 @@ impl Default for Status {
             toolbar: None,
             handles: false,
             region: None,
+            region_bar: false,
             caret_hidden: false,
             drag_over: false,
             hover_progress: 0.0,
@@ -320,6 +324,7 @@ impl InputState {
             toolbar: None,
             handles: false,
             region: None,
+            region_bar: false,
             caret_hidden: false,
             drag_over: false,
             hover_progress: 0.0,

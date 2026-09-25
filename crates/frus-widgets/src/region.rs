@@ -41,6 +41,11 @@ pub struct RegionSelection {
     pub extent: RegionPoint,
     /// The `(start, end)` character range selected in each text that has one.
     pub ranges: HashMap<WidgetId, (usize, usize)>,
+    /// Whether every text of the area is selected whole — Select all would do nothing.
+    pub all: bool,
+    /// Whether the **bar** (Copy, Select all) shows over the selection: one made with a finger
+    /// does, one made with a mouse does not.
+    pub bar: bool,
 }
 
 impl RegionSelection {
@@ -52,12 +57,26 @@ impl RegionSelection {
         extent: RegionPoint,
         stops: &[(WidgetId, usize)],
     ) -> Self {
+        let ranges = region_ranges(stops, anchor, extent);
+        let all = !stops.is_empty()
+            && stops
+                .iter()
+                .all(|(id, len)| *len == 0 || ranges.get(id) == Some(&(0, *len)));
         Self {
             area,
             anchor,
             extent,
-            ranges: region_ranges(stops, anchor, extent),
+            ranges,
+            all,
+            bar: false,
         }
+    }
+
+    /// This selection with its bar showing, or not.
+    #[must_use]
+    pub fn with_bar(mut self, bar: bool) -> Self {
+        self.bar = bar;
+        self
     }
 
     /// Whether anything is selected: an end that has not moved from the other is a caret,
@@ -236,6 +255,22 @@ mod tests {
         assert_eq!(region_copy(&texts, &ranges), "éllo\nsecond line\nta");
         let none = region_ranges(&stops_for(&texts), at(2, 3), at(2, 3));
         assert_eq!(region_copy(&texts, &none), "");
+    }
+
+    /// **Everything selected is `all`**, and anything less is not — which is what takes Select
+    /// all off the bar.
+    #[test]
+    fn a_selection_knows_when_it_holds_everything() {
+        let every = RegionSelection::new(id(9), at(1, 0), at(3, 4), &stops());
+        assert!(every.all);
+        let less = RegionSelection::new(id(9), at(1, 1), at(3, 4), &stops());
+        assert!(!less.all);
+        assert!(!RegionSelection::new(id(9), at(1, 0), at(3, 4), &stops()).bar);
+        assert!(
+            RegionSelection::new(id(9), at(1, 0), at(3, 4), &stops())
+                .with_bar(true)
+                .bar
+        );
     }
 
     fn stops_for(texts: &[(WidgetId, &str)]) -> Vec<(WidgetId, usize)> {

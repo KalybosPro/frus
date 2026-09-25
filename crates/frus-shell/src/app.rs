@@ -887,6 +887,9 @@ pub struct App<A: Application> {
     /// A **text field** pressed with a finger: a hold there selects the word under it
     /// (milestone 511), where on anything else it is the widget's long press.
     pending_word: Option<WidgetId>,
+    /// A finger came down on words in a selection area: a hold there selects the word under it
+    /// and opens the bar (milestone 576).
+    pending_region_hold: bool,
     /// The focused field's caret blink (milestone 513).
     caret: crate::caret::CaretBlink,
     /// The form last shown to the platform's autofill service, as it was shown
@@ -1057,6 +1060,7 @@ impl<A: Application> App<A> {
             press: PressRecognizer::new(),
             long_press_msg: None,
             pending_word: None,
+            pending_region_hold: false,
             caret: crate::caret::CaretBlink::new(),
             #[cfg(android)]
             autofill_reported: Vec::new(),
@@ -3221,7 +3225,8 @@ impl<A: Application> App<A> {
                 let interested = self.long_press_msg.is_some()
                     || self.pending_lift.is_some()
                     || self.pending_reorder.is_some()
-                    || self.pending_word.is_some();
+                    || self.pending_word.is_some()
+                    || self.pending_region_hold;
                 self.press.down(self.cursor, Instant::now(), interested);
             }
             PointerKind::Move => {
@@ -3240,6 +3245,7 @@ impl<A: Application> App<A> {
                 self.pending_lift = None;
                 self.pending_reorder = None;
                 self.pending_word = None;
+                self.pending_region_hold = false;
                 // A row lifted by the hold owes its drop for the same reason a lifted
                 // item does: the release is what says where it goes.
                 if swallow
@@ -3261,6 +3267,7 @@ impl<A: Application> App<A> {
                 self.pending_lift = None;
                 self.pending_reorder = None;
                 self.pending_word = None;
+                self.pending_region_hold = false;
                 // A cancelled gesture still owes the offset back, or the region
                 // would stay frozen under a finger that is no longer there.
                 if let Some(Drag::Dismiss { item, .. }) = self.drag {
@@ -3335,6 +3342,12 @@ impl<A: Application> App<A> {
         // A hold in a text field selects the word under the finger (milestone 511),
         // and is that — not also the long press of whatever the field sits in.
         let word = self.pending_word.take();
+        // A hold on words in a selection area selects the word, unless something held asked
+        // for the hold first: a lift, a field, a widget's own long press.
+        let region = std::mem::take(&mut self.pending_region_hold)
+            && !lifting
+            && word.is_none()
+            && self.long_press_msg.is_none();
         if let Some(message) = self.long_press_msg.take() {
             if !lifting && word.is_none() {
                 self.dispatch(message);
@@ -3342,6 +3355,12 @@ impl<A: Application> App<A> {
         }
         if let Some(id) = word {
             self.select_held_word(id);
+        }
+        if region && self.select_region_word_held() {
+            // The page under the finger stops being scrolled by it: the hold was a selection.
+            if let Some(Drag::Scroll { id, .. }) = self.drag {
+                self.runtime.release_scroll(id);
+            }
         }
         let lift = self.pending_lift.take();
         let reorder = self.pending_reorder.take();
@@ -3458,6 +3477,7 @@ impl<A: Application> App<A> {
     fn pointer_down(&mut self, touch: bool) {
         self.pointer_touch = touch;
         self.pending_word = None;
+        self.pending_region_hold = false;
         // A selection handle first. It hangs below its line, over whatever is drawn
         // there, so nothing else may claim the press before it; and any other press puts
         // the handles away (milestone 511).
@@ -3653,9 +3673,13 @@ impl<A: Application> App<A> {
 
         // 2b) Words in a selection area, with nothing else having a claim on the press: a
         // selection begins, and may be dragged across the texts of the area. A finger is
-        // left to scroll — selecting by touch is a long press, which is not here yet.
-        if !touch && self.drag.is_none() && focus.is_none() {
-            self.begin_region_selection();
+        // left to scroll, and a finger that stays put selects the word instead (milestone 576).
+        if self.drag.is_none() && focus.is_none() {
+            if touch {
+                self.pending_region_hold = self.region_press_target().is_some();
+            } else {
+                self.begin_region_selection();
+            }
         }
 
         // 3) Touch: when nothing captured the gesture — no scrollbar, no widget, no
@@ -5603,6 +5627,17 @@ impl<A: Application> App<A> {
         if self.close_selection_toolbar() {
             return;
         }
+        // Then a selection an area holds with its bar, as for a field's.
+        if self
+            .runtime
+            .region
+            .as_ref()
+            .is_some_and(|selection| selection.bar)
+        {
+            self.runtime.region = None;
+            self.request_redraw();
+            return;
+        }
         if let Some(message) = self.ui.as_ref().and_then(|ui| ui.top_dismiss()) {
             self.dispatch(message);
             self.request_redraw();
@@ -6008,19 +6043,7 @@ impl<A: Application> App<A> {
     /// it: the selection begins there, empty, and follows the pointer until it lifts. A double
     /// click selects the word.
     fn begin_region_selection(&mut self) {
-        let Some(ui) = self.ui.as_ref() else {
-            return;
-        };
-        // Something that answers a press — a button, a link — keeps it.
-        let claimed = self
-            .runtime
-            .input
-            .pressed
-            .is_some_and(|pressed| ui.msg_for(pressed).is_some());
-        if claimed {
-            return;
-        }
-        let Some(stop) = ui.text_stop_at(self.cursor) else {
+        let Some(stop) = self.region_press_target() else {
             return;
         };
         let Some(index) = self.region_index(&stop, self.cursor) else {
@@ -6065,6 +6088,56 @@ impl<A: Application> App<A> {
             .is_none()
             .then_some(Drag::RegionSelect { area: stop.area });
         self.request_redraw();
+    }
+
+    /// The text of a selection area under the pointer, if a press there is the area's to take:
+    /// something that answers a press — a button, a tappable row, a link — keeps it.
+    fn region_press_target(&self) -> Option<TextStop> {
+        let ui = self.ui.as_ref()?;
+        let claimed = self
+            .runtime
+            .input
+            .pressed
+            .is_some_and(|pressed| ui.msg_for(pressed).is_some());
+        if claimed {
+            return None;
+        }
+        ui.text_stop_at(self.cursor)
+    }
+
+    /// A finger held on words in a selection area: the word under it is selected and the bar
+    /// opens over it. Whether there was a word.
+    fn select_region_word_held(&mut self) -> bool {
+        let Some(stop) = self.ui.as_ref().and_then(|ui| ui.text_stop_at(self.cursor)) else {
+            return false;
+        };
+        let Some(index) = self.region_index(&stop, self.cursor) else {
+            return false;
+        };
+        let word = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), stop.id))
+            .and_then(|widget| widget.selection_text())
+            .map(|text| frus_widgets::word_bounds(text, index))
+            .filter(|(start, end)| start < end);
+        let Some((start, end)) = word else {
+            return false;
+        };
+        let anchor = RegionPoint {
+            text: stop.id,
+            index: start,
+        };
+        let extent = RegionPoint {
+            text: stop.id,
+            index: end,
+        };
+        self.runtime.region = Some(
+            self.region_selection(stop.area, anchor, extent)
+                .with_bar(true),
+        );
+        self.request_redraw();
+        true
     }
 
     /// The pointer has moved during a drag in `area`: the far end of the selection goes to the
@@ -6138,7 +6211,12 @@ impl<A: Application> App<A> {
             text: last.0,
             index: last.1,
         };
-        self.runtime.region = Some(self.region_selection(area, anchor, extent));
+        let bar = self
+            .runtime
+            .region
+            .as_ref()
+            .is_some_and(|selection| selection.bar);
+        self.runtime.region = Some(self.region_selection(area, anchor, extent).with_bar(bar));
         self.request_redraw();
     }
 
@@ -6221,6 +6299,25 @@ impl<A: Application> App<A> {
     /// both open, on the selection it has just made larger.
     fn perform_edit_action(&mut self, action: frus_widgets::EditAction) {
         use frus_widgets::EditAction;
+        // The bar of a selection area's selection, which acts on the area and not on a field.
+        if self
+            .runtime
+            .region
+            .as_ref()
+            .is_some_and(|selection| selection.bar)
+        {
+            match action {
+                EditAction::Copy => {
+                    // As a platform's own selection does after a copy: it is put away.
+                    self.copy_region();
+                    self.runtime.region = None;
+                }
+                EditAction::SelectAll => self.select_all_region(),
+                EditAction::Cut | EditAction::Paste => {}
+            }
+            self.request_redraw();
+            return;
+        }
         let Some(id) = self.runtime.selection_toolbar.map(|mark| mark.id) else {
             return;
         };
@@ -8401,6 +8498,11 @@ pub mod testing {
             self.shell.select_all_region();
         }
 
+        /// Escape, as the keyboard delivers it.
+        pub fn escape(&mut self) {
+            self.shell.escape();
+        }
+
         fn pointer(&mut self, kind: PointerKind, at: Point) {
             self.pointer_of(kind, at, true);
         }
@@ -9572,6 +9674,111 @@ mod selection_area_tests {
         d.release(to);
         d.run(0.05);
         assert_eq!(d.area_selection(), None);
+    }
+
+    /// A finger held still on `at` until the long press fires, then lifted.
+    fn hold(d: &mut Driver<Doc>, at: Point) -> bool {
+        d.press(at);
+        d.run(0.1);
+        let fired = d.hold_deadline();
+        d.run(0.05);
+        d.release(at);
+        d.run(0.05);
+        fired
+    }
+
+    /// Where the bar's button reading `label` is, if the bar shows one.
+    fn bar_button(d: &Driver<Doc>, label: &str) -> Option<Point> {
+        let (ui, _) = d.frame_parts()?;
+        d.texts()
+            .into_iter()
+            .filter(|(text, _)| text == label)
+            .map(|(_, rect)| Point::new(rect.x + 4.0, rect.y + 6.0))
+            .find(|at| ui.toolbar_contains(*at))
+    }
+
+    /// **A finger held on words selects the word under it and opens the bar** — Copy and
+    /// Select all — over it (milestone 576). A phone has no mouse to drag with.
+    #[test]
+    fn a_hold_selects_the_word_and_opens_the_bar() {
+        let mut d = driver();
+        let at = on(&d, "second line", 12.0);
+        assert!(hold(&mut d, at), "the hold fired");
+        assert_eq!(d.area_selection().as_deref(), Some("second"));
+        assert!(bar_button(&d, "Copy").is_some(), "Copy is on the bar");
+        assert!(bar_button(&d, "Select all").is_some(), "and Select all");
+    }
+
+    /// **The bar's Select all takes the whole area and keeps the bar**, which no longer offers
+    /// Select all; its Copy puts the selection away, as a platform's own does.
+    #[test]
+    fn the_bars_buttons_act_on_the_area() {
+        let mut d = driver();
+        let at = on(&d, "second line", 12.0);
+        hold(&mut d, at);
+        let select_all = bar_button(&d, "Select all").expect("Select all");
+        d.press(select_all);
+        d.release(select_all);
+        d.run(0.05);
+        assert_eq!(
+            d.area_selection().as_deref(),
+            Some("first line of words\nsecond line\nthird line ends here")
+        );
+        assert!(
+            bar_button(&d, "Select all").is_none(),
+            "nothing left to select"
+        );
+        let copy = bar_button(&d, "Copy").expect("Copy stays");
+        d.press(copy);
+        d.release(copy);
+        d.run(0.05);
+        assert_eq!(d.area_selection(), None, "copied, and put away");
+        assert!(bar_button(&d, "Copy").is_none(), "the bar with it");
+    }
+
+    /// **A hold on a button is the button's**, and a finger that moves is a scroll, not a hold.
+    #[test]
+    fn a_hold_on_a_button_selects_nothing() {
+        let mut d = driver();
+        let button = on(&d, "Press", 10.0);
+        hold(&mut d, button);
+        assert_eq!(d.area_selection(), None);
+    }
+
+    /// **Escape, and a tap elsewhere, put the selection and its bar away.**
+    #[test]
+    fn escape_and_a_tap_put_the_bar_away() {
+        let mut d = driver();
+        let at = on(&d, "second line", 12.0);
+        hold(&mut d, at);
+        assert!(d.area_selection().is_some());
+        d.escape();
+        d.run(0.05);
+        assert_eq!(d.area_selection(), None);
+        assert!(bar_button(&d, "Copy").is_none());
+
+        hold(&mut d, at);
+        assert!(d.area_selection().is_some());
+        let elsewhere = on(&d, "Outside the area", 20.0);
+        d.press(elsewhere);
+        d.release(elsewhere);
+        d.run(0.05);
+        assert_eq!(d.area_selection(), None);
+        assert!(bar_button(&d, "Copy").is_none());
+    }
+
+    /// **A selection made with a mouse has no bar**: the bar is for a finger, which has no
+    /// Ctrl+C.
+    #[test]
+    fn a_mouse_selection_has_no_bar() {
+        let mut d = driver();
+        let (from, to) = (
+            on(&d, "first line of words", 60.0),
+            on(&d, "third line ends here", 40.0),
+        );
+        drag(&mut d, from, to);
+        assert!(d.area_selection().is_some());
+        assert!(bar_button(&d, "Copy").is_none());
     }
 
     /// **The selection is painted**: a highlight over each text it covers, in the theme's

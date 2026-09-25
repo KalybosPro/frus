@@ -66,7 +66,14 @@ pub struct Text {
     /// any layout has: the best guess there is, and the right one for a text that sets its
     /// own size.
     scale: f32,
+    /// The bars this text shows when a [`SelectionArea`](crate::SelectionArea)'s selection is
+    /// placed against it, one per context, built the first time each is asked for. A pointer
+    /// until then: a text is built by the thousand and very few ever carry a bar.
+    area_bars: OnceCell<Box<AreaBars>>,
 }
+
+/// One bar per [`ToolbarContext`], each an `Option<Box<dyn Widget<Msg>>>` behind `dyn Any`.
+type AreaBars = [OnceCell<Box<dyn Any>>; ToolbarContext::VARIANTS as usize];
 
 /// The state of a text that can be selected and copied.
 struct Selection {
@@ -225,6 +232,7 @@ impl Text {
             selection: None,
             shaping: Cell::new(None),
             scale: frus_core::text_scale(),
+            area_bars: OnceCell::new(),
         }
     }
 
@@ -909,6 +917,41 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
     /// The words, for a selection that spans texts: any text with something to select.
     fn selection_text(&self) -> Option<&str> {
         (!self.content.is_empty()).then_some(self.content.as_str())
+    }
+
+    /// Copy, and Select all unless everything is selected — against the box of the part of the
+    /// selection that lies in this text.
+    fn region_toolbar(
+        &self,
+        context: ToolbarContext,
+        width: f32,
+        range: (usize, usize),
+    ) -> Option<(Rect, &dyn Widget<Msg>)> {
+        let layout = self.text_layout(width);
+        let len = self.content.chars().count();
+        let edit = Edit {
+            cursor: range.1,
+            anchor: Some(range.0),
+            composing: None,
+        };
+        let anchor = selection_box_in(&layout, Point::new(0.0, 0.0), len, &edit);
+        let bars = self.area_bars.get_or_init(Box::default);
+        let bar = bars[usize::from(context.variant())]
+            .get_or_init(|| {
+                let mut items: Vec<ToolbarItem<Msg>> = Vec::new();
+                if context.has_selection {
+                    items.push(ToolbarItem::copy());
+                }
+                if !context.all_selected {
+                    items.push(ToolbarItem::select_all());
+                }
+                let bar: Option<Box<dyn Widget<Msg>>> = (!items.is_empty())
+                    .then(|| Box::new(SelectionToolbar::new(items)) as Box<dyn Widget<Msg>>);
+                Box::new(bar) as Box<dyn Any>
+            })
+            .downcast_ref::<Option<Box<dyn Widget<Msg>>>>()?
+            .as_deref()?;
+        Some((anchor, bar))
     }
 
     fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
