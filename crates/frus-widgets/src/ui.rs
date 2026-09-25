@@ -546,6 +546,7 @@ fn hash_status<H: Hasher>(s: &Status, h: &mut H) {
     // and the bar floats from it.
     s.region.hash(h);
     s.region_bar.hash(h);
+    s.region_grips.hash(h);
     quant(s.hover_progress).hash(h);
     quant(s.focus_progress).hash(h);
     quant(s.press_progress).hash(h);
@@ -4698,6 +4699,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 .region
                 .as_ref()
                 .is_some_and(|selection| selection.bar);
+        if let Some(selection) = self.runtime.region.as_ref().filter(|s| s.handles) {
+            let here =
+                |point: Option<crate::RegionPoint>| point.filter(|p| p.text == id).map(|p| p.index);
+            status.region_grips = (here(selection.start), here(selection.end));
+        }
         if status.focused {
             if let Some(edit) = self.runtime.edits.get(&id) {
                 status.cursor = Some(edit.cursor);

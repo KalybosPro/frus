@@ -44,8 +44,16 @@ pub struct RegionSelection {
     /// Whether every text of the area is selected whole — Select all would do nothing.
     pub all: bool,
     /// Whether the **bar** (Copy, Select all) shows over the selection: one made with a finger
-    /// does, one made with a mouse does not.
+    /// does, one made with a mouse does not. Put away while a handle is dragged.
     pub bar: bool,
+    /// Whether the selection carries **handles** at its two ends, for a finger to widen or
+    /// narrow it: one made with a finger does.
+    pub handles: bool,
+    /// Where the selection begins, in reading order — whichever of `anchor` and `extent` comes
+    /// first — as the first character selected. `None` when nothing is.
+    pub start: Option<RegionPoint>,
+    /// Where it ends, in reading order, as the boundary after the last character selected.
+    pub end: Option<RegionPoint>,
 }
 
 impl RegionSelection {
@@ -62,6 +70,20 @@ impl RegionSelection {
             && stops
                 .iter()
                 .all(|(id, len)| *len == 0 || ranges.get(id) == Some(&(0, *len)));
+        let covered = stops
+            .iter()
+            .filter_map(|(id, _)| ranges.get(id).map(|range| (*id, *range)));
+        let (mut start, mut end) = (None, None);
+        for (id, (low, high)) in covered {
+            start.get_or_insert(RegionPoint {
+                text: id,
+                index: low,
+            });
+            end = Some(RegionPoint {
+                text: id,
+                index: high,
+            });
+        }
         Self {
             area,
             anchor,
@@ -69,13 +91,18 @@ impl RegionSelection {
             ranges,
             all,
             bar: false,
+            handles: false,
+            start,
+            end,
         }
     }
 
-    /// This selection with its bar showing, or not.
+    /// This selection as one made with a finger, with its bar and its handles — or as one made
+    /// with a mouse, with neither.
     #[must_use]
     pub fn with_bar(mut self, bar: bool) -> Self {
         self.bar = bar;
+        self.handles = bar;
         self
     }
 
@@ -271,6 +298,22 @@ mod tests {
                 .with_bar(true)
                 .bar
         );
+    }
+
+    /// **The two ends are in reading order**, whichever way the selection was made: the start
+    /// is the first character selected, the end the boundary after the last.
+    #[test]
+    fn the_ends_are_in_reading_order() {
+        for (a, b) in [(at(1, 2), at(3, 3)), (at(3, 3), at(1, 2))] {
+            let selection = RegionSelection::new(id(9), a, b, &stops());
+            assert_eq!(selection.start, Some(at(1, 2)));
+            assert_eq!(selection.end, Some(at(3, 3)));
+        }
+        // An end at the very end of a text leaves it out; the next one starts the selection.
+        let skipped = RegionSelection::new(id(9), at(1, 5), at(3, 2), &stops());
+        assert_eq!(skipped.start, Some(at(2, 0)));
+        let nothing = RegionSelection::new(id(9), at(2, 4), at(2, 4), &stops());
+        assert_eq!((nothing.start, nothing.end), (None, None));
     }
 
     fn stops_for(texts: &[(WidgetId, &str)]) -> Vec<(WidgetId, usize)> {

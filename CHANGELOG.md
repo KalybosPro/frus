@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 576 so far, each documenting the objective, the alternatives
+> record — one per step, 577 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Handles to widen a touch selection across texts** (J577). A selection a finger made in a
+  `SelectionArea` carries two handles, at its start and its end, in whichever texts those are; a
+  handle dragged carries its end to the text position under it — into another text of the area if
+  that is where the finger goes — and the two never cross. The bar steps aside while a handle
+  moves. Same geometry, touch target and rules as a field's handles (`Widget::selection_grip`,
+  `RegionSelection::start`/`end`, `Status::region_grips`).
 
 - **A finger selects in a selection area** (J576). A finger held on words in a `SelectionArea`
   selects the word under it and opens the bar over it — Copy and Select all. Select all takes the

@@ -14,7 +14,8 @@ use crate::interaction::{Key, Status};
 use crate::runtime::Edit;
 use crate::selectiontoolbar::{SelectionToolbar, ToolbarContext, ToolbarItem};
 use crate::textinput::{
-    handles_in, move_caret, paint_handles, selection_box_in, word_range, ToolbarBuild,
+    handle_at, handles_in, move_caret, paint_handle, paint_handles, selection_box_in, word_range,
+    ToolbarBuild,
 };
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -602,6 +603,20 @@ impl Text {
     /// The two handles of a touch selection, hanging below their ends of it. Drawn last,
     /// over the words, and outside the text's own clip: they hang past its last line.
     fn paint_grips(&self, bounds: Rect, status: &Status, theme: &Theme, scene: &mut Scene) {
+        // The handles of a selection area's touch selection that hang from this text.
+        let (start, end) = status.region_grips;
+        if start.is_some() || end.is_some() {
+            let layout = self.text_layout(bounds.width);
+            let color = theme.scheme.primary.fade(status.opacity);
+            let offset = Point::new(bounds.x, bounds.y);
+            let origin = Point::new(0.0, 0.0);
+            for (index, is_start) in [(start, true), (end, false)] {
+                if let Some(index) = index {
+                    let handle = handle_at(&layout, origin, index, is_start);
+                    paint_handle(scene, handle, offset, color, is_start);
+                }
+            }
+        }
         if !(status.focused && status.handles) {
             return;
         }
@@ -952,6 +967,21 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
             .downcast_ref::<Option<Box<dyn Widget<Msg>>>>()?
             .as_deref()?;
         Some((anchor, bar))
+    }
+
+    fn selection_grip(
+        &self,
+        width: f32,
+        index: usize,
+        start: bool,
+    ) -> Option<crate::SelectionHandle> {
+        let len = self.content.chars().count();
+        Some(handle_at(
+            &self.text_layout(width),
+            Point::new(0.0, 0.0),
+            index.min(len),
+            start,
+        ))
     }
 
     fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {

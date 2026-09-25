@@ -185,6 +185,10 @@ pub struct Status {
     /// Does the selection a selection area holds show its **bar**? Set for every text the
     /// selection covers; the first of them in reading order carries the bar.
     pub region_bar: bool,
+    /// The **handles** of a selection area's touch selection that hang from this text: the
+    /// character where the selection starts, if it starts here, and the boundary where it
+    /// ends, if it ends here.
+    pub region_grips: (Option<usize>, Option<usize>),
     /// Is the caret in the hidden half of its blink? Set by the shell, and only for the
     /// focused field; a field paints no caret while it is.
     pub caret_hidden: bool,
@@ -274,6 +278,7 @@ impl Default for Status {
             handles: false,
             region: None,
             region_bar: false,
+            region_grips: (None, None),
             caret_hidden: false,
             drag_over: false,
             hover_progress: 0.0,
@@ -325,6 +330,7 @@ impl InputState {
             handles: false,
             region: None,
             region_bar: false,
+            region_grips: (None, None),
             caret_hidden: false,
             drag_over: false,
             hover_progress: 0.0,

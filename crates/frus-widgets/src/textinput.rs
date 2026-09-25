@@ -307,24 +307,49 @@ pub(crate) fn handles_in(
     if start >= end {
         return None;
     }
-    let at = |index: usize, start: bool| {
-        let caret = layout.caret_rect(index);
-        let x = origin.x + caret.x;
-        let top = origin.y + caret.y;
-        crate::SelectionHandle {
-            // The start handle hangs to the left of its position and the end one to
-            // the right (`text_selection.dart:115`), so that both point in at the
-            // text between them.
-            rect: Rect::new(
-                if start { x - HANDLE_SIZE } else { x },
-                top + caret.height,
-                HANDLE_SIZE,
-                HANDLE_SIZE,
-            ),
-            line_center: Point::new(x, top + caret.height * 0.5),
-        }
-    };
-    Some([at(start, true), at(end, false)])
+    Some([
+        handle_at(layout, origin, start, true),
+        handle_at(layout, origin, end, false),
+    ])
+}
+
+/// One selection handle, hanging from character boundary `index` of a text laid out as
+/// `layout` and drawn at `origin`.
+pub(crate) fn handle_at(
+    layout: &TextLayout,
+    origin: Point,
+    index: usize,
+    start: bool,
+) -> crate::SelectionHandle {
+    let caret = layout.caret_rect(index);
+    let x = origin.x + caret.x;
+    let top = origin.y + caret.y;
+    crate::SelectionHandle {
+        // The start handle hangs to the left of its position and the end one to the right
+        // (`text_selection.dart:115`), so that both point in at the text between them.
+        rect: Rect::new(
+            if start { x - HANDLE_SIZE } else { x },
+            top + caret.height,
+            HANDLE_SIZE,
+            HANDLE_SIZE,
+        ),
+        line_center: Point::new(x, top + caret.height * 0.5),
+    }
+}
+
+/// Paints one selection handle, the start one when `start`, `offset` being where the widget's
+/// local origin is on the surface.
+pub(crate) fn paint_handle(
+    scene: &mut Scene,
+    handle: crate::SelectionHandle,
+    offset: Point,
+    color: Color,
+    start: bool,
+) {
+    scene.fill_path(
+        &handle_path(handle.rect.translate(offset.x, offset.y), start),
+        color,
+    );
 }
 
 /// The box a bar over the selection is placed against: the selection's, line by line joined
