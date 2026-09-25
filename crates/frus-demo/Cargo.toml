@@ -51,6 +51,8 @@ web-sys = { version = "0.3", features = ["Window", "Storage"] }
 [dev-dependencies]
 # The shell's windowless driver: a gesture seen on a phone, replayed through the shell.
 frus-shell = { path = "../frus-shell", features = ["testing"] }
+# Measuring a word a frame painted, to say where its middle is.
+frus-text = { path = "../frus-text" }
 
 # --- Android packaging (cargo-apk) ---
 [package.metadata.android]

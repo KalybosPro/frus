@@ -316,6 +316,55 @@ fn a_long_task_title_wraps_without_overlapping_what_follows() {
     );
 }
 
+/// **The task screen's words are centred on the screen**, under the avatar above them. The
+/// column holding the title and the state label centres its children, but it took the width of its
+/// widest child and sat at the start of its box, so on a phone both words were centred on a point
+/// a quarter of the way across.
+#[test]
+fn the_task_screens_words_are_centred_under_its_avatar() {
+    let mut bench = Bench::new(PHONE.0, PHONE.1);
+    bench.demo.add("Write code");
+    let id = bench.demo.todos()[0].id;
+    bench.go(&format!("/task/{id}"));
+    // Frames, so that the arrival animation has come to rest.
+    for _ in 0..30 {
+        let _ = bench.frame();
+    }
+    let (_, ui) = bench.frame();
+    fn middle_of(primitives: &[Primitive], label: &str) -> Option<f32> {
+        primitives.iter().find_map(|p| match p {
+            Primitive::Text {
+                text,
+                position,
+                size,
+                weight,
+                italic,
+                ..
+            } if text == label => {
+                // A text primitive is a point; the word's own width says where its middle is.
+                Some(
+                    position.x
+                        + frus_text::measure_styled(text, *size, *weight, *italic).width / 2.0,
+                )
+            }
+            Primitive::Layer { primitives, .. } => middle_of(primitives, label),
+            _ => None,
+        })
+    }
+    let primitives = ui.scene().primitives();
+    let title = middle_of(primitives, "Write code").expect("the title");
+    let state = middle_of(primitives, "Still to do").expect("the state label");
+    let middle = PHONE.0 / 2.0;
+    assert!(
+        (title - middle).abs() < 2.0,
+        "the title is centred at {title}, the screen's middle is {middle}"
+    );
+    assert!(
+        (state - middle).abs() < 2.0,
+        "the state label is centred at {state}, the screen's middle is {middle}"
+    );
+}
+
 /// The task's own screen names the task it was asked for, and says so when it is gone.
 #[test]
 fn a_task_screen_shows_its_task_and_survives_its_deletion() {

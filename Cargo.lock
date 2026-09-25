@@ -1332,6 +1332,7 @@ dependencies = [
  "frus-l10n",
  "frus-shell",
  "frus-test",
+ "frus-text",
  "frus-widgets",
  "gif",
  "log",

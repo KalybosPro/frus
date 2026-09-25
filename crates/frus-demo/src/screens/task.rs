@@ -45,6 +45,7 @@ impl StatelessWidget for TaskPage {
         // that has watched for it since).
         let words = Container::new()
             .width_fraction(1.0)
+            .alignment(frus_widgets::Alignment::CENTER)
             .child(SlideTransition::from_edge(
                 SlideFrom::Bottom,
                 arriving,
