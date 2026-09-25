@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 573 so far, each documenting the objective, the alternatives
+> record — one per step, 574 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The task screen's words sit under their avatar** (J574). On the demo's task screen the title and
+  the state label were centred a quarter of the way across the screen, not under the avatar above
+  them: the slide and the fade around them are as wide as their content and the container gave that
+  box the start of its own. The container now centres it. The wrappers not passing a fill-width
+  child's request through is noted and not changed.
 
 - **Text that can be selected and copied** (J573, the first half of #24). `Text::selectable()`
   opts one text in: a press, a drag, a double click or a long press selects words in it, Ctrl+A
