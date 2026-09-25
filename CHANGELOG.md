@@ -8,10 +8,22 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 574 so far, each documenting the objective, the alternatives
+> record — one per step, 575 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **One selection across several texts: `SelectionArea`** (J575, the second half of #24). Wrap a
+  subtree in `SelectionArea::around(child)` and every `Text` in it takes part in one selection: a
+  mouse press on words that nothing else has a claim on begins it, a drag carries its end to the
+  nearest text of the area, a double click selects the word, and Ctrl+C copies one line per text
+  (Ctrl+A selects the area, Escape or any other press puts it away). The selection is the area's, not a
+  widget's: `Runtime::region` holds two ends and what each text has selected, the walk registers the
+  texts of an area (`Ui::text_stops`, captured with a repaint boundary's cache, and the highlight
+  part of its fingerprint), and the theme is what tells a text it is in one. What answers a press —
+  a button, a tappable row, a field, a `selectable` text — keeps it, and a finger still scrolls. The
+  demo's About page is an area. Left: selecting by touch (a long press, handles, the bar), the
+  right-click bar, scrolling while dragging, `RichText`.
 
 - **The task screen's words sit under their avatar** (J574). On the demo's task screen the title and
   the state label were centred a quarter of the way across the screen, not under the avatar above

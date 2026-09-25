@@ -221,6 +221,14 @@ macro_rules! forward_transparent {
                 self.inner.takes_typing()
             }
 
+            fn selection_text(&self) -> Option<&str> {
+                self.inner.selection_text()
+            }
+
+            fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
+                self.inner.selection_hit(local_x, local_y, width)
+            }
+
             fn replace_value(&self, value: String) -> Option<Msg> {
                 self.inner.replace_value(value)
             }

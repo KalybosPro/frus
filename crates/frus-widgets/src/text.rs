@@ -54,6 +54,18 @@ pub struct Text {
     /// the vast majority of texts, which are read and nothing more: the widget that is built
     /// by the thousand does not carry a selection's state around.
     selection: Option<Box<Selection>>,
+    /// The typography this text was **last laid out and painted with**, which is what a hit,
+    /// a highlight and a handle have to be measured against.
+    ///
+    /// A hit test is asked for outside a frame, with no theme and no reader's font setting in
+    /// force — and a text's size may be handed down by a subtree and scaled by that setting,
+    /// neither of which the widget can see from where it is asked. So layout and paint write
+    /// down what they resolved, and the questions read it back.
+    shaping: Cell<Option<Shaping>>,
+    /// The reader's font-size setting when the text was built, for a question asked before
+    /// any layout has: the best guess there is, and the right one for a text that sets its
+    /// own size.
+    scale: f32,
 }
 
 /// The state of a text that can be selected and copied.
@@ -61,19 +73,6 @@ struct Selection {
     /// Whether the text is selectable at all. [`Text::selection_toolbar`] may have made
     /// the state before [`Text::selectable`] is called, in either order.
     on: bool,
-    /// The typography the text was **last laid out and painted with**, which is what a
-    /// selection has to be measured against.
-    ///
-    /// A hit test, a handle and the bar's anchor are asked for outside a frame, with no
-    /// theme and no reader's font setting in force — and a text's size may be handed down by
-    /// a subtree and scaled by that setting, neither of which the widget can see from where
-    /// it is asked. So layout and paint write down what they resolved, and the questions
-    /// read it back.
-    shaping: Cell<Option<Shaping>>,
-    /// The reader's font-size setting when the text was built, for a question asked before
-    /// any layout has: the best guess there is, and the right one for a text that sets its
-    /// own size.
-    scale: f32,
     /// The application's say over the bar shown above a selection: a
     /// [`ToolbarBuild`] of the application's message type, kept as `dyn Any` because a
     /// `Text` is not generic over it.
@@ -224,6 +223,8 @@ impl Text {
             heading: false,
             shrinkable: false,
             selection: None,
+            shaping: Cell::new(None),
+            scale: frus_core::text_scale(),
         }
     }
 
@@ -280,8 +281,6 @@ impl Text {
         self.selection.get_or_insert_with(|| {
             Box::new(Selection {
                 on: false,
-                shaping: Cell::new(None),
-                scale: frus_core::text_scale(),
                 toolbar_build: None,
                 toolbars: Default::default(),
             })
@@ -297,29 +296,29 @@ impl Text {
     /// handle or the bar's anchor is worked out from. `None` for a text that is not
     /// selectable.
     fn selection_layout(&self, width: f32) -> Option<TextLayout> {
-        let selection = self.selecting()?;
-        let shaping = selection.shaping.get().unwrap_or_else(|| {
-            let resolved = frus_core::with_text_scale(selection.scale, || self.resolved(None));
+        self.selecting()?;
+        Some(self.text_layout(width))
+    }
+
+    /// The layout of this text as it was drawn, at `width` — for any text, selectable or
+    /// not: a [`SelectionArea`](crate::SelectionArea) selects in texts that never asked to be.
+    fn text_layout(&self, width: f32) -> TextLayout {
+        let shaping = self.shaping.get().unwrap_or_else(|| {
+            let resolved = frus_core::with_text_scale(self.scale, || self.resolved(None));
             Shaping {
                 style: resolved.style,
                 wrap: resolved.wrap,
             }
         });
-        Some(TextLayout::resolved(
-            &self.content,
-            &shaping.style,
-            shaping.wrap.then_some(width),
-        ))
+        TextLayout::resolved(&self.content, &shaping.style, shaping.wrap.then_some(width))
     }
 
     /// Writes down what this text resolved, for the questions a selection is asked later.
     fn remember(&self, r: &Resolved) {
-        if let Some(selection) = self.selecting() {
-            selection.shaping.set(Some(Shaping {
-                style: r.style,
-                wrap: r.wrap,
-            }));
-        }
+        self.shaping.set(Some(Shaping {
+            style: r.style,
+            wrap: r.wrap,
+        }));
     }
 
     /// Wraps at the width the parent offers. This is the default, and the call is kept
@@ -820,10 +819,15 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
             .unwrap_or(theme.on_surface)
             .fade(status.opacity);
         let fitted = self.fitted(bounds.width, &r);
-        // A selectable text's selection: the highlight below the words (the handles of a
-        // touch selection are drawn after them).
-        if let Some((start, end)) = status.selection.filter(|_| status.focused) {
-            if let Some(layout) = self.selection_layout(bounds.width) {
+        // The selection: the highlight below the words (the handles of a touch selection are
+        // drawn after them). A selection area's covers this text whether or not it is focused;
+        // a selectable text's own only while it is.
+        let own = status
+            .selection
+            .filter(|_| status.focused && self.selecting().is_some());
+        if let Some((start, end)) = status.region.or(own) {
+            {
+                let layout = self.text_layout(bounds.width);
                 let len = self.content.chars().count();
                 for rect in layout.selection_rects(start.min(len), end.min(len)) {
                     scene.fill_rect(
@@ -900,6 +904,21 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
 
     fn takes_typing(&self) -> bool {
         false
+    }
+
+    /// The words, for a selection that spans texts: any text with something to select.
+    fn selection_text(&self) -> Option<&str> {
+        (!self.content.is_empty()).then_some(self.content.as_str())
+    }
+
+    fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
+        if self.content.is_empty() {
+            return None;
+        }
+        Some(
+            self.text_layout(width)
+                .hit_test(Point::new(local_x, local_y)),
+        )
     }
 
     fn cursor_at(

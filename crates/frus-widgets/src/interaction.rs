@@ -178,6 +178,10 @@ pub struct Status {
     /// press on a word — and one made with a mouse or the keyboard does not. Set by the
     /// shell, and only for the focused field.
     pub handles: bool,
+    /// The `(start, end)` range of this text that a [`SelectionArea`](crate::SelectionArea)'s
+    /// selection covers, in characters. Kept by the shell, for any text in the area whether or
+    /// not it has the focus — which is the difference from `selection`, a field's own.
+    pub region: Option<(usize, usize)>,
     /// Is the caret in the hidden half of its blink? Set by the shell, and only for the
     /// focused field; a field paints no caret while it is.
     pub caret_hidden: bool,
@@ -265,6 +269,7 @@ impl Default for Status {
             composing: None,
             toolbar: None,
             handles: false,
+            region: None,
             caret_hidden: false,
             drag_over: false,
             hover_progress: 0.0,
@@ -314,6 +319,7 @@ impl InputState {
             composing: None,
             toolbar: None,
             handles: false,
+            region: None,
             caret_hidden: false,
             drag_over: false,
             hover_progress: 0.0,

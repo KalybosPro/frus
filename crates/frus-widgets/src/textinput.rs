@@ -384,6 +384,13 @@ pub(crate) fn word_range(chars: &[char], index: usize) -> Option<(usize, usize)>
     Some((start, end))
 }
 
+/// The word around character `index` of `text`, as a range of characters — what a double click
+/// in a [`SelectionArea`](crate::SelectionArea) selects.
+pub fn word_bounds(text: &str, index: usize) -> (usize, usize) {
+    let chars: Vec<char> = text.chars().collect();
+    word_range(&chars, index).unwrap_or((0, 0))
+}
+
 /// Moves the caret as the arrow and home/end keys ask — a word at a time under Ctrl, to the
 /// ends of the line or of the text — extending the selection under Shift. Returns whether
 /// `key` was one of those. Shared by an editable field and a selectable paragraph, which move

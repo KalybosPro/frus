@@ -889,6 +889,7 @@ impl<Msg> AnimatedDefaultTextStyle<Msg> {
             soft_wrap: self.soft_wrap,
             overflow: self.overflow,
             max_lines: self.max_lines,
+            ..crate::widgettheme::DefaultTextStyle::NONE
         }
     }
 }

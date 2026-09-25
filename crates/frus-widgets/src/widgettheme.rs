@@ -301,6 +301,11 @@ pub struct DefaultTextStyle {
     pub overflow: Option<TextOverflow>,
     /// At most this many lines.
     pub max_lines: Option<usize>,
+    /// Whether the texts in this subtree **take part in a selection that spans them** — set by
+    /// [`SelectionArea`](crate::SelectionArea) and by nothing else. Unlike the fields above it is
+    /// not a matter of how a text looks, and it never turns off once on: a nested area is still
+    /// inside the outer one.
+    pub selectable: bool,
 }
 
 impl DefaultTextStyle {
@@ -311,6 +316,7 @@ impl DefaultTextStyle {
         soft_wrap: None,
         overflow: None,
         max_lines: None,
+        selectable: false,
     };
 
     /// A handover of type and nothing else.
@@ -334,6 +340,7 @@ impl DefaultTextStyle {
             soft_wrap: over.soft_wrap.or(self.soft_wrap),
             overflow: over.overflow.or(self.overflow),
             max_lines: over.max_lines.or(self.max_lines),
+            selectable: self.selectable || over.selectable,
         }
     }
 
