@@ -575,6 +575,14 @@ enum Drag {
     /// [`SelectionArea`](frus_widgets::SelectionArea): it may leave the text it began in, and
     /// never leaves the area.
     RegionSelect { area: WidgetId },
+    /// A handle of a selection area's touch selection, held (milestone 577): it carries its
+    /// end of the selection to the text under the finger, the other end staying put. `grab` is
+    /// the offset from the finger to the text position the handle stands for.
+    RegionHandle {
+        area: WidgetId,
+        handle: crate::selection::Handle,
+        grab: Point,
+    },
     /// A text selection inside a field, with its bounds, for placement.
     TextSelect {
         id: WidgetId,
@@ -3481,6 +3489,16 @@ impl<A: Application> App<A> {
         // A selection handle first. It hangs below its line, over whatever is drawn
         // there, so nothing else may claim the press before it; and any other press puts
         // the handles away (milestone 511).
+        // A selection area's handle likewise: a press on one widens or narrows the selection
+        // rather than putting it away.
+        if let Some(drag) = self.grab_region_handle() {
+            self.drag = Some(drag);
+            if let Some(selection) = self.runtime.region.as_mut() {
+                selection.bar = false;
+            }
+            self.request_redraw();
+            return;
+        }
         if let Some(drag) = self.grab_selection_handle() {
             self.drag = Some(drag);
             // The bar is put away while a handle is dragged, and comes back when it is let
@@ -3854,6 +3872,12 @@ impl<A: Application> App<A> {
         }
         if let Some(Drag::SelectionHandle { id, .. }) = ended {
             self.show_selection_toolbar(id);
+        }
+        // A handle of a selection area let go: its bar comes back over what is selected now.
+        if let Some(Drag::RegionHandle { .. }) = ended {
+            if let Some(selection) = self.runtime.region.as_mut() {
+                selection.bar = true;
+            }
         }
         // Reordering: on the drop, the target column is the reorderable header under
         // the pointer, and we route the grabbed header's `on_reorder(from, to)`.
@@ -4494,6 +4518,10 @@ impl<A: Application> App<A> {
             Drag::RegionSelect { area } => {
                 let area = *area;
                 self.extend_region_selection(area);
+            }
+            Drag::RegionHandle { area, handle, grab } => {
+                let (area, handle, grab) = (*area, *handle, *grab);
+                self.drag_region_handle(area, handle, grab);
             }
             Drag::TextSelect { id, rect } => {
                 let local_x = self.cursor.x - rect.x;
@@ -6138,6 +6166,105 @@ impl<A: Application> App<A> {
         );
         self.request_redraw();
         true
+    }
+
+    /// The two handles of a selection area's touch selection, where they are on the surface.
+    fn region_handles(&self) -> Option<(WidgetId, [frus_widgets::SelectionHandle; 2])> {
+        let selection = self.runtime.region.as_ref().filter(|s| s.handles)?;
+        let (ui, tree) = (self.ui.as_ref()?, self.tree.as_ref()?);
+        let at = |point: RegionPoint, start: bool| {
+            let stop = ui
+                .text_stops_in(selection.area)
+                .find(|s| s.id == point.text)?;
+            let handle = find_widget(tree.as_ref(), point.text)?.selection_grip(
+                stop.rect.width,
+                point.index,
+                start,
+            )?;
+            let (dx, dy) = (stop.rect.x, stop.rect.y);
+            Some(frus_widgets::SelectionHandle {
+                rect: handle.rect.translate(dx, dy),
+                line_center: Point::new(handle.line_center.x + dx, handle.line_center.y + dy),
+            })
+        };
+        Some((
+            selection.area,
+            [at(selection.start?, true)?, at(selection.end?, false)?],
+        ))
+    }
+
+    /// The handle of a selection area's touch selection under the pointer, taken.
+    fn grab_region_handle(&self) -> Option<Drag> {
+        let (area, handles) = self.region_handles()?;
+        let handle = crate::selection::grab(&handles, self.cursor)?;
+        let at = handles[handle.index()].line_center;
+        Some(Drag::RegionHandle {
+            area,
+            handle,
+            grab: Point::new(at.x - self.cursor.x, at.y - self.cursor.y),
+        })
+    }
+
+    /// A handle of a selection area moved with the finger: its end goes to the text position
+    /// under it — carried by `grab`, so the handle's line and not the fingertip picks it — and
+    /// the other end stays. The two never meet nor cross, as a field's do not.
+    fn drag_region_handle(
+        &mut self,
+        area: WidgetId,
+        handle: crate::selection::Handle,
+        grab: Point,
+    ) {
+        let Some(selection) = self.runtime.region.as_ref() else {
+            return;
+        };
+        let (Some(start), Some(end)) = (selection.start, selection.end) else {
+            return;
+        };
+        let target = Point::new(self.cursor.x + grab.x, self.cursor.y + grab.y);
+        let Some(stop) = self
+            .ui
+            .as_ref()
+            .and_then(|ui| ui.nearest_text_stop(area, target))
+        else {
+            return;
+        };
+        let Some(index) = self.region_index(&stop, target) else {
+            return;
+        };
+        let moved = RegionPoint {
+            text: stop.id,
+            index,
+        };
+        let stops = self.region_stops(area);
+        let order = |point: RegionPoint| {
+            stops
+                .iter()
+                .position(|(id, _)| *id == point.text)
+                .map(|at| (at, point.index))
+        };
+        let (Some(to), Some(other)) = (
+            order(moved),
+            order(match handle {
+                crate::selection::Handle::Start => end,
+                crate::selection::Handle::End => start,
+            }),
+        ) else {
+            return;
+        };
+        let (fixed, crosses) = match handle {
+            crate::selection::Handle::Start => (end, to >= other),
+            crate::selection::Handle::End => (start, to <= other),
+        };
+        if crosses {
+            return;
+        }
+        let next = RegionSelection::new(area, fixed, moved, &stops).with_bar(true);
+        // The bar stays put away until the handle is let go.
+        let next = RegionSelection { bar: false, ..next };
+        if self.runtime.region.as_ref() != Some(&next) {
+            self.runtime.region = Some(next);
+            self.request_redraw();
+        }
     }
 
     /// The pointer has moved during a drag in `area`: the far end of the selection goes to the
@@ -8503,6 +8630,11 @@ pub mod testing {
             self.shell.escape();
         }
 
+        /// The two handles of a selection area's touch selection, on the surface, if it has them.
+        pub fn area_handles(&self) -> Option<[frus_widgets::SelectionHandle; 2]> {
+            self.shell.region_handles().map(|(_, handles)| handles)
+        }
+
         fn pointer(&mut self, kind: PointerKind, at: Point) {
             self.pointer_of(kind, at, true);
         }
@@ -9779,6 +9911,142 @@ mod selection_area_tests {
         drag(&mut d, from, to);
         assert!(d.area_selection().is_some());
         assert!(bar_button(&d, "Copy").is_none());
+    }
+
+    /// A handle's middle — where a finger takes it.
+    fn middle(rect: frus_widgets::Rect) -> Point {
+        Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0)
+    }
+
+    /// A finger taking a handle at `from` and carrying it to `to`, a few steps at a time.
+    fn carry_handle(d: &mut Driver<Doc>, from: Point, to: Point) {
+        d.press(from);
+        d.run(0.05);
+        for step in 1..=4 {
+            let f = step as f32 / 4.0;
+            d.move_to(Point::new(
+                from.x + (to.x - from.x) * f,
+                from.y + (to.y - from.y) * f,
+            ));
+            d.run(0.05);
+        }
+        d.release(to);
+        d.run(0.05);
+    }
+
+    /// **A touch selection has two handles**, hanging below the ends of the word, the start one
+    /// to the left of the end one — and a mouse selection has none.
+    #[test]
+    fn a_touch_selection_has_handles_and_a_mouse_one_does_not() {
+        let mut d = driver();
+        let paths = |d: &Driver<Doc>| {
+            let (ui, _) = d.frame_parts().expect("a frame");
+            ui.scene()
+                .primitives()
+                .iter()
+                .filter(|p| matches!(p, frus_widgets::Primitive::Path { .. }))
+                .count()
+        };
+        let before = paths(&d);
+        let at = on(&d, "second line", 12.0);
+        hold(&mut d, at);
+        assert_eq!(paths(&d), before + 2, "the two handles are painted");
+        let [start, end] = d.area_handles().expect("two handles");
+        assert!(start.line_center.x < end.line_center.x, "{start:?} {end:?}");
+        assert!(start.rect.y > at.y - 8.0, "they hang below the line");
+
+        let (from, to) = (
+            on(&d, "first line of words", 60.0),
+            on(&d, "third line ends here", 40.0),
+        );
+        drag(&mut d, from, to);
+        assert!(d.area_selection().is_some());
+        assert!(
+            d.area_handles().is_none(),
+            "a mouse selection has no handles"
+        );
+        d.area_select_all();
+        assert!(
+            d.area_handles().is_none(),
+            "nor does it grow any when the keyboard selects all"
+        );
+    }
+
+    /// **The end handle carries the end of the selection to the next text**: dragged down to the
+    /// third line, the selection runs from the word to it. The bar is put away while the handle
+    /// moves, and back when it is let go.
+    #[test]
+    fn the_end_handle_widens_the_selection_across_texts() {
+        let mut d = driver();
+        let at = on(&d, "second line", 12.0);
+        hold(&mut d, at);
+        let [_, end] = d.area_handles().expect("handles");
+        let third = on(&d, "third line ends here", 60.0);
+        let from = middle(end.rect);
+        // The handle hangs below its line: carried to where its line would meet the third.
+        let to = Point::new(third.x, from.y + (third.y - at.y));
+        d.press(from);
+        d.run(0.05);
+        d.move_to(Point::new(from.x, (from.y + to.y) / 2.0));
+        d.run(0.05);
+        d.move_to(to);
+        d.run(0.05);
+        assert!(
+            bar_button(&d, "Copy").is_none(),
+            "no bar while a handle moves"
+        );
+        d.release(to);
+        d.run(0.05);
+        let copied = d.area_selection().expect("a selection");
+        let lines: Vec<&str> = copied.lines().collect();
+        assert_eq!(lines.len(), 2, "{copied:?}");
+        assert_eq!(lines[0], "second line", "the rest of the word's line");
+        assert!("third line ends here".starts_with(lines[1]), "{copied:?}");
+        assert!(!lines[1].is_empty());
+        assert!(bar_button(&d, "Copy").is_some(), "the bar is back");
+    }
+
+    /// **The start handle carries the start of it back up**: dragged to the first line, the
+    /// selection begins there.
+    #[test]
+    fn the_start_handle_widens_it_upward() {
+        let mut d = driver();
+        let at = on(&d, "second line", 80.0);
+        hold(&mut d, at);
+        assert_eq!(d.area_selection().as_deref(), Some("line"));
+        let [start, _] = d.area_handles().expect("handles");
+        let first = on(&d, "first line of words", 30.0);
+        let from = middle(start.rect);
+        let to = Point::new(first.x, from.y + (first.y - at.y));
+        carry_handle(&mut d, from, to);
+        let copied = d.area_selection().expect("a selection");
+        let lines: Vec<&str> = copied.lines().collect();
+        assert_eq!(lines.len(), 2, "{copied:?}");
+        assert!("first line of words".ends_with(lines[0]), "{copied:?}");
+        assert_eq!(lines[1], "second line");
+    }
+
+    /// **A handle cannot cross the other**: the end handle dragged back past the start leaves the
+    /// selection as it was, rather than turning it inside out.
+    #[test]
+    fn a_handle_does_not_cross_the_other() {
+        let mut d = driver();
+        let at = on(&d, "second line", 80.0);
+        hold(&mut d, at);
+        let before = d.area_selection();
+        assert!(before.is_some());
+        let [_, end] = d.area_handles().expect("handles");
+        let first = on(&d, "first line of words", 5.0);
+        let from = middle(end.rect);
+        // In one move, straight to a place before the start: refused, not turned inside out.
+        let to = Point::new(first.x, from.y + (first.y - at.y));
+        d.press(from);
+        d.run(0.05);
+        d.move_to(to);
+        d.run(0.05);
+        d.release(to);
+        d.run(0.05);
+        assert_eq!(d.area_selection(), before);
     }
 
     /// **The selection is painted**: a highlight over each text it covers, in the theme's

@@ -339,6 +339,19 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// The handle that hangs from character boundary `index` of this widget's words — the
+    /// start handle when `start`, the end handle otherwise — in local coordinates, for a widget
+    /// `width` wide: where it is painted, and so where a finger takes it. `None` for anything
+    /// that is not a text.
+    fn selection_grip(
+        &self,
+        _width: f32,
+        _index: usize,
+        _start: bool,
+    ) -> Option<crate::SelectionHandle> {
+        None
+    }
+
     /// The **bar** over the part of a selection area's selection that lies in this widget —
     /// `range`, in characters — for `context`, and the box it is placed against in local
     /// coordinates, for a widget `width` wide. `None` for anything that is not a text, or when
@@ -1659,6 +1672,14 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
         range: (usize, usize),
     ) -> Option<(Rect, &dyn Widget<Msg>)> {
         (**self).region_toolbar(context, width, range)
+    }
+    fn selection_grip(
+        &self,
+        width: f32,
+        index: usize,
+        start: bool,
+    ) -> Option<crate::SelectionHandle> {
+        (**self).selection_grip(width, index, start)
     }
     fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
         (**self).selection_hit(local_x, local_y, width)
