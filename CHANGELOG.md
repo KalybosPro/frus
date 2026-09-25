@@ -8,10 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 577 so far, each documenting the objective, the alternatives
+> record — one per step, 579 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`Center` and `Aligned`** (J579). `Center::new(child)` centres a child in the room it is given;
+  `Aligned::new(alignment, child)` places it at any anchor, physical or directional. Both take all
+  the room on offer, a whole page body, card or cell, except along a row's or a column's own
+  direction when the line holds other children, where they are as long as their child. They also
+  shrink to their child along an axis with no bound, such as down a scroll. `center(child)` is the
+  DSL shorthand. (`Align` stays the cross-axis alignment of a row or a column; the widget is
+  `Aligned`.)
 
 - **Handles to widen a touch selection across texts** (J577). A selection a finger made in a
   `SelectionArea` carries two handles, at its start and its end, in whichever texts those are; a

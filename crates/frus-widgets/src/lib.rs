@@ -18,6 +18,7 @@ pub struct ReadmeDoctests;
 
 mod actionbutton;
 mod alert;
+mod align;
 mod animated;
 mod appbar;
 mod aspectratio;
@@ -189,6 +190,7 @@ mod widgettheme;
 
 pub use actionbutton::{BackButton, CloseButton, DrawerButton, EndDrawerButton};
 pub use alert::{Alert, AlertKind};
+pub use align::{Aligned, Center};
 pub use animated::{
     AnimatedAlign, AnimatedContainer, AnimatedDefaultTextStyle, AnimatedFractionallySizedBox,
     AnimatedOpacity, AnimatedPadding, AnimatedPositioned, AnimatedRotation, AnimatedScale,
@@ -262,7 +264,7 @@ pub use drawer::{Drawer, DRAWER_RADIUS, DRAWER_WIDTH};
 pub use drawerheader::{DrawerHeader, UserAccountsDrawerHeader, DRAWER_HEADER_HEIGHT};
 pub use dropdown::{DropdownButton, DropdownOption};
 pub use dropdownmenu::DropdownMenu;
-pub use dsl::{button, expanded, flexible, keyed, spacer, text};
+pub use dsl::{button, center, expanded, flexible, keyed, spacer, text};
 pub use editing::TextEditingController;
 pub use expanded::{Expanded, FlexFit, Flexible};
 pub use expansionpanel::{ExpansionPanel, ExpansionPanelList};

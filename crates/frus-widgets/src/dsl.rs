@@ -4,6 +4,7 @@
 
 use std::hash::Hash;
 
+use crate::align::Center;
 use crate::button::Button;
 use crate::expanded::{Expanded, Flexible};
 use crate::flex::Flex;
@@ -31,6 +32,12 @@ pub fn expanded<Msg>(child: impl Widget<Msg> + 'static) -> Expanded<Msg> {
 /// wants less. `flexible(child)` = `Flexible::new(child)`.
 pub fn flexible<Msg>(child: impl Widget<Msg> + 'static) -> Flexible<Msg> {
     Flexible::new(child)
+}
+
+/// Shorthand: the child centred in the room it is given. `center(text("Nothing yet"))` =
+/// `Center::new(...)`.
+pub fn center<Msg: Clone + 'static>(child: impl Widget<Msg> + 'static) -> Center<Msg> {
+    Center::new(child)
 }
 
 /// Shorthand: a button with its click message.
