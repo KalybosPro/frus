@@ -45,7 +45,7 @@ pub use filter::{
 };
 pub use geometry::{
     fits, Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Insets, InsetsDirectional,
-    Point, Rect, Size, TextDirection, WindowInsets,
+    InsetsGeometry, Point, Rect, Size, TextDirection, WindowInsets,
 };
 pub use hct::{Hct, TonalPalette};
 pub use image::{

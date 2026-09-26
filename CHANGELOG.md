@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 579 so far, each documenting the objective, the alternatives
+> record — one per step, 580 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The single-purpose boxes** (J580): `Padding`, `ColoredBox`, `DecoratedBox` (behind or in
+  front) and `ClipRect`: each one thing a `Container` does, given a name. A padding takes one
+  number, `Insets` (now with `symmetric`) or `InsetsDirectional` (now with `only_start` and
+  `only_end`) through the new `InsetsGeometry`. A physical left inset stays on the left in a
+  right-to-left script, and a directional start inset moves to the right.
 
 - **`Center` and `Aligned`** (J579). `Center::new(child)` centres a child in the room it is given;
   `Aligned::new(alignment, child)` places it at any anchor, physical or directional. Both take all

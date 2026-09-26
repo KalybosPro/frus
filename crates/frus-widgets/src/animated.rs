@@ -117,9 +117,14 @@ macro_rules! forward_to_container {
             fn rotated_quarter_turns(&self) -> Option<i32> {
                 Widget::rotated_quarter_turns(&self.inner)
             }
+            fn foreground(&self, theme: &Theme) -> Option<frus_core::BoxDecoration> {
+                Widget::foreground(&self.inner, theme)
+            }
         }
     };
 }
+
+pub(crate) use forward_to_container;
 
 /// Applies a fixed **group opacity** `[0,1]` to its child, as one block. See
 /// [`Container::opacity`].
