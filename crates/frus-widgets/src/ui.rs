@@ -415,6 +415,9 @@ struct BoundaryData<Msg> {
     drag_sources: Vec<DragSource>,
     drop_zones: Vec<DropZone>,
     inks: Vec<(WidgetId, Rect)>,
+    /// The detectors that take a drag, in painted order, with the box a press can land in
+    /// (clipped) and the whole box (milestone 582).
+    pans: Vec<(WidgetId, Rect, Rect)>,
     text_stops: Vec<crate::TextStop>,
     semantics: Vec<(WidgetId, Rect, frus_core::SemanticsProperties)>,
     system_ui: Vec<(Rect, crate::SystemUiOverlayStyle)>,
@@ -433,6 +436,7 @@ struct Snapshot {
     drag_sources: usize,
     drop_zones: usize,
     inks: usize,
+    pans: usize,
     text_stops: usize,
     semantics: usize,
     system_ui: usize,
@@ -469,6 +473,7 @@ struct BarrierBase {
     drag_sources: usize,
     drop_zones: usize,
     inks: usize,
+    pans: usize,
     text_stops: usize,
     reorderables: usize,
     interactives: usize,
@@ -484,6 +489,7 @@ struct XformBase {
     drag_sources: usize,
     drop_zones: usize,
     inks: usize,
+    pans: usize,
     text_stops: usize,
     reorderables: usize,
     semantics: usize,
@@ -638,6 +644,9 @@ pub struct Ui<Msg = crate::callback::Callback> {
     /// landed inside it, and how far the circle has to travel to cover it — which a
     /// click target, recorded as its *visible* part, does not give.
     inks: Vec<(WidgetId, Rect)>,
+    /// The detectors that take a drag, in painted order, with the box a press can land in
+    /// (clipped) and the whole box (milestone 582).
+    pans: Vec<(WidgetId, Rect, Rect)>,
     /// The texts inside a [`SelectionArea`](crate::SelectionArea), in the order they were
     /// painted — reading order — each with the area it is in.
     text_stops: Vec<crate::TextStop>,
@@ -1131,6 +1140,15 @@ impl<Msg: Clone> Ui<Msg> {
                     .find(|(rid, _)| *rid == id)
                     .map(|(_, rect)| *rect)
             })
+            // And to the detectors that take a drag, which report where a drag is in their
+            // own coordinates (milestone 582): the whole box, whatever a clip hides of it.
+            .or_else(|| {
+                self.pans
+                    .iter()
+                    .rev()
+                    .find(|(pid, _, _)| *pid == id)
+                    .map(|(_, _, whole)| *whole)
+            })
     }
 
     /// The box of the inked surface `id`, when the frame has one — what the shell needs
@@ -1339,6 +1357,16 @@ impl<Msg: Clone> Ui<Msg> {
             .rev()
             .find(|(_, rect)| rect.contains(point))
             .map(|(id, rect)| (*id, *rect))
+    }
+
+    /// The innermost detector that takes a drag under `point`, and its box (milestone 582):
+    /// the one drawn last, as the hit-test chooses.
+    pub fn pan_at(&self, point: Point) -> Option<(WidgetId, Rect)> {
+        self.pans
+            .iter()
+            .rev()
+            .find(|(_, seen, _)| seen.contains(point))
+            .map(|(id, seen, _)| (*id, *seen))
     }
 
     /// Interactive viewports `(id, screen viewport)`, to drive the inertia (fling) and the
@@ -2283,6 +2311,9 @@ struct Builder<'a, Msg> {
     drag_sources: Vec<DragSource>,
     drop_zones: Vec<DropZone>,
     inks: Vec<(WidgetId, Rect)>,
+    /// The detectors that take a drag, in painted order, with the box a press can land in
+    /// (clipped) and the whole box (milestone 582).
+    pans: Vec<(WidgetId, Rect, Rect)>,
     text_stops: Vec<crate::TextStop>,
     /// The [`SelectionArea`](crate::SelectionArea) the walk is inside, if it is inside one, and
     /// its widget — which may have a say over the bar.
@@ -2534,6 +2565,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drag_sources: self.drag_sources.len(),
             drop_zones: self.drop_zones.len(),
             inks: self.inks.len(),
+            pans: self.pans.len(),
             text_stops: self.text_stops.len(),
             semantics: self.semantics.len(),
             system_ui: self.system_ui.len(),
@@ -2561,6 +2593,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drag_sources: self.drag_sources[snap.drag_sources..].to_vec(),
             drop_zones: self.drop_zones[snap.drop_zones..].to_vec(),
             inks: self.inks[snap.inks..].to_vec(),
+            pans: self.pans[snap.pans..].to_vec(),
             text_stops: self.text_stops[snap.text_stops..].to_vec(),
             semantics: self.semantics[snap.semantics..].to_vec(),
             system_ui: self.system_ui[snap.system_ui..].to_vec(),
@@ -2582,6 +2615,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.drag_sources.extend(data.drag_sources);
         self.drop_zones.extend(data.drop_zones);
         self.inks.extend(data.inks);
+        self.pans.extend(data.pans);
         self.text_stops.extend(data.text_stops);
         self.semantics.extend(data.semantics);
         self.system_ui.extend(data.system_ui);
@@ -2601,6 +2635,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drag_sources: self.drag_sources.len(),
             drop_zones: self.drop_zones.len(),
             inks: self.inks.len(),
+            pans: self.pans.len(),
             text_stops: self.text_stops.len(),
             reorderables: self.reorderables.len(),
             interactives: self.interactives.len(),
@@ -2763,6 +2798,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.drag_sources.truncate(base.drag_sources);
             self.drop_zones.truncate(base.drop_zones);
             self.inks.truncate(base.inks);
+            self.pans.truncate(base.pans);
             self.text_stops.truncate(base.text_stops);
             self.reorderables.truncate(base.reorderables);
             self.interactives.truncate(base.interactives);
@@ -2803,6 +2839,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drag_sources: self.drag_sources.len(),
             drop_zones: self.drop_zones.len(),
             inks: self.inks.len(),
+            pans: self.pans.len(),
             text_stops: self.text_stops.len(),
             reorderables: self.reorderables.len(),
             semantics: self.semantics.len(),
@@ -2842,6 +2879,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
             for (_, r) in &mut self.inks[base.inks..] {
                 *r = matrix.apply_rect(*r);
+            }
+            for (_, seen, whole) in &mut self.pans[base.pans..] {
+                *seen = matrix.apply_rect(*seen);
+                *whole = matrix.apply_rect(*whole);
             }
             for stop in &mut self.text_stops[base.text_stops..] {
                 stop.rect = matrix.apply_rect(stop.rect);
@@ -3477,6 +3518,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     msg: tap,
                     xform: None,
                 });
+            }
+            // A detector that takes a drag (milestone 582).
+            if widget.pan_axis().is_some() {
+                self.pans.push((id, visible, draw_rect));
             }
             if let Some(msg) = widget.on_long_press() {
                 self.long_presses.push(Hit {
@@ -4853,6 +4898,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     xform: None,
                 });
             }
+            // A detector that takes a drag (milestone 582).
+            if widget.pan_axis().is_some() {
+                self.pans.push((id, visible, draw_rect));
+            }
             if let Some(msg) = widget.on_long_press() {
                 self.long_presses.push(Hit {
                     id,
@@ -5476,6 +5525,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         drag_sources: Vec::new(),
         drop_zones: Vec::new(),
         inks: Vec::new(),
+        pans: Vec::new(),
         text_stops: Vec::new(),
         area: None,
         area_widget: None,
@@ -5558,6 +5608,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         drag_sources: builder.drag_sources,
         drop_zones: builder.drop_zones,
         inks: builder.inks,
+        pans: builder.pans,
         text_stops: builder.text_stops,
         reorderables: builder.reorderables,
         interactives: builder.interactives,

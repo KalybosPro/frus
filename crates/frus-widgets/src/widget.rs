@@ -1531,6 +1531,19 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// Which way this widget takes a **drag**, if it takes one at all (milestone 582): the
+    /// shell then reports it through [`on_pan`](Self::on_pan). Inside a scroll, a drag along
+    /// the scroll's axis stays the scroll's unless this axis claims it.
+    fn pan_axis(&self) -> Option<crate::PanAxis> {
+        None
+    }
+
+    /// Message for one moment of a drag — its start, a movement, its end — on a widget whose
+    /// [`pan_axis`](Self::pan_axis) is set.
+    fn on_pan(&self, _event: crate::PanEvent) -> Option<Msg> {
+        None
+    }
+
     /// Key received while **bubbling leaf→root**: the focused widget gets it first,
     /// then each ancestor as long as the response is `Ignored`. (E.g. an `OverlayPortal`
     /// consumes `Escape` to close itself.)
@@ -2074,6 +2087,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_secondary_tap(&self) -> Option<Msg> {
         (**self).on_secondary_tap()
+    }
+    fn pan_axis(&self) -> Option<crate::PanAxis> {
+        (**self).pan_axis()
+    }
+    fn on_pan(&self, event: crate::PanEvent) -> Option<Msg> {
+        (**self).on_pan(event)
     }
     fn on_key(&self, key: &crate::interaction::Key) -> crate::interaction::KeyResponse<Msg> {
         (**self).on_key(key)

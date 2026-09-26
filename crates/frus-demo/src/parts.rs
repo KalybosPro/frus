@@ -2,7 +2,7 @@
 //! it might be shared later; it moves in when the second screen asks for it.
 
 use crate::prelude::*;
-use frus_widgets::{column, SelectionArea};
+use frus_widgets::{column, GestureDetector, Point, SelectionArea, StateHandle};
 
 /// The surface this screen is being built for — the window, as the shell described it.
 ///
@@ -86,39 +86,132 @@ pub(crate) fn is_weekend(y: i32, m: u32, d: u32) -> bool {
 pub(crate) fn about_section(theme: &Theme) -> Container {
     Container::new().padding(24.0).child(
         Card::new().padding(20.0).child(
-            ConstrainedBox::new(SelectionArea::around(
+            ConstrainedBox::new(
                 column![
-                    text("About frus").size(24.0),
-                    // Rich text: mixed styles on one line, with cascading inheritance.
-                    RichText::new(
-                        TextSpan::new("A ")
-                            .child(TextSpan::new("fast").bold())
-                            .child(TextSpan::new(", "))
-                            .child(TextSpan::new("portable").italic().underline())
-                            .child(TextSpan::new(" Rust UI framework — "))
-                            .child(TextSpan::new("no GC").bold().color(theme.primary))
-                            .child(TextSpan::new(".")),
-                    )
-                    .base_style(theme.text.body_medium.color(theme.muted))
-                    .wrap(),
-                    Divider::new(),
-                    Timeline::new()
-                        .event("Responsive primitives", "Milestone 42")
-                        .event("Adaptive navigation", "Milestone 43"),
-                    // A paragraph: it wraps at the card's width.
-                    text(
-                        "Layout, painting, typography and animation are engine-level \
+                    SelectionArea::around(
+                        column![
+                            text("About frus").size(24.0),
+                            // Rich text: mixed styles on one line, with cascading inheritance.
+                            RichText::new(
+                                TextSpan::new("A ")
+                                    .child(TextSpan::new("fast").bold())
+                                    .child(TextSpan::new(", "))
+                                    .child(TextSpan::new("portable").italic().underline())
+                                    .child(TextSpan::new(" Rust UI framework — "))
+                                    .child(TextSpan::new("no GC").bold().color(theme.primary))
+                                    .child(TextSpan::new(".")),
+                            )
+                            .base_style(theme.text.body_medium.color(theme.muted))
+                            .wrap(),
+                            Divider::new(),
+                            Timeline::new()
+                                .event("Responsive primitives", "Milestone 42")
+                                .event("Adaptive navigation", "Milestone 43"),
+                            // A paragraph: it wraps at the card's width.
+                            text(
+                                "Layout, painting, typography and animation are engine-level \
                      foundations shared by every widget in this gallery.",
-                    )
-                    .size(13.0)
-                    .color(theme.muted)
-                    .wrap(),
+                            )
+                            .size(13.0)
+                            .color(theme.muted)
+                            .wrap(),
+                        ]
+                        .gap(12.0),
+                    ),
+                    Divider::new(),
+                    // Taps, a double tap, a hold and a drag, answered by the application: a pad
+                    // that counts them, and a dot that follows the finger (milestones 581, 582).
+                    GesturePad.into_widget(),
                 ]
                 .gap(12.0),
-            ))
+            )
             .max_width(560.0),
         ),
     )
+}
+
+/// A pad that answers every gesture a [`GestureDetector`] hears (milestones 581 and 582): it
+/// counts taps, double taps and holds, and a dot follows a finger dragged across it. It sits in
+/// the About page, a scroll, so a drag across it is the pad's and a drag down scrolls the page.
+pub(crate) struct GesturePad;
+
+/// What the pad has heard.
+pub(crate) struct GesturePadState {
+    taps: u32,
+    doubles: u32,
+    holds: u32,
+    /// The dot's centre, in the pad's coordinates.
+    dot: Point,
+}
+
+/// The pad's height, and the dot's size.
+const PAD_HEIGHT: f32 = 140.0;
+const DOT: f32 = 28.0;
+
+impl StatefulWidget for GesturePad {
+    type State = GesturePadState;
+
+    fn create_state(&self) -> GesturePadState {
+        GesturePadState {
+            taps: 0,
+            doubles: 0,
+            holds: 0,
+            dot: Point::new(DOT, PAD_HEIGHT / 2.0),
+        }
+    }
+}
+
+impl State for GesturePadState {
+    type Widget = GesturePad;
+
+    fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> {
+        let theme = cx.theme().clone();
+        let follow = |handle: StateHandle<GesturePadState>| {
+            move |at: Point| {
+                let handle = handle.clone();
+                Callback::new(move || {
+                    handle.set_state(|s| {
+                        s.dot = Point::new(at.x, at.y.clamp(DOT / 2.0, PAD_HEIGHT - DOT / 2.0));
+                    })
+                })
+            }
+        };
+        let start = follow(cx.handle());
+        let update = follow(cx.handle());
+        let dot = Container::new()
+            .width(DOT)
+            .height(DOT)
+            .radius(DOT / 2.0)
+            .color(theme.primary);
+        // The pad takes the card's width: a stack is not sized by its layers.
+        let pad = Stack::new().height(PAD_HEIGHT).flex(1.0).layer(
+            Positioned::new(dot)
+                .left(self.dot.x - DOT / 2.0)
+                .top(self.dot.y - DOT / 2.0),
+        );
+        let surface = Container::new()
+            .radius(12.0)
+            .color(theme.primary_container)
+            .child(pad);
+        let detector = GestureDetector::new(surface)
+            .on_tap(cx.callback(|s| s.taps += 1))
+            .on_double_tap(cx.callback(|s| s.doubles += 1))
+            .on_long_press(cx.callback(|s| s.holds += 1))
+            .on_pan_start(start)
+            .on_pan_update(move |at, _| update(at));
+        Box::new(
+            column![
+                text("Gestures").size(18.0),
+                text(format!(
+                    "Taps {} · Double taps {} · Holds {}",
+                    self.taps, self.doubles, self.holds
+                ))
+                .color(theme.muted),
+                detector,
+            ]
+            .gap(8.0),
+        )
+    }
 }
 
 #[cfg(test)]

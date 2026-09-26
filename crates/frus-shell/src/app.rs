@@ -157,6 +157,10 @@ const DOUBLE_TAP_TIMEOUT: std::time::Duration = std::time::Duration::from_millis
 /// `kDoubleTapSlop`.
 const DOUBLE_TAP_SLOP: f32 = 100.0;
 
+/// The fastest a drag's end velocity is reported, in logical pixels per second: the
+/// reference's `kMaxFlingVelocity`.
+const MAX_PAN_VELOCITY: f32 = 8000.0;
+
 /// A first tap on something that also takes a double tap, waiting to see whether a second
 /// one follows (milestone 581).
 struct PendingTap<M> {
@@ -529,7 +533,12 @@ fn hold_candidates<Msg: Clone>(
     let Some(ui) = ui else {
         return (None, None);
     };
-    let free = matches!(drag, None | Some(Drag::Scroll { moved: false, .. }));
+    // A drag that has not moved yet may still be a hold: a scroll's, or a detector's that
+    // also takes a long press (milestone 582, seen on the phone).
+    let free = matches!(
+        drag,
+        None | Some(Drag::Scroll { moved: false, .. }) | Some(Drag::Gesture { moved: false, .. })
+    );
     let long_press = if free { ui.long_press_at(at) } else { None };
     let lift = ui.drag_source_at(at).filter(|source| {
         tree.and_then(|tree| find_widget(tree, source.id))
@@ -667,6 +676,9 @@ enum Drag {
         /// past the threshold decides by **direction**, and the loser never sees the
         /// gesture. Cleared once the scroll has won.
         dismiss: Option<frus_widgets::Dismissable>,
+        /// A detector that takes a drag under the finger, still in the running, with the way
+        /// it drags (milestone 582). Decided at the threshold like `dismiss`: by direction.
+        pan: Option<(WidgetId, frus_widgets::PanAxis)>,
         /// The axis this gesture was **claimed by**, decided once at the threshold and
         /// held for the rest of the drag: `true` for vertical.
         ///
@@ -677,6 +689,16 @@ enum Drag {
         /// is the same rule for an area that can go both ways. `None` until the
         /// threshold is crossed.
         axis: Option<bool>,
+    },
+    /// A drag on a [`GestureDetector`](frus_widgets::GestureDetector) (milestone 582). `start`
+    /// is where the pointer went down, `last` where it was at the last update; `moved` tells a
+    /// drag from a tap, by the slop, and the start is only reported once it is a drag.
+    Gesture {
+        id: WidgetId,
+        axis: frus_widgets::PanAxis,
+        start: Point,
+        last: Point,
+        moved: bool,
     },
     /// Swiping a [`frus_widgets::Dismissible`] item aside. `last` is the previous
     /// position, for the delta; the item is already past the threshold by the time this
@@ -3789,6 +3811,7 @@ impl<A: Application> App<A> {
                         .as_ref()
                         .and_then(|ui| ui.dismissable_at(self.cursor)),
                     axis: None,
+                    pan: self.pan_target(),
                 });
                 self.begin_gesture();
             }
@@ -3856,6 +3879,21 @@ impl<A: Application> App<A> {
                     start: self.cursor,
                     moved: false,
                     over: None,
+                });
+                self.begin_gesture();
+            }
+        }
+
+        // 3d) A detector that takes a drag, with no scroll under it to share the gesture with
+        // (milestone 582): prepared, and engaged past the slop, so a tap still goes through.
+        if self.drag.is_none() {
+            if let Some((id, axis)) = self.pan_target() {
+                self.drag = Some(Drag::Gesture {
+                    id,
+                    axis,
+                    start: self.cursor,
+                    last: self.cursor,
+                    moved: false,
                 });
                 self.begin_gesture();
             }
@@ -4161,6 +4199,27 @@ impl<A: Application> App<A> {
                     },
                 );
             }
+        }
+        // A detector's drag let go: its end, with the velocity it was let go at (milestone
+        // 582). One that never moved was a tap, and goes on to the click below.
+        if let Some(Drag::Gesture {
+            id,
+            axis,
+            moved: true,
+            ..
+        }) = &ended
+        {
+            let velocity = self.fling_velocity(self.gesture_estimate());
+            let velocity = mask_pan(*axis, Point::new(velocity.0, velocity.1));
+            // No faster than a finger can throw: the reference's `kMaxFlingVelocity`.
+            let speed = velocity.x.hypot(velocity.y);
+            let velocity = if speed > MAX_PAN_VELOCITY {
+                let k = MAX_PAN_VELOCITY / speed;
+                Point::new(velocity.x * k, velocity.y * k)
+            } else {
+                velocity
+            };
+            self.send_pan(*id, frus_widgets::PanEvent::End { velocity });
         }
         // A pan fling: the momentum launches the content, which `advance_interactive`
         // decelerates and bounds frame by frame.
@@ -4689,6 +4748,43 @@ impl<A: Application> App<A> {
                     self.request_redraw();
                 }
             }
+            Drag::Gesture {
+                id,
+                axis,
+                start,
+                last,
+                moved,
+            } => {
+                let (id, axis) = (*id, *axis);
+                if !*moved {
+                    // Past the slop it is a drag and no longer a tap. (The reference's pan
+                    // waits for twice this, but its tap has given up at once: a movement in
+                    // between is neither. One threshold keeps a press either a tap or a drag.)
+                    let (tx, ty) = (self.cursor.x - start.x, self.cursor.y - start.y);
+                    let travelled = match axis {
+                        frus_widgets::PanAxis::Free => tx.hypot(ty),
+                        frus_widgets::PanAxis::Horizontal => tx.abs(),
+                        frus_widgets::PanAxis::Vertical => ty.abs(),
+                    };
+                    if travelled > slop {
+                        *moved = true;
+                        let local = self.pan_local(id, *start);
+                        self.send_pan(id, frus_widgets::PanEvent::Start { local });
+                    }
+                }
+                if *moved {
+                    let delta = mask_pan(
+                        axis,
+                        Point::new(self.cursor.x - last.x, self.cursor.y - last.y),
+                    );
+                    *last = self.cursor;
+                    self.track_gesture();
+                    if delta.x != 0.0 || delta.y != 0.0 {
+                        let local = self.pan_local(id, self.cursor);
+                        self.send_pan(id, frus_widgets::PanEvent::Update { local, delta });
+                    }
+                }
+            }
             Drag::Pan {
                 id,
                 last,
@@ -4752,6 +4848,7 @@ impl<A: Application> App<A> {
                 carried,
                 dismiss,
                 axis,
+                pan,
             } => {
                 let dx = self.cursor.x - last.x;
                 let dy = self.cursor.y - last.y;
@@ -4764,6 +4861,47 @@ impl<A: Application> App<A> {
                     // scroll. Deciding once, here, is what keeps the loser out of the
                     // gesture entirely — a swipe that also scrolled the list would be
                     // worse than either.
+                    // A detector's drag, by the same rule: one kept to an axis takes a movement
+                    // along it; a free one takes a movement no scroll under it runs along —
+                    // the reference's pan, which loses a vertical movement to a vertical scroll
+                    // because its slop is twice the scroll's (milestone 582).
+                    if let Some((target, pan_axis)) = pan.take() {
+                        let down = dy.abs() >= dx.abs();
+                        let wins = match pan_axis {
+                            frus_widgets::PanAxis::Horizontal => !down,
+                            frus_widgets::PanAxis::Vertical => down,
+                            frus_widgets::PanAxis::Free => {
+                                let chain: Vec<_> = self
+                                    .ui
+                                    .as_ref()
+                                    .map(|ui| ui.scroll_chain(*last).collect())
+                                    .unwrap_or_default();
+                                // Nothing under the finger scrolls that way (`claim_area`
+                                // without its fallback to the area pressed on).
+                                !chain.iter().any(|a| {
+                                    if down {
+                                        a.max_y > 0.0 || a.refresh.is_some()
+                                    } else {
+                                        a.max_x > 0.0
+                                    }
+                                })
+                            }
+                        };
+                        if wins {
+                            // The scroll gives its offset back untouched: it never moved.
+                            self.runtime.release_scroll(*id);
+                            let start = *last;
+                            self.drag = Some(Drag::Gesture {
+                                id: target,
+                                axis: pan_axis,
+                                start,
+                                last: start,
+                                moved: false,
+                            });
+                            self.handle_drag();
+                            return;
+                        }
+                    }
                     if let Some(item) = dismiss.take() {
                         let along = if item.spec.axis.is_horizontal() {
                             dx.abs() > dy.abs()
@@ -5707,6 +5845,36 @@ impl<A: Application> App<A> {
             }
             _ => false,
         }
+    }
+
+    /// The innermost detector that takes a drag under the pointer, with the way it drags.
+    fn pan_target(&self) -> Option<(WidgetId, frus_widgets::PanAxis)> {
+        let (id, _) = self.ui.as_ref()?.pan_at(self.cursor)?;
+        let axis = find_widget(self.tree.as_ref()?.as_ref(), id)?.pan_axis()?;
+        Some((id, axis))
+    }
+
+    /// `at`, in the coordinates of the detector `id`.
+    fn pan_local(&self, id: WidgetId, at: Point) -> Point {
+        let origin = self
+            .ui
+            .as_ref()
+            .and_then(|ui| ui.widget_rect(id))
+            .map_or(Point::new(0.0, 0.0), |rect| Point::new(rect.x, rect.y));
+        Point::new(at.x - origin.x, at.y - origin.y)
+    }
+
+    /// Hands one moment of a drag to the detector `id`, and its message to the application.
+    fn send_pan(&mut self, id: WidgetId, event: frus_widgets::PanEvent) {
+        let message = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.on_pan(event));
+        if let Some(message) = message {
+            self.dispatch(message);
+        }
+        self.request_redraw();
     }
 
     /// Sends a value drag's **start** or **end** to the widget being dragged.
@@ -6718,12 +6886,22 @@ fn drag_fraction(rect: frus_widgets::Rect, x: f32) -> f32 {
 /// One list, because forgetting a variant is silent: the widget stays hittable, the
 /// press still records it, and only the release quietly does nothing. That is how a
 /// dismissible row came to swallow every tap on it (milestone 327).
+/// A movement, or a velocity, kept to the way a detector drags.
+fn mask_pan(axis: frus_widgets::PanAxis, value: Point) -> Point {
+    match axis {
+        frus_widgets::PanAxis::Free => value,
+        frus_widgets::PanAxis::Horizontal => Point::new(value.x, 0.0),
+        frus_widgets::PanAxis::Vertical => Point::new(0.0, value.y),
+    }
+}
+
 fn gesture_was_a_tap(ended: Option<&Drag>) -> bool {
     matches!(
         ended,
         Some(
             Drag::Scroll { moved: false, .. }
                 | Drag::Pan { moved: false, .. }
+                | Drag::Gesture { moved: false, .. }
                 | Drag::Reorder { moved: false, .. }
                 | Drag::Item { moved: false, .. }
                 | Drag::Dismiss { moved: false, .. }
@@ -7681,6 +7859,7 @@ mod tests {
             carried: (0.0, 0.0),
             dismiss: None,
             axis: None,
+            pan: None,
         };
         assert!(gesture_was_a_tap(Some(&scroll)));
         // A press on a sheet's panel likewise: a button in the sheet still clicks, and a
@@ -8446,6 +8625,7 @@ mod back_gesture_tests {
             carried: (0.0, 0.0),
             dismiss: None,
             axis: None,
+            pan: None,
         }
     }
 
@@ -9409,6 +9589,7 @@ mod press_tests {
                     carried: (0.0, 0.0),
                     dismiss: None,
                     axis: None,
+                    pan: None,
                 });
             });
         }
@@ -10505,5 +10686,254 @@ mod gesture_detector_tests {
         tap(&mut d, at);
         tap(&mut d, at);
         assert_eq!(*heard.borrow(), vec![Msg::OnlyDouble]);
+    }
+}
+
+/// Drags on a [`GestureDetector`](frus_widgets::GestureDetector), alone and inside a scroll,
+/// driven through the shell (milestone 582).
+#[cfg(test)]
+mod gesture_pan_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{
+        Container, Flex, GestureDetector, PanAxis, Point, SingleChildScrollView, Text, Theme,
+        Widget,
+    };
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    const W: f32 = 400.0;
+    const H: f32 = 400.0;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Start(Point),
+        Update(Point, Point),
+        End(Point),
+        Tap,
+        Hold,
+    }
+
+    /// A detector, either alone on the page or at the top of a tall vertical scroll.
+    struct Page {
+        axis: PanAxis,
+        scrolled: bool,
+        heard: Rc<RefCell<Vec<Msg>>>,
+    }
+
+    impl Application for Page {
+        type Message = Msg;
+
+        fn update(&mut self, message: Msg) -> Command<Msg> {
+            self.heard.borrow_mut().push(message);
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            let detector = GestureDetector::new(
+                Container::new()
+                    .width(300.0)
+                    .height(150.0)
+                    .child(Text::new("drag me").no_wrap()),
+            )
+            .on_tap(Msg::Tap)
+            .on_long_press(Msg::Hold)
+            .on_pan_start(Msg::Start)
+            .on_pan_update(Msg::Update)
+            .on_pan_end(Msg::End)
+            .pan_axis(self.axis);
+            let content = Flex::column()
+                .child(Container::new().width(300.0).height(30.0))
+                .child(detector)
+                .child(Container::new().width(300.0).height(1200.0));
+            if self.scrolled {
+                Box::new(
+                    SingleChildScrollView::new()
+                        .width(W)
+                        .height(H)
+                        .child(content),
+                )
+            } else {
+                Box::new(Container::new().width(W).height(H).child(content))
+            }
+        }
+    }
+
+    fn driver(axis: PanAxis, scrolled: bool) -> (Driver<Page>, Rc<RefCell<Vec<Msg>>>) {
+        let heard = Rc::new(RefCell::new(Vec::new()));
+        let page = Page {
+            axis,
+            scrolled,
+            heard: heard.clone(),
+        };
+        let mut driver = Driver::new(page, W, H);
+        driver.run(0.2);
+        (driver, heard)
+    }
+
+    /// Where the detector's words start.
+    fn origin(d: &Driver<Page>) -> Point {
+        let (_, rect) = d
+            .texts()
+            .into_iter()
+            .find(|(text, _)| text == "drag me")
+            .expect("on screen");
+        Point::new(rect.x, rect.y)
+    }
+
+    /// A finger from `from` by `(dx, dy)`, in eight steps.
+    fn swipe(d: &mut Driver<Page>, from: Point, dx: f32, dy: f32) {
+        d.press(from);
+        d.run(0.02);
+        for step in 1..=8 {
+            let f = step as f32 / 8.0;
+            d.move_to(Point::new(from.x + dx * f, from.y + dy * f));
+            d.run(0.02);
+        }
+        d.release(Point::new(from.x + dx, from.y + dy));
+        d.run(0.02);
+    }
+
+    fn deltas(heard: &[Msg]) -> Point {
+        heard.iter().fold(Point::new(0.0, 0.0), |sum, m| match m {
+            Msg::Update(_, delta) => Point::new(sum.x + delta.x, sum.y + delta.y),
+            _ => sum,
+        })
+    }
+
+    fn scroll_y(d: &Driver<Page>) -> f32 {
+        d.offsets().first().map_or(0.0, |(_, offset)| offset.1)
+    }
+
+    /// **A drag is a start, movements and an end**: the start where the finger went down in
+    /// the detector's own coordinates, and movements that add up to the way it went once past
+    /// the slop.
+    #[test]
+    fn a_drag_is_a_start_updates_and_an_end() {
+        let (mut d, heard) = driver(PanAxis::Free, false);
+        let at = Point::new(origin(&d).x + 40.0, origin(&d).y + 40.0);
+        swipe(&mut d, at, 120.0, 60.0);
+        let heard = heard.borrow();
+        assert!(matches!(heard.first(), Some(Msg::Start(_))), "{heard:?}");
+        if let Some(Msg::Start(local)) = heard.first() {
+            // The words sit at the detector's corner, 30 px down the page.
+            let corner = origin(&d);
+            assert!(corner.y >= 30.0, "{corner:?}");
+            assert_eq!(*local, Point::new(at.x - corner.x, at.y - corner.y));
+        }
+        assert!(matches!(heard.last(), Some(Msg::End(_))), "{heard:?}");
+        if let Some(Msg::End(velocity)) = heard.last() {
+            assert!(velocity.x.hypot(velocity.y) <= 8000.0 + 0.5, "{velocity:?}");
+        }
+        let moved = deltas(&heard);
+        assert!(moved.x > 60.0 && moved.y > 20.0, "{moved:?}");
+        assert!(!heard.contains(&Msg::Tap), "a drag is not a tap");
+        // The last movement is where the finger lifted: nothing was left behind on the way.
+        let last = heard.iter().rev().find_map(|m| match m {
+            Msg::Update(local, _) => Some(*local),
+            _ => None,
+        });
+        let corner = origin(&d);
+        assert_eq!(
+            last,
+            Some(Point::new(at.x + 120.0 - corner.x, at.y + 60.0 - corner.y))
+        );
+    }
+
+    /// **A press that barely moves is a tap**, and no drag.
+    #[test]
+    fn a_press_that_does_not_move_is_a_tap() {
+        let (mut d, heard) = driver(PanAxis::Free, false);
+        let at = Point::new(origin(&d).x + 40.0, origin(&d).y + 40.0);
+        swipe(&mut d, at, 3.0, 2.0);
+        assert_eq!(*heard.borrow(), vec![Msg::Tap]);
+    }
+
+    /// **A hold on a detector that also drags is a long press**: the drag waiting for the
+    /// finger to move does not keep the hold from being one (seen on the phone).
+    #[test]
+    fn a_hold_on_a_dragging_detector_is_a_long_press() {
+        let (mut d, heard) = driver(PanAxis::Free, false);
+        let at = Point::new(origin(&d).x + 40.0, origin(&d).y + 40.0);
+        d.press(at);
+        d.run(0.1);
+        assert!(d.hold_deadline(), "the hold fired");
+        d.release(at);
+        d.run(0.02);
+        assert_eq!(*heard.borrow(), vec![Msg::Hold]);
+    }
+
+    /// **The mouse drags too**, with its own, finer slop.
+    #[test]
+    fn a_mouse_drags_it() {
+        let (mut d, heard) = driver(PanAxis::Free, false);
+        let at = Point::new(origin(&d).x + 40.0, origin(&d).y + 40.0);
+        d.press_mouse(at);
+        d.run(0.02);
+        d.move_mouse(Point::new(at.x + 30.0, at.y));
+        d.run(0.02);
+        d.release_mouse(Point::new(at.x + 30.0, at.y));
+        d.run(0.02);
+        let heard = heard.borrow();
+        assert!(matches!(heard.first(), Some(Msg::Start(_))), "{heard:?}");
+        assert!(matches!(heard.last(), Some(Msg::End(_))), "{heard:?}");
+    }
+
+    /// **A horizontal drag in a vertical scroll**: across, the drag has it and the page stays;
+    /// down, the page scrolls and the drag hears nothing. Its movements are only across.
+    #[test]
+    fn a_horizontal_drag_shares_a_vertical_scroll() {
+        let (mut d, heard) = driver(PanAxis::Horizontal, true);
+        let at = Point::new(origin(&d).x + 40.0, origin(&d).y + 40.0);
+        swipe(&mut d, at, 120.0, 10.0);
+        assert!(
+            matches!(heard.borrow().first(), Some(Msg::Start(_))),
+            "{:?}",
+            heard.borrow()
+        );
+        assert_eq!(deltas(&heard.borrow()).y, 0.0, "only across");
+        assert_eq!(scroll_y(&d), 0.0, "the page did not move");
+
+        heard.borrow_mut().clear();
+        let at = Point::new(origin(&d).x + 40.0, origin(&d).y + 120.0);
+        swipe(&mut d, at, 5.0, -120.0);
+        assert!(heard.borrow().is_empty(), "{:?}", heard.borrow());
+        assert!(scroll_y(&d) > 30.0, "the page scrolled: {}", scroll_y(&d));
+    }
+
+    /// **A free drag in a vertical scroll** takes a movement across and leaves a movement
+    /// down to the scroll, as the reference's pan does.
+    #[test]
+    fn a_free_drag_leaves_the_scroll_its_own_direction() {
+        let (mut d, heard) = driver(PanAxis::Free, true);
+        let at = Point::new(origin(&d).x + 40.0, origin(&d).y + 40.0);
+        swipe(&mut d, at, 150.0, 8.0);
+        assert!(
+            matches!(heard.borrow().first(), Some(Msg::Start(_))),
+            "{:?}",
+            heard.borrow()
+        );
+        assert_eq!(scroll_y(&d), 0.0);
+
+        heard.borrow_mut().clear();
+        let at = Point::new(origin(&d).x + 40.0, origin(&d).y + 120.0);
+        swipe(&mut d, at, 4.0, -120.0);
+        assert!(heard.borrow().is_empty(), "{:?}", heard.borrow());
+        assert!(scroll_y(&d) > 30.0, "the page scrolled: {}", scroll_y(&d));
+    }
+
+    /// **A vertical drag in a vertical scroll** is the detector's: it asked for that
+    /// direction, and it is under the finger.
+    #[test]
+    fn a_vertical_drag_takes_it_from_the_scroll() {
+        let (mut d, heard) = driver(PanAxis::Vertical, true);
+        let at = Point::new(origin(&d).x + 40.0, origin(&d).y + 120.0);
+        swipe(&mut d, at, 6.0, -100.0);
+        let heard = heard.borrow();
+        assert!(matches!(heard.first(), Some(Msg::Start(_))), "{heard:?}");
+        let moved = deltas(&heard);
+        assert_eq!(moved.x, 0.0, "only down");
+        assert!(moved.y < -40.0, "{moved:?}");
+        assert_eq!(scroll_y(&d), 0.0, "the page did not move");
     }
 }

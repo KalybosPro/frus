@@ -630,6 +630,14 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_secondary_tap())
     }
 
+    fn pan_axis(&self) -> Option<crate::PanAxis> {
+        self.inner.as_ref().and_then(|w| w.pan_axis())
+    }
+
+    fn on_pan(&self, event: crate::PanEvent) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_pan(event))
+    }
+
     fn on_key(&self, key: &crate::Key) -> crate::KeyResponse<Msg> {
         self.inner
             .as_ref()
