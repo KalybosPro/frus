@@ -22,6 +22,12 @@ any release may break.
   a drawer header's, the floating button's margin) use it. **Breaking in right to left** for an
   application that meant start and end with `padding_each`.
 
+- **A proposal for measuring children** (J587, #52, no code): *measured containers*, generalising
+  what `ConstraintsTransformBox` already does — a widget lays its already built child out
+  separately, from the space offered, and answers its own size and the child's place. It would
+  fix `AnimatedSize`, `SizeTransition`, the `Aligned` factors, `LimitedBox` and `Intrinsic`, and
+  part of the rest; it does not fix `AppBar` being a builder. See `docs/milestone-587.md`.
+
 - **`Listener` and `OrientationBuilder`** (J586). `Listener` hears the pointer's raw events —
   down, move, up, cancel, and a mouse's hover — each in its own coordinates; a pointer that went
   down inside is followed wherever it goes until it lifts, and nothing it hears is taken from a
