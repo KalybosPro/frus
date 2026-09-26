@@ -58,39 +58,26 @@ macro_rules! forward_transparent {
     ($ty:ident { $($extra:item)* }) => {
         $crate::transparent::forward_transparent!(@body $ty {
             $($extra)*
-
-            // The gestures, which a wrapper forwards like everything else — unless it is the
-            // one wrapper that answers them, below.
-            fn on_click(&self) -> Option<Msg> {
-                self.inner.on_click()
-            }
-
-            fn on_long_press(&self) -> Option<Msg> {
-                self.inner.on_long_press()
-            }
-
-            fn on_double_tap(&self) -> Option<Msg> {
-                self.inner.on_double_tap()
-            }
-
-            fn on_secondary_tap(&self) -> Option<Msg> {
-                self.inner.on_secondary_tap()
-            }
-
-            fn pan_axis(&self) -> Option<$crate::PanAxis> {
-                self.inner.pan_axis()
-            }
-
-            fn on_pan(&self, event: $crate::PanEvent) -> Option<Msg> {
-                self.inner.on_pan(event)
-            }
+            $crate::transparent::forward_gesture_hooks!();
+            $crate::transparent::forward_hover_hooks!();
         });
     };
     // A wrapper that **answers gestures** on its child — `GestureDetector` (milestone 582) —
     // states the six gesture hooks itself: `on_click`, `on_long_press`, `on_double_tap`,
     // `on_secondary_tap`, `pan_axis` and `on_pan`.
     (gestures $ty:ident { $($extra:item)* }) => {
-        $crate::transparent::forward_transparent!(@body $ty { $($extra)* });
+        $crate::transparent::forward_transparent!(@body $ty {
+            $($extra)*
+            $crate::transparent::forward_hover_hooks!();
+        });
+    };
+    // A wrapper that **is a region the mouse enters and leaves** — `MouseRegion` (milestone
+    // 583) — states the two hover hooks itself: `hover_region` and `on_hover_event`.
+    (hover $ty:ident { $($extra:item)* }) => {
+        $crate::transparent::forward_transparent!(@body $ty {
+            $($extra)*
+            $crate::transparent::forward_gesture_hooks!();
+        });
     };
     (@body $ty:ident { $($extra:item)* }) => {
         impl<Msg> $crate::widget::Widget<Msg> for $ty<Msg> {
@@ -778,6 +765,52 @@ macro_rules! forward_transparent {
     };
 }
 
+/// The six gesture hooks, forwarded to `inner` — what every transparent wrapper but a
+/// [`crate::GestureDetector`] does with them.
+macro_rules! forward_gesture_hooks {
+    () => {
+        fn on_click(&self) -> Option<Msg> {
+            self.inner.on_click()
+        }
+
+        fn on_long_press(&self) -> Option<Msg> {
+            self.inner.on_long_press()
+        }
+
+        fn on_double_tap(&self) -> Option<Msg> {
+            self.inner.on_double_tap()
+        }
+
+        fn on_secondary_tap(&self) -> Option<Msg> {
+            self.inner.on_secondary_tap()
+        }
+
+        fn pan_axis(&self) -> Option<$crate::PanAxis> {
+            self.inner.pan_axis()
+        }
+
+        fn on_pan(&self, event: $crate::PanEvent) -> Option<Msg> {
+            self.inner.on_pan(event)
+        }
+    };
+}
+
+/// The two hover hooks, forwarded to `inner` — what every transparent wrapper but a
+/// [`crate::MouseRegion`] does with them.
+macro_rules! forward_hover_hooks {
+    () => {
+        fn hover_region(&self) -> Option<$crate::HoverRegion> {
+            self.inner.hover_region()
+        }
+
+        fn on_hover_event(&self, event: $crate::HoverEvent) -> Option<Msg> {
+            self.inner.on_hover_event(event)
+        }
+    };
+}
+
+pub(crate) use forward_gesture_hooks;
+pub(crate) use forward_hover_hooks;
 pub(crate) use forward_transparent;
 
 /// A widget held by a **shared pointer**, so that a builder which rebuilds its subtree can

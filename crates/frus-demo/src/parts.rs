@@ -2,7 +2,9 @@
 //! it might be shared later; it moves in when the second screen asks for it.
 
 use crate::prelude::*;
-use frus_widgets::{column, GestureDetector, Point, SelectionArea, StateHandle};
+use frus_widgets::{
+    column, Cursor, GestureDetector, MouseRegion, Point, SelectionArea, StateHandle,
+};
 
 /// The surface this screen is being built for — the window, as the shell described it.
 ///
@@ -140,6 +142,9 @@ pub(crate) struct GesturePadState {
     taps: u32,
     doubles: u32,
     holds: u32,
+    /// Whether the pointer is over the pad — a mouse hovering, or a finger touching
+    /// (milestone 583).
+    inside: bool,
     /// The dot's centre, in the pad's coordinates.
     dot: Point,
 }
@@ -156,6 +161,7 @@ impl StatefulWidget for GesturePad {
             taps: 0,
             doubles: 0,
             holds: 0,
+            inside: false,
             dot: Point::new(DOT, PAD_HEIGHT / 2.0),
         }
     }
@@ -199,12 +205,26 @@ impl State for GesturePadState {
             .on_long_press(cx.callback(|s| s.holds += 1))
             .on_pan_start(start)
             .on_pan_update(move |at, _| update(at));
+        // The pad as a region: the pointer's presence is shown, and the cursor over it is a hand
+        // ready to grab the dot (milestone 583).
+        let (entered, left) = (
+            cx.callback(|s| s.inside = true),
+            cx.callback(|s| s.inside = false),
+        );
+        let detector = MouseRegion::new(detector)
+            .cursor(Cursor::Grab)
+            .on_enter(move |_| entered.clone())
+            .on_exit(move |_| left.clone());
+
         Box::new(
             column![
                 text("Gestures").size(18.0),
                 text(format!(
-                    "Taps {} · Double taps {} · Holds {}",
-                    self.taps, self.doubles, self.holds
+                    "Taps {} · Double taps {} · Holds {}{}",
+                    self.taps,
+                    self.doubles,
+                    self.holds,
+                    if self.inside { " · Pointer in" } else { "" }
                 ))
                 .color(theme.muted),
                 detector,

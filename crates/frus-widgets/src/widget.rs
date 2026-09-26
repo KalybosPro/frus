@@ -1531,6 +1531,19 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// Whether this widget is a **region the mouse enters and leaves** (milestone 583), and
+    /// how: the cursor it asks for while the pointer is over it, and whether it hides the
+    /// regions behind it. `None` for anything that is not one.
+    fn hover_region(&self) -> Option<crate::HoverRegion> {
+        None
+    }
+
+    /// Message for the pointer entering, moving over or leaving this region — one whose
+    /// [`hover_region`](Self::hover_region) is set.
+    fn on_hover_event(&self, _event: crate::HoverEvent) -> Option<Msg> {
+        None
+    }
+
     /// Which way this widget takes a **drag**, if it takes one at all (milestone 582): the
     /// shell then reports it through [`on_pan`](Self::on_pan). Inside a scroll, a drag along
     /// the scroll's axis stays the scroll's unless this axis claims it.
@@ -2090,6 +2103,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn pan_axis(&self) -> Option<crate::PanAxis> {
         (**self).pan_axis()
+    }
+    fn hover_region(&self) -> Option<crate::HoverRegion> {
+        (**self).hover_region()
+    }
+    fn on_hover_event(&self, event: crate::HoverEvent) -> Option<Msg> {
+        (**self).on_hover_event(event)
     }
     fn on_pan(&self, event: crate::PanEvent) -> Option<Msg> {
         (**self).on_pan(event)

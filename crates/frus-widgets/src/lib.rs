@@ -83,6 +83,7 @@ mod gesturedetector;
 mod grid;
 mod gridtile;
 mod hero;
+mod mouseregion;
 // Documented inside (`host.rs`): an outer doc comment here would make its links resolve from
 // this scope rather than from the module's.
 pub mod host;
@@ -313,6 +314,7 @@ pub use media::{
 };
 pub use mediascope::MediaScope;
 pub use menu::{MenuItem, PopupMenuButton};
+pub use mouseregion::{HoverEvent, HoverRegion, MouseRegion};
 pub use navbar::NavigationBar;
 pub use navdrawer::NavigationDrawer;
 pub use navigator::Navigator;

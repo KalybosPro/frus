@@ -634,6 +634,14 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.pan_axis())
     }
 
+    fn hover_region(&self) -> Option<crate::HoverRegion> {
+        self.inner.as_ref().and_then(|w| w.hover_region())
+    }
+
+    fn on_hover_event(&self, event: crate::HoverEvent) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_hover_event(event))
+    }
+
     fn on_pan(&self, event: crate::PanEvent) -> Option<Msg> {
         self.inner.as_ref().and_then(|w| w.on_pan(event))
     }
