@@ -1531,6 +1531,19 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// Whether this widget **hears the pointer's raw events** (milestone 586): a press inside
+    /// it, and then that pointer wherever it goes until it lifts; and a mouse's hover.
+    fn pointer_listener(&self) -> bool {
+        false
+    }
+
+    /// The messages for one raw event of the pointer, on a widget that is a
+    /// [`pointer_listener`](Self::pointer_listener). Several, when listeners wrap each other at
+    /// the same place.
+    fn on_pointer_event(&self, _event: crate::ListenerEvent) -> Vec<Msg> {
+        Vec::new()
+    }
+
     /// Whether this widget is a **region the mouse enters and leaves** (milestone 583), and
     /// how: the cursor it asks for while the pointer is over it, and whether it hides the
     /// regions behind it. `None` for anything that is not one.
@@ -2106,6 +2119,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn hover_region(&self) -> Option<crate::HoverRegion> {
         (**self).hover_region()
+    }
+    fn pointer_listener(&self) -> bool {
+        (**self).pointer_listener()
+    }
+    fn on_pointer_event(&self, event: crate::ListenerEvent) -> Vec<Msg> {
+        (**self).on_pointer_event(event)
     }
     fn on_hover_event(&self, event: crate::HoverEvent) -> Option<Msg> {
         (**self).on_hover_event(event)

@@ -638,6 +638,17 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.hover_region())
     }
 
+    fn pointer_listener(&self) -> bool {
+        self.inner.as_ref().is_some_and(|w| w.pointer_listener())
+    }
+
+    fn on_pointer_event(&self, event: crate::ListenerEvent) -> Vec<Msg> {
+        self.inner
+            .as_ref()
+            .map(|w| w.on_pointer_event(event))
+            .unwrap_or_default()
+    }
+
     fn on_hover_event(&self, event: crate::HoverEvent) -> Option<Msg> {
         self.inner.as_ref().and_then(|w| w.on_hover_event(event))
     }

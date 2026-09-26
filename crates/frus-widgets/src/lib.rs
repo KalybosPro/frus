@@ -104,6 +104,7 @@ mod keyed;
 mod layoutbuilder;
 pub mod licenses;
 mod list;
+mod listener;
 mod listtile;
 /// Which language the interface is in: [`locale::Locale`], [`locale::resolve`] and
 /// [`locale::of`].
@@ -308,6 +309,7 @@ pub use keyed::Keyed;
 pub use layoutbuilder::LayoutBuilder;
 pub use licenses::{AboutDialog, AboutListTile, LicenseNotice, LicensePage, Package};
 pub use list::{ListView, VirtualList};
+pub use listener::{Listener, ListenerEvent, ListenerEventKind, OrientationBuilder};
 pub use listtile::{
     ListTile, LIST_TILE_DENSE_HEIGHTS, LIST_TILE_HEIGHTS, LIST_TILE_MIN_LEADING_WIDTH,
     LIST_TILE_MIN_VERTICAL_PADDING, LIST_TILE_PADDING_END, LIST_TILE_PADDING_START,
