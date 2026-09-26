@@ -9539,27 +9539,59 @@ mod selection_area_tests {
     const H: f32 = 300.0;
 
     /// A line outside the area, then an area of three lines with a button between two of them.
-    struct Doc;
+    #[derive(Default)]
+    struct Doc {
+        /// What the application says about the area's bar.
+        bar: Bar,
+        /// How many times the bar's own item was pressed.
+        shared: std::rc::Rc<std::cell::Cell<u32>>,
+    }
+
+    /// The application's say over the area's bar (milestone 578).
+    #[derive(Default, Clone, Copy)]
+    enum Bar {
+        /// Nothing: Copy and Select all.
+        #[default]
+        Default,
+        /// Its own item, Share, after Copy, and no Select all.
+        Share,
+        /// No bar at all.
+        Empty,
+    }
 
     impl Application for Doc {
         type Message = ();
 
         fn update(&mut self, _message: ()) -> Command<()> {
+            self.shared.set(self.shared.get() + 1);
             Command::none()
         }
 
         fn view(&self, _theme: &Theme) -> Box<dyn Widget<()>> {
+            let area = SelectionArea::around(
+                Flex::column()
+                    .child(Text::new("first line of words").no_wrap())
+                    .child(Text::new("second line").no_wrap())
+                    .child(Button::new("Press").on_press(()))
+                    .child(Text::new("third line ends here").no_wrap()),
+            );
+            let area = match self.bar {
+                Bar::Default => area,
+                Bar::Share => area.selection_toolbar(|_, items| {
+                    let mut items: Vec<_> = items
+                        .into_iter()
+                        .filter(|item| item.label() == "Copy")
+                        .collect();
+                    items.push(frus_widgets::ToolbarItem::custom("Share", ()));
+                    items
+                }),
+                Bar::Empty => area.selection_toolbar(|_, _| Vec::new()),
+            };
             Box::new(
                 Container::new().width(W).height(H).child(
                     Flex::column()
                         .child(Text::new("Outside the area").no_wrap())
-                        .child(SelectionArea::around(
-                            Flex::column()
-                                .child(Text::new("first line of words").no_wrap())
-                                .child(Text::new("second line").no_wrap())
-                                .child(Button::new("Press").on_press(()))
-                                .child(Text::new("third line ends here").no_wrap()),
-                        )),
+                        .child(area),
                 ),
             )
         }
@@ -9628,7 +9660,15 @@ mod selection_area_tests {
     }
 
     fn driver() -> Driver<Doc> {
-        let mut driver = Driver::new(Doc, W, H);
+        driver_with(Bar::Default)
+    }
+
+    fn driver_with(bar: Bar) -> Driver<Doc> {
+        let doc = Doc {
+            bar,
+            ..Doc::default()
+        };
+        let mut driver = Driver::new(doc, W, H);
         driver.run(0.2);
         driver
     }
@@ -9911,6 +9951,40 @@ mod selection_area_tests {
         drag(&mut d, from, to);
         assert!(d.area_selection().is_some());
         assert!(bar_button(&d, "Copy").is_none());
+    }
+
+    /// **The application says what the bar holds** (milestone 578): its own item beside Copy,
+    /// and no Select all — and pressing its item sends the application's message.
+    #[test]
+    fn the_application_says_what_the_bar_holds() {
+        let mut d = driver_with(Bar::Share);
+        let at = on(&d, "second line", 12.0);
+        assert!(hold(&mut d, at));
+        assert_eq!(d.area_selection().as_deref(), Some("second"));
+        assert!(bar_button(&d, "Copy").is_some(), "Copy was kept");
+        assert!(
+            bar_button(&d, "Select all").is_none(),
+            "Select all was taken off"
+        );
+        let share = bar_button(&d, "Share").expect("the application's own item");
+        let shared = d.app().shared.clone();
+        d.press(share);
+        d.release(share);
+        d.run(0.05);
+        assert_eq!(shared.get(), 1, "its message was sent");
+    }
+
+    /// **An empty list shows no bar**, and the selection is still made.
+    #[test]
+    fn an_empty_list_shows_no_bar() {
+        let mut d = driver_with(Bar::Empty);
+        let at = on(&d, "second line", 12.0);
+        assert!(hold(&mut d, at));
+        assert_eq!(d.area_selection().as_deref(), Some("second"));
+        assert!(bar_button(&d, "Copy").is_none());
+        assert!(d
+            .frame_parts()
+            .is_some_and(|(ui, _)| !ui.toolbar_contains(at)));
     }
 
     /// A handle's middle — where a finger takes it.

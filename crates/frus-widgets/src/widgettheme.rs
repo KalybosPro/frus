@@ -149,6 +149,10 @@ pub struct WidgetThemes {
     pub table: TableTheme,
     /// The text style that text takes when it names none of its own.
     pub text: DefaultTextStyle,
+    /// How a selection in text that is not a field looks: a
+    /// [`selectable`](crate::Text::selectable) text's, and a
+    /// [`SelectionArea`](crate::SelectionArea)'s.
+    pub text_selection: TextSelectionTheme,
     /// Defaults for [`TextField`](crate::TextField).
     pub text_field: TextFieldTheme,
     /// Defaults for [`TimePicker`](crate::TimePicker) and [`TimeRange`](crate::TimeRange).
@@ -161,6 +165,32 @@ pub struct WidgetThemes {
     pub tooltip: TooltipTheme,
     /// Defaults for [`Tree`](crate::Tree).
     pub tree: TreeTheme,
+}
+
+/// How a selection in text that is not a field looks — a
+/// [`selectable`](crate::Text::selectable) text's and a [`SelectionArea`](crate::SelectionArea)'s.
+///
+/// A field has its own ([`TextFieldTheme::handle_color`]); this is for the words around it.
+/// [`SelectionArea::selection_color`](crate::SelectionArea::selection_color) and
+/// [`SelectionArea::handle_color`](crate::SelectionArea::handle_color) set it for one area.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TextSelectionTheme {
+    /// The highlight under the selected words. Unset, the theme's `selection`.
+    pub selection_color: Option<Color>,
+    /// The handles under a touch selection. Unset, the scheme's `primary`.
+    pub handle_color: Option<Color>,
+}
+
+impl TextSelectionTheme {
+    /// The highlight, resolved against `theme`.
+    pub fn selection_color_in(&self, theme: &crate::Theme) -> Color {
+        self.selection_color.unwrap_or(theme.selection)
+    }
+
+    /// The handles' colour, resolved against `theme`.
+    pub fn handle_color_in(&self, theme: &crate::Theme) -> Color {
+        self.handle_color.unwrap_or(theme.scheme.primary)
+    }
 }
 
 /// Defaults for [`Badge`](crate::Badge).

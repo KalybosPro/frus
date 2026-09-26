@@ -798,6 +798,15 @@ forward_transparent!(Shared {
     fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
         self.inner.scaffold_override()
     }
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
+    }
+    fn area_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+    ) -> Option<Option<&dyn crate::widget::Widget<Msg>>> {
+        self.inner.area_toolbar(context)
+    }
 });
 
 #[cfg(test)]
@@ -938,6 +947,7 @@ mod tests {
                 "fn restyle(",
                 "fn positioned(",
                 "fn autofill_group(",
+                "fn area_toolbar(",
             ] {
                 assert!(src.contains(hook), "{file} says nothing about `{hook}`");
             }
