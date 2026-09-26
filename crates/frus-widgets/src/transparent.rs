@@ -737,6 +737,14 @@ macro_rules! forward_transparent {
                 self.inner.on_long_press()
             }
 
+            fn on_double_tap(&self) -> Option<Msg> {
+                self.inner.on_double_tap()
+            }
+
+            fn on_secondary_tap(&self) -> Option<Msg> {
+                self.inner.on_secondary_tap()
+            }
+
             fn on_key(
                 &self,
                 key: &$crate::interaction::Key,

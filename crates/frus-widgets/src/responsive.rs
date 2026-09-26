@@ -622,6 +622,14 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_long_press())
     }
 
+    fn on_double_tap(&self) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_double_tap())
+    }
+
+    fn on_secondary_tap(&self) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_secondary_tap())
+    }
+
     fn on_key(&self, key: &crate::Key) -> crate::KeyResponse<Msg> {
         self.inner
             .as_ref()

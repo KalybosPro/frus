@@ -79,6 +79,7 @@ mod switcher;
 mod system_ui;
 pub use form::ErrorSummary;
 mod fractional;
+mod gesturedetector;
 mod grid;
 mod gridtile;
 mod hero;
@@ -278,6 +279,7 @@ pub use focus::{
     ExcludeFocus, ExcludeFocusTraversal, Focus, FocusTraversalGroup, FocusTraversalOrder,
 };
 pub use fractional::FractionallySizedBox;
+pub use gesturedetector::GestureDetector;
 pub use grid::GridView;
 pub use gridtile::{GridTile, GridTileBar, GRID_TILE_BAR_HEIGHT, GRID_TILE_BAR_TWO_LINE_HEIGHT};
 pub use hero::{lerp_rect, Hero, HeroSpot};

@@ -3464,11 +3464,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     xform: None,
                 });
             }
-            if let Some(msg) = widget.on_click() {
+            // A target for a press: something that answers a tap, or a double or a secondary
+            // tap without one — the shell asks it for those once the press lands on it.
+            let tap = widget.on_click();
+            if tap.is_some()
+                || widget.on_double_tap().is_some()
+                || widget.on_secondary_tap().is_some()
+            {
                 self.hits.push(Hit {
                     id,
                     rect: visible,
-                    msg: Some(msg),
+                    msg: tap,
                     xform: None,
                 });
             }
@@ -4833,11 +4839,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     xform: None,
                 });
             }
-            if let Some(msg) = widget.on_click() {
+            // A target for a press: something that answers a tap, or a double or a secondary
+            // tap without one — the shell asks it for those once the press lands on it.
+            let tap = widget.on_click();
+            if tap.is_some()
+                || widget.on_double_tap().is_some()
+                || widget.on_secondary_tap().is_some()
+            {
                 self.hits.push(Hit {
                     id,
                     rect: visible,
-                    msg: Some(msg),
+                    msg: tap,
                     xform: None,
                 });
             }

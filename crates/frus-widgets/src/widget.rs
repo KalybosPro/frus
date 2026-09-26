@@ -1517,6 +1517,20 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// Message emitted by a **double tap**: two taps on this widget in quick succession
+    /// (within 300 ms and 100 px of each other, the reference's numbers). While one is
+    /// possible, a first tap's [`on_click`](Self::on_click) waits out those 300 ms, so that
+    /// the second tap of a double tap is not also a tap.
+    fn on_double_tap(&self) -> Option<Msg> {
+        None
+    }
+
+    /// Message emitted by a **secondary tap**: a click of the secondary mouse button, usually
+    /// the right one.
+    fn on_secondary_tap(&self) -> Option<Msg> {
+        None
+    }
+
     /// Key received while **bubbling leaf→root**: the focused widget gets it first,
     /// then each ancestor as long as the response is `Ignored`. (E.g. an `OverlayPortal`
     /// consumes `Escape` to close itself.)
@@ -2054,6 +2068,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_long_press(&self) -> Option<Msg> {
         (**self).on_long_press()
+    }
+    fn on_double_tap(&self) -> Option<Msg> {
+        (**self).on_double_tap()
+    }
+    fn on_secondary_tap(&self) -> Option<Msg> {
+        (**self).on_secondary_tap()
     }
     fn on_key(&self, key: &crate::interaction::Key) -> crate::interaction::KeyResponse<Msg> {
         (**self).on_key(key)
