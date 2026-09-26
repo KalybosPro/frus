@@ -992,6 +992,9 @@ pub struct App<A: Application> {
     entered: Vec<(WidgetId, Rect)>,
     /// Whether a button or a finger is down: a region hears moves only without one.
     pointer_held: bool,
+    /// The widgets hearing the pointer's raw events that it went down in, each with its box
+    /// then: they hear it until it lifts, wherever it goes (milestone 586).
+    captured: Vec<(WidgetId, Rect)>,
     /// A counter for the keys of leaving events, which fade out.
     leaving_counter: u64,
     /// The running subscriptions: id → cancellation handle, dropping which stops it.
@@ -1152,6 +1155,7 @@ impl<A: Application> App<A> {
             task_arrivals: 0,
             entered: Vec::new(),
             pointer_held: false,
+            captured: Vec::new(),
             leaving_counter: 0,
             running_subs: HashMap::new(),
             pending_focus: Vec::new(),
@@ -3293,6 +3297,10 @@ impl<A: Application> App<A> {
     /// regions the pointer is in are brought up to date after it (milestone 583).
     fn pointer_event(&mut self, event: PointerEvent) {
         let kind = event.kind;
+        // The raw events first, against the frame the pointer is over: a listener hears the
+        // press before anything it leads to rebuilds the tree (milestone 586).
+        self.cursor = event.position;
+        self.route_listeners(kind, event.touch);
         self.route_pointer_event(event);
         self.pointer_held = match kind {
             PointerKind::Down => true,
@@ -3549,6 +3557,71 @@ impl<A: Application> App<A> {
     fn take_task_arrivals(&mut self) -> bool {
         let now = frus_widgets::task_arrivals();
         std::mem::replace(&mut self.task_arrivals, now) != now
+    }
+
+    /// Hands one raw pointer event to the widgets that hear them (milestone 586): a press to
+    /// every one under the pointer, the innermost first, which then hear that pointer until
+    /// it lifts, wherever it goes; a mouse moving with nothing held, to those under it.
+    fn route_listeners(&mut self, kind: PointerKind, touch: bool) {
+        use frus_widgets::ListenerEventKind as Raw;
+        let at = self.cursor;
+        let heard: Vec<(WidgetId, Rect, Raw)> = match kind {
+            PointerKind::Down => {
+                self.captured = self
+                    .ui
+                    .as_ref()
+                    .map(|ui| ui.pointer_listeners_at(at))
+                    .unwrap_or_default();
+                self.captured
+                    .iter()
+                    .map(|(id, rect)| (*id, *rect, Raw::Down))
+                    .collect()
+            }
+            PointerKind::Move if self.pointer_held => self
+                .captured
+                .iter()
+                .map(|(id, rect)| (*id, *rect, Raw::Move))
+                .collect(),
+            PointerKind::Move if !touch => self
+                .ui
+                .as_ref()
+                .map(|ui| ui.pointer_listeners_at(at))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(id, rect)| (id, rect, Raw::Hover))
+                .collect(),
+            PointerKind::Move => Vec::new(),
+            PointerKind::Up | PointerKind::Cancel => {
+                let raw = if kind == PointerKind::Up {
+                    Raw::Up
+                } else {
+                    Raw::Cancel
+                };
+                std::mem::take(&mut self.captured)
+                    .into_iter()
+                    .map(|(id, rect)| (id, rect, raw))
+                    .collect()
+            }
+        };
+        let messages: Vec<A::Message> = heard
+            .into_iter()
+            .flat_map(|(id, rect, kind)| {
+                let event = frus_widgets::ListenerEvent {
+                    kind,
+                    local: Point::new(at.x - rect.x, at.y - rect.y),
+                    touch,
+                };
+                self.tree
+                    .as_ref()
+                    .and_then(|tree| find_widget(tree.as_ref(), id))
+                    .map(|widget| widget.on_pointer_event(event))
+                    .unwrap_or_default()
+            })
+            .collect();
+        for message in messages {
+            self.dispatch(message);
+            self.request_redraw();
+        }
     }
 
     /// Brings the regions the pointer is in up to date (milestone 583): an exit for each it has
@@ -11397,5 +11470,213 @@ mod mouse_region_tests {
         assert_eq!(d.cursor_shown(), Cursor::Default, "no region");
         mouse(&mut d, 100.0, 420.0);
         assert_eq!(d.cursor_shown(), Cursor::Text, "the field's own");
+    }
+}
+
+/// The pointer's raw events on a [`Listener`](frus_widgets::Listener), driven through the
+/// shell (milestone 586).
+#[cfg(test)]
+mod listener_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{
+        Button, Container, Flex, Listener, ListenerEvent, ListenerEventKind as Raw, Point,
+        SingleChildScrollView, Theme, Widget,
+    };
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    const W: f32 = 400.0;
+    const H: f32 = 400.0;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Heard(&'static str, Raw, Point),
+        Pressed,
+    }
+
+    /// In a scroll taller than the window: an outer listener (300×300 at the top, 40 px down)
+    /// holding an inner one (100×100 at its top-left) with a button in it.
+    struct Page {
+        heard: Rc<RefCell<Vec<Msg>>>,
+    }
+
+    fn listen(name: &'static str) -> impl Fn(ListenerEvent) -> Option<Msg> {
+        move |event| Some(Msg::Heard(name, event.kind, event.local))
+    }
+
+    impl Application for Page {
+        type Message = Msg;
+
+        fn update(&mut self, message: Msg) -> Command<Msg> {
+            self.heard.borrow_mut().push(message);
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            let inner = Listener::new(
+                Container::new()
+                    .width(100.0)
+                    .height(100.0)
+                    .child(Button::new("Press").on_press(Msg::Pressed)),
+                listen("inner"),
+            );
+            let outer = Listener::new(
+                Container::new().width(300.0).height(300.0).child(inner),
+                listen("outer"),
+            );
+            Box::new(
+                SingleChildScrollView::new().width(W).height(H).child(
+                    Flex::column()
+                        .child(Container::new().width(300.0).height(40.0))
+                        .child(outer)
+                        .child(Container::new().width(300.0).height(1000.0)),
+                ),
+            )
+        }
+    }
+
+    fn driver() -> (Driver<Page>, Rc<RefCell<Vec<Msg>>>) {
+        let heard = Rc::new(RefCell::new(Vec::new()));
+        let mut d = Driver::new(
+            Page {
+                heard: heard.clone(),
+            },
+            W,
+            H,
+        );
+        d.run(0.2);
+        (d, heard)
+    }
+
+    fn take(heard: &Rc<RefCell<Vec<Msg>>>) -> Vec<Msg> {
+        std::mem::take(&mut *heard.borrow_mut())
+    }
+
+    /// The events `name` heard, in order.
+    fn of(heard: &[Msg], name: &str) -> Vec<(Raw, Point)> {
+        heard
+            .iter()
+            .filter_map(|m| match m {
+                Msg::Heard(n, kind, at) if *n == name => Some((*kind, *at)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn scroll_y(d: &Driver<Page>) -> f32 {
+        d.offsets().first().map_or(0.0, |(_, offset)| offset.1)
+    }
+
+    /// **A press is heard by every listener under it, the innermost first**, each in its own
+    /// coordinates.
+    #[test]
+    fn a_press_is_heard_innermost_first() {
+        let (mut d, heard) = driver();
+        d.press(Point::new(250.0, 90.0));
+        d.run(0.02);
+        let h = take(&heard);
+        assert_eq!(of(&h, "outer"), vec![(Raw::Down, Point::new(250.0, 50.0))]);
+        assert!(of(&h, "inner").is_empty(), "outside the inner one: {h:?}");
+        d.release(Point::new(250.0, 90.0));
+        d.run(0.02);
+        take(&heard);
+
+        d.press(Point::new(60.0, 80.0));
+        d.run(0.02);
+        let h = take(&heard);
+        let order: Vec<_> = h
+            .iter()
+            .filter_map(|m| match m {
+                Msg::Heard(n, Raw::Down, _) => Some(*n),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(order, vec!["inner", "outer"], "{h:?}");
+        assert_eq!(of(&h, "inner"), vec![(Raw::Down, Point::new(60.0, 40.0))]);
+        d.release(Point::new(60.0, 80.0));
+        d.run(0.02);
+    }
+
+    /// **The pointer that went down inside is followed wherever it goes**, out of the box,
+    /// until it lifts — and the listener does not keep the page from scrolling under it.
+    #[test]
+    fn the_pointer_is_followed_out_and_the_page_still_scrolls() {
+        let (mut d, heard) = driver();
+        let from = Point::new(250.0, 300.0);
+        d.press(from);
+        d.run(0.02);
+        for step in 1..=8 {
+            d.move_to(Point::new(250.0, 300.0 - 35.0 * step as f32));
+            d.run(0.02);
+        }
+        d.release(Point::new(250.0, 20.0));
+        d.run(0.02);
+        let h = take(&heard);
+        let outer = of(&h, "outer");
+        assert_eq!(outer.first().map(|e| e.0), Some(Raw::Down), "{outer:?}");
+        assert_eq!(outer.last().map(|e| e.0), Some(Raw::Up), "{outer:?}");
+        assert!(
+            outer.iter().filter(|e| e.0 == Raw::Move).count() >= 7,
+            "{outer:?}"
+        );
+        assert!(scroll_y(&d) > 50.0, "the page scrolled: {}", scroll_y(&d));
+    }
+
+    /// **A pointer that leaves the box is still heard**, outside it, until it lifts — a mouse,
+    /// which scrolls nothing, carried right out of both listeners.
+    #[test]
+    fn a_pointer_that_leaves_is_still_heard() {
+        let (mut d, heard) = driver();
+        d.press_mouse(Point::new(60.0, 80.0));
+        d.run(0.02);
+        d.move_mouse(Point::new(390.0, 390.0));
+        d.run(0.02);
+        d.release_mouse(Point::new(390.0, 390.0));
+        d.run(0.02);
+        let h = take(&heard);
+        let inner = of(&h, "inner");
+        assert_eq!(
+            inner,
+            vec![
+                (Raw::Down, Point::new(60.0, 40.0)),
+                (Raw::Move, Point::new(390.0, 350.0)),
+                (Raw::Up, Point::new(390.0, 350.0)),
+            ],
+            "{h:?}"
+        );
+        assert_eq!(of(&h, "outer").len(), 3, "{h:?}");
+    }
+
+    /// **A button inside keeps its tap**, and the listeners hear the press and the release.
+    #[test]
+    fn a_button_inside_keeps_its_tap() {
+        let (mut d, heard) = driver();
+        let at = Point::new(30.0, 55.0);
+        d.press(at);
+        d.release(at);
+        d.run(0.05);
+        let h = take(&heard);
+        assert!(h.contains(&Msg::Pressed), "{h:?}");
+        let inner = of(&h, "inner");
+        assert_eq!(
+            inner.iter().map(|e| e.0).collect::<Vec<_>>(),
+            vec![Raw::Down, Raw::Up]
+        );
+    }
+
+    /// **A mouse with nothing held is heard as a hover** by the listeners under it, and by no
+    /// other.
+    #[test]
+    fn a_mouse_hovering_is_heard() {
+        let (mut d, heard) = driver();
+        d.move_mouse(Point::new(250.0, 90.0));
+        d.run(0.02);
+        let h = take(&heard);
+        assert_eq!(of(&h, "outer"), vec![(Raw::Hover, Point::new(250.0, 50.0))]);
+        assert!(of(&h, "inner").is_empty());
+        d.move_mouse(Point::new(390.0, 390.0));
+        d.run(0.02);
+        assert!(take(&heard).is_empty(), "outside both");
     }
 }

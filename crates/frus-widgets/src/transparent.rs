@@ -60,6 +60,7 @@ macro_rules! forward_transparent {
             $($extra)*
             $crate::transparent::forward_gesture_hooks!();
             $crate::transparent::forward_hover_hooks!();
+            $crate::transparent::forward_listener_hooks!();
         });
     };
     // A wrapper that **answers gestures** on its child — `GestureDetector` (milestone 582) —
@@ -69,6 +70,7 @@ macro_rules! forward_transparent {
         $crate::transparent::forward_transparent!(@body $ty {
             $($extra)*
             $crate::transparent::forward_hover_hooks!();
+            $crate::transparent::forward_listener_hooks!();
         });
     };
     // A wrapper that **is a region the mouse enters and leaves** — `MouseRegion` (milestone
@@ -77,6 +79,16 @@ macro_rules! forward_transparent {
         $crate::transparent::forward_transparent!(@body $ty {
             $($extra)*
             $crate::transparent::forward_gesture_hooks!();
+            $crate::transparent::forward_listener_hooks!();
+        });
+    };
+    // A wrapper that **hears the pointer's raw events** — `Listener` (milestone 586) — states
+    // the two listener hooks itself: `pointer_listener` and `on_pointer_event`.
+    (listener $ty:ident { $($extra:item)* }) => {
+        $crate::transparent::forward_transparent!(@body $ty {
+            $($extra)*
+            $crate::transparent::forward_gesture_hooks!();
+            $crate::transparent::forward_hover_hooks!();
         });
     };
     (@body $ty:ident { $($extra:item)* }) => {
@@ -809,8 +821,23 @@ macro_rules! forward_hover_hooks {
     };
 }
 
+/// The two listener hooks, forwarded to `inner` — what every transparent wrapper but a
+/// [`crate::Listener`] does with them.
+macro_rules! forward_listener_hooks {
+    () => {
+        fn pointer_listener(&self) -> bool {
+            self.inner.pointer_listener()
+        }
+
+        fn on_pointer_event(&self, event: $crate::ListenerEvent) -> Vec<Msg> {
+            self.inner.on_pointer_event(event)
+        }
+    };
+}
+
 pub(crate) use forward_gesture_hooks;
 pub(crate) use forward_hover_hooks;
+pub(crate) use forward_listener_hooks;
 pub(crate) use forward_transparent;
 
 /// A widget held by a **shared pointer**, so that a builder which rebuilds its subtree can

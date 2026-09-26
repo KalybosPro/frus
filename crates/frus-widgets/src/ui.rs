@@ -431,6 +431,8 @@ struct BoundaryData<Msg> {
     /// The detectors that take a drag, in painted order, with the box a press can land in
     /// (clipped) and the whole box (milestone 582).
     pans: Vec<(WidgetId, Rect, Rect)>,
+    /// The widgets that hear the pointer's raw events, likewise (milestone 586).
+    pointer_listeners: Vec<(WidgetId, Rect, Rect)>,
     /// The regions the mouse enters and leaves, in painted order (milestone 583).
     hover_regions: Vec<HoverEntry>,
     text_stops: Vec<crate::TextStop>,
@@ -452,6 +454,7 @@ struct Snapshot {
     drop_zones: usize,
     inks: usize,
     pans: usize,
+    pointer_listeners: usize,
     hover_regions: usize,
     text_stops: usize,
     semantics: usize,
@@ -490,6 +493,7 @@ struct BarrierBase {
     drop_zones: usize,
     inks: usize,
     pans: usize,
+    pointer_listeners: usize,
     hover_regions: usize,
     text_stops: usize,
     reorderables: usize,
@@ -507,6 +511,7 @@ struct XformBase {
     drop_zones: usize,
     inks: usize,
     pans: usize,
+    pointer_listeners: usize,
     hover_regions: usize,
     text_stops: usize,
     reorderables: usize,
@@ -665,6 +670,8 @@ pub struct Ui<Msg = crate::callback::Callback> {
     /// The detectors that take a drag, in painted order, with the box a press can land in
     /// (clipped) and the whole box (milestone 582).
     pans: Vec<(WidgetId, Rect, Rect)>,
+    /// The widgets that hear the pointer's raw events, likewise (milestone 586).
+    pointer_listeners: Vec<(WidgetId, Rect, Rect)>,
     /// The regions the mouse enters and leaves, in painted order (milestone 583).
     hover_regions: Vec<HoverEntry>,
     /// The texts inside a [`SelectionArea`](crate::SelectionArea), in the order they were
@@ -1427,6 +1434,17 @@ impl<Msg: Clone> Ui<Msg> {
             .rev()
             .find(|region| region.id == id)
             .map(|region| region.whole)
+    }
+
+    /// The widgets hearing the pointer's raw events under `point`, the innermost first, each
+    /// with its whole box (milestone 586).
+    pub fn pointer_listeners_at(&self, point: Point) -> Vec<(WidgetId, Rect)> {
+        self.pointer_listeners
+            .iter()
+            .rev()
+            .filter(|(_, seen, _)| seen.contains(point))
+            .map(|(id, _, whole)| (*id, *whole))
+            .collect()
     }
 
     /// The innermost detector that takes a drag under `point`, and its box (milestone 582):
@@ -2384,6 +2402,8 @@ struct Builder<'a, Msg> {
     /// The detectors that take a drag, in painted order, with the box a press can land in
     /// (clipped) and the whole box (milestone 582).
     pans: Vec<(WidgetId, Rect, Rect)>,
+    /// The widgets that hear the pointer's raw events, likewise (milestone 586).
+    pointer_listeners: Vec<(WidgetId, Rect, Rect)>,
     /// The regions the mouse enters and leaves, in painted order (milestone 583).
     hover_regions: Vec<HoverEntry>,
     text_stops: Vec<crate::TextStop>,
@@ -2641,6 +2661,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drop_zones: self.drop_zones.len(),
             inks: self.inks.len(),
             pans: self.pans.len(),
+            pointer_listeners: self.pointer_listeners.len(),
             hover_regions: self.hover_regions.len(),
             text_stops: self.text_stops.len(),
             semantics: self.semantics.len(),
@@ -2670,6 +2691,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drop_zones: self.drop_zones[snap.drop_zones..].to_vec(),
             inks: self.inks[snap.inks..].to_vec(),
             pans: self.pans[snap.pans..].to_vec(),
+            pointer_listeners: self.pointer_listeners[snap.pointer_listeners..].to_vec(),
             hover_regions: self.hover_regions[snap.hover_regions..].to_vec(),
             text_stops: self.text_stops[snap.text_stops..].to_vec(),
             semantics: self.semantics[snap.semantics..].to_vec(),
@@ -2693,6 +2715,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.drop_zones.extend(data.drop_zones);
         self.inks.extend(data.inks);
         self.pans.extend(data.pans);
+        self.pointer_listeners.extend(data.pointer_listeners);
         self.hover_regions.extend(data.hover_regions);
         self.text_stops.extend(data.text_stops);
         self.semantics.extend(data.semantics);
@@ -2714,6 +2737,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drop_zones: self.drop_zones.len(),
             inks: self.inks.len(),
             pans: self.pans.len(),
+            pointer_listeners: self.pointer_listeners.len(),
             hover_regions: self.hover_regions.len(),
             text_stops: self.text_stops.len(),
             reorderables: self.reorderables.len(),
@@ -2878,6 +2902,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.drop_zones.truncate(base.drop_zones);
             self.inks.truncate(base.inks);
             self.pans.truncate(base.pans);
+            self.pointer_listeners.truncate(base.pointer_listeners);
             self.hover_regions.truncate(base.hover_regions);
             self.text_stops.truncate(base.text_stops);
             self.reorderables.truncate(base.reorderables);
@@ -2920,6 +2945,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drop_zones: self.drop_zones.len(),
             inks: self.inks.len(),
             pans: self.pans.len(),
+            pointer_listeners: self.pointer_listeners.len(),
             hover_regions: self.hover_regions.len(),
             text_stops: self.text_stops.len(),
             reorderables: self.reorderables.len(),
@@ -2962,6 +2988,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 *r = matrix.apply_rect(*r);
             }
             for (_, seen, whole) in &mut self.pans[base.pans..] {
+                *seen = matrix.apply_rect(*seen);
+                *whole = matrix.apply_rect(*whole);
+            }
+            for (_, seen, whole) in &mut self.pointer_listeners[base.pointer_listeners..] {
                 *seen = matrix.apply_rect(*seen);
                 *whole = matrix.apply_rect(*whole);
             }
@@ -3619,6 +3649,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // A detector that takes a drag (milestone 582).
             if widget.pan_axis().is_some() {
                 self.pans.push((id, visible, draw_rect));
+            }
+            // A widget that hears the pointer's raw events (milestone 586).
+            if widget.pointer_listener() {
+                self.pointer_listeners.push((id, visible, draw_rect));
             }
             if let Some(msg) = widget.on_long_press() {
                 self.long_presses.push(Hit {
@@ -4999,6 +5033,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             if widget.pan_axis().is_some() {
                 self.pans.push((id, visible, draw_rect));
             }
+            // A widget that hears the pointer's raw events (milestone 586).
+            if widget.pointer_listener() {
+                self.pointer_listeners.push((id, visible, draw_rect));
+            }
             if let Some(msg) = widget.on_long_press() {
                 self.long_presses.push(Hit {
                     id,
@@ -5650,6 +5688,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         drop_zones: Vec::new(),
         inks: Vec::new(),
         pans: Vec::new(),
+        pointer_listeners: Vec::new(),
         hover_regions: Vec::new(),
         hover_parent: None,
         text_stops: Vec::new(),
@@ -5735,6 +5774,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         drop_zones: builder.drop_zones,
         inks: builder.inks,
         pans: builder.pans,
+        pointer_listeners: builder.pointer_listeners,
         hover_regions: builder.hover_regions,
         text_stops: builder.text_stops,
         reorderables: builder.reorderables,
