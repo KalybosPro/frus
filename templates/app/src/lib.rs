@@ -26,7 +26,11 @@ impl CounterState {
     }
 
     fn decrement(&mut self) {
-        self.count -= 1;
+        if self.count > 0 {
+            self.count -= 1;
+        } else {
+            self.count = 0;
+        }
     }
 }
 
@@ -51,7 +55,7 @@ impl State for CounterState {
         let Size { width, height } = MediaQuery::of().size;
         let content = column![
             text(format!("{}", self.count)).size(48.0),
-            column![
+            row![
                 button("+", cx.callback(CounterState::increment)).variant(Variant::Filled),
                 button("−", cx.callback(CounterState::decrement)).variant(Variant::Outlined),
             ]
