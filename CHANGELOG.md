@@ -8,10 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 583 so far, each documenting the objective, the alternatives
+> record — one per step, 584 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The test driver times gestures by its frames** (J584). A drag test failed in CI because the
+  fling at its release was read from wall-clock samples microseconds apart, which a loaded machine
+  spaces irregularly; the page was flung back to the top. The shell's velocity tracker now reads
+  the driver's clock in tests, and the wall's in an application.
 
 - **`MouseRegion`** (J583): `on_enter`, `on_hover`, `on_exit` (local positions), `cursor` and
   `opaque`. Every region under the pointer is entered, outer first; an opaque one hides those
