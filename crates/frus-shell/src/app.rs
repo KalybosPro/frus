@@ -916,6 +916,13 @@ pub struct App<A: Application> {
     /// going. Keeping it here rather than in each [`Drag`] variant means the
     /// gesture's clock and its history start together, in one place.
     gesture_velocity: VelocityTracker,
+    /// The test driver's clock for the velocity tracker, when there is one: seconds of
+    /// frames run, and when the gesture under way began on it. `None` in an application,
+    /// which stamps samples with the wall clock. A driver's events are microseconds apart on
+    /// the wall, and irregularly so on a loaded machine: a fling read from them came out at
+    /// any speed, in either direction, and a test that let go of a scroll saw it thrown back
+    /// to the top (milestone 584, seen in CI).
+    gesture_clock: Option<(f32, f32)>,
     gesture_start: Instant,
     /// The pointer's **smoothed** abscissa during a reorder: it springs toward the
     /// real position, giving the columns' sliding a gentle inertia — the background
@@ -1110,6 +1117,7 @@ impl<A: Application> App<A> {
             drag: None,
             pointer_touch: false,
             gesture_velocity: VelocityTracker::platform_default(),
+            gesture_clock: None,
             gesture_start: Instant::now(),
             reorder_x: 0.0,
             reorder_y: 0.0,
@@ -5296,7 +5304,11 @@ impl<A: Application> App<A> {
     /// Seconds since the drag under way began — the clock the velocity tracker's
     /// samples are stamped with.
     fn gesture_now(&self) -> f32 {
-        (Instant::now() - self.gesture_start).as_secs_f32()
+        match self.gesture_clock {
+            // The test driver's clock: the frames it has run, not the wall's.
+            Some((now, start)) => now - start,
+            None => (Instant::now() - self.gesture_start).as_secs_f32(),
+        }
     }
 
     /// Starts a fresh gesture: the history of the previous one must not leak into
@@ -5304,6 +5316,9 @@ impl<A: Application> App<A> {
     fn begin_gesture(&mut self) {
         self.gesture_velocity = VelocityTracker::platform_default();
         self.gesture_start = Instant::now();
+        if let Some((now, start)) = self.gesture_clock.as_mut() {
+            *start = *now;
+        }
         self.track_gesture();
     }
 
@@ -8908,8 +8923,11 @@ pub mod testing {
     impl<A: Application> Driver<A> {
         /// A driver for `app` on a `width` by `height` logical surface.
         pub fn new(app: A, width: f32, height: f32) -> Self {
+            let mut shell = App::detached(app);
+            // Gestures are timed by the frames run, as everything else here is.
+            shell.gesture_clock = Some((0.0, 0.0));
             Self {
-                shell: App::detached(app),
+                shell,
                 size: Size::new(width, height),
                 ghost: None,
             }
@@ -9117,6 +9135,9 @@ pub mod testing {
         pub fn frame(&mut self, dt: f32) {
             let (width, height) = (self.size.width, self.size.height);
             let s = &mut self.shell;
+            if let Some((now, _)) = s.gesture_clock.as_mut() {
+                *now += dt;
+            }
             if s.last_size != Some((width, height)) {
                 s.last_size = Some((width, height));
                 s.build_dirty = true;
@@ -11062,6 +11083,31 @@ mod gesture_pan_tests {
         heard.borrow_mut().clear();
         let at = Point::new(origin(&d).x + 40.0, origin(&d).y + 120.0);
         swipe(&mut d, at, 4.0, -120.0);
+        assert!(heard.borrow().is_empty(), "{:?}", heard.borrow());
+        assert!(scroll_y(&d) > 30.0, "the page scrolled: {}", scroll_y(&d));
+    }
+
+    /// **A machine that stalls in the middle of a drag does not change it** (milestone 584,
+    /// seen in CI). The shell's gestures are timed by the driver's frames and not by the wall:
+    /// with the wall's clock, twenty milliseconds lost between two movements a microsecond
+    /// apart read as a fling in either direction, and a page scrolled down was thrown back to
+    /// the top.
+    #[test]
+    fn a_stall_mid_drag_does_not_change_the_scroll() {
+        let (mut d, heard) = driver(PanAxis::Free, true);
+        let from = Point::new(origin(&d).x + 40.0, origin(&d).y + 120.0);
+        d.press(from);
+        d.run(0.02);
+        for step in 1..=8 {
+            let f = step as f32 / 8.0;
+            d.move_to(Point::new(from.x + 4.0 * f, from.y - 120.0 * f));
+            if step == 5 {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            d.run(0.02);
+        }
+        d.release(Point::new(from.x + 4.0, from.y - 120.0));
+        d.run(0.02);
         assert!(heard.borrow().is_empty(), "{:?}", heard.borrow());
         assert!(scroll_y(&d) > 30.0, "the page scrolled: {}", scroll_y(&d));
     }
