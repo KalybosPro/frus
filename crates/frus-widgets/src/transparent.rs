@@ -56,6 +56,43 @@
 /// forwarded.
 macro_rules! forward_transparent {
     ($ty:ident { $($extra:item)* }) => {
+        $crate::transparent::forward_transparent!(@body $ty {
+            $($extra)*
+
+            // The gestures, which a wrapper forwards like everything else — unless it is the
+            // one wrapper that answers them, below.
+            fn on_click(&self) -> Option<Msg> {
+                self.inner.on_click()
+            }
+
+            fn on_long_press(&self) -> Option<Msg> {
+                self.inner.on_long_press()
+            }
+
+            fn on_double_tap(&self) -> Option<Msg> {
+                self.inner.on_double_tap()
+            }
+
+            fn on_secondary_tap(&self) -> Option<Msg> {
+                self.inner.on_secondary_tap()
+            }
+
+            fn pan_axis(&self) -> Option<$crate::PanAxis> {
+                self.inner.pan_axis()
+            }
+
+            fn on_pan(&self, event: $crate::PanEvent) -> Option<Msg> {
+                self.inner.on_pan(event)
+            }
+        });
+    };
+    // A wrapper that **answers gestures** on its child — `GestureDetector` (milestone 582) —
+    // states the six gesture hooks itself: `on_click`, `on_long_press`, `on_double_tap`,
+    // `on_secondary_tap`, `pan_axis` and `on_pan`.
+    (gestures $ty:ident { $($extra:item)* }) => {
+        $crate::transparent::forward_transparent!(@body $ty { $($extra)* });
+    };
+    (@body $ty:ident { $($extra:item)* }) => {
         impl<Msg> $crate::widget::Widget<Msg> for $ty<Msg> {
             $($extra)*
 
@@ -144,9 +181,6 @@ macro_rules! forward_transparent {
                 self.inner.foreground(theme)
             }
 
-            fn on_click(&self) -> Option<Msg> {
-                self.inner.on_click()
-            }
             fn opaque(&self) -> bool {
                 self.inner.opaque()
             }
@@ -733,17 +767,6 @@ macro_rules! forward_transparent {
                 self.inner.measure_key(theme)
             }
 
-            fn on_long_press(&self) -> Option<Msg> {
-                self.inner.on_long_press()
-            }
-
-            fn on_double_tap(&self) -> Option<Msg> {
-                self.inner.on_double_tap()
-            }
-
-            fn on_secondary_tap(&self) -> Option<Msg> {
-                self.inner.on_secondary_tap()
-            }
 
             fn on_key(
                 &self,

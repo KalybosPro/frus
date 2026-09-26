@@ -8,10 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 581 so far, each documenting the objective, the alternatives
+> record — one per step, 582 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Drags on a `GestureDetector`** (J582): `on_pan_start`, `on_pan_update` (position and delta)
+  and `on_pan_end` (velocity), kept to one direction with `pan_axis`. Inside a scroll the first
+  movement decides by direction, as the reference's gesture arena does: a horizontal drag leaves a
+  vertical scroll its own direction, and a vertical one takes it. New hooks `Widget::pan_axis` and
+  `Widget::on_pan`, and `Ui::pan_at`; `Ui::widget_rect` now finds a detector that drags.
+  `GestureDetector` is now a transparent wrapper — its child is laid out as if it were not there,
+  and keeps what it answers itself — and a hold on a detector that also drags is a long press.
+  The demo's About page has a gestures pad.
 
 - **`GestureDetector`** (J581): taps, double taps, long presses and secondary (right) clicks on any
   child, each sending the application's message. While a double tap is possible a first tap waits
