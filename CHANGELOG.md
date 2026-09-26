@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 585 so far, each documenting the objective, the alternatives
+> record — one per step, 586 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`Listener` and `OrientationBuilder`** (J586). `Listener` hears the pointer's raw events —
+  down, move, up, cancel, and a mouse's hover — each in its own coordinates; a pointer that went
+  down inside is followed wherever it goes until it lifts, and nothing it hears is taken from a
+  scroll or a button. `OrientationBuilder` builds from the orientation of the box it fills. New
+  hooks `Widget::pointer_listener` and `Widget::on_pointer_event`, and
+  `Ui::pointer_listeners_at`.
 
 - **Work that finishes later, in a component** (J585): `cx.use_future(deps, …)` and
   `cx.use_stream(deps, |sink| …)` return an `AsyncSnapshot` (waiting, active, done, and the latest

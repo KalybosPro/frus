@@ -41,6 +41,9 @@ pub struct LayoutBuilder<Msg = crate::callback::Callback> {
     width: Dimension,
     height: Dimension,
     flex_grow: f32,
+    /// Whether it takes all the room on offer, as an [`Aligned`](crate::Aligned) does, rather
+    /// than the size of what it built (milestone 586).
+    fills: bool,
     build: Box<dyn Fn(Size) -> Box<dyn Widget<Msg>>>,
 }
 
@@ -52,6 +55,7 @@ impl<Msg> LayoutBuilder<Msg> {
             width: Dimension::Auto,
             height: Dimension::Auto,
             flex_grow: 0.0,
+            fills: false,
             build: Box::new(move |size| Box::new(build(size)) as Box<dyn Widget<Msg>>),
         }
     }
@@ -65,6 +69,13 @@ impl<Msg> LayoutBuilder<Msg> {
     /// Sets the height, in logical pixels.
     pub fn height(mut self, height: f32) -> Self {
         self.height = Dimension::Length(height);
+        self
+    }
+
+    /// Takes all the room on offer, so that the size handed to the closure is the room and
+    /// not what the closure built (milestone 586).
+    pub(crate) fn filling(mut self) -> Self {
+        self.fills = true;
         self
     }
 
@@ -97,6 +108,14 @@ impl<Msg> Widget<Msg> for LayoutBuilder<Msg> {
 
     fn layout_builder(&self) -> Option<&dyn Fn(Size) -> Box<dyn Widget<Msg>>> {
         Some(&*self.build)
+    }
+
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        if self.fills {
+            crate::widget::FillAxes::BOTH
+        } else {
+            crate::widget::FillAxes::NONE
+        }
     }
 }
 
