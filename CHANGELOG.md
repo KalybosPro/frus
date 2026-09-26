@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 580 so far, each documenting the objective, the alternatives
+> record — one per step, 581 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`GestureDetector`** (J581): taps, double taps, long presses and secondary (right) clicks on any
+  child, each sending the application's message. While a double tap is possible a first tap waits
+  300 ms, as on every platform, so the second tap of a double tap is not also a tap. New hooks
+  `Widget::on_double_tap` and `Widget::on_secondary_tap`; a widget answering either is a press
+  target even without a tap of its own.
 
 - **The single-purpose boxes** (J580): `Padding`, `ColoredBox`, `DecoratedBox` (behind or in
   front) and `ClipRect`: each one thing a `Container` does, given a name. A padding takes one

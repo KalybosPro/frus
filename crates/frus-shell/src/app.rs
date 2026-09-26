@@ -149,6 +149,27 @@ fn is_text_field<M>(widget: &dyn Widget<M>) -> bool {
 /// logical pixels.
 const REGION_DOUBLE_CLICK_SLOP: f32 = 8.0;
 
+/// How long a first tap waits for a second one to make a double tap: the reference's
+/// `kDoubleTapTimeout`.
+const DOUBLE_TAP_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// How far apart two taps may be and still be a double tap, in logical pixels: the reference's
+/// `kDoubleTapSlop`.
+const DOUBLE_TAP_SLOP: f32 = 100.0;
+
+/// A first tap on something that also takes a double tap, waiting to see whether a second
+/// one follows (milestone 581).
+struct PendingTap<M> {
+    /// What was tapped.
+    id: WidgetId,
+    /// When it was tapped.
+    at: Instant,
+    /// Where it was tapped.
+    position: Point,
+    /// The tap's own message, sent if no second tap comes in time.
+    single: Option<M>,
+}
+
 /// The clipboard: `arboard` on the desktop platforms, the platform's own on Android
 /// (`ClipboardManager`, through the bundled dex — milestone 509, #22), the browser's
 /// asynchronous Clipboard API on the Web (milestone 526, #17), and a no-op on iOS
@@ -932,6 +953,8 @@ pub struct App<A: Application> {
     /// When and where the last press began a selection in a selection area: a second one soon
     /// after and close by is a double click.
     last_region_click: Option<(Instant, Point)>,
+    /// A first tap waiting to see whether it is half of a double tap (milestone 581).
+    pending_tap: Option<PendingTap<A::Message>>,
     /// A counter for the keys of leaving events, which fade out.
     leaving_counter: u64,
     /// The running subscriptions: id → cancellation handle, dropping which stops it.
@@ -1081,6 +1104,7 @@ impl<A: Application> App<A> {
             pending_reorder: None,
             last_click_time: None,
             last_region_click: None,
+            pending_tap: None,
             leaving_counter: 0,
             running_subs: HashMap::new(),
             pending_focus: Vec::new(),
@@ -1827,6 +1851,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         if matches!(cause, StartCause::ResumeTimeReached { .. }) && self.press.poll(Instant::now())
         {
             self.hold_deadline_reached();
+        }
+        if matches!(cause, StartCause::ResumeTimeReached { .. }) {
+            self.poll_pending_tap(Instant::now());
         }
 
         // The caret's turn is due: a frame to show it, or to hide it, in (milestone 513).
@@ -3396,7 +3423,9 @@ impl<A: Application> App<A> {
         let caret = (self.lifecycle == Lifecycle::Resumed)
             .then(|| self.caret.next_toggle(Instant::now()))
             .flatten();
-        match [press, reload, caret].into_iter().flatten().min() {
+        // A first tap that may still become a double tap is sent when its wait is over.
+        let tap = self.pending_tap.as_ref().map(|p| p.at + DOUBLE_TAP_TIMEOUT);
+        match [press, reload, caret, tap].into_iter().flatten().min() {
             Some(at) => ControlFlow::WaitUntil(at),
             None => ControlFlow::Wait,
         }
@@ -3484,6 +3513,19 @@ impl<A: Application> App<A> {
     /// scrolling when no other gesture captures the press.
     fn pointer_down(&mut self, touch: bool) {
         self.pointer_touch = touch;
+        // A first tap still waiting for its second is a tap after all if this press is not
+        // that second one: somewhere else, or too late.
+        self.poll_pending_tap(Instant::now());
+        if let Some(pending) = self.pending_tap.as_ref() {
+            let here = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
+            let (dx, dy) = (
+                self.cursor.x - pending.position.x,
+                self.cursor.y - pending.position.y,
+            );
+            if here != Some(pending.id) || dx.hypot(dy) > DOUBLE_TAP_SLOP {
+                self.flush_pending_tap();
+            }
+        }
         self.pending_word = None;
         self.pending_region_hold = false;
         // A selection handle first. It hangs below its line, over whatever is drawn
@@ -4186,6 +4228,13 @@ impl<A: Application> App<A> {
             }
             _ => (None, None),
         };
+        // Something that takes a double tap: this tap is its second, or a first that waits.
+        let message = match (self.runtime.input.pressed, released) {
+            (Some(pressed), Some(released)) if pressed == released && bar_action.is_none() => {
+                self.double_tap(pressed, message)
+            }
+            _ => message,
+        };
         // The tap completed on the widget it started on: its ink finishes growing and
         // fades. Anything else leaves the splash unconfirmed, and `advance_ink` sweeps
         // it away quickly — the finger slid off, and the ink says so.
@@ -4210,6 +4259,62 @@ impl<A: Application> App<A> {
             }
         }
         self.request_redraw();
+    }
+
+    /// A tap on `id`, which answered `message`. If `id` also takes a double tap, the tap is
+    /// either the second of one, and the double tap's message is sent in its place, or a
+    /// first, which waits for [`DOUBLE_TAP_TIMEOUT`] before it is a tap (milestone 581).
+    fn double_tap(&mut self, id: WidgetId, message: Option<A::Message>) -> Option<A::Message> {
+        let Some(double) = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.on_double_tap())
+        else {
+            return message;
+        };
+        let now = Instant::now();
+        let second = self.pending_tap.as_ref().is_some_and(|pending| {
+            let (dx, dy) = (
+                self.cursor.x - pending.position.x,
+                self.cursor.y - pending.position.y,
+            );
+            pending.id == id
+                && now.duration_since(pending.at) <= DOUBLE_TAP_TIMEOUT
+                && dx.hypot(dy) <= DOUBLE_TAP_SLOP
+        });
+        if second {
+            self.pending_tap = None;
+            return Some(double);
+        }
+        self.flush_pending_tap();
+        self.pending_tap = Some(PendingTap {
+            id,
+            at: now,
+            position: self.cursor,
+            single: message,
+        });
+        None
+    }
+
+    /// Sends the waiting first tap's own message, if one is waiting.
+    fn flush_pending_tap(&mut self) {
+        if let Some(message) = self.pending_tap.take().and_then(|pending| pending.single) {
+            self.dispatch(message);
+            self.request_redraw();
+        }
+    }
+
+    /// The waiting first tap, sent if its wait is over by `now`. Whether one was.
+    fn poll_pending_tap(&mut self, now: Instant) -> bool {
+        let due = self
+            .pending_tap
+            .as_ref()
+            .is_some_and(|pending| now.duration_since(pending.at) >= DOUBLE_TAP_TIMEOUT);
+        if due {
+            self.flush_pending_tap();
+        }
+        due
     }
 
     /// Speaks a message aloud through the screen reader's **live region**, for a
@@ -6492,6 +6597,23 @@ impl<A: Application> App<A> {
     /// puts the caret where the click landed unless it landed inside the selection there
     /// already is, and opens the bar. On anything else it puts an open bar away.
     fn context_click(&mut self) {
+        // Something that answers a secondary tap takes it (milestone 581).
+        let secondary = self
+            .ui
+            .as_ref()
+            .and_then(|ui| ui.hit(self.cursor))
+            .and_then(|id| {
+                self.tree
+                    .as_ref()
+                    .and_then(|tree| find_widget(tree.as_ref(), id))
+            })
+            .and_then(|widget| widget.on_secondary_tap());
+        if let Some(message) = secondary {
+            self.hide_selection_toolbar();
+            self.dispatch(message);
+            self.request_redraw();
+            return;
+        }
         let hit = self.ui.as_ref().and_then(|ui| ui.focus_hit(self.cursor));
         let Some((id, rect)) = hit else {
             self.hide_selection_toolbar();
@@ -8599,6 +8721,27 @@ pub mod testing {
             fired
         }
 
+        /// The double tap's wait, over: a first tap still waiting is sent as a tap. Whether one
+        /// was waiting.
+        pub fn tap_deadline(&mut self) -> bool {
+            self.shell
+                .poll_pending_tap(Instant::now() + DOUBLE_TAP_TIMEOUT)
+        }
+
+        /// When the loop would wake next if it went idle now, if it would.
+        pub fn next_wake(&self) -> Option<Instant> {
+            match self.shell.idle_control_flow() {
+                ControlFlow::WaitUntil(at) => Some(at),
+                _ => None,
+            }
+        }
+
+        /// A click of the secondary mouse button at `at`.
+        pub fn secondary_click(&mut self, at: Point) {
+            self.pointer_of(PointerKind::Move, at, false);
+            self.shell.context_click();
+        }
+
         /// A mouse button down at `at` — a pointer that hovers, which is not a finger: nothing is
         /// left to scroll, and a press on words in a selection area begins a selection.
         pub fn press_mouse(&mut self, at: Point) {
@@ -10157,5 +10300,210 @@ mod selection_area_tests {
                 _ => None,
             })
             .collect()
+    }
+}
+
+/// Taps, double taps, long presses and secondary clicks on a
+/// [`GestureDetector`](frus_widgets::GestureDetector), driven through the shell (milestone 581).
+#[cfg(test)]
+mod gesture_detector_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{Container, Flex, GestureDetector, Point, Text, Theme, Widget};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    const W: f32 = 400.0;
+    const H: f32 = 400.0;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Tap,
+        Double,
+        Hold,
+        Menu,
+        Plain,
+        OnlyDouble,
+    }
+
+    /// Three detectors down a page: one that takes everything, one that takes only a tap, and
+    /// one that takes only a double tap.
+    #[derive(Default)]
+    struct Page {
+        heard: Rc<RefCell<Vec<Msg>>>,
+    }
+
+    impl Application for Page {
+        type Message = Msg;
+
+        fn update(&mut self, message: Msg) -> Command<Msg> {
+            self.heard.borrow_mut().push(message);
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            let block = |label: &str| {
+                Container::new()
+                    .width(300.0)
+                    .height(60.0)
+                    .child(Text::new(label).no_wrap())
+            };
+            Box::new(
+                Container::new().width(W).height(H).child(
+                    Flex::column()
+                        .gap(40.0)
+                        .child(
+                            GestureDetector::new(block("everything"))
+                                .on_tap(Msg::Tap)
+                                .on_double_tap(Msg::Double)
+                                .on_long_press(Msg::Hold)
+                                .on_secondary_tap(Msg::Menu),
+                        )
+                        .child(GestureDetector::new(block("tap only")).on_tap(Msg::Plain))
+                        .child(
+                            GestureDetector::new(block("double only"))
+                                .on_double_tap(Msg::OnlyDouble),
+                        ),
+                ),
+            )
+        }
+    }
+
+    fn driver() -> (Driver<Page>, Rc<RefCell<Vec<Msg>>>) {
+        let page = Page::default();
+        let heard = page.heard.clone();
+        let mut driver = Driver::new(page, W, H);
+        driver.run(0.2);
+        (driver, heard)
+    }
+
+    /// A point inside the block labelled `label`.
+    fn on(d: &Driver<Page>, label: &str) -> Point {
+        let (_, rect) = d
+            .texts()
+            .into_iter()
+            .find(|(text, _)| text == label)
+            .unwrap_or_else(|| panic!("{label:?} is on screen"));
+        Point::new(rect.x + 20.0, rect.y + 8.0)
+    }
+
+    fn tap(d: &mut Driver<Page>, at: Point) {
+        d.press(at);
+        d.run(0.02);
+        d.release(at);
+        d.run(0.02);
+    }
+
+    /// **With a double tap possible, a tap waits**: nothing is sent at the release, and the
+    /// tap is sent once the wait is over.
+    #[test]
+    fn a_tap_waits_while_a_double_tap_is_possible() {
+        let (mut d, heard) = driver();
+        let at = on(&d, "everything");
+        tap(&mut d, at);
+        assert!(heard.borrow().is_empty(), "not yet: {:?}", heard.borrow());
+        assert!(d.tap_deadline(), "a tap was waiting");
+        assert_eq!(*heard.borrow(), vec![Msg::Tap]);
+    }
+
+    /// **The loop wakes when the wait is over**, so a waiting tap is sent without anything
+    /// else happening; and nothing is scheduled once it is gone.
+    #[test]
+    fn the_loop_wakes_for_a_waiting_tap() {
+        let (mut d, _) = driver();
+        let before = std::time::Instant::now();
+        let at = on(&d, "everything");
+        tap(&mut d, at);
+        let wake = d.next_wake().expect("a wake for the tap");
+        let wait = wake.duration_since(before);
+        assert!(
+            wait <= std::time::Duration::from_millis(400),
+            "about 300 ms: {wait:?}"
+        );
+        d.tap_deadline();
+        assert_eq!(d.next_wake(), None);
+    }
+
+    /// **Two taps in quick succession are a double tap**, and not also a tap.
+    #[test]
+    fn two_quick_taps_are_a_double_tap() {
+        let (mut d, heard) = driver();
+        let at = on(&d, "everything");
+        tap(&mut d, at);
+        tap(&mut d, Point::new(at.x + 6.0, at.y + 2.0));
+        assert_eq!(*heard.borrow(), vec![Msg::Double]);
+        assert!(!d.tap_deadline(), "nothing is left waiting");
+        assert_eq!(*heard.borrow(), vec![Msg::Double]);
+    }
+
+    /// **Without a double tap, a tap answers at once.**
+    #[test]
+    fn a_tap_alone_answers_at_once() {
+        let (mut d, heard) = driver();
+        let at = on(&d, "tap only");
+        tap(&mut d, at);
+        assert_eq!(*heard.borrow(), vec![Msg::Plain]);
+        tap(&mut d, at);
+        assert_eq!(
+            *heard.borrow(),
+            vec![Msg::Plain, Msg::Plain],
+            "two taps are two taps"
+        );
+    }
+
+    /// **A press somewhere else ends the wait**: the first tap is a tap after all, sent before
+    /// what the second press does.
+    #[test]
+    fn a_press_elsewhere_sends_the_waiting_tap() {
+        let (mut d, heard) = driver();
+        let (first, other) = (on(&d, "everything"), on(&d, "tap only"));
+        tap(&mut d, first);
+        tap(&mut d, other);
+        assert_eq!(*heard.borrow(), vec![Msg::Tap, Msg::Plain]);
+    }
+
+    /// **The secondary button** sends its own message, and no tap.
+    #[test]
+    fn a_secondary_click_sends_its_message() {
+        let (mut d, heard) = driver();
+        let at = on(&d, "everything");
+        d.secondary_click(at);
+        d.run(0.02);
+        assert_eq!(*heard.borrow(), vec![Msg::Menu]);
+        let plain = on(&d, "tap only");
+        d.secondary_click(plain);
+        assert_eq!(
+            *heard.borrow(),
+            vec![Msg::Menu],
+            "a detector without one hears nothing"
+        );
+    }
+
+    /// **A long press** sends its message, and the release after it is not a tap.
+    #[test]
+    fn a_long_press_is_not_also_a_tap() {
+        let (mut d, heard) = driver();
+        let at = on(&d, "everything");
+        d.press(at);
+        d.run(0.1);
+        assert!(d.hold_deadline(), "the hold fired");
+        d.release(at);
+        d.run(0.02);
+        d.tap_deadline();
+        assert_eq!(*heard.borrow(), vec![Msg::Hold]);
+    }
+
+    /// **A detector with only a double tap** takes the press all the same: one tap sends
+    /// nothing, two send the double tap.
+    #[test]
+    fn a_double_tap_alone_is_heard() {
+        let (mut d, heard) = driver();
+        let at = on(&d, "double only");
+        tap(&mut d, at);
+        d.tap_deadline();
+        assert!(heard.borrow().is_empty(), "{:?}", heard.borrow());
+        tap(&mut d, at);
+        tap(&mut d, at);
+        assert_eq!(*heard.borrow(), vec![Msg::OnlyDouble]);
     }
 }
