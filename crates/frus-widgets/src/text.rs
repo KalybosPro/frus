@@ -607,7 +607,11 @@ impl Text {
         let (start, end) = status.region_grips;
         if start.is_some() || end.is_some() {
             let layout = self.text_layout(bounds.width);
-            let color = theme.scheme.primary.fade(status.opacity);
+            let color = theme
+                .widgets
+                .text_selection
+                .handle_color_in(theme)
+                .fade(status.opacity);
             let offset = Point::new(bounds.x, bounds.y);
             let origin = Point::new(0.0, 0.0);
             for (index, is_start) in [(start, true), (end, false)] {
@@ -633,7 +637,11 @@ impl Text {
         };
         let len = self.content.chars().count();
         if let Some(handles) = handles_in(&layout, Point::new(0.0, 0.0), len, &edit) {
-            let color = theme.scheme.primary.fade(status.opacity);
+            let color = theme
+                .widgets
+                .text_selection
+                .handle_color_in(theme)
+                .fade(status.opacity);
             paint_handles(scene, handles, Point::new(bounds.x, bounds.y), color);
         }
     }
@@ -849,6 +857,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
             .selection
             .filter(|_| status.focused && self.selecting().is_some());
         if let Some((start, end)) = status.region.or(own) {
+            let highlight = theme
+                .widgets
+                .text_selection
+                .selection_color_in(theme)
+                .fade(status.opacity);
             {
                 let layout = self.text_layout(bounds.width);
                 let len = self.content.chars().count();
@@ -860,7 +873,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
                             rect.width,
                             rect.height,
                         ),
-                        theme.selection.fade(status.opacity),
+                        highlight,
                     );
                 }
             }

@@ -108,6 +108,13 @@ crate::transparent::forward_transparent!(FadeTransition {
     fn autofill_group(&self) -> bool {
         self.inner.autofill_group()
     }
+    /// Forwarded: the area's bar is the area's, whatever wraps it.
+    fn area_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+    ) -> Option<Option<&dyn crate::widget::Widget<Msg>>> {
+        self.inner.area_toolbar(context)
+    }
 });
 
 /// The edge a [`SlideTransition::from_edge`] comes in from.
@@ -204,6 +211,13 @@ crate::transparent::forward_transparent!(SlideTransition {
     fn autofill_group(&self) -> bool {
         self.inner.autofill_group()
     }
+    /// Forwarded: the area's bar is the area's, whatever wraps it.
+    fn area_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+    ) -> Option<Option<&dyn crate::widget::Widget<Msg>>> {
+        self.inner.area_toolbar(context)
+    }
 });
 
 /// **Scales** its child by a value the caller owns, about its centre or a pivot of the
@@ -277,6 +291,13 @@ crate::transparent::forward_transparent!(ScaleTransition {
     /// Forwarded: a wrapper around a form is still that form (milestone 512).
     fn autofill_group(&self) -> bool {
         self.inner.autofill_group()
+    }
+    /// Forwarded: the area's bar is the area's, whatever wraps it.
+    fn area_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+    ) -> Option<Option<&dyn crate::widget::Widget<Msg>>> {
+        self.inner.area_toolbar(context)
     }
 });
 
@@ -510,6 +531,13 @@ crate::transparent::forward_transparent!(DefaultTextStyleTransition {
     /// Forwarded: a wrapper around a form is still that form (milestone 512).
     fn autofill_group(&self) -> bool {
         self.inner.autofill_group()
+    }
+    /// Forwarded: the area's bar is the area's, whatever wraps it.
+    fn area_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+    ) -> Option<Option<&dyn crate::widget::Widget<Msg>>> {
+        self.inner.area_toolbar(context)
     }
 });
 

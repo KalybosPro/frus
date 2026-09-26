@@ -352,6 +352,15 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// The **bar** a [`SelectionArea`](crate::SelectionArea) offers over its selection, for
+    /// `context`, when the application has said what it holds
+    /// ([`SelectionArea::selection_toolbar`](crate::SelectionArea::selection_toolbar)): `Some`
+    /// of the bar, or `Some(None)` for no bar at all. `None` for anything else — and for an area
+    /// that was told nothing — whose texts then offer Copy and Select all.
+    fn area_toolbar(&self, _context: crate::ToolbarContext) -> Option<Option<&dyn Widget<Msg>>> {
+        None
+    }
+
     /// The **bar** over the part of a selection area's selection that lies in this widget —
     /// `range`, in characters — for `context`, and the box it is placed against in local
     /// coordinates, for a widget `width` wide. `None` for anything that is not a text, or when
@@ -1680,6 +1689,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
         start: bool,
     ) -> Option<crate::SelectionHandle> {
         (**self).selection_grip(width, index, start)
+    }
+    fn area_toolbar(&self, context: crate::ToolbarContext) -> Option<Option<&dyn Widget<Msg>>> {
+        (**self).area_toolbar(context)
     }
     fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
         (**self).selection_hit(local_x, local_y, width)

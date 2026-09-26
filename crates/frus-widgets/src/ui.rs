@@ -2284,8 +2284,10 @@ struct Builder<'a, Msg> {
     drop_zones: Vec<DropZone>,
     inks: Vec<(WidgetId, Rect)>,
     text_stops: Vec<crate::TextStop>,
-    /// The [`SelectionArea`](crate::SelectionArea) the walk is inside, if it is inside one.
+    /// The [`SelectionArea`](crate::SelectionArea) the walk is inside, if it is inside one, and
+    /// its widget — which may have a say over the bar.
     area: Option<WidgetId>,
+    area_widget: Option<&'a dyn Widget<Msg>>,
     /// Whether the bar over a selection area's selection has been placed this frame: it goes
     /// against the first text the selection covers, and only that one.
     region_bar_placed: bool,
@@ -3304,7 +3306,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         let outer_area = outer
             .as_ref()
             .filter(|before| !before.widgets.text.selectable && self.theme.widgets.text.selectable)
-            .map(|_| self.area.replace(id));
+            .map(|_| (self.area.replace(id), self.area_widget.replace(widget)));
         // The scoped surface, held for this subtree exactly as the layout walk holds it —
         // a widget that paints from `MediaQuery::of()` must see the same description it
         // was measured against, or the two disagree by whatever the scope removed.
@@ -3313,8 +3315,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             .map(crate::MediaQuery::install);
         let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
         self.walk_node_themed(widget, id, translation, clip, rects, index);
-        if let Some(before) = outer_area {
-            self.area = before;
+        if let Some((area, area_widget)) = outer_area {
+            self.area = area;
+            self.area_widget = area_widget;
         }
         // Over its own children: the reference's `foregroundDecoration`, and the only
         // point in the walk where a widget paints after its subtree. Still under this
@@ -4979,8 +4982,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             can_paste: false,
             all_selected,
         };
-        let Some((local, content)) = widget.region_toolbar(context, draw_rect.width, range) else {
+        let Some((local, own)) = widget.region_toolbar(context, draw_rect.width, range) else {
             return;
+        };
+        // The area's bar, if the application said what it holds; the text's otherwise.
+        let content = match self.area_widget.and_then(|area| area.area_toolbar(context)) {
+            Some(Some(bar)) => bar,
+            Some(None) => return,
+            None => own,
         };
         let anchor = local.translate(draw_rect.x, draw_rect.y);
         let seen = anchor.x + anchor.width >= clip.x
@@ -5457,6 +5466,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         inks: Vec::new(),
         text_stops: Vec::new(),
         area: None,
+        area_widget: None,
         region_bar_placed: false,
         reorderables: Vec::new(),
         interactives: Vec::new(),

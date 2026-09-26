@@ -164,6 +164,13 @@ crate::transparent::forward_transparent!(AutofillGroup {
     fn autofill_group(&self) -> bool {
         true
     }
+    /// Forwarded: the area's bar is the area's, whatever wraps it.
+    fn area_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+    ) -> Option<Option<&dyn crate::widget::Widget<Msg>>> {
+        self.inner.area_toolbar(context)
+    }
 
     /// A form is not an identity: the child's key, if it has one.
     fn key(&self) -> Option<u64> {
