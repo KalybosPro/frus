@@ -19,6 +19,13 @@ any release may break.
   fix `AnimatedSize`, `SizeTransition`, the `Aligned` factors, `LimitedBox` and `Intrinsic`, and
   part of the rest; it does not fix `AppBar` being a builder. See `docs/milestone-587.md`.
 
+- **`Listener` and `OrientationBuilder`** (J586). `Listener` hears the pointer's raw events —
+  down, move, up, cancel, and a mouse's hover — each in its own coordinates; a pointer that went
+  down inside is followed wherever it goes until it lifts, and nothing it hears is taken from a
+  scroll or a button. `OrientationBuilder` builds from the orientation of the box it fills. New
+  hooks `Widget::pointer_listener` and `Widget::on_pointer_event`, and
+  `Ui::pointer_listeners_at`.
+
 - **Work that finishes later, in a component** (J585): `cx.use_future(deps, …)` and
   `cx.use_stream(deps, |sink| …)` return an `AsyncSnapshot` (waiting, active, done, and the latest
   value); `FutureBuilder`, `StreamBuilder`, `ValueListenableBuilder`, `ListenableBuilder` and
