@@ -88,7 +88,7 @@ fn fallback(_task: BoxedTask) {}
 /// Drives `task` to its end on this thread, parking it while the task waits.
 #[cfg(not(target_arch = "wasm32"))]
 fn block_on(mut task: BoxedTask) {
-    use std::task::{Context, Poll, Wake, Waker};
+    use std::task::{Context, Wake, Waker};
     struct Unpark(std::thread::Thread);
     impl Wake for Unpark {
         fn wake(self: Arc<Self>) {
@@ -97,7 +97,7 @@ fn block_on(mut task: BoxedTask) {
     }
     let waker = Waker::from(Arc::new(Unpark(std::thread::current())));
     let mut cx = Context::from_waker(&waker);
-    while let Poll::Pending = task.as_mut().poll(&mut cx) {
+    while task.as_mut().poll(&mut cx).is_pending() {
         std::thread::park();
     }
 }

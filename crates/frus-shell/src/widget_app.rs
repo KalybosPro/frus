@@ -963,8 +963,7 @@ mod async_builder_tests {
     use super::*;
     use crate::app::testing::Driver;
     use frus_widgets::{
-        text, ConnectionState, FutureBuilder, StreamBuilder, ValueListenableBuilder,
-        ValueNotifier,
+        text, ConnectionState, FutureBuilder, StreamBuilder, ValueListenableBuilder, ValueNotifier,
     };
     use std::cell::Cell;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1018,7 +1017,11 @@ mod async_builder_tests {
         });
         let mut d = Driver::new(app, 200.0, 200.0);
         d.frame(1.0 / 60.0);
-        assert!(texts(&d).contains(&"waiting".to_string()), "{:?}", texts(&d));
+        assert!(
+            texts(&d).contains(&"waiting".to_string()),
+            "{:?}",
+            texts(&d)
+        );
         assert!(until(&mut d, "done 42"), "{:?}", texts(&d));
         for _ in 0..10 {
             d.frame(1.0 / 60.0);
@@ -1060,9 +1063,7 @@ mod async_builder_tests {
                         std::thread::sleep(Duration::from_millis(10));
                     }
                 },
-                |_, snapshot| {
-                    Box::new(text(format!("{:?} {:?}", snapshot.state, snapshot.data)))
-                },
+                |_, snapshot| Box::new(text(format!("{:?} {:?}", snapshot.state, snapshot.data))),
             ))
         });
         let mut d = Driver::new(app, 200.0, 200.0);
@@ -1081,9 +1082,17 @@ mod async_builder_tests {
         });
         let mut d = Driver::new(app, 200.0, 200.0);
         d.frame(1.0 / 60.0);
-        assert!(texts(&d).contains(&"count 1".to_string()), "{:?}", texts(&d));
+        assert!(
+            texts(&d).contains(&"count 1".to_string()),
+            "{:?}",
+            texts(&d)
+        );
         count.set(5);
         d.frame(1.0 / 60.0);
-        assert!(texts(&d).contains(&"count 5".to_string()), "{:?}", texts(&d));
+        assert!(
+            texts(&d).contains(&"count 5".to_string()),
+            "{:?}",
+            texts(&d)
+        );
     }
 }
