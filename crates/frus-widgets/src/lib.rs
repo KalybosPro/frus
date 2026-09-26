@@ -22,6 +22,7 @@ mod align;
 mod animated;
 mod appbar;
 mod aspectratio;
+mod asyncbuild;
 mod autocomplete;
 mod autofill;
 mod avatar;
@@ -201,6 +202,11 @@ pub use animated::{
 };
 pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT, APP_BAR_MAX_TITLE_SCALE};
 pub use aspectratio::AspectRatio;
+pub use asyncbuild::{
+    set_task_spawner, task_arrivals, tasks_in_flight, AsyncSnapshot, BoxedTask, Builder,
+    ConnectionState, FutureBuilder, ListenableBuilder, MaybeSend, StreamBuilder, StreamSink,
+    TaskSpawner, ValueListenableBuilder,
+};
 pub use autocomplete::Autocomplete;
 pub use autofill::{AutofillGroup, AutofillHint};
 pub use avatar::CircleAvatar;

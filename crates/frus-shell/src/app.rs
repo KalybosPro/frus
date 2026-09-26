@@ -916,6 +916,13 @@ pub struct App<A: Application> {
     /// going. Keeping it here rather than in each [`Drag`] variant means the
     /// gesture's clock and its history start together, in one place.
     gesture_velocity: VelocityTracker,
+    /// The test driver's clock for the velocity tracker, when there is one: seconds of
+    /// frames run, and when the gesture under way began on it. `None` in an application,
+    /// which stamps samples with the wall clock. A driver's events are microseconds apart on
+    /// the wall, and irregularly so on a loaded machine: a fling read from them came out at
+    /// any speed, in either direction, and a test that let go of a scroll saw it thrown back
+    /// to the top (milestone 584, seen in CI).
+    gesture_clock: Option<(f32, f32)>,
     gesture_start: Instant,
     /// The pointer's **smoothed** abscissa during a reorder: it springs toward the
     /// real position, giving the columns' sliding a gentle inertia — the background
@@ -977,6 +984,9 @@ pub struct App<A: Application> {
     last_region_click: Option<(Instant, Point)>,
     /// A first tap waiting to see whether it is half of a double tap (milestone 581).
     pending_tap: Option<PendingTap<A::Message>>,
+    /// How many values the work components started had brought when this shell last looked
+    /// (milestone 585).
+    task_arrivals: u64,
     /// The regions the pointer is in, the innermost first, each with its box when it was
     /// last seen (milestone 583).
     entered: Vec<(WidgetId, Rect)>,
@@ -1070,6 +1080,12 @@ impl<A: Application> App<A> {
         // widget layer only asks. Same shape as the image decoder a step earlier.
         #[cfg(feature = "net")]
         frus_widgets::set_image_fetcher(fetch_image_bytes);
+        // And how to run the work a component starts (milestone 585): this shell's executor
+        // natively, the browser on the Web.
+        #[cfg(not(web))]
+        frus_widgets::set_task_spawner(|task| crate::runtime::spawn(task).detach());
+        #[cfg(web)]
+        frus_widgets::set_task_spawner(|task| wasm_bindgen_futures::spawn_local(task));
         Self {
             app,
             proxy,
@@ -1110,6 +1126,7 @@ impl<A: Application> App<A> {
             drag: None,
             pointer_touch: false,
             gesture_velocity: VelocityTracker::platform_default(),
+            gesture_clock: None,
             gesture_start: Instant::now(),
             reorder_x: 0.0,
             reorder_y: 0.0,
@@ -1132,6 +1149,7 @@ impl<A: Application> App<A> {
             last_click_time: None,
             last_region_click: None,
             pending_tap: None,
+            task_arrivals: 0,
             entered: Vec::new(),
             pointer_held: false,
             leaving_counter: 0,
@@ -2740,7 +2758,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.sync_address();
                 #[cfg(desktop)]
                 self.open_links_from_other_instances();
-                if frus_widgets::take_rebuild_request() {
+                // Work a component started brought something: build again to show it.
+                let arrived = self.take_task_arrivals();
+                if frus_widgets::take_rebuild_request() || arrived {
                     self.build_dirty = true;
                 }
                 let need_build = frame_needs_build(
@@ -3037,7 +3057,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // taking the image out of the tree, so a hook read off `Image` would go
                 // quiet at exactly the moment it is needed. Asking here also keeps `Ui`
                 // answering for its own widgets alone (milestone 411).
-                let wants_animation = ui.wants_animation() || frus_widgets::images_in_flight() > 0;
+                let wants_animation = ui.wants_animation()
+                    || frus_widgets::images_in_flight() > 0
+                    || frus_widgets::tasks_in_flight() > 0;
 
                 // Keep the interface, for hit testing. The tree is already retained.
                 self.ui = Some(ui);
@@ -3520,6 +3542,13 @@ impl<A: Application> App<A> {
             self.request_redraw();
         }
         hovered
+    }
+
+    /// Whether work a component started has brought something since this shell last looked
+    /// (milestone 585).
+    fn take_task_arrivals(&mut self) -> bool {
+        let now = frus_widgets::task_arrivals();
+        std::mem::replace(&mut self.task_arrivals, now) != now
     }
 
     /// Brings the regions the pointer is in up to date (milestone 583): an exit for each it has
@@ -5296,7 +5325,11 @@ impl<A: Application> App<A> {
     /// Seconds since the drag under way began — the clock the velocity tracker's
     /// samples are stamped with.
     fn gesture_now(&self) -> f32 {
-        (Instant::now() - self.gesture_start).as_secs_f32()
+        match self.gesture_clock {
+            // The test driver's clock: the frames it has run, not the wall's.
+            Some((now, start)) => now - start,
+            None => (Instant::now() - self.gesture_start).as_secs_f32(),
+        }
     }
 
     /// Starts a fresh gesture: the history of the previous one must not leak into
@@ -5304,6 +5337,9 @@ impl<A: Application> App<A> {
     fn begin_gesture(&mut self) {
         self.gesture_velocity = VelocityTracker::platform_default();
         self.gesture_start = Instant::now();
+        if let Some((now, start)) = self.gesture_clock.as_mut() {
+            *start = *now;
+        }
         self.track_gesture();
     }
 
@@ -8908,8 +8944,11 @@ pub mod testing {
     impl<A: Application> Driver<A> {
         /// A driver for `app` on a `width` by `height` logical surface.
         pub fn new(app: A, width: f32, height: f32) -> Self {
+            let mut shell = App::detached(app);
+            // Gestures are timed by the frames run, as everything else here is.
+            shell.gesture_clock = Some((0.0, 0.0));
             Self {
-                shell: App::detached(app),
+                shell,
                 size: Size::new(width, height),
                 ghost: None,
             }
@@ -9117,6 +9156,9 @@ pub mod testing {
         pub fn frame(&mut self, dt: f32) {
             let (width, height) = (self.size.width, self.size.height);
             let s = &mut self.shell;
+            if let Some((now, _)) = s.gesture_clock.as_mut() {
+                *now += dt;
+            }
             if s.last_size != Some((width, height)) {
                 s.last_size = Some((width, height));
                 s.build_dirty = true;
@@ -9142,7 +9184,8 @@ pub mod testing {
             let was = std::mem::replace(&mut s.app_was_animating, app_animating);
             let asked = s.app.effects();
             s.run_command(asked);
-            if frus_widgets::take_rebuild_request() {
+            let arrived = s.take_task_arrivals();
+            if frus_widgets::take_rebuild_request() || arrived {
                 s.build_dirty = true;
             }
             if frame_needs_build(
@@ -11062,6 +11105,31 @@ mod gesture_pan_tests {
         heard.borrow_mut().clear();
         let at = Point::new(origin(&d).x + 40.0, origin(&d).y + 120.0);
         swipe(&mut d, at, 4.0, -120.0);
+        assert!(heard.borrow().is_empty(), "{:?}", heard.borrow());
+        assert!(scroll_y(&d) > 30.0, "the page scrolled: {}", scroll_y(&d));
+    }
+
+    /// **A machine that stalls in the middle of a drag does not change it** (milestone 584,
+    /// seen in CI). The shell's gestures are timed by the driver's frames and not by the wall:
+    /// with the wall's clock, twenty milliseconds lost between two movements a microsecond
+    /// apart read as a fling in either direction, and a page scrolled down was thrown back to
+    /// the top.
+    #[test]
+    fn a_stall_mid_drag_does_not_change_the_scroll() {
+        let (mut d, heard) = driver(PanAxis::Free, true);
+        let from = Point::new(origin(&d).x + 40.0, origin(&d).y + 120.0);
+        d.press(from);
+        d.run(0.02);
+        for step in 1..=8 {
+            let f = step as f32 / 8.0;
+            d.move_to(Point::new(from.x + 4.0 * f, from.y - 120.0 * f));
+            if step == 5 {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            d.run(0.02);
+        }
+        d.release(Point::new(from.x + 4.0, from.y - 120.0));
+        d.run(0.02);
         assert!(heard.borrow().is_empty(), "{:?}", heard.borrow());
         assert!(scroll_y(&d) > 30.0, "the page scrolled: {}", scroll_y(&d));
     }
