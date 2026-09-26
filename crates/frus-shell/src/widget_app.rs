@@ -955,3 +955,144 @@ mod address_tests {
         );
     }
 }
+
+/// Work that finishes later, in a component, driven through the shell and its executor
+/// (milestone 585).
+#[cfg(test)]
+mod async_builder_tests {
+    use super::*;
+    use crate::app::testing::Driver;
+    use frus_widgets::{
+        text, ConnectionState, FutureBuilder, StreamBuilder, ValueListenableBuilder, ValueNotifier,
+    };
+    use std::cell::Cell;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    /// The texts on screen.
+    fn texts(d: &Driver<FrusApp>) -> Vec<String> {
+        d.texts().into_iter().map(|(text, _)| text).collect()
+    }
+
+    /// Frames until `wanted` is on screen, for up to two seconds of real time: the work runs
+    /// on the executor's threads, and arrives when it arrives.
+    fn until(d: &mut Driver<FrusApp>, wanted: &str) -> bool {
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(2) {
+            d.frame(1.0 / 60.0);
+            if texts(d).iter().any(|t| t == wanted) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        false
+    }
+
+    /// **A future's value is shown once it comes**, waiting until then; and the future is
+    /// started once, however many frames are built while it runs.
+    #[test]
+    fn a_future_is_shown_when_it_comes_and_started_once() {
+        let started = Arc::new(AtomicUsize::new(0));
+        let counted = started.clone();
+        let app = FrusApp::from_fn(move |_| {
+            let counted = counted.clone();
+            Box::new(FutureBuilder::new(
+                (),
+                move |_| {
+                    counted.fetch_add(1, Ordering::SeqCst);
+                    async {
+                        std::thread::sleep(Duration::from_millis(30));
+                        42
+                    }
+                },
+                |_, snapshot| {
+                    Box::new(text(match (snapshot.state, snapshot.data) {
+                        (ConnectionState::Done, Some(value)) => format!("done {value}"),
+                        (ConnectionState::Waiting, None) => "waiting".to_string(),
+                        other => format!("{other:?}"),
+                    }))
+                },
+            ))
+        });
+        let mut d = Driver::new(app, 200.0, 200.0);
+        d.frame(1.0 / 60.0);
+        assert!(
+            texts(&d).contains(&"waiting".to_string()),
+            "{:?}",
+            texts(&d)
+        );
+        assert!(until(&mut d, "done 42"), "{:?}", texts(&d));
+        for _ in 0..10 {
+            d.frame(1.0 / 60.0);
+        }
+        assert_eq!(started.load(Ordering::SeqCst), 1, "started once");
+    }
+
+    /// **A new key starts a new future**, and the old one's value is not shown.
+    #[test]
+    fn a_new_key_starts_again() {
+        let key = Rc::new(Cell::new(1));
+        let read = key.clone();
+        let app = FrusApp::from_fn(move |_| {
+            Box::new(FutureBuilder::new(
+                read.get(),
+                |k: &i32| {
+                    let k = *k;
+                    async move { k * 10 }
+                },
+                |_, snapshot| Box::new(text(format!("{:?}", snapshot.data))),
+            ))
+        });
+        let mut d = Driver::new(app, 200.0, 200.0);
+        assert!(until(&mut d, "Some(10)"), "{:?}", texts(&d));
+        key.set(2);
+        frus_widgets::request_rebuild();
+        assert!(until(&mut d, "Some(20)"), "{:?}", texts(&d));
+    }
+
+    /// **A stream shows its latest value while it runs, and its last one when it is done.**
+    #[test]
+    fn a_stream_shows_its_latest_then_is_done() {
+        let app = FrusApp::from_fn(|_| {
+            Box::new(StreamBuilder::new(
+                (),
+                |_, sink| async move {
+                    for n in 1..=3 {
+                        sink.add(n);
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                },
+                |_, snapshot| Box::new(text(format!("{:?} {:?}", snapshot.state, snapshot.data))),
+            ))
+        });
+        let mut d = Driver::new(app, 200.0, 200.0);
+        assert!(until(&mut d, "Done Some(3)"), "{:?}", texts(&d));
+    }
+
+    /// **A value listened to is shown again when it changes.**
+    #[test]
+    fn a_value_listened_to_is_shown_when_it_changes() {
+        let count = ValueNotifier::new(1);
+        let shown = count.clone();
+        let app = FrusApp::from_fn(move |_| {
+            Box::new(ValueListenableBuilder::new(shown.clone(), |_, n: &i32| {
+                Box::new(text(format!("count {n}")))
+            }))
+        });
+        let mut d = Driver::new(app, 200.0, 200.0);
+        d.frame(1.0 / 60.0);
+        assert!(
+            texts(&d).contains(&"count 1".to_string()),
+            "{:?}",
+            texts(&d)
+        );
+        count.set(5);
+        d.frame(1.0 / 60.0);
+        assert!(
+            texts(&d).contains(&"count 5".to_string()),
+            "{:?}",
+            texts(&d)
+        );
+    }
+}

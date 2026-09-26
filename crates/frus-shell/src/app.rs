@@ -984,6 +984,9 @@ pub struct App<A: Application> {
     last_region_click: Option<(Instant, Point)>,
     /// A first tap waiting to see whether it is half of a double tap (milestone 581).
     pending_tap: Option<PendingTap<A::Message>>,
+    /// How many values the work components started had brought when this shell last looked
+    /// (milestone 585).
+    task_arrivals: u64,
     /// The regions the pointer is in, the innermost first, each with its box when it was
     /// last seen (milestone 583).
     entered: Vec<(WidgetId, Rect)>,
@@ -1077,6 +1080,12 @@ impl<A: Application> App<A> {
         // widget layer only asks. Same shape as the image decoder a step earlier.
         #[cfg(feature = "net")]
         frus_widgets::set_image_fetcher(fetch_image_bytes);
+        // And how to run the work a component starts (milestone 585): this shell's executor
+        // natively, the browser on the Web.
+        #[cfg(not(web))]
+        frus_widgets::set_task_spawner(|task| crate::runtime::spawn(task).detach());
+        #[cfg(web)]
+        frus_widgets::set_task_spawner(|task| wasm_bindgen_futures::spawn_local(task));
         Self {
             app,
             proxy,
@@ -1140,6 +1149,7 @@ impl<A: Application> App<A> {
             last_click_time: None,
             last_region_click: None,
             pending_tap: None,
+            task_arrivals: 0,
             entered: Vec::new(),
             pointer_held: false,
             leaving_counter: 0,
@@ -2748,7 +2758,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.sync_address();
                 #[cfg(desktop)]
                 self.open_links_from_other_instances();
-                if frus_widgets::take_rebuild_request() {
+                // Work a component started brought something: build again to show it.
+                let arrived = self.take_task_arrivals();
+                if frus_widgets::take_rebuild_request() || arrived {
                     self.build_dirty = true;
                 }
                 let need_build = frame_needs_build(
@@ -3045,7 +3057,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // taking the image out of the tree, so a hook read off `Image` would go
                 // quiet at exactly the moment it is needed. Asking here also keeps `Ui`
                 // answering for its own widgets alone (milestone 411).
-                let wants_animation = ui.wants_animation() || frus_widgets::images_in_flight() > 0;
+                let wants_animation = ui.wants_animation()
+                    || frus_widgets::images_in_flight() > 0
+                    || frus_widgets::tasks_in_flight() > 0;
 
                 // Keep the interface, for hit testing. The tree is already retained.
                 self.ui = Some(ui);
@@ -3528,6 +3542,13 @@ impl<A: Application> App<A> {
             self.request_redraw();
         }
         hovered
+    }
+
+    /// Whether work a component started has brought something since this shell last looked
+    /// (milestone 585).
+    fn take_task_arrivals(&mut self) -> bool {
+        let now = frus_widgets::task_arrivals();
+        std::mem::replace(&mut self.task_arrivals, now) != now
     }
 
     /// Brings the regions the pointer is in up to date (milestone 583): an exit for each it has
@@ -9163,7 +9184,8 @@ pub mod testing {
             let was = std::mem::replace(&mut s.app_was_animating, app_animating);
             let asked = s.app.effects();
             s.run_command(asked);
-            if frus_widgets::take_rebuild_request() {
+            let arrived = s.take_task_arrivals();
+            if frus_widgets::take_rebuild_request() || arrived {
                 s.build_dirty = true;
             }
             if frame_needs_build(
