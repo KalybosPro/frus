@@ -305,6 +305,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().is_some_and(|w| w.autofill_group())
     }
 
+    fn area_toolbar(&self, context: crate::ToolbarContext) -> Option<Option<&dyn Widget<Msg>>> {
+        self.inner.as_ref().and_then(|w| w.area_toolbar(context))
+    }
+
     fn focusable(&self) -> bool {
         self.inner.as_ref().is_some_and(|w| w.focusable())
     }

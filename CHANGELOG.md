@@ -27,6 +27,13 @@ any release may break.
   DSL shorthand. (`Align` stays the cross-axis alignment of a row or a column; the widget is
   `Aligned`.)
 
+- **An application's say over a selection area** (J578). `SelectionArea` is now a widget of its
+  own, with `selection_toolbar` (the list on its bar, as a field has), `selection_color` and
+  `handle_color`. A new `TextSelectionTheme` (`theme.widgets.text_selection`) sets the highlight and
+  the handles of every selection in text that is not a field — a selectable `Text`'s and an area's.
+  **Breaking:** `SelectionArea::around` returns a `SelectionArea` rather than a `Themed`; a new hook,
+  `Widget::area_toolbar`, is forwarded by every transparent wrapper.
+
 - **Handles to widen a touch selection across texts** (J577). A selection a finger made in a
   `SelectionArea` carries two handles, at its start and its end, in whichever texts those are; a
   handle dragged carries its end to the text position under it — into another text of the area if

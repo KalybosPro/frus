@@ -373,6 +373,13 @@ crate::transparent::forward_transparent!(AnimatedSlide {
     fn autofill_group(&self) -> bool {
         self.inner.autofill_group()
     }
+    /// Forwarded: the area's bar is the area's, whatever wraps it.
+    fn area_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+    ) -> Option<Option<&dyn crate::widget::Widget<Msg>>> {
+        self.inner.area_toolbar(context)
+    }
 });
 
 #[cfg(test)]
@@ -514,6 +521,13 @@ crate::transparent::forward_transparent!(AnimatedScale {
     fn autofill_group(&self) -> bool {
         self.inner.autofill_group()
     }
+    /// Forwarded: the area's bar is the area's, whatever wraps it.
+    fn area_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+    ) -> Option<Option<&dyn crate::widget::Widget<Msg>>> {
+        self.inner.area_toolbar(context)
+    }
 });
 
 /// **Turns its child** rather than letting it snap between angles — a paint-time
@@ -607,6 +621,13 @@ crate::transparent::forward_transparent!(AnimatedRotation {
     /// Forwarded: a wrapper around a form is still that form (milestone 512).
     fn autofill_group(&self) -> bool {
         self.inner.autofill_group()
+    }
+    /// Forwarded: the area's bar is the area's, whatever wraps it.
+    fn area_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+    ) -> Option<Option<&dyn crate::widget::Widget<Msg>>> {
+        self.inner.area_toolbar(context)
     }
 });
 
