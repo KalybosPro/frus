@@ -3,7 +3,7 @@
 
 use frus_core::{
     AlignmentGeometry, Border, BorderRadius, BoxDecoration, BoxShadow, Color, Curve, Insets,
-    LinearGradient, Rect, Scene, Size,
+    InsetsGeometry, LinearGradient, Rect, Scene, Size,
 };
 use frus_layout::{Align, Dimension, Justify, Style};
 
@@ -23,9 +23,9 @@ pub struct Container<Msg = crate::callback::Callback> {
     height: Dimension,
     flex_grow: f32,
     flex_shrink: f32,
-    padding: Insets,
+    padding: InsetsGeometry,
     /// The **outer** margin (around the box, outside the decoration).
-    margin: Insets,
+    margin: InsetsGeometry,
     radius: BorderRadius,
     /// Clip the child to this box's rounded rectangle.
     clip: bool,
@@ -80,8 +80,8 @@ impl<Msg> Container<Msg> {
             height: Dimension::Auto,
             flex_grow: 0.0,
             flex_shrink: 0.0,
-            padding: Insets::ZERO,
-            margin: Insets::ZERO,
+            padding: InsetsGeometry::Physical(Insets::ZERO),
+            margin: InsetsGeometry::Physical(Insets::ZERO),
             radius: BorderRadius::ZERO,
             clip: false,
             foreground: None,
@@ -112,7 +112,13 @@ impl<Msg> Container<Msg> {
     /// the stroke). The single source for `style()` and for the **target** of an
     /// animated padding (`anim_padding`).
     fn effective_padding(&self) -> Insets {
-        let mut padding = self.padding;
+        self.effective_padding_in(frus_core::TextDirection::Ltr)
+    }
+
+    /// The padding the layout is given — the content's and the border's — for a frame in
+    /// `direction` (milestone 588: see [`InsetsGeometry::laid_out`]).
+    fn effective_padding_in(&self, direction: frus_core::TextDirection) -> Insets {
+        let mut padding = self.padding.laid_out(direction);
         if Border::new(self.border_width, self.border_color).is_visible() {
             padding.top += self.border_width;
             padding.right += self.border_width;
@@ -176,13 +182,28 @@ impl<Msg> Container<Msg> {
 
     /// Uniform inner padding, in logical pixels.
     pub fn padding(mut self, padding: f32) -> Self {
-        self.padding = Insets::uniform(padding);
+        self.padding = InsetsGeometry::Physical(Insets::uniform(padding));
         self
     }
 
     /// Inner padding per side (top, right, bottom, left).
     pub fn padding_each(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
-        self.padding = Insets::new(top, right, bottom, left);
+        self.padding = InsetsGeometry::Physical(Insets::new(top, right, bottom, left));
+        self
+    }
+
+    /// Sets the padding from any insets: one number, physical [`Insets`] — whose left stays
+    /// on the left in a right-to-left script — or [`InsetsDirectional`](frus_core::InsetsDirectional),
+    /// whose start is the right there.
+    pub fn padding_insets(mut self, padding: impl Into<InsetsGeometry>) -> Self {
+        self.padding = padding.into();
+        self
+    }
+
+    /// Sets the margin from any insets, as [`padding_insets`](Self::padding_insets) does the
+    /// padding.
+    pub fn margin_insets(mut self, margin: impl Into<InsetsGeometry>) -> Self {
+        self.margin = margin.into();
         self
     }
 
@@ -190,13 +211,13 @@ impl<Msg> Container<Msg> {
     /// decoration, it pushes the siblings away without growing the background or
     /// the border.
     pub fn margin(mut self, margin: f32) -> Self {
-        self.margin = Insets::uniform(margin);
+        self.margin = InsetsGeometry::Physical(Insets::uniform(margin));
         self
     }
 
     /// Outer margin per side (top, right, bottom, left).
     pub fn margin_each(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
-        self.margin = Insets::new(top, right, bottom, left);
+        self.margin = InsetsGeometry::Physical(Insets::new(top, right, bottom, left));
         self
     }
 
@@ -338,7 +359,7 @@ impl<Msg> Container<Msg> {
     /// **at layout time** (the content repositions). On mount it adopts the target
     /// with no transition.
     pub fn animated_padding(mut self, padding: f32, duration: f32, curve: Curve) -> Self {
-        self.padding = Insets::uniform(padding);
+        self.padding = InsetsGeometry::Physical(Insets::uniform(padding));
         self.padding_anim = Some((duration, curve));
         self
     }
@@ -437,15 +458,16 @@ impl<Msg> Default for Container<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for Container<Msg> {
-    fn style(&self) -> Style {
+impl<Msg> Container<Msg> {
+    /// The style, with the padding and the margin laid out for `direction`.
+    fn style_in(&self, direction: frus_core::TextDirection) -> Style {
         let mut style = Style {
             width: self.width,
             height: self.height,
             flex_grow: self.flex_grow,
             flex_shrink: self.flex_shrink,
-            padding: self.effective_padding(),
-            margin: self.margin,
+            padding: self.effective_padding_in(direction),
+            margin: self.margin.laid_out(direction),
             ..Default::default()
         };
         // Anchoring the child: taffy is left to place it at the **top left** of the
@@ -457,6 +479,18 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             style.align = Align::Start;
         }
         style
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for Container<Msg> {
+    fn style(&self) -> Style {
+        self.style_in(frus_core::TextDirection::Ltr)
+    }
+
+    /// The padding and the margin laid out for the reading direction the subtree is in
+    /// (milestone 588).
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.style_in(theme.direction)
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {

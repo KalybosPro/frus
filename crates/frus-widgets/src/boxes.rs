@@ -52,15 +52,7 @@ impl<Msg> Padding<Msg> {
     /// (the mirror puts its start on the right), and a physical one is swapped beforehand so
     /// that the mirror puts it back on the side it names.
     fn laid_out(&self, direction: frus_core::TextDirection) -> Insets {
-        match self.padding {
-            InsetsGeometry::Directional(insets) => insets.resolve(frus_core::TextDirection::Ltr),
-            InsetsGeometry::Physical(insets) if direction.is_rtl() => Insets {
-                left: insets.right,
-                right: insets.left,
-                ..insets
-            },
-            InsetsGeometry::Physical(insets) => insets,
-        }
+        self.padding.laid_out(direction)
     }
 }
 
@@ -379,5 +371,104 @@ mod tests {
         });
         let clip = layer.expect("the child is painted in a clipped layer");
         assert!(clip.width <= 50.0 && clip.height <= 50.0, "{clip:?}");
+    }
+}
+
+/// Physical sides stay put in a right-to-left script, and directional ones move
+/// (milestone 588). Each square is centred in what the padding leaves, so where it lands
+/// says which side the padding is on: at 55 with 30 on the left, at 25 with 30 on the right.
+#[cfg(test)]
+mod rtl_sides {
+    use super::*;
+    use crate::{build_ui, Center, Flex, Runtime, SafeArea};
+    use frus_core::{Insets, InsetsDirectional, Primitive, Size};
+
+    const RED: Color = Color::rgb(1.0, 0.0, 0.0);
+
+    fn square() -> Center<()> {
+        Center::new(Container::new().width(20.0).height(20.0).color(RED))
+    }
+
+    fn red_x(root: &dyn Widget<()>, theme: &Theme) -> f32 {
+        build_ui(root, Size::new(100.0, 100.0), &Runtime::default(), theme)
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if *color == RED => Some(rect.x),
+                _ => None,
+            })
+            .expect("the square")
+    }
+
+    fn boxed(child: impl Widget<()> + 'static) -> Container<()> {
+        Container::new().width(100.0).height(100.0).child(child)
+    }
+
+    /// **A container's left padding is on the left**, in either direction; a start padding
+    /// is on the right in a right-to-left script. A margin likewise.
+    #[test]
+    fn a_containers_physical_padding_stays_and_its_start_padding_moves() {
+        let (ltr, rtl) = (Theme::default(), Theme::default().rtl());
+        let left = || {
+            boxed(
+                Container::new()
+                    .padding_each(0.0, 0.0, 0.0, 30.0)
+                    .child(square()),
+            )
+        };
+        assert_eq!(red_x(&left(), &ltr), 55.0);
+        assert_eq!(red_x(&left(), &rtl), 55.0, "still on the left");
+        let start = || {
+            boxed(
+                Container::new()
+                    .padding_insets(InsetsDirectional::only_start(30.0))
+                    .child(square()),
+            )
+        };
+        assert_eq!(red_x(&start(), &ltr), 55.0);
+        assert_eq!(red_x(&start(), &rtl), 25.0, "the start is the right");
+        let margin = || {
+            boxed(
+                Container::new()
+                    .margin_each(0.0, 0.0, 0.0, 30.0)
+                    .width(70.0)
+                    .height(100.0)
+                    .child(square()),
+            )
+        };
+        assert_eq!(red_x(&margin(), &ltr), 55.0);
+        assert_eq!(red_x(&margin(), &rtl), 55.0, "the margin stays on the left");
+    }
+
+    /// **A row's left padding is on the left too**, and its start padding moves.
+    #[test]
+    fn a_flexs_physical_padding_stays() {
+        let rtl = Theme::default().rtl();
+        let left = boxed(
+            Flex::column()
+                .padding_each(0.0, 0.0, 0.0, 30.0)
+                .child(square()),
+        );
+        assert_eq!(red_x(&left, &rtl), 55.0);
+        let start = boxed(
+            Flex::column()
+                .padding_insets(InsetsDirectional::only_start(30.0))
+                .child(square()),
+        );
+        assert_eq!(red_x(&start, &rtl), 25.0);
+    }
+
+    /// **A safe area keeps a cutout on the left clear on the left** in a right-to-left
+    /// script. It used to pad the right, leaving the cutout over the content.
+    #[test]
+    fn a_safe_area_pads_the_side_the_cutout_is_on() {
+        let (ltr, rtl) = (Theme::default(), Theme::default().rtl());
+        let surface = crate::MediaQuery::new(Size::new(100.0, 100.0))
+            .with_insets(crate::WindowInsets::bars(Insets::new(0.0, 0.0, 0.0, 30.0)));
+        let area = surface.scope(|| boxed(SafeArea::new(square())));
+        let _installed = surface.install();
+        assert_eq!(red_x(&area, &ltr), 55.0);
+        assert_eq!(red_x(&area, &rtl), 55.0, "clear of the cutout, on the left");
     }
 }

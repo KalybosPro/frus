@@ -17,7 +17,7 @@ pub struct Flex<Msg = crate::callback::Callback> {
     flex_shrink: f32,
     justify: Justify,
     align: Align,
-    padding: Insets,
+    padding: frus_core::InsetsGeometry,
     gap: f32,
     /// Spacing **between the lines** of a wrapping container; `None` = `gap`.
     run_gap: Option<f32>,
@@ -47,7 +47,7 @@ impl<Msg> Flex<Msg> {
             flex_shrink: 0.0,
             justify: Justify::Start,
             align: Align::Stretch,
-            padding: Insets::ZERO,
+            padding: frus_core::InsetsGeometry::Physical(Insets::ZERO),
             gap: 0.0,
             run_gap: None,
             align_content: AlignContent::default(),
@@ -135,13 +135,23 @@ impl<Msg> Flex<Msg> {
 
     /// Uniform padding, in logical pixels.
     pub fn padding(mut self, padding: f32) -> Self {
-        self.padding = Insets::uniform(padding);
+        self.padding = frus_core::InsetsGeometry::Physical(Insets::uniform(padding));
         self
     }
 
-    /// Padding per side: top, right, bottom, left.
+    /// Sets the padding from any insets: one number, physical [`Insets`] — whose left stays
+    /// on the left in a right-to-left script — or
+    /// [`InsetsDirectional`](frus_core::InsetsDirectional), whose start is the right there.
+    pub fn padding_insets(mut self, padding: impl Into<frus_core::InsetsGeometry>) -> Self {
+        self.padding = padding.into();
+        self
+    }
+
+    /// Padding per side: top, right, bottom, left — physical: the left stays on the left in
+    /// a right-to-left script. [`padding_insets`](Self::padding_insets) takes a start and an
+    /// end.
     pub fn padding_each(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
-        self.padding = Insets::new(top, right, bottom, left);
+        self.padding = frus_core::InsetsGeometry::Physical(Insets::new(top, right, bottom, left));
         self
     }
 
@@ -197,8 +207,9 @@ impl<Msg> Flex<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
-    fn style(&self) -> Style {
+impl<Msg> Flex<Msg> {
+    /// The style, with the padding laid out for `direction`.
+    fn style_in(&self, direction: frus_core::TextDirection) -> Style {
         Style {
             width: self.width,
             height: self.height,
@@ -207,7 +218,7 @@ impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
             flex_direction: self.direction,
             justify: self.justify,
             align: self.align,
-            padding: self.padding,
+            padding: self.padding.laid_out(direction),
             margin: Insets::ZERO,
             aspect_ratio: None,
             gap: self.gap,
@@ -230,6 +241,17 @@ impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
             grid_columns: None,
             ..Default::default()
         }
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
+    fn style(&self) -> Style {
+        self.style_in(frus_core::TextDirection::Ltr)
+    }
+
+    /// The padding laid out for the reading direction the subtree is in (milestone 588).
+    fn style_themed(&self, theme: &crate::theme::Theme) -> Style {
+        self.style_in(theme.direction)
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {

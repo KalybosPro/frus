@@ -286,6 +286,24 @@ impl InsetsGeometry {
             InsetsGeometry::Directional(insets) => insets.resolve(direction),
         }
     }
+
+    /// The insets to **lay a box out with**, in a frame laid out left to right and then
+    /// mirrored as a whole for a right-to-left script — which is how frus lays out.
+    ///
+    /// A directional inset is resolved as if left to right: the mirror puts its start on the
+    /// right. A physical one is swapped beforehand in a right-to-left script, so that the
+    /// mirror puts it back on the side it names: a left inset is on the left in Arabic too.
+    pub fn laid_out(self, direction: TextDirection) -> Insets {
+        match self {
+            InsetsGeometry::Directional(insets) => insets.resolve(TextDirection::Ltr),
+            InsetsGeometry::Physical(insets) if direction.is_rtl() => Insets {
+                left: insets.right,
+                right: insets.left,
+                ..insets
+            },
+            InsetsGeometry::Physical(insets) => insets,
+        }
+    }
 }
 
 impl From<Insets> for InsetsGeometry {

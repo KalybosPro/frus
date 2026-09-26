@@ -217,6 +217,14 @@ impl<Msg> SafeArea<Msg> {
 }
 
 impl<Msg: Clone> Widget<Msg> for SafeArea<Msg> {
+    /// The insets on the sides they name, in either reading direction (milestone 588).
+    fn style_themed(&self, theme: &crate::theme::Theme) -> Style {
+        Style {
+            padding: frus_core::InsetsGeometry::Physical(self.resolve()).laid_out(theme.direction),
+            ..self.style()
+        }
+    }
+
     fn style(&self) -> Style {
         Style {
             padding: self.resolve(),

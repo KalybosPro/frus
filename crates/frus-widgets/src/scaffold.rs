@@ -1102,9 +1102,13 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                 // Floating: clear of the edge by the usual margin.
                 content_bottom + FAB_MARGIN
             };
-            let (left_pad, right_pad) = match fab_location.justify() {
-                Justify::Start => (insets.left + FAB_MARGIN, 0.0),
-                Justify::End => (0.0, insets.right + FAB_MARGIN),
+            // The margin on the side the button is placed, start or end; the safe area's
+            // insets on the sides they name, whichever the direction (milestone 588). The row
+            // runs start to end, so in a right-to-left script the start is the right, and
+            // the button there clears the right-hand inset, not the left-hand one.
+            let (start_margin, end_margin) = match fab_location.justify() {
+                Justify::Start => (FAB_MARGIN, 0.0),
+                Justify::End => (0.0, FAB_MARGIN),
                 _ => (0.0, 0.0),
             };
             let fab_layer = Flex::column()
@@ -1112,11 +1116,19 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                 .height(height)
                 .justify(Justify::End)
                 .child(
-                    Flex::row().justify(fab_location.justify()).child(
-                        Container::new()
-                            .padding_each(0.0, right_pad, fab_bottom, left_pad)
-                            .child(fab),
-                    ),
+                    Flex::row()
+                        .justify(fab_location.justify())
+                        .padding_each(0.0, insets.right, 0.0, insets.left)
+                        .child(
+                            Container::new()
+                                .padding_insets(frus_core::InsetsDirectional::new(
+                                    0.0,
+                                    end_margin,
+                                    fab_bottom,
+                                    start_margin,
+                                ))
+                                .child(fab),
+                        ),
                 );
             content = Box::new(
                 Stack::new()
@@ -1673,6 +1685,55 @@ mod tests {
         assert!(
             (docked.y + docked.height / 2.0 - bar_top).abs() < 1.0,
             "centred on the bar's top edge: {docked:?}"
+        );
+    }
+
+    /// **In a right-to-left script the button keeps clear of the inset on the side it is
+    /// on** (milestone 588). With a 40-px cutout on the left: at the start — the right in
+    /// Arabic — it sits its margin from the right edge; at the end — the left there — it
+    /// clears the cutout as well as its margin. It used to take the start side's inset from
+    /// the left whatever the direction.
+    #[test]
+    fn in_rtl_the_button_clears_the_inset_on_its_own_side() {
+        let at = |location, theme: &Theme| {
+            let scaffold = Scaffold::new()
+                .size(W, H)
+                .insets(Insets::new(0.0, 0.0, 0.0, 40.0))
+                .body(Container::<Msg>::new())
+                .fab_location(location)
+                .fab(marked::<Msg>(56.0).width(56.0))
+                .build();
+            let ui = build_ui(
+                scaffold.as_ref(),
+                Size::new(W, H),
+                &Runtime::default(),
+                theme,
+            );
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Rect { rect, color, .. } if *color == MARK => Some(*rect),
+                    _ => None,
+                })
+                .expect("the button")
+        };
+        let rtl = Theme::default().rtl();
+        let start = at(FabLocation::StartFloat, &rtl);
+        assert!(
+            (start.x + start.width - (W - FAB_MARGIN)).abs() < 1.0,
+            "at the start, on the right: {start:?}"
+        );
+        let end = at(FabLocation::EndFloat, &rtl);
+        assert!(
+            (end.x - (40.0 + FAB_MARGIN)).abs() < 1.0,
+            "at the end, on the left, clear of the cutout: {end:?}"
+        );
+        let ltr = Theme::default();
+        let start = at(FabLocation::StartFloat, &ltr);
+        assert!(
+            (start.x - (40.0 + FAB_MARGIN)).abs() < 1.0,
+            "left to right, the start is the cutout's side: {start:?}"
         );
     }
 

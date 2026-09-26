@@ -47,11 +47,13 @@ const RAISED_MARGIN: f32 = 10.0;
 
 /// The banner's padding, which depends on **where the actions went**
 /// (`banner.dart:352`): tucked into the row beside the content, or on a line of their own.
-fn default_padding(single_row: bool) -> Insets {
+fn default_padding(single_row: bool) -> frus_core::InsetsGeometry {
+    // Directional, as the reference's are: the start is the right in a right-to-left script
+    // (milestone 588).
     if single_row {
-        Insets::new(2.0, 0.0, 0.0, 16.0)
+        frus_core::InsetsDirectional::new(2.0, 0.0, 0.0, 16.0).into()
     } else {
-        Insets::new(24.0, 16.0, 4.0, 16.0)
+        frus_core::InsetsDirectional::new(24.0, 16.0, 4.0, 16.0).into()
     }
 }
 
@@ -245,13 +247,15 @@ impl<Msg: Clone + 'static> MaterialBanner<Msg> {
         // the reason its padding has two shapes: the tucked-in bar needs almost no top
         // padding, the one below needs the message to breathe above it.
         let single_row = actions.len() == 1 && !force_actions_below;
-        let padding = padding.or(t.padding).unwrap_or(default_padding(single_row));
-        let leading_padding = leading_padding.or(t.leading_padding).unwrap_or(Insets::new(
-            0.0,
-            LEADING_GAP,
-            0.0,
-            0.0,
-        ));
+        let padding: frus_core::InsetsGeometry = padding
+            .or(t.padding)
+            .map(Into::into)
+            .unwrap_or(default_padding(single_row));
+        // Between the leading slot and the message: on the end side (milestone 588).
+        let leading_padding: frus_core::InsetsGeometry = leading_padding
+            .or(t.leading_padding)
+            .map(Into::into)
+            .unwrap_or(frus_core::InsetsDirectional::only_end(LEADING_GAP).into());
         let elevation = elevation.or(t.elevation).unwrap_or(BANNER_ELEVATION);
 
         let actions_bar = |actions: Vec<Box<dyn Widget<Msg>>>| {
@@ -286,12 +290,7 @@ impl<Msg: Clone + 'static> MaterialBanner<Msg> {
         if let Some(leading) = leading {
             message = message.child(
                 crate::Flex::row()
-                    .padding_each(
-                        leading_padding.top,
-                        leading_padding.right,
-                        leading_padding.bottom,
-                        leading_padding.left,
-                    )
+                    .padding_insets(leading_padding)
                     .child_boxed(leading),
             );
         }
@@ -317,11 +316,8 @@ impl<Msg: Clone + 'static> MaterialBanner<Msg> {
         // `Expanded` in it would have nothing to expand into — the action would land beside
         // the words instead of at the far end of the line. A column stretches its child
         // across, which is what puts the row on the banner's full width.
-        let mut column = crate::Flex::column().child(
-            crate::Flex::column()
-                .padding_each(padding.top, padding.right, padding.bottom, padding.left)
-                .child(message),
-        );
+        let mut column = crate::Flex::column()
+            .child(crate::Flex::column().padding_insets(padding).child(message));
         if !actions.is_empty() {
             column = column.child(actions_bar(actions));
         }
