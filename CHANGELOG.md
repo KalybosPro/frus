@@ -19,6 +19,11 @@ any release may break.
   `Builder` under the reference's names. The shell hands the widget layer its executor
   (`set_task_spawner`); with none, work gets a thread of its own.
 
+- **The test driver times gestures by its frames** (J584). A drag test failed in CI because the
+  fling at its release was read from wall-clock samples microseconds apart, which a loaded machine
+  spaces irregularly; the page was flung back to the top. The shell's velocity tracker now reads
+  the driver's clock in tests, and the wall's in an application.
+
 - **`MouseRegion`** (J583): `on_enter`, `on_hover`, `on_exit` (local positions), `cursor` and
   `opaque`. Every region under the pointer is entered, outer first; an opaque one hides those
   behind it; a region that comes under a still pointer is entered at the next frame; a finger is
