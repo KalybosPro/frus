@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 585 so far, each documenting the objective, the alternatives
+> record — one per step, 587 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **A proposal for measuring children** (J587, #52, no code): *measured containers*, generalising
+  what `ConstraintsTransformBox` already does — a widget lays its already built child out
+  separately, from the space offered, and answers its own size and the child's place. It would
+  fix `AnimatedSize`, `SizeTransition`, the `Aligned` factors, `LimitedBox` and `Intrinsic`, and
+  part of the rest; it does not fix `AppBar` being a builder. See `docs/milestone-587.md`.
 
 - **Work that finishes later, in a component** (J585): `cx.use_future(deps, …)` and
   `cx.use_stream(deps, |sink| …)` return an `AsyncSnapshot` (waiting, active, done, and the latest
