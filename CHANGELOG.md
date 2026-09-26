@@ -8,10 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 587 so far, each documenting the objective, the alternatives
+> record — one per step, 588 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **A left inset stays on the left in a right-to-left script** (J588). `padding_each`,
+  `margin_each` and a `SafeArea`'s insets are physical, as the reference's are: they no longer
+  follow the frame's mirror to the other side. A safe area in right to left used to pad the
+  wrong side of a cutout, and the floating button cleared the wrong inset. New
+  `Container::padding_insets`, `Container::margin_insets` and `Flex::padding_insets` take
+  `InsetsDirectional` for a start and an end; the framework's own start/end paddings (a banner's,
+  a drawer header's, the floating button's margin) use it. **Breaking in right to left** for an
+  application that meant start and end with `padding_each`.
 
 - **A proposal for measuring children** (J587, #52, no code): *measured containers*, generalising
   what `ConstraintsTransformBox` already does — a widget lays its already built child out

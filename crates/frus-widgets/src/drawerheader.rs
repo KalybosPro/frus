@@ -499,7 +499,7 @@ impl<Msg: Clone + 'static> UserAccountsDrawerHeader<Msg> {
         let mut pictures = Flex::<Msg>::row()
             .flex(1.0)
             .align(Align::Start)
-            .padding_each(0.0, 16.0, 0.0, 0.0);
+            .padding_insets(frus_core::InsetsDirectional::only_end(16.0));
         pictures = match current {
             Some(picture) => pictures.child_boxed(Box::new(
                 Flex::<Msg>::column()

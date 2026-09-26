@@ -117,19 +117,21 @@ fn header(state: HeaderState, theme: &Theme, router: &GoRouter) -> Container {
             // The gap that absorbs the shrinking, so the title **rises** with it rather
             // than the header closing over the title from below.
             Expanded::new(Container::new()),
-            Container::new().padding_each(0.0, 16.0, 10.0, 8.0).child(
-                row![
-                    button(
-                        "←",
-                        on(move || {
-                            back.pop();
-                        })
-                    )
-                    .variant(Variant::Text),
-                    Expanded::new(title),
-                ]
-                .gap(4.0)
-            ),
+            Container::new()
+                .padding_insets(frus_widgets::InsetsDirectional::new(0.0, 16.0, 10.0, 8.0))
+                .child(
+                    row![
+                        button(
+                            "←",
+                            on(move || {
+                                back.pop();
+                            })
+                        )
+                        .variant(Variant::Text),
+                        Expanded::new(title),
+                    ]
+                    .gap(4.0)
+                ),
             // Flush to the bottom edge, which is why it is a row of the column rather
             // than a border on the box: a border would be inside the padding.
             Container::new().height(1.0).color(edge),
