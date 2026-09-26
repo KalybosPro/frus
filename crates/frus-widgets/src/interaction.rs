@@ -17,6 +17,34 @@ pub enum Cursor {
     Pointer,
     /// A vertical bar (a text entry area).
     Text,
+    /// No cursor at all: it is hidden while over the region (milestone 583).
+    None,
+    /// Something that cannot be done here — a disabled control, a drop that is refused.
+    Forbidden,
+    /// The application is busy and takes no input.
+    Wait,
+    /// The application is busy, and still takes input.
+    Progress,
+    /// Help is available.
+    Help,
+    /// A precise pick: a crosshair.
+    Precise,
+    /// Something that can be moved.
+    Move,
+    /// Something that can be grabbed and dragged.
+    Grab,
+    /// Something being dragged.
+    Grabbing,
+    /// A boundary that moves left and right: a column's edge.
+    ResizeColumn,
+    /// A boundary that moves up and down: a row's edge.
+    ResizeRow,
+    /// Zoom in.
+    ZoomIn,
+    /// Zoom out.
+    ZoomOut,
+    /// A context menu is available.
+    ContextMenu,
 }
 
 /// A widget's positional identity: a hash of its path in the tree.

@@ -376,6 +376,19 @@ pub enum FocusDirection {
     Right,
 }
 
+/// A region the mouse enters and leaves, as a frame registered it (milestone 583).
+#[derive(Clone, Copy, Debug)]
+struct HoverEntry {
+    id: WidgetId,
+    /// The part that shows, which the pointer can be over.
+    seen: Rect,
+    /// The whole box, which positions are measured from.
+    whole: Rect,
+    /// The region it is inside, if any.
+    parent: Option<WidgetId>,
+    spec: crate::HoverRegion,
+}
+
 #[derive(Clone)]
 struct Hit<Msg> {
     id: WidgetId,
@@ -418,6 +431,8 @@ struct BoundaryData<Msg> {
     /// The detectors that take a drag, in painted order, with the box a press can land in
     /// (clipped) and the whole box (milestone 582).
     pans: Vec<(WidgetId, Rect, Rect)>,
+    /// The regions the mouse enters and leaves, in painted order (milestone 583).
+    hover_regions: Vec<HoverEntry>,
     text_stops: Vec<crate::TextStop>,
     semantics: Vec<(WidgetId, Rect, frus_core::SemanticsProperties)>,
     system_ui: Vec<(Rect, crate::SystemUiOverlayStyle)>,
@@ -437,6 +452,7 @@ struct Snapshot {
     drop_zones: usize,
     inks: usize,
     pans: usize,
+    hover_regions: usize,
     text_stops: usize,
     semantics: usize,
     system_ui: usize,
@@ -474,6 +490,7 @@ struct BarrierBase {
     drop_zones: usize,
     inks: usize,
     pans: usize,
+    hover_regions: usize,
     text_stops: usize,
     reorderables: usize,
     interactives: usize,
@@ -490,6 +507,7 @@ struct XformBase {
     drop_zones: usize,
     inks: usize,
     pans: usize,
+    hover_regions: usize,
     text_stops: usize,
     reorderables: usize,
     semantics: usize,
@@ -647,6 +665,8 @@ pub struct Ui<Msg = crate::callback::Callback> {
     /// The detectors that take a drag, in painted order, with the box a press can land in
     /// (clipped) and the whole box (milestone 582).
     pans: Vec<(WidgetId, Rect, Rect)>,
+    /// The regions the mouse enters and leaves, in painted order (milestone 583).
+    hover_regions: Vec<HoverEntry>,
     /// The texts inside a [`SelectionArea`](crate::SelectionArea), in the order they were
     /// painted — reading order — each with the area it is in.
     text_stops: Vec<crate::TextStop>,
@@ -1357,6 +1377,56 @@ impl<Msg: Clone> Ui<Msg> {
             .rev()
             .find(|(_, rect)| rect.contains(point))
             .map(|(id, rect)| (*id, *rect))
+    }
+
+    /// The regions the mouse is in at `point`, the innermost first, each with its whole box
+    /// (milestone 583).
+    ///
+    /// Every region under the pointer is in — a region inside another is in both — except
+    /// those an **opaque** region hides: once one is found, only the regions it is inside
+    /// are still in, and a region behind it that it is not inside is not.
+    pub fn hover_regions_at(&self, point: Point) -> Vec<(WidgetId, Rect, crate::HoverRegion)> {
+        let mut found: Vec<&HoverEntry> = Vec::new();
+        // The regions an opaque one found so far is inside: its parent chain.
+        let mut hidden_behind: Option<Vec<WidgetId>> = None;
+        for region in self.hover_regions.iter().rev() {
+            if !region.seen.contains(point) {
+                continue;
+            }
+            if let Some(chain) = &hidden_behind {
+                if !chain.contains(&region.id) {
+                    continue;
+                }
+            }
+            found.push(region);
+            if region.spec.opaque && hidden_behind.is_none() {
+                let mut chain = Vec::new();
+                let mut parent = region.parent;
+                while let Some(id) = parent {
+                    chain.push(id);
+                    parent = self
+                        .hover_regions
+                        .iter()
+                        .rev()
+                        .find(|r| r.id == id)
+                        .and_then(|r| r.parent);
+                }
+                hidden_behind = Some(chain);
+            }
+        }
+        found
+            .into_iter()
+            .map(|region| (region.id, region.whole, region.spec))
+            .collect()
+    }
+
+    /// The whole box of the region `id` in this frame, if it is in it.
+    pub fn hover_region_rect(&self, id: WidgetId) -> Option<Rect> {
+        self.hover_regions
+            .iter()
+            .rev()
+            .find(|region| region.id == id)
+            .map(|region| region.whole)
     }
 
     /// The innermost detector that takes a drag under `point`, and its box (milestone 582):
@@ -2314,7 +2384,12 @@ struct Builder<'a, Msg> {
     /// The detectors that take a drag, in painted order, with the box a press can land in
     /// (clipped) and the whole box (milestone 582).
     pans: Vec<(WidgetId, Rect, Rect)>,
+    /// The regions the mouse enters and leaves, in painted order (milestone 583).
+    hover_regions: Vec<HoverEntry>,
     text_stops: Vec<crate::TextStop>,
+    /// The region the mouse enters and leaves that the walk is inside, if any: the parent of
+    /// the next one registered (milestone 583).
+    hover_parent: Option<WidgetId>,
     /// The [`SelectionArea`](crate::SelectionArea) the walk is inside, if it is inside one, and
     /// its widget — which may have a say over the bar.
     area: Option<WidgetId>,
@@ -2566,6 +2641,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drop_zones: self.drop_zones.len(),
             inks: self.inks.len(),
             pans: self.pans.len(),
+            hover_regions: self.hover_regions.len(),
             text_stops: self.text_stops.len(),
             semantics: self.semantics.len(),
             system_ui: self.system_ui.len(),
@@ -2594,6 +2670,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drop_zones: self.drop_zones[snap.drop_zones..].to_vec(),
             inks: self.inks[snap.inks..].to_vec(),
             pans: self.pans[snap.pans..].to_vec(),
+            hover_regions: self.hover_regions[snap.hover_regions..].to_vec(),
             text_stops: self.text_stops[snap.text_stops..].to_vec(),
             semantics: self.semantics[snap.semantics..].to_vec(),
             system_ui: self.system_ui[snap.system_ui..].to_vec(),
@@ -2616,6 +2693,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.drop_zones.extend(data.drop_zones);
         self.inks.extend(data.inks);
         self.pans.extend(data.pans);
+        self.hover_regions.extend(data.hover_regions);
         self.text_stops.extend(data.text_stops);
         self.semantics.extend(data.semantics);
         self.system_ui.extend(data.system_ui);
@@ -2636,6 +2714,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drop_zones: self.drop_zones.len(),
             inks: self.inks.len(),
             pans: self.pans.len(),
+            hover_regions: self.hover_regions.len(),
             text_stops: self.text_stops.len(),
             reorderables: self.reorderables.len(),
             interactives: self.interactives.len(),
@@ -2799,6 +2878,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.drop_zones.truncate(base.drop_zones);
             self.inks.truncate(base.inks);
             self.pans.truncate(base.pans);
+            self.hover_regions.truncate(base.hover_regions);
             self.text_stops.truncate(base.text_stops);
             self.reorderables.truncate(base.reorderables);
             self.interactives.truncate(base.interactives);
@@ -2840,6 +2920,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             drop_zones: self.drop_zones.len(),
             inks: self.inks.len(),
             pans: self.pans.len(),
+            hover_regions: self.hover_regions.len(),
             text_stops: self.text_stops.len(),
             reorderables: self.reorderables.len(),
             semantics: self.semantics.len(),
@@ -2883,6 +2964,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             for (_, seen, whole) in &mut self.pans[base.pans..] {
                 *seen = matrix.apply_rect(*seen);
                 *whole = matrix.apply_rect(*whole);
+            }
+            for region in &mut self.hover_regions[base.hover_regions..] {
+                region.seen = matrix.apply_rect(region.seen);
+                region.whole = matrix.apply_rect(region.whole);
             }
             for stop in &mut self.text_stops[base.text_stops..] {
                 stop.rect = matrix.apply_rect(stop.rect);
@@ -3355,7 +3440,19 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             .media_override(crate::MediaQuery::of())
             .map(crate::MediaQuery::install);
         let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
+        // A region the mouse enters and leaves: registered before its subtree, so that the
+        // regions inside it name it as their parent (milestone 583).
+        let outer_hover = match (widget.hover_region(), over) {
+            (Some(spec), Some(whole)) => {
+                self.register_hover_region(id, spec, whole, clip);
+                Some(self.hover_parent.replace(id))
+            }
+            _ => None,
+        };
         self.walk_node_themed(widget, id, translation, clip, rects, index);
+        if let Some(parent) = outer_hover {
+            self.hover_parent = parent;
+        }
         if let Some((area, area_widget)) = outer_area {
             self.area = area;
             self.area_widget = area_widget;
@@ -4922,6 +5019,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
         }
 
+        let outer_hover = widget.hover_region().map(|spec| {
+            self.register_hover_region(id, spec, draw_rect, clip);
+            self.hover_parent.replace(id)
+        });
         let children = widget.children();
         // Fractional alignment + paint offset, as in the main walk (a virtualised-list /
         // `layout_builder` child may itself be an aligned or transformed container).
@@ -4935,6 +5036,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 rects,
                 index,
             );
+        }
+        if let Some(parent) = outer_hover {
+            self.hover_parent = parent;
         }
         self.depth -= 1;
     }
@@ -5021,6 +5125,26 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             None,
             self.theme.clone(),
         ));
+    }
+
+    /// Registers a region the mouse enters and leaves, as far as it shows (milestone 583).
+    fn register_hover_region(
+        &mut self,
+        id: WidgetId,
+        spec: crate::HoverRegion,
+        whole: Rect,
+        clip: Rect,
+    ) {
+        let seen = whole.intersect(clip);
+        if seen.width > 0.0 && seen.height > 0.0 {
+            self.hover_regions.push(HoverEntry {
+                id,
+                seen,
+                whole,
+                parent: self.hover_parent,
+                spec,
+            });
+        }
     }
 
     /// Floats the bar of a selection area's selection over `range` of this text — the first
@@ -5526,6 +5650,8 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         drop_zones: Vec::new(),
         inks: Vec::new(),
         pans: Vec::new(),
+        hover_regions: Vec::new(),
+        hover_parent: None,
         text_stops: Vec::new(),
         area: None,
         area_widget: None,
@@ -5609,6 +5735,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         drop_zones: builder.drop_zones,
         inks: builder.inks,
         pans: builder.pans,
+        hover_regions: builder.hover_regions,
         text_stops: builder.text_stops,
         reorderables: builder.reorderables,
         interactives: builder.interactives,

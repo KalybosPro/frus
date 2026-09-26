@@ -35,6 +35,11 @@ impl Hover {
         };
     }
 
+    /// Where the pointer that hovers is, if there is one (milestone 583).
+    pub(crate) fn at(&self) -> Option<Point> {
+        self.at
+    }
+
     /// The mouse left the window: nothing in it is under the pointer any more.
     pub(crate) fn left(&mut self) {
         self.at = None;

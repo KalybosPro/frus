@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 582 so far, each documenting the objective, the alternatives
+> record — one per step, 583 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`MouseRegion`** (J583): `on_enter`, `on_hover`, `on_exit` (local positions), `cursor` and
+  `opaque`. Every region under the pointer is entered, outer first; an opaque one hides those
+  behind it; a region that comes under a still pointer is entered at the next frame; a finger is
+  in a region while it touches. `Cursor` gains fourteen system shapes (**breaking** for an
+  exhaustive `match`), and a field now shows the text cursor. New hooks `Widget::hover_region` and
+  `Widget::on_hover_event`, and `Ui::hover_regions_at`.
 
 - **Drags on a `GestureDetector`** (J582): `on_pan_start`, `on_pan_update` (position and delta)
   and `on_pan_end` (velocity), kept to one direction with `pan_axis`. Inside a scroll the first

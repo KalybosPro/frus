@@ -977,6 +977,11 @@ pub struct App<A: Application> {
     last_region_click: Option<(Instant, Point)>,
     /// A first tap waiting to see whether it is half of a double tap (milestone 581).
     pending_tap: Option<PendingTap<A::Message>>,
+    /// The regions the pointer is in, the innermost first, each with its box when it was
+    /// last seen (milestone 583).
+    entered: Vec<(WidgetId, Rect)>,
+    /// Whether a button or a finger is down: a region hears moves only without one.
+    pointer_held: bool,
     /// A counter for the keys of leaving events, which fade out.
     leaving_counter: u64,
     /// The running subscriptions: id → cancellation handle, dropping which stops it.
@@ -1127,6 +1132,8 @@ impl<A: Application> App<A> {
             last_click_time: None,
             last_region_click: None,
             pending_tap: None,
+            entered: Vec::new(),
+            pointer_held: false,
             leaving_counter: 0,
             running_subs: HashMap::new(),
             pending_focus: Vec::new(),
@@ -1987,6 +1994,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             WindowEvent::CursorLeft { .. } => {
                 self.hover.left();
                 self.sync_hover();
+                self.sync_regions(false);
             }
 
             WindowEvent::Touch(touch) => {
@@ -3140,6 +3148,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 for message in dismissed.into_iter().chain(turned).chain(scrolled) {
                     self.dispatch(message);
                 }
+                // A screen that changed under a still pointer enters and leaves regions too,
+                // as the reference's mouse tracker does after every frame (milestone 583).
+                self.sync_regions(false);
                 if moved_late || sheeted_late {
                     // Nothing else this frame knows the offset changed: the springs ran
                     // before the request was placed.
@@ -3256,8 +3267,21 @@ impl<A: Application> App<A> {
     }
 
     /// Everything [`pointer`](Self::pointer) does with an event but wake the loop: the one
-    /// place a press, a movement and a release are routed, and so what a test drives.
+    /// place a press, a movement and a release are routed, and so what a test drives. The
+    /// regions the pointer is in are brought up to date after it (milestone 583).
     fn pointer_event(&mut self, event: PointerEvent) {
+        let kind = event.kind;
+        self.route_pointer_event(event);
+        self.pointer_held = match kind {
+            PointerKind::Down => true,
+            PointerKind::Up | PointerKind::Cancel => false,
+            PointerKind::Move => self.pointer_held,
+        };
+        self.sync_regions(kind == PointerKind::Move);
+    }
+
+    /// Routes one pointer event: see [`pointer_event`](Self::pointer_event).
+    fn route_pointer_event(&mut self, event: PointerEvent) {
         self.cursor = event.position;
         self.hover.event(event.kind, event.position, event.touch);
         // Whether the gesture under way could still end as a tap, before this event moves
@@ -3498,6 +3522,89 @@ impl<A: Application> App<A> {
         hovered
     }
 
+    /// Brings the regions the pointer is in up to date (milestone 583): an exit for each it has
+    /// left, innermost first, an enter for each it has come into, outermost first, and — when
+    /// the pointer `moved` with nothing held — a move for each it is still in.
+    fn sync_regions(&mut self, moved: bool) {
+        let point = self.hover.at();
+        let now: Vec<(WidgetId, Rect)> = match (point, self.ui.as_ref()) {
+            (Some(point), Some(ui)) => ui
+                .hover_regions_at(point)
+                .into_iter()
+                .map(|(id, rect, _)| (id, rect))
+                .collect(),
+            _ => Vec::new(),
+        };
+        let at = point.unwrap_or(self.cursor);
+        let local = |rect: Rect| Point::new(at.x - rect.x, at.y - rect.y);
+        let before = std::mem::replace(&mut self.entered, now.clone());
+        let mut events = Vec::new();
+        for (id, rect) in &before {
+            if !now.iter().any(|(n, _)| n == id) {
+                events.push((
+                    *id,
+                    frus_widgets::HoverEvent::Exit {
+                        local: local(*rect),
+                    },
+                ));
+            }
+        }
+        for (id, rect) in now.iter().rev() {
+            if !before.iter().any(|(b, _)| b == id) {
+                events.push((
+                    *id,
+                    frus_widgets::HoverEvent::Enter {
+                        local: local(*rect),
+                    },
+                ));
+            } else if moved && !self.pointer_held {
+                events.push((
+                    *id,
+                    frus_widgets::HoverEvent::Move {
+                        local: local(*rect),
+                    },
+                ));
+            }
+        }
+        let messages: Vec<_> = events
+            .into_iter()
+            .filter_map(|(id, event)| {
+                self.tree
+                    .as_ref()
+                    .and_then(|tree| find_widget(tree.as_ref(), id))
+                    .and_then(|widget| widget.on_hover_event(event))
+            })
+            .collect();
+        for message in messages {
+            self.dispatch(message);
+            self.request_redraw();
+        }
+    }
+
+    /// The cursor to show: what the widget under the pointer asks for, `requested`, first;
+    /// then the text cursor over a field that can be focused, as a platform shows it; then
+    /// the innermost region the pointer is in that asks for one (milestone 583); otherwise
+    /// the default.
+    fn region_cursor(&self, requested: Option<UiCursor>) -> UiCursor {
+        requested
+            .or_else(|| {
+                let point = self.hover.at()?;
+                let (id, _) = self.ui.as_ref()?.focus_hit(point)?;
+                let widget = find_widget(self.tree.as_ref()?.as_ref(), id)?;
+                is_text_field(widget).then_some(UiCursor::Text)
+            })
+            .or_else(|| {
+                self.hover.at().and_then(|point| {
+                    self.ui
+                        .as_ref()?
+                        .hover_regions_at(point)
+                        .into_iter()
+                        .find_map(|(_, _, region)| region.cursor)
+                })
+            })
+            .unwrap_or(UiCursor::Default)
+    }
+
     /// Applies the cursor shape the hovered widget asks for at the pointer's local
     /// position (milestone 205), and the default cursor otherwise. Translates
     /// `frus_widgets::Cursor` into winit's.
@@ -3512,13 +3619,10 @@ impl<A: Application> App<A> {
                 rect.height,
             )
         });
-        let icon = match requested.unwrap_or(UiCursor::Default) {
-            UiCursor::Default => CursorIcon::Default,
-            UiCursor::Pointer => CursorIcon::Pointer,
-            UiCursor::Text => CursorIcon::Text,
-        };
+        let shown = self.region_cursor(requested);
         if let Some(window) = &self.window {
-            window.set_cursor(icon);
+            window.set_cursor_visible(shown != UiCursor::None);
+            window.set_cursor(cursor_icon(shown));
         }
         // Sub-region highlighting (milestone 208): the pointer's position is retained
         // while it hovers an interactive sub-region, that is, while cursor_icon answered.
@@ -6886,6 +6990,29 @@ fn drag_fraction(rect: frus_widgets::Rect, x: f32) -> f32 {
 /// One list, because forgetting a variant is silent: the widget stays hittable, the
 /// press still records it, and only the release quietly does nothing. That is how a
 /// dismissible row came to swallow every tap on it (milestone 327).
+/// The window's cursor for one the interface asks for. A hidden cursor is the default
+/// shape, made invisible by the caller.
+fn cursor_icon(cursor: UiCursor) -> CursorIcon {
+    match cursor {
+        UiCursor::Default | UiCursor::None => CursorIcon::Default,
+        UiCursor::Pointer => CursorIcon::Pointer,
+        UiCursor::Text => CursorIcon::Text,
+        UiCursor::Forbidden => CursorIcon::NotAllowed,
+        UiCursor::Wait => CursorIcon::Wait,
+        UiCursor::Progress => CursorIcon::Progress,
+        UiCursor::Help => CursorIcon::Help,
+        UiCursor::Precise => CursorIcon::Crosshair,
+        UiCursor::Move => CursorIcon::Move,
+        UiCursor::Grab => CursorIcon::Grab,
+        UiCursor::Grabbing => CursorIcon::Grabbing,
+        UiCursor::ResizeColumn => CursorIcon::ColResize,
+        UiCursor::ResizeRow => CursorIcon::RowResize,
+        UiCursor::ZoomIn => CursorIcon::ZoomIn,
+        UiCursor::ZoomOut => CursorIcon::ZoomOut,
+        UiCursor::ContextMenu => CursorIcon::ContextMenu,
+    }
+}
+
 /// A movement, or a velocity, kept to the way a detector drags.
 fn mask_pan(axis: frus_widgets::PanAxis, value: Point) -> Point {
     match axis {
@@ -8908,6 +9035,22 @@ pub mod testing {
                 .poll_pending_tap(Instant::now() + DOUBLE_TAP_TIMEOUT)
         }
 
+        /// The cursor the window would show where the pointer is now.
+        pub fn cursor_shown(&self) -> frus_widgets::Cursor {
+            let s = &self.shell;
+            let requested = s.runtime.input.hovered.and_then(|id| {
+                let rect = s.ui.as_ref()?.widget_rect(id)?;
+                let widget = find_widget(s.tree.as_ref()?.as_ref(), id)?;
+                widget.cursor_icon(
+                    s.cursor.x - rect.x,
+                    s.cursor.y - rect.y,
+                    rect.width,
+                    rect.height,
+                )
+            });
+            s.region_cursor(requested)
+        }
+
         /// When the loop would wake next if it went idle now, if it would.
         pub fn next_wake(&self) -> Option<Instant> {
             match self.shell.idle_control_flow() {
@@ -9045,6 +9188,7 @@ pub mod testing {
                     .collect()
             };
             s.ui = Some(ui);
+            s.sync_regions(false);
             for message in scrolled {
                 s.dispatch(message);
             }
@@ -10935,5 +11079,255 @@ mod gesture_pan_tests {
         assert_eq!(moved.x, 0.0, "only down");
         assert!(moved.y < -40.0, "{moved:?}");
         assert_eq!(scroll_y(&d), 0.0, "the page did not move");
+    }
+}
+
+/// The pointer entering, moving over and leaving a
+/// [`MouseRegion`](frus_widgets::MouseRegion), driven through the shell (milestone 583).
+#[cfg(test)]
+mod mouse_region_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{
+        Container, Cursor, Flex, MouseRegion, Point, Positioned, Stack, TextField, Theme, Widget,
+    };
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    const W: f32 = 400.0;
+    const H: f32 = 600.0;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Enter(&'static str, Point),
+        Move(&'static str),
+        Exit(&'static str),
+        Show,
+    }
+
+    /// An outer region holding an inner one at its top; below them, a big region with a
+    /// smaller one overlapping it — not inside it — in a stack; and a region that appears
+    /// when told to.
+    struct Page {
+        front_opaque: bool,
+        shown: bool,
+        heard: Rc<RefCell<Vec<Msg>>>,
+    }
+
+    fn region(name: &'static str, child: impl Widget<Msg> + 'static) -> MouseRegion<Msg> {
+        MouseRegion::new(child)
+            .on_enter(move |at| Msg::Enter(name, at))
+            .on_hover(move |_| Msg::Move(name))
+            .on_exit(move |_| Msg::Exit(name))
+    }
+
+    impl Application for Page {
+        type Message = Msg;
+
+        fn update(&mut self, message: Msg) -> Command<Msg> {
+            if message == Msg::Show {
+                self.shown = true;
+            } else {
+                self.heard.borrow_mut().push(message);
+            }
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            // 0..200: outer (300 wide), with inner 100×50 at its top-left.
+            let nested = region(
+                "outer",
+                Container::new().width(300.0).height(200.0).child(
+                    region("inner", Container::new().width(100.0).height(50.0))
+                        .cursor(Cursor::Pointer),
+                ),
+            )
+            .cursor(Cursor::Grab);
+            // 200..400: back fills a 300×200 stack; front sits at (50, 50), 100×100, over it.
+            let stack = Stack::new()
+                .width(300.0)
+                .height(200.0)
+                .layer(region("back", Container::new().width(300.0).height(200.0)))
+                .layer(
+                    Positioned::new(
+                        region("front", Container::new().width(100.0).height(100.0))
+                            .opaque(self.front_opaque),
+                    )
+                    .left(50.0)
+                    .top(50.0),
+                );
+            // 400..500: a field inside a region that asks for a hand.
+            let field = region("field", TextField::new("").width(300.0)).cursor(Cursor::Pointer);
+            // 500..600: a region that appears.
+            let appearing: Box<dyn Widget<Msg>> = if self.shown {
+                Box::new(region("late", Container::new().width(300.0).height(100.0)))
+            } else {
+                Box::new(Container::new().width(300.0).height(100.0))
+            };
+            Box::new(
+                Container::new().width(W).height(H).child(
+                    Flex::column()
+                        .child(nested)
+                        .child(stack)
+                        .child(Container::new().height(100.0).child(field))
+                        .child(appearing),
+                ),
+            )
+        }
+    }
+
+    fn driver(front_opaque: bool) -> (Driver<Page>, Rc<RefCell<Vec<Msg>>>) {
+        let heard = Rc::new(RefCell::new(Vec::new()));
+        let page = Page {
+            front_opaque,
+            shown: false,
+            heard: heard.clone(),
+        };
+        let mut driver = Driver::new(page, W, H);
+        driver.run(0.2);
+        (driver, heard)
+    }
+
+    fn take(heard: &Rc<RefCell<Vec<Msg>>>) -> Vec<Msg> {
+        std::mem::take(&mut *heard.borrow_mut())
+    }
+
+    fn mouse(d: &mut Driver<Page>, x: f32, y: f32) {
+        d.move_mouse(Point::new(x, y));
+        d.run(0.02);
+    }
+
+    /// **Into a region inside another, both are entered**, the outer first, each told where
+    /// the pointer is in its own coordinates; a move inside is heard by both; out of the
+    /// inner one only it is left, and out of both the outer one is too.
+    #[test]
+    fn nested_regions_are_entered_and_left_together() {
+        let (mut d, heard) = driver(true);
+        mouse(&mut d, 20.0, 10.0);
+        assert_eq!(
+            take(&heard),
+            vec![
+                Msg::Enter("outer", Point::new(20.0, 10.0)),
+                Msg::Enter("inner", Point::new(20.0, 10.0)),
+            ]
+        );
+        mouse(&mut d, 30.0, 12.0);
+        let moved = take(&heard);
+        assert!(moved.contains(&Msg::Move("inner")) && moved.contains(&Msg::Move("outer")));
+        mouse(&mut d, 200.0, 150.0);
+        assert_eq!(take(&heard), vec![Msg::Exit("inner"), Msg::Move("outer")]);
+        mouse(&mut d, 350.0, 150.0);
+        assert_eq!(take(&heard), vec![Msg::Exit("outer")]);
+    }
+
+    /// **An opaque region hides the one behind it**: over the overlap, only the front one is
+    /// in; one that is not opaque lets the back one in too.
+    #[test]
+    fn an_opaque_region_hides_the_one_behind() {
+        let (mut d, heard) = driver(true);
+        mouse(&mut d, 80.0, 280.0);
+        let entered: Vec<_> = take(&heard);
+        assert!(
+            entered.iter().any(|m| matches!(m, Msg::Enter("front", _))),
+            "{entered:?}"
+        );
+        assert!(
+            !entered.iter().any(|m| matches!(m, Msg::Enter("back", _))),
+            "{entered:?}"
+        );
+        // Out of the front one and still in the back: the back one is entered now.
+        mouse(&mut d, 250.0, 280.0);
+        let after = take(&heard);
+        assert!(after.contains(&Msg::Exit("front")), "{after:?}");
+        assert!(
+            after.iter().any(|m| matches!(m, Msg::Enter("back", _))),
+            "{after:?}"
+        );
+
+        let (mut d, heard) = driver(false);
+        mouse(&mut d, 80.0, 280.0);
+        let entered = take(&heard);
+        assert!(
+            entered.iter().any(|m| matches!(m, Msg::Enter("front", _))),
+            "{entered:?}"
+        );
+        assert!(
+            entered.iter().any(|m| matches!(m, Msg::Enter("back", _))),
+            "{entered:?}"
+        );
+    }
+
+    /// **With a button held, a region is entered and left but hears no moves**, as the
+    /// reference's hover is only a pointer with nothing pressed.
+    #[test]
+    fn no_moves_while_a_button_is_held() {
+        let (mut d, heard) = driver(true);
+        mouse(&mut d, 350.0, 150.0);
+        take(&heard);
+        d.press_mouse(Point::new(350.0, 150.0));
+        d.run(0.02);
+        d.move_mouse(Point::new(40.0, 20.0));
+        d.run(0.02);
+        d.move_mouse(Point::new(45.0, 22.0));
+        d.run(0.02);
+        let heard_now = take(&heard);
+        assert!(
+            heard_now
+                .iter()
+                .any(|m| matches!(m, Msg::Enter("inner", _))),
+            "{heard_now:?}"
+        );
+        assert!(
+            !heard_now.iter().any(|m| matches!(m, Msg::Move(_))),
+            "{heard_now:?}"
+        );
+        d.release_mouse(Point::new(45.0, 22.0));
+        d.run(0.02);
+    }
+
+    /// **A finger is in a region while it touches**: entered at the press, left at the lift.
+    #[test]
+    fn a_finger_enters_while_it_touches() {
+        let (mut d, heard) = driver(true);
+        d.press(Point::new(200.0, 150.0));
+        d.run(0.02);
+        assert_eq!(
+            take(&heard),
+            vec![Msg::Enter("outer", Point::new(200.0, 150.0))]
+        );
+        d.release(Point::new(200.0, 150.0));
+        d.run(0.02);
+        assert_eq!(take(&heard), vec![Msg::Exit("outer")]);
+    }
+
+    /// **A region that comes under a still pointer is entered** at the next frame, with no
+    /// movement at all.
+    #[test]
+    fn a_region_appearing_under_the_pointer_is_entered() {
+        let (mut d, heard) = driver(true);
+        mouse(&mut d, 150.0, 550.0);
+        assert!(take(&heard).is_empty());
+        d.update(Msg::Show);
+        d.run(0.05);
+        let heard_now = take(&heard);
+        assert!(
+            heard_now.iter().any(|m| matches!(m, Msg::Enter("late", _))),
+            "{heard_now:?}"
+        );
+    }
+
+    /// **The cursor is the innermost region's**, unless what is under the pointer asks for
+    /// one of its own: a field keeps its text cursor inside a region asking for a hand.
+    #[test]
+    fn the_innermost_region_sets_the_cursor() {
+        let (mut d, _) = driver(true);
+        mouse(&mut d, 20.0, 10.0);
+        assert_eq!(d.cursor_shown(), Cursor::Pointer, "the inner region's");
+        mouse(&mut d, 200.0, 150.0);
+        assert_eq!(d.cursor_shown(), Cursor::Grab, "the outer region's");
+        mouse(&mut d, 350.0, 150.0);
+        assert_eq!(d.cursor_shown(), Cursor::Default, "no region");
+        mouse(&mut d, 100.0, 420.0);
+        assert_eq!(d.cursor_shown(), Cursor::Text, "the field's own");
     }
 }
