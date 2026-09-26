@@ -203,6 +203,11 @@ impl Insets {
     pub const fn uniform(value: f32) -> Self {
         Self::new(value, value, value, value)
     }
+
+    /// `horizontal` on the left and the right, `vertical` on the top and the bottom.
+    pub const fn symmetric(horizontal: f32, vertical: f32) -> Self {
+        Self::new(vertical, horizontal, vertical, horizontal)
+    }
 }
 
 /// **Directional** insets: `start`/`end` instead of `left`/`right`. In LTR, `start`
@@ -239,6 +244,17 @@ impl InsetsDirectional {
         Self::new(0.0, value, 0.0, value)
     }
 
+    /// An inset on the **start** edge only: the left in a left-to-right script, the right in a
+    /// right-to-left one.
+    pub const fn only_start(value: f32) -> Self {
+        Self::new(0.0, 0.0, 0.0, value)
+    }
+
+    /// An inset on the **end** edge only.
+    pub const fn only_end(value: f32) -> Self {
+        Self::new(0.0, value, 0.0, 0.0)
+    }
+
     /// Resolves to concrete insets for a direction: in RTL, `start` maps to right.
     pub fn resolve(self, direction: TextDirection) -> Insets {
         let (left, right) = if direction.is_rtl() {
@@ -247,6 +263,47 @@ impl InsetsDirectional {
             (self.start, self.end)
         };
         Insets::new(self.top, right, self.bottom, left)
+    }
+}
+
+/// Insets that are either **physical** ([`Insets`]) or **directional**
+/// ([`InsetsDirectional`]). A widget accepts either one — or one number for all four sides —
+/// through `Into`, and resolves it against the reading direction at layout time.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum InsetsGeometry {
+    /// Physical insets, with absolute left and right.
+    Physical(Insets),
+    /// Directional insets (start/end, mirrored in a right-to-left script).
+    Directional(InsetsDirectional),
+}
+
+impl InsetsGeometry {
+    /// Resolves to physical insets for a reading direction; physical ones are returned
+    /// unchanged.
+    pub fn resolve(self, direction: TextDirection) -> Insets {
+        match self {
+            InsetsGeometry::Physical(insets) => insets,
+            InsetsGeometry::Directional(insets) => insets.resolve(direction),
+        }
+    }
+}
+
+impl From<Insets> for InsetsGeometry {
+    fn from(insets: Insets) -> Self {
+        InsetsGeometry::Physical(insets)
+    }
+}
+
+impl From<InsetsDirectional> for InsetsGeometry {
+    fn from(insets: InsetsDirectional) -> Self {
+        InsetsGeometry::Directional(insets)
+    }
+}
+
+/// One number: the same inset on all four sides.
+impl From<f32> for InsetsGeometry {
+    fn from(value: f32) -> Self {
+        InsetsGeometry::Physical(Insets::uniform(value))
     }
 }
 

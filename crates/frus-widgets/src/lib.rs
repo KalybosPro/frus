@@ -31,6 +31,7 @@ mod barrier;
 mod baseline;
 mod bottomappbar;
 mod bottomsheet;
+mod boxes;
 mod breadcrumb;
 mod button;
 mod callback;
@@ -209,6 +210,7 @@ pub use barrier::{
 pub use baseline::{Baseline, IgnoreBaseline};
 pub use bottomappbar::{bar_spacer, notched_outline, BottomAppBar};
 pub use bottomsheet::BottomSheet;
+pub use boxes::{ClipRect, ColoredBox, DecoratedBox, Padding};
 pub use breadcrumb::Breadcrumb;
 pub use button::{
     Button, Variant, BUTTON_BORDER_WIDTH, BUTTON_ELEVATION, BUTTON_HEIGHT, BUTTON_MIN_WIDTH,
@@ -454,9 +456,9 @@ pub use frus_core::{
     Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Backdrop, BlendMode, Border,
     BorderRadius, BoxDecoration, BoxFit, BoxShadow, ClipShape, Color, ColorFilter, Colors,
     FontWeight, FractionalMask, ImageData, ImageFilter, ImageHandle, Insets, InsetsDirectional,
-    LinearGradient, MaterialColor, Orientation, Path, PathVerb, Point, Primitive, Rect, Role,
-    Scene, SemanticsProperties, Size, SizeClass, TextAlign, TextDecoration, TextDirection,
-    TextOverflow, TextSpan, TextStyle, Toggled, WindowInsets,
+    InsetsGeometry, LinearGradient, MaterialColor, Orientation, Path, PathVerb, Point, Primitive,
+    Rect, Role, Scene, SemanticsProperties, Size, SizeClass, TextAlign, TextDecoration,
+    TextDirection, TextOverflow, TextSpan, TextStyle, Toggled, WindowInsets,
 };
 /// The shared animation layer — physics, curves, driver — see
 /// [`frus_core::animation`]. Re-exported here so applications can reach it through
