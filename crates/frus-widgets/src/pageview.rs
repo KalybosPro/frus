@@ -320,6 +320,27 @@ impl<Msg> Widget<Msg> for PageView<Msg> {
         }
     }
 
+    /// **All the room on offer** on an axis nobody sized, as the reference's takes
+    /// (milestone 590) — unless it was told to grow, which says the same thing already.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        if self.flex_grow > 0.0 {
+            return crate::widget::FillAxes::NONE;
+        }
+        crate::widget::FillAxes {
+            horizontal: !self.width_explicit,
+            vertical: !self.height_explicit,
+        }
+    }
+
+    /// The default size is only a default: the room replaces it wherever the layout can
+    /// give the room, and it stands where the reference would have nothing to give.
+    fn soft_extent(&self) -> crate::widget::FillAxes {
+        crate::widget::FillAxes {
+            horizontal: false,
+            vertical: !self.height_explicit,
+        }
+    }
+
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         &[]
     }

@@ -150,6 +150,9 @@ pub struct TextField<Msg = crate::callback::Callback> {
     value: String,
     size: f32,
     width: Dimension,
+    /// Whether the width was given; if not, the field takes the width on offer, as the
+    /// reference's does (milestone 590).
+    sized: bool,
     on_input: Option<Box<dyn Fn(String) -> Msg>>,
     on_submit: Option<Msg>,
     /// What to tell the screen reader when `on_submit` fires — see [`TextField::announce`].
@@ -515,6 +518,7 @@ impl<Msg> TextField<Msg> {
             value: value.into(),
             size: FIELD_TEXT_SIZE,
             width: Dimension::Length(220.0),
+            sized: false,
             on_input: None,
             on_submit: None,
             announce: None,
@@ -965,6 +969,7 @@ impl<Msg> TextField<Msg> {
     /// Sets the width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
+        self.sized = true;
         self
     }
 
@@ -1283,6 +1288,27 @@ impl<Msg> TextField<Msg> {
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
+    /// **All the room on offer** on an axis nobody sized, as the reference's takes
+    /// (milestone 590) — unless it was told to grow, which says the same thing already.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        if false {
+            return crate::widget::FillAxes::NONE;
+        }
+        crate::widget::FillAxes {
+            horizontal: !self.sized,
+            vertical: false,
+        }
+    }
+
+    /// The default size is only a default: the room replaces it wherever the layout can
+    /// give the room, and it stands where the reference would have nothing to give.
+    fn soft_extent(&self) -> crate::widget::FillAxes {
+        crate::widget::FillAxes {
+            horizontal: !self.sized,
+            vertical: false,
+        }
+    }
+
     fn style(&self) -> Style {
         let height = self.label_block() + self.field_height() + self.sub_block();
         Style {

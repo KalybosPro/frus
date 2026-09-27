@@ -257,7 +257,7 @@ Reviews aim to be substantive rather than fast — expect questions about trade-
 
 Things that have cost previous contributors real time:
 
-- **Scroll sizing.** `Scroll::new()` defaults to 200px with `Auto` sizing. Unsized inside a flexible parent it collapses and clips its content — the symptom looks like a blank page. Give it an explicit width/height or make it flex.
+- **Scroll sizing.** An unsized `SingleChildScrollView` is as big as its content, up to the room on offer, and takes all the room across its axis. It can only scroll when something bounds it: a page's body does, and so does `flex` in a column. Beside other children in a column, give it `flex` so that it scrolls within what they leave.
 - **RTL text.** If a text buffer is wider than the text itself, cosmic-text right-aligns into the empty space and the glyphs land off-screen. Size the buffer to the text.
 - **Interactive widgets and hit-testing.** `Ui::widget_rect` resolves rects through per-kind registries. A new interactive widget that isn't wired into a registry will pass its unit tests and still silently no-op on live drag or hover paths.
 - **Android fonts.** Fonts are bundled, not taken from the system — an Android-only text bug is often a font-loading problem, not a shaping one.

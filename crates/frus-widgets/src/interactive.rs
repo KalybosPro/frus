@@ -113,6 +113,9 @@ impl InteractiveView {
 pub struct InteractiveViewer<Msg = crate::callback::Callback> {
     width: Dimension,
     height: Dimension,
+    /// Whether the width and the height were given; an axis that was not takes the room on
+    /// offer, as the reference's does (milestone 590).
+    sized: (bool, bool),
     flex_grow: f32,
     min_scale: f32,
     max_scale: f32,
@@ -125,6 +128,7 @@ impl<Msg> InteractiveViewer<Msg> {
         Self {
             width: Dimension::Auto,
             height: Dimension::Length(300.0),
+            sized: (false, false),
             flex_grow: 0.0,
             min_scale: 0.5,
             max_scale: 4.0,
@@ -135,12 +139,14 @@ impl<Msg> InteractiveViewer<Msg> {
     /// The viewport's fixed width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
+        self.sized.0 = true;
         self
     }
 
     /// The viewport's fixed height, in logical pixels.
     pub fn height(mut self, height: f32) -> Self {
         self.height = Dimension::Length(height);
+        self.sized.1 = true;
         self
     }
 
@@ -196,6 +202,27 @@ impl<Msg: Clone> Widget<Msg> for InteractiveViewer<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+
+    /// **All the room on offer** on an axis nobody sized, as the reference's takes
+    /// (milestone 590) — unless it was told to grow, which says the same thing already.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        if self.flex_grow > 0.0 {
+            return crate::widget::FillAxes::NONE;
+        }
+        crate::widget::FillAxes {
+            horizontal: !self.sized.0,
+            vertical: !self.sized.1,
+        }
+    }
+
+    /// The default size is only a default: the room replaces it wherever the layout can
+    /// give the room, and it stands where the reference would have nothing to give.
+    fn soft_extent(&self) -> crate::widget::FillAxes {
+        crate::widget::FillAxes {
+            horizontal: false,
+            vertical: !self.sized.1,
+        }
     }
 
     fn interactive(&self) -> Option<(f32, f32)> {

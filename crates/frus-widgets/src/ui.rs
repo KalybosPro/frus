@@ -1744,6 +1744,11 @@ pub(crate) fn build_layout<'a, Msg>(
 pub(crate) struct Fills {
     horizontal: bool,
     vertical: bool,
+    /// The axes on which **this** node's size is only a default, replaced by the room on
+    /// offer when the fill is granted (milestone 590). Never passed up: it is about this
+    /// node's own style, not the subtree's request.
+    soft_horizontal: bool,
+    soft_vertical: bool,
 }
 
 impl Fills {
@@ -1754,9 +1759,12 @@ impl Fills {
     /// to say so.
     fn own<Msg>(widget: &dyn Widget<Msg>, theme: &Theme) -> Self {
         let asked = widget.fill_axes(theme);
+        let soft = widget.soft_extent();
         Fills {
             horizontal: asked.horizontal,
             vertical: asked.vertical,
+            soft_horizontal: soft.horizontal && asked.horizontal,
+            soft_vertical: soft.vertical && asked.vertical,
         }
     }
 
@@ -1764,6 +1772,17 @@ impl Fills {
         Fills {
             horizontal: self.horizontal || other.horizontal,
             vertical: self.vertical || other.vertical,
+            // This node's own; a child's default is not this node's.
+            ..self
+        }
+    }
+
+    /// Whether this node's size on one axis is only a default.
+    fn soft(self, horizontal: bool) -> bool {
+        if horizontal {
+            self.soft_horizontal
+        } else {
+            self.soft_vertical
         }
     }
 
@@ -1787,6 +1806,7 @@ impl Fills {
         Fills {
             horizontal: self.horizontal && auto(style.width),
             vertical: self.vertical && auto(style.height),
+            ..self
         }
     }
 
@@ -1794,12 +1814,12 @@ impl Fills {
         if direction.is_horizontal() {
             Fills {
                 horizontal: false,
-                vertical: self.vertical,
+                ..self
             }
         } else {
             Fills {
-                horizontal: self.horizontal,
                 vertical: false,
+                ..self
             }
         }
     }
@@ -2071,7 +2091,14 @@ fn build_layout_scoped<'a, Msg>(
         // a caller's number, and an axis that scrolls has already answered.
         let hug_x = !axis.free_x() && matches!(style.width, frus_layout::Dimension::Auto);
         let hug_y = !axis.free_y() && matches!(style.height, frus_layout::Dimension::Auto);
-        if hug_x || hug_y {
+        // And an axis that **scrolls with no size given and no growing asked**: as big as
+        // the content, up to the room on offer — the reference's viewport,
+        // `constraints.constrain(child.size)` (milestone 590). It used to be 200 px.
+        let free_to_measure =
+            |d| matches!(d, frus_layout::Dimension::Auto) && style.flex_grow == 0.0;
+        let clamp_x = axis.free_x() && free_to_measure(style.width);
+        let clamp_y = axis.free_y() && free_to_measure(style.height);
+        if hug_x || hug_y || clamp_x || clamp_y {
             let owned = owned_theme(theme);
             let cid = child_id(id, 0, content);
             let measure: frus_layout::MeasureFn<'a> = Box::new(move |w, h| {
@@ -2095,14 +2122,22 @@ fn build_layout_scoped<'a, Msg>(
                 // length of what is behind it as its basis, and a column holding one would
                 // overflow by however much there was to scroll. Nought is what a leaf
                 // answered before this branch existed, and it is still the right answer.
+                let whole_x = content.width + pad.left + pad.right;
+                let whole_y = content.height + pad.top + pad.bottom;
                 Size::new(
-                    match hug_x {
-                        true => content.width + pad.left + pad.right,
-                        false => 0.0,
+                    if hug_x {
+                        whole_x
+                    } else if clamp_x {
+                        whole_x.min(w.unwrap_or(f32::INFINITY))
+                    } else {
+                        0.0
                     },
-                    match hug_y {
-                        true => content.height + pad.top + pad.bottom,
-                        false => 0.0,
+                    if hug_y {
+                        whole_y
+                    } else if clamp_y {
+                        whole_y.min(h.unwrap_or(f32::INFINITY))
+                    } else {
+                        0.0
                     },
                 )
             });
@@ -2202,6 +2237,10 @@ fn build_layout_scoped<'a, Msg>(
                 // down, and there the run does fill.
                 if parallel && !alone {
                     continue;
+                }
+                // A size that was only a default gives way to the room (milestone 590).
+                if fills.soft(horizontal) {
+                    layout.clear_size(*node, horizontal);
                 }
                 layout.fill_parent(*node, horizontal, parallel);
             }

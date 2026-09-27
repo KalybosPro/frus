@@ -29,6 +29,9 @@ const STOP_RADIUS: f32 = 2.0;
 pub struct LinearProgressIndicator {
     value: f32,
     width: Dimension,
+    /// Whether the width was given; if not, the bar takes the width on offer, as the
+    /// reference's does (milestone 590).
+    sized: bool,
     color: Option<Color>,
     track_color: Option<Color>,
     min_height: Option<f32>,
@@ -44,6 +47,7 @@ impl LinearProgressIndicator {
         Self {
             value: value.clamp(0.0, 1.0),
             width: Dimension::Length(200.0),
+            sized: false,
             color: None,
             track_color: None,
             min_height: None,
@@ -57,6 +61,7 @@ impl LinearProgressIndicator {
     /// Sets the width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
+        self.sized = true;
         self
     }
 
@@ -133,6 +138,27 @@ impl<Msg> Widget<Msg> for LinearProgressIndicator {
             width: self.width,
             height: Dimension::Length(self.height(theme)),
             ..Default::default()
+        }
+    }
+
+    /// **All the room on offer** on an axis nobody sized, as the reference's takes
+    /// (milestone 590) — unless it was told to grow, which says the same thing already.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        if false {
+            return crate::widget::FillAxes::NONE;
+        }
+        crate::widget::FillAxes {
+            horizontal: !self.sized,
+            vertical: false,
+        }
+    }
+
+    /// The default size is only a default: the room replaces it wherever the layout can
+    /// give the room, and it stands where the reference would have nothing to give.
+    fn soft_extent(&self) -> crate::widget::FillAxes {
+        crate::widget::FillAxes {
+            horizontal: !self.sized,
+            vertical: false,
         }
     }
 

@@ -673,6 +673,10 @@ macro_rules! forward_transparent {
                 self.inner.fill_axes(theme)
             }
 
+            fn soft_extent(&self) -> $crate::widget::FillAxes {
+                self.inner.soft_extent()
+            }
+
             fn main_axis_floor(&self, theme: &$crate::theme::Theme) -> Option<f32> {
                 self.inner.main_axis_floor(theme)
             }
