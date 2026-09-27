@@ -339,18 +339,20 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         self
     }
 
-    /// The screen's body: it **fills** the space between the bars.
+    /// The screen's body: it is given **exactly the space between the bars**, as the
+    /// reference's is, and takes what it wants of it (milestone 590).
     ///
     /// It does **not** scroll. A body that may be taller than the room it is given
     /// goes inside a scrolling widget the screen chooses — [`SingleChildScrollView`](crate::SingleChildScrollView)
-    /// for a page that occasionally overflows, [`ListView`](crate::ListView) for a long one:
+    /// for a page that occasionally overflows, [`ListView`](crate::ListView) for a long one —
+    /// with no size of its own: an unsized scrolling widget is as big as the room.
     ///
     /// ```ignore
-    /// .body(SingleChildScrollView::new().flex(1.0).child(form))
+    /// .body(SingleChildScrollView::new().child(form))
     /// ```
     ///
-    /// Left plain, the body is positioned at the top of that room, so a body that
-    /// wants all of it says so — `.flex(1.0)`, or a `Flex` that centres its content.
+    /// A body that asks for nothing sits at the top of that room, at its own size; one
+    /// that wants to be centred in it says [`Center`](crate::Center).
     ///
     /// **The room includes the system's intrusions when nothing else holds them off.**
     /// With a bottom bar or a footer below it, they keep the body clear of the gesture
@@ -904,7 +906,12 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         };
         let (body_left, body_right) = (insets.left, insets.right);
         let body_keyboard = resize_to_avoid_bottom_inset;
-        let body_pane = Flex::column().flex(1.0).child(crate::MediaScope::tweak(
+        // **Exactly the room the bars leave**, as the reference's body is given: an
+        // `Expanded`, whose basis is nothing, rather than a column that grows from the size
+        // of its content — a body taller than the room made that column taller than the
+        // screen, and an unsized scroll view in it never had a bound to scroll within
+        // (milestone 590).
+        let body_pane = crate::Expanded::new(Flex::column().child(crate::MediaScope::tweak(
             move |mq: &mut crate::MediaQuery| {
                 mq.padding.top = body_top;
                 mq.padding.left = body_left;
@@ -917,7 +924,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                 }
             },
             body_widget,
-        ));
+        )));
 
         // Whether the bottom clearance falls to the body — and **which** clearance.
         //
@@ -2679,5 +2686,181 @@ mod tests {
             | frus_core::Primitive::Layer { .. } => false,
         });
         assert!(pinned_low, "the bottom bar must be pinned in the low band");
+    }
+}
+
+/// A page written as it would be for the reference — no size, no flex, anywhere — comes out
+/// as the reference's does (milestone 590; the report was an example application's login
+/// page).
+#[cfg(test)]
+mod reference_sizes {
+    use super::*;
+    use crate::{build_ui, AppBar, Button, Runtime, SingleChildScrollView, Text, TextField, Theme};
+    use frus_core::Size;
+
+    const W: f32 = 360.0;
+    const H: f32 = 420.0;
+
+    fn login(fields: usize) -> Box<dyn Widget<()>> {
+        crate::MediaQuery::new(Size::new(W, H)).scope(|| {
+            let mut column = Flex::<()>::column().gap(30.0);
+            for _ in 0..fields {
+                column = column.child(TextField::new("").placeholder("Email"));
+            }
+            column = column.child(Button::new("Login").on_press(()));
+            Scaffold::new()
+                .app_bar(AppBar::<()>::new().title(Text::new("Forge")).build())
+                .body(SingleChildScrollView::new().child(column))
+                .build()
+        })
+    }
+
+    /// **The body's scroll view is the whole body**, the width of the page and down to its
+    /// bottom, and **the fields are the width of the page** — where they were a 200-px
+    /// window of 220-px fields.
+    #[test]
+    fn an_unsized_scroll_view_fills_the_body_and_its_fields_the_width() {
+        let page = login(6);
+        let ui = build_ui(
+            page.as_ref(),
+            Size::new(W, H),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let viewport = ui
+            .scroll_regions()
+            .first()
+            .expect("the scroll view")
+            .viewport;
+        assert_eq!(viewport.width, W, "{viewport:?}");
+        assert!(
+            (viewport.y + viewport.height - H).abs() < 1.0,
+            "down to the bottom: {viewport:?}"
+        );
+        assert!(viewport.y > 40.0, "below the bar: {viewport:?}");
+        let fields: Vec<_> = ui
+            .focusable_ids()
+            .filter_map(|id| ui.widget_rect(id))
+            .collect();
+        assert!(!fields.is_empty());
+        let widest = fields.iter().map(|r| r.width).fold(0.0, f32::max);
+        assert!(
+            (widest - W).abs() < 1.0,
+            "a field is the page's width: {fields:?}"
+        );
+    }
+
+    /// **Content shorter than the body leaves the viewport as short as the content**, as the
+    /// reference's is: a viewport is its content, up to the room.
+    #[test]
+    fn a_short_page_is_as_tall_as_its_content() {
+        let page = login(1);
+        let ui = build_ui(
+            page.as_ref(),
+            Size::new(W, H),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let viewport = ui
+            .scroll_regions()
+            .first()
+            .expect("the scroll view")
+            .viewport;
+        assert!(viewport.height < H - 150.0, "{viewport:?}");
+        assert_eq!(viewport.width, W);
+    }
+
+    fn list_page(beside: bool) -> Box<dyn Widget<()>> {
+        crate::MediaQuery::new(Size::new(W, H)).scope(|| {
+            let list = crate::ListView::<()>::new(100, 40.0, |i| Text::new(format!("{i}")));
+            let body: Box<dyn Widget<()>> = if beside {
+                Box::new(Flex::<()>::column().child(Text::new("Header")).child(list))
+            } else {
+                Box::new(list)
+            };
+            Scaffold::new().body(body).build()
+        })
+    }
+
+    fn list_viewport(beside: bool) -> frus_core::Rect {
+        let page = list_page(beside);
+        let ui = build_ui(
+            page.as_ref(),
+            Size::new(W, H),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        ui.scroll_regions().first().expect("the list").viewport
+    }
+
+    /// **An unsized list is the whole body**, both ways, as the reference's takes all the
+    /// room on offer — not a 200-px window.
+    #[test]
+    fn an_unsized_list_fills_the_body() {
+        let viewport = list_viewport(false);
+        assert_eq!(viewport.width, W, "{viewport:?}");
+        assert!((viewport.height - H).abs() < 1.0, "{viewport:?}");
+    }
+
+    /// **Beside other children in a column, its default length stands**, where the
+    /// reference would have no length to give it; across, it still takes the width.
+    #[test]
+    fn a_list_beside_a_header_keeps_its_default_length() {
+        let viewport = list_viewport(true);
+        assert_eq!(viewport.width, W, "{viewport:?}");
+        assert!((viewport.height - 200.0).abs() < 1.0, "{viewport:?}");
+    }
+
+    /// **Centred, a scroll view of a field is still the page's width**: the field takes all
+    /// the width offered, as the reference's does, and the viewport is as wide as it.
+    #[test]
+    fn a_centred_scroll_view_of_a_field_is_the_width_of_the_page() {
+        let page = crate::MediaQuery::new(Size::new(W, H)).scope(|| {
+            Scaffold::<()>::new()
+                .body(crate::Center::new(
+                    SingleChildScrollView::new().child(TextField::new("").placeholder("Email")),
+                ))
+                .build()
+        });
+        let ui = build_ui(
+            page.as_ref(),
+            Size::new(W, H),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let viewport = ui
+            .scroll_regions()
+            .first()
+            .expect("the scroll view")
+            .viewport;
+        assert_eq!(viewport.width, W, "{viewport:?}");
+        assert!(
+            viewport.height < H / 2.0,
+            "as tall as the field: {viewport:?}"
+        );
+    }
+
+    /// **An unsized interactive viewer is the whole body**, even inside a plain box — a
+    /// viewer has a child, and its default height must not stop its request for the room
+    /// from reaching the box around it.
+    #[test]
+    fn an_unsized_interactive_viewer_fills_the_body() {
+        let page = crate::MediaQuery::new(Size::new(W, H)).scope(|| {
+            Scaffold::<()>::new()
+                .body(
+                    crate::Container::new()
+                        .child(crate::InteractiveViewer::new().child(Text::new("map"))),
+                )
+                .build()
+        });
+        let ui = build_ui(
+            page.as_ref(),
+            Size::new(W, H),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let (_, viewport) = ui.interactive_bounds()[0];
+        assert_eq!(viewport.width, W, "{viewport:?}");
+        assert!((viewport.height - H).abs() < 1.0, "{viewport:?}");
     }
 }

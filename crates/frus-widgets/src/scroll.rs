@@ -68,11 +68,17 @@ pub struct SingleChildScrollView<Msg = crate::callback::Callback> {
 }
 
 impl<Msg> SingleChildScrollView<Msg> {
-    /// Creates a scrollable area, its viewport 200 px tall by default.
+    /// Creates a scrollable area.
+    ///
+    /// Unsized, it is sized as the reference's is (milestone 590): along the axis it
+    /// scrolls, **as big as its content, up to the room on offer**, and scrolling past
+    /// that; across it, all the room on offer. In a page's body that is the whole body;
+    /// in a column beside other children, whose length is not the viewport's to take, it
+    /// is as long as its content, and [`flex`](Self::flex) gives it the rest of the column.
     pub fn new() -> Self {
         Self {
             width: Dimension::Auto,
-            height: Dimension::Length(200.0),
+            height: Dimension::Auto,
             width_explicit: false,
             height_explicit: false,
             flex_grow: 0.0,
@@ -293,6 +299,19 @@ impl<Msg: Clone> Widget<Msg> for SingleChildScrollView<Msg> {
 
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         self.content.first().map(|child| child.as_ref())
+    }
+
+    /// **All the room on offer across the axis it scrolls**, when nobody sized that axis
+    /// and it was not told to grow (milestone 590). Along the axis it scrolls, the layout
+    /// measures it: its content, up to the room.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        if self.flex_grow > 0.0 {
+            return crate::widget::FillAxes::NONE;
+        }
+        crate::widget::FillAxes {
+            horizontal: !self.axis.free_x() && !self.width_explicit,
+            vertical: !self.axis.free_y() && !self.height_explicit,
+        }
     }
 
     fn scroll_axis(&self) -> Axis {

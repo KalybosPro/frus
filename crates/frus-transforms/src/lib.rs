@@ -423,9 +423,7 @@ impl Application for Showcase {
             )
             .child(bar);
 
-        // Scrollable: the viewport fills the window through explicit width and height
-        // — a default `SingleChildScrollView` is only 200px tall with an automatic width — and the
-        // larger content scrolls.
+        // Scrollable: the viewport is the window's size, and the larger content scrolls.
         Box::new(
             Container::new()
                 .width(width)

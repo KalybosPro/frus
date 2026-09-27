@@ -148,6 +148,18 @@ impl<'a, T> Layout<'a, T> {
         self.tree.set_style(node, style).expect("setting a style");
     }
 
+    /// Forgets the size a node was given on one axis, so that it is sized by the layout —
+    /// what a default gives way to when the room on offer replaces it.
+    pub fn clear_size(&mut self, node: NodeId, horizontal: bool) {
+        let mut style = self.tree.style(node).expect("a node we made").clone();
+        if horizontal {
+            style.size.width = taffy::Dimension::Auto;
+        } else {
+            style.size.height = taffy::Dimension::Auto;
+        }
+        self.tree.set_style(node, style).expect("setting a style");
+    }
+
     /// Makes a node **fill the space its parent leaves it**, after it has been built:
     /// growing along the parent's main axis, stretching across it, or both.
     ///

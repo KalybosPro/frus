@@ -1293,6 +1293,19 @@ pub trait Widget<Msg = crate::callback::Callback> {
         FillAxes::NONE
     }
 
+    /// The axes on which this widget's size is **only a default** (milestone 590): the
+    /// room on offer replaces it wherever the widget is asked to fill that axis and the
+    /// layout can grant it — alone in a box, or across a row or a column. Where it cannot,
+    /// along a line shared with other children, the default stands.
+    ///
+    /// The reference gives a list, a page view or a field **all the room offered**, and has
+    /// nothing to give when that room is unbounded: it stops with an error. A default that
+    /// stands only there keeps the reference's size wherever it has one, and something on
+    /// the screen where it has none.
+    fn soft_extent(&self) -> FillAxes {
+        FillAxes::NONE
+    }
+
     /// The width below which this widget must not be squeezed **when its parent runs
     /// horizontally** — a line of text that would rather run past the end of a row than
     /// be folded into a column of single words. `None` means squeeze freely.
@@ -2025,6 +2038,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn fill_axes(&self, theme: &Theme) -> FillAxes {
         (**self).fill_axes(theme)
+    }
+    fn soft_extent(&self) -> FillAxes {
+        (**self).soft_extent()
     }
     fn main_axis_floor(&self, theme: &Theme) -> Option<f32> {
         (**self).main_axis_floor(theme)

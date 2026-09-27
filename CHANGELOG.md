@@ -8,10 +8,20 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 589 so far, each documenting the objective, the alternatives
+> record — one per step, 590 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Viewports and fields take the room they are given** (J590), as the reference's do. A page's
+  body is exactly the room between its bars. An unsized `SingleChildScrollView` is as big as its
+  content up to that room and scrolls past it, and across its axis it takes all the room; it used
+  to be a 200-px window. An unsized `ListView`, `PageView`, `ListWheelScrollView`,
+  `InteractiveViewer`, `LinearProgressIndicator` or `TextField` takes the room on offer. Its old
+  default size (200, 180, 300, 200, 220 px) now applies only where no room can be given, along
+  a column or a row shared with other children. New hook `Widget::soft_extent`. **Changes
+  sizes** in every application that relied on the defaults: give a `width` or a `height` to keep
+  one.
 
 - **Start and end pins on a stack's layers** (J589): `Positioned::start` / `end` and
   `AnimatedPositioned::start` / `end` pin a layer to the edge the script starts or ends at, the
