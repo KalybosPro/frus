@@ -8,10 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 590 so far, each documenting the objective, the alternatives
+> record — one per step, 591 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The overscroll stretch** (J591, #55). On Android, pulling a scroll area past its edge now
+  lengthens the content towards it and springs it back, as the platform does, instead of
+  glowing. The amount and the spring are the reference's, ported from the platform's edge
+  effect; the deformation is its portable one, a scale along the axis from the edge pulled.
+  New `OverscrollIndicator` (`Glow`, `Stretch`), `Application::overscroll_indicator` to pin
+  one, `Runtime::overscroll_indicator`, `Runtime::stretch_release`, and `OverscrollStretch` /
+  `ScrollStretch`. **Changes the look on Android**: an application that wants the glow there
+  says so.
 
 - **Viewports and fields take the room they are given** (J590), as the reference's do. A page's
   body is exactly the room between its bars. An unsized `SingleChildScrollView` is as big as its

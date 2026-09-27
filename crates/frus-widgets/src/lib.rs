@@ -167,6 +167,7 @@ mod spinner;
 mod stack;
 mod stepper;
 mod steps;
+mod stretch;
 mod switch;
 mod table;
 mod tabs;
@@ -338,8 +339,9 @@ pub use pageview::{PageSnap, PageView, PagedView};
 pub use pagination::Pagination;
 pub use paintcache::PaintCache;
 pub use physics::{
-    page_of, page_target, snap_target, Ballistic, ScrollDecelerationRate, ScrollMetrics,
-    ScrollPhysics, Scrollbars, CONSTANT_DECELERATION_FAST, MAX_FLING_VELOCITY, MIN_FLING_VELOCITY,
+    page_of, page_target, snap_target, Ballistic, OverscrollIndicator, ScrollDecelerationRate,
+    ScrollMetrics, ScrollPhysics, Scrollbars, CONSTANT_DECELERATION_FAST, MAX_FLING_VELOCITY,
+    MIN_FLING_VELOCITY,
 };
 pub use placeholder::{Placeholder, PLACEHOLDER_COLOR, PLACEHOLDER_FALLBACK, PLACEHOLDER_STROKE};
 pub use popover::MenuAnchor;
@@ -398,6 +400,7 @@ pub use spinner::CircularProgressIndicator;
 pub use stack::{IndexedStack, Stack, StackFit};
 pub use stepper::Stepper;
 pub use steps::Steps;
+pub use stretch::{OverscrollStretch, ScrollStretch};
 pub use switch::Switch;
 pub use switcher::AnimatedSwitcher;
 pub use system_ui::{AnnotatedRegion, SystemBars, SystemUiOverlayStyle};
