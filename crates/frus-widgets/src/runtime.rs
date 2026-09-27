@@ -767,7 +767,7 @@ pub struct Runtime {
     transforms: HashMap<WidgetId, TransformAnim>,
     /// Animated stack pins (`AnimatedPositioned`), per widget — read where the stack
     /// lays its layers out. Six slots: left, top, right, bottom, width, height.
-    pins: HashMap<WidgetId, SlotsAnim<6>>,
+    pins: HashMap<WidgetId, SlotsAnim<8>>,
     /// Animated fractions of the parent (`FractionallySizedBox::animated`), per widget —
     /// injected at layout. Two slots: the width factor and the height factor.
     fractions: HashMap<WidgetId, SlotsAnim<2>>,
@@ -1500,7 +1500,7 @@ impl Runtime {
     /// A widget's animated stack pins, if it has any (`None` otherwise).
     pub fn anim_pins(&self, id: WidgetId) -> Option<crate::positioned::Positioning> {
         self.pins.get(&id).map(|p| {
-            let [left, top, right, bottom, width, height] = p.current;
+            let [left, top, right, bottom, width, height, start, end] = p.current;
             crate::positioned::Positioning {
                 left,
                 top,
@@ -1508,6 +1508,8 @@ impl Runtime {
                 bottom,
                 width,
                 height,
+                start,
+                end,
             }
         })
     }
@@ -1530,8 +1532,11 @@ impl Runtime {
     pub fn advance_pins<Msg>(&mut self, root: &dyn crate::widget::Widget<Msg>, dt: f32) -> bool {
         let mut targets = Vec::new();
         collect_slots(root, WidgetId::ROOT, self.still, &mut targets, |w| {
-            w.anim_pins()
-                .map(|p| [p.left, p.top, p.right, p.bottom, p.width, p.height])
+            w.anim_pins().map(|p| {
+                [
+                    p.left, p.top, p.right, p.bottom, p.width, p.height, p.start, p.end,
+                ]
+            })
         });
         advance_slot_family(&mut self.pins, targets, dt)
     }

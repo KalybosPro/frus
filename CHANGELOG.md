@@ -8,10 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 588 so far, each documenting the objective, the alternatives
+> record — one per step, 589 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Start and end pins on a stack's layers** (J589): `Positioned::start` / `end` and
+  `AnimatedPositioned::start` / `end` pin a layer to the edge the script starts or ends at, the
+  reference's `PositionedDirectional`; `left` and `right` stay physical. `Positioning` gains
+  `start`, `end` and `for_direction`.
 
 - **A left inset stays on the left in a right-to-left script** (J588). `padding_each`,
   `margin_each` and a `SafeArea`'s insets are physical, as the reference's are: they no longer

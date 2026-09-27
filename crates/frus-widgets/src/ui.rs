@@ -4610,6 +4610,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     }
                     other => other,
                 };
+                // A start or an end pin is a left or a right once the direction is known
+                // (milestone 589). The stack's layers are placed on the screen as they are,
+                // not mirrored, so this is the one place it is decided.
+                let pins = pins.map(|p| p.for_direction(self.rtl()));
                 let (want_w, want_h) = match pins {
                     Some(p) => (
                         p.resolved_width(bounds.width),
