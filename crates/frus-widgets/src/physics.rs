@@ -70,6 +70,43 @@ pub const MIN_FLING_VELOCITY: f32 = 50.0;
 /// The cap applied to a release speed, in px/s.
 pub const MAX_FLING_VELOCITY: f32 = 8000.0;
 
+/// **What a scroll area shows when it is pulled past its edge** and its physics refuse
+/// to move (milestone 591).
+///
+/// Current touch platforms **stretch** the content towards the edge and spring it back;
+/// others **glow**, an arc of light over the edge. The reference picks per platform, the
+/// stretch on Android and the glow elsewhere it shows one; so does
+/// [`OverscrollIndicator::platform_default`]. An application may pin either.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum OverscrollIndicator {
+    /// An arc of light over the edge, fading as the pull lets go.
+    Glow,
+    /// The content lengthens towards the edge, and springs back.
+    Stretch,
+}
+
+impl Default for OverscrollIndicator {
+    fn default() -> Self {
+        Self::platform_default()
+    }
+}
+
+impl OverscrollIndicator {
+    /// What the running platform does: the stretch on Android, the glow elsewhere.
+    ///
+    /// Resolved at compile time from the target, like [`Scrollbars::platform_default`].
+    pub const fn platform_default() -> Self {
+        #[cfg(target_os = "android")]
+        {
+            OverscrollIndicator::Stretch
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            OverscrollIndicator::Glow
+        }
+    }
+}
+
 /// **When a scroll area draws a scrollbar** (`app.dart:857`).
 ///
 /// The reference asks this question per platform and answers it *no* on every touch

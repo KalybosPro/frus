@@ -345,6 +345,16 @@ pub trait Application {
         Scrollbars::platform_default()
     }
 
+    /// **What the app's scrollables show when pulled past their edge**: the content
+    /// stretching towards it, or a glow over it.
+    ///
+    /// The default is what the running platform does — the stretch on Android, the glow
+    /// elsewhere. Override it to pin one everywhere. It is shown only where the physics
+    /// refuse to move; content that bounces needs no other answer.
+    fn overscroll_indicator(&self) -> frus_widgets::OverscrollIndicator {
+        frus_widgets::OverscrollIndicator::platform_default()
+    }
+
     /// **The languages this application has** (`app.dart`'s `supportedLocales`), best
     /// first — the answer to *what can I actually show this reader?*
     ///
