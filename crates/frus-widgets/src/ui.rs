@@ -2480,6 +2480,12 @@ struct Builder<'a, Msg> {
     /// The inspector's collection (`Some` only while it is on): one node per painted widget,
     /// in paint order.
     inspector: Option<Vec<crate::inspector::InspectorNode>>,
+    /// **The widgets this frame builds as it goes** — a list's rows, a paged view's pages,
+    /// what a builder makes from its box — kept for the rest of the walk, so that they go
+    /// through the same walk as the tree they sit in (milestone 592). They used to go through
+    /// a reduced copy of it that knew no overlay, no transform and no nested scroll, and an
+    /// open menu in a list's row crashed the frame.
+    built: &'a Built<Msg>,
     /// Current depth of the walk (for the dump's indentation and the palette of the
     /// inspector's outlines).
     depth: usize,
@@ -4214,9 +4220,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                         }),
                     );
 
+                    let item = self.keep(item);
                     let mut item_index = 0;
-                    self.render_item(
-                        item.as_ref(),
+                    self.walk(
+                        item,
                         id.child(i),
                         (x, y),
                         content_clip,
@@ -4372,8 +4379,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     // of each primitive having to know it is on a wheel.
                     let before = self.scene.primitives().len();
                     let base = self.xform_base();
-                    self.render_item(
-                        page.as_ref(),
+                    let page = self.keep(page);
+                    self.walk(
+                        page,
                         id.child(index),
                         origin,
                         content_clip,
@@ -4433,7 +4441,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 let origin = overflow.origin(own, size);
 
                 let mut child_index = 0;
-                self.render_item(child, cid, origin, clip, &child_rects, &mut child_index);
+                self.walk(child, cid, origin, clip, &child_rects, &mut child_index);
             }
         } else if let Some(transform) = widget.constraints_transform() {
             // The child is laid out at **the same box the measurement gave it**, worked out
@@ -4464,7 +4472,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     self.report_spill(own, Rect::new(origin.0, origin.1, size.width, size.height));
                 }
                 let mut child_index = 0;
-                self.render_item(child, cid, origin, clip, &child_rects, &mut child_index);
+                self.walk(child, cid, origin, clip, &child_rects, &mut child_index);
             }
         } else if let Some(build) = widget.layout_builder() {
             // Builds the content from the actual box, then lays it out and renders it inside
@@ -4485,9 +4493,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 Constraints::filled(Size::new(bounds.width, bounds.height)),
             );
 
+            let child = self.keep(child);
             let mut child_index = 0;
-            self.render_item(
-                child.as_ref(),
+            self.walk(
+                child,
                 id.child(0),
                 (bounds.x, bounds.y),
                 content_clip,
@@ -4535,9 +4544,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 // rule a `layout_builder`'s content is given.
                 Constraints::filled(Size::new(bounds.width, bounds.height)),
             );
+            let over = self.keep(over);
             let mut over_index = 0;
-            self.render_item(
-                over.as_ref(),
+            self.walk(
+                over,
                 over_id,
                 (bounds.x, bounds.y),
                 clip.intersect(bounds),
@@ -4980,148 +4990,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         }
     }
 
-    /// Renders a **virtualised list item**: built on the fly, it cannot defer an overlay
-    /// (hence a render of its own, without the special branches).
-    fn render_item(
-        &mut self,
-        widget: &dyn Widget<Msg>,
-        id: WidgetId,
-        translation: (f32, f32),
-        clip: Rect,
-        rects: &[Rect],
-        index: &mut usize,
-    ) {
-        let rect = rects[*index];
-        *index += 1;
-        let draw_rect = rect.translate(translation.0, translation.1);
-        self.inspect_enter(widget, id, draw_rect);
-
-        let status = self.full_status(widget, id);
-        if widget.continuous() {
-            self.wants_animation = true;
-        }
-        self.scene.set_clip(clip);
-        self.scene.set_owner(id.as_u64());
-        // The box this widget was given. Text primitives record it: a line of text
-        // says only where it starts, and the renderer has to know what it covers to
-        // order it against anything else (milestone 295).
-        self.scene.set_bounds(draw_rect);
-        widget.paint(draw_rect, status, &self.theme, &mut self.scene);
-        self.scene.set_clip(clip);
-        self.draw_focus_ring(draw_rect, &status, widget);
-
-        let visible = draw_rect.intersect(clip);
-        // A text in a selection area: a place a selection can begin, end or pass through,
-        // registered as far as it is visible, in the order it is painted.
-        if self.theme.widgets.text.selectable && visible.width > 0.0 && visible.height > 0.0 {
-            if let (Some(area), Some(_)) = (self.area, widget.selection_text()) {
-                self.text_stops.push(crate::TextStop {
-                    id,
-                    rect: draw_rect,
-                    area,
-                });
-            }
-        }
-        // A focus stop clipped entirely away by a **scroll** is still a focus stop.
-        // Tab has to reach the field below the fold — the shell brings it into view
-        // when it lands there — and registering only what the eye can see is how a long
-        // form came to have half its fields unreachable from the keyboard. Clipped away
-        // by anything else it is gone: nothing could reveal it, so focus would land
-        // where the eye cannot follow.
-        //
-        // Only the focus registry does this. A click still needs the visible box, or a
-        // tap on empty space would land on something scrolled out of sight.
-        if widget.focusable()
-            && !self.focus_excluded
-            && (self.scroll_host.is_some() || (visible.width > 0.0 && visible.height > 0.0))
-        {
-            self.focusables.push(Focusable {
-                id,
-                rect: visible,
-                bounds: draw_rect,
-                form: self.autofill_group,
-                scroll: self.scroll_host,
-                skip: self.focus_skipped || widget.focus_skip_traversal(),
-                order: widget.focus_order().or(self.focus_order),
-                group: self.focus_group,
-            });
-        }
-        if visible.width > 0.0 && visible.height > 0.0 {
-            // A press that lands on a **surface** and on nothing inside it stops there.
-            // Registered before the children, so anything inside still wins on the way
-            // back out — see [`Widget::opaque`].
-            if widget.opaque() {
-                self.hits.push(Hit {
-                    id,
-                    rect: visible,
-                    msg: None,
-                    xform: None,
-                });
-            }
-            // A target for a press: something that answers a tap, or a double or a secondary
-            // tap without one — the shell asks it for those once the press lands on it.
-            let tap = widget.on_click();
-            if tap.is_some()
-                || widget.on_double_tap().is_some()
-                || widget.on_secondary_tap().is_some()
-            {
-                self.hits.push(Hit {
-                    id,
-                    rect: visible,
-                    msg: tap,
-                    xform: None,
-                });
-            }
-            // A detector that takes a drag (milestone 582).
-            if widget.pan_axis().is_some() {
-                self.pans.push((id, visible, draw_rect));
-            }
-            // A widget that hears the pointer's raw events (milestone 586).
-            if widget.pointer_listener() {
-                self.pointer_listeners.push((id, visible, draw_rect));
-            }
-            if let Some(msg) = widget.on_long_press() {
-                self.long_presses.push(Hit {
-                    id,
-                    rect: visible,
-                    msg: Some(msg),
-                    xform: None,
-                });
-            }
-            if widget.draggable() {
-                self.draggables.push((id, visible));
-            }
-            if widget.reorder_index().is_some() {
-                self.reorderables.push((id, visible));
-            }
-            // The accessibility tree: nodes that carry meaning (a role or a label).
-            if let Some(sem) = widget.semantics().filter(|s| s.is_meaningful()) {
-                self.semantics.push((id, visible, sem));
-            }
-        }
-
-        let outer_hover = widget.hover_region().map(|spec| {
-            self.register_hover_region(id, spec, draw_rect, clip);
-            self.hover_parent.replace(id)
-        });
-        let children = widget.children();
-        // Fractional alignment + paint offset, as in the main walk (a virtualised-list /
-        // `layout_builder` child may itself be an aligned or transformed container).
-        let extra = self.child_offset(widget, id, rect, rects, *index, children);
-        for (child_index, child) in children.iter().enumerate() {
-            self.render_item(
-                child.as_ref(),
-                child_id(id, child_index, child.as_ref()),
-                (translation.0 + extra.0, translation.1 + extra.1),
-                clip,
-                rects,
-                index,
-            );
-        }
-        if let Some(parent) = outer_hover {
-            self.hover_parent = parent;
-        }
-        self.depth -= 1;
+    /// Keeps a widget this frame has just built for the rest of the walk, and hands back
+    /// the reference the walk takes (milestone 592).
+    fn keep(&self, widget: Box<dyn Widget<Msg>>) -> &'a dyn Widget<Msg> {
+        let built: &'a Built<Msg> = self.built;
+        let kept: &'a mut Box<dyn Widget<Msg>> = built.alloc(widget);
+        &**kept
     }
 
     /// Lays out a full-window screen and renders it offset by `off_x`.
@@ -5697,12 +5571,28 @@ fn assert_surface_is_whole() {
     }
 }
 
-fn build_ui_impl<'a, Msg: Clone + 'static>(
+/// Where a frame keeps the widgets it builds as it walks (see `Builder::built`).
+type Built<Msg> = typed_arena::Arena<Box<dyn Widget<Msg>>>;
+
+fn build_ui_impl<Msg: Clone + 'static>(
+    root: &dyn Widget<Msg>,
+    available: Size,
+    runtime: &Runtime,
+    theme: &Theme,
+    inspect: bool,
+) -> (Ui<Msg>, Option<Vec<crate::inspector::InspectorNode>>) {
+    // Made first, so that it outlives the walk that borrows from it.
+    let built = Built::new();
+    build_ui_walk(root, available, runtime, theme, inspect, &built)
+}
+
+fn build_ui_walk<'a, Msg: Clone + 'static>(
     root: &'a dyn Widget<Msg>,
     available: Size,
     runtime: &'a Runtime,
     theme: &'a Theme,
     inspect: bool,
+    built: &'a Built<Msg>,
 ) -> (Ui<Msg>, Option<Vec<crate::inspector::InspectorNode>>) {
     #[cfg(debug_assertions)]
     assert_surface_is_whole();
@@ -5766,6 +5656,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         listeners: Vec::new(),
         overflows: std::cell::RefCell::new(Vec::new()),
         pending_overflows: std::cell::RefCell::new(std::collections::HashMap::new()),
+        built,
     };
     // The root is mirrored in RTL (like every layout root).
     builder.mirror(&mut rects);
@@ -8308,6 +8199,37 @@ mod tests {
             "clip = {clip:?}"
         );
         assert!(clip.width <= 200.0 + 1e-3);
+    }
+
+    /// **A list's rows go through the same walk as the rest of the tree** (milestone 592): a
+    /// carousel in each row is a scroll area of its own. The reduced walk the rows used to take
+    /// knew no scroll area.
+    #[test]
+    fn a_list_row_is_walked_like_the_rest_of_the_tree() {
+        let tree = crate::ListView::<Msg>::new(20, 60.0, |_| {
+            SingleChildScrollView::<Msg>::new()
+                .axis(crate::scroll::Axis::Horizontal)
+                .height(60.0)
+                .child(Container::<Msg>::new().width(900.0).height(60.0))
+        })
+        .width(300.0)
+        .height(200.0);
+        let ui = build_ui(
+            &tree,
+            Size::new(300.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let regions = ui.scroll_regions();
+        assert!(
+            regions.len() >= 4,
+            "the list and a carousel per visible row: {}",
+            regions.len()
+        );
+        assert!(
+            regions.iter().any(|r| r.max_x > 0.0),
+            "a row scrolls across: {regions:?}"
+        );
     }
 
     #[test]

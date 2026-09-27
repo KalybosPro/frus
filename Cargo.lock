@@ -1469,6 +1469,7 @@ dependencies = [
  "frus-layout",
  "frus-text",
  "png 0.17.16",
+ "typed-arena",
 ]
 
 [[package]]
@@ -3696,6 +3697,12 @@ checksum = "cb30dbbd9036155e74adad6812e9898d03ec374946234fbcebd5dfc7b9187b90"
 dependencies = [
  "rustc-hash 2.1.3",
 ]
+
+[[package]]
+name = "typed-arena"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6af6ae20167a9ece4bcb41af5b80f8a1f1df981f6391189ce00fd257af04126a"
 
 [[package]]
 name = "uds_windows"

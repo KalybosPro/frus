@@ -3529,7 +3529,12 @@ fn the_collapsing_header_matches_its_golden() {
                     Column::new()
                         .child(Expanded::new(Container::new()))
                         .child(
-                            Container::new().padding_each(0.0, 10.0, 8.0, 10.0).child(
+                            // Six below the title, not eight: collapsed, the title, the
+                            // subtitle still laid out while it fades, the padding and the
+                            // rule made 45 px in a 44-px bar. The overflow was there all
+                            // along; the overlay's content was painted by a walk that did not
+                            // report one until milestone 592.
+                            Container::new().padding_each(0.0, 10.0, 6.0, 10.0).child(
                                 Column::new()
                                     .child(text("Licences").size(18.0 + (1.0 - f) * 12.0))
                                     .child(
