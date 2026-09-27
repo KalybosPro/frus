@@ -43,9 +43,32 @@ pub struct Positioning {
     pub width: Option<f32>,
     /// A fixed height, or `None` to take the one the edges and the content leave.
     pub height: Option<f32>,
+    /// The distance from the stack's **start** edge — the left in a left-to-right script,
+    /// the right in a right-to-left one — or `None` (milestone 589).
+    pub start: Option<f32>,
+    /// The distance from the stack's **end** edge, or `None`.
+    pub end: Option<f32>,
 }
 
 impl Positioning {
+    /// The same pins with `start` and `end` made physical for the reading direction: the
+    /// start is the left in a left-to-right script and the right in a right-to-left one. An
+    /// edge given physically as well keeps its own value.
+    pub fn for_direction(self, rtl: bool) -> Self {
+        let (from_left, from_right) = if rtl {
+            (self.end, self.start)
+        } else {
+            (self.start, self.end)
+        };
+        Self {
+            left: self.left.or(from_left),
+            right: self.right.or(from_right),
+            start: None,
+            end: None,
+            ..self
+        }
+    }
+
     /// The width this asks for in a stack `available` wide, and `None` when it asks for
     /// the child's own.
     pub fn resolved_width(&self, available: f32) -> Option<f32> {
@@ -100,7 +123,8 @@ impl<Msg> Positioned<Msg> {
         }
     }
 
-    /// Distance from the stack's left edge.
+    /// Distance from the stack's left edge — the left in either reading direction; see
+    /// [`start`](Self::start) for one that follows the script.
     pub fn left(mut self, px: f32) -> Self {
         self.spec.left = Some(px);
         self
@@ -121,6 +145,21 @@ impl<Msg> Positioned<Msg> {
     /// Distance from the stack's bottom edge.
     pub fn bottom(mut self, px: f32) -> Self {
         self.spec.bottom = Some(px);
+        self
+    }
+
+    /// Distance from the stack's **start** edge: the left in a left-to-right script, the
+    /// right in a right-to-left one (milestone 589). A `left` or a `right` set as well wins
+    /// on its own side.
+    pub fn start(mut self, px: f32) -> Self {
+        self.spec.start = Some(px);
+        self
+    }
+
+    /// Distance from the stack's **end** edge: the right in a left-to-right script, the left
+    /// in a right-to-left one.
+    pub fn end(mut self, px: f32) -> Self {
+        self.spec.end = Some(px);
         self
     }
 
@@ -186,3 +225,70 @@ crate::transparent::forward_transparent!(Positioned {
         self.inner.area_toolbar(context)
     }
 });
+
+/// Start and end pins follow the reading direction; left and right do not (milestone 589).
+#[cfg(test)]
+mod direction_tests {
+    use super::*;
+    use crate::{build_ui, AnimatedPositioned, Container, Runtime, Stack, Theme};
+    use frus_core::{Color, Curve, Primitive, Size};
+
+    const RED: Color = Color::rgb(1.0, 0.0, 0.0);
+
+    fn square() -> Container<()> {
+        Container::new().width(20.0).height(20.0).color(RED)
+    }
+
+    /// Where the square landed, across a 100-px stack.
+    fn x_of(layer: impl Widget<()> + 'static, theme: &Theme) -> f32 {
+        let stack = Stack::<()>::new().width(100.0).height(100.0).layer(layer);
+        build_ui(&stack, Size::new(100.0, 100.0), &Runtime::default(), theme)
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if *color == RED => Some(rect.x),
+                _ => None,
+            })
+            .expect("the square")
+    }
+
+    /// **A start pin is on the left in left to right and on the right in right to left**;
+    /// an end pin the other way round; a left pin on the left in both.
+    #[test]
+    fn start_and_end_follow_the_script_and_left_does_not() {
+        let (ltr, rtl) = (Theme::default(), Theme::default().rtl());
+        let start = || Positioned::new(square()).start(10.0).top(0.0);
+        assert_eq!(x_of(start(), &ltr), 10.0);
+        assert_eq!(x_of(start(), &rtl), 70.0, "10 from the right");
+        let end = || Positioned::new(square()).end(10.0).top(0.0);
+        assert_eq!(x_of(end(), &ltr), 70.0);
+        assert_eq!(x_of(end(), &rtl), 10.0);
+        let left = || Positioned::new(square()).left(10.0).top(0.0);
+        assert_eq!(x_of(left(), &rtl), 10.0, "a left pin is on the left");
+        // A physical pin given as well wins on its own side.
+        let both = || Positioned::new(square()).start(30.0).left(10.0).top(0.0);
+        assert_eq!(x_of(both(), &ltr), 10.0);
+    }
+
+    /// **An animated layer takes start and end too**, and its moving pins carry them.
+    #[test]
+    fn an_animated_layer_follows_the_script() {
+        let rtl = Theme::default().rtl();
+        let layer = || {
+            AnimatedPositioned::new(0.2, Curve::Linear, square())
+                .start(10.0)
+                .top(0.0)
+        };
+        assert_eq!(x_of(layer(), &rtl), 70.0);
+        let stack = Stack::<()>::new().width(100.0).height(100.0).layer(layer());
+        let mut rt = Runtime::default();
+        rt.advance_pins(&stack, 0.0);
+        let pinned = (0..8)
+            .map(|i| crate::interaction::WidgetId::ROOT.child(i))
+            .find_map(|id| rt.anim_pins(id))
+            .expect("the layer's pins");
+        assert_eq!(pinned.start, Some(10.0));
+        assert_eq!(pinned.for_direction(true).right, Some(10.0));
+    }
+}

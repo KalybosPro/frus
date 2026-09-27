@@ -751,6 +751,21 @@ impl<Msg> AnimatedPositioned<Msg> {
         self
     }
 
+    /// Distance from the stack's **start** edge: the left in a left-to-right script, the
+    /// right in a right-to-left one (milestone 589). A `left` or a `right` set as well wins
+    /// on its own side.
+    pub fn start(mut self, px: f32) -> Self {
+        self.spec.start = Some(px);
+        self
+    }
+
+    /// Distance from the stack's **end** edge: the right in a left-to-right script, the left
+    /// in a right-to-left one.
+    pub fn end(mut self, px: f32) -> Self {
+        self.spec.end = Some(px);
+        self
+    }
+
     /// An explicit width, used when only one horizontal edge is pinned.
     pub fn width(mut self, px: f32) -> Self {
         self.spec.width = Some(px);
