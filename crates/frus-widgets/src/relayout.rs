@@ -311,6 +311,17 @@ fn hash_node<Msg, H: Hasher>(
     if let Some(transform) = widget.constraints_transform() {
         5u8.hash(hasher);
         transform.layout_hash(hasher);
+        let fills = widget.fill_axes(theme);
+        (fills.horizontal, fills.vertical).hash(hasher);
+        // A box following its child's size is a different geometry at every step of the
+        // move, and the same one once it has arrived (milestone 594).
+        if widget.animated_size().is_some() {
+            if let Some((now, to)) = runtime.size_anims.borrow_mut().fingerprint(id) {
+                for v in [now.width, now.height, to.width, to.height] {
+                    v.to_bits().hash(hasher);
+                }
+            }
+        }
         effective_style(widget, id, runtime, theme).layout_hash(hasher);
         if let Some(child) = widget.children().first() {
             hash_node(

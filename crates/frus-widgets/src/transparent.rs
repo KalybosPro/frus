@@ -467,6 +467,10 @@ macro_rules! forward_transparent {
                 self.inner.constraints_transform()
             }
 
+            fn animated_size(&self) -> Option<$crate::animatedsize::SizeAnimation> {
+                self.inner.animated_size()
+            }
+
             fn hero_tag(&self) -> Option<u64> {
                 self.inner.hero_tag()
             }

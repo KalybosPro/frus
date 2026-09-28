@@ -1975,6 +1975,7 @@ fn build_layout_scoped<'a, Msg>(
         let style = effective_style(widget, id, runtime, theme);
         let child = widget.children().first().map(|c| c.as_ref());
         let owned = owned_theme(theme);
+        let animated = widget.animated_size();
         let measure: frus_layout::MeasureFn<'a> = Box::new(move |w, h| {
             let Some(child) = child else {
                 return Size::new(0.0, 0.0);
@@ -1993,7 +1994,28 @@ fn build_layout_scoped<'a, Msg>(
                 (false, false) => inner.compute_filled(node, aw, ah),
                 _ => inner.compute_scroll(node, aw, ah, free_x, free_y),
             }
-            let size = inner.size_of(node);
+            let mut size = inner.size_of(node);
+            // A box following its child's size answers with the size it has got to, and is
+            // told when the child's has changed (milestone 594). An intrinsic question is
+            // answered and not recorded: on an axis the child is **given**, the layout
+            // offering nothing (how big with no limit) or zero (how small could it be). Either
+            // makes a paragraph a size it never ends up at — one line, or one word a line.
+            // On an axis the child decides, the offer is not read, so it asks nothing.
+            if let Some(spec) = &animated {
+                let asks = |rule, offer: Option<f32>| {
+                    rule == crate::constraints::AxisConstraint::AsGiven
+                        && offer.is_none_or(|v| v <= 0.0)
+                };
+                let probe = asks(transform.width, w) || asks(transform.height, h);
+                let shown = runtime
+                    .size_anims
+                    .borrow_mut()
+                    .observe(id, size, spec, !probe);
+                // Whole pixels, rounded up and then held to the offer below: a size on its
+                // way between two others is a fraction, and a box rounded down from one is
+                // one its content no longer fits in (milestone 289).
+                size = Size::new(frus_core::fits(shown.width), frus_core::fits(shown.height));
+            }
             // Held to the offer: a child too big for the room spills, and the box stays the
             // size the room was.
             Size::new(
@@ -2003,7 +2025,9 @@ fn build_layout_scoped<'a, Msg>(
         });
         return (
             layout.measured_leaf(style, own_baseline, measure),
-            Fills::default(),
+            // An animated box asks for the room on the axes its child is given
+            // (milestone 594); a plain transform box asks for nothing.
+            Fills::own(widget, theme),
         );
     }
     // A `LayoutBuilder` **is measured**: it builds its content from the space offered and
@@ -4495,6 +4519,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 let cid = child_id(id, 0, child);
                 let (aw, free_x) = transform.width.at(own.width);
                 let (ah, free_y) = transform.height.at(own.height);
+                // A box on its way to its child's size is not that size yet, and the child is
+                // laid out as ever (milestone 594). On the axes the child decides, it comes
+                // back at its own size, which is where the box is going; an axis it is given
+                // as it came is not animated at all, the box filling the room there.
+                let animated = widget.animated_size();
                 let constraints = match (free_x, free_y) {
                     (false, false) => Constraints::filled(Size::new(aw, ah)),
                     _ => Constraints::scroll(aw, ah, free_x, free_y),
@@ -4512,6 +4541,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 if transform.report {
                     self.report_spill(own, Rect::new(origin.0, origin.1, size.width, size.height));
                 }
+                let clip = match &animated {
+                    Some(spec) if spec.clip => clip.intersect(own),
+                    _ => clip,
+                };
                 let mut child_index = 0;
                 self.walk(child, cid, origin, clip, &child_rects, &mut child_index);
             }

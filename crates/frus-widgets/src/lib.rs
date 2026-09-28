@@ -20,6 +20,7 @@ mod actionbutton;
 mod alert;
 mod align;
 mod animated;
+mod animatedsize;
 mod appbar;
 mod aspectratio;
 mod asyncbuild;
@@ -202,6 +203,7 @@ pub use animated::{
     AnimatedOpacity, AnimatedPadding, AnimatedPositioned, AnimatedRotation, AnimatedScale,
     AnimatedSlide, Opacity,
 };
+pub use animatedsize::{AnimatedSize, SizeAnimation};
 pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT, APP_BAR_MAX_TITLE_SCALE};
 pub use aspectratio::AspectRatio;
 pub use asyncbuild::{
