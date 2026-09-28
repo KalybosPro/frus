@@ -948,6 +948,29 @@ fn the_generated_licences_cover_what_the_demo_links() {
     );
 }
 
+/// **The licence page's header fits itself, open and collapsed** (milestone 592). Its content is
+/// a scroll overlay's, which a reduced walk used to paint without reporting any overflow; the
+/// main walk reports one, so this says there is none to report.
+#[test]
+fn the_licence_header_fits_open_and_collapsed() {
+    let mut bench = Bench::new(420.0, 900.0);
+    frus_widgets::licenses::add_all(include_str!("../assets/licenses.txt"));
+    bench.go("/licenses");
+    for offset in [0.0, 400.0] {
+        let (_, ui) = bench.frame();
+        let regions: Vec<_> = ui.scroll_regions().iter().map(|r| r.id).collect();
+        for id in regions {
+            bench.runtime.scroll.insert(id, (0.0, offset));
+        }
+        let (_, ui) = bench.frame();
+        assert!(
+            ui.overflows().is_empty(),
+            "at {offset}: {:?}",
+            ui.overflows()
+        );
+    }
+}
+
 /// Milestone 493: the log screen **answers its own scroll offset**, and offers the way back
 /// only once there is one worth offering — the loop is the thing checked: the list reports, the
 /// screen keeps, the next build reads.

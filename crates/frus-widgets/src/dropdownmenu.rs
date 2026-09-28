@@ -526,6 +526,34 @@ mod tests {
         );
     }
 
+    /// **An open menu shows its options wherever the field sits** (milestone 592): in a box
+    /// that measures it, in a builder given its size, and in a row of a list — each of which
+    /// used to paint its content through a reduced walk that had no overlays, so the field
+    /// opened onto nothing.
+    #[test]
+    fn an_open_menu_shows_its_options_wherever_it_sits() {
+        let options = |root: &dyn Widget<Msg>| {
+            let ui = build_ui(
+                root,
+                Size::new(400.0, 500.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            texts(ui.scene())
+                .into_iter()
+                .filter(|t| colours().contains(&t.as_str()))
+                .count()
+        };
+        let at_root = options(&menu("", true));
+        assert_eq!(at_root, 4);
+        let measured = crate::UnconstrainedBox::new(menu("", true));
+        assert_eq!(options(&measured), at_root, "in an unconstrained box");
+        let built = crate::LayoutBuilder::new(|_| menu("", true));
+        assert_eq!(options(&built), at_root, "in a layout builder");
+        let listed = crate::ListView::new(3, 80.0, |_| menu("", true)).height(400.0);
+        assert!(options(&listed) >= at_root, "in a list's row");
+    }
+
     /// **Nothing selected shows nothing**, and the placeholder is what says so.
     #[test]
     fn nothing_selected_shows_the_placeholder() {

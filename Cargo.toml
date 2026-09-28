@@ -31,6 +31,8 @@ bytemuck = { version = "1", features = ["derive"] }
 anyhow = "1"
 env_logger = "0.11"
 log = "0.4"
+# Keeps the widgets a frame builds on the fly (a list's rows) alive for the walk.
+typed-arena = "2"
 
 # Dev profile: faster compiles, without making the app unpleasant to use.
 [profile.dev]

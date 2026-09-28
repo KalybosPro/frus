@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 591 so far, each documenting the objective, the alternatives
+> record — one per step, 592 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **A list's rows, a builder's content and a measured box's child go through the main walk**
+  (J592, first step of #52). They used to be painted by a reduced copy of it, and an open
+  dropdown in a list's row, a `LayoutBuilder` or an `UnconstrainedBox` **panicked the frame**, as
+  did a horizontal scroll view in a list's row. They now get everything the rest of the tree
+  gets: overlays, transforms, nested scroll areas. A frame keeps the widgets it builds in an
+  arena (new dependency: `typed-arena`).
 
 - **The overscroll stretch** (J591, #55). On Android, pulling a scroll area past its edge now
   lengthens the content towards it and springs it back, as the platform does, instead of
