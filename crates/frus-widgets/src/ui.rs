@@ -3444,6 +3444,38 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.walk_node(widget, id, translation, clip, rects, index);
     }
 
+    /// Deforms the region's content by its overscroll **stretch**, if it has one
+    /// (milestone 591): everything painted since `mark` goes into one layer, scaled along
+    /// the axis from the edge pulled, and what can be touched in it moves with it.
+    fn add_overscroll_stretch(
+        &mut self,
+        id: WidgetId,
+        viewport: Rect,
+        clip: Rect,
+        mark: (usize, XformBase),
+    ) {
+        let Some(matrix) = self
+            .runtime
+            .scroll_stretch
+            .get(&id)
+            .and_then(|stretch| stretch.transform(viewport))
+        else {
+            return;
+        };
+        let (p0, base) = mark;
+        let group = self.scene.split_off(p0);
+        self.scene.push_primitive(Primitive::Layer {
+            primitives: group,
+            opacity: 1.0,
+            clip,
+            clip_shape: ClipShape::Rect,
+            transform: Some(LayerTransform::new(matrix)),
+            filter: LayerFilter::NONE,
+            owner: id.as_u64(),
+        });
+        self.transform_interaction_registries(&base, matrix);
+    }
+
     /// Paints a child **flat** (laid out separately, at `translation`, with its own rects)
     /// then wraps it in a composited layer transformed by `matrix` and clipped to `clip`. The
     /// hit-test counter-transforms the point (`M⁻¹`); when `matrix` stays axis-aligned
@@ -4083,6 +4115,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 keep_visible: keep,
             });
             let mut content_index = 0;
+            // Where the content starts, so that a stretch can take all of it (milestone 591).
+            let stretch_mark = (self.scene.primitives().len(), self.xform_base());
             let outer = self.scroll_host.replace(id);
             self.walk(
                 content,
@@ -4093,6 +4127,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 &mut content_index,
             );
             self.scroll_host = outer;
+            self.add_overscroll_stretch(id, viewport, content_clip, stretch_mark);
 
             // The overscroll glow, then the scrollbars, over the content (not
             // clipped by it).
@@ -4177,6 +4212,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 keep_visible: None,
             });
 
+            // Where the content starts, so that a stretch can take all of it (milestone 591).
+            let stretch_mark = (self.scene.primitives().len(), self.xform_base());
             let outer = self.scroll_host.replace(id);
             if vlist.item_extent > 0.0 && vlist.count > 0 {
                 // The **window** is the same arithmetic either way, and that is not a
@@ -4234,6 +4271,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
 
             self.scroll_host = outer;
+            self.add_overscroll_stretch(id, viewport, content_clip, stretch_mark);
             self.scene.set_clip(clip);
             self.add_overscroll_glow(id, viewport);
             if max > 0.0 {
@@ -4307,6 +4345,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 keep_visible: None,
             });
 
+            // Where the content starts, so that a stretch can take all of it (milestone 591).
+            let stretch_mark = (self.scene.primitives().len(), self.xform_base());
             let outer = self.scroll_host.replace(id);
             if pages.count > 0 {
                 // The window is the same arithmetic whichever end index 0 is at: a
@@ -4415,6 +4455,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
 
             self.scroll_host = outer;
+            self.add_overscroll_stretch(id, viewport, content_clip, stretch_mark);
             self.scene.set_clip(clip);
             self.add_overscroll_glow(id, viewport);
         } else if let Some(overflow) = widget.overflow_box() {
@@ -8230,6 +8271,108 @@ mod tests {
             regions.iter().any(|r| r.max_x > 0.0),
             "a row scrolls across: {regions:?}"
         );
+    }
+
+    /// The stretch layers of a frame: their owner and their transform.
+    fn stretch_layers(ui: &Ui<Msg>) -> Vec<(u64, frus_core::Affine)> {
+        ui.scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Layer {
+                    transform: Some(transform),
+                    owner,
+                    ..
+                } => Some((*owner, transform.affine)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// **Where the indicator is the stretch, a pull deforms the content and draws no
+    /// glow** (milestone 591): one layer holds the whole content, scaled down the axis
+    /// from the top it is pulled past, and a button in it is touched where it is drawn.
+    #[test]
+    fn a_stretch_scales_the_content_from_the_edge_pulled() {
+        let tree = SingleChildScrollView::<Msg>::new()
+            .width(200.0)
+            .height(100.0)
+            .child(
+                Flex::<Msg>::column()
+                    .child(Container::<Msg>::new().width(100.0).height(50.0))
+                    .child(crate::Button::new("Go").on_press(Msg::A))
+                    .child(Container::<Msg>::new().width(100.0).height(400.0)),
+            );
+        let size = Size::new(200.0, 100.0);
+        let mut rt = Runtime::default();
+        rt.overscroll_indicator = crate::physics::OverscrollIndicator::Stretch;
+        let quiet = build_ui(&tree, size, &rt, &Theme::default());
+        let id = quiet.scroll_regions()[0].id;
+        assert!(
+            stretch_layers(&quiet).is_empty(),
+            "at rest, nothing is deformed"
+        );
+        let button = quiet
+            .focusable_ids()
+            .find_map(|b| quiet.widget_rect(b))
+            .expect("the button");
+
+        rt.glow_pull(
+            id,
+            crate::overscroll::GlowEdge::Top,
+            100.0,
+            100.0,
+            0.0,
+            200.0,
+        );
+        assert!(
+            rt.scroll_glow.is_empty(),
+            "no glow where the content stretches"
+        );
+        let ui = build_ui(&tree, size, &rt, &Theme::default());
+        let layers = stretch_layers(&ui);
+        assert_eq!(layers.len(), 1, "{layers:?}");
+        let (owner, m) = layers[0];
+        assert_eq!(owner, id.as_u64());
+        let top = m.apply(Point::new(0.0, 0.0));
+        let low = m.apply(Point::new(200.0, 100.0));
+        assert!(top.y.abs() < 1e-3, "the top holds: {top:?}");
+        assert!((low.x - 200.0).abs() < 1e-3, "not across: {low:?}");
+        assert!(low.y > 100.5, "down the axis: {low:?}");
+        let moved = ui
+            .focusable_ids()
+            .find_map(|b| ui.widget_rect(b))
+            .expect("the button");
+        assert!(
+            moved.y > button.y && moved.height > button.height,
+            "touched where drawn: {button:?} -> {moved:?}"
+        );
+
+        // Letting go springs it back, and the layer goes with it.
+        rt.glow_scroll_end(id);
+        while rt.advance_glow(1.0 / 60.0) {}
+        assert!(rt.scroll_stretch.is_empty());
+        assert!(stretch_layers(&build_ui(&tree, size, &rt, &Theme::default())).is_empty());
+    }
+
+    /// A list stretches the same way, from the bottom when pulled past its end.
+    #[test]
+    fn a_list_stretches_from_its_end() {
+        let tree = crate::ListView::<Msg>::new(50, 20.0, |i| crate::Text::new(format!("{i}")))
+            .width(200.0)
+            .height(100.0);
+        let size = Size::new(200.0, 100.0);
+        let mut rt = Runtime::default();
+        rt.overscroll_indicator = crate::physics::OverscrollIndicator::Stretch;
+        let id = build_ui(&tree, size, &rt, &Theme::default()).scroll_regions()[0].id;
+        rt.glow_absorb(id, crate::overscroll::GlowEdge::Bottom, 4000.0);
+        rt.advance_glow(0.02);
+        let ui = build_ui(&tree, size, &rt, &Theme::default());
+        let layers = stretch_layers(&ui);
+        assert_eq!(layers.len(), 1);
+        let m = layers[0].1;
+        assert!((m.apply(Point::new(0.0, 100.0)).y - 100.0).abs() < 1e-3);
+        assert!(m.apply(Point::new(0.0, 0.0)).y < -0.5);
     }
 
     #[test]

@@ -770,6 +770,7 @@ fn install_ambient<A: Application>(
     preferred: &[frus_widgets::Locale],
 ) {
     runtime.scrollbars = app.scrollbars();
+    runtime.overscroll_indicator = app.overscroll_indicator();
     // **Which language the interface is in**, resolved from what the platform reports
     // against what the application has. Installed before the table, because an
     // application choosing its table by language reads it from here.
@@ -5250,6 +5251,11 @@ impl<A: Application> App<A> {
                             self.runtime
                                 .glow_pull(area.id, edge, refused, extent, offset, cross);
                         }
+                        // Content that moves again lets its stretch go, as the
+                        // reference's does on any scroll that is not an overscroll.
+                        if rx.abs() < 1e-3 && ry.abs() < 1e-3 && (nx, ny) != cur {
+                            self.runtime.stretch_release(area.id);
+                        }
                     }
                     self.runtime.scroll.insert(*id, (nx, ny));
                     self.runtime.scroll_target.insert(*id, (nx, ny));
@@ -8018,6 +8024,55 @@ mod tests {
             frus_widgets::localizations::of().back_button_label(),
             "Retour",
             "saying nothing is not the same as saying English"
+        );
+    }
+
+    /// **The application's overscroll indicator reaches the runtime** (milestone 591), and
+    /// one that says nothing gets the platform's.
+    #[test]
+    fn the_overscroll_indicator_is_the_applications() {
+        struct Stretches;
+
+        impl crate::Application for Stretches {
+            type Message = ();
+
+            fn update(&mut self, _message: ()) -> crate::Command<()> {
+                crate::Command::none()
+            }
+
+            fn view(&self, _theme: &Theme) -> Box<dyn frus_widgets::Widget<()>> {
+                Box::new(frus_widgets::Flex::<()>::column())
+            }
+
+            fn overscroll_indicator(&self) -> frus_widgets::OverscrollIndicator {
+                frus_widgets::OverscrollIndicator::Stretch
+            }
+        }
+
+        struct Silent;
+
+        impl crate::Application for Silent {
+            type Message = ();
+
+            fn update(&mut self, _message: ()) -> crate::Command<()> {
+                crate::Command::none()
+            }
+
+            fn view(&self, _theme: &Theme) -> Box<dyn frus_widgets::Widget<()>> {
+                Box::new(frus_widgets::Flex::<()>::column())
+            }
+        }
+
+        let mut runtime = frus_widgets::Runtime::default();
+        install_ambient(&Stretches, &mut runtime, &[]);
+        assert_eq!(
+            runtime.overscroll_indicator,
+            frus_widgets::OverscrollIndicator::Stretch
+        );
+        install_ambient(&Silent, &mut runtime, &[]);
+        assert_eq!(
+            runtime.overscroll_indicator,
+            frus_widgets::OverscrollIndicator::platform_default()
         );
     }
 

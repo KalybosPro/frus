@@ -641,6 +641,10 @@ pub struct Runtime {
     /// an appearance: the reference resolves it through `ScrollBehavior`, beside the
     /// physics, and not through `ThemeData`.
     pub scrollbars: crate::physics::Scrollbars,
+    /// **What a scroll area shows when pulled past its edge**: a glow or a stretch, as the
+    /// platform answers it and the application may override it (milestone 591). Set by
+    /// the shell every frame, like `scrollbars` above.
+    pub overscroll_indicator: crate::physics::OverscrollIndicator,
     /// **How present each area's scrollbar is**, and how close a pointer has come to
     /// it. Advanced by [`Runtime::advance_scroll`], which is where movement is seen.
     pub scrollbar_fade: HashMap<WidgetId, ScrollbarFade>,
@@ -666,6 +670,9 @@ pub struct Runtime {
     /// The overscroll glows of each region — the edge feedback a platform that
     /// clamps needs, since it has no bounce to speak with. Absent = all quiet.
     pub scroll_glow: HashMap<WidgetId, ScrollGlows>,
+    /// The overscroll **stretch** of each region, where the indicator is the stretch
+    /// rather than the glow (milestone 591). Absent = at rest.
+    pub scroll_stretch: HashMap<WidgetId, crate::stretch::ScrollStretch>,
     /// The **ink** splashed on each surface that takes it, keyed by the surface. A
     /// ripple outlives the frame that started it — a tap is 450 ms of motion — so it
     /// is retained here rather than in the widget, which is rebuilt every frame.
@@ -2371,6 +2378,14 @@ impl Runtime {
         if overscroll.abs() < 1e-3 {
             return;
         }
+        if self.overscroll_indicator == crate::physics::OverscrollIndicator::Stretch {
+            self.scroll_stretch
+                .entry(id)
+                .or_default()
+                .axis_mut(edge)
+                .pull(overscroll, crate::stretch::is_start(edge), extent);
+            return;
+        }
         self.scroll_glow.entry(id).or_default().edge_mut(edge).pull(
             overscroll,
             extent,
@@ -2381,6 +2396,14 @@ impl Runtime {
 
     /// Tells the glow on one edge of `id` that a fling just landed on it.
     pub fn glow_absorb(&mut self, id: WidgetId, edge: GlowEdge, velocity: f32) {
+        if self.overscroll_indicator == crate::physics::OverscrollIndicator::Stretch {
+            self.scroll_stretch
+                .entry(id)
+                .or_default()
+                .axis_mut(edge)
+                .absorb_impact(velocity, crate::stretch::is_start(edge));
+            return;
+        }
         self.scroll_glow
             .entry(id)
             .or_default()
@@ -2393,15 +2416,25 @@ impl Runtime {
         if let Some(glows) = self.scroll_glow.get_mut(&id) {
             glows.scroll_end();
         }
+        self.stretch_release(id);
+    }
+
+    /// Lets the stretch of `id` go: the content moved again, and the reference releases a
+    /// stretch as soon as it scrolls (milestone 591).
+    pub fn stretch_release(&mut self, id: WidgetId) {
+        if let Some(stretch) = self.scroll_stretch.get_mut(&id) {
+            stretch.release();
+        }
     }
 
     /// Advances every glow by `dt`, dropping those that have gone quiet. Returns
     /// `true` while any is still animating.
     pub fn advance_glow(&mut self, dt: f32) -> bool {
-        if self.scroll_glow.is_empty() {
-            return false;
-        }
         let mut animating = false;
+        self.scroll_stretch.retain(|_, stretch| {
+            animating |= stretch.advance(dt);
+            !stretch.is_idle()
+        });
         self.scroll_glow.retain(|_, glows| {
             animating |= glows.advance(dt);
             !glows.is_idle()

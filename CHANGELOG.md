@@ -20,6 +20,15 @@ any release may break.
   gets: overlays, transforms, nested scroll areas. A frame keeps the widgets it builds in an
   arena (new dependency: `typed-arena`).
 
+- **The overscroll stretch** (J591, #55). On Android, pulling a scroll area past its edge now
+  lengthens the content towards it and springs it back, as the platform does, instead of
+  glowing. The amount and the spring are the reference's, ported from the platform's edge
+  effect; the deformation is its portable one, a scale along the axis from the edge pulled.
+  New `OverscrollIndicator` (`Glow`, `Stretch`), `Application::overscroll_indicator` to pin
+  one, `Runtime::overscroll_indicator`, `Runtime::stretch_release`, and `OverscrollStretch` /
+  `ScrollStretch`. **Changes the look on Android**: an application that wants the glow there
+  says so.
+
 - **Viewports and fields take the room they are given** (J590), as the reference's do. A page's
   body is exactly the room between its bars. An unsized `SingleChildScrollView` is as big as its
   content up to that room and scrolls past it, and across its axis it takes all the room; it used
