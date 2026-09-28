@@ -793,6 +793,14 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// If the box this widget's [`constraints_transform`](Self::constraints_transform) makes
+    /// is **a fraction of its child's size** — `(across, down)`, `1` for as big as the child
+    /// — the fractions, and the child is cut to the box (milestone 596). See
+    /// [`crate::SizeTransition`].
+    fn size_factor(&self) -> Option<(f32, f32)> {
+        None
+    }
+
     /// If the widget builds its content **from its actual box**, returns the
     /// `size → widget` factory. The content is built on the fly: no retained state
     /// and no overlay (like a virtualised list item).
@@ -1907,6 +1915,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn animated_size(&self) -> Option<crate::animatedsize::SizeAnimation> {
         (**self).animated_size()
+    }
+    fn size_factor(&self) -> Option<(f32, f32)> {
+        (**self).size_factor()
     }
     fn hero_tag(&self) -> Option<u64> {
         (**self).hero_tag()

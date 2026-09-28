@@ -34,9 +34,8 @@
 //!   that is the whole difference between the two frameworks: they exist to rebuild a
 //!   subtree when a value changes, and here the subtree is rebuilt every frame anyway.
 //! - `SliverFadeTransition` waits on slivers, which this framework does not have.
-//! - `SizeTransition` animates a size it has to **measure**, and a widget cannot measure
-//!   its children here — see the entry in `ROADMAP.md` and issue #52. Not a wrapper, and
-//!   not this milestone.
+//! - [`SizeTransition`] is here since milestone 596. It is not a wrapper: it is a box a
+//!   fraction of its child's size, which needs the child measured, and that waited on #52.
 //! - [`DecoratedBoxTransition`] and [`DefaultTextStyleTransition`] are here since
 //!   milestone 501. They are not wrappers over one value but interpolations of a whole
 //!   decoration and a whole text style, each part by its own rule — see
@@ -541,6 +540,121 @@ crate::transparent::forward_transparent!(DefaultTextStyleTransition {
     }
 });
 
+/// **Reveals** its child along one axis by a value the caller owns: the box is that fraction
+/// of the child's size, `0.0` nothing and `1.0` all of it, and the child is cut to it.
+///
+/// The child is laid out at its own size throughout, so it is uncovered, not squeezed.
+/// Across the axis, the box is as big as the room. What is below or beside it moves with
+/// it.
+///
+/// ```
+/// use frus_widgets::{text, SizeTransition};
+///
+/// let opening = 0.3_f32;
+/// let details = SizeTransition::<()>::new(opening, text("Shown as it opens"));
+/// ```
+pub struct SizeTransition<Msg = crate::callback::Callback> {
+    factor: f32,
+    axis: crate::scroll::Axis,
+    axis_alignment: f32,
+    children: Vec<Box<dyn Widget<Msg>>>,
+}
+
+impl<Msg> SizeTransition<Msg> {
+    /// Reveals `child` down to `factor` of its height.
+    pub fn new(factor: f32, child: impl Widget<Msg> + 'static) -> Self {
+        Self {
+            factor,
+            axis: crate::scroll::Axis::Vertical,
+            axis_alignment: 0.0,
+            children: vec![Box::new(child)],
+        }
+    }
+
+    /// The axis it reveals along: down by default, or across.
+    pub fn axis(mut self, axis: crate::scroll::Axis) -> Self {
+        self.axis = axis;
+        self
+    }
+
+    /// Which part of the child shows while it is not all there, along the axis: `-1.0` the
+    /// start (the top, or the left), `0.0` the middle — the default — and `1.0` the end.
+    pub fn axis_alignment(mut self, alignment: f32) -> Self {
+        self.axis_alignment = alignment;
+        self
+    }
+
+    fn vertical(&self) -> bool {
+        !matches!(self.axis, crate::scroll::Axis::Horizontal)
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for SizeTransition<Msg> {
+    fn style(&self) -> Style {
+        Style::default()
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &self.children
+    }
+
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+
+    /// The axis it reveals along is the child's to decide; the other is the room's.
+    fn constraints_transform(&self) -> Option<crate::constraints::ConstraintsTransform> {
+        use crate::constraints::AxisConstraint::{AsGiven, Unbounded};
+        let (width, height, alignment) = if self.vertical() {
+            (
+                AsGiven,
+                Unbounded,
+                Alignment {
+                    x: -1.0,
+                    y: self.axis_alignment,
+                },
+            )
+        } else {
+            (
+                Unbounded,
+                AsGiven,
+                Alignment {
+                    x: self.axis_alignment,
+                    y: -1.0,
+                },
+            )
+        };
+        Some(crate::constraints::ConstraintsTransform {
+            width,
+            height,
+            alignment,
+            report: false,
+        })
+    }
+
+    fn size_factor(&self) -> Option<(f32, f32)> {
+        let factor = self.factor.max(0.0);
+        Some(if self.vertical() {
+            (1.0, factor)
+        } else {
+            (factor, 1.0)
+        })
+    }
+
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes {
+            horizontal: self.vertical(),
+            vertical: !self.vertical(),
+        }
+    }
+
+    fn debug_name(&self) -> &'static str {
+        "SizeTransition"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,6 +677,128 @@ mod tests {
 
     fn mark() -> Container<()> {
         Container::new().width(40.0).height(20.0).color(RED)
+    }
+
+    /// The red mark's box and the clip it is painted under, through any layer.
+    fn red(primitives: &[Primitive]) -> Option<(Rect, Rect)> {
+        primitives.iter().find_map(|p| match p {
+            Primitive::Rect {
+                rect, clip, color, ..
+            } if color.r > 0.5 && color.g < 0.5 => Some((*rect, *clip)),
+            Primitive::Layer { primitives, .. } => red(primitives),
+            _ => None,
+        })
+    }
+
+    fn revealed(factor: f32, alignment: f32) -> crate::Ui<()> {
+        let root = crate::Flex::<()>::column()
+            .child(SizeTransition::new(factor, mark()).axis_alignment(alignment))
+            .child(Container::new().width(40.0).height(10.0).color(BLUE));
+        build_ui(
+            &root,
+            Size::new(100.0, 100.0),
+            &Runtime::default(),
+            &Theme::dark(),
+        )
+    }
+
+    /// **Half of a 20-px mark is a 10-px box**: what is below starts at 10, the mark is still
+    /// 20 px tall, and it is cut at the box.
+    #[test]
+    fn a_size_transition_is_a_fraction_of_its_child() {
+        let ui = revealed(0.5, -1.0);
+        assert_eq!(blue_y(ui.scene().primitives()), Some(10.0));
+        let (rect, clip) = red(ui.scene().primitives()).expect("the mark");
+        assert_eq!(rect.height, 20.0, "uncovered, not squeezed");
+        assert_eq!((rect.y, clip.y + clip.height), (0.0, 10.0), "its top half");
+    }
+
+    /// The axis alignment chooses which half: the end shows the bottom of the mark.
+    #[test]
+    fn the_axis_alignment_chooses_what_shows() {
+        let ui = revealed(0.5, 1.0);
+        let (rect, clip) = red(ui.scene().primitives()).expect("the mark");
+        assert_eq!(
+            rect.y, -10.0,
+            "the mark moved up by the half that is hidden"
+        );
+        assert_eq!(clip.y + clip.height, 10.0);
+    }
+
+    /// Nothing and all of it are the two ends: 0 is no box and nothing painted where it would
+    /// show, 1 is the whole mark.
+    #[test]
+    fn zero_is_nothing_and_one_is_all() {
+        assert_eq!(blue_y(revealed(0.0, -1.0).scene().primitives()), Some(0.0));
+        assert_eq!(blue_y(revealed(1.0, -1.0).scene().primitives()), Some(20.0));
+    }
+
+    /// **A factor that moves from frame to frame moves the box**, on one runtime whose layout
+    /// cache would otherwise hand back the last frame's box.
+    #[test]
+    fn a_new_factor_is_a_new_box() {
+        let rt = Runtime::default();
+        let frame = |factor: f32| {
+            let root = crate::Flex::<()>::column()
+                .child(SizeTransition::new(factor, mark()))
+                .child(Container::new().width(40.0).height(10.0).color(BLUE));
+            let ui = build_ui(&root, Size::new(100.0, 100.0), &rt, &Theme::dark());
+            blue_y(ui.scene().primitives())
+        };
+        assert_eq!(frame(0.5), Some(10.0));
+        assert_eq!(frame(1.0), Some(20.0));
+    }
+
+    /// **Across the axis, the box is the room's**: in a 100-px box that stretches nothing, a
+    /// mark with no width of its own is 100 px wide.
+    #[test]
+    fn across_the_axis_the_box_is_the_room() {
+        let root = Container::<()>::new()
+            .width(100.0)
+            .child(SizeTransition::new(
+                1.0,
+                Container::new().height(20.0).color(RED),
+            ));
+        let ui = build_ui(
+            &root,
+            Size::new(300.0, 100.0),
+            &Runtime::default(),
+            &Theme::dark(),
+        );
+        let (rect, _) = red(ui.scene().primitives()).expect("the mark");
+        assert_eq!(rect.width, 100.0);
+    }
+
+    /// Across: a quarter of a 40-px-wide mark is a 10-px-wide box, and the next thing in the
+    /// row starts there.
+    #[test]
+    fn a_horizontal_size_transition_reveals_across() {
+        let root = crate::Flex::<()>::row()
+            .child(
+                SizeTransition::new(0.25, mark())
+                    .axis(crate::scroll::Axis::Horizontal)
+                    .axis_alignment(-1.0),
+            )
+            .child(Container::new().width(40.0).height(10.0).color(BLUE));
+        let ui = build_ui(
+            &root,
+            Size::new(100.0, 100.0),
+            &Runtime::default(),
+            &Theme::dark(),
+        );
+        fn blue_x(primitives: &[Primitive]) -> Option<f32> {
+            primitives.iter().find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.b > 0.5 && color.r < 0.5 => {
+                    Some(rect.x)
+                }
+                Primitive::Layer { primitives, .. } => blue_x(primitives),
+                _ => None,
+            })
+        }
+        assert_eq!(blue_x(ui.scene().primitives()), Some(10.0));
+        let (rect, clip) = red(ui.scene().primitives()).expect("the mark");
+        assert_eq!(rect.width, 40.0);
+        assert_eq!(clip.x + clip.width, 10.0);
     }
 
     /// Where the blue neighbour was painted, through any layer above it.
