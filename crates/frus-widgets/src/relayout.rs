@@ -304,11 +304,30 @@ fn hash_node<Msg, H: Hasher>(
         effective_style(widget, id, runtime, theme).layout_hash(hasher);
         return;
     }
-    // A box that transforms its constraints hashes like a leaf and poisons the entry, for
-    // the same reason a `LayoutBuilder` does and one more: its box comes from a closure,
-    // and a closure cannot be hashed. Two frames whose trees fingerprint alike could ask
-    // two different questions of the same child.
-    if widget.constraints_transform().is_some() || widget.layout_builder().is_some() {
+    // A box that transforms its constraints is sized from its child, laid out in a tree of
+    // its own, under a rule that is **data**: the rule and the child are hashed, and the
+    // entry can be trusted (milestone 593). It used to poison the entry as a
+    // `LayoutBuilder` does, and every root holding one was laid out again every frame.
+    if let Some(transform) = widget.constraints_transform() {
+        5u8.hash(hasher);
+        transform.layout_hash(hasher);
+        effective_style(widget, id, runtime, theme).layout_hash(hasher);
+        if let Some(child) = widget.children().first() {
+            hash_node(
+                child.as_ref(),
+                child_id(id, 0, child.as_ref()),
+                runtime,
+                theme,
+                hasher,
+                volatile,
+            );
+        }
+        return;
+    }
+    // A `LayoutBuilder` hashes like a leaf and poisons the entry: its box comes from a
+    // closure, and a closure cannot be hashed. Two frames whose trees fingerprint alike
+    // could build two different children.
+    if widget.layout_builder().is_some() {
         1u8.hash(hasher);
         effective_style(widget, id, runtime, theme).layout_hash(hasher);
         *volatile = true;
@@ -399,6 +418,65 @@ mod tests {
         let fills: crate::Row<()> = crate::Row::new().child(Container::new());
         let hugs: crate::Row<()> = crate::Row::new().shrink_wrap().child(Container::new());
         assert_ne!(sig(&fills), sig(&hugs));
+    }
+
+    /// **A root holding an unconstrained box is reused** when nothing in it changed
+    /// (milestone 593), and laid out again when its child or its rule did.
+    #[test]
+    fn a_measured_box_can_be_reused_and_still_notices_a_change() {
+        let rt = Runtime::default();
+        let theme = crate::theme::Theme::default();
+        let c = Constraints::definite(Size::new(300.0, 200.0));
+        let page = |label: &'static str, rule: crate::constraints::AxisConstraint| -> Flex<()> {
+            Flex::column()
+                .child(Container::new().height(20.0))
+                .child(crate::ConstraintsTransformBox::new(crate::Text::new(label)).width(rule))
+        };
+        let unbounded = crate::constraints::AxisConstraint::Unbounded;
+        let mut cache = LayoutCache::default();
+        let first = cache.rects(WidgetId::ROOT, &page("one", unbounded), &rt, &theme, c);
+        let again = cache.rects(WidgetId::ROOT, &page("one", unbounded), &rt, &theme, c);
+        assert_eq!(first, again);
+        assert_eq!(
+            (cache.hits, cache.misses),
+            (1, 1),
+            "the second frame is reused"
+        );
+
+        // One thing at a time, each against the entry just before it.
+        let longer = page("a much longer label", unbounded);
+        let changed = cache.rects(WidgetId::ROOT, &longer, &rt, &theme, c);
+        assert_eq!(cache.misses, 2, "a different child is a different box");
+        assert!(changed.0.last().unwrap().width > first.0.last().unwrap().width);
+
+        let fixed = page(
+            "a much longer label",
+            crate::constraints::AxisConstraint::Fixed(250.0),
+        );
+        let ruled = cache.rects(WidgetId::ROOT, &fixed, &rt, &theme, c);
+        assert_eq!(cache.misses, 3, "a different rule is a different box");
+        assert_eq!(ruled.0.last().unwrap().width, 250.0);
+
+        let wider = page(
+            "a much longer label",
+            crate::constraints::AxisConstraint::Fixed(280.0),
+        );
+        let rewidth = cache.rects(WidgetId::ROOT, &wider, &rt, &theme, c);
+        assert_eq!(cache.misses, 4, "a different number is a different rule");
+        assert_eq!(rewidth.0.last().unwrap().width, 280.0);
+    }
+
+    /// A `LayoutBuilder` still cannot be trusted between frames.
+    #[test]
+    fn a_layout_builder_still_poisons_its_root() {
+        let rt = Runtime::default();
+        let theme = crate::theme::Theme::default();
+        let c = Constraints::definite(Size::new(300.0, 200.0));
+        let tree: crate::LayoutBuilder<()> = crate::LayoutBuilder::new(|_| Container::new());
+        let mut cache = LayoutCache::default();
+        cache.rects(WidgetId::ROOT, &tree, &rt, &theme, c);
+        cache.rects(WidgetId::ROOT, &tree, &rt, &theme, c);
+        assert_eq!((cache.hits, cache.misses), (0, 2));
     }
 
     #[test]
