@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 593 so far, each documenting the objective, the alternatives
+> record — one per step, 594 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`AnimatedSize`** (J594, #30): a box that follows its child's size over time, cutting the
+  child to it on the way. By default the child is given the width on offer and asked for its
+  height; `curve`, `alignment`, `clip`, `width` and `height` change that. In the demo, the task
+  list grows and shrinks. New hook `Widget::animated_size`, and `SizeAnimation`. A measured box
+  now passes on its widget's request to fill an axis.
 
 - **A measured box no longer relays out its page every frame** (J593, second step of #52). A
   root holding a `ConstraintsTransformBox` or an `UnconstrainedBox` was never reused by the

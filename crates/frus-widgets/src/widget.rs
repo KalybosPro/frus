@@ -786,6 +786,13 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// If the box this widget's [`constraints_transform`](Self::constraints_transform) makes
+    /// **follows its child's size over time** rather than at once, how (milestone 594). See
+    /// [`crate::AnimatedSize`].
+    fn animated_size(&self) -> Option<crate::animatedsize::SizeAnimation> {
+        None
+    }
+
     /// If the widget builds its content **from its actual box**, returns the
     /// `size → widget` factory. The content is built on the fly: no retained state
     /// and no overlay (like a virtualised list item).
@@ -1897,6 +1904,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn constraints_transform(&self) -> Option<crate::constraints::ConstraintsTransform> {
         (**self).constraints_transform()
+    }
+    fn animated_size(&self) -> Option<crate::animatedsize::SizeAnimation> {
+        (**self).animated_size()
     }
     fn hero_tag(&self) -> Option<u64> {
         (**self).hero_tag()

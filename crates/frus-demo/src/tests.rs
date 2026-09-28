@@ -43,12 +43,25 @@ impl Bench {
         bench
     }
 
-    /// Adds tasks, as the reader would have.
-    fn with_tasks(self, labels: &[&str]) -> Self {
+    /// Adds tasks, as the reader would have, and lets the screen settle around them: the
+    /// list grows to take them over a few frames (milestone 594), and a test reads the list
+    /// they made, not a frame of it growing.
+    fn with_tasks(mut self, labels: &[&str]) -> Self {
         for label in labels {
             self.demo.add(label);
         }
+        self.settle_frames();
         self
+    }
+
+    /// Draws a second of frames, advancing the runtime's transitions between them the way
+    /// the shell's frames would. A second, not "until nothing moves": the home screen always
+    /// has something moving, and a second outlasts every transition a change sets off.
+    fn settle_frames(&mut self) {
+        for _ in 0..20 {
+            let _ = self.frame();
+            self.runtime.advance(0.05);
+        }
     }
 
     /// Goes to a screen and lets the slide finish.

@@ -800,6 +800,10 @@ pub struct Runtime {
     /// **Repaint**-boundary cache (primitives + interactions retained per boundary,
     /// from one frame to the next). Same interior mutability.
     pub paint_cache: RefCell<crate::paintcache::PaintCache>,
+    /// Where each [`crate::AnimatedSize`] box is on its way from one size to the next
+    /// (milestone 594). Behind a `RefCell` for the same reason as the layout cache: the
+    /// layout sees a child's new size, and it holds only a shared reference.
+    pub(crate) size_anims: RefCell<crate::animatedsize::SizeAnims>,
 }
 
 impl Runtime {
@@ -1619,6 +1623,9 @@ impl Runtime {
                 && anim.press <= 0.0
                 && anim.opacity >= 1.0)
         });
+        // The boxes following their child's size (milestone 594), here so that everything
+        // that advances the runtime's transitions advances them too.
+        animating |= self.size_anims.get_mut().advance(dt, self.still);
 
         animating
     }

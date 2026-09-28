@@ -255,6 +255,13 @@ impl State for HomeState {
         } else {
             Box::new(list)
         };
+        // A task added, removed or filtered out: the list **grows and shrinks** to its new
+        // length rather than jumping, and what is below it moves with it (milestone 594).
+        let list: Box<dyn Widget> = Box::new(
+            frus_widgets::AnimatedSize::new(0.2, list)
+                .curve(frus_widgets::Curve::ease_in_out())
+                .alignment(frus_widgets::Alignment::TOP_LEFT),
+        );
         // **Vertical** responsiveness: in a short window the hint is hidden to preserve the
         // usable height. The scrolling is handled by the Scaffold.
         let short = SizeClass::from_height(surface.size.height) == SizeClass::Compact;
