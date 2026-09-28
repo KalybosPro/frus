@@ -75,6 +75,13 @@ input, not the fade, as in the reference. Its primitives are dropped.
 - A plain shown child over a tappable, labelled hidden one: a tap finds nothing, and the label is
   not read out.
 - The demo's 79 tests, and the library's.
+- **On an Android phone**, checked after the merge, once the phone was back. In the demo, "Write
+  code" was ticked and the Active filter chosen:
+  - Just after the tap, "Nothing to show for this filter." is in place of the two rows, and the
+    box is on its way down from their height.
+  - A second later, the box is the line's height and the footer has come up.
+  - Going back to All and capturing at once: the rows are coming back, the second one cut at the
+    growing box's edge, and the line has gone.
 - Mutations, each failing a test:
   - the hidden child laid out in the cell;
   - its own height not asked for, in the builder or in the walk;
