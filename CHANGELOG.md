@@ -8,10 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 592 so far, each documenting the objective, the alternatives
+> record — one per step, 593 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **A measured box no longer relays out its page every frame** (J593, second step of #52). A
+  root holding a `ConstraintsTransformBox` or an `UnconstrainedBox` was never reused by the
+  layout cache and was laid out again at every frame, nothing moving. Its rule and its child
+  are now fingerprinted; a `LayoutBuilder` still cannot be.
 
 - **A list's rows, a builder's content and a measured box's child go through the main walk**
   (J592, first step of #52). They used to be painted by a reduced copy of it, and an open

@@ -562,6 +562,25 @@ pub struct ConstraintsTransform {
 }
 
 impl ConstraintsTransform {
+    /// Feeds what decides the box's geometry to a layout fingerprint (milestone 593): the
+    /// rule on each axis and where the child sits. A transform is data, not a closure, so
+    /// two frames that hash alike ask the same question of the same child.
+    pub(crate) fn layout_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        use std::hash::Hash;
+        for axis in [self.width, self.height] {
+            match axis {
+                AxisConstraint::AsGiven => 0u8.hash(hasher),
+                AxisConstraint::Unbounded => 1u8.hash(hasher),
+                AxisConstraint::Fixed(v) => {
+                    2u8.hash(hasher);
+                    v.to_bits().hash(hasher);
+                }
+            }
+        }
+        self.alignment.x.to_bits().hash(hasher);
+        self.alignment.y.to_bits().hash(hasher);
+    }
+
     /// Both axes as they came, which is the transform that does nothing.
     pub fn new() -> Self {
         Self {
