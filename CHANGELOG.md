@@ -8,10 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 594 so far, each documenting the objective, the alternatives
+> record — one per step, 595 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`AnimatedCrossFade`** (J595, #30): one of two children shown, the other faded in over it
+  when the choice changes, and the box moving between their sizes. The last of the implicit
+  animations #30 listed. New `OverflowBox::natural_height`. **A subtree faded to 0 is no
+  longer painted**, as the reference's is not; it still registers its input and focus.
 
 - **`AnimatedSize`** (J594, #30): a box that follows its child's size over time, cutting the
   child to it on the way. By default the child is given the width on offer and asked for its

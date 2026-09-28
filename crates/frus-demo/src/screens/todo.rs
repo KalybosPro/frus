@@ -247,19 +247,17 @@ impl State for HomeState {
             // same question asked twice as often.
             list = list.keyed_row(todo.id, todo_row_draggable(&demo, cx, todo, theme));
         }
-        let list: Box<dyn Widget> = if shown.is_empty() {
-            Box::new(column![text("Nothing to show for this filter.")
-                .size(18.0)
-                .italic()
-                .color(theme.muted)])
-        } else {
-            Box::new(list)
-        };
+        let empty = column![text("Nothing to show for this filter.")
+            .size(18.0)
+            .italic()
+            .color(theme.muted)];
         // A task added, removed or filtered out: the list **grows and shrinks** to its new
-        // length rather than jumping, and what is below it moves with it (milestone 594).
+        // length rather than jumping, and what is below it moves with it (milestone 594);
+        // a filter that leaves nothing **cross-fades** to the line that says so, and back
+        // (milestone 595).
         let list: Box<dyn Widget> = Box::new(
-            frus_widgets::AnimatedSize::new(0.2, list)
-                .curve(frus_widgets::Curve::ease_in_out())
+            frus_widgets::AnimatedCrossFade::new(list, empty, !shown.is_empty(), 0.2)
+                .size_curve(frus_widgets::Curve::ease_in_out())
                 .alignment(frus_widgets::Alignment::TOP_LEFT),
         );
         // **Vertical** responsiveness: in a short window the hint is hidden to preserve the
