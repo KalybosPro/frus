@@ -3278,6 +3278,15 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // fixed target. Opaque (≈1): no layer at all (zero cost).
         if let Some(target) = widget.opacity_group() {
             let opacity = self.runtime.value_or(id, target).clamp(0.0, 1.0);
+            // Transparent (≈0): walked, so that what it registers is still there, and not
+            // painted at all — the reference's faded-out child costs nothing to draw either
+            // (milestone 595). A layer of nothing would still be a primitive in the frame.
+            if opacity < 0.001 {
+                let start = self.scene.primitives().len();
+                self.walk_node(widget, id, translation, clip, rects, index);
+                let _unseen = self.scene.split_off(start);
+                return;
+            }
             if opacity < 0.999 {
                 let start = self.scene.primitives().len();
                 self.walk_node(widget, id, translation, clip, rects, index);
@@ -4496,6 +4505,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     // Unconstrained: the child is asked how big it wants to be, and
                     // gets exactly that.
                     self.cached_rects(cid, child, Constraints::scroll(0.0, 0.0, true, true))
+                } else if overflow.natural_height {
+                    // The box's width, and the height the child asks for at it.
+                    self.cached_rects(
+                        cid,
+                        child,
+                        Constraints::scroll(asked.width, 0.0, false, true),
+                    )
                 } else {
                     self.cached_rects(cid, child, Constraints::filled(asked))
                 };

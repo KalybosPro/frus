@@ -586,6 +586,11 @@ mod tests {
     /// The first red rectangle, and the opacity of the layer it is inside (`1.0` when
     /// there is no layer).
     fn painted(root: &dyn Widget<()>) -> (Rect, f32) {
+        painted_if_any(root).expect("the mark")
+    }
+
+    /// The same, or `None` when nothing red is painted at all.
+    fn painted_if_any(root: &dyn Widget<()>) -> Option<(Rect, f32)> {
         let ui = build_ui(
             root,
             Size::new(100.0, 100.0),
@@ -612,13 +617,15 @@ mod tests {
             }
             None
         }
-        walk(ui.scene().primitives(), 1.0).expect("the mark")
+        walk(ui.scene().primitives(), 1.0)
     }
 
-    /// **Nothing, half way, all of it** — the three each of these has to pin.
+    /// **Nothing, half way, all of it** — the three each of these has to pin. Nothing is
+    /// not painted at all, as the reference's faded-out child is not (milestone 595).
     #[test]
     fn a_fade_is_the_value_it_was_given() {
-        for (given, expected) in [(0.0, 0.0), (0.5, 0.5), (1.0, 1.0)] {
+        assert_eq!(painted_if_any(&FadeTransition::new(0.0, mark())), None);
+        for (given, expected) in [(0.5, 0.5), (1.0, 1.0)] {
             let root = FadeTransition::new(given, mark());
             let (_, opacity) = painted(&root);
             assert!(

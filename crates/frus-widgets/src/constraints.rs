@@ -330,6 +330,10 @@ pub struct Overflow {
     /// Lay the child out **unconstrained**, at the size it asks for. Overrides the
     /// two above.
     pub unconstrained: bool,
+    /// Lay the child out at the box's width and **the height it asks for** (milestone
+    /// 595): a paragraph kept at the width it is shown at and allowed to run below the
+    /// box. Overrides `height`.
+    pub natural_height: bool,
     /// Where the child sits inside the box, and therefore which way it spills.
     pub alignment: Alignment,
 }
@@ -360,6 +364,7 @@ impl<Msg> OverflowBox<Msg> {
                 width: None,
                 height: None,
                 unconstrained: false,
+                natural_height: false,
                 alignment: Alignment::CENTER,
             },
             children: vec![Box::new(child)],
@@ -383,6 +388,13 @@ impl<Msg> OverflowBox<Msg> {
     /// The height to lay the child out at.
     pub fn height(mut self, height: f32) -> Self {
         self.overflow.height = Some(height);
+        self
+    }
+
+    /// Lays the child out at the box's width and **the height it asks for**, however tall
+    /// or short the box is (milestone 595).
+    pub fn natural_height(mut self) -> Self {
+        self.overflow.natural_height = true;
         self
     }
 
@@ -471,6 +483,7 @@ impl<Msg> SizedOverflowBox<Msg> {
                 width: None,
                 height: None,
                 unconstrained: true,
+                natural_height: false,
                 alignment: Alignment::CENTER,
             },
             children: vec![Box::new(child)],
