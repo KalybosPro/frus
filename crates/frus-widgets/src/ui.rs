@@ -539,6 +539,7 @@ fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
         || widget.constraints_transform().is_some()
         || widget.layout_builder().is_some()
         || widget.stack()
+        || widget.custom_layout().is_some()
         || widget.overlay().is_some()
         // A reorderable (a Kanban card, a draggable header): its bounds feed the reorderables
         // registry, which is not cached — so its subtree is not put in the paint cache.
@@ -551,6 +552,30 @@ fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
         n += plain_subtree_len(child.as_ref())?;
     }
     Some(n)
+}
+
+/// The walk's constraints for a child a [`crate::CustomMultiChildLayout`] lays out. An
+/// exact extent is **forced** when nothing else is only allowed, as a pinned stack layer's
+/// is; beside an axis that is only allowed, it is handed, and a child with a size of its own
+/// there keeps it.
+fn custom_constraints(c: crate::ChildConstraints) -> Constraints {
+    use crate::ChildAxis::{AtMost, Exactly, Free};
+    let axis = |a| match a {
+        Free => (0.0, true, false, false),
+        AtMost(v) => (f32::max(v, 0.0), false, false, true),
+        Exactly(v) => (f32::max(v, 0.0), false, true, false),
+    };
+    let (w, free_x, exact_x, loose_x) = axis(c.width);
+    let (h, free_y, exact_y, loose_y) = axis(c.height);
+    if (exact_x || exact_y) && !loose_x && !loose_y {
+        Constraints::pinned(
+            (!free_x).then_some(w),
+            (!free_y).then_some(h),
+            Size::new(w, h),
+        )
+    } else {
+        Constraints::axes(w, h, [free_x, free_y], [exact_x, exact_y])
+    }
 }
 
 /// Quantises a `[0,1]` float for the fingerprint (independent of tiny binary differences: two
@@ -2186,6 +2211,7 @@ fn build_layout_scoped<'a, Msg>(
         || widget.virtual_list(Size::ZERO).is_some()
         || widget.page_view().is_some()
         || widget.stack()
+        || widget.custom_layout().is_some()
     {
         // Nothing bubbles out of these: what is inside is laid out somewhere else, to
         // constraints of its own, and cannot have an opinion about this box.
@@ -4736,6 +4762,34 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // A swipe that is settling, flying or collapsing drives itself.
             if state.is_some_and(|s| s.phase() != DismissPhase::Drag) {
                 self.wants_animation = true;
+            }
+        } else if let Some(custom) = widget.custom_layout() {
+            // Children placed by a function (milestone 601): it is handed this box, measures
+            // each child in a layout of its own under the constraints it chooses, and says
+            // where it goes. The function runs here, where the box is known, and nowhere
+            // else, which is why the box's size cannot depend on its children.
+            let own = draw_rect;
+            let children = widget.children();
+            let measure = |i: usize, c: crate::ChildConstraints| -> Vec<Rect> {
+                let child = children[i].as_ref();
+                self.cached_rects(child_id(id, i, child), child, custom_constraints(c))
+            };
+            let mut layout = crate::ChildLayout::new(custom.keys, &measure);
+            (custom.delegate)(Size::new(own.width, own.height), &mut layout);
+            let (laid, at) = (layout.laid, layout.at);
+            for (i, child) in children.iter().enumerate() {
+                let Some(child_rects) = &laid[i] else {
+                    continue;
+                };
+                let mut child_index = 0;
+                self.walk(
+                    child.as_ref(),
+                    child_id(id, i, child.as_ref()),
+                    (own.x + at[i].x, own.y + at[i].y),
+                    clip,
+                    child_rects,
+                    &mut child_index,
+                );
             }
         } else if widget.stack() {
             // A stack: the layers are rendered in order, bottom first.
