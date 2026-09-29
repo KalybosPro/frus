@@ -700,6 +700,13 @@ pub trait Widget<Msg = crate::callback::Callback> {
         false
     }
 
+    /// If `true`, the widget is a **section with a sticky header**
+    /// ([`crate::StickyHeader`]): its first child is painted, and takes taps, at the top of
+    /// what is visible of the section, over the second (milestone 602).
+    fn sticky_header(&self) -> bool {
+        false
+    }
+
     /// If `true`, the widget animates **continuously** (driven by time, not by a
     /// target): the framework keeps redrawing. E.g. `CircularProgressIndicator`.
     fn continuous(&self) -> bool {
@@ -1898,6 +1905,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn stack(&self) -> bool {
         (**self).stack()
+    }
+    fn sticky_header(&self) -> bool {
+        (**self).sticky_header()
     }
     fn continuous(&self) -> bool {
         (**self).continuous()

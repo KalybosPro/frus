@@ -8,10 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 599 so far, each documenting the objective, the alternatives
+> record — one per step, 602 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`StickyHeader`** (J602, #29): a section whose header stays at the top of a scroll view
+  while the section is in view, and is pushed off by the next one. The stuck header is drawn
+  over its section and takes its taps; focus and reading order are unchanged. New hook
+  `Widget::sticky_header`.
 
 - **`SizedBox::expand` fills inside a scroll** (J599). It was a percentage of its parent, and
   0 px wide in a column inside a scroll. It now asks for the room, as `Aligned` does: all of it

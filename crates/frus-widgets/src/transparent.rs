@@ -374,6 +374,10 @@ macro_rules! forward_transparent {
                 self.inner.stack()
             }
 
+            fn sticky_header(&self) -> bool {
+                self.inner.sticky_header()
+            }
+
             fn continuous(&self) -> bool {
                 self.inner.continuous()
             }

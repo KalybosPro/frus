@@ -78,6 +78,7 @@ mod flex;
 mod focus;
 /// Form validation, pure and application-side: [`form::Rule`] and [`form::Form`].
 pub mod form;
+mod sticky;
 mod switcher;
 mod system_ui;
 pub use form::ErrorSummary;
@@ -404,6 +405,7 @@ pub use spinner::CircularProgressIndicator;
 pub use stack::{IndexedStack, Stack, StackFit};
 pub use stepper::Stepper;
 pub use steps::Steps;
+pub use sticky::StickyHeader;
 pub use stretch::{OverscrollStretch, ScrollStretch};
 pub use switch::Switch;
 pub use switcher::AnimatedSwitcher;
