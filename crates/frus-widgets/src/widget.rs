@@ -707,6 +707,14 @@ pub trait Widget<Msg = crate::callback::Callback> {
         false
     }
 
+    /// If the widget **places its children with a function** — a
+    /// [`crate::CustomMultiChildLayout`] — the function and one key per child. The children
+    /// are then laid out and placed in the walk, by the function, and not in this node's
+    /// layout (milestone 601).
+    fn custom_layout(&self) -> Option<crate::customlayout::CustomLayout<'_>> {
+        None
+    }
+
     /// If `true`, the widget animates **continuously** (driven by time, not by a
     /// target): the framework keeps redrawing. E.g. `CircularProgressIndicator`.
     fn continuous(&self) -> bool {
@@ -1908,6 +1916,10 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn sticky_header(&self) -> bool {
         (**self).sticky_header()
+    }
+
+    fn custom_layout(&self) -> Option<crate::customlayout::CustomLayout<'_>> {
+        (**self).custom_layout()
     }
     fn continuous(&self) -> bool {
         (**self).continuous()

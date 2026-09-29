@@ -51,6 +51,7 @@ mod constraints;
 mod container;
 mod controltile;
 mod crossfade;
+mod customlayout;
 mod custompaint;
 mod datatable;
 mod datepicker;
@@ -256,6 +257,9 @@ pub use constraints::{
 pub use container::Container;
 pub use controltile::{CheckboxListTile, RadioListTile, SwitchListTile};
 pub use crossfade::AnimatedCrossFade;
+pub use customlayout::{
+    ChildAxis, ChildConstraints, ChildLayout, CustomLayout, CustomMultiChildLayout, LayoutFn,
+};
 pub use custompaint::CustomPaint;
 pub use datatable::{
     compare_cells, page_count, page_range_label, page_rows, row_matches, sort_rows, DataTable,

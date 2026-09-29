@@ -18,6 +18,12 @@ any release may break.
   over its section and takes its taps; focus and reading order are unchanged. New hook
   `Widget::sticky_header`.
 
+- **`CustomMultiChildLayout`** (J601, #38, #52): children placed by a function the
+  application writes. It measures each child under constraints it chooses
+  (`ChildConstraints`: free, at most, exactly) and says where it goes; children are named by
+  any hashable key. Its own size is the room or its own, not its children's, as in the
+  reference. New hook `Widget::custom_layout`.
+
 - **`SizedBox::expand` fills inside a scroll** (J599). It was a percentage of its parent, and
   0 px wide in a column inside a scroll. It now asks for the room, as `Aligned` does: all of it
   where the parent has it, its child's length along a line it shares.

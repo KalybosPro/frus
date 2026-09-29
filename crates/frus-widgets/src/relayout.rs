@@ -316,6 +316,7 @@ fn hash_node<Msg, H: Hasher>(
         || widget.page_view().is_some()
         || widget.overflow_box().is_some()
         || widget.stack()
+        || widget.custom_layout().is_some()
     {
         1u8.hash(hasher);
         effective_style(widget, id, runtime, theme).layout_hash(hasher);
