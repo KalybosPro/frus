@@ -4566,7 +4566,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     .unwrap_or(Size::new(0.0, 0.0));
                 // An anchor that may be directional is resolved here, where the reading
                 // direction is known (milestone 597).
-                let align = match widget.alignment_geometry() {
+                // An anchor on its way to another is where the runtime has it (milestone 600).
+                let geometry = widget.alignment_geometry().map(|geometry| {
+                    match self.runtime.anim_offset(id) {
+                        Some((x, y)) => geometry.with_fractions(x, y),
+                        None => geometry,
+                    }
+                });
+                let align = match geometry {
                     Some(geometry) => geometry.resolve(if self.rtl() {
                         frus_core::TextDirection::Rtl
                     } else {

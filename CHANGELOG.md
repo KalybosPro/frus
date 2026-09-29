@@ -8,10 +8,14 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 598 so far, each documenting the objective, the alternatives
+> record — one per step, 600 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`AnimatedAlign` takes width and height factors** (J600, #52), and its anchor still moves
+  on every axis. **It now takes the room as `Aligned` does**: it was as big as its child
+  wherever nothing stretched it, with nowhere to move it.
 
 - **`LimitedBox`** (J598, #52): caps its child only where the room on offer has no end, such as
   down a scroll. New axis rules `AxisConstraint::Loose` (at most the room) and

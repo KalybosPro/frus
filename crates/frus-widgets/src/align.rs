@@ -46,6 +46,9 @@ pub struct Aligned<Msg = crate::callback::Callback> {
     /// Once a factor is given, `inner` moves here and is laid out apart: the box is then
     /// measured from it, as the boxes that transform the space on offer are.
     factored: Vec<Box<dyn Widget<Msg>>>,
+    /// How a change of anchor moves, for [`AnimatedAlign`](crate::AnimatedAlign)
+    /// (milestone 600).
+    anim: Option<(f32, frus_core::animation::Curve)>,
 }
 
 impl<Msg: Clone + 'static> Aligned<Msg> {
@@ -57,6 +60,30 @@ impl<Msg: Clone + 'static> Aligned<Msg> {
             alignment,
             factors: (None, None),
             factored: Vec::new(),
+            anim: None,
+        }
+    }
+
+    /// Places `child` at `alignment`, moving there over `duration` when the anchor changes.
+    ///
+    /// The container that places the child moves its anchor too: without a factor it is this
+    /// box's own node, and with one it places the child on the axes without a factor, while
+    /// the walk moves it on the others (milestone 600).
+    pub(crate) fn animated(
+        alignment: impl Into<AlignmentGeometry>,
+        duration: f32,
+        curve: frus_core::animation::Curve,
+        child: impl Widget<Msg> + 'static,
+    ) -> Self {
+        let alignment = alignment.into();
+        Self {
+            inner: Container::new()
+                .animated_alignment(alignment, duration, curve.clone())
+                .child(child),
+            alignment,
+            factors: (None, None),
+            factored: Vec::new(),
+            anim: Some((duration, curve)),
         }
     }
 
@@ -152,6 +179,22 @@ impl<Msg: Clone> Widget<Msg> for Aligned<Msg> {
 
     fn alignment_geometry(&self) -> Option<AlignmentGeometry> {
         Some(self.alignment)
+    }
+
+    fn anim_offset(&self) -> Option<(f32, f32)> {
+        self.anim.as_ref().map(|_| self.alignment.fractions())
+    }
+
+    fn anim_duration(&self) -> f32 {
+        self.anim.as_ref().map_or(0.0, |(duration, _)| *duration)
+    }
+
+    fn anim_curve(&self) -> frus_core::animation::Curve {
+        self.anim
+            .as_ref()
+            .map_or(frus_core::animation::Curve::Linear, |(_, curve)| {
+                curve.clone()
+            })
     }
 
     /// With a factor, the child is laid out apart: allowed the room, as the most it may take,
