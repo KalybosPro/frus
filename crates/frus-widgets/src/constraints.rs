@@ -18,7 +18,7 @@ use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
 use crate::theme::Theme;
-use crate::widget::Widget;
+use crate::widget::{FillAxes, Widget};
 
 /// A box that **caps its child only where nothing else does**: where the room on offer has no
 /// end — down a column's scroll, along a list — the child may take at most `max_width` or
@@ -101,6 +101,8 @@ impl<Msg: Clone> Widget<Msg> for LimitedBox<Msg> {
 pub struct SizedBox<Msg = crate::callback::Callback> {
     width: Dimension,
     height: Dimension,
+    /// The axes it asks all the room on (milestone 599).
+    fills: FillAxes,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -110,6 +112,7 @@ impl<Msg> SizedBox<Msg> {
         Self {
             width: Dimension::Auto,
             height: Dimension::Auto,
+            fills: FillAxes::NONE,
             children: Vec::new(),
         }
     }
@@ -128,10 +131,15 @@ impl<Msg> SizedBox<Msg> {
 
     /// A box that **fills** the space on offer, on both axes, and hands it to
     /// `child`.
+    ///
+    /// All of it wherever the parent has it to give: a whole page, a whole card, the width
+    /// of a column even inside a scroll. Along a row's or a column's own direction, where
+    /// the line is shared with other children, it is only as long as its child; wrap it in
+    /// [`Expanded`](crate::Expanded) for the rest of the line.
     pub fn expand(child: impl Widget<Msg> + 'static) -> Self {
-        Self::new(child)
-            .width_dimension(Dimension::Percent(1.0))
-            .height_dimension(Dimension::Percent(1.0))
+        let mut boxed = Self::new(child);
+        boxed.fills = FillAxes::BOTH;
+        boxed
     }
 
     /// A box that takes **only what its child needs**, on both axes — the useful
@@ -181,10 +189,20 @@ impl<Msg> SizedBox<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for SizedBox<Msg> {
     fn style(&self) -> Style {
-        Style {
+        let base = Style {
             width: self.width,
             height: self.height,
             ..Default::default()
+        };
+        // An expanding box **hands** its child the room it took, as the reference's does
+        // with tight constraints: one cell, stretched both ways (milestone 599).
+        match self.fills == FillAxes::BOTH {
+            true => Style {
+                overlap: true,
+                align: frus_layout::Align::Stretch,
+                ..base
+            },
+            false => base,
         }
     }
 
@@ -198,6 +216,13 @@ impl<Msg: Clone> Widget<Msg> for SizedBox<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+
+    /// The room on offer, when it was made to expand. It used to be a percentage of the
+    /// parent, which is nothing when the parent is as big as its content: a column inside a
+    /// scroll (milestone 599).
+    fn fill_axes(&self, _theme: &Theme) -> FillAxes {
+        self.fills
     }
 }
 
@@ -1324,5 +1349,41 @@ mod tests {
         let rect = red_box(root, Size::new(300.0, 200.0));
         assert!((rect.width - 120.0).abs() < 0.5, "{rect:?}");
         assert!(rect.height > 50.0, "several lines: {rect:?}");
+    }
+
+    /// **Inside a scroll**, the column holding it is as wide as the scroll because the box
+    /// asks for it, and the box is that width. It was 0: a percentage of a column that was as
+    /// wide as its content.
+    #[test]
+    fn a_sized_box_that_expands_is_as_wide_as_a_scroll() {
+        let root = crate::SingleChildScrollView::<()>::new()
+            .width(200.0)
+            .height(300.0)
+            .child(
+                Flex::column().child(SizedBox::expand(Container::new().color(RED)).height(50.0)),
+            );
+        let rect = red_box(root, Size::new(200.0, 300.0));
+        assert!((rect.width - 200.0).abs() < 0.5, "{rect:?}");
+        assert!((rect.height - 50.0).abs() < 0.5, "{rect:?}");
+    }
+
+    /// **Alone on a page**, it is the page; **beside a label in a row**, it shares the line
+    /// and is as wide as its child, after the label.
+    #[test]
+    fn a_sized_box_that_expands_fills_a_page_and_shares_a_line() {
+        let rect = red_box(SizedBox::expand(filler()), Size::new(200.0, 300.0));
+        assert!(
+            (rect.width - 200.0).abs() < 0.5 && (rect.height - 300.0).abs() < 0.5,
+            "{rect:?}"
+        );
+        let row = Flex::<()>::row()
+            .width(300.0)
+            .height(100.0)
+            .child(Text::new("label").no_wrap())
+            .child(SizedBox::expand(Container::new().width(30.0).color(RED)));
+        let rect = red_box(row, Size::new(300.0, 100.0));
+        assert!((rect.width - 30.0).abs() < 0.5, "{rect:?}");
+        assert!((rect.height - 100.0).abs() < 0.5, "{rect:?}");
+        assert!(rect.x > 20.0, "after the label: {rect:?}");
     }
 }

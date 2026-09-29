@@ -17,6 +17,10 @@ any release may break.
   on every axis. **It now takes the room as `Aligned` does**: it was as big as its child
   wherever nothing stretched it, with nowhere to move it.
 
+- **`SizedBox::expand` fills inside a scroll** (J599). It was a percentage of its parent, and
+  0 px wide in a column inside a scroll. It now asks for the room, as `Aligned` does: all of it
+  where the parent has it, its child's length along a line it shares.
+
 - **`LimitedBox`** (J598, #52): caps its child only where the room on offer has no end, such as
   down a scroll. New axis rules `AxisConstraint::Loose` (at most the room) and
   `AxisConstraint::Limited`; new `Layout::compute_axes`, filling each axis or not. **A paragraph
