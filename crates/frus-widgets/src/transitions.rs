@@ -643,6 +643,10 @@ impl<Msg: Clone> Widget<Msg> for SizeTransition<Msg> {
         })
     }
 
+    fn clips_to_box(&self) -> bool {
+        true
+    }
+
     fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
         crate::widget::FillAxes {
             horizontal: self.vertical(),
