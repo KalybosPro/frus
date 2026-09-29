@@ -1976,6 +1976,7 @@ fn build_layout_scoped<'a, Msg>(
         let child = widget.children().first().map(|c| c.as_ref());
         let owned = owned_theme(theme);
         let animated = widget.animated_size();
+        let factor = widget.size_factor();
         let measure: frus_layout::MeasureFn<'a> = Box::new(move |w, h| {
             let Some(child) = child else {
                 return Size::new(0.0, 0.0);
@@ -2015,6 +2016,13 @@ fn build_layout_scoped<'a, Msg>(
                 // way between two others is a fraction, and a box rounded down from one is
                 // one its content no longer fits in (milestone 289).
                 size = Size::new(frus_core::fits(shown.width), frus_core::fits(shown.height));
+            }
+            // A fraction of the child, on each axis, in whole pixels (milestone 596).
+            if let Some((across, down)) = factor {
+                size = Size::new(
+                    frus_core::fits(size.width * across.max(0.0)),
+                    frus_core::fits(size.height * down.max(0.0)),
+                );
             }
             // Held to the offer: a child too big for the room spills, and the box stays the
             // size the room was.
@@ -4559,6 +4567,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 }
                 let clip = match &animated {
                     Some(spec) if spec.clip => clip.intersect(own),
+                    // A fraction of the child is the child cut to it (milestone 596).
+                    _ if widget.size_factor().is_some() => clip.intersect(own),
                     _ => clip,
                 };
                 let mut child_index = 0;

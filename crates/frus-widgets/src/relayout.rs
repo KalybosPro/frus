@@ -313,6 +313,12 @@ fn hash_node<Msg, H: Hasher>(
         transform.layout_hash(hasher);
         let fills = widget.fill_axes(theme);
         (fills.horizontal, fills.vertical).hash(hasher);
+        // A box that is a fraction of its child is a different box at every fraction
+        // (milestone 596).
+        if let Some((across, down)) = widget.size_factor() {
+            across.to_bits().hash(hasher);
+            down.to_bits().hash(hasher);
+        }
         // A box following its child's size is a different geometry at every step of the
         // move, and the same one once it has arrived (milestone 594).
         if widget.animated_size().is_some() {

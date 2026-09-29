@@ -8,10 +8,14 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 595 so far, each documenting the objective, the alternatives
+> record — one per step, 596 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`SizeTransition`** (J596, #32): reveals its child along one axis by a value the caller
+  owns; the box is that fraction of the child, the child is cut to it. `axis`,
+  `axis_alignment`. New hook `Widget::size_factor`.
 
 - **`AnimatedCrossFade`** (J595, #30): one of two children shown, the other faded in over it
   when the choice changes, and the box moving between their sizes. The last of the implicit
