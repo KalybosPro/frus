@@ -4557,7 +4557,16 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     .first()
                     .map(|r| Size::new(r.width, r.height))
                     .unwrap_or(Size::new(0.0, 0.0));
-                let align = transform.alignment;
+                // An anchor that may be directional is resolved here, where the reading
+                // direction is known (milestone 597).
+                let align = match widget.alignment_geometry() {
+                    Some(geometry) => geometry.resolve(if self.rtl() {
+                        frus_core::TextDirection::Rtl
+                    } else {
+                        frus_core::TextDirection::Ltr
+                    }),
+                    None => transform.alignment,
+                };
                 let origin = (
                     own.x + (own.width - size.width) * align.fraction_x(),
                     own.y + (own.height - size.height) * align.fraction_y(),
@@ -4567,8 +4576,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 }
                 let clip = match &animated {
                     Some(spec) if spec.clip => clip.intersect(own),
-                    // A fraction of the child is the child cut to it (milestone 596).
-                    _ if widget.size_factor().is_some() => clip.intersect(own),
+                    // A reveal is the child cut to it (milestone 596).
+                    _ if widget.clips_to_box() => clip.intersect(own),
                     _ => clip,
                 };
                 let mut child_index = 0;

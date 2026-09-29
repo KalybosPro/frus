@@ -794,11 +794,18 @@ pub trait Widget<Msg = crate::callback::Callback> {
     }
 
     /// If the box this widget's [`constraints_transform`](Self::constraints_transform) makes
-    /// is **a fraction of its child's size** — `(across, down)`, `1` for as big as the child
-    /// — the fractions, and the child is cut to the box (milestone 596). See
-    /// [`crate::SizeTransition`].
+    /// is **a multiple of its child's size** — `(across, down)`, `1` for as big as the child
+    /// — the multiples (milestones 596 and 597). See [`crate::SizeTransition`] and
+    /// [`crate::Aligned::width_factor`].
     fn size_factor(&self) -> Option<(f32, f32)> {
         None
+    }
+
+    /// Whether the box this widget's [`constraints_transform`](Self::constraints_transform)
+    /// makes **cuts its child** to itself. A reveal does; an anchor with a factor lets its
+    /// child spill (milestone 597).
+    fn clips_to_box(&self) -> bool {
+        false
     }
 
     /// If the widget builds its content **from its actual box**, returns the
@@ -1918,6 +1925,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn size_factor(&self) -> Option<(f32, f32)> {
         (**self).size_factor()
+    }
+    fn clips_to_box(&self) -> bool {
+        (**self).clips_to_box()
     }
     fn hero_tag(&self) -> Option<u64> {
         (**self).hero_tag()

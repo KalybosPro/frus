@@ -8,10 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 596 so far, each documenting the objective, the alternatives
+> record — one per step, 597 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`Aligned` and `Center` take width and height factors** (J597, #52): the box is a multiple
+  of its child on that axis instead of the room, and a child bigger than it spills. New hook
+  `Widget::clips_to_box`: a measured box with a factor no longer cuts its child unless it says
+  so, as `SizeTransition` does.
 
 - **`SizeTransition`** (J596, #32): reveals its child along one axis by a value the caller
   owns; the box is that fraction of the child, the child is cut to it. `axis`,

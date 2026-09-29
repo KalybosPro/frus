@@ -475,6 +475,10 @@ macro_rules! forward_transparent {
                 self.inner.size_factor()
             }
 
+            fn clips_to_box(&self) -> bool {
+                self.inner.clips_to_box()
+            }
+
             fn hero_tag(&self) -> Option<u64> {
                 self.inner.hero_tag()
             }
