@@ -1981,20 +1981,16 @@ fn build_layout_scoped<'a, Msg>(
             let Some(child) = child else {
                 return Size::new(0.0, 0.0);
             };
-            let (aw, free_x) = transform.width.offered(w);
-            let (ah, free_y) = transform.height.offered(h);
+            let (aw, free_x, fill_x) = transform.width.offered(w);
+            let (ah, free_y, fill_y) = transform.height.offered(h);
             let mut inner: Layout<BaselineData> = Layout::new();
             let node = build_layout(child, child_id(id, 0, child), runtime, &owned, &mut inner);
             // **Handed** every axis that has a number, **asked** about every axis that does
-            // not. `compute_scroll` already fills a lone constrained axis, for the reason a
-            // scrollable's cross axis needs it; with numbers on both, `compute_filled` is
-            // that same rule. Merely constraining them instead would leave a child with no
-            // size of its own — a plain container — hugging at nothing, and a box asked how
-            // big its child wanted to be would come back empty.
-            match (free_x, free_y) {
-                (false, false) => inner.compute_filled(node, aw, ah),
-                _ => inner.compute_scroll(node, aw, ah, free_x, free_y),
-            }
+            // not. Merely constraining them instead would leave a child with no size of its
+            // own — a plain container — hugging at nothing, and a box asked how big its child
+            // wanted to be would come back empty. A loose axis is the exception, and says so:
+            // there the number is only the most the child may take (milestone 598).
+            inner.compute_axes(node, aw, ah, [free_x, free_y], [fill_x, fill_y]);
             let mut size = inner.size_of(node);
             // A box following its child's size answers with the size it has got to, and is
             // told when the child's has changed (milestone 594). An intrinsic question is
@@ -4541,17 +4537,28 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             if let Some(child) = widget.children().first() {
                 let child = child.as_ref();
                 let cid = child_id(id, 0, child);
-                let (aw, free_x) = transform.width.at(own.width);
-                let (ah, free_y) = transform.height.at(own.height);
+                // A box a multiple of its child below one is smaller than the child: on a
+                // loose axis, the child is allowed what it had, the box divided back by the
+                // factor, and at zero there is nothing to divide, so it is asked. At one or
+                // more the box already holds it (milestone 598).
+                let factor = widget.size_factor().unwrap_or((1.0, 1.0));
+                let back = |rule, own: f32, factor: f32| match rule {
+                    crate::constraints::AxisConstraint::Loose if factor <= 0.0 => {
+                        crate::constraints::AxisConstraint::Unbounded.at(own)
+                    }
+                    crate::constraints::AxisConstraint::Loose if factor < 1.0 => {
+                        rule.at(own / factor)
+                    }
+                    _ => rule.at(own),
+                };
+                let (aw, free_x, fill_x) = back(transform.width, own.width, factor.0);
+                let (ah, free_y, fill_y) = back(transform.height, own.height, factor.1);
                 // A box on its way to its child's size is not that size yet, and the child is
                 // laid out as ever (milestone 594). On the axes the child decides, it comes
                 // back at its own size, which is where the box is going; an axis it is given
                 // as it came is not animated at all, the box filling the room there.
                 let animated = widget.animated_size();
-                let constraints = match (free_x, free_y) {
-                    (false, false) => Constraints::filled(Size::new(aw, ah)),
-                    _ => Constraints::scroll(aw, ah, free_x, free_y),
-                };
+                let constraints = Constraints::axes(aw, ah, [free_x, free_y], [fill_x, fill_y]);
                 let child_rects = self.cached_rects(cid, child, constraints);
                 let size = child_rects
                     .first()

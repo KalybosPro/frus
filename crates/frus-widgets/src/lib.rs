@@ -249,7 +249,7 @@ pub use component::{
 };
 pub use constraints::{
     AxisConstraint, ConstrainedBox, ConstraintsTransform, ConstraintsTransformBox, Intrinsic,
-    IntrinsicAxis, IntrinsicHeight, IntrinsicWidth, Overflow, OverflowBox, SizedBox,
+    IntrinsicAxis, IntrinsicHeight, IntrinsicWidth, LimitedBox, Overflow, OverflowBox, SizedBox,
     SizedOverflowBox, UnconstrainedBox,
 };
 pub use container::Container;

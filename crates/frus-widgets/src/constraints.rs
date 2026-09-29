@@ -7,6 +7,7 @@
 //!   *like* to be, rather than the size the space on offer suggests.
 //! - [`OverflowBox`] — a child laid out to constraints of its own, which it may
 //!   exceed, painted over whatever is around it.
+//! - [`LimitedBox`] — a ceiling that applies only where the room on offer has no end.
 //!
 //! The first three are ordinary layout nodes and cost nothing beyond what taffy
 //! already does. [`OverflowBox`] is not: its child is laid out **separately**, which
@@ -18,6 +19,79 @@ use frus_layout::{Dimension, Style};
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::{FillAxes, Widget};
+
+/// A box that **caps its child only where nothing else does**: where the room on offer has no
+/// end — down a column's scroll, along a list — the child may take at most `max_width` or
+/// `max_height`; where it has one, the box changes nothing.
+///
+/// ```
+/// use frus_widgets::{LimitedBox, Text};
+///
+/// // A placeholder that asks for all the room, and is 120 px tall in a scrolling list.
+/// let _row: LimitedBox<()> = LimitedBox::new(Text::new("Loading")).max_height(120.0);
+/// ```
+///
+/// Without a limit on an axis, that axis is left as it came. The child is never made
+/// bigger than it would be: a child that hugs its content still does.
+pub struct LimitedBox<Msg = crate::callback::Callback> {
+    max: (Option<f32>, Option<f32>),
+    children: Vec<Box<dyn Widget<Msg>>>,
+}
+
+impl<Msg> LimitedBox<Msg> {
+    /// A box around `child`, with no limit yet.
+    pub fn new(child: impl Widget<Msg> + 'static) -> Self {
+        Self {
+            max: (None, None),
+            children: vec![Box::new(child)],
+        }
+    }
+
+    /// The most the child may take across, where the room on offer has no end.
+    pub fn max_width(mut self, max: f32) -> Self {
+        self.max.0 = Some(max.max(0.0));
+        self
+    }
+
+    /// The most the child may take down, where the room on offer has no end.
+    pub fn max_height(mut self, max: f32) -> Self {
+        self.max.1 = Some(max.max(0.0));
+        self
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for LimitedBox<Msg> {
+    fn style(&self) -> Style {
+        Style::default()
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &self.children
+    }
+
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+
+    fn constraints_transform(&self) -> Option<ConstraintsTransform> {
+        let rule = |max: Option<f32>| match max {
+            Some(max) => AxisConstraint::Limited(max),
+            None => AxisConstraint::Loose,
+        };
+        Some(ConstraintsTransform {
+            width: rule(self.max.0),
+            height: rule(self.max.1),
+            alignment: Alignment::TOP_LEFT,
+            report: false,
+        })
+    }
+
+    fn debug_name(&self) -> &'static str {
+        "LimitedBox"
+    }
+}
 
 /// A box of a given size — or one that fills what it is given, or one that takes
 /// only what its child needs.
@@ -568,6 +642,13 @@ pub enum AxisConstraint {
     Unbounded,
     /// A number of its own, whatever was offered.
     Fixed(f32),
+    /// The room on offer as **the most** the child may take, not a size it is handed: a
+    /// paragraph wraps at it and is then as wide as its longest line. With no room on offer,
+    /// as big as it likes (milestone 598).
+    Loose,
+    /// As [`Loose`](Self::Loose) where the room on offer is bounded; where it is not, at most
+    /// this many pixels. What [`LimitedBox`] does (milestone 598).
+    Limited(f32),
 }
 
 /// What a [`ConstraintsTransformBox`] gives its child, per axis, and what it does about a
@@ -611,6 +692,11 @@ impl ConstraintsTransform {
                 AxisConstraint::Unbounded => 1u8.hash(hasher),
                 AxisConstraint::Fixed(v) => {
                     2u8.hash(hasher);
+                    v.to_bits().hash(hasher);
+                }
+                AxisConstraint::Loose => 3u8.hash(hasher),
+                AxisConstraint::Limited(v) => {
+                    4u8.hash(hasher);
                     v.to_bits().hash(hasher);
                 }
             }
@@ -662,15 +748,25 @@ impl Default for ConstraintsTransform {
 }
 
 impl AxisConstraint {
-    /// `(extent, free)` for the **measurement**, given what the layout offered on this
-    /// axis — `None` being no limit at all.
-    pub(crate) fn offered(self, offer: Option<f32>) -> (f32, bool) {
+    /// `(extent, free, filled)` for the **measurement**, given what the layout offered on
+    /// this axis — `None` being no limit at all. A bounded axis is either **handed** to the
+    /// child (`filled`: a child with no size of its own takes it) or only **allowed** (the
+    /// most it may take).
+    pub(crate) fn offered(self, offer: Option<f32>) -> (f32, bool, bool) {
         match self {
-            AxisConstraint::Unbounded => (0.0, true),
-            AxisConstraint::Fixed(extent) => (extent.max(0.0), false),
+            AxisConstraint::Unbounded => (0.0, true, false),
+            AxisConstraint::Fixed(extent) => (extent.max(0.0), false, true),
             AxisConstraint::AsGiven => match offer {
-                Some(extent) => (extent.max(0.0), false),
-                None => (0.0, true),
+                Some(extent) => (extent.max(0.0), false, true),
+                None => (0.0, true, false),
+            },
+            AxisConstraint::Loose => match offer {
+                Some(extent) => (extent.max(0.0), false, false),
+                None => (0.0, true, false),
+            },
+            AxisConstraint::Limited(most) => match offer {
+                Some(extent) => (extent.max(0.0), false, false),
+                None => (most.max(0.0), false, false),
             },
         }
     }
@@ -681,11 +777,17 @@ impl AxisConstraint {
     /// number is itself, an unbounded axis is the same question either way, and an axis
     /// given as it came produced a child of the box's own extent — the box being that child
     /// held to what was offered.
-    pub(crate) fn at(self, own: f32) -> (f32, bool) {
+    ///
+    /// `(extent, free, filled)`, as [`Self::offered`]. A loose or limited axis produced a box
+    /// of the child's own extent, and the child is allowed that extent again, not handed it:
+    /// a paragraph that wrapped at the room and is as wide as its longest line wraps at that
+    /// line the same way.
+    pub(crate) fn at(self, own: f32) -> (f32, bool, bool) {
         match self {
-            AxisConstraint::Unbounded => (0.0, true),
-            AxisConstraint::Fixed(extent) => (extent.max(0.0), false),
-            AxisConstraint::AsGiven => (own.max(0.0), false),
+            AxisConstraint::Unbounded => (0.0, true, false),
+            AxisConstraint::Fixed(extent) => (extent.max(0.0), false, true),
+            AxisConstraint::AsGiven => (own.max(0.0), false, true),
+            AxisConstraint::Loose | AxisConstraint::Limited(_) => (own.max(0.0), false, false),
         }
     }
 }
@@ -1165,6 +1267,88 @@ mod tests {
                 _ => None,
             })
             .expect("the red box")
+    }
+
+    /// A red box that asks for all the room it is given, on both axes: what a centred child
+    /// asks for is passed up through its container.
+    fn expanding() -> Container<()> {
+        Container::new()
+            .color(RED)
+            .child(crate::Center::new(SizedBox::empty()))
+    }
+
+    /// **Where the room has no end**, down a scroll, the limit is the box: a child asking for
+    /// all the room is 120 tall, and as wide as the scroll.
+    #[test]
+    fn a_limited_box_caps_a_child_where_the_room_has_no_end() {
+        let root = crate::SingleChildScrollView::<()>::new()
+            .width(200.0)
+            .height(300.0)
+            .child(Flex::column().child(LimitedBox::new(expanding()).max_height(120.0)));
+        let rect = red_box(root, Size::new(200.0, 300.0));
+        assert!((rect.height - 120.0).abs() < 0.5, "{rect:?}");
+        assert!((rect.width - 200.0).abs() < 0.5, "{rect:?}");
+    }
+
+    /// **Where the room has an end**, the limit changes nothing: on a page, the same child is
+    /// the page.
+    #[test]
+    fn a_limited_box_leaves_a_bounded_room_alone() {
+        let rect = red_box(
+            LimitedBox::new(expanding()).max_height(120.0),
+            Size::new(200.0, 300.0),
+        );
+        assert!((rect.height - 300.0).abs() < 0.5, "{rect:?}");
+    }
+
+    /// **A child that hugs** still does: the limit is a ceiling, not a size.
+    #[test]
+    fn a_limited_box_does_not_grow_a_child_that_hugs() {
+        let root = crate::SingleChildScrollView::<()>::new()
+            .width(200.0)
+            .height(300.0)
+            .child(
+                Flex::column().child(
+                    LimitedBox::new(Container::new().width(40.0).height(20.0).color(RED))
+                        .max_height(120.0),
+                ),
+            );
+        let rect = red_box(root, Size::new(200.0, 300.0));
+        assert!((rect.height - 20.0).abs() < 0.5, "{rect:?}");
+        assert!((rect.width - 40.0).abs() < 0.5, "{rect:?}");
+    }
+
+    /// **Across**, the same: along a horizontal scroll, a child asking for all the room is as
+    /// wide as the limit.
+    #[test]
+    fn a_limited_box_caps_across_too() {
+        let root = crate::SingleChildScrollView::<()>::new()
+            .axis(crate::scroll::Axis::Horizontal)
+            .width(300.0)
+            .height(100.0)
+            .child(Flex::row().child(LimitedBox::new(expanding()).max_width(90.0)));
+        let rect = red_box(root, Size::new(300.0, 100.0));
+        assert!((rect.width - 90.0).abs() < 0.5, "{rect:?}");
+    }
+
+    /// **A paragraph wraps at the limit**, along a horizontal scroll where nothing else would
+    /// stop it: it is as wide as the limit and several lines tall.
+    #[test]
+    fn a_paragraph_wraps_at_the_limit() {
+        let words = "one two three four five six seven eight nine ten eleven twelve";
+        let root = crate::SingleChildScrollView::<()>::new()
+            .axis(crate::scroll::Axis::Horizontal)
+            .width(300.0)
+            .height(200.0)
+            .child(
+                Flex::row().child(
+                    LimitedBox::new(Container::new().color(RED).child(Text::new(words)))
+                        .max_width(120.0),
+                ),
+            );
+        let rect = red_box(root, Size::new(300.0, 200.0));
+        assert!((rect.width - 120.0).abs() < 0.5, "{rect:?}");
+        assert!(rect.height > 50.0, "several lines: {rect:?}");
     }
 
     /// **Inside a scroll**, the column holding it is as wide as the scroll because the box

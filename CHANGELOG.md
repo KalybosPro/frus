@@ -17,6 +17,11 @@ any release may break.
   0 px wide in a column inside a scroll. It now asks for the room, as `Aligned` does: all of it
   where the parent has it, its child's length along a line it shares.
 
+- **`LimitedBox`** (J598, #52): caps its child only where the room on offer has no end, such as
+  down a scroll. New axis rules `AxisConstraint::Loose` (at most the room) and
+  `AxisConstraint::Limited`; new `Layout::compute_axes`, filling each axis or not. **A paragraph
+  under an `Aligned` width factor now wraps at the room.**
+
 - **`Aligned` and `Center` take width and height factors** (J597, #52): the box is a multiple
   of its child on that axis instead of the room, and a child bigger than it spills. New hook
   `Widget::clips_to_box`: a measured box with a factor no longer cuts its child unless it says
