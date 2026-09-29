@@ -154,17 +154,17 @@ impl<Msg: Clone> Widget<Msg> for Aligned<Msg> {
         Some(self.alignment)
     }
 
-    /// With a factor, the child is laid out apart: asked its own size on the axes with a
-    /// factor, and handed the room on the others, where the container it sits in places it.
-    /// The box is then the child's size times the factors. Where the child sits on an axis
-    /// with a factor is the walk's to say, from the anchor and the reading direction.
+    /// With a factor, the child is laid out apart: allowed the room, as the most it may take,
+    /// on the axes with a factor, and handed it on the others, where the container it sits in
+    /// places it. The box is then the child's size times the factors. Where the child sits on
+    /// an axis with a factor is the walk's to say, from the anchor and the reading direction.
     fn constraints_transform(&self) -> Option<crate::constraints::ConstraintsTransform> {
-        use crate::constraints::AxisConstraint::{AsGiven, Unbounded};
+        use crate::constraints::AxisConstraint::{AsGiven, Loose};
         if !self.is_factored() {
             return None;
         }
         let rule = |factor: Option<f32>| match factor {
-            Some(_) => Unbounded,
+            Some(_) => Loose,
             None => AsGiven,
         };
         Some(crate::constraints::ConstraintsTransform {
@@ -506,5 +506,50 @@ mod tests {
             })
             .collect();
         assert_eq!(tops, vec![40.0, 60.0]);
+    }
+
+    /// **A paragraph under a width factor wraps at the room**, as the reference's does, and the
+    /// box is its longest line: the room is the most it may take, not nothing (milestone 598).
+    #[test]
+    fn a_paragraph_under_a_width_factor_wraps_at_the_room() {
+        let size = Size::new(120.0, 400.0);
+        let words = "one two three four five six seven eight nine ten eleven twelve";
+        let height = |text: &str| {
+            bar_top(
+                &over_a_bar(Aligned::new(Alignment::TOP_LEFT, Text::new(text)).width_factor(1.0)),
+                size,
+            )
+        };
+        let line = height("one");
+        let paragraph = height(words);
+        assert!(
+            paragraph > 2.5 * line,
+            "wrapped: {paragraph} against {line}"
+        );
+    }
+
+    /// **Below one**, a paragraph is still laid out at the room it was measured in, not at the
+    /// smaller box: it wraps at 120 and spills past a 60-px box.
+    #[test]
+    fn a_paragraph_under_a_small_factor_keeps_its_lines() {
+        let words = "one two three four five six seven eight nine ten eleven twelve";
+        let root =
+            over_a_bar(Aligned::new(Alignment::TOP_LEFT, Text::new(words)).width_factor(0.5));
+        let ui = build_ui(
+            &root,
+            Size::new(120.0, 400.0),
+            &Runtime::default(),
+            &Theme::dark(),
+        );
+        let wraps_at = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Text { max_width, .. } => Some(*max_width),
+                _ => None,
+            })
+            .expect("the paragraph");
+        assert_eq!(wraps_at, Some(120.0));
     }
 }
