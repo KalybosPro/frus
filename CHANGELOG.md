@@ -8,10 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 597 so far, each documenting the objective, the alternatives
+> record — one per step, 598 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`LimitedBox`** (J598, #52): caps its child only where the room on offer has no end, such as
+  down a scroll. New axis rules `AxisConstraint::Loose` (at most the room) and
+  `AxisConstraint::Limited`; new `Layout::compute_axes`, filling each axis or not. **A paragraph
+  under an `Aligned` width factor now wraps at the room.**
 
 - **`Aligned` and `Center` take width and height factors** (J597, #52): the box is a multiple
   of its child on that axis instead of the room, and a child bigger than it spills. New hook

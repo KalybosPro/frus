@@ -43,6 +43,10 @@ pub(crate) struct Constraints {
     /// chose for itself is overruled. What a stack layer pinned to two opposite edges
     /// asks for — see [`frus_layout::Layout::compute_tight`].
     pub tight: bool,
+    /// Whether each bounded axis is filled, said per axis — for a box that hands its child
+    /// the room on one axis and only allows it on the other (milestone 598). `None` leaves
+    /// it to `fill`, and to the lone-axis rule of a scrollable.
+    pub fill_each: Option<[bool; 2]>,
 }
 
 impl Constraints {
@@ -55,6 +59,7 @@ impl Constraints {
             free_y: false,
             fill: false,
             tight: false,
+            fill_each: None,
         }
     }
 
@@ -75,6 +80,7 @@ impl Constraints {
             free_y,
             fill: false,
             tight: false,
+            fill_each: None,
         }
     }
 
@@ -88,6 +94,15 @@ impl Constraints {
             free_y: h.is_none(),
             fill: false,
             tight: true,
+            fill_each: None,
+        }
+    }
+
+    /// Each axis free or bounded, and each bounded axis filled or only allowed.
+    pub fn axes(w: f32, h: f32, free: [bool; 2], fill: [bool; 2]) -> Self {
+        Self {
+            fill_each: Some(fill),
+            ..Self::scroll(w, h, free[0], free[1])
         }
     }
 }
@@ -191,6 +206,8 @@ fn compute_rects<Msg>(
     // `Definite`): a single path covers both cases.
     if c.tight {
         layout.compute_tight(node, c.w, c.h, c.free_x, c.free_y);
+    } else if let Some(fill) = c.fill_each {
+        layout.compute_axes(node, c.w, c.h, [c.free_x, c.free_y], fill);
     } else if c.fill {
         layout.compute_filled(node, c.w, c.h);
     } else {

@@ -419,6 +419,56 @@ impl<'a, T> Layout<'a, T> {
         // since an explicit size choice is respected.
         let fill_w = !free_x && free_y;
         let fill_h = !free_y && free_x;
+        self.compute_each(root, width, height, [free_x, free_y], [fill_w, fill_h]);
+    }
+
+    /// Computes the layout with each axis said separately: **free** (the content takes its
+    /// natural size), or bounded by `width` / `height` and then either **filled** (an unset
+    /// root dimension takes the bound) or not (the bound is only the most it may take).
+    ///
+    /// The other `compute*` are fixed choices of these: [`Layout::compute_filled`] fills both
+    /// bounds, [`Layout::compute_scroll`] fills a lone bound, and [`Layout::compute`] fills
+    /// none. A box that hands its child the room on one axis and only allows it on the other
+    /// needs the choice per axis.
+    ///
+    /// A bound that is not filled is still **the most** the root may take: a root with no
+    /// size of its own that came out past it — a container whose paragraph was measured on
+    /// one line — is laid out again at the bound, where the paragraph wraps. A root with a
+    /// size of its own keeps it, and spills.
+    pub fn compute_axes(
+        &mut self,
+        root: NodeId,
+        width: f32,
+        height: f32,
+        free: [bool; 2],
+        fill: [bool; 2],
+    ) {
+        self.compute_each(root, width, height, free, fill);
+        let size = self.size_of(root);
+        let past =
+            |free: bool, fill: bool, came: f32, bound: f32| !free && !fill && came > bound + 0.5;
+        let over = [
+            past(free[0], fill[0], size.width, width),
+            past(free[1], fill[1], size.height, height),
+        ];
+        if over[0] || over[1] {
+            let fill = [fill[0] || over[0], fill[1] || over[1]];
+            self.compute_each(root, width, height, free, fill);
+        }
+    }
+
+    /// [`Layout::compute_axes`] without the second look at a bound that was not filled.
+    fn compute_each(
+        &mut self,
+        root: NodeId,
+        width: f32,
+        height: f32,
+        free: [bool; 2],
+        fill: [bool; 2],
+    ) {
+        let [free_x, free_y] = free;
+        let fill_w = fill[0] && !free_x;
+        let fill_h = fill[1] && !free_y;
         if fill_w || fill_h {
             if let Ok(current) = self.tree.style(root) {
                 let mut style = current.clone();
