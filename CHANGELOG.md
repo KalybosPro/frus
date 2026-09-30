@@ -30,6 +30,10 @@ any release may break.
   any hashable key. Its own size is the room or its own, not its children's, as in the
   reference. New hook `Widget::custom_layout`.
 
+- **`AnimatedAlign` takes width and height factors** (J600, #52), and its anchor still moves
+  on every axis. **It now takes the room as `Aligned` does**: it was as big as its child
+  wherever nothing stretched it, with nowhere to move it.
+
 - **`SizedBox::expand` fills inside a scroll** (J599). It was a percentage of its parent, and
   0 px wide in a column inside a scroll. It now asks for the room, as `Aligned` does: all of it
   where the parent has it, its child's length along a line it shares.

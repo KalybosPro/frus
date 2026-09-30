@@ -270,7 +270,7 @@ forward_to_container!(AnimatedContainer);
 /// is, not where the maths starts from — which is why this one animates and that one does
 /// not.
 pub struct AnimatedAlign<Msg = crate::callback::Callback> {
-    inner: Container<Msg>,
+    inner: crate::Aligned<Msg>,
 }
 
 impl<Msg: Clone + 'static> AnimatedAlign<Msg> {
@@ -282,14 +282,78 @@ impl<Msg: Clone + 'static> AnimatedAlign<Msg> {
         child: impl Widget<Msg> + 'static,
     ) -> Self {
         Self {
-            inner: Container::new()
-                .animated_alignment(alignment, duration, curve)
-                .child(child),
+            inner: crate::Aligned::animated(alignment, duration, curve, child),
         }
+    }
+
+    /// The box is `factor` times as wide as its child, rather than as wide as the room. See
+    /// [`Aligned::width_factor`](crate::Aligned::width_factor). The factor itself does not
+    /// animate, as the reference's does not: the anchor does.
+    pub fn width_factor(mut self, factor: f32) -> Self {
+        self.inner = self.inner.width_factor(factor);
+        self
+    }
+
+    /// The box is `factor` times as tall as its child. See
+    /// [`Aligned::height_factor`](crate::Aligned::height_factor).
+    pub fn height_factor(mut self, factor: f32) -> Self {
+        self.inner = self.inner.height_factor(factor);
+        self
     }
 }
 
-forward_to_container!(AnimatedAlign);
+/// Everything is the [`Aligned`](crate::Aligned) it is, which moves its anchor.
+impl<Msg: Clone> Widget<Msg> for AnimatedAlign<Msg> {
+    fn style(&self) -> Style {
+        self.inner.style()
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.inner.style_themed(theme)
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        self.inner.children()
+    }
+
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+
+    fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
+        self.inner.alignment_geometry()
+    }
+
+    fn anim_offset(&self) -> Option<(f32, f32)> {
+        self.inner.anim_offset()
+    }
+
+    fn anim_duration(&self) -> f32 {
+        self.inner.anim_duration()
+    }
+
+    fn anim_curve(&self) -> Curve {
+        self.inner.anim_curve()
+    }
+
+    fn constraints_transform(&self) -> Option<crate::constraints::ConstraintsTransform> {
+        self.inner.constraints_transform()
+    }
+
+    fn size_factor(&self) -> Option<(f32, f32)> {
+        self.inner.size_factor()
+    }
+
+    fn fill_axes(&self, theme: &Theme) -> crate::widget::FillAxes {
+        self.inner.fill_axes(theme)
+    }
+
+    fn debug_name(&self) -> &'static str {
+        "AnimatedAlign"
+    }
+}
 
 /// **Slides its child by a fraction of its own size**, at paint time, moving there rather
 /// than jumping. The reference's `AnimatedSlide`.
@@ -1677,5 +1741,99 @@ mod implicit_tests {
         assert_eq!(outer.size, None, "the outer one says nothing about size");
         assert_eq!(inner.size, Some(20.0), "and the inner one does");
         assert!(outer.color.is_some() && inner.color.is_none());
+    }
+
+    /// Where the red 20-px square landed, with the runtime `rt` driving the anchors.
+    fn square_at(rt: &Runtime, root: &dyn Widget<()>, size: frus_core::Size) -> frus_core::Rect {
+        let red = frus_core::Color::rgb(1.0, 0.0, 0.0);
+        build_ui(root, size, rt, &Theme::dark())
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if *color == red => Some(*rect),
+                _ => None,
+            })
+            .expect("the square")
+    }
+
+    fn square() -> Container<()> {
+        Container::new()
+            .width(20.0)
+            .height(20.0)
+            .color(frus_core::Color::rgb(1.0, 0.0, 0.0))
+    }
+
+    /// **An anchor with a factor**: the box is four squares wide, and the square slides
+    /// across it from the left to the right edge, half way at half the time (milestone 600).
+    #[test]
+    fn an_anchor_slides_across_a_box_with_a_factor() {
+        let size = frus_core::Size::new(300.0, 100.0);
+        let tree = |to| {
+            crate::Flex::<()>::row()
+                .height(100.0)
+                .child(AnimatedAlign::new(to, 0.10, Curve::Linear, square()).width_factor(4.0))
+        };
+        let (left, right) = (
+            frus_core::Alignment::CENTER_LEFT,
+            frus_core::Alignment::CENTER_RIGHT,
+        );
+        let mut rt = Runtime::default();
+        rt.advance_offsets(&tree(left), 1.0);
+        assert!(square_at(&rt, &tree(left), size).x.abs() < 0.5);
+        rt.advance_offsets(&tree(right), 0.05);
+        let mid = square_at(&rt, &tree(right), size);
+        assert!(
+            (mid.x - 30.0).abs() < 0.5,
+            "half way across the 80-px box: {mid:?}"
+        );
+        rt.advance_offsets(&tree(right), 1.0);
+        let end = square_at(&rt, &tree(right), size);
+        assert!((end.x - 60.0).abs() < 0.5, "{end:?}");
+    }
+
+    /// **And across the other axis**, the one without a factor, the box is the room and the
+    /// square slides across all of it.
+    #[test]
+    fn an_anchor_slides_across_the_room_beside_a_factor() {
+        let size = frus_core::Size::new(200.0, 300.0);
+        let tree = |to| {
+            crate::Flex::<()>::column()
+                .child(AnimatedAlign::new(to, 0.10, Curve::Linear, square()).height_factor(2.0))
+        };
+        let (left, right) = (
+            frus_core::Alignment::TOP_LEFT,
+            frus_core::Alignment::TOP_RIGHT,
+        );
+        let mut rt = Runtime::default();
+        rt.advance_offsets(&tree(left), 1.0);
+        rt.advance_offsets(&tree(right), 0.05);
+        let mid = square_at(&rt, &tree(right), size);
+        assert!(
+            (mid.x - 90.0).abs() < 0.5,
+            "half way across the page: {mid:?}"
+        );
+        assert!(mid.y.abs() < 0.5, "at the top of its 40-px box: {mid:?}");
+    }
+
+    /// **Without a factor, it takes the room**, as `Aligned` does: in a 100×60 box, a square
+    /// anchored bottom right is in the box's corner.
+    #[test]
+    fn an_animated_anchor_takes_the_room_as_aligned_does() {
+        let size = frus_core::Size::new(300.0, 300.0);
+        let root = Container::<()>::new()
+            .width(100.0)
+            .height(60.0)
+            .child(AnimatedAlign::new(
+                frus_core::Alignment::BOTTOM_RIGHT,
+                0.10,
+                Curve::Linear,
+                square(),
+            ));
+        let at = square_at(&Runtime::default(), &root, size);
+        assert!(
+            (at.x - 80.0).abs() < 0.5 && (at.y - 40.0).abs() < 0.5,
+            "{at:?}"
+        );
     }
 }
