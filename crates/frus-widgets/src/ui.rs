@@ -5498,6 +5498,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             };
             let mut pos = match placement {
                 Placement::Below => (anchor_x, anchor.y + anchor.height + 4.0),
+                // A submenu: past the row's end edge, its first row level with the row —
+                // the panel's own room above its rows taken back (milestone 603).
+                Placement::Beside if self.rtl() => (anchor.x - size.width, anchor.y - 8.0),
+                Placement::Beside => (anchor.x + anchor.width, anchor.y - 8.0),
                 Placement::Center => (
                     (self.available.width - size.width) * 0.5,
                     (self.available.height - size.height) * 0.5,
@@ -5525,7 +5529,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // sheet) are positioned against the window and have no anchor worth the name.
             // Only the first kind can find its anchor gone from the window: a screen
             // sliding out under a `Navigator`, a row scrolled sideways past the edge.
-            let anchored = matches!(placement, Placement::Below | Placement::Tooltip);
+            let anchored = matches!(
+                placement,
+                Placement::Below | Placement::Tooltip | Placement::Beside
+            );
             let anchor_on_screen = !anchored
                 || (anchor.x < self.available.width
                     && anchor.x + anchor.width > 0.0
@@ -5552,6 +5559,22 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     && anchor.y + anchor.height + size.height + 6.0 <= self.available.height
                 {
                     pos.1 = anchor.y + anchor.height + 6.0;
+                }
+                // A submenu with no room on its end side opens on the other side of its row,
+                // rather than being pushed back over the row it came from.
+                if placement == Placement::Beside {
+                    let (end, start) = if self.rtl() {
+                        (anchor.x - size.width, anchor.x + anchor.width)
+                    } else {
+                        (anchor.x + anchor.width, anchor.x - size.width)
+                    };
+                    let fits = |x: f32| x >= 0.0 && x + size.width <= self.available.width;
+                    if !fits(end) && fits(start) {
+                        pos.0 = start;
+                    }
+                    if pos.1 + size.height > self.available.height {
+                        pos.1 = (self.available.height - size.height).max(0.0);
+                    }
                 }
                 // A horizontal overflow → nudge back inside the window.
                 if pos.0 + size.width > self.available.width {

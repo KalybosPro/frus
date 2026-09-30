@@ -118,6 +118,7 @@ pub mod localizations;
 mod media;
 mod mediascope;
 mod menu;
+mod menubar;
 mod navbar;
 mod navdrawer;
 mod navigator;
@@ -332,6 +333,7 @@ pub use media::{
 };
 pub use mediascope::MediaScope;
 pub use menu::{MenuItem, PopupMenuButton};
+pub use menubar::{MenuBar, MenuPath, SubmenuButton};
 pub use mouseregion::{HoverEvent, HoverRegion, MouseRegion};
 pub use navbar::NavigationBar;
 pub use navdrawer::NavigationDrawer;

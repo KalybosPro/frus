@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 602 so far, each documenting the objective, the alternatives
+> record — one per step, 603 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`MenuBar`, `SubmenuButton` and `MenuPath`** (J603, #33): menus along the top of a window,
+  with submenus opening beside their rows. Once a menu is open the pointer moves between them
+  with no press; a press outside closes them. Which menu is open is the application's, as a
+  `MenuPath`, like every other menu here. Rows are `MenuItem`s. New `Placement::Beside`. The
+  keyboard comes next.
 
 - **`StickyHeader`** (J602, #29): a section whose header stays at the top of a scroll view
   while the section is in view, and is pushed off by the next one. The stuck header is drawn
