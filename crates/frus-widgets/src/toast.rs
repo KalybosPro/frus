@@ -498,16 +498,13 @@ impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
             .unwrap_or(theme.scheme.inverse_surface);
         // A bar on the page casts nothing: a shadow with no blur is a hard dark box.
         if elevation > 0.0 {
-            scene.shadow(
-                Rect::new(
-                    bounds.x - elevation,
-                    bounds.y - elevation * 0.5,
-                    bounds.width + elevation * 2.0,
-                    bounds.height + elevation * 2.0,
-                ),
-                theme.scheme.shadow.with_alpha(0.3).fade(o),
-                radius.inflate(elevation),
+            // The reference's shadows for this height (milestone 606).
+            frus_core::paint_elevation(
+                scene,
+                bounds,
+                radius,
                 elevation,
+                theme.scheme.shadow.fade(o),
             );
         }
         // No border: the inverted surface is what separates the bar from the page, and a
@@ -1287,18 +1284,9 @@ mod tests {
     /// came to — at nought, an unblurred box of shadow the size of the bar.
     #[test]
     fn a_bar_takes_its_own_elevation_and_casts_nothing_at_nought() {
-        // Every rectangle in the shadow's colour, by its blur: a shadow at nought has none,
-        // so it is found by what it is painted in rather than by being soft.
+        // The height each shadow was cast from (milestone 606). A bar at nought casts none.
         let shadows = |bar: &SnackBar<()>, theme: &Theme| {
-            let colour = theme.scheme.shadow.with_alpha(0.3);
-            painted(bar, theme)
-                .primitives()
-                .iter()
-                .filter_map(|p| match p {
-                    Primitive::Rect { color, blur, .. } if *color == colour => Some(*blur),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
+            crate::shadowprobe::heights(painted(bar, theme).primitives())
         };
         let theme = Theme::default();
         assert_eq!(

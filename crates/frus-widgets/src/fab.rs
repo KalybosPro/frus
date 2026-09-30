@@ -394,18 +394,8 @@ impl<Msg: Clone> Widget<Msg> for FloatingActionButton<Msg> {
 
         let depth = self.depth(&status, theme);
         if depth > 0.0 {
-            let blur = depth * 4.0 + 8.0;
-            scene.shadow(
-                Rect::new(
-                    bounds.x - blur,
-                    bounds.y + depth * 2.0 - blur,
-                    bounds.width + 2.0 * blur,
-                    bounds.height + 2.0 * blur,
-                ),
-                theme.scheme.shadow.with_alpha(0.30).fade(o),
-                radius.inflate(blur),
-                blur,
-            );
+            // The reference's shadows for this height (milestone 606).
+            frus_core::paint_elevation(scene, bounds, radius, depth, theme.scheme.shadow.fade(o));
         }
         // The state layer sits **on** the surface, in the content's colour, which is what
         // keeps a hovered button from looking like a differently-coloured one.
@@ -667,7 +657,11 @@ mod tests {
         let theme = Theme::default();
         let live = FloatingActionButton::new(Icons::ADD).on_press(Msg::Add);
         let (rects, _) = painted(&live, &theme, Status::default());
-        assert_eq!(rects.len(), 2, "a shadow under the surface: {rects:#?}");
+        assert_eq!(
+            rects.len(),
+            4,
+            "three shadows under the surface: {rects:#?}"
+        );
 
         let dead = FloatingActionButton::new(Icons::ADD)
             .on_press(Msg::Add)
@@ -698,7 +692,9 @@ mod tests {
                 hover_progress: hover,
                 ..Default::default()
             };
-            painted(&fab, &theme, status).0[0].0.width
+            // The middle one: the reference's widest shadow is narrower at eight than at
+            // six, and the middle one grows with the height all the way up.
+            painted(&fab, &theme, status).0[1].0.width
         };
         assert!(
             shadow_of(1.0) > shadow_of(0.0),
@@ -796,7 +792,7 @@ mod tests {
         // and the blur grows with the height.
         let shadow = |fab: FloatingActionButton<Msg>, theme: &Theme, status: Status| {
             let (rects, _) = painted(&fab.on_press(Msg::Add), theme, status);
-            (rects.len() == 2).then(|| rects[0].0.width)
+            (rects.len() == 4).then(|| rects[2].0.width)
         };
         let fab = || FloatingActionButton::new(Icons::ADD);
         let eight = shadow(fab(), &theme, hovered).expect("a hovered button floats");

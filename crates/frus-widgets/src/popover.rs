@@ -151,7 +151,7 @@ impl<Msg: Clone> Widget<Msg> for MenuAnchor<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::menu::probe::{blurred, crisp};
+    use crate::menu::probe::{blurred, colour_of, crisp, height_of};
     use crate::{build_ui, Container, Runtime, Size, Text};
 
     #[derive(Clone, Debug, PartialEq)]
@@ -235,15 +235,18 @@ mod tests {
         assert!(painted.iter().all(|r| r.border_width == 0.0), "no outline");
 
         let shadows = blurred(ui.scene());
-        assert_eq!(shadows.len(), 1, "one shadow: {shadows:#?}");
-        let shadow = shadows[0];
-        assert_eq!(shadow.blur, 20.0, "three high: four a step from eight");
         assert_eq!(
-            shadow.rect.y,
-            panel.rect.y + 6.0 - 20.0,
-            "dropped two a step"
+            shadows.len(),
+            3,
+            "one surface's three shadows: {shadows:#?}"
         );
-        assert_eq!(shadow.color, theme.scheme.shadow.with_alpha(0.30));
+        assert_eq!(height_of(ui.scene()), 3.0, "three high");
+        assert_eq!(
+            shadows[1].rect.y + shadows[1].rect.height * 0.5,
+            panel.rect.y + panel.rect.height * 0.5 + 3.0,
+            "the second shadow drops by the height"
+        );
+        assert_eq!(colour_of(ui.scene()), Some(theme.scheme.shadow));
     }
 
     /// **Every word about the panel is the caller's to say**, over the theme's, and the
@@ -273,10 +276,9 @@ mod tests {
             (108.0, 58.0),
             "its room"
         );
-        let shadow = blurred(ui.scene())[0];
         assert_eq!(
-            (shadow.blur, shadow.color),
-            (12.0, shade),
+            (height_of(ui.scene()), colour_of(ui.scene())),
+            (1.0, Some(shade)),
             "its height and colour"
         );
 
@@ -294,8 +296,10 @@ mod tests {
             .expect("the caller's surface");
         assert_eq!(panel.radius, BorderRadius::uniform(9.0));
         assert_eq!((panel.rect.width, panel.rect.height), (100.0, 50.0));
-        let shadow = blurred(ui.scene())[0];
-        assert_eq!((shadow.blur, shadow.color), (16.0, own_shade));
+        assert_eq!(
+            (height_of(ui.scene()), colour_of(ui.scene())),
+            (2.0, Some(own_shade))
+        );
     }
 
     /// **A transparent shadow colour casts nothing**, on the anchor or on its theme — the

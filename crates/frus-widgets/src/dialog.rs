@@ -182,18 +182,8 @@ impl<Msg: Clone> Widget<Msg> for DialogSurface<Msg> {
             .or(theme.widgets.dialog.shadow_color)
             .unwrap_or(Color::TRANSPARENT);
         if depth > 0.0 && shadow.a > 0.0 {
-            let blur = depth * 4.0 + 8.0;
-            scene.shadow(
-                Rect::new(
-                    bounds.x - blur,
-                    bounds.y + depth * 2.0 - blur,
-                    bounds.width + 2.0 * blur,
-                    bounds.height + 2.0 * blur,
-                ),
-                shadow.fade(o),
-                radius.inflate(blur),
-                blur,
-            );
+            // The reference's shadows for this height (milestone 606).
+            frus_core::paint_elevation(scene, bounds, radius, depth, shadow.fade(o));
         }
         scene.draw_shape(bounds, shape, self.background(theme).fade(o));
     }

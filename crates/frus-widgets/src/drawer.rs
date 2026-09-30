@@ -208,19 +208,8 @@ impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
         // its inner edge, and a shadow cast below a full-height panel falls outside the
         // window entirely.
         if depth > 0.0 && shadow.a > 0.0 {
-            let blur = depth * 4.0 + 8.0;
-            let sideways = if right { -depth } else { depth } * 2.0;
-            scene.shadow(
-                Rect::new(
-                    bounds.x + sideways - blur,
-                    bounds.y - blur,
-                    bounds.width + 2.0 * blur,
-                    bounds.height + 2.0 * blur,
-                ),
-                shadow.fade(o),
-                radius.inflate(blur),
-                blur,
-            );
+            // The reference's shadows for this height (milestone 606).
+            frus_core::paint_elevation(scene, bounds, radius, depth, shadow.fade(o));
         }
 
         let fill = self
@@ -1037,7 +1026,7 @@ mod tests {
                 .primitives()
                 .iter()
                 .filter_map(|p| match p {
-                    frus_core::Primitive::Rect { rect, blur, .. } if *blur > 0.0 => Some(rect.x),
+                    frus_core::Primitive::Rect { rect, blur, .. } if *blur > 0.0 => Some(*rect),
                     _ => None,
                 })
                 .collect::<Vec<_>>()
@@ -1065,15 +1054,18 @@ mod tests {
             .panel(Text::new("menu"))
             .body(Container::<Msg>::new());
         let cast = shadows(&lifted);
-        assert_eq!(cast.len(), 1, "one shadow");
-        // A leading panel is lifted towards the content: the shadow's envelope starts to
-        // the right of the panel's own left edge, offset by the depth.
-        let blur = 3.0 * 4.0 + 8.0;
+        assert_eq!(cast.len(), 3, "one surface's three shadows");
+        // It is cast as any lifted surface's is (milestone 606): the widest reaches past
+        // the panel's inner edge, onto the content beside it.
+        let panel = match panel_rect(&lifted, &Theme::default()) {
+            frus_core::Primitive::Rect { rect, .. } => rect,
+            _ => unreachable!(),
+        };
+        let reach = cast.iter().map(|r| r.x + r.width).fold(f32::MIN, f32::max);
         assert!(
-            (cast[0] - (6.0 - blur)).abs() < 0.5,
-            "expected ≈ {}, got {}",
-            6.0 - blur,
-            cast[0]
+            reach > panel.x + panel.width,
+            "{reach} past {}",
+            panel.x + panel.width
         );
     }
 

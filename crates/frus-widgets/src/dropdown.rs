@@ -771,7 +771,7 @@ mod tests {
         );
     }
 
-    use crate::menu::probe::{blurred, crisp};
+    use crate::menu::probe::{blurred, colour_of, crisp, height_of};
 
     /// Three options, open, nothing selected, in a frame with room for the shadow.
     fn open_list() -> DropdownButton<Msg> {
@@ -825,12 +825,16 @@ mod tests {
         let shadows = blurred(ui.scene());
         assert_eq!(
             shadows.len(),
-            1,
+            3,
             "one shadow, under the panel: {shadows:#?}"
         );
-        assert_eq!(shadows[0].blur, 40.0);
-        assert_eq!(shadows[0].rect.y, panel.rect.y + 16.0 - 40.0);
-        assert_eq!(shadows[0].color, theme.scheme.shadow.with_alpha(0.30));
+        assert_eq!(height_of(ui.scene()), 8.0);
+        assert_eq!(
+            shadows[1].rect.y + shadows[1].rect.height * 0.5,
+            panel.rect.y + panel.rect.height * 0.5 + 8.0,
+            "the second shadow drops by the height"
+        );
+        assert_eq!(colour_of(ui.scene()), Some(theme.scheme.shadow));
 
         let closed = DropdownButton::new("Pick", Msg::Toggle).options(false, &["A"], Msg::Select);
         assert!(
@@ -870,8 +874,10 @@ mod tests {
                 .any(|r| r.color == surface.lerp(theme.primary, 0.14)),
             "the selected option is tinted from the theme's surface: {painted:#?}"
         );
-        let shadow = blurred(ui.scene())[0];
-        assert_eq!((shadow.blur, shadow.color), (16.0, shade));
+        assert_eq!(
+            (height_of(ui.scene()), colour_of(ui.scene())),
+            (2.0, Some(shade))
+        );
 
         let own = frus_core::Color::rgb(0.9, 0.9, 0.1);
         let own_shade = frus_core::Color::rgba(0.5, 0.0, 0.0, 0.4);
@@ -893,8 +899,10 @@ mod tests {
         assert!(painted
             .iter()
             .any(|r| r.color == own.lerp(theme.primary, 0.14)));
-        let shadow = blurred(ui.scene())[0];
-        assert_eq!((shadow.blur, shadow.color), (12.0, own_shade));
+        assert_eq!(
+            (height_of(ui.scene()), colour_of(ui.scene())),
+            (1.0, Some(own_shade))
+        );
     }
 
     /// **A transparent shadow colour casts nothing**, on the list or on its theme
