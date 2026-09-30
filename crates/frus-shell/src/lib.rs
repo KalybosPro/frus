@@ -51,6 +51,7 @@ mod ime;
 #[cfg(desktop)]
 mod instance;
 mod link;
+mod logging;
 /// Cross-platform `fetch` HTTP helper (behind the `net` feature).
 #[cfg(feature = "net")]
 pub mod net;
@@ -176,8 +177,9 @@ macro_rules! main {
 /// ```
 #[cfg(desktop)]
 pub fn run<A: Application>(mut app: A) -> anyhow::Result<()> {
-    // `RUST_LOG=info` to see the logs (GPU adapter, and so on).
-    env_logger::init();
+    // The application's `log` output, in the terminal, with nothing to set up
+    // (milestone 604). `RUST_LOG` still decides over the default.
+    logging::init::<A>();
 
     // Live-reload (dev): rehydrate the state left behind by the previous binary,
     // before `init` — see [`Application::restore_state`].
@@ -236,7 +238,8 @@ pub fn run_web<A: Application + 'static>(app: A) -> anyhow::Result<()> {
 
     // Panics → the browser console, instead of an opaque "unreachable".
     console_error_panic_hook::set_once();
-    let _ = console_log::init_with_level(log::Level::Info);
+    // The application's `log` output, in the browser's console (milestone 604).
+    logging::init::<A>();
 
     let event_loop = winit::event_loop::EventLoop::<A::Message>::with_user_event().build()?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
@@ -256,10 +259,9 @@ pub fn run_web<A: Application + 'static>(app: A) -> anyhow::Result<()> {
 pub fn run_android<A: Application>(app: A, android_app: AndroidApp) -> anyhow::Result<()> {
     use winit::platform::android::EventLoopBuilderExtAndroid;
 
-    // Logs go to logcat (`adb logcat`).
-    android_logger::init_once(
-        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
-    );
+    // The application's `log` output, and its panics, in logcat under its crate's name
+    // (milestone 604).
+    logging::init::<A>();
 
     let event_loop = winit::event_loop::EventLoop::<A::Message>::with_user_event()
         .with_android_app(android_app.clone())

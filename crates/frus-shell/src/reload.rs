@@ -89,11 +89,12 @@ impl ReloadWatcher {
             }
         }
         match command.spawn() {
-            Ok(_) => eprintln!(
-                "[frus] binary recompiled: relaunching ({})",
+            Ok(_) => log::info!(
+                target: "frus::reload",
+                "binary recompiled: relaunching ({})",
                 self.exe.display()
             ),
-            Err(err) => eprintln!("[frus] cannot relaunch: {err}"),
+            Err(err) => log::error!(target: "frus::reload", "cannot relaunch: {err}"),
         }
         std::process::exit(0);
     }
@@ -116,7 +117,7 @@ pub(crate) fn restore_from_env<A: crate::Application>(app: &mut A) {
     let path = Path::new(&path);
     if let Ok(bytes) = std::fs::read(path) {
         app.restore_state(&bytes);
-        eprintln!("[frus] state rehydrated ({} bytes)", bytes.len());
+        log::info!(target: "frus::reload", "state rehydrated ({} bytes)", bytes.len());
     }
     let _ = std::fs::remove_file(path);
 }

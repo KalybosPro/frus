@@ -92,7 +92,9 @@ fn debug_assert_measurement(measured: f32, bound: Option<f32>, axis: &str) {
         }
         debug_assert!(
             (measured - measured.ceil()).abs() <= EPSILON,
-            "a measured {axis} of {measured} is not a whole number of pixels, so the box              it is rounded to is one it no longer fits in — go through `frus_core::fits`              (milestone 289, issue #54)"
+            "a measured {axis} of {measured} is not a whole number of pixels, so the box \
+             it is rounded to is one it no longer fits in — go through `frus_core::fits` \
+             (milestone 289, issue #54)"
         );
     }
     #[cfg(not(debug_assertions))]

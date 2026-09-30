@@ -388,7 +388,8 @@ mod tests {
         assert_eq!(
             Widget::<()>::style(&Divider::new()).align_self,
             None,
-            "the horizontal one has no such problem: a column stretches it by default and              a column that does not is a column with a reason"
+            "the horizontal one has no such problem: a column stretches it by default and \
+             a column that does not is a column with a reason"
         );
     }
 

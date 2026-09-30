@@ -19,6 +19,15 @@ any release may break.
   focusable widget that takes the focus when it appears, the focus going back where it came
   from when it goes.
 
+- **Logs reach the console with nothing to set up** (J604). On desktop, `log::info!` and
+  `warn!` printed nothing without `RUST_LOG`, and neither did the framework's own overflow
+  warning. Now every platform shows `info` and up, the application's own crate from `debug` up
+  in a debug build, and the graphics crates from `warn` up; `RUST_LOG` still decides on
+  desktop. On Android, logcat is tagged with the application's crate and **a panic is logged**;
+  it printed nothing before. On the web, each level uses its own console method.
+  `console_log` is no longer a dependency. Five messages whose line continuations had turned
+  into runs of spaces are mended.
+
 - **`MenuBar`, `SubmenuButton` and `MenuPath`** (J603, #33): menus along the top of a window,
   with submenus opening beside their rows. Once a menu is open the pointer moves between them
   with no press; a press outside closes them. Which menu is open is the application's, as a
