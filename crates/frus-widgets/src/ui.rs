@@ -539,6 +539,8 @@ fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
         || widget.constraints_transform().is_some()
         || widget.layout_builder().is_some()
         || widget.stack()
+        // Painted where the scroll has got to, not where it was laid out.
+        || widget.sticky_header()
         || widget.custom_layout().is_some()
         || widget.overlay().is_some()
         // A reorderable (a Kanban card, a draggable header): its bounds feed the reorderables
@@ -552,6 +554,14 @@ fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
         n += plain_subtree_len(child.as_ref())?;
     }
     Some(n)
+}
+
+/// Moves `v[from..to]` after the rest of `v[from..]`: what a sticky header added, after what
+/// its section added (milestone 602).
+fn after<T>(v: &mut [T], from: usize, to: usize) {
+    if to > from && from <= v.len() {
+        v[from..].rotate_left(to - from);
+    }
 }
 
 /// The walk's constraints for a child a [`crate::CustomMultiChildLayout`] lays out. An
@@ -4963,6 +4973,19 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // (`Transform::translate`): both offset the subtree. `(0, 0)` otherwise → the
             // ordinary flex walk.
             let extra = self.child_offset(widget, id, rect, rects, *index, children);
+            if widget.sticky_header() && children.len() == 2 {
+                self.walk_sticky(
+                    widget,
+                    id,
+                    draw_rect,
+                    (translation.0 + extra.0, translation.1 + extra.1),
+                    clip,
+                    rects,
+                    index,
+                );
+                self.depth -= 1;
+                return;
+            }
             for (child_index, child) in children.iter().enumerate() {
                 self.walk(
                     child.as_ref(),
@@ -4975,6 +4998,76 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
         }
         self.depth -= 1;
+    }
+
+    /// A section with a sticky header (milestone 602). The header is moved down to the top of
+    /// what is visible — the clip — but never above the section's top nor so far that it
+    /// leaves the section's bottom, which is how the next section's header pushes it off.
+    ///
+    /// It is drawn **over** the section, which goes under it, so what the header adds is
+    /// moved after what the section adds: its primitives, and the registries a pointer is
+    /// matched against last-first. Focus and semantics keep the reading order, header first.
+    #[allow(clippy::too_many_arguments)]
+    fn walk_sticky(
+        &mut self,
+        widget: &'a dyn Widget<Msg>,
+        id: WidgetId,
+        section: Rect,
+        translation: (f32, f32),
+        clip: Rect,
+        rects: &[Rect],
+        index: &mut usize,
+    ) {
+        let children = widget.children();
+        let header = rects
+            .get(*index)
+            .copied()
+            .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0))
+            .translate(translation.0, translation.1);
+        let room = (section.y + section.height - (header.y + header.height)).max(0.0);
+        let down = (clip.y - header.y).clamp(0.0, room);
+        let start = self.barrier_base();
+        self.walk(
+            children[0].as_ref(),
+            child_id(id, 0, children[0].as_ref()),
+            (translation.0, translation.1 + down),
+            clip,
+            rects,
+            index,
+        );
+        let mid = self.barrier_base();
+        self.walk(
+            children[1].as_ref(),
+            child_id(id, 1, children[1].as_ref()),
+            translation,
+            clip,
+            rects,
+            index,
+        );
+        let mut primitives = self.scene.split_off(start.scene);
+        after(&mut primitives, 0, mid.scene - start.scene);
+        for primitive in primitives {
+            self.scene.push_primitive(primitive);
+        }
+        after(&mut self.hits, start.hits, mid.hits);
+        after(&mut self.long_presses, start.long_presses, mid.long_presses);
+        after(&mut self.scrollables, start.scrollables, mid.scrollables);
+        after(&mut self.draggables, start.draggables, mid.draggables);
+        after(&mut self.drag_sources, start.drag_sources, mid.drag_sources);
+        after(&mut self.drop_zones, start.drop_zones, mid.drop_zones);
+        after(&mut self.inks, start.inks, mid.inks);
+        after(&mut self.pans, start.pans, mid.pans);
+        after(
+            &mut self.pointer_listeners,
+            start.pointer_listeners,
+            mid.pointer_listeners,
+        );
+        after(
+            &mut self.hover_regions,
+            start.hover_regions,
+            mid.hover_regions,
+        );
+        after(&mut self.interactives, start.interactives, mid.interactives);
     }
 
     /// Offset to apply to a child's subtree: the sum of the **fractional alignment**
