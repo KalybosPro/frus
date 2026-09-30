@@ -8,16 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 603 so far, each documenting the objective, the alternatives
+> record — one per step, 604 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
-- **`MenuBar`, `SubmenuButton` and `MenuPath`** (J603, #33): menus along the top of a window,
-  with submenus opening beside their rows. Once a menu is open the pointer moves between them
-  with no press; a press outside closes them. Which menu is open is the application's, as a
-  `MenuPath`, like every other menu here. Rows are `MenuItem`s. New `Placement::Beside`. The
-  keyboard comes next.
+- **Logs reach the console with nothing to set up** (J604). On desktop, `log::info!` and
+  `warn!` printed nothing without `RUST_LOG`, and neither did the framework's own overflow
+  warning. Now every platform shows `info` and up, the application's own crate from `debug` up
+  in a debug build, and the graphics crates from `warn` up; `RUST_LOG` still decides on
+  desktop. On Android, logcat is tagged with the application's crate and **a panic is logged**;
+  it printed nothing before. On the web, each level uses its own console method.
+  `console_log` is no longer a dependency. Five messages whose line continuations had turned
+  into runs of spaces are mended.
 
 - **`StickyHeader`** (J602, #29): a section whose header stays at the top of a scroll view
   while the section is in view, and is pushed off by the next one. The stuck header is drawn

@@ -15,8 +15,8 @@ through loading to data, or to an error.
 ## Running it
 
 ```sh
-cargo run -p frus-fetch-example
-RUST_LOG=info cargo run -p frus-fetch-example     # with logs
+cargo run -p frus-fetch-example                   # logs from info up, in the terminal
+RUST_LOG=debug cargo run -p frus-fetch-example    # everything from debug up
 ```
 
 ## Part of frus
