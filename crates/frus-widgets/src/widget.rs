@@ -700,6 +700,13 @@ pub trait Widget<Msg = crate::callback::Callback> {
         false
     }
 
+    /// If `true`, the widget is a **section with a sticky header**
+    /// ([`crate::StickyHeader`]): its first child is painted, and takes taps, at the top of
+    /// what is visible of the section, over the second (milestone 602).
+    fn sticky_header(&self) -> bool {
+        false
+    }
+
     /// If the widget **places its children with a function** — a
     /// [`crate::CustomMultiChildLayout`] — the function and one key per child. The children
     /// are then laid out and placed in the walk, by the function, and not in this node's
@@ -1907,6 +1914,10 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn stack(&self) -> bool {
         (**self).stack()
     }
+    fn sticky_header(&self) -> bool {
+        (**self).sticky_header()
+    }
+
     fn custom_layout(&self) -> Option<crate::customlayout::CustomLayout<'_>> {
         (**self).custom_layout()
     }
