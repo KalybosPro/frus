@@ -432,19 +432,15 @@ impl<Msg: Clone + 'static> Widget<Msg> for SearchBar<Msg> {
         let shadow = self
             .shadow_color
             .or(t.shadow_color)
-            .unwrap_or(theme.scheme.shadow.with_alpha(0.30));
+            .unwrap_or(theme.scheme.shadow);
         if depth > 0.0 && shadow.a > 0.0 {
-            let blur = depth * 2.0 + 4.0;
-            scene.shadow(
-                Rect::new(
-                    bounds.x - blur,
-                    bounds.y + depth * 0.5 - blur,
-                    bounds.width + 2.0 * blur,
-                    bounds.height + 2.0 * blur,
-                ),
+            // The reference's shadows for this height (milestone 606).
+            frus_core::paint_elevation(
+                scene,
+                bounds,
+                BorderRadius::uniform(bounds.height * 0.5),
+                depth,
                 shadow.fade(o),
-                BorderRadius::uniform(blur),
-                blur,
             );
         }
 
@@ -742,37 +738,30 @@ mod tests {
 
     /// **A shadow colour is used as it is given** — alpha included. The paint used to
     /// overwrite the alpha with the default's 30 %, so `shadow_color(TRANSPARENT)` still
-    /// cast a black shadow and a half-strength colour came out at 30 %. The default look
-    /// does not move.
+    /// cast a black shadow and a half-strength colour came out at 30 %. The colour is the
+    /// shadow's at full strength, which the three shadows share (milestone 606).
     #[test]
     fn a_named_shadow_colour_is_the_colour() {
         let theme = Theme::default();
         let shadows = |bar: &SearchBar<Msg>, theme: &Theme| {
-            scene_of(bar, lit(Status::default()), theme)
-                .primitives()
-                .iter()
-                .filter_map(|p| match p {
-                    Primitive::Rect { color, blur, .. } if *blur > 0.0 => Some(*color),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
+            crate::shadowprobe::colour(scene_of(bar, lit(Status::default()), theme).primitives())
         };
         assert_eq!(
             shadows(&bar(), &theme),
-            vec![theme.scheme.shadow.with_alpha(0.30)],
+            Some(theme.scheme.shadow),
             "the default, unchanged"
         );
         assert!(
-            shadows(&bar().shadow_color(Color::TRANSPARENT), &theme).is_empty(),
+            shadows(&bar().shadow_color(Color::TRANSPARENT), &theme).is_none(),
             "a transparent shadow casts none"
         );
         let half = Color::rgba(0.2, 0.0, 0.4, 0.5);
-        assert_eq!(shadows(&bar().shadow_color(half), &theme), vec![half]);
+        assert_eq!(shadows(&bar().shadow_color(half), &theme), Some(half));
         let mut themed = Theme::default();
         themed.widgets.search_bar.shadow_color = Some(half);
         assert_eq!(
             shadows(&bar(), &themed),
-            vec![half],
+            Some(half),
             "the theme's, likewise"
         );
     }

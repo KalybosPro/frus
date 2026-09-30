@@ -37,7 +37,8 @@ pub use animation::{
 pub use color::{surface_tint_opacity, Color};
 pub use colors::{Colors, MaterialColor};
 pub use decoration::{
-    Border, BorderRadius, BorderRadiusDirectional, BoxDecoration, BoxShadow, LinearGradient,
+    paint_elevation, Border, BorderRadius, BorderRadiusDirectional, BoxDecoration, BoxShadow,
+    LinearGradient,
 };
 pub use filter::{
     Backdrop, BlendMode, ColorFilter, FractionalMask, ImageFilter, LayerFilter, MaskShader,

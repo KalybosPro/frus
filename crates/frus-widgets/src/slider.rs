@@ -66,17 +66,13 @@ fn paint_thumb_shadow(
     if depth <= 0.0 {
         return;
     }
-    let blur = depth * 2.0 + 4.0;
-    scene.shadow(
-        Rect::new(
-            thumb.x - blur,
-            thumb.y + depth * 0.5 - blur,
-            thumb.width + 2.0 * blur,
-            thumb.height + 2.0 * blur,
-        ),
-        theme.scheme.shadow.with_alpha(0.30).fade(status.opacity),
-        frus_core::BorderRadius::uniform(thumb.width * 0.5).inflate(blur),
-        blur,
+    // The reference's shadows for this height (milestone 606).
+    frus_core::paint_elevation(
+        scene,
+        thumb,
+        frus_core::BorderRadius::uniform(thumb.width * 0.5),
+        depth,
+        theme.scheme.shadow.fade(status.opacity),
     );
 }
 
@@ -1357,7 +1353,7 @@ mod tests {
     /// range slider's two. Neither cast anything here.
     #[test]
     fn a_thumb_casts_a_shadow_that_rises_while_it_is_held() {
-        // The heights the painted shadows stand for: a blur of two pixels a step, plus four.
+        // The heights the painted shadows stand for (milestone 606).
         fn heights(widget: &dyn Widget<Msg>, bounds: Rect, press: f32, theme: &Theme) -> Vec<f32> {
             let status = Status {
                 opacity: 1.0,
@@ -1366,16 +1362,7 @@ mod tests {
             };
             let mut scene = Scene::new();
             widget.paint(bounds, status, theme, &mut scene);
-            scene
-                .primitives()
-                .iter()
-                .filter_map(|p| match p {
-                    frus_core::Primitive::Rect { blur, .. } if *blur > 0.0 => {
-                        Some((blur - 4.0) / 2.0)
-                    }
-                    _ => None,
-                })
-                .collect()
+            crate::shadowprobe::heights(scene.primitives())
         }
         let theme = Theme::default();
         let track = Rect::new(0.0, 0.0, 220.0, H);

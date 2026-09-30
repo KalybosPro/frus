@@ -433,17 +433,13 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
         // one, which is the reference's elevated button drawn five times over — and under a
         // pointer to the filled three as well.
         if elevation > 0.0 {
-            let blur = elevation * 4.0 + 8.0;
-            scene.shadow(
-                Rect::new(
-                    bounds.x - blur,
-                    bounds.y + elevation * 2.0 - blur,
-                    bounds.width + 2.0 * blur,
-                    bounds.height + 2.0 * blur,
-                ),
-                theme.scheme.shadow.with_alpha(0.35).fade(o),
-                radius.inflate(blur),
-                blur,
+            // The reference's shadows for this height (milestone 606).
+            frus_core::paint_elevation(
+                scene,
+                bounds,
+                radius,
+                elevation,
+                theme.scheme.shadow.fade(o),
             );
         }
 
@@ -720,10 +716,7 @@ mod tests {
         // Every enabled button used to cast one, which is the reference's *elevated*
         // button drawn five times over — and an emphasis order in which nothing is quiet.
         let shadows = |variant: Variant| {
-            painted(&Button::<Msg>::new("Go").variant(variant))
-                .iter()
-                .filter(|p| matches!(p, Primitive::Rect { blur, .. } if *blur > 0.0))
-                .count()
+            crate::shadowprobe::casts(&painted(&Button::<Msg>::new("Go").variant(variant)))
         };
         assert_eq!(shadows(Variant::Elevated), 1);
         for flat in [
@@ -745,6 +738,7 @@ mod tests {
                 .iter()
                 .filter(|p| matches!(p, Primitive::Rect { blur, .. } if *blur > 0.0))
                 .count()
+                    / 3
             ),
             0,
             "and a disabled one does not float"
@@ -922,7 +916,7 @@ mod tests {
     /// painted with, so half-way into a hover is half-way up.
     #[test]
     fn the_height_follows_the_state() {
-        // The height a painted shadow stands for: its blur is four pixels a step, plus eight.
+        // The height the painted shadows stand for (milestone 606).
         let height = |button: &Button<Msg>, status: Status, theme: &Theme| {
             let mut scene = Scene::new();
             Widget::<Msg>::paint(
@@ -932,14 +926,7 @@ mod tests {
                 theme,
                 &mut scene,
             );
-            scene
-                .primitives()
-                .iter()
-                .find_map(|p| match p {
-                    Primitive::Rect { blur, .. } if *blur > 0.0 => Some((blur - 8.0) / 4.0),
-                    _ => None,
-                })
-                .unwrap_or(0.0)
+            crate::shadowprobe::height(scene.primitives())
         };
         let theme = Theme::default();
         let rest = Status::default();

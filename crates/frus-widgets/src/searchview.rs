@@ -640,17 +640,18 @@ impl<Msg: Clone> Widget<Msg> for SearchView<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         if self.elevation > 0.0 {
-            let blur = self.elevation * 2.0 + 4.0;
-            scene.shadow(
-                Rect::new(
-                    bounds.x - blur,
-                    bounds.y + self.elevation * 0.5 - blur,
-                    bounds.width + 2.0 * blur,
-                    bounds.height + 2.0 * blur,
-                ),
-                theme.scheme.shadow.with_alpha(0.30).fade(o),
-                BorderRadius::uniform(blur),
-                blur,
+            // The reference's shadows for this height (milestone 606).
+            frus_core::paint_elevation(
+                scene,
+                bounds,
+                // The corners of the shape it is drawn in: a view shown as a floating panel
+                // is rounded.
+                self.shape
+                    .as_rounded(bounds)
+                    .map(|(_, radius)| radius)
+                    .unwrap_or(BorderRadius::ZERO),
+                self.elevation,
+                theme.scheme.shadow.fade(o),
             );
         }
         scene.draw_shape(bounds, self.shape, self.background.fade(o));

@@ -249,18 +249,8 @@ impl<Msg> Widget<Msg> for Card<Msg> {
         // depth and the drop is half of it: a card 1 px up casts a tight shadow under
         // its own edge, one 6 px up casts a wide soft one below it.
         if depth > 0.0 {
-            let blur = depth * 4.0 + 8.0;
-            scene.shadow(
-                Rect::new(
-                    bounds.x - blur,
-                    bounds.y + depth * 2.0 - blur,
-                    bounds.width + 2.0 * blur,
-                    bounds.height + 2.0 * blur,
-                ),
-                theme.scheme.shadow.with_alpha(0.30).fade(o),
-                radius.inflate(blur),
-                blur,
-            );
+            // The reference's shadows for this height (milestone 606).
+            frus_core::paint_elevation(scene, bounds, radius, depth, theme.scheme.shadow.fade(o));
         }
 
         // The outline belongs to exactly one of the three. A shadow *and* a hairline is
@@ -384,11 +374,9 @@ mod tests {
         scene.primitives().to_vec()
     }
 
+    /// How many surfaces cast a shadow: the card's, or none.
     fn shadows(card: &Card<Msg>) -> usize {
-        primitives(card)
-            .iter()
-            .filter(|p| matches!(p, Primitive::Rect { blur, .. } if *blur > 0.0))
-            .count()
+        crate::shadowprobe::casts(&primitives(card))
     }
 
     fn border_width(card: &Card<Msg>) -> f32 {
@@ -447,28 +435,12 @@ mod tests {
     fn elevation_is_a_height_and_zero_removes_the_shadow() {
         assert_eq!(shadows(&Card::<Msg>::new().elevation(0.0)), 0);
         assert_eq!(shadows(&Card::<Msg>::new().filled().elevation(3.0)), 1);
-        // Higher card, wider and lower shadow.
-        let extent = |depth: f32| {
-            primitives(&Card::<Msg>::new().elevation(depth))
-                .iter()
-                .find_map(|p| match p {
-                    Primitive::Rect { blur, rect, .. } if *blur > 0.0 => Some((*blur, rect.y)),
-                    _ => None,
-                })
-                .expect("a shadow")
+        // The height it is given is the height its shadows are cast from (milestone 606).
+        let height = |depth: f32| {
+            crate::shadowprobe::height(&primitives(&Card::<Msg>::new().elevation(depth)))
         };
-        let (low_blur, low_y) = extent(1.0);
-        let (high_blur, high_y) = extent(6.0);
-        assert!(high_blur > low_blur, "a taller card blurs wider");
-        // The rectangle handed to `shadow` is the card's box **grown by the blur** on
-        // every side, so its own `y` runs the wrong way as the blur grows. The drop is
-        // what is left once that growth is taken back off.
-        assert!(
-            high_y + high_blur > low_y + low_blur,
-            "and drops further: {} against {}",
-            high_y + high_blur,
-            low_y + low_blur
-        );
+        assert_eq!(height(1.0), 1.0);
+        assert_eq!(height(6.0), 6.0);
     }
 
     #[test]
