@@ -129,7 +129,9 @@ impl<Msg: Clone + 'static> Widget<Msg> for ThemeBuilder<Msg> {
         #[cfg(debug_assertions)]
         if self.built.get().is_none() && self.build.borrow().is_some() {
             panic!(
-                "a ThemeBuilder's children were read before it was built: a traversal                  reached this tree before any layout pass did. Call `build_deferred(tree,                  &theme)` on it first — milestone 415."
+                "a ThemeBuilder's children were read before it was built: a traversal \
+                 reached this tree before any layout pass did. Call `build_deferred(tree, \
+                 &theme)` on it first — milestone 415."
             );
         }
         self.built.get().map(Vec::as_slice).unwrap_or(&[])

@@ -82,7 +82,11 @@ cargo apk run -p frus-demo --lib
 
 Web: see [`crates/frus-hello/web/README.md`](crates/frus-hello/web/README.md).
 
-Logging is `env_logger`-based:
+Logs go to the console with nothing to set up: the terminal on desktop, logcat on Android
+(`adb logcat -s frus_demo`, the application's crate name), the browser's console on the web.
+Everything from `info` up is shown, the application's own crate from `debug` up in a debug
+build, and the graphics and windowing crates from `warn` up. On desktop, `RUST_LOG` decides over
+that default:
 
 ```sh
 RUST_LOG=frus_shell=debug,frus_gpu=info cargo run -p frus-demo

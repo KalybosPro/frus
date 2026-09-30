@@ -1692,7 +1692,8 @@ mod implicit_tests {
         let mid = painted_size(&rt, &styled(12.0));
         assert!(
             (mid - 18.0).abs() < 1e-3,
-            "the words are drawn at the style in flight, not at the one it is heading              for: {mid}"
+            "the words are drawn at the style in flight, not at the one it is heading \
+             for: {mid}"
         );
     }
 

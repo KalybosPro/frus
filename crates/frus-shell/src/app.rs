@@ -3005,7 +3005,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         &theme,
                     );
                     if std::mem::take(&mut self.inspector_dump) {
-                        eprintln!("{}", frus_widgets::dump_tree(&nodes));
+                        // Through `log`, so it reaches logcat and the browser too.
+                        log::info!(target: "frus::inspector", "
+{}", frus_widgets::dump_tree(&nodes));
                     }
                     let mut scene = ui.scene().clone();
                     frus_widgets::paint_inspector_overlay(
@@ -5786,7 +5788,11 @@ impl<A: Application> App<A> {
                 frus_widgets::Side::Bottom => "bottom",
             };
             log::warn!(
-                "a box {:.0}x{:.0} is overflowed by {:.0} px on the {side}: its children                  do not fit inside it, and what runs past the edge is drawn outside its                  parent — invisible where something clips it, and untappable where it                  leaves the window. Give the child that should give way an `Expanded`,                  or put the content in a `SingleChildScrollView`.",
+                "a box {:.0}x{:.0} is overflowed by {:.0} px on the {side}: its children do not \
+                 fit inside it, and what runs past the edge is drawn outside its parent — \
+                 invisible where something clips it, and untappable where it leaves the window. \
+                 Give the child that should give way an `Expanded`, or put the content in a \
+                 `SingleChildScrollView`.",
                 o.rect.width,
                 o.rect.height,
                 o.amount,

@@ -38,7 +38,20 @@ pub use frus_shell::{AppIcon, Application, Command, FrusApp, Lifecycle, RemoteDa
 
 // Utility re-exports for the thin binary and for the entry-point macro (so the application
 // does not have to declare `anyhow` / `log` itself).
-pub use frus_shell::{anyhow, log};
+pub use frus_shell::anyhow;
+
+/// **Messages for the developer**: `frus::log::info!`, `warn!`, `error!`, `debug!`.
+///
+/// They reach the console with nothing to set up: the terminal on desktop, logcat on Android
+/// (tagged with the application's crate name), the browser's console on the web. From `info`
+/// up by default, and from `debug` up for the application's own crate in a debug build. On
+/// desktop, `RUST_LOG` decides over that default.
+///
+/// ```
+/// frus::log::info!("signed in as {}", "ada");
+/// frus::log::warn!("the cache is {}% full", 93);
+/// ```
+pub use frus_shell::log;
 
 // Macros: a glob (`frus_widgets::*`) does **not** re-export `#[macro_export]` macros, so we
 // name them explicitly — hence `frus::main!`, `frus::column!`, `frus::row!`.
