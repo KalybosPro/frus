@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 603 so far, each documenting the objective, the alternatives
+> record — one per step, 605 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The menu bar works from the keyboard** (J605, #33): a menu that opens gives its first row
+  the focus; right opens a submenu or the next menu, left goes back or to the menu before, and
+  Escape closes one level and hands the focus back. New hook **`Widget::autofocus`**: a
+  focusable widget that takes the focus when it appears, the focus going back where it came
+  from when it goes.
 
 - **`MenuBar`, `SubmenuButton` and `MenuPath`** (J603, #33): menus along the top of a window,
   with submenus opening beside their rows. Once a menu is open the pointer moves between them

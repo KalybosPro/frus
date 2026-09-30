@@ -664,6 +664,8 @@ pub struct Focusable {
     pub order: Option<f32>,
     /// The traversal group it belongs to, within which its order is resolved.
     pub group: Option<WidgetId>,
+    /// Whether it takes the focus when it appears ([`Widget::autofocus`], milestone 605).
+    pub autofocus: bool,
 }
 
 /// The **interface** of one frame: what the walk over a widget tree produced.
@@ -1230,6 +1232,12 @@ impl<Msg: Clone> Ui<Msg> {
     /// the shell can detect the focus **disappearing** (an overlay closed) and restore it.
     pub fn focusable_ids(&self) -> impl Iterator<Item = WidgetId> + '_ {
         self.focusables.iter().map(|f| f.id)
+    }
+
+    /// The focusable widgets of the frame that take the focus when they appear
+    /// ([`Widget::autofocus`]), in tree order.
+    pub fn autofocus_ids(&self) -> impl Iterator<Item = WidgetId> + '_ {
+        self.focusables.iter().filter(|f| f.autofocus).map(|f| f.id)
     }
 
     /// The focus stops of the **form** `id` is part of, in tree order, each with its box
@@ -3768,6 +3776,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 skip: self.focus_skipped || widget.focus_skip_traversal(),
                 order: widget.focus_order().or(self.focus_order),
                 group: self.focus_group,
+                autofocus: widget.autofocus(),
             });
         }
         if visible.width > 0.0 && visible.height > 0.0 {

@@ -18,7 +18,7 @@ use frus_core::{Point, Rect, Scene};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
 use crate::interaction::Status;
-use crate::menu::{menu_panel, MenuItem, PanelStyle, RowLook};
+use crate::menu::{menu_panel, MenuItem, PanelStyle, RowKeys, RowLook};
 use crate::portal::{OverlayPortal, Placement};
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -179,8 +179,8 @@ type OnPath<Msg> = Rc<dyn Fn(MenuPath) -> Msg>;
 pub struct MenuBar<Msg = crate::callback::Callback> {
     path: MenuPath,
     on_path: OnPath<Msg>,
+    menus: Vec<SubmenuButton<Msg>>,
     children: Vec<Box<dyn Widget<Msg>>>,
-    count: usize,
 }
 
 impl<Msg: Clone + 'static> MenuBar<Msg> {
@@ -189,45 +189,84 @@ impl<Msg: Clone + 'static> MenuBar<Msg> {
         Self {
             path: path.clone(),
             on_path: Rc::new(on_path),
+            menus: Vec::new(),
             children: Vec::new(),
-            count: 0,
         }
     }
 
     /// Adds a menu to the bar.
     pub fn menu(mut self, menu: SubmenuButton<Msg>) -> Self {
-        let index = self.count;
-        self.count += 1;
+        self.menus.push(menu);
+        // Built again whole: the arrows on each word and row name the menus beside it, and
+        // a menu added last is beside the first.
+        self.children = (0..self.menus.len()).map(|i| self.word(i)).collect();
+        self
+    }
+
+    /// The enabled menu `step` places along from `index`, round the ends; `None` when
+    /// there is no other.
+    fn beside(&self, index: usize, step: isize) -> Option<usize> {
+        let count = self.menus.len() as isize;
+        (1..count)
+            .map(|k| (index as isize + step * k).rem_euclid(count) as usize)
+            .find(|&i| self.menus[i].enabled)
+    }
+
+    /// The word for menu `index`, with its menu floating under it when it is open.
+    fn word(&self, index: usize) -> Box<dyn Widget<Msg>> {
+        let menu = &self.menus[index];
+        let on_path = &self.on_path;
         let open = menu.enabled && self.path.at(0) == Some(index);
-        let on_path = self.on_path.clone();
         // A press opens the menu. While it is open, the word is under the press-outside
         // that closes it, so a second press on it closes it, as a bar's does.
         let press = self.path.opened(0, index);
         // Once a menu is open, the pointer moving onto another word opens that one.
         let hover = (menu.enabled && self.path.is_open() && !open)
             .then(|| on_path(self.path.opened(0, index)));
+        // And so do the arrows, from a word with the focus (milestone 605).
+        let arrow = |step| {
+            self.path
+                .is_open()
+                .then(|| self.beside(index, step))
+                .flatten()
+                .map(|i| on_path(self.path.opened(0, i)))
+        };
         let word = on_enter(
             Box::new(BarButton {
                 label: menu.label.clone(),
                 open,
                 enabled: menu.enabled,
                 message: on_path(press),
+                left: arrow(-1),
+                right: arrow(1),
             }),
             hover,
         );
-        let built: Box<dyn Widget<Msg>> = if open {
-            let panel = panel(&menu.entries, 1, &self.path, &self.on_path);
-            Box::new(
-                OverlayPortal::new_boxed(word)
-                    .overlay_boxed(panel, Placement::Below)
-                    .dismiss(on_path(MenuPath::closed())),
-            )
-        } else {
-            word
+        if !open {
+            return word;
+        }
+        // Across the bar from inside a menu: the menus either side of this one.
+        let across = Across {
+            previous: self
+                .beside(index, -1)
+                .map(|i| on_path(MenuPath::closed().opened(0, i))),
+            next: self
+                .beside(index, 1)
+                .map(|i| on_path(MenuPath::closed().opened(0, i))),
         };
-        self.children.push(built);
-        self
+        let panel = panel(&menu.entries, 1, &self.path, on_path, &across);
+        Box::new(
+            OverlayPortal::new_boxed(word)
+                .overlay_boxed(panel, Placement::Below)
+                .dismiss(on_path(MenuPath::closed())),
+        )
     }
+}
+
+/// What the left and right arrows do when they leave a menu for the bar.
+struct Across<Msg> {
+    previous: Option<Msg>,
+    next: Option<Msg>,
 }
 
 /// The panel of the menu open at `level`, with the submenu open in it, if any.
@@ -236,19 +275,50 @@ fn panel<Msg: Clone + 'static>(
     level: usize,
     path: &MenuPath,
     on_path: &OnPath<Msg>,
+    across: &Across<Msg>,
 ) -> Box<dyn Widget<Msg>> {
+    // The first row that can be used takes the focus when the menu opens, so the arrows
+    // work in it from there (milestone 605).
+    let first = entries.iter().position(|entry| match entry {
+        Entry::Item(item) => item.is_action(),
+        Entry::Submenu(sub) => sub.enabled,
+    });
+    // Left leaves a submenu for the row that opened it, and a menu off the bar for the
+    // menu before it.
+    let left = if level > 1 {
+        Some(on_path(path.truncated(level - 1)))
+    } else {
+        across.previous.clone()
+    };
     // The rows as the popup menu builds them: a submenu's is a row that opens it.
     let items: Vec<MenuItem<Msg>> = entries
         .iter()
         .enumerate()
-        .map(|(index, entry)| match entry {
-            Entry::Item(item) => item.clone_row(),
-            Entry::Submenu(sub) => {
-                let mut row = MenuItem::new(sub.label.clone(), on_path(path.opened(level, index)))
-                    .enabled(sub.enabled);
-                row.submenu = true;
-                row
-            }
+        .map(|(index, entry)| {
+            let mut row = match entry {
+                Entry::Item(item) => item.clone_row(),
+                Entry::Submenu(sub) => {
+                    let mut row =
+                        MenuItem::new(sub.label.clone(), on_path(path.opened(level, index)))
+                            .enabled(sub.enabled);
+                    row.submenu = true;
+                    row
+                }
+            };
+            // Right opens a submenu from its row, and goes on to the next menu from any
+            // other row.
+            let right = match entry {
+                Entry::Submenu(sub) if sub.enabled => Some(on_path(path.opened(level, index))),
+                _ => across.next.clone(),
+            };
+            row.keys = RowKeys {
+                left: left.clone(),
+                right,
+                // Escape closes this menu, and the ones open from it, and no more.
+                escape: Some(on_path(path.truncated(level - 1))),
+                autofocus: Some(index) == first,
+            };
+            row
         })
         .collect();
     let decorate = |index: usize, row: Box<dyn Widget<Msg>>| -> Box<dyn Widget<Msg>> {
@@ -258,7 +328,7 @@ fn panel<Msg: Clone + 'static>(
                 let hover = (!open).then(|| on_path(path.opened(level, index)));
                 let row = on_enter(row, hover);
                 if open {
-                    let inner = panel(&sub.entries, level + 1, path, on_path);
+                    let inner = panel(&sub.entries, level + 1, path, on_path, across);
                     Box::new(OverlayPortal::new_boxed(row).overlay_boxed(inner, Placement::Beside))
                 } else {
                     row
@@ -301,6 +371,9 @@ struct BarButton<Msg> {
     open: bool,
     enabled: bool,
     message: Msg,
+    /// What the arrows send from this word: the menu beside it, while one is open.
+    left: Option<Msg>,
+    right: Option<Msg>,
 }
 
 /// Room either side of a word on the bar.
@@ -361,6 +434,23 @@ impl<Msg: Clone> Widget<Msg> for BarButton<Msg> {
 
     fn focusable(&self) -> bool {
         self.enabled
+    }
+
+    fn on_key(&self, key: &crate::interaction::Key) -> crate::interaction::KeyResponse<Msg> {
+        use crate::interaction::{Key, KeyResponse};
+        // A word that cannot be used answers no key, as it answers no press.
+        if !self.enabled {
+            return KeyResponse::Ignored;
+        }
+        let sent = match key {
+            Key::Left { .. } => self.left.clone(),
+            Key::Right { .. } => self.right.clone(),
+            _ => None,
+        };
+        match sent {
+            Some(message) => KeyResponse::Handled(Some(message)),
+            None => KeyResponse::Ignored,
+        }
     }
 
     fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
@@ -662,5 +752,134 @@ mod tests {
         let (row, notes) = (at("Open recent"), at("notes.txt"));
         assert!(notes.x < row.x, "on the start side: {notes:?} vs {row:?}");
         assert!(notes.x >= 0.0, "inside the window: {notes:?}");
+    }
+
+    /// The identity of the row whose words are `label`.
+    fn row_id(root: &MenuBar<Msg>, label: &str) -> crate::interaction::WidgetId {
+        let at = text_at(root, label).expect(label);
+        ui(root)
+            .hit(Point::new(at.x + 5.0, at.y + 5.0))
+            .expect("a row")
+    }
+
+    /// What `key` sends from the row whose words are `label`.
+    fn key_on(root: &MenuBar<Msg>, label: &str, key: crate::interaction::Key) -> Option<Msg> {
+        let id = row_id(root, label);
+        match crate::ui::find_widget(root as &dyn Widget<Msg>, id)?.on_key(&key) {
+            crate::interaction::KeyResponse::Handled(message) => message,
+            _ => None,
+        }
+    }
+
+    /// What Escape sends from the row `label`, bubbling up from it as the shell does.
+    fn escape_from(root: &MenuBar<Msg>, label: &str) -> Option<Msg> {
+        let id = row_id(root, label);
+        let path = crate::ui::find_path(root as &dyn Widget<Msg>, id);
+        path.iter()
+            .rev()
+            .find_map(|w| match w.on_key(&crate::interaction::Key::Escape) {
+                crate::interaction::KeyResponse::Handled(message) => Some(message),
+                _ => None,
+            })
+            .flatten()
+    }
+
+    const LEFT: crate::interaction::Key = crate::interaction::Key::Left {
+        shift: false,
+        word: false,
+    };
+    const RIGHT: crate::interaction::Key = crate::interaction::Key::Right {
+        shift: false,
+        word: false,
+    };
+
+    /// **The first row that can be used takes the focus** when its menu opens: not a rule,
+    /// not a disabled row.
+    #[test]
+    fn the_first_usable_row_takes_the_focus() {
+        let open = bar(&path(&[0]));
+        let focus: Vec<_> = ui(&open).autofocus_ids().collect();
+        assert_eq!(focus, vec![row_id(&open, "New")]);
+
+        let skipping = MenuBar::new(&path(&[0]), Msg::Menu).menu(
+            SubmenuButton::new("File")
+                .divider()
+                .item(MenuItem::new("Gone", Msg::New).enabled(false))
+                .item(MenuItem::new("Quit", Msg::Quit)),
+        );
+        let focus: Vec<_> = ui(&skipping).autofocus_ids().collect();
+        assert_eq!(focus, vec![row_id(&skipping, "Quit")]);
+
+        let deeper = bar(&path(&[0, 2]));
+        let focus: Vec<_> = ui(&deeper).autofocus_ids().collect();
+        assert!(
+            focus.contains(&row_id(&deeper, "notes.txt")),
+            "the submenu's too"
+        );
+    }
+
+    /// **Right** opens a submenu from its row and goes on to the next menu from another;
+    /// **left** goes back from a submenu, and to the menu before from a menu off the bar,
+    /// round the ends.
+    #[test]
+    fn the_arrows_move_through_the_menus() {
+        let open = bar(&path(&[0]));
+        assert_eq!(
+            key_on(&open, "Open recent", RIGHT),
+            Some(Msg::Menu(path(&[0, 2])))
+        );
+        assert_eq!(key_on(&open, "New", RIGHT), Some(Msg::Menu(path(&[1]))));
+        assert_eq!(
+            key_on(&open, "New", LEFT),
+            Some(Msg::Menu(path(&[1]))),
+            "round the end"
+        );
+
+        let deeper = bar(&path(&[0, 2]));
+        assert_eq!(
+            key_on(&deeper, "notes.txt", LEFT),
+            Some(Msg::Menu(path(&[0])))
+        );
+        assert_eq!(
+            key_on(&deeper, "notes.txt", RIGHT),
+            Some(Msg::Menu(path(&[1])))
+        );
+    }
+
+    /// **From a word on the bar**, the arrows move to the menu beside it while one is open,
+    /// and leave the focus to move as it does anywhere else while none is.
+    #[test]
+    fn the_arrows_on_the_bar_switch_menus_only_while_one_is_open() {
+        let sent = |w: &dyn Widget<Msg>, key| match w.on_key(&key) {
+            crate::interaction::KeyResponse::Handled(m) => m,
+            _ => None,
+        };
+        // Open, the word is the anchor of the menu floating under it.
+        let open = bar(&path(&[0]));
+        let word = open.children()[0].children()[0].as_ref();
+        assert_eq!(sent(word, RIGHT), Some(Msg::Menu(path(&[1]))));
+        assert_eq!(
+            sent(word, LEFT),
+            Some(Msg::Menu(path(&[1]))),
+            "round the end"
+        );
+
+        let closed = bar(&MenuPath::closed());
+        assert_eq!(sent(closed.children()[0].as_ref(), RIGHT), None);
+    }
+
+    /// **Escape closes one level**: from a submenu, the submenu; from a menu, the menu.
+    #[test]
+    fn escape_closes_one_level() {
+        let deeper = bar(&path(&[0, 2]));
+        assert_eq!(
+            escape_from(&deeper, "notes.txt"),
+            Some(Msg::Menu(path(&[0])))
+        );
+        let open = bar(&path(&[0]));
+        assert_eq!(
+            escape_from(&open, "Quit"),
+            Some(Msg::Menu(MenuPath::closed()))
+        );
     }
 }

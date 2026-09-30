@@ -1024,6 +1024,9 @@ pub struct App<A: Application> {
     focus_history: Vec<WidgetId>,
     /// The previous frame's focus, to detect the transitions worth pushing.
     prev_focus: Option<WidgetId>,
+    /// The widgets that took the focus on appearing, as of the last frame: one that is new
+    /// this frame takes it (milestone 605).
+    autofocused: std::collections::HashSet<WidgetId>,
     /// The window is occluded, so rendering is suspended.
     occluded: bool,
     /// Cumulative elapsed time, in seconds, for the continuous animations.
@@ -1166,6 +1169,7 @@ impl<A: Application> App<A> {
             retry_sheet: Vec::new(),
             focus_history: Vec::new(),
             prev_focus: None,
+            autofocused: std::collections::HashSet::new(),
             occluded: false,
             elapsed: 0.0,
             last_insets: WindowInsets::ZERO,
@@ -4605,6 +4609,22 @@ impl<A: Application> App<A> {
             Some(ui) => ui.focusable_ids().collect(),
             None => return,
         };
+        // A widget that takes the focus on appearing, and has just appeared, takes it. The
+        // focus it takes it from is recorded below as any move is, so it goes back there
+        // when this one goes: a submenu closing hands it back to its row.
+        let autofocus: Vec<WidgetId> = self
+            .ui
+            .as_ref()
+            .map(|ui| ui.autofocus_ids().collect())
+            .unwrap_or_default();
+        let appeared = autofocus
+            .iter()
+            .find(|id| !self.autofocused.contains(id))
+            .copied();
+        self.autofocused = autofocus.into_iter().collect();
+        if let Some(id) = appeared {
+            self.runtime.input.focused = Some(id);
+        }
         let before = self.runtime.input.focused;
         let after = resolve_focus(
             before,
@@ -4612,7 +4632,7 @@ impl<A: Application> App<A> {
             &mut self.focus_history,
             &mut self.prev_focus,
         );
-        if after != before {
+        if after != before || appeared.is_some() {
             self.runtime.input.focused = after;
             self.request_redraw();
         }
@@ -9157,6 +9177,16 @@ pub mod testing {
             &self.shell.app
         }
 
+        /// The widget with the keyboard focus, if one has it.
+        pub fn focused(&self) -> Option<WidgetId> {
+            self.shell.runtime.input.focused
+        }
+
+        /// The widget the last frame would hand a press at `at`, if any.
+        pub fn hit(&self, at: Point) -> Option<WidgetId> {
+            self.shell.ui.as_ref().and_then(|ui| ui.hit(at))
+        }
+
         /// Hands the application a message, as the shell does.
         pub fn update(&mut self, message: A::Message) {
             self.shell.dispatch(message);
@@ -9360,6 +9390,9 @@ pub mod testing {
             };
             s.ui = Some(ui);
             s.sync_regions(false);
+            // As the shell does after every frame: focus that vanished goes back, and a
+            // widget that takes the focus on appearing takes it (milestone 605).
+            s.reconcile_focus();
             for message in scrolled {
                 s.dispatch(message);
             }
@@ -11733,5 +11766,93 @@ mod listener_tests {
         d.move_mouse(Point::new(390.0, 390.0));
         d.run(0.02);
         assert!(take(&heard).is_empty(), "outside both");
+    }
+}
+
+#[cfg(test)]
+mod menu_keyboard_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{MenuBar, MenuItem, MenuPath, Point, SubmenuButton, Theme, Widget};
+
+    const W: f32 = 600.0;
+    const H: f32 = 400.0;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Menu(MenuPath),
+        Picked(&'static str),
+    }
+
+    /// File: New, Open recent ▸ (notes.txt, todo.md), Quit.
+    #[derive(Default)]
+    struct Editor {
+        menu: MenuPath,
+    }
+
+    impl Application for Editor {
+        type Message = Msg;
+
+        fn update(&mut self, message: Msg) -> Command<Msg> {
+            match message {
+                Msg::Menu(path) => self.menu = path,
+                Msg::Picked(_) => self.menu = MenuPath::closed(),
+            }
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            Box::new(
+                MenuBar::new(&self.menu, Msg::Menu).menu(
+                    SubmenuButton::new("File")
+                        .item(MenuItem::new("New", Msg::Picked("new")))
+                        .submenu(
+                            SubmenuButton::new("Open recent")
+                                .item(MenuItem::new("notes.txt", Msg::Picked("notes")))
+                                .item(MenuItem::new("todo.md", Msg::Picked("todo"))),
+                        )
+                        .item(MenuItem::new("Quit", Msg::Picked("quit"))),
+                ),
+            )
+        }
+    }
+
+    /// The identity of the row whose words are `label`, from what the last frame drew.
+    fn row(d: &Driver<Editor>, label: &str) -> Option<frus_widgets::WidgetId> {
+        let (_, rect) = d.texts().into_iter().find(|(text, _)| text == label)?;
+        d.hit(Point::new(rect.x + 4.0, rect.y + 4.0))
+    }
+
+    /// **A menu that opens gives its first row the focus**, a submenu that opens gives its
+    /// own first row the focus, and Escape closes one level and hands the focus back.
+    #[test]
+    fn opening_a_menu_focuses_its_first_row_and_escape_goes_back_one_level() {
+        let mut d = Driver::new(Editor::default(), W, H);
+        d.run(0.1);
+        assert_eq!(d.focused(), None);
+
+        d.update(Msg::Menu(MenuPath::from_indices(vec![0])));
+        d.run(0.1);
+        let new = row(&d, "New").expect("the menu is open");
+        assert_eq!(d.focused(), Some(new), "the first row has the focus");
+
+        d.update(Msg::Menu(MenuPath::from_indices(vec![0, 1])));
+        d.run(0.1);
+        let notes = row(&d, "notes.txt").expect("the submenu is open");
+        assert_eq!(d.focused(), Some(notes), "the submenu's first row has it");
+
+        d.escape();
+        d.run(0.1);
+        assert_eq!(
+            d.app().menu,
+            MenuPath::from_indices(vec![0]),
+            "one level closed"
+        );
+        assert!(row(&d, "notes.txt").is_none());
+        assert_eq!(d.focused(), Some(new), "and the focus is back in the menu");
+
+        d.escape();
+        d.run(0.1);
+        assert!(!d.app().menu.is_open(), "then the menu");
     }
 }
