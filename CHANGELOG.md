@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 600 so far, each documenting the objective, the alternatives
+> record — one per step, 601 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`CustomMultiChildLayout`** (J601, #38, #52): children placed by a function the
+  application writes. It measures each child under constraints it chooses
+  (`ChildConstraints`: free, at most, exactly) and says where it goes; children are named by
+  any hashable key. Its own size is the room or its own, not its children's, as in the
+  reference. New hook `Widget::custom_layout`.
 
 - **`AnimatedAlign` takes width and height factors** (J600, #52), and its anchor still moves
   on every axis. **It now takes the room as `Aligned` does**: it was as big as its child
