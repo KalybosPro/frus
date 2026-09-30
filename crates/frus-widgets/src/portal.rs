@@ -31,6 +31,9 @@ pub enum Placement {
     /// selection (see [`crate::ToolbarItem`]), whose anchor is the selection's box rather
     /// than a widget's.
     Selection,
+    /// **Beside** the anchor, on its end side, tops level: a submenu opening from its row
+    /// (milestone 603). Where the window has no room there, it opens on the start side.
+    Beside,
 }
 
 /// A portal: an **anchor** (in the flow) and an optional floating **overlay**.

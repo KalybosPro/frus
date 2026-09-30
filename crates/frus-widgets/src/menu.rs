@@ -197,6 +197,8 @@ struct Measure {
     /// The row's own words, or `None` for a rule and for a row the caller drew.
     label: Option<String>,
     shortcut: Option<String>,
+    /// Whether the row opens a submenu, and so ends in a chevron (milestone 603).
+    submenu: bool,
 }
 
 /// One menu action, a clickable row.
@@ -219,6 +221,8 @@ struct Item<Msg> {
     lead_column: bool,
     /// The keys that work this action, shown on the right.
     shortcut: Option<String>,
+    /// Whether this row opens a submenu: a chevron at the end (milestone 603).
+    submenu: bool,
     /// Whether this row can be used. The menu's own availability is folded in here, but
     /// only for tidiness: a disabled menu never opens, so there is no row to disable.
     enabled: bool,
@@ -252,10 +256,15 @@ impl<Msg> Item<Msg> {
 
     /// The room kept clear on the right for the keys, their gap included.
     fn shortcut_room(&self, theme: Option<&Theme>) -> f32 {
-        self.shortcut.as_deref().map_or(0.0, |keys| {
+        let keys = self.shortcut.as_deref().map_or(0.0, |keys| {
             SHORTCUT_GAP
                 + frus_text::measure_resolved(keys, &label_style(self.text_style, theme)).width
-        })
+        });
+        keys + if self.submenu {
+            SHORTCUT_GAP + LEAD
+        } else {
+            0.0
+        }
     }
 
     fn sizing(&self, theme: Option<&Theme>) -> Style {
@@ -355,8 +364,19 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
                 ink.fade(o),
             );
         }
+        // A row that opens a submenu ends in a chevron, pointing where it opens: the end
+        // side, so the left in right-to-left (milestone 603).
+        let chevron_room = if self.submenu {
+            let x = bounds.x + bounds.width - pad.right - LEAD;
+            let y = bounds.y + (bounds.height - LEAD) * 0.5;
+            let path = Icons::CHEVRON_RIGHT.placed(LEAD, x, y, theme.direction);
+            scene.fill_path(&path, ink.fade(o));
+            SHORTCUT_GAP + LEAD
+        } else {
+            0.0
+        };
         if let Some(keys) = &self.shortcut {
-            let width = frus_text::measure_resolved(keys, &style).width;
+            let width = frus_text::measure_resolved(keys, &style).width + chevron_room;
             // **Muted, never the label's ink.** The keys are a reminder of another way
             // in, not a second thing to read.
             let tint = if self.enabled {
@@ -533,7 +553,12 @@ impl<Msg> Panel<Msg> {
             let keys = row.shortcut.as_deref().map_or(0.0, |t| {
                 SHORTCUT_GAP + frus_text::measure_resolved(t, &style).width
             });
-            wide.max(pad.left + lead + label + keys + pad.right)
+            let chevron = if row.submenu {
+                SHORTCUT_GAP + LEAD
+            } else {
+                0.0
+            };
+            wide.max(pad.left + lead + label + keys + chevron + pad.right)
         });
         // Rounded up: half a pixel of a glyph past the edge is the whole of the bug.
         Some(widest.max(WIDTH).ceil())
@@ -646,6 +671,8 @@ pub struct MenuItem<Msg = crate::callback::Callback> {
     /// **`None` is the rule** between two groups: the one entry that is not an action,
     /// and so the one entry with nothing to send.
     message: Option<Msg>,
+    /// Whether the row opens a submenu (milestone 603).
+    pub(crate) submenu: bool,
 }
 
 impl<Msg> MenuItem<Msg> {
@@ -658,6 +685,7 @@ impl<Msg> MenuItem<Msg> {
             shortcut: None,
             enabled: true,
             message: Some(message),
+            submenu: false,
         }
     }
 
@@ -712,6 +740,7 @@ impl<Msg> MenuItem<Msg> {
             shortcut: None,
             enabled: false,
             message: None,
+            submenu: false,
         }
     }
 
@@ -724,6 +753,22 @@ impl<Msg> MenuItem<Msg> {
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
+    }
+
+    /// The same row again, for a menu built twice (milestone 603).
+    pub(crate) fn clone_row(&self) -> Self
+    where
+        Msg: Clone,
+    {
+        Self {
+            label: self.label.clone(),
+            child: self.child.clone(),
+            lead: self.lead,
+            shortcut: self.shortcut.clone(),
+            enabled: self.enabled,
+            message: self.message.clone(),
+            submenu: self.submenu,
+        }
     }
 
     /// The **keys** that work this action, shown muted on the right.
@@ -914,54 +959,17 @@ impl<Msg: Clone + 'static> PopupMenuButton<Msg> {
             self.children.truncate(1);
             return;
         }
-        // **Whether the menu keeps a leading column is decided once, for the menu.** The
-        // marks line up down one column and a row with nothing to put there still keeps
-        // the room — the alternative is labels that go ragged as things are turned on and
-        // off, which is the version every desktop menu decided against.
-        let lead_column = self.items.iter().any(|item| item.lead.is_some());
-        // No gap. The rows are contiguous strips of one surface; the two-pixel gutter
-        // this used to leave showed the page through the middle of the menu.
-        let mut list = Flex::column();
-        let mut rows = Vec::with_capacity(self.items.len());
-        for item in &self.items {
-            rows.push(Measure {
-                label: item.label.clone(),
-                shortcut: item.shortcut.clone(),
-            });
-            let Some(message) = &item.message else {
-                // A rule, and not a row: it is not a tap target tall, it takes no focus
-                // and it answers nothing.
-                list = list.child(Divider::new());
-                continue;
-            };
-            list = list.child(Item {
-                label: item.label.clone(),
-                children: item
-                    .child
-                    .clone()
-                    .map(|inner| Box::new(Shared::new(inner)) as Box<dyn Widget<Msg>>)
-                    .into_iter()
-                    .collect(),
-                lead: item.lead,
-                lead_column,
-                shortcut: item.shortcut.clone(),
-                enabled: self.enabled && item.enabled,
-                text_style: self.text_style,
-                background: self.look.background,
-                padding: self.item_padding,
-                height: self.item_height,
-                message: message.clone(),
-            });
-        }
-        let panel: Box<dyn Widget<Msg>> = Box::new(Panel {
-            measure: Some(RowMeasure {
-                rows,
-                lead_column,
+        let panel = menu_panel(
+            &self.items,
+            &RowLook {
+                look: self.look,
                 text_style: self.text_style,
                 item_padding: self.item_padding,
-            }),
-            ..Panel::new(PanelKind::Menu, self.look, vec![Box::new(list)])
-        });
+                item_height: self.item_height,
+                enabled: self.enabled,
+            },
+            &|_, row| row,
+        );
         if self.children.len() > 1 {
             self.children[1] = panel;
         } else {
@@ -1004,6 +1012,77 @@ impl<Msg: Clone> Widget<Msg> for PopupMenuButton<Msg> {
         // to follow.
         self.open
     }
+}
+
+/// How the rows of a floating menu look, shared by everything that builds one.
+#[derive(Clone, Copy)]
+pub(crate) struct RowLook {
+    pub(crate) look: PanelStyle,
+    pub(crate) text_style: Option<TextStyle>,
+    pub(crate) item_padding: Option<Insets>,
+    pub(crate) item_height: Option<f32>,
+    pub(crate) enabled: bool,
+}
+
+/// The panel of a floating menu: its rows on one surface, as wide as its widest row.
+/// `decorate` is handed each row with its entry's index, and may wrap it: a menu bar puts
+/// the hover that opens a submenu there, and the submenu itself (milestone 603).
+pub(crate) fn menu_panel<Msg: Clone + 'static>(
+    items: &[MenuItem<Msg>],
+    row: &RowLook,
+    decorate: &dyn Fn(usize, Box<dyn Widget<Msg>>) -> Box<dyn Widget<Msg>>,
+) -> Box<dyn Widget<Msg>> {
+    // **Whether the menu keeps a leading column is decided once, for the menu.** The
+    // marks line up down one column and a row with nothing to put there still keeps
+    // the room — the alternative is labels that go ragged as things are turned on and
+    // off, which is the version every desktop menu decided against.
+    let lead_column = items.iter().any(|item| item.lead.is_some());
+    // No gap. The rows are contiguous strips of one surface; the two-pixel gutter
+    // this used to leave showed the page through the middle of the menu.
+    let mut list = Flex::column();
+    let mut rows = Vec::with_capacity(items.len());
+    for (index, item) in items.iter().enumerate() {
+        rows.push(Measure {
+            label: item.label.clone(),
+            shortcut: item.shortcut.clone(),
+            submenu: item.submenu,
+        });
+        let Some(message) = &item.message else {
+            // A rule, and not a row: it is not a tap target tall, it takes no focus
+            // and it answers nothing.
+            list = list.child(Divider::new());
+            continue;
+        };
+        let built: Box<dyn Widget<Msg>> = Box::new(Item {
+            label: item.label.clone(),
+            children: item
+                .child
+                .clone()
+                .map(|inner| Box::new(Shared::new(inner)) as Box<dyn Widget<Msg>>)
+                .into_iter()
+                .collect(),
+            lead: item.lead,
+            lead_column,
+            shortcut: item.shortcut.clone(),
+            submenu: item.submenu,
+            enabled: row.enabled && item.enabled,
+            text_style: row.text_style,
+            background: row.look.background,
+            padding: row.item_padding,
+            height: row.item_height,
+            message: message.clone(),
+        });
+        list = list.child(decorate(index, built));
+    }
+    Box::new(Panel {
+        measure: Some(RowMeasure {
+            rows,
+            lead_column,
+            text_style: row.text_style,
+            item_padding: row.item_padding,
+        }),
+        ..Panel::new(PanelKind::Menu, row.look, vec![Box::new(list)])
+    })
 }
 
 /// Reading a menu's panel back out of a frame — shared by the four widgets that float on
@@ -1486,6 +1565,7 @@ mod tests {
             lead: None,
             lead_column: false,
             shortcut: Some("Ctrl+V".into()),
+            submenu: false,
             enabled: true,
             text_style: None,
             background: None,
@@ -1513,6 +1593,7 @@ mod tests {
             lead: Some(Lead::Check(on)),
             lead_column: true,
             shortcut: None,
+            submenu: false,
             enabled: true,
             text_style: None,
             background: None,
