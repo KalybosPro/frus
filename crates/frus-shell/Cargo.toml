@@ -94,7 +94,7 @@ sys-locale = "0.3"
 frus-image = { path = "../frus-image", version = "0.2" }
 arboard.workspace = true
 env_logger.workspace = true
-accesskit = "0.24"
+accesskit = "0.25"
 accesskit_winit = "0.33"
 
 # Web (wasm32 + WebGPU): the browser entry point, JS futures, console logs.
