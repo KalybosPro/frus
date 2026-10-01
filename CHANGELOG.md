@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 607 so far, each documenting the objective, the alternatives
+> record — one per step, 608 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The shell's test driver presses keys** (J608): `Driver::key(KeyStroke)`, through the same
+  handling a window's keys go through, moved into one method. Driving the menu bar with it found
+  that the focus could not return to a row once its submenu closed, nor to a word on the bar once
+  its menu closed: the menus' portals came and went with them, moving what they wrapped. They
+  are now there open or shut.
 
 - **The demonstration has a menu bar on a wide window** (J607, closes #33): File, View (with
   Text size and Language submenus) and Go. Two fixes it found: a menu row with its submenu

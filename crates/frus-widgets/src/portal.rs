@@ -82,8 +82,15 @@ impl<Msg: 'static> OverlayPortal<Msg> {
 }
 
 impl<Msg: Clone> Widget<Msg> for OverlayPortal<Msg> {
+    /// A column, so that the anchor is as wide as the portal is given: with nothing floating,
+    /// the portal is laid out as any container is, and in a row the anchor kept its own
+    /// width. (With something floating, the walk picks the axis from what the anchor fills,
+    /// milestone 607.)
     fn style(&self) -> Style {
-        Style::default()
+        Style {
+            flex_direction: frus_layout::FlexDirection::Column,
+            ..Style::default()
+        }
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
