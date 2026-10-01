@@ -18,7 +18,7 @@
 //! # It always answers
 //!
 //! [`of`](crate::locale::of) hands back `en` with nothing installed, the way
-//! [`localizations::of`](crate::localizations::of) hands back English — and it carries the
+//! [`localizations::of`] hands back English — and it carries the
 //! same warning. A default that always works is what makes the feature safe to add and
 //! what would hide the shell forgetting to install one. The guard is not the default; it
 //! is a test that drives the shell.

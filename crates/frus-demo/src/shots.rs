@@ -104,11 +104,21 @@ fn write_shot(dir: &Path, shot: &Shot) -> anyhow::Result<()> {
     let (width, height) = (shot.width, shot.height);
     let theme = shot_theme(&app);
     let mut stage = Stage::new(width, height).theme(theme.clone());
-    let root = MediaQuery::new(Size::new(width as f32, height as f32)).scope(|| app.view(&theme));
-    stage.settle(root.as_ref());
-    // Two settled frames: the first adopts every implicit target, the second draws
-    // the tree that adoption produced.
-    let Some(frame) = stage.render(root.as_ref()) else {
+    // **The whole frame inside the surface**, not only `view`: the screens are components,
+    // built while the stage lays the tree out, and they ask the surface how big it is then.
+    // Asked outside it they were told nothing, and every picture came out empty — since the
+    // demonstration became components (milestone 556), found in milestone 607.
+    let frame = MediaQuery::new(Size::new(width as f32, height as f32)).scope(|| {
+        // The first frame starts the router; the tree to draw is the one built after it.
+        let first = app.view(&theme);
+        stage.settle(first.as_ref());
+        let root = app.view(&theme);
+        // Two settled frames: the first adopts every implicit target, the second draws
+        // the tree that adoption produced.
+        stage.settle(root.as_ref());
+        stage.render(root.as_ref())
+    });
+    let Some(frame) = frame else {
         anyhow::bail!("no GPU adapter: nothing can be rendered");
     };
     let path = dir.join(format!("{}.png", shot.name));
@@ -144,20 +154,24 @@ fn write_transition_gif(dir: &Path) -> anyhow::Result<()> {
     let (mut app, router) = seeded_app(false);
     let theme = shot_theme(&app);
     let mut stage = Stage::new(WIDTH, HEIGHT).theme(theme.clone());
-    {
-        let root =
-            MediaQuery::new(Size::new(WIDTH as f32, HEIGHT as f32)).scope(|| app.view(&theme));
-        stage.settle(root.as_ref());
-    }
+    // As for a still: the whole frame inside the surface, and the router started first.
+    MediaQuery::new(Size::new(WIDTH as f32, HEIGHT as f32)).scope(|| {
+        for _ in 0..2 {
+            let root = app.view(&theme);
+            stage.settle(root.as_ref());
+        }
+    });
 
     let mut frames: Vec<Vec<u8>> = Vec::new();
     let capture = |app: &FrusApp, stage: &mut Stage, frames: &mut Vec<Vec<u8>>| {
         let theme = shot_theme(app);
         stage.theme = theme.clone();
-        let root =
-            MediaQuery::new(Size::new(WIDTH as f32, HEIGHT as f32)).scope(|| app.view(&theme));
-        stage.advance(root.as_ref(), DT);
-        if let Some(frame) = stage.render(root.as_ref()) {
+        let frame = MediaQuery::new(Size::new(WIDTH as f32, HEIGHT as f32)).scope(|| {
+            let root = app.view(&theme);
+            stage.advance(root.as_ref(), DT);
+            stage.render(root.as_ref())
+        });
+        if let Some(frame) = frame {
             frames.push(frame.rgba);
         }
     };

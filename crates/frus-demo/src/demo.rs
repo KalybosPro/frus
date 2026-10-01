@@ -315,6 +315,11 @@ impl Demo {
         self.set_prefs(|p| p.lang = next_lang(p.lang));
     }
 
+    /// Picks a language (an index into `LANGS`), or the device's own with `None`.
+    pub(crate) fn set_lang(&self, lang: Option<usize>) {
+        self.set_prefs(|p| p.lang = lang);
+    }
+
     /// Sets the zoom, kept to its range.
     pub(crate) fn set_density(&self, density: f32) {
         self.set_prefs(|p| p.density = density.clamp(DENSITY.0, DENSITY.1));

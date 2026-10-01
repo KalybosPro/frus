@@ -4,8 +4,9 @@
 //! overlay is open, which section is on show — and the tasks it draws come from the shared
 //! [`Demo`], handed in as its configuration.
 
+use crate::l10n::LANGS;
 use crate::prelude::*;
-use frus_widgets::{column, row, Semantics};
+use frus_widgets::{column, row, MenuBar, MenuItem, MenuPath, Semantics, SubmenuButton};
 
 /// The main screen: its configuration is the shared state it draws from.
 pub(crate) struct HomePage {
@@ -31,6 +32,8 @@ pub(crate) struct HomeState {
     pub(crate) stat_sel: usize,
     /// In single-pane (narrow) mode, is the Stats detail open?
     pub(crate) stat_detail_open: bool,
+    /// Which menu of the menu bar is open, on a wide window (milestone 607).
+    pub(crate) menu: MenuPath,
 }
 
 impl StatefulWidget for HomePage {
@@ -52,9 +55,122 @@ impl HomeState {
             handle.set_state(|s| {
                 s.drawer_open = false;
                 s.actions_open = false;
+                s.menu = MenuPath::closed();
             });
             router.push(location);
         })
+    }
+
+    /// **The menu bar of a wide window** (milestone 607): the header's actions, in the order
+    /// a desktop application lists them, with the sections to go to. A phone does not get
+    /// one: its header folds the same actions into a "⋯" menu.
+    ///
+    /// A row does its work and closes the menus, as a popup menu's row does: a press is one
+    /// message, and it is the row's.
+    fn menu_bar(&self, cx: &StateContext<Self>, demo: &Rc<Demo>) -> MenuBar {
+        let handle = cx.handle();
+        let pick = |work: Rc<dyn Fn()>| {
+            let handle = handle.clone();
+            on(move || {
+                work();
+                handle.set_state(|s| s.menu = MenuPath::closed());
+            })
+        };
+        let with = |change: fn(&Demo)| -> Rc<dyn Fn()> {
+            let demo = demo.clone();
+            Rc::new(move || change(&demo))
+        };
+        let prefs = demo.prefs();
+
+        let file = SubmenuButton::new("File")
+            .item(MenuItem::new(
+                "Save",
+                pick(Rc::new({
+                    let demo = demo.clone();
+                    move || demo.save()
+                })),
+            ))
+            .item(MenuItem::new(
+                "Load",
+                pick(Rc::new({
+                    let demo = demo.clone();
+                    move || demo.load()
+                })),
+            ))
+            .divider()
+            .item(MenuItem::new("Clear completed…", {
+                let handle = handle.clone();
+                on(move || {
+                    handle.set_state(|s| {
+                        s.menu = MenuPath::closed();
+                        s.confirm_clear = true;
+                    })
+                })
+            }));
+
+        let size = |step: f32| -> Rc<dyn Fn()> {
+            let demo = demo.clone();
+            Rc::new(move || demo.set_density(demo.prefs().density + step))
+        };
+        let mut language = SubmenuButton::new("Language").item(MenuItem::checked(
+            "System",
+            prefs.lang.is_none(),
+            pick(Rc::new({
+                let demo = demo.clone();
+                move || demo.set_lang(None)
+            })),
+        ));
+        for (index, (name, _)) in LANGS.iter().enumerate() {
+            let demo = demo.clone();
+            language = language.item(MenuItem::checked(
+                *name,
+                prefs.lang == Some(index),
+                pick(Rc::new(move || demo.set_lang(Some(index)))),
+            ));
+        }
+        let view = SubmenuButton::new("View")
+            .item(MenuItem::checked(
+                "Dark theme",
+                !prefs.light,
+                pick(with(Demo::toggle_theme)),
+            ))
+            .item(MenuItem::checked(
+                "Right to left",
+                prefs.rtl,
+                pick(with(Demo::toggle_rtl)),
+            ))
+            .item(MenuItem::new("Next colour", pick(with(Demo::cycle_seed))))
+            .divider()
+            .submenu(
+                SubmenuButton::new("Text size")
+                    .item(MenuItem::new("Larger", pick(size(0.1))))
+                    .item(MenuItem::new("Smaller", pick(size(-0.1)))),
+            )
+            .submenu(language);
+
+        let mut go = SubmenuButton::new("Go");
+        for (index, name) in ["Tasks", "Stats", "About"].into_iter().enumerate() {
+            let handle = handle.clone();
+            go = go.item(MenuItem::checked(
+                name,
+                self.section == index,
+                on(move || {
+                    handle.set_state(|s| {
+                        s.section = index;
+                        s.menu = MenuPath::closed();
+                    })
+                }),
+            ));
+        }
+        let go = go
+            .divider()
+            .item(MenuItem::new("Log", self.go(cx, "/journal")))
+            .item(MenuItem::new("Settings", self.go(cx, "/settings")));
+
+        MenuBar::new(&self.menu, cx.handler(|s, path: MenuPath| s.menu = path))
+            .menu(file)
+            .menu(view)
+            .menu(go)
     }
 }
 
@@ -428,6 +544,12 @@ impl State for HomeState {
         // (milestone 393).
         let toggle_drawer = cx.callback(|s| s.drawer_open = !s.drawer_open);
         let toggle_sheet = cx.callback(|s| s.sheet_open = !s.sheet_open);
+        // On a wide window, the menu bar above the header (milestone 607).
+        let header: Box<dyn Widget> = if class == SizeClass::Expanded {
+            Box::new(column![self.menu_bar(cx, &demo), header])
+        } else {
+            header
+        };
         let scaffold = Scaffold::new()
             .background(theme.background)
             .app_bar(header)
