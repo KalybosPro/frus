@@ -591,7 +591,7 @@ pub fn with_text_scale<R>(scale: f32, f: impl FnOnce() -> R) -> R {
 /// those later steps resolves sizes too. Scoping only the build leaves the scale at 1 for
 /// the two steps that decide how big the text actually is — so the layout measures one
 /// size and the renderer draws another, which is the exact failure
-/// [`TextStyle::resolved`](TextStyle::resolved) exists to make impossible.
+/// [`TextStyle::resolved`] exists to make impossible.
 ///
 /// That is not a hypothetical either: the shell wrapped `view` alone, and the setting
 /// reached a device without changing a single pixel (milestone 407).

@@ -11,7 +11,7 @@
 //! yours to worry about" — it could only inset the bar from outside, which is one switch
 //! where the reference has two: there the shell makes the slot tall enough and the bar
 //! decides for itself whether to consume the status bar. The cost was not cosmetic. An
-//! [`AppBar`](crate::AppBar) used **outside** a shell drew under the status bar, because
+//! [`AppBar`] used **outside** a shell drew under the status bar, because
 //! nothing insetted it and it would not inset itself.
 //!
 //! ```ignore
