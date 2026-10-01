@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use accesskit::{
     Action, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, Live, Node,
-    NodeId, Rect as AkRect, Role as AkRole, Toggled as AkToggled, Tree, TreeId, TreeUpdate,
+    NodeId, Rect as AkRect, Role as AkRole, Toggled as AkToggled, TreeId, TreeInfo, TreeUpdate,
 };
 use accesskit_winit::Adapter;
 use winit::event::WindowEvent;
@@ -140,7 +140,7 @@ pub(crate) fn build_tree_update(
 
     TreeUpdate {
         nodes: updates,
-        tree: Some(Tree::new(ROOT_ID)),
+        tree: Some(TreeInfo::new(ROOT_ID)),
         tree_id: TreeId::ROOT,
         focus,
     }

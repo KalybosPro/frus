@@ -32,3 +32,8 @@ updates:
       interval: monthly
     commit-message:
       prefix: "chore"
+    ignore:
+      # Its tag is a Rust version, not the action's: `@stable` follows Rust, and `@1.90`
+      # is the MSRV job's toolchain, which moves only when the MSRV does. Dependabot read
+      # `1.90` as an old release of the action and offered `1.120`.
+      - dependency-name: "dtolnay/rust-toolchain"
