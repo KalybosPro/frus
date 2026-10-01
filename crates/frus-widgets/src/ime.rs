@@ -8,7 +8,7 @@
 //! back as a suggestion later, on somebody else's screen.
 //!
 //! [`KeyboardType`] says which keys; [`TextInputAction`] says what the action key does.
-//! Together they are [`Ime`], which [`Widget::ime`](crate::Widget::ime) hands to the
+//! Together they are [`Ime`], which [`Widget::ime`] hands to the
 //! platform when a field takes focus.
 //!
 //! ```ignore

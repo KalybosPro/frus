@@ -4,7 +4,7 @@
 //! covers the ordinary case and misses the one this exists for: a caller is handed a
 //! built widget and knows something about it that the widget does not know about itself.
 //!
-//! Milestone 397 walked into it. An [`AppBar`](crate::AppBar) marks its **text** title as
+//! Milestone 397 walked into it. An [`AppBar`] marks its **text** title as
 //! a heading — a landmark a screen reader's user jumps between — and could do nothing of
 //! the sort for a *widget* title, because by then the title is a `Box<dyn Widget>` and the
 //! bar has no way in. The accessibility of a bar therefore depended on whether the caller
