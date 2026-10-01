@@ -12126,3 +12126,47 @@ mod menu_keyboard_tests {
         assert_eq!(d.focused(), quit, "the focus is back on Quit");
     }
 }
+
+/// **A right-click on a field opens its selection bar**, the desktop's context menu for the
+/// four things the bar holds (milestone 568), driven through the shell's own path: the
+/// milestone had built it and not run it.
+#[cfg(test)]
+mod right_click_bar_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{Point, TextField, Theme, Widget};
+
+    struct Form;
+
+    impl Application for Form {
+        type Message = ();
+
+        fn update(&mut self, _message: ()) -> Command<()> {
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<()>> {
+            Box::new(TextField::new("some words in a field"))
+        }
+    }
+
+    #[test]
+    fn a_right_click_on_a_field_opens_its_bar() {
+        let mut d = Driver::new(Form, 500.0, 300.0);
+        d.run(0.1);
+        let shown = |d: &Driver<Form>, label: &str| d.texts().iter().any(|(t, _)| t == label);
+        assert!(!shown(&d, "Select all"), "no bar before the click");
+        let (_, words) = d
+            .texts()
+            .into_iter()
+            .find(|(t, _)| t.contains("some words"))
+            .expect("the field's words");
+        d.secondary_click(Point::new(words.x + 20.0, words.y + words.height * 0.5));
+        d.run(0.1);
+        // Only what applies: nothing is selected, so nothing to cut or copy. Paste is not
+        // asserted either way: it follows the machine's own clipboard, which a test does not
+        // control (a CI runner's had text on it).
+        assert!(shown(&d, "Select all"), "the bar is open: {:?}", d.texts());
+        assert!(!shown(&d, "Copy") && !shown(&d, "Cut"));
+    }
+}
