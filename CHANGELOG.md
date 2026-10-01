@@ -19,6 +19,11 @@ any release may break.
   anchor across), and the README's picture tool drew empty frames since the demonstration
   became components.
 
+- **Logcat's tag is the application's crate** (J604, seen on a phone). It was `frus_shell`
+  for every application, read off a framework type wrapping the application's; `main!` now
+  names the crate it is invoked in. The same fault kept the application's own `debug` lines
+  hidden on desktop. The GPU layer's ten-line launch report is no longer shown.
+
 - **Shadows as the reference casts them** (J606). Every shadow stopped short at half its
   strength in a hard grey line — the renderer faded it across the edge of what it draws
   rather than inside — and fifteen widgets each blurred their one shadow by four times the
