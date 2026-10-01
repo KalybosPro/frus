@@ -325,6 +325,10 @@ macro_rules! forward_transparent {
                 self.inner.focusable()
             }
 
+            fn autofocus(&self) -> bool {
+                self.inner.autofocus()
+            }
+
             fn shortcut_bindings(
                 &self,
             ) -> &[($crate::shortcuts::KeyStroke, $crate::shortcuts::Intent)] {

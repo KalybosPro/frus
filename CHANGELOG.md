@@ -22,6 +22,12 @@ any release may break.
   selection bar** is the platform's: a white pill (`#424242` in the dark), just lifted, with
   more room at its ends than between its words.
 
+- **The menu bar works from the keyboard** (J605, #33): a menu that opens gives its first row
+  the focus; right opens a submenu or the next menu, left goes back or to the menu before, and
+  Escape closes one level and hands the focus back. New hook **`Widget::autofocus`**: a
+  focusable widget that takes the focus when it appears, the focus going back where it came
+  from when it goes.
+
 - **Logs reach the console with nothing to set up** (J604). On desktop, `log::info!` and
   `warn!` printed nothing without `RUST_LOG`, and neither did the framework's own overflow
   warning. Now every platform shows `info` and up, the application's own crate from `debug` up
@@ -30,6 +36,12 @@ any release may break.
   it printed nothing before. On the web, each level uses its own console method.
   `console_log` is no longer a dependency. Five messages whose line continuations had turned
   into runs of spaces are mended.
+
+- **`MenuBar`, `SubmenuButton` and `MenuPath`** (J603, #33): menus along the top of a window,
+  with submenus opening beside their rows. Once a menu is open the pointer moves between them
+  with no press; a press outside closes them. Which menu is open is the application's, as a
+  `MenuPath`, like every other menu here. Rows are `MenuItem`s. New `Placement::Beside`. The
+  keyboard comes next.
 
 - **`StickyHeader`** (J602, #29): a section whose header stays at the top of a scroll view
   while the section is in view, and is pushed off by the next one. The stuck header is drawn
