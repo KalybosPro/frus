@@ -19,7 +19,7 @@ any release may break.
   its menu closed: the menus' portals came and went with them, moving what they wrapped. They
   are now there open or shut.
 
-- **The demonstration has a menu bar on a wide window** (J607, closes #33): File, View (with
+- **The demonstration has a menu bar on a wide window** (J607, #33): File, View (with
   Text size and Language submenus) and Go. Two fixes it found: a menu row with its submenu
   open was laid out at its label's width, its chevron off the menu (a portal now stretches its
   anchor across), and the README's picture tool drew empty frames since the demonstration
