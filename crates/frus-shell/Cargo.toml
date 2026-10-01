@@ -71,7 +71,7 @@ blocking = "1"
 # The `fetch` helper's native HTTP client (the `net` feature): blocking, driven to
 # completion inside the async future's body, on its own thread. TLS through rustls,
 # ureq's default.
-ureq = { version = "2", optional = true }
+ureq = { version = "3", optional = true }
 
 # The reader's preferred languages, everywhere but Android and the Web — Windows,
 # macOS, Linux and iOS each keep them somewhere different, and this is one small crate
@@ -94,8 +94,8 @@ sys-locale = "0.3"
 frus-image = { path = "../frus-image", version = "0.2" }
 arboard.workspace = true
 env_logger.workspace = true
-accesskit = "0.24"
-accesskit_winit = "0.33"
+accesskit = "0.25"
+accesskit_winit = "0.34"
 
 # Web (wasm32 + WebGPU): the browser entry point, JS futures, console logs.
 [target.'cfg(target_arch = "wasm32")'.dependencies]

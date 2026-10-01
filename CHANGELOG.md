@@ -13,6 +13,11 @@ any release may break.
 
 ## [Unreleased]
 
+- **Dependencies**: `ureq` 3 for the native `fetch` (the same behaviour: headers, a timeout
+  over the whole exchange, a status of 400 or more reported as `FetchError::Status`, the size
+  cap), and `accesskit` 0.25 with `accesskit_winit` 0.34, which must move together.
+  Dependabot no longer offers to bump `dtolnay/rust-toolchain`, whose tag is a Rust version.
+
 - **The shell's test driver presses keys** (J608): `Driver::key(KeyStroke)`, through the same
   handling a window's keys go through, moved into one method. Driving the menu bar with it found
   that the focus could not return to a row once its submenu closed, nor to a word on the bar once
