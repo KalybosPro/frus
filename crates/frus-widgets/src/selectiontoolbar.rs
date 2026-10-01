@@ -146,14 +146,46 @@ impl<Msg> ToolbarItem<Msg> {
     }
 }
 
-/// The bar's height and its buttons' minimum width: a comfortable target for a finger.
+/// The bar's height, and so its ends' radius: half of it.
 const HEIGHT: f32 = 44.0;
-/// The room on either side of a label.
-const PAD_X: f32 = 16.0;
-/// The bar's height above the surface: the same as a menu's.
-const ELEVATION: f32 = 3.0;
+/// The room at either end of the bar, before the first label and after the last.
+const PAD_END: f32 = 14.5;
+/// The room either side of a label between two others.
+const PAD_MIDDLE: f32 = 9.5;
+/// A button's narrowest: a target a finger can hit.
+const MIN_WIDTH: f32 = 48.0;
+/// The bar's height above the surface: just off it, as the platform's own bar is
+/// (milestone 606). It was a menu's three, with a shadow that spread four times as far.
+const ELEVATION: f32 = 1.0;
 
-/// The surface the buttons sit on: rounded, opaque, lifted by a shadow.
+/// The bar's surface and the words on it: **white and black** on the default light theme,
+/// `#424242` and white on the default dark one — the platform's own bar, which the reference
+/// matches by eye — and the scheme's surface and on-surface once a theme names its own
+/// (milestone 606).
+fn colours(theme: &Theme) -> (frus_core::Color, frus_core::Color) {
+    let dark = theme.scheme.brightness == crate::Brightness::Dark;
+    let default = if dark { Theme::dark() } else { Theme::light() };
+    if theme.scheme.surface == default.scheme.surface
+        && theme.scheme.on_surface == default.scheme.on_surface
+    {
+        if dark {
+            (
+                frus_core::Color::rgb(
+                    0x42 as f32 / 255.0,
+                    0x42 as f32 / 255.0,
+                    0x42 as f32 / 255.0,
+                ),
+                frus_core::Color::WHITE,
+            )
+        } else {
+            (frus_core::Color::WHITE, frus_core::Color::BLACK)
+        }
+    } else {
+        (theme.scheme.surface, theme.scheme.on_surface)
+    }
+}
+
+/// The surface the buttons sit on: a pill, opaque, just lifted off the page.
 pub(crate) struct SelectionToolbar<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -161,10 +193,13 @@ pub(crate) struct SelectionToolbar<Msg> {
 impl<Msg: Clone + 'static> SelectionToolbar<Msg> {
     /// A bar of `items`, in order.
     pub(crate) fn new(items: Vec<ToolbarItem<Msg>>) -> Self {
+        let total = items.len();
         let children = items
             .into_iter()
-            .map(|item| {
-                let button: Box<dyn Widget<Msg>> = Box::new(ToolbarButton::new(item));
+            .enumerate()
+            .map(|(index, item)| {
+                let button: Box<dyn Widget<Msg>> =
+                    Box::new(ToolbarButton::new(item, index == 0, index + 1 == total));
                 button
             })
             .collect();
@@ -189,24 +224,18 @@ impl<Msg: Clone> Widget<Msg> for SelectionToolbar<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let shape = ShapeBorder::rounded(theme.radius);
-        let radius = shape
-            .as_rounded(bounds)
-            .map(|(_, radius)| radius)
-            .unwrap_or(BorderRadius::ZERO);
-        let blur = ELEVATION * 4.0 + 8.0;
-        scene.shadow(
-            Rect::new(
-                bounds.x - blur,
-                bounds.y + ELEVATION * 2.0 - blur,
-                bounds.width + 2.0 * blur,
-                bounds.height + 2.0 * blur,
-            ),
-            theme.scheme.shadow.with_alpha(0.35).fade(o),
-            radius.inflate(blur),
-            blur,
+        // A pill: the ends are half circles, whatever the theme's corners are.
+        let radius = BorderRadius::uniform(HEIGHT * 0.5);
+        let shape = ShapeBorder::rounded(radius);
+        // The reference's shadows for this height (milestone 606).
+        frus_core::paint_elevation(
+            scene,
+            bounds,
+            radius,
+            ELEVATION,
+            theme.scheme.shadow.fade(o),
         );
-        scene.draw_shape(bounds, shape, theme.scheme.surface_container.fade(o));
+        scene.draw_shape(bounds, shape, colours(theme).0.fade(o));
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -225,35 +254,50 @@ struct ToolbarButton<Msg> {
     label: String,
     action: Option<EditAction>,
     message: Option<Msg>,
+    /// Whether it is the first on the bar, and the last: the ends keep more room, and
+    /// their highlight follows the pill's round ends.
+    first: bool,
+    last: bool,
 }
 
 impl<Msg> ToolbarButton<Msg> {
-    fn new(item: ToolbarItem<Msg>) -> Self {
-        match item.kind {
-            ItemKind::Action(action) => Self {
-                label: action.label().to_owned(),
-                action: Some(action),
-                message: None,
-            },
-            ItemKind::Custom { label, message } => Self {
-                label,
-                action: None,
-                message: Some(message),
-            },
+    fn new(item: ToolbarItem<Msg>, first: bool, last: bool) -> Self {
+        let (label, action, message) = match item.kind {
+            ItemKind::Action(action) => (action.label().to_owned(), Some(action), None),
+            ItemKind::Custom { label, message } => (label, None, Some(message)),
+        };
+        Self {
+            label,
+            action,
+            message,
+            first,
+            last,
         }
+    }
+
+    /// The room before and after the label.
+    fn padding(&self) -> (f32, f32) {
+        (
+            if self.first { PAD_END } else { PAD_MIDDLE },
+            if self.last { PAD_END } else { PAD_MIDDLE },
+        )
     }
 }
 
-/// The words' style: the scheme's `label_large`, as a menu's rows use.
+/// The words' style: the scheme's `label_large` at the regular weight, as the platform's
+/// own bar sets them.
 fn label_style(theme: Option<&Theme>) -> frus_core::TextStyle {
-    crate::theme::type_scale(theme).label_large
+    let mut style = crate::theme::type_scale(theme).label_large;
+    style.weight = Some(frus_core::FontWeight::Regular);
+    style
 }
 
 impl<Msg: Clone> Widget<Msg> for ToolbarButton<Msg> {
     fn style_themed(&self, theme: &Theme) -> Style {
         let measured = frus_text::measure_style(&self.label, label_style(Some(theme)));
+        let (before, after) = self.padding();
         Style {
-            width: Dimension::Length((measured.width + PAD_X * 2.0).ceil()),
+            width: Dimension::Length((measured.width + before + after).ceil().max(MIN_WIDTH)),
             height: Dimension::Length(HEIGHT),
             ..Default::default()
         }
@@ -269,24 +313,33 @@ impl<Msg: Clone> Widget<Msg> for ToolbarButton<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Nothing at rest; the theme's state layer under a pointer or a finger.
-        let layer = theme.state_layer(
-            frus_core::Color::TRANSPARENT,
-            theme.scheme.on_surface,
-            &status,
+        let (_, ink) = colours(theme);
+        // Nothing at rest; the theme's state layer under a pointer or a finger. Square
+        // where it meets another button, round where it meets the pill's end, so it never
+        // spills past the bar.
+        let layer = theme.state_layer(frus_core::Color::TRANSPARENT, ink, &status);
+        let end = HEIGHT * 0.5;
+        let (start_r, end_r) = (
+            if self.first { end } else { 0.0 },
+            if self.last { end } else { 0.0 },
         );
-        let radius = theme.radius;
+        let radius = BorderRadius {
+            top_left: start_r,
+            bottom_left: start_r,
+            top_right: end_r,
+            bottom_right: end_r,
+        };
         scene.draw_shape(bounds, ShapeBorder::rounded(radius), layer.fade(o));
         let resolved = label_style(Some(theme)).resolved();
         let measured = frus_text::measure_resolved(&self.label, &resolved);
+        let (before, after) = self.padding();
+        // Centred in the room between the paddings, which differ at the ends.
+        let x = bounds.x + before + (bounds.width - before - after - measured.width) / 2.0;
         scene.text(
-            frus_core::Point::new(
-                bounds.x + (bounds.width - measured.width) / 2.0,
-                bounds.y + (bounds.height - measured.height) / 2.0,
-            ),
+            frus_core::Point::new(x, bounds.y + (bounds.height - measured.height) / 2.0),
             self.label.clone(),
             &resolved,
-            theme.scheme.on_surface.fade(o),
+            ink.fade(o),
         );
     }
 
@@ -438,7 +491,7 @@ mod tests {
 
     #[test]
     fn a_built_in_button_is_a_target_without_a_message_and_never_takes_the_focus() {
-        let button = ToolbarButton::<u8>::new(ToolbarItem::copy());
+        let button = ToolbarButton::<u8>::new(ToolbarItem::copy(), true, true);
         assert!(Widget::<u8>::opaque(&button));
         assert_eq!(Widget::<u8>::on_click(&button), None);
         assert_eq!(Widget::<u8>::edit_action(&button), Some(EditAction::Copy));
@@ -447,9 +500,124 @@ mod tests {
 
     #[test]
     fn an_application_button_sends_its_message_and_is_not_an_edit() {
-        let button = ToolbarButton::new(ToolbarItem::custom("Translate", 7u8));
+        let button = ToolbarButton::new(ToolbarItem::custom("Translate", 7u8), true, true);
         assert_eq!(Widget::<u8>::on_click(&button), Some(7));
         assert_eq!(Widget::<u8>::edit_action(&button), None);
         assert!(!Widget::<u8>::opaque(&button));
+    }
+
+    /// The four built-in items, the way a field shows them.
+    fn four() -> SelectionToolbar<u8> {
+        SelectionToolbar::new(vec![
+            ToolbarItem::cut(),
+            ToolbarItem::copy(),
+            ToolbarItem::paste(),
+            ToolbarItem::select_all(),
+        ])
+    }
+
+    fn frame(theme: &Theme) -> crate::Ui<u8> {
+        crate::build_ui(
+            &four(),
+            Size::new(600.0, 100.0),
+            &crate::Runtime::default(),
+            theme,
+        )
+    }
+
+    /// **As the platform's own bar looks** (milestone 606): a white pill on the default
+    /// light theme, `#424242` on the default dark one, just lifted off the page, with its
+    /// words in black or white.
+    #[test]
+    fn it_is_a_pill_just_off_the_page_in_the_platforms_colours() {
+        for (theme, surface, ink) in [
+            (
+                Theme::light(),
+                frus_core::Color::WHITE,
+                frus_core::Color::BLACK,
+            ),
+            (
+                Theme::dark(),
+                frus_core::Color::rgb(
+                    0x42 as f32 / 255.0,
+                    0x42 as f32 / 255.0,
+                    0x42 as f32 / 255.0,
+                ),
+                frus_core::Color::WHITE,
+            ),
+        ] {
+            let ui = frame(&theme);
+            let bar = ui
+                .scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Rect {
+                        rect,
+                        color,
+                        radius,
+                        blur,
+                        ..
+                    } if *blur == 0.0 && *color == surface => Some((*rect, *radius)),
+                    _ => None,
+                })
+                .expect("the bar's surface");
+            assert_eq!(bar.0.height, HEIGHT);
+            assert_eq!(bar.1, BorderRadius::uniform(HEIGHT * 0.5), "round ends");
+            assert_eq!(crate::shadowprobe::height(ui.scene().primitives()), 1.0);
+            let words: Vec<_> = ui
+                .scene()
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Text { color, .. } => Some(*color),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(words, vec![ink; 4]);
+        }
+    }
+
+    /// **A theme with its own surface** gets its surface and its on-surface.
+    #[test]
+    fn a_theme_of_its_own_colours_it() {
+        let mut theme = Theme::light();
+        theme.scheme.surface = frus_core::Color::rgb(0.9, 0.95, 1.0);
+        theme.scheme.on_surface = frus_core::Color::rgb(0.1, 0.1, 0.3);
+        assert_eq!(
+            colours(&theme),
+            (theme.scheme.surface, theme.scheme.on_surface)
+        );
+    }
+
+    /// **More room at the ends than between**, fourteen and a half against nine and a half,
+    /// so the first and last words sit clear of the round ends; and a short word still gets
+    /// a target a finger can hit.
+    #[test]
+    fn the_ends_keep_more_room_and_a_short_word_a_wide_enough_target() {
+        let theme = Theme::light();
+        let style = label_style(Some(&theme));
+        let width = |label: &str| frus_text::measure_style(label, style).width;
+        let first = ToolbarButton::<u8>::new(ToolbarItem::cut(), true, false);
+        let middle = ToolbarButton::<u8>::new(ToolbarItem::copy(), false, false);
+        let last = ToolbarButton::<u8>::new(ToolbarItem::select_all(), false, true);
+        let styled = |b: &ToolbarButton<u8>| match Widget::<u8>::style_themed(b, &theme).width {
+            Dimension::Length(w) => w,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            styled(&first),
+            (width("Cut") + PAD_END + PAD_MIDDLE).ceil().max(MIN_WIDTH)
+        );
+        assert_eq!(
+            styled(&middle),
+            (width("Copy") + 2.0 * PAD_MIDDLE).ceil().max(MIN_WIDTH)
+        );
+        assert_eq!(
+            styled(&last),
+            (width("Select all") + PAD_MIDDLE + PAD_END).ceil()
+        );
+        let tiny = ToolbarButton::<u8>::new(ToolbarItem::custom("A", 1), false, false);
+        assert_eq!(styled(&tiny), MIN_WIDTH);
     }
 }

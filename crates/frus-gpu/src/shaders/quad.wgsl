@@ -101,9 +101,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let r = min(corner_radius(in.local_px, in.radii), min(in.half_size.x, in.half_size.y));
     let d = sdf_round_box(in.local_px, in.half_size, r);
 
-    // A hard edge (0.5px), or a soft one of the blur radius for shadows.
-    let softness = max(in.blur, 0.5);
-    let alpha = (1.0 - smoothstep(-softness, softness, d)) * inside_clip;
+    // A hard edge (half a pixel either side of it), or, for a shadow, a soft one that fades
+    // **inside** the quad: a shadow's rect already reaches its blur beyond the shape, so
+    // the fade runs from the shape's edge less the blur, at full strength, out to the
+    // quad's edge, at nothing. Ramping across the quad's edge instead left the outer half
+    // of every shadow unrasterised, and cut it off at half its strength (milestone 606).
+    var alpha = 1.0 - smoothstep(-0.5, 0.5, d);
+    if (in.blur > 0.0) {
+        alpha = 1.0 - smoothstep(-2.0 * in.blur, 0.0, d);
+    }
+    alpha = alpha * inside_clip;
 
     // The fill: a linear gradient, solid when dir = 0 and color2 = color.
     let t = clamp(dot(in.uv - vec2<f32>(0.5, 0.5), in.gradient) + 0.5, 0.0, 1.0);

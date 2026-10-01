@@ -773,17 +773,13 @@ impl<Msg: Clone + 'static> Widget<Msg> for NavigationDrawer<Msg> {
             .or(t.shadow_color)
             .unwrap_or(Color::TRANSPARENT);
         if depth > 0.0 && shadow.a > 0.0 {
-            let blur = depth * 4.0 + 8.0;
-            scene.shadow(
-                Rect::new(
-                    bounds.x - blur,
-                    bounds.y + depth * 2.0 - blur,
-                    bounds.width + 2.0 * blur,
-                    bounds.height + 2.0 * blur,
-                ),
+            // The reference's shadows for this height (milestone 606).
+            frus_core::paint_elevation(
+                scene,
+                bounds,
+                frus_core::BorderRadius::ZERO,
+                depth,
                 shadow.fade(o),
-                frus_core::BorderRadius::uniform(blur),
-                blur,
             );
         }
         let fill = self
@@ -1145,25 +1141,18 @@ mod tests {
     fn a_drawer_casts_no_shadow_until_a_colour_is_named() {
         let bounds = Rect::new(0.0, 0.0, 304.0, 600.0);
         let shadows = |drawer: &NavigationDrawer<Msg>, theme: &Theme| {
-            scene_of(drawer, bounds, theme)
-                .primitives()
-                .iter()
-                .filter_map(|p| match p {
-                    frus_core::Primitive::Rect { color, blur, .. } if *blur > 0.0 => Some(*color),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
+            crate::shadowprobe::colour(scene_of(drawer, bounds, theme).primitives())
         };
         let theme = Theme::default();
-        assert!(shadows(&drawer(), &theme).is_empty(), "none by default");
+        assert!(shadows(&drawer(), &theme).is_none(), "none by default");
 
         let named = Color::rgba(0.0, 0.0, 0.0, 0.25);
-        assert_eq!(shadows(&drawer().shadow_color(named), &theme), vec![named]);
+        assert_eq!(shadows(&drawer().shadow_color(named), &theme), Some(named));
         let mut themed = Theme::default();
         themed.widgets.nav_drawer.shadow_color = Some(named);
-        assert_eq!(shadows(&drawer(), &themed), vec![named], "or on the theme");
+        assert_eq!(shadows(&drawer(), &themed), Some(named), "or on the theme");
         assert!(
-            shadows(&drawer().shadow_color(named).elevation(0.0), &theme).is_empty(),
+            shadows(&drawer().shadow_color(named).elevation(0.0), &theme).is_none(),
             "and a flat drawer has no height to cast it from"
         );
     }

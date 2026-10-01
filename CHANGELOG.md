@@ -8,10 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 605 so far, each documenting the objective, the alternatives
+> record — one per step, 606 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Shadows as the reference casts them** (J606). Every shadow stopped short at half its
+  strength in a hard grey line — the renderer faded it across the edge of what it draws
+  rather than inside — and fifteen widgets each blurred their one shadow by four times the
+  height plus eight. Now `BoxShadow::for_elevation` gives the reference's three shadows for a
+  height, `paint_elevation` paints them, and every widget with a height uses it. A shadow
+  colour is the colour at full strength; the defaults are the scheme's shadow. **The text
+  selection bar** is the platform's: a white pill (`#424242` in the dark), just lifted, with
+  more room at its ends than between its words.
 
 - **The menu bar works from the keyboard** (J605, #33): a menu that opens gives its first row
   the focus; right opens a submenu or the next menu, left goes back or to the menu before, and

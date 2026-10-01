@@ -331,6 +331,43 @@ impl BoxShadow {
         self
     }
 
+    /// **The three shadows a surface `elevation` high casts**, in `color`: a sharp one close
+    /// under it, a softer one further down, and a wide faint one all round. The reference's
+    /// own table, and its three strengths — a fifth, a seventh and an eighth of `color`'s
+    /// opacity — so `color` is the shadow's colour at full strength, black by default
+    /// (milestone 606).
+    ///
+    /// Between two heights of the table the shadows are interpolated, so a height that
+    /// animates moves smoothly; past twenty-four, it is twenty-four.
+    pub fn for_elevation(elevation: f32, color: Color) -> [BoxShadow; 3] {
+        let e = elevation.clamp(0.0, 24.0);
+        let upper = ELEVATION_TABLE
+            .iter()
+            .position(|(level, _)| *level >= e)
+            .unwrap_or(ELEVATION_TABLE.len() - 1);
+        let lower = upper.saturating_sub(1);
+        let (a, b) = (ELEVATION_TABLE[lower], ELEVATION_TABLE[upper]);
+        let t = if b.0 > a.0 {
+            (e - a.0) / (b.0 - a.0)
+        } else {
+            1.0
+        };
+        let lerp = |x: f32, y: f32| x + (y - x) * t;
+        let layer = |i: usize, strength: f32| {
+            let (ya, blur_a, spread_a) = a.1[i];
+            let (yb, blur_b, spread_b) = b.1[i];
+            // A surface on the page casts nothing: its shadows fade in as it lifts.
+            let fade = if e < 1.0 { e } else { 1.0 };
+            BoxShadow {
+                color: color.with_alpha(color.a * strength * fade),
+                offset: (0.0, lerp(ya, yb)),
+                blur: lerp(blur_a, blur_b),
+                spread: lerp(spread_a, spread_b),
+            }
+        };
+        [layer(0, 0.2), layer(1, 0.14), layer(2, 0.12)]
+    }
+
     /// The rectangle the shadow occupies around `rect` (offset + blur + spread).
     pub fn bounds(&self, rect: Rect) -> Rect {
         let grow = self.blur + self.spread;
@@ -340,6 +377,60 @@ impl BoxShadow {
             rect.width + 2.0 * grow,
             rect.height + 2.0 * grow,
         )
+    }
+}
+
+/// The reference's shadows per height: `(height, [(drop, blur, spread); 3])`, the key light's
+/// umbra, its penumbra, then the ambient light.
+/// One shadow of a height: its drop, its blur and its spread.
+type Layer = (f32, f32, f32);
+/// A height and its three shadows.
+type Height = (f32, [Layer; 3]);
+
+const ELEVATION_TABLE: [Height; 11] = [
+    (0.0, [(0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)]),
+    (1.0, [(2.0, 1.0, -1.0), (1.0, 1.0, 0.0), (1.0, 3.0, 0.0)]),
+    (2.0, [(3.0, 1.0, -2.0), (2.0, 2.0, 0.0), (1.0, 5.0, 0.0)]),
+    (3.0, [(3.0, 3.0, -2.0), (3.0, 4.0, 0.0), (1.0, 8.0, 0.0)]),
+    (4.0, [(2.0, 4.0, -1.0), (4.0, 5.0, 0.0), (1.0, 10.0, 0.0)]),
+    (6.0, [(3.0, 5.0, -1.0), (6.0, 10.0, 0.0), (1.0, 18.0, 0.0)]),
+    (8.0, [(5.0, 5.0, -3.0), (8.0, 10.0, 1.0), (3.0, 14.0, 2.0)]),
+    (9.0, [(5.0, 6.0, -3.0), (9.0, 12.0, 1.0), (3.0, 16.0, 2.0)]),
+    (
+        12.0,
+        [(7.0, 8.0, -4.0), (12.0, 17.0, 2.0), (5.0, 22.0, 4.0)],
+    ),
+    (
+        16.0,
+        [(8.0, 10.0, -5.0), (16.0, 24.0, 2.0), (6.0, 30.0, 5.0)],
+    ),
+    (
+        24.0,
+        [(11.0, 15.0, -7.0), (24.0, 38.0, 3.0), (9.0, 46.0, 8.0)],
+    ),
+];
+
+/// Paints the shadows of a surface `elevation` high, with corners `radius`, behind `rect`:
+/// [`BoxShadow::for_elevation`]'s three, each as [`BoxDecoration`] paints one. Nothing at
+/// a height of nought or in a colour with no opacity (milestone 606).
+pub fn paint_elevation(
+    scene: &mut Scene,
+    rect: Rect,
+    radius: BorderRadius,
+    elevation: f32,
+    color: Color,
+) {
+    if elevation <= 0.0 || color.a <= 0.0 {
+        return;
+    }
+    for shadow in BoxShadow::for_elevation(elevation, color) {
+        let grow = (shadow.blur + shadow.spread).max(0.0);
+        scene.shadow(
+            shadow.bounds(rect),
+            shadow.color,
+            radius.inflate(grow),
+            shadow.blur,
+        );
     }
 }
 
@@ -834,5 +925,92 @@ mod lerp_tests {
             .lerp(BoxDecoration::default().radius(16.0), 0.5)
             .radius;
         assert_eq!((r.top_left, r.bottom_left), (12.0, 8.0));
+    }
+
+    /// **At a height of the reference's table, its three shadows exactly**, each carrying its
+    /// share of the colour: a fifth, a seventh, an eighth.
+    #[test]
+    fn a_height_of_the_table_casts_its_three_shadows() {
+        let [umbra, penumbra, ambient] = BoxShadow::for_elevation(3.0, Color::BLACK);
+        assert_eq!(
+            (umbra.offset, umbra.blur, umbra.spread),
+            ((0.0, 3.0), 3.0, -2.0)
+        );
+        assert_eq!(
+            (penumbra.offset, penumbra.blur, penumbra.spread),
+            ((0.0, 3.0), 4.0, 0.0)
+        );
+        assert_eq!(
+            (ambient.offset, ambient.blur, ambient.spread),
+            ((0.0, 1.0), 8.0, 0.0)
+        );
+        assert_eq!(
+            [umbra.color.a, penumbra.color.a, ambient.color.a],
+            [0.2, 0.14, 0.12]
+        );
+        let [_, twenty_four, _] = BoxShadow::for_elevation(24.0, Color::BLACK);
+        assert_eq!((twenty_four.offset, twenty_four.blur), ((0.0, 24.0), 38.0));
+    }
+
+    /// **Between two heights, between their shadows**; past twenty-four, twenty-four; and
+    /// the colour's own opacity scales all three.
+    #[test]
+    fn heights_between_and_beyond_the_table() {
+        let [_, half, _] = BoxShadow::for_elevation(5.0, Color::BLACK);
+        assert_eq!(
+            (half.offset.1, half.blur),
+            (5.0, 7.5),
+            "half way from 4 to 6"
+        );
+        assert_eq!(
+            BoxShadow::for_elevation(40.0, Color::BLACK),
+            BoxShadow::for_elevation(24.0, Color::BLACK)
+        );
+        let [faint, ..] = BoxShadow::for_elevation(1.0, Color::rgba(0.0, 0.0, 1.0, 0.5));
+        assert_eq!(faint.color, Color::rgba(0.0, 0.0, 1.0, 0.1));
+        // Lifting off the page fades in rather than jumping to a height of one.
+        let [low, ..] = BoxShadow::for_elevation(0.5, Color::BLACK);
+        assert!((low.color.a - 0.1).abs() < 1e-6, "{low:?}");
+    }
+
+    /// **Painted, a height is three soft shapes** grown past the box by their blur and
+    /// spread, with the box's corners grown with them; at nought, or in a colour nobody can
+    /// see, nothing.
+    #[test]
+    fn a_height_paints_three_shadows_and_nought_paints_none() {
+        let rect = Rect::new(10.0, 20.0, 100.0, 40.0);
+        let mut scene = Scene::new();
+        paint_elevation(
+            &mut scene,
+            rect,
+            BorderRadius::uniform(8.0),
+            3.0,
+            Color::BLACK,
+        );
+        let shadows: Vec<_> = scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                crate::Primitive::Rect {
+                    rect, radius, blur, ..
+                } => Some((*rect, *radius, *blur)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(shadows.len(), 3);
+        let (penumbra, radius, blur) = shadows[1];
+        assert_eq!(blur, 4.0);
+        assert_eq!(
+            penumbra,
+            Rect::new(6.0, 19.0, 108.0, 48.0),
+            "dropped 3, grown 4"
+        );
+        assert_eq!(radius, BorderRadius::uniform(12.0));
+
+        for (height, colour) in [(0.0, Color::BLACK), (3.0, Color::TRANSPARENT)] {
+            let mut none = Scene::new();
+            paint_elevation(&mut none, rect, BorderRadius::ZERO, height, colour);
+            assert!(none.primitives().is_empty(), "{height} {colour:?}");
+        }
     }
 }

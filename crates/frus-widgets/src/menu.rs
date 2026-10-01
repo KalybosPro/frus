@@ -145,9 +145,7 @@ impl PanelStyle {
             PanelKind::Menu => theme.widgets.menu.shadow_color,
             PanelKind::Dropdown => theme.widgets.dropdown.menu_shadow_color,
         };
-        self.shadow_color
-            .or(themed)
-            .unwrap_or(theme.scheme.shadow.with_alpha(0.30))
+        self.shadow_color.or(themed).unwrap_or(theme.scheme.shadow)
     }
 
     /// The room above and below the rows: the caller's, the theme's, then eight — the
@@ -638,18 +636,8 @@ impl<Msg: Clone> Widget<Msg> for Panel<Msg> {
         // A height casts only in a colour that shows (milestone 529): a transparent
         // shadow colour is the caller saying there is none, whatever the height.
         if depth > 0.0 && shadow.a > 0.0 {
-            let blur = depth * 4.0 + 8.0;
-            scene.shadow(
-                Rect::new(
-                    bounds.x - blur,
-                    bounds.y + depth * 2.0 - blur,
-                    bounds.width + 2.0 * blur,
-                    bounds.height + 2.0 * blur,
-                ),
-                shadow.fade(o),
-                radius.inflate(blur),
-                blur,
-            );
+            // The reference's shadows for this height (milestone 606).
+            frus_core::paint_elevation(scene, bounds, radius, depth, shadow.fade(o));
         }
         // Opaque, and **no outline**: a panel that is off the page says so with its
         // shadow. A shadow and a hairline together is the mash-up milestone 279 took out
@@ -1162,6 +1150,16 @@ pub(crate) mod probe {
         pub(crate) clip: Rect,
     }
 
+    /// The height the panel's shadows are cast from (milestone 606).
+    pub(crate) fn height_of(scene: &Scene) -> f32 {
+        crate::shadowprobe::height(scene.primitives())
+    }
+
+    /// The colour they are cast in, at full strength.
+    pub(crate) fn colour_of(scene: &Scene) -> Option<Color> {
+        crate::shadowprobe::colour(scene.primitives())
+    }
+
     /// Every rectangle in the frame, in paint order, innermost layers included.
     fn painted(scene: &Scene) -> Vec<Painted> {
         fn walk(primitives: &[Primitive], out: &mut Vec<Painted>) {
@@ -1212,7 +1210,7 @@ pub(crate) mod probe {
 
 #[cfg(test)]
 mod tests {
-    use super::probe::blurred;
+    use super::probe::{blurred, colour_of, height_of};
     use super::*;
     use crate::{build_ui, Container, Point as P, Runtime, Size};
 
@@ -1737,30 +1735,38 @@ mod tests {
     }
 
     /// **The shadow's colour is the caller's to say**, then the theme's, then the scheme's
-    /// shadow at 30 % — and a transparent one casts nothing (milestone 529). The panel drew
-    /// its shadow from its height alone, in a colour nobody could change.
+    /// shadow — and a transparent one casts nothing (milestone 529). The panel drew its
+    /// shadow from its height alone, in a colour nobody could change. The colour is the
+    /// shadow's at full strength; the reference's three shadows take their share of it
+    /// (milestone 606).
     #[test]
     fn the_shadow_is_cast_in_a_colour_that_can_be_told() {
         let theme = Theme::default();
         let cast = |menu: &PopupMenuButton<Msg>, theme: &Theme| blurred(frame(menu, theme).scene());
+        let colour =
+            |menu: &PopupMenuButton<Msg>, theme: &Theme| colour_of(frame(menu, theme).scene());
 
         let shadows = cast(&open_menu(), &theme);
-        assert_eq!(shadows.len(), 1, "{shadows:#?}");
-        assert_eq!(shadows[0].blur, 20.0, "three high");
-        assert_eq!(shadows[0].color, theme.scheme.shadow.with_alpha(0.30));
+        assert_eq!(shadows.len(), 3, "{shadows:#?}");
+        assert_eq!(
+            height_of(frame(&open_menu(), &theme).scene()),
+            3.0,
+            "three high"
+        );
+        assert_eq!(colour(&open_menu(), &theme), Some(theme.scheme.shadow));
 
         let shade = frus_core::Color::rgba(0.0, 0.2, 0.6, 0.5);
         assert_eq!(
-            cast(&open_menu().shadow_color(shade), &theme)[0].color,
-            shade
+            colour(&open_menu().shadow_color(shade), &theme),
+            Some(shade)
         );
         let mut themed = Theme::default();
         themed.widgets.menu.shadow_color = Some(shade);
-        assert_eq!(cast(&open_menu(), &themed)[0].color, shade, "the theme's");
+        assert_eq!(colour(&open_menu(), &themed), Some(shade), "the theme's");
         let own = frus_core::Color::rgba(0.6, 0.0, 0.0, 0.25);
         assert_eq!(
-            cast(&open_menu().shadow_color(own), &themed)[0].color,
-            own,
+            colour(&open_menu().shadow_color(own), &themed),
+            Some(own),
             "the caller's over the theme's"
         );
 

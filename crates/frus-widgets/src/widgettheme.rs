@@ -1677,12 +1677,7 @@ mod tests {
         // throughout without writing `.filled()` at every call site.
         let mut flat = Theme::default();
         flat.widgets.card.variant = Some(CardVariant::Filled);
-        let shadows = |theme: &Theme| {
-            framed(Card::<Msg>::new(), theme)
-                .iter()
-                .filter(|p| matches!(p, Primitive::Rect { blur, .. } if *blur > 0.0))
-                .count()
-        };
+        let shadows = |theme: &Theme| crate::shadowprobe::casts(&framed(Card::<Msg>::new(), theme));
         assert_eq!(shadows(&Theme::default()), 1, "elevated by default");
         assert_eq!(shadows(&flat), 0, "flat because the theme says so");
     }

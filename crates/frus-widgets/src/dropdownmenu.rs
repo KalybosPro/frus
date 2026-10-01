@@ -680,7 +680,7 @@ mod tests {
         assert_eq!(swatches, 1, "and the one with no words is still there");
     }
 
-    use crate::menu::probe::{blurred, crisp, Painted};
+    use crate::menu::probe::{blurred, colour_of, crisp, height_of, Painted};
 
     /// The height of one choice on the default theme.
     fn row_height() -> f32 {
@@ -749,10 +749,14 @@ mod tests {
         let ui = frame(&menu("", true));
         let panel = below_field(ui.scene())[0];
         let shadows = blurred(ui.scene());
-        assert_eq!(shadows.len(), 1, "{shadows:#?}");
-        assert_eq!(shadows[0].blur, 20.0);
-        assert_eq!(shadows[0].rect.y, panel.rect.y + 6.0 - 20.0);
-        assert_eq!(shadows[0].color, theme.scheme.shadow.with_alpha(0.30));
+        assert_eq!(shadows.len(), 3, "{shadows:#?}");
+        assert_eq!(height_of(ui.scene()), 3.0);
+        assert_eq!(
+            shadows[1].rect.y + shadows[1].rect.height * 0.5,
+            panel.rect.y + panel.rect.height * 0.5 + 3.0,
+            "the second shadow drops by the height"
+        );
+        assert_eq!(colour_of(ui.scene()), Some(theme.scheme.shadow));
         assert!(
             blurred(frame(&menu("", false)).scene()).is_empty(),
             "shut, none"
@@ -781,8 +785,10 @@ mod tests {
         assert!(painted
             .iter()
             .any(|r| r.color == surface.lerp(theme.primary, 0.14)));
-        let shadow = blurred(ui.scene())[0];
-        assert_eq!((shadow.blur, shadow.color), (12.0, shade));
+        assert_eq!(
+            (height_of(ui.scene()), colour_of(ui.scene())),
+            (1.0, Some(shade))
+        );
 
         let (own, own_shade) = (Color::rgb(0.9, 0.9, 0.1), Color::rgba(0.5, 0.0, 0.0, 0.4));
         let told = menu("", true)
@@ -798,8 +804,10 @@ mod tests {
             .expect("the caller's");
         assert_eq!(panel.radius, frus_core::BorderRadius::uniform(9.0));
         assert_eq!(panel.rect.height, 4.0 * row_height());
-        let shadow = blurred(ui.scene())[0];
-        assert_eq!((shadow.blur, shadow.color), (16.0, own_shade));
+        assert_eq!(
+            (height_of(ui.scene()), colour_of(ui.scene())),
+            (2.0, Some(own_shade))
+        );
     }
 
     /// **A transparent shadow colour casts nothing** (milestone 529), on the widget or on

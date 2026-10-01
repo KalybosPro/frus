@@ -1311,17 +1311,13 @@ impl<Msg: Clone + 'static> Widget<Msg> for NavigationRail<Msg> {
         let depth = self.elevation.or(theme.widgets.nav_rail.elevation);
         let depth = depth.unwrap_or(0.0);
         if depth > 0.0 {
-            let blur = depth * 4.0 + 8.0;
-            scene.shadow(
-                Rect::new(
-                    bounds.x - blur,
-                    bounds.y + depth * 2.0 - blur,
-                    bounds.width + 2.0 * blur,
-                    bounds.height + 2.0 * blur,
-                ),
-                theme.scheme.shadow.with_alpha(0.30).fade(o),
-                frus_core::BorderRadius::uniform(blur),
-                blur,
+            // The reference's shadows for this height (milestone 606).
+            frus_core::paint_elevation(
+                scene,
+                bounds,
+                frus_core::BorderRadius::ZERO,
+                depth,
+                theme.scheme.shadow.fade(o),
             );
         }
 
@@ -3064,7 +3060,8 @@ mod tests {
                     frus_core::Primitive::Rect { blur, .. } => *blur > 0.0,
                     _ => false,
                 })
-                .count();
+                .count()
+                / 3;
             let rules = scene
                 .primitives()
                 .iter()

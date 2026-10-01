@@ -363,17 +363,13 @@ impl<Msg: Clone + 'static> Widget<Msg> for CardShadow<Msg> {
         if self.depth <= 0.0 {
             return;
         }
-        let blur = self.depth * 4.0 + 8.0;
-        scene.shadow(
-            Rect::new(
-                bounds.x - blur,
-                bounds.y + self.depth * 2.0 - blur,
-                bounds.width + 2.0 * blur,
-                bounds.height + 2.0 * blur,
-            ),
-            theme.scheme.shadow.with_alpha(0.30).fade(status.opacity),
-            BorderRadius::uniform(self.radius).inflate(blur),
-            blur,
+        // The reference's shadows for this height (milestone 606).
+        frus_core::paint_elevation(
+            scene,
+            bounds,
+            BorderRadius::uniform(self.radius),
+            self.depth,
+            theme.scheme.shadow.fade(status.opacity),
         );
     }
 
@@ -595,13 +591,7 @@ mod tests {
     fn each_card_casts_one_shadow() {
         let shadows = |list: &ExpansionPanelList<Msg>, theme: &Theme| {
             let ui = build_ui(list, Size::new(320.0, 400.0), &Runtime::default(), theme);
-            flat(&ui)
-                .iter()
-                .filter_map(|p| match p {
-                    Primitive::Rect { blur, .. } if *blur > 0.0 => Some((blur - 8.0) / 4.0),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
+            crate::shadowprobe::heights(&flat(&ui))
         };
         let theme = Theme::default();
         assert_eq!(

@@ -399,17 +399,13 @@ impl<Msg: Clone> Widget<Msg> for BannerSurface<Msg> {
         let o = status.opacity;
         if self.elevation > 0.0 {
             if let Some(shadow) = self.shadow_color.filter(|c| c.a > 0.0) {
-                let blur = self.elevation * 4.0 + 8.0;
-                scene.shadow(
-                    Rect::new(
-                        bounds.x - blur,
-                        bounds.y + self.elevation * 2.0 - blur,
-                        bounds.width + 2.0 * blur,
-                        bounds.height + 2.0 * blur,
-                    ),
+                // The reference's shadows for this height (milestone 606).
+                frus_core::paint_elevation(
+                    scene,
+                    bounds,
+                    frus_core::BorderRadius::ZERO,
+                    self.elevation,
                     shadow.fade(o),
-                    frus_core::BorderRadius::ZERO.inflate(blur),
-                    blur,
                 );
             }
         }

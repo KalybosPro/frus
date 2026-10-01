@@ -163,6 +163,8 @@ mod segmented;
 mod selectiontoolbar;
 /// Stating what a widget **is** from outside it: the [`semantics::Semantics`] wrapper.
 pub mod semantics;
+#[cfg(test)]
+mod shadowprobe;
 mod sheet;
 mod shortcuts;
 mod skeleton;
