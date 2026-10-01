@@ -173,6 +173,29 @@ fn label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextSt
         .resolved()
 }
 
+/// What a row does with the keyboard in a menu bar (milestone 605): what the left and right
+/// arrows send, and whether it takes the focus when its menu opens. A popup menu's rows do
+/// none of it.
+#[derive(Clone)]
+pub(crate) struct RowKeys<Msg> {
+    pub(crate) left: Option<Msg>,
+    pub(crate) right: Option<Msg>,
+    /// What Escape sends from the row: a menu bar's closes the row's own menu and no more.
+    pub(crate) escape: Option<Msg>,
+    pub(crate) autofocus: bool,
+}
+
+impl<Msg> Default for RowKeys<Msg> {
+    fn default() -> Self {
+        Self {
+            left: None,
+            right: None,
+            escape: None,
+            autofocus: false,
+        }
+    }
+}
+
 /// **What sits in a row's leading column**, when the row has anything to put there.
 #[derive(Clone, Copy)]
 enum Lead {
@@ -221,6 +244,9 @@ struct Item<Msg> {
     shortcut: Option<String>,
     /// Whether this row opens a submenu: a chevron at the end (milestone 603).
     submenu: bool,
+    /// What the left and right arrows send while this row has the focus, and whether it
+    /// takes the focus when its menu opens (milestone 605).
+    keys: RowKeys<Msg>,
     /// Whether this row can be used. The menu's own availability is folded in here, but
     /// only for tidiness: a disabled menu never opens, so there is no row to disable.
     enabled: bool,
@@ -400,6 +426,28 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
 
     fn focusable(&self) -> bool {
         self.enabled
+    }
+
+    fn autofocus(&self) -> bool {
+        self.enabled && self.keys.autofocus
+    }
+
+    fn on_key(&self, key: &crate::interaction::Key) -> crate::interaction::KeyResponse<Msg> {
+        use crate::interaction::{Key, KeyResponse};
+        // A row that cannot be used answers no key, as it answers no press.
+        if !self.enabled {
+            return KeyResponse::Ignored;
+        }
+        let sent = match key {
+            Key::Left { .. } => self.keys.left.clone(),
+            Key::Right { .. } => self.keys.right.clone(),
+            Key::Escape => self.keys.escape.clone(),
+            _ => None,
+        };
+        match sent {
+            Some(message) => KeyResponse::Handled(Some(message)),
+            None => KeyResponse::Ignored,
+        }
     }
 
     fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
@@ -661,6 +709,8 @@ pub struct MenuItem<Msg = crate::callback::Callback> {
     message: Option<Msg>,
     /// Whether the row opens a submenu (milestone 603).
     pub(crate) submenu: bool,
+    /// The row's keyboard, in a menu bar (milestone 605).
+    pub(crate) keys: RowKeys<Msg>,
 }
 
 impl<Msg> MenuItem<Msg> {
@@ -674,6 +724,7 @@ impl<Msg> MenuItem<Msg> {
             enabled: true,
             message: Some(message),
             submenu: false,
+            keys: RowKeys::default(),
         }
     }
 
@@ -729,6 +780,7 @@ impl<Msg> MenuItem<Msg> {
             enabled: false,
             message: None,
             submenu: false,
+            keys: RowKeys::default(),
         }
     }
 
@@ -741,6 +793,11 @@ impl<Msg> MenuItem<Msg> {
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
+    }
+
+    /// Whether the row is an action that can be used: not a rule, not disabled.
+    pub(crate) fn is_action(&self) -> bool {
+        self.message.is_some() && self.enabled
     }
 
     /// The same row again, for a menu built twice (milestone 603).
@@ -756,6 +813,7 @@ impl<Msg> MenuItem<Msg> {
             enabled: self.enabled,
             message: self.message.clone(),
             submenu: self.submenu,
+            keys: self.keys.clone(),
         }
     }
 
@@ -1053,6 +1111,7 @@ pub(crate) fn menu_panel<Msg: Clone + 'static>(
             lead_column,
             shortcut: item.shortcut.clone(),
             submenu: item.submenu,
+            keys: item.keys.clone(),
             enabled: row.enabled && item.enabled,
             text_style: row.text_style,
             background: row.look.background,
@@ -1564,6 +1623,7 @@ mod tests {
             lead_column: false,
             shortcut: Some("Ctrl+V".into()),
             submenu: false,
+            keys: RowKeys::default(),
             enabled: true,
             text_style: None,
             background: None,
@@ -1592,6 +1652,7 @@ mod tests {
             lead_column: true,
             shortcut: None,
             submenu: false,
+            keys: RowKeys::default(),
             enabled: true,
             text_style: None,
             background: None,

@@ -475,6 +475,13 @@ pub trait Widget<Msg = crate::callback::Callback> {
         false
     }
 
+    /// If `true`, a focusable widget **takes the focus when it appears**: a menu's first
+    /// row when the menu opens, a field on a screen made to type into (milestone 605). Where
+    /// the focus came from is remembered, and it goes back there when this one goes.
+    fn autofocus(&self) -> bool {
+        false
+    }
+
     /// If `false`, **nothing inside this subtree** can take focus — the reference's
     /// `ExcludeFocus`. A dimmed panel behind a sheet is still drawn and still measured;
     /// it simply stops being somewhere Tab can land.
@@ -1824,6 +1831,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn focusable(&self) -> bool {
         (**self).focusable()
+    }
+    fn autofocus(&self) -> bool {
+        (**self).autofocus()
     }
 
     fn shortcut_bindings(&self) -> &[(crate::shortcuts::KeyStroke, crate::shortcuts::Intent)] {
