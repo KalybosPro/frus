@@ -12,6 +12,9 @@
 //! `info`, are held to `warn`. `RUST_LOG`, where a platform has one (desktop), still decides
 //! over all of this: `RUST_LOG=trace` shows everything.
 //!
+//! The application's crate is the one [`main!`](crate::main) is invoked in, which it names
+//! before running the application.
+//!
 //! A **panic** is logged as an error before the usual report, so it reaches the same console:
 //! on Android, standard error goes nowhere, and a crash used to leave nothing to read.
 
@@ -32,10 +35,64 @@ const QUIET: &[&str] = &[
     "accesskit_unix",
 ];
 
-/// The crate an application's type is defined in: where its own `log` calls come from.
+/// What says nothing a developer can act on, even at `warn`: held to `error`. The GPU layer
+/// reports at every launch, in ten lines, that a phone's GPU is not a full desktop one.
+const SILENT: &[&str] = &["wgpu_core::instance"];
+
+/// The crates that are the framework's, or the language's own: never the application's.
+const NOT_THE_APP: &[&str] = &[
+    "frus",
+    "frus_shell",
+    "frus_widgets",
+    "frus_core",
+    "frus_layout",
+    "frus_text",
+    "frus_gpu",
+    "frus_test",
+    "core",
+    "alloc",
+    "std",
+];
+
+/// The application's crate, as [`main!`](crate::main) names it from inside the application.
+static NAMED: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+/// Names the application's crate from a `module_path!()` taken inside it: what
+/// [`main!`](crate::main) does before it runs the application.
+pub fn name_app(module_path: &'static str) {
+    let _ = NAMED.set(module_path.split("::").next().unwrap_or(module_path));
+}
+
+/// The application's crate: where its own `log` calls come from, and logcat's tag.
+///
+/// What [`main!`](crate::main) named, when it ran the application. Otherwise read off the
+/// application's type: the first crate in its name that is not the framework's. The type the
+/// shell is handed is often one of the framework's own, wrapping the application's, so the
+/// first crate of the name alone said `frus_shell` for every application (milestone 604,
+/// seen in logcat on a phone).
 pub(crate) fn app_crate<A>() -> &'static str {
-    let name = std::any::type_name::<A>();
-    name.split("::").next().unwrap_or(name)
+    NAMED
+        .get()
+        .copied()
+        .unwrap_or_else(|| crate_of(std::any::type_name::<A>()))
+}
+
+/// The first crate named in `type_name` that is not the framework's or the standard
+/// library's; the first crate named when every one is.
+fn crate_of(type_name: &'static str) -> &'static str {
+    let crates = type_name
+        .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == ':'))
+        .filter(|path| path.contains("::"))
+        .filter_map(|path| path.split("::").next())
+        .filter(|name| !name.is_empty());
+    let mut first = None;
+    for name in crates {
+        first.get_or_insert(name);
+        if !NOT_THE_APP.contains(&name) {
+            return name;
+        }
+    }
+    first.unwrap_or(type_name)
 }
 
 /// The filter used when nothing else says: `info` and up, the application's own crate at
@@ -44,6 +101,9 @@ pub(crate) fn default_filter(app_crate: &str, debug_build: bool) -> String {
     let mut filter = String::from("info");
     for quiet in QUIET {
         filter.push_str(&format!(",{quiet}=warn"));
+    }
+    for silent in SILENT {
+        filter.push_str(&format!(",{silent}=error"));
     }
     if debug_build && !app_crate.is_empty() {
         filter.push_str(&format!(",{app_crate}=debug"));
@@ -204,9 +264,31 @@ mod tests {
 
     struct MyApp;
 
+    /// **The application's crate, through the framework's wrappers**: the type the shell is
+    /// handed is often the framework's, with the application's inside it.
     #[test]
-    fn the_app_crate_is_where_its_type_lives() {
+    fn the_app_crate_is_the_first_that_is_not_the_frameworks() {
+        assert_eq!(
+            crate_of("frus_shell::component::Host<my_app::screens::Root>"),
+            "my_app"
+        );
+        assert_eq!(crate_of("my_app::Model"), "my_app");
+        assert_eq!(
+            crate_of("alloc::boxed::Box<dyn frus_widgets::Widget<my_app::Msg>>"),
+            "my_app"
+        );
+        // A type of the framework's alone: the framework's, rather than nothing.
+        assert_eq!(crate_of("frus_shell::logging::tests::MyApp"), "frus_shell");
         assert_eq!(app_crate::<MyApp>(), "frus_shell");
+    }
+
+    /// **The GPU layer's launch report is not shown**, but its errors are.
+    #[test]
+    fn the_gpu_layers_launch_report_is_held_back() {
+        let filter = Filter::parse(&default_filter("my_app", false));
+        assert!(!filter.enabled("wgpu_core::instance", log::Level::Warn));
+        assert!(filter.enabled("wgpu_core::instance", log::Level::Error));
+        assert!(filter.enabled("wgpu_core::device", log::Level::Warn));
     }
 
     /// **By default**: info and up everywhere, the application at debug in a debug build
