@@ -2089,369 +2089,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             } => self.context_click(),
 
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                // A keyboard interaction: the focus ring becomes visible again.
-                if !self.runtime.focus_visible {
-                    self.runtime.focus_visible = true;
-                    self.request_redraw();
-                }
-
-                // The **system** back — Android's button or gesture, the browser's back
-                // key: it closes the topmost overlay, else pops a screen, else quits.
-                if matches!(
-                    event.logical_key,
-                    WinitKey::Named(NamedKey::BrowserBack) | WinitKey::Named(NamedKey::GoBack)
-                ) {
-                    if !event.repeat {
-                        self.system_back(event_loop);
-                    }
-                    return;
-                }
-
-                // F12 toggles the **inspector**: outlines, a card for the hovered
-                // widget, and a tree dump on stderr. Debug builds only.
-                if matches!(event.logical_key, WinitKey::Named(NamedKey::F12)) {
-                    if cfg!(debug_assertions) && !event.repeat {
-                        self.inspector = !self.inspector;
-                        self.inspector_dump = self.inspector;
-                        self.request_redraw();
-                    }
-                    return;
-                }
-
-                // **Shortcuts.** Placed after the system keys the shell owns outright
-                // (back, F12) and before everything an application can bind, so that a
-                // binding cannot take the inspector or the back gesture away.
-                //
-                // A stroke with no Ctrl, Alt or Meta goes to a focused field first: a
-                // binding on a bare letter would otherwise make every field under it
-                // impossible to type in.
-                if let Some(stroke) = self.keystroke(&event) {
-                    let typing = !stroke.is_command() && self.runtime.input.focused.is_some();
-                    if !typing {
-                        let msgs = self
-                            .ui
-                            .as_ref()
-                            .map(|ui| ui.keystroke(stroke, self.runtime.input.focused))
-                            .unwrap_or_default();
-                        if !msgs.is_empty() {
-                            for msg in msgs {
-                                self.dispatch(msg);
-                            }
-                            self.request_redraw();
-                            return;
-                        }
-                    }
-                }
-
-                // Tab and Shift+Tab move between focusables, even with nothing focused.
-                if matches!(event.logical_key, WinitKey::Named(NamedKey::Tab)) {
-                    let forward = !self.shift;
-                    let next = self
-                        .ui
-                        .as_ref()
-                        .and_then(|ui| ui.focus_next(self.runtime.input.focused, forward));
-                    if next.is_some() {
-                        self.runtime.input.focused = next;
-                        self.runtime.region = None;
-                        self.reveal_focus();
-                        self.request_redraw();
-                    }
-                    return;
-                }
-
-                // Escape walks **leaf to root** from the focused widget — an `OverlayPortal`
-                // consumes it to close itself — and failing that closes the topmost
-                // overlay, so Escape works with nothing focused.
-                if matches!(event.logical_key, WinitKey::Named(NamedKey::Escape)) {
-                    // Auto-repeat does not trigger another close.
-                    if !event.repeat {
-                        self.escape();
-                    }
-                    return;
-                }
-
-                let Some(focused) = self.runtime.input.focused else {
-                    // With nothing focused, a selection an area holds still answers to the
-                    // clipboard's Copy and to Select all.
-                    self.region_key(&event);
-                    return;
-                };
-
-                // Arrows navigate focus **geometrically** — except left and right in a
-                // text field, where they move the caret; up and down navigate even out
-                // of a single-line field.
-                let arrow = match event.logical_key {
-                    WinitKey::Named(NamedKey::ArrowUp) => Some(FocusDirection::Up),
-                    WinitKey::Named(NamedKey::ArrowDown) => Some(FocusDirection::Down),
-                    WinitKey::Named(NamedKey::ArrowLeft) => Some(FocusDirection::Left),
-                    WinitKey::Named(NamedKey::ArrowRight) => Some(FocusDirection::Right),
-                    _ => None,
-                };
-                // PgUp and PgDn jump a **page** inside a multi-line field, bounded to
-                // the field so they never leave it. No effect anywhere else.
-                if matches!(
-                    event.logical_key,
-                    WinitKey::Named(NamedKey::PageUp) | WinitKey::Named(NamedKey::PageDown)
-                ) {
-                    let down = matches!(event.logical_key, WinitKey::Named(NamedKey::PageDown));
-                    if self.move_caret_vertical(focused, down, true) {
-                        return;
-                    }
-                }
-
-                if let Some(direction) = arrow {
-                    // In a **multi-line** field, Up and Down move the caret between
-                    // lines while it stays in the field; on the first or last line we
-                    // fall back to focus navigation and leave the field.
-                    if matches!(direction, FocusDirection::Up | FocusDirection::Down) {
-                        let down = matches!(direction, FocusDirection::Down);
-                        if self.move_caret_vertical(focused, down, false) {
-                            return;
-                        }
-                    }
-
-                    // Left and right arrows are offered to the focused widget first —
-                    // a range slider, say — through `on_key`. If it consumes them, focus
-                    // does not move.
-                    if matches!(direction, FocusDirection::Left | FocusDirection::Right) {
-                        let key = if matches!(direction, FocusDirection::Left) {
-                            Key::Left {
-                                shift: self.shift,
-                                word: self.ctrl,
-                            }
-                        } else {
-                            Key::Right {
-                                shift: self.shift,
-                                word: self.ctrl,
-                            }
-                        };
-                        let widget = self
-                            .tree
-                            .as_ref()
-                            .and_then(|tree| find_widget(tree.as_ref(), focused));
-                        // A reorderable header moves its column by one; we capture its
-                        // position to announce it, the keyboard being how screen-reader
-                        // users reorder.
-                        let reorder_from = widget.and_then(|w| w.reorder_index());
-                        let handled = widget.map(|w| w.on_key(&key));
-                        if let Some(KeyResponse::Handled(message)) = handled {
-                            if let Some(message) = message {
-                                self.dispatch(message);
-                            }
-                            if let Some(from) = reorder_from {
-                                let to = if matches!(direction, FocusDirection::Left) {
-                                    from.wrapping_sub(1)
-                                } else {
-                                    from + 1
-                                };
-                                self.set_announcement(format!(
-                                    "Column moved to position {}",
-                                    to + 1
-                                ));
-                            }
-                            self.request_redraw();
-                            return;
-                        }
-                    }
-
-                    let is_text = self
-                        .tree
-                        .as_ref()
-                        .and_then(|tree| find_widget(tree.as_ref(), focused))
-                        .is_some_and(is_text_field);
-                    let navigates =
-                        !is_text || matches!(direction, FocusDirection::Up | FocusDirection::Down);
-                    if navigates {
-                        if let Some(next) = self
-                            .ui
-                            .as_ref()
-                            .and_then(|ui| ui.focus_directional(focused, direction))
-                        {
-                            self.runtime.input.focused = Some(next);
-                            self.reveal_focus();
-                            self.request_redraw();
-                        }
-                        return;
-                    }
-                }
-
-                // Home and End are offered to the focused widget — a range slider maps
-                // them to min and max — before the default action. A text field ignores
-                // them here (`on_key` returns Ignored) and falls back to ordinary
-                // editing further down.
-                if matches!(
-                    event.logical_key,
-                    WinitKey::Named(NamedKey::Home) | WinitKey::Named(NamedKey::End)
-                ) {
-                    let key = if matches!(event.logical_key, WinitKey::Named(NamedKey::Home)) {
-                        Key::Home {
-                            shift: self.shift,
-                            doc: self.ctrl,
-                        }
-                    } else {
-                        Key::End {
-                            shift: self.shift,
-                            doc: self.ctrl,
-                        }
-                    };
-                    let handled = self
-                        .tree
-                        .as_ref()
-                        .and_then(|tree| find_widget(tree.as_ref(), focused))
-                        .map(|widget| widget.on_key(&key));
-                    if let Some(KeyResponse::Handled(message)) = handled {
-                        if let Some(message) = message {
-                            self.dispatch(message);
-                        }
-                        self.request_redraw();
-                        return;
-                    }
-                }
-
-                // Keyboard activation, Enter or Space, of a clickable focusable: a
-                // button, a checkbox, a switch. Text fields, which have no `on_click`,
-                // fall back to ordinary editing — Enter submits, Space is a space.
-                if matches!(
-                    event.logical_key,
-                    WinitKey::Named(NamedKey::Enter) | WinitKey::Named(NamedKey::Space)
-                ) {
-                    let widget = self
-                        .tree
-                        .as_ref()
-                        .and_then(|tree| find_widget(tree.as_ref(), focused))
-                        .filter(|widget| widget.focusable());
-                    let message = widget.and_then(|widget| widget.on_click());
-                    if let Some(message) = message {
-                        // Auto-repeat does not machine-gun the activation: holding
-                        // Space on a button is one single click.
-                        if !event.repeat {
-                            // The spoken announcement of the effect — a sort, a
-                            // selection — captured before `dispatch` rebuilds the tree.
-                            let announce = widget.and_then(|widget| widget.announce());
-                            self.dispatch(message);
-                            if let Some(announce) = announce {
-                                self.set_announcement(announce);
-                            }
-                            self.request_redraw();
-                        }
-                        return;
-                    }
-                }
-
-                // The clipboard: Ctrl+C/X/V, and a keyboard's own Copy, Cut and Paste.
-                if let Some(command) =
-                    clipboard_command(&event.logical_key, event.physical_key, self.ctrl)
-                {
-                    match command {
-                        ClipCommand::Copy => {
-                            self.copy_selection(focused);
-                        }
-                        ClipCommand::Cut => self.cut_selection(focused),
-                        ClipCommand::Paste => {
-                            // Answered now, or — on the Web — on a later frame.
-                            if let Some(pasted) =
-                                self.clipboard.paste(focused, self.window.as_ref())
-                            {
-                                self.land_paste(pasted);
-                            }
-                        }
-                    }
-                    return;
-                }
-
-                // The context-menu key, or Shift+F10: the selection bar for someone with no
-                // pointer to hold or right-click with (milestone 568). Only a text field has
-                // one, and it is opened on the field that has the focus.
-                if opens_selection_bar(&event.logical_key, self.shift)
-                    && self
-                        .tree
-                        .as_ref()
-                        .and_then(|tree| find_widget(tree.as_ref(), focused))
-                        .is_some_and(|widget| widget.text_value().is_some())
-                {
-                    self.show_selection_toolbar(focused);
-                    return;
-                }
-
-                // The other editing shortcuts, Ctrl+A/Z/Y.
-                if self.ctrl {
-                    match &event.logical_key {
-                        WinitKey::Character(c) if c.eq_ignore_ascii_case("a") => {
-                            self.select_all(focused);
-                            return;
-                        }
-                        // Undo, and redo under both its spellings — Ctrl+Y on Windows,
-                        // Ctrl+Shift+Z everywhere else, and people bring the one their
-                        // hands already know.
-                        WinitKey::Character(c) if c.eq_ignore_ascii_case("z") && !self.shift => {
-                            self.step_history(focused, false);
-                            self.request_redraw();
-                            return;
-                        }
-                        WinitKey::Character(c)
-                            if c.eq_ignore_ascii_case("y")
-                                || (c.eq_ignore_ascii_case("z") && self.shift) =>
-                        {
-                            self.step_history(focused, true);
-                            self.request_redraw();
-                            return;
-                        }
-                        _ => {}
-                    }
-                }
-
-                // With the input bridge active, editing goes EXCLUSIVELY through the
-                // InputConnection, that is, the IME queue — the bridge view receives the
-                // hardware keys too. Without this guard every keystroke would arrive
-                // twice, once from winit's native queue and once from the bridge.
-                #[cfg(android)]
-                if crate::android_ime::installed() {
-                    return;
-                }
-
-                let shift = self.shift;
-                let key = match &event.logical_key {
-                    WinitKey::Named(NamedKey::Backspace) => Some(Key::Backspace),
-                    WinitKey::Named(NamedKey::Delete) => Some(Key::Delete),
-                    // Repeating Enter does not submit again; text and deletion do
-                    // repeat normally.
-                    WinitKey::Named(NamedKey::Enter) if !event.repeat => Some(Key::Enter),
-                    WinitKey::Named(NamedKey::Enter) => None,
-                    // With Ctrl, Left/Right jump a word and Home/End bound the field.
-                    WinitKey::Named(NamedKey::ArrowLeft) => Some(Key::Left {
-                        shift,
-                        word: self.ctrl,
-                    }),
-                    WinitKey::Named(NamedKey::ArrowRight) => Some(Key::Right {
-                        shift,
-                        word: self.ctrl,
-                    }),
-                    WinitKey::Named(NamedKey::Home) => Some(Key::Home {
-                        shift,
-                        doc: self.ctrl,
-                    }),
-                    WinitKey::Named(NamedKey::End) => Some(Key::End {
-                        shift,
-                        doc: self.ctrl,
-                    }),
-                    WinitKey::Named(NamedKey::Space) => Some(Key::Text(" ".to_string())),
-                    // Android delivers Enter as `Character("\n")`, through the
-                    // KeyCharacterMap, rather than `Named(Enter)`: the same submission,
-                    // without inserting a line break into the field.
-                    WinitKey::Character(c) if c == "\n" || c == "\r" => {
-                        if event.repeat {
-                            None
-                        } else {
-                            Some(Key::Enter)
-                        }
-                    }
-                    _ => event.text.as_ref().map(|text| Key::Text(text.to_string())),
-                };
-
-                if let Some(key) = key {
-                    self.apply_key(focused, key);
-                    self.request_redraw();
-                }
+                self.key_down(&KeyDown::from(&event), Some(event_loop));
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
@@ -5825,7 +5463,7 @@ impl<A: Application> App<A> {
     ///
     /// `None` for anything with no place in a shortcut: a dead key, a compose sequence, a
     /// modifier pressed on its own.
-    fn keystroke(&self, event: &winit::event::KeyEvent) -> Option<KeyStroke> {
+    fn keystroke(&self, event: &KeyDown) -> Option<KeyStroke> {
         let key = match &event.logical_key {
             WinitKey::Named(NamedKey::Enter) => ShortcutKey::Enter,
             WinitKey::Named(NamedKey::Escape) => ShortcutKey::Escape,
@@ -6158,6 +5796,372 @@ impl<A: Application> App<A> {
             });
         if let Some(message) = message {
             self.dispatch(message);
+        }
+    }
+
+    /// **A key going down**: everything the shell does with one, from the system's back key
+    /// and the inspector to a shortcut, Tab, the arrows, activation and typing. Called with
+    /// winit's event in a window, and with one a test made in the driver (milestone 608).
+    /// `event_loop` is what Back quits through; with none, Back that would quit does nothing.
+    fn key_down(&mut self, event: &KeyDown, event_loop: Option<&ActiveEventLoop>) {
+        // A keyboard interaction: the focus ring becomes visible again.
+        if !self.runtime.focus_visible {
+            self.runtime.focus_visible = true;
+            self.request_redraw();
+        }
+
+        // The **system** back — Android's button or gesture, the browser's back
+        // key: it closes the topmost overlay, else pops a screen, else quits.
+        if matches!(
+            event.logical_key,
+            WinitKey::Named(NamedKey::BrowserBack) | WinitKey::Named(NamedKey::GoBack)
+        ) {
+            if !event.repeat {
+                if let Some(event_loop) = event_loop {
+                    self.system_back(event_loop);
+                }
+            }
+            return;
+        }
+
+        // F12 toggles the **inspector**: outlines, a card for the hovered
+        // widget, and a tree dump on stderr. Debug builds only.
+        if matches!(event.logical_key, WinitKey::Named(NamedKey::F12)) {
+            if cfg!(debug_assertions) && !event.repeat {
+                self.inspector = !self.inspector;
+                self.inspector_dump = self.inspector;
+                self.request_redraw();
+            }
+            return;
+        }
+
+        // **Shortcuts.** Placed after the system keys the shell owns outright
+        // (back, F12) and before everything an application can bind, so that a
+        // binding cannot take the inspector or the back gesture away.
+        //
+        // A stroke with no Ctrl, Alt or Meta goes to a focused field first: a
+        // binding on a bare letter would otherwise make every field under it
+        // impossible to type in.
+        if let Some(stroke) = self.keystroke(&event) {
+            let typing = !stroke.is_command() && self.runtime.input.focused.is_some();
+            if !typing {
+                let msgs = self
+                    .ui
+                    .as_ref()
+                    .map(|ui| ui.keystroke(stroke, self.runtime.input.focused))
+                    .unwrap_or_default();
+                if !msgs.is_empty() {
+                    for msg in msgs {
+                        self.dispatch(msg);
+                    }
+                    self.request_redraw();
+                    return;
+                }
+            }
+        }
+
+        // Tab and Shift+Tab move between focusables, even with nothing focused.
+        if matches!(event.logical_key, WinitKey::Named(NamedKey::Tab)) {
+            let forward = !self.shift;
+            let next = self
+                .ui
+                .as_ref()
+                .and_then(|ui| ui.focus_next(self.runtime.input.focused, forward));
+            if next.is_some() {
+                self.runtime.input.focused = next;
+                self.runtime.region = None;
+                self.reveal_focus();
+                self.request_redraw();
+            }
+            return;
+        }
+
+        // Escape walks **leaf to root** from the focused widget — an `OverlayPortal`
+        // consumes it to close itself — and failing that closes the topmost
+        // overlay, so Escape works with nothing focused.
+        if matches!(event.logical_key, WinitKey::Named(NamedKey::Escape)) {
+            // Auto-repeat does not trigger another close.
+            if !event.repeat {
+                self.escape();
+            }
+            return;
+        }
+
+        let Some(focused) = self.runtime.input.focused else {
+            // With nothing focused, a selection an area holds still answers to the
+            // clipboard's Copy and to Select all.
+            self.region_key(&event);
+            return;
+        };
+
+        // Arrows navigate focus **geometrically** — except left and right in a
+        // text field, where they move the caret; up and down navigate even out
+        // of a single-line field.
+        let arrow = match event.logical_key {
+            WinitKey::Named(NamedKey::ArrowUp) => Some(FocusDirection::Up),
+            WinitKey::Named(NamedKey::ArrowDown) => Some(FocusDirection::Down),
+            WinitKey::Named(NamedKey::ArrowLeft) => Some(FocusDirection::Left),
+            WinitKey::Named(NamedKey::ArrowRight) => Some(FocusDirection::Right),
+            _ => None,
+        };
+        // PgUp and PgDn jump a **page** inside a multi-line field, bounded to
+        // the field so they never leave it. No effect anywhere else.
+        if matches!(
+            event.logical_key,
+            WinitKey::Named(NamedKey::PageUp) | WinitKey::Named(NamedKey::PageDown)
+        ) {
+            let down = matches!(event.logical_key, WinitKey::Named(NamedKey::PageDown));
+            if self.move_caret_vertical(focused, down, true) {
+                return;
+            }
+        }
+
+        if let Some(direction) = arrow {
+            // In a **multi-line** field, Up and Down move the caret between
+            // lines while it stays in the field; on the first or last line we
+            // fall back to focus navigation and leave the field.
+            if matches!(direction, FocusDirection::Up | FocusDirection::Down) {
+                let down = matches!(direction, FocusDirection::Down);
+                if self.move_caret_vertical(focused, down, false) {
+                    return;
+                }
+            }
+
+            // Left and right arrows are offered to the focused widget first —
+            // a range slider, say — through `on_key`. If it consumes them, focus
+            // does not move.
+            if matches!(direction, FocusDirection::Left | FocusDirection::Right) {
+                let key = if matches!(direction, FocusDirection::Left) {
+                    Key::Left {
+                        shift: self.shift,
+                        word: self.ctrl,
+                    }
+                } else {
+                    Key::Right {
+                        shift: self.shift,
+                        word: self.ctrl,
+                    }
+                };
+                let widget = self
+                    .tree
+                    .as_ref()
+                    .and_then(|tree| find_widget(tree.as_ref(), focused));
+                // A reorderable header moves its column by one; we capture its
+                // position to announce it, the keyboard being how screen-reader
+                // users reorder.
+                let reorder_from = widget.and_then(|w| w.reorder_index());
+                let handled = widget.map(|w| w.on_key(&key));
+                if let Some(KeyResponse::Handled(message)) = handled {
+                    if let Some(message) = message {
+                        self.dispatch(message);
+                    }
+                    if let Some(from) = reorder_from {
+                        let to = if matches!(direction, FocusDirection::Left) {
+                            from.wrapping_sub(1)
+                        } else {
+                            from + 1
+                        };
+                        self.set_announcement(format!("Column moved to position {}", to + 1));
+                    }
+                    self.request_redraw();
+                    return;
+                }
+            }
+
+            let is_text = self
+                .tree
+                .as_ref()
+                .and_then(|tree| find_widget(tree.as_ref(), focused))
+                .is_some_and(is_text_field);
+            let navigates =
+                !is_text || matches!(direction, FocusDirection::Up | FocusDirection::Down);
+            if navigates {
+                if let Some(next) = self
+                    .ui
+                    .as_ref()
+                    .and_then(|ui| ui.focus_directional(focused, direction))
+                {
+                    self.runtime.input.focused = Some(next);
+                    self.reveal_focus();
+                    self.request_redraw();
+                }
+                return;
+            }
+        }
+
+        // Home and End are offered to the focused widget — a range slider maps
+        // them to min and max — before the default action. A text field ignores
+        // them here (`on_key` returns Ignored) and falls back to ordinary
+        // editing further down.
+        if matches!(
+            event.logical_key,
+            WinitKey::Named(NamedKey::Home) | WinitKey::Named(NamedKey::End)
+        ) {
+            let key = if matches!(event.logical_key, WinitKey::Named(NamedKey::Home)) {
+                Key::Home {
+                    shift: self.shift,
+                    doc: self.ctrl,
+                }
+            } else {
+                Key::End {
+                    shift: self.shift,
+                    doc: self.ctrl,
+                }
+            };
+            let handled = self
+                .tree
+                .as_ref()
+                .and_then(|tree| find_widget(tree.as_ref(), focused))
+                .map(|widget| widget.on_key(&key));
+            if let Some(KeyResponse::Handled(message)) = handled {
+                if let Some(message) = message {
+                    self.dispatch(message);
+                }
+                self.request_redraw();
+                return;
+            }
+        }
+
+        // Keyboard activation, Enter or Space, of a clickable focusable: a
+        // button, a checkbox, a switch. Text fields, which have no `on_click`,
+        // fall back to ordinary editing — Enter submits, Space is a space.
+        if matches!(
+            event.logical_key,
+            WinitKey::Named(NamedKey::Enter) | WinitKey::Named(NamedKey::Space)
+        ) {
+            let widget = self
+                .tree
+                .as_ref()
+                .and_then(|tree| find_widget(tree.as_ref(), focused))
+                .filter(|widget| widget.focusable());
+            let message = widget.and_then(|widget| widget.on_click());
+            if let Some(message) = message {
+                // Auto-repeat does not machine-gun the activation: holding
+                // Space on a button is one single click.
+                if !event.repeat {
+                    // The spoken announcement of the effect — a sort, a
+                    // selection — captured before `dispatch` rebuilds the tree.
+                    let announce = widget.and_then(|widget| widget.announce());
+                    self.dispatch(message);
+                    if let Some(announce) = announce {
+                        self.set_announcement(announce);
+                    }
+                    self.request_redraw();
+                }
+                return;
+            }
+        }
+
+        // The clipboard: Ctrl+C/X/V, and a keyboard's own Copy, Cut and Paste.
+        if let Some(command) = clipboard_command(&event.logical_key, event.physical_key, self.ctrl)
+        {
+            match command {
+                ClipCommand::Copy => {
+                    self.copy_selection(focused);
+                }
+                ClipCommand::Cut => self.cut_selection(focused),
+                ClipCommand::Paste => {
+                    // Answered now, or — on the Web — on a later frame.
+                    if let Some(pasted) = self.clipboard.paste(focused, self.window.as_ref()) {
+                        self.land_paste(pasted);
+                    }
+                }
+            }
+            return;
+        }
+
+        // The context-menu key, or Shift+F10: the selection bar for someone with no
+        // pointer to hold or right-click with (milestone 568). Only a text field has
+        // one, and it is opened on the field that has the focus.
+        if opens_selection_bar(&event.logical_key, self.shift)
+            && self
+                .tree
+                .as_ref()
+                .and_then(|tree| find_widget(tree.as_ref(), focused))
+                .is_some_and(|widget| widget.text_value().is_some())
+        {
+            self.show_selection_toolbar(focused);
+            return;
+        }
+
+        // The other editing shortcuts, Ctrl+A/Z/Y.
+        if self.ctrl {
+            match &event.logical_key {
+                WinitKey::Character(c) if c.eq_ignore_ascii_case("a") => {
+                    self.select_all(focused);
+                    return;
+                }
+                // Undo, and redo under both its spellings — Ctrl+Y on Windows,
+                // Ctrl+Shift+Z everywhere else, and people bring the one their
+                // hands already know.
+                WinitKey::Character(c) if c.eq_ignore_ascii_case("z") && !self.shift => {
+                    self.step_history(focused, false);
+                    self.request_redraw();
+                    return;
+                }
+                WinitKey::Character(c)
+                    if c.eq_ignore_ascii_case("y")
+                        || (c.eq_ignore_ascii_case("z") && self.shift) =>
+                {
+                    self.step_history(focused, true);
+                    self.request_redraw();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        // With the input bridge active, editing goes EXCLUSIVELY through the
+        // InputConnection, that is, the IME queue — the bridge view receives the
+        // hardware keys too. Without this guard every keystroke would arrive
+        // twice, once from winit's native queue and once from the bridge.
+        #[cfg(android)]
+        if crate::android_ime::installed() {
+            return;
+        }
+
+        let shift = self.shift;
+        let key = match &event.logical_key {
+            WinitKey::Named(NamedKey::Backspace) => Some(Key::Backspace),
+            WinitKey::Named(NamedKey::Delete) => Some(Key::Delete),
+            // Repeating Enter does not submit again; text and deletion do
+            // repeat normally.
+            WinitKey::Named(NamedKey::Enter) if !event.repeat => Some(Key::Enter),
+            WinitKey::Named(NamedKey::Enter) => None,
+            // With Ctrl, Left/Right jump a word and Home/End bound the field.
+            WinitKey::Named(NamedKey::ArrowLeft) => Some(Key::Left {
+                shift,
+                word: self.ctrl,
+            }),
+            WinitKey::Named(NamedKey::ArrowRight) => Some(Key::Right {
+                shift,
+                word: self.ctrl,
+            }),
+            WinitKey::Named(NamedKey::Home) => Some(Key::Home {
+                shift,
+                doc: self.ctrl,
+            }),
+            WinitKey::Named(NamedKey::End) => Some(Key::End {
+                shift,
+                doc: self.ctrl,
+            }),
+            WinitKey::Named(NamedKey::Space) => Some(Key::Text(" ".to_string())),
+            // Android delivers Enter as `Character("\n")`, through the
+            // KeyCharacterMap, rather than `Named(Enter)`: the same submission,
+            // without inserting a line break into the field.
+            WinitKey::Character(c) if c == "\n" || c == "\r" => {
+                if event.repeat {
+                    None
+                } else {
+                    Some(Key::Enter)
+                }
+            }
+            _ => event.text.as_ref().map(|text| Key::Text(text.to_string())),
+        };
+
+        if let Some(key) = key {
+            self.apply_key(focused, key);
+            self.request_redraw();
         }
     }
 
@@ -6867,7 +6871,7 @@ impl<A: Application> App<A> {
 
     /// A key while nothing has the focus: Copy, and Select all, act on a selection an area
     /// holds. Whether the key was one of them.
-    fn region_key(&mut self, event: &winit::event::KeyEvent) -> bool {
+    fn region_key(&mut self, event: &KeyDown) -> bool {
         if self.runtime.region.is_none() {
             return false;
         }
@@ -9076,6 +9080,31 @@ mod back_gesture_tests {
     }
 }
 
+/// **What the shell reads of a key going down** (milestone 608). Winit's own event cannot be
+/// made outside winit, so the shell's handling takes this, made from it in a window and by
+/// hand in a test.
+pub(crate) struct KeyDown {
+    /// The key the layout makes of it: a character, or a named key.
+    logical_key: WinitKey,
+    /// Where it is on the keyboard, whatever the layout.
+    physical_key: PhysicalKey,
+    /// The text it types, if any.
+    text: Option<winit::keyboard::SmolStr>,
+    /// Whether it is the key repeating, held down.
+    repeat: bool,
+}
+
+impl From<&winit::event::KeyEvent> for KeyDown {
+    fn from(event: &winit::event::KeyEvent) -> Self {
+        Self {
+            logical_key: event.logical_key.clone(),
+            physical_key: event.physical_key,
+            text: event.text.clone(),
+            repeat: event.repeat,
+        }
+    }
+}
+
 /// A driver with no window and no event loop: input and frames fed by hand, through the
 /// shell's own paths.
 #[cfg(any(test, feature = "testing"))]
@@ -9188,6 +9217,16 @@ pub mod testing {
             self.shell.runtime.input.focused
         }
 
+        /// The modifiers the shell holds as down: Ctrl, Shift, Alt and Meta.
+        pub fn shell_modifiers(&self) -> (bool, bool, bool, bool) {
+            (
+                self.shell.ctrl,
+                self.shell.shift,
+                self.shell.alt,
+                self.shell.meta,
+            )
+        }
+
         /// The widget the last frame would hand a press at `at`, if any.
         pub fn hit(&self, at: Point) -> Option<WidgetId> {
             self.shell.ui.as_ref().and_then(|ui| ui.hit(at))
@@ -9297,6 +9336,115 @@ pub mod testing {
         /// Escape, as the keyboard delivers it.
         pub fn escape(&mut self) {
             self.shell.escape();
+        }
+
+        /// **A key pressed**, with the modifiers the stroke names held down for it, through
+        /// the shell's own handling of a key (milestone 608): the arrows move the focus or a
+        /// caret or answer the widget with the focus, Enter and Space activate, Escape
+        /// closes, Tab moves on, a bound shortcut fires, a character is typed.
+        ///
+        /// The system's back key is not one of them: what it does last is quit, and a
+        /// driver has no loop to quit.
+        pub fn key(&mut self, stroke: frus_widgets::KeyStroke) {
+            use frus_widgets::ShortcutKey as K;
+            let named = |key| (WinitKey::Named(key), None);
+            let (logical_key, text) = match stroke.key {
+                K::Char(c) => {
+                    let typed: winit::keyboard::SmolStr = c.to_string().into();
+                    (WinitKey::Character(typed.clone()), Some(typed))
+                }
+                K::Enter => named(NamedKey::Enter),
+                K::Escape => named(NamedKey::Escape),
+                K::Tab => named(NamedKey::Tab),
+                K::Space => (WinitKey::Named(NamedKey::Space), Some(" ".into())),
+                K::Backspace => named(NamedKey::Backspace),
+                K::Delete => named(NamedKey::Delete),
+                K::Up => named(NamedKey::ArrowUp),
+                K::Down => named(NamedKey::ArrowDown),
+                K::Left => named(NamedKey::ArrowLeft),
+                K::Right => named(NamedKey::ArrowRight),
+                K::Home => named(NamedKey::Home),
+                K::End => named(NamedKey::End),
+                K::PageUp => named(NamedKey::PageUp),
+                K::PageDown => named(NamedKey::PageDown),
+                K::F(n) => named(match n {
+                    1 => NamedKey::F1,
+                    2 => NamedKey::F2,
+                    3 => NamedKey::F3,
+                    4 => NamedKey::F4,
+                    5 => NamedKey::F5,
+                    6 => NamedKey::F6,
+                    7 => NamedKey::F7,
+                    8 => NamedKey::F8,
+                    9 => NamedKey::F9,
+                    10 => NamedKey::F10,
+                    11 => NamedKey::F11,
+                    _ => NamedKey::F12,
+                }),
+            };
+            // Where a letter is on a QWERTY keyboard: the clipboard's shortcuts are read off
+            // the key's place, so that they work on any layout.
+            const LETTERS: [KeyCode; 26] = [
+                KeyCode::KeyA,
+                KeyCode::KeyB,
+                KeyCode::KeyC,
+                KeyCode::KeyD,
+                KeyCode::KeyE,
+                KeyCode::KeyF,
+                KeyCode::KeyG,
+                KeyCode::KeyH,
+                KeyCode::KeyI,
+                KeyCode::KeyJ,
+                KeyCode::KeyK,
+                KeyCode::KeyL,
+                KeyCode::KeyM,
+                KeyCode::KeyN,
+                KeyCode::KeyO,
+                KeyCode::KeyP,
+                KeyCode::KeyQ,
+                KeyCode::KeyR,
+                KeyCode::KeyS,
+                KeyCode::KeyT,
+                KeyCode::KeyU,
+                KeyCode::KeyV,
+                KeyCode::KeyW,
+                KeyCode::KeyX,
+                KeyCode::KeyY,
+                KeyCode::KeyZ,
+            ];
+            let physical_key = match stroke.key {
+                K::Char(c) if c.is_ascii_alphabetic() => {
+                    PhysicalKey::Code(LETTERS[(c.to_ascii_lowercase() as u8 - b'a') as usize])
+                }
+                _ => PhysicalKey::Unidentified(winit::keyboard::NativeKeyCode::Unidentified),
+            };
+            let held = (
+                self.shell.ctrl,
+                self.shell.shift,
+                self.shell.alt,
+                self.shell.meta,
+            );
+            (
+                self.shell.ctrl,
+                self.shell.shift,
+                self.shell.alt,
+                self.shell.meta,
+            ) = (stroke.ctrl, stroke.shift, stroke.alt, stroke.meta);
+            self.shell.key_down(
+                &KeyDown {
+                    logical_key,
+                    physical_key,
+                    text,
+                    repeat: false,
+                },
+                None,
+            );
+            (
+                self.shell.ctrl,
+                self.shell.shift,
+                self.shell.alt,
+                self.shell.meta,
+            ) = held;
         }
 
         /// The two handles of a selection area's touch selection, on the surface, if it has them.
@@ -11779,7 +11927,9 @@ mod listener_tests {
 mod menu_keyboard_tests {
     use super::testing::Driver;
     use crate::{Application, Command};
-    use frus_widgets::{MenuBar, MenuItem, MenuPath, Point, SubmenuButton, Theme, Widget};
+    use frus_widgets::{
+        KeyStroke, MenuBar, MenuItem, MenuPath, Point, ShortcutKey, SubmenuButton, Theme, Widget,
+    };
 
     const W: f32 = 600.0;
     const H: f32 = 400.0;
@@ -11794,6 +11944,8 @@ mod menu_keyboard_tests {
     #[derive(Default)]
     struct Editor {
         menu: MenuPath,
+        /// The last row picked.
+        picked: Option<&'static str>,
     }
 
     impl Application for Editor {
@@ -11802,7 +11954,10 @@ mod menu_keyboard_tests {
         fn update(&mut self, message: Msg) -> Command<Msg> {
             match message {
                 Msg::Menu(path) => self.menu = path,
-                Msg::Picked(_) => self.menu = MenuPath::closed(),
+                Msg::Picked(what) => {
+                    self.picked = Some(what);
+                    self.menu = MenuPath::closed();
+                }
             }
             Command::none()
         }
@@ -11860,5 +12015,114 @@ mod menu_keyboard_tests {
         d.escape();
         d.run(0.1);
         assert!(!d.app().menu.is_open(), "then the menu");
+    }
+
+    /// **The whole menu from the keyboard**, through the shell's own handling of each key
+    /// (milestone 608): down to the row that opens a submenu, right into it, down to its
+    /// second row, left back out, up to the first row and Enter on it.
+    #[test]
+    fn the_menu_is_worked_from_the_keyboard() {
+        let key = |d: &mut Driver<Editor>, k: ShortcutKey| {
+            d.key(KeyStroke::new(k));
+            d.run(0.1);
+        };
+        let mut d = Driver::new(Editor::default(), W, H);
+        d.run(0.1);
+        d.update(Msg::Menu(MenuPath::from_indices(vec![0])));
+        d.run(0.1);
+        let (new, recent) = (row(&d, "New").unwrap(), row(&d, "Open recent").unwrap());
+        assert_eq!(d.focused(), Some(new));
+
+        key(&mut d, ShortcutKey::Down);
+        assert_eq!(d.focused(), Some(recent), "down to the next row");
+        key(&mut d, ShortcutKey::Right);
+        assert_eq!(
+            d.app().menu,
+            MenuPath::from_indices(vec![0, 1]),
+            "right opens it"
+        );
+        assert_eq!(
+            d.focused(),
+            row(&d, "notes.txt"),
+            "and its first row has the focus"
+        );
+        key(&mut d, ShortcutKey::Down);
+        assert_eq!(d.focused(), row(&d, "todo.md"));
+        key(&mut d, ShortcutKey::Left);
+        assert_eq!(
+            d.app().menu,
+            MenuPath::from_indices(vec![0]),
+            "left closes it"
+        );
+        assert_eq!(
+            d.focused(),
+            Some(recent),
+            "and the focus is back on its row"
+        );
+        key(&mut d, ShortcutKey::Up);
+        assert_eq!(d.focused(), Some(new));
+        key(&mut d, ShortcutKey::Enter);
+        assert_eq!(d.app().picked, Some("new"), "Enter picks the row");
+        assert!(!d.app().menu.is_open(), "and the menus close");
+    }
+
+    /// **A key with modifiers held** reaches a shortcut bound to it, and the modifiers are
+    /// let go after it: a bare key that follows is not taken for the shortcut.
+    #[test]
+    fn a_stroke_holds_its_modifiers_for_the_key_alone() {
+        let mut d = Driver::new(Editor::default(), W, H);
+        d.run(0.1);
+        d.key(KeyStroke::new(ShortcutKey::Char('a')).ctrl());
+        assert!(!d.shell_modifiers().0, "ctrl let go after the stroke");
+    }
+
+    /// **The focus goes back to the word on the bar** when its menu closes: Tab onto File,
+    /// Enter opens it and the focus goes into it, Escape closes it and the focus is on File
+    /// again. A word whose wrappers changed as its menu opened was a different widget once
+    /// it closed, and the focus had nowhere to go back to (milestone 608).
+    #[test]
+    fn closing_a_menu_hands_the_focus_back_to_its_word() {
+        let key = |d: &mut Driver<Editor>, k: ShortcutKey| {
+            d.key(KeyStroke::new(k));
+            d.run(0.1);
+        };
+        let mut d = Driver::new(Editor::default(), W, H);
+        d.run(0.1);
+        key(&mut d, ShortcutKey::Tab);
+        let file = d.focused().expect("Tab reached the bar");
+        key(&mut d, ShortcutKey::Enter);
+        assert!(d.app().menu.is_open(), "Enter opened the menu");
+        assert_eq!(d.focused(), row(&d, "New"), "and the focus went into it");
+        key(&mut d, ShortcutKey::Escape);
+        assert!(!d.app().menu.is_open(), "Escape closed it");
+        assert_eq!(d.focused(), Some(file), "and the focus is back on its word");
+    }
+
+    /// **A row that is not the first gets the focus back too.** With the focus on Quit, the
+    /// pointer opens the submenu beside Open recent, which takes the focus; Escape closes it,
+    /// and the focus is on Quit again. The other rows of a menu gained a hover region when a
+    /// submenu opened, which moved them, and the focus fell to the first row instead, the
+    /// one that takes it when nothing else does (milestone 608).
+    #[test]
+    fn a_submenu_closing_hands_the_focus_back_to_any_row() {
+        let key = |d: &mut Driver<Editor>, k: ShortcutKey| {
+            d.key(KeyStroke::new(k));
+            d.run(0.1);
+        };
+        let mut d = Driver::new(Editor::default(), W, H);
+        d.run(0.1);
+        d.update(Msg::Menu(MenuPath::from_indices(vec![0])));
+        d.run(0.1);
+        key(&mut d, ShortcutKey::Down);
+        key(&mut d, ShortcutKey::Down);
+        let quit = row(&d, "Quit");
+        assert_eq!(d.focused(), quit, "down twice reaches Quit");
+        // What the pointer moving onto Open recent sends.
+        d.update(Msg::Menu(MenuPath::from_indices(vec![0, 1])));
+        d.run(0.1);
+        assert_eq!(d.focused(), row(&d, "notes.txt"));
+        key(&mut d, ShortcutKey::Escape);
+        assert_eq!(d.app().menu, MenuPath::from_indices(vec![0]));
+        assert_eq!(d.focused(), quit, "the focus is back on Quit");
     }
 }

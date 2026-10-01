@@ -242,8 +242,12 @@ impl<Msg: Clone + 'static> MenuBar<Msg> {
             }),
             hover,
         );
+        // In a portal open or shut: a portal takes a place in the tree, and one that came and
+        // went with the menu moved the word under it, so that the focus could not find its
+        // way back to the word when its menu closed (milestone 608).
+        let portal = OverlayPortal::new_boxed(word);
         if !open {
-            return word;
+            return Box::new(portal);
         }
         // Across the bar from inside a menu: the menus either side of this one.
         let across = Across {
@@ -256,7 +260,7 @@ impl<Msg: Clone + 'static> MenuBar<Msg> {
         };
         let panel = panel(&menu.entries, 1, &self.path, on_path, &across);
         Box::new(
-            OverlayPortal::new_boxed(word)
+            portal
                 .overlay_boxed(panel, Placement::Below)
                 .dismiss(on_path(MenuPath::closed())),
         )
@@ -326,12 +330,13 @@ fn panel<Msg: Clone + 'static>(
             Entry::Submenu(sub) if sub.enabled => {
                 let open = path.at(level) == Some(index);
                 let hover = (!open).then(|| on_path(path.opened(level, index)));
-                let row = on_enter(row, hover);
+                // In a portal open or shut, as the word on the bar is.
+                let portal = OverlayPortal::new_boxed(on_enter(row, hover));
                 if open {
                     let inner = panel(&sub.entries, level + 1, path, on_path, across);
-                    Box::new(OverlayPortal::new_boxed(row).overlay_boxed(inner, Placement::Beside))
+                    Box::new(portal.overlay_boxed(inner, Placement::Beside))
                 } else {
-                    row
+                    Box::new(portal)
                 }
             }
             // Any other row of this menu closes a submenu open beside it.
@@ -355,6 +360,10 @@ fn panel<Msg: Clone + 'static>(
 }
 
 /// `row`, sending `hover` when the pointer comes onto it.
+///
+/// A region may come and go with the menus: it is transparent, and takes no place in the
+/// tree of its own. A portal does, which is why the word and the rows that open submenus
+/// are in theirs open or shut (milestone 608).
 fn on_enter<Msg: Clone + 'static>(
     row: Box<dyn Widget<Msg>>,
     hover: Option<Msg>,
@@ -880,6 +889,19 @@ mod tests {
         assert_eq!(
             escape_from(&open, "Quit"),
             Some(Msg::Menu(MenuPath::closed()))
+        );
+    }
+
+    /// **A row whose submenu is shut is as wide as the others too**: it sits in the same
+    /// portal open or shut, so that it keeps its identity (milestone 608), and a portal with
+    /// nothing floating is laid out as any container, which must not shrink it either.
+    #[test]
+    fn a_row_with_its_submenu_shut_keeps_the_menus_width() {
+        let open = bar(&path(&[0]));
+        let recent = text_at(&open, "Open recent").expect("the row");
+        assert_eq!(
+            press(&open, recent.x + 120.0, recent.y + 5.0),
+            Some(Msg::Menu(path(&[0, 2])))
         );
     }
 }
