@@ -71,7 +71,7 @@ blocking = "1"
 # The `fetch` helper's native HTTP client (the `net` feature): blocking, driven to
 # completion inside the async future's body, on its own thread. TLS through rustls,
 # ureq's default.
-ureq = { version = "2", optional = true }
+ureq = { version = "3", optional = true }
 
 # The reader's preferred languages, everywhere but Android and the Web — Windows,
 # macOS, Linux and iOS each keep them somewhere different, and this is one small crate
