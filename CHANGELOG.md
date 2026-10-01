@@ -19,6 +19,12 @@ any release may break.
   its menu closed: the menus' portals came and went with them, moving what they wrapped. They
   are now there open or shut.
 
+- **The demonstration has a menu bar on a wide window** (J607, closes #33): File, View (with
+  Text size and Language submenus) and Go. Two fixes it found: a menu row with its submenu
+  open was laid out at its label's width, its chevron off the menu (a portal now stretches its
+  anchor across), and the README's picture tool drew empty frames since the demonstration
+  became components.
+
 - **Logcat's tag is the application's crate** (J604, seen on a phone). It was `frus_shell`
   for every application, read off a framework type wrapping the application's; `main!` now
   names the crate it is invoked in. The same fault kept the application's own `debug` lines

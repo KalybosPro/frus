@@ -5842,7 +5842,7 @@ impl<A: Application> App<A> {
         // A stroke with no Ctrl, Alt or Meta goes to a focused field first: a
         // binding on a bare letter would otherwise make every field under it
         // impossible to type in.
-        if let Some(stroke) = self.keystroke(&event) {
+        if let Some(stroke) = self.keystroke(event) {
             let typing = !stroke.is_command() && self.runtime.input.focused.is_some();
             if !typing {
                 let msgs = self
@@ -5890,7 +5890,7 @@ impl<A: Application> App<A> {
         let Some(focused) = self.runtime.input.focused else {
             // With nothing focused, a selection an area holds still answers to the
             // clipboard's Copy and to Select all.
-            self.region_key(&event);
+            self.region_key(event);
             return;
         };
 

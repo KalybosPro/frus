@@ -2249,10 +2249,19 @@ fn build_layout_scoped<'a, Msg>(
             layout,
             baselines,
         );
-        return (
-            layout.container(effective_style(widget, id, runtime, theme), &[anchor]),
-            fills,
-        );
+        // **The anchor takes the room the portal is given**, across the axis it fills. Laid
+        // in a row, an anchor stretched to the portal's height but kept its own width, so a
+        // menu row with a submenu open, which is a portal, shrank to its label while every
+        // other row was as wide as the menu, and its chevron was drawn off the menu's start
+        // edge (milestone 607). A column stretches it across instead; an anchor that fills
+        // only the height keeps the row.
+        let mut style = effective_style(widget, id, runtime, theme);
+        style.flex_direction = if fills.vertical && !fills.horizontal {
+            frus_layout::FlexDirection::Row
+        } else {
+            frus_layout::FlexDirection::Column
+        };
+        return (layout.container(style, &[anchor]), fills);
     }
     let children = widget.children();
     if children.is_empty() {

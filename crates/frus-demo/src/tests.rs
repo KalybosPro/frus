@@ -1804,3 +1804,79 @@ fn choosing_french_hands_the_framework_a_french_table() {
         bench.words()
     );
 }
+
+/// **The menu bar of a wide window**, through the shell (milestone 607): a word opens its menu
+/// and its first row takes the focus, the pointer moves between menus once one is open, a row
+/// does its work and closes the menus, a submenu opens from its row and Escape closes it
+/// alone. A phone has no bar.
+#[test]
+fn a_wide_window_has_a_menu_bar_that_works() {
+    let shown =
+        |driver: &Driver<FrusApp>, label: &str| driver.texts().iter().any(|(t, _)| t == label);
+    let at = |driver: &Driver<FrusApp>, label: &str| {
+        let (_, rect) = driver
+            .texts()
+            .into_iter()
+            .find(|(t, _)| t == label)
+            .unwrap_or_else(|| panic!("{label} on screen"));
+        Point::new(rect.x + 4.0, rect.y + rect.height * 0.5)
+    };
+
+    let (app, _, _) = crate::build();
+    let mut phone = Driver::new(app, 400.0, 800.0);
+    phone.run(0.3);
+    assert!(!shown(&phone, "File"), "no bar on a phone");
+
+    let (app, _, demo) = crate::build();
+    let mut driver = Driver::new(app, 1000.0, 700.0);
+    driver.run(0.3);
+    for word in ["File", "View", "Go"] {
+        assert!(shown(&driver, word), "{word} on the bar");
+    }
+
+    // A word opens its menu, and the first row takes the focus.
+    assert!(driver.tap_text("View"));
+    driver.run(0.2);
+    assert!(shown(&driver, "Dark theme"), "the View menu is open");
+    assert!(driver.focused().is_some(), "its first row has the focus");
+
+    // Once one is open, the pointer moves to another with no press.
+    let go = at(&driver, "Go");
+    driver.move_mouse(go);
+    driver.run(0.2);
+    assert!(
+        shown(&driver, "Settings"),
+        "the Go menu followed the pointer"
+    );
+    assert!(!shown(&driver, "Dark theme"), "and the View menu closed");
+
+    // A submenu opens from its row; Escape closes it and nothing else.
+    driver.escape();
+    driver.run(0.2);
+    assert!(!shown(&driver, "Settings"), "Escape closed the Go menu");
+    assert!(driver.tap_text("View"));
+    driver.run(0.2);
+    assert!(driver.tap_text("Language"));
+    driver.run(0.2);
+    assert!(shown(&driver, "Français"), "the Language submenu is open");
+    driver.escape();
+    driver.run(0.2);
+    assert!(!shown(&driver, "Français"), "Escape closed the submenu");
+    assert!(shown(&driver, "Dark theme"), "and left its menu open");
+
+    // A row does its work and closes the menus.
+    let light = demo.prefs().light;
+    assert!(driver.tap_text("Dark theme"));
+    driver.run(0.3);
+    assert_ne!(demo.prefs().light, light, "the theme switched");
+    assert!(!shown(&driver, "Dark theme"), "and the menus closed");
+
+    // A language picked from its submenu.
+    assert!(driver.tap_text("View"));
+    driver.run(0.2);
+    assert!(driver.tap_text("Language"));
+    driver.run(0.2);
+    assert!(driver.tap_text("Français"));
+    driver.run(0.3);
+    assert_eq!(demo.prefs().lang, Some(1));
+}
