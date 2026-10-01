@@ -12163,9 +12163,10 @@ mod right_click_bar_tests {
             .expect("the field's words");
         d.secondary_click(Point::new(words.x + 20.0, words.y + words.height * 0.5));
         d.run(0.1);
-        // Only what applies: nothing is selected to cut or copy, and the test's clipboard
-        // has nothing to paste.
+        // Only what applies: nothing is selected, so nothing to cut or copy. Paste is not
+        // asserted either way: it follows the machine's own clipboard, which a test does not
+        // control (a CI runner's had text on it).
         assert!(shown(&d, "Select all"), "the bar is open: {:?}", d.texts());
-        assert!(!shown(&d, "Copy") && !shown(&d, "Paste"));
+        assert!(!shown(&d, "Copy") && !shown(&d, "Cut"));
     }
 }
