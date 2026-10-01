@@ -40,7 +40,7 @@ anyhow.workspace = true
 log.workspace = true
 # `--features shots` only: rendering frames offscreen, and packing them into a GIF.
 frus-test = { path = "../frus-test", optional = true }
-gif = { version = "0.13", optional = true }
+gif = { version = "0.14", optional = true }
 
 # Web (wasm): the `frus_shell::main!` macro generates the `#[wasm_bindgen(start)]` entry point
 # and names `wasm_bindgen`; the tasks are kept in the page's `localStorage`, there being no disk.
