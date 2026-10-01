@@ -882,4 +882,38 @@ mod tests {
             Some(Msg::Menu(MenuPath::closed()))
         );
     }
+
+    /// **A row with its submenu open is as wide as the others**, and its chevron is inside
+    /// the menu. The open row is wrapped in the portal that floats the submenu, and the
+    /// portal laid its anchor out at its label's width: the chevron was drawn off the menu's
+    /// start edge, and a press near the row's end missed it (milestone 607).
+    #[test]
+    fn a_row_with_its_submenu_open_keeps_the_menus_width() {
+        let deeper = bar(&path(&[0, 2]));
+        let ui = ui(&deeper);
+        let recent = text_at(&deeper, "Open recent").expect("the row");
+        let quit = text_at(&deeper, "Quit").expect("another row");
+        let id_at = |x: f32, y: f32| ui.hit(Point::new(x, y + 5.0));
+        // Near the end of the menu, level with each row.
+        let end = recent.x + 120.0;
+        assert_eq!(
+            press(&deeper, end, recent.y + 5.0),
+            Some(Msg::Menu(path(&[0, 2])))
+        );
+        assert!(id_at(end, quit.y).is_some(), "the other row reaches as far");
+        // The chevron: a path level with the row, past its label, inside the window.
+        let chevron = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                p @ frus_core::Primitive::Path { .. } => {
+                    let b = p.bounds();
+                    ((b.y - recent.y).abs() < 16.0).then_some(b)
+                }
+                _ => None,
+            })
+            .expect("a chevron on the row");
+        assert!(chevron.x > recent.x + 60.0, "at the row's end: {chevron:?}");
+    }
 }

@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 606 so far, each documenting the objective, the alternatives
+> record — one per step, 607 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The demonstration has a menu bar on a wide window** (J607, closes #33): File, View (with
+  Text size and Language submenus) and Go. Two fixes it found: a menu row with its submenu
+  open was laid out at its label's width, its chevron off the menu (a portal now stretches its
+  anchor across), and the README's picture tool drew empty frames since the demonstration
+  became components.
 
 - **Shadows as the reference casts them** (J606). Every shadow stopped short at half its
   strength in a hard grey line — the renderer faded it across the edge of what it draws
