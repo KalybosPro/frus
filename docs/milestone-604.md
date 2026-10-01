@@ -73,3 +73,25 @@ more.
 - A filter with a part it cannot read keeps the parts it can.
 - The crate an application's type lives in is found.
 - Clippy passes on desktop, Android and the web, where each platform's logger is compiled.
+
+## Seen on a phone, and mended
+
+The first run on a phone (2026-10-01) showed the logs arriving in logcat, `info` included, and
+two faults:
+
+- **The tag was `frus_shell`, not the application's.** The crate was read off the type the
+  shell is handed, and that type is often the framework's own, wrapping the application's.
+  `adb logcat -s frus_demo` showed nothing. Now [`main!`](../crates/frus-shell/src/lib.rs),
+  which expands inside the application, names its crate from `module_path!()` before running
+  it. An application started without the macro has its crate read off the type as before, but
+  as the first crate in the type's name that is not the framework's or the standard library's.
+  The same fault had kept the application's own `debug` lines hidden on desktop.
+- **Ten lines of the GPU layer's at every launch**, at `warn`: that a phone's GPU is not a full
+  desktop one. Nothing a developer can act on. `wgpu_core::instance` is held to `error`; the
+  rest of the GPU layer still shows its warnings.
+
+After the fix, on the same phone: `I/frus_demo: frus_shell::android_ime: input bridge
+installed` and the GPU adapter line, under the demo's own tag, and no report from the GPU
+layer. Tests: the crate is found through a framework wrapper, inside a boxed trait object, and
+falls back to the framework's own name for a type that is only the framework's; the launch
+report is held back while the GPU layer's other warnings and its errors are not.
