@@ -75,3 +75,8 @@ The reference's rule, in order:
   calling itself a Mac and Chrome on Android calling itself Linux),
   `platforms_fall_into_families`.
 - `a_theme_follows_the_default_platform_until_told`, `a_fade_keeps_a_platform_whole`.
+
+Mutation testing: seven mutants, all killed — the iPad's touch-point threshold, the
+Android rule moved after the Linux one, the override ignored, two platforms sharing a
+code, macOS dropped from Apple's family, the fade dropping the platform, and a theme
+starting at a fixed platform.
