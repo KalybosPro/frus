@@ -247,6 +247,18 @@ pub fn run_web<A: Application + 'static>(app: A) -> anyhow::Result<()> {
     console_error_panic_hook::set_once();
     // The application's `log` output, in the browser's console (milestone 604).
     logging::init::<A>();
+    // The browser's operating system, before any theme is built: a web build is built for
+    // no operating system, and the conventions to follow are those of the one the page is
+    // read on (milestone 614).
+    if let Some(navigator) = web_sys::window().map(|window| window.navigator()) {
+        let platform = frus_widgets::TargetPlatform::from_browser(
+            &navigator.platform().unwrap_or_default(),
+            &navigator.user_agent().unwrap_or_default(),
+            navigator.max_touch_points(),
+        );
+        frus_widgets::__set_detected_target_platform(platform);
+        log::info!("target platform: {platform}, from the browser");
+    }
 
     let event_loop = winit::event_loop::EventLoop::<A::Message>::with_user_event().build()?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
