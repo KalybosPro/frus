@@ -21,13 +21,18 @@ any release may break.
   questions for a new size and started over every frame. It now takes up the last answer
   once a frame. Idle, nothing is drawn; scrolling, the median frame is 16.5 ms instead of 45.
 
+- **Dependencies**: `ureq` 3 for the native `fetch` (the same behaviour: headers, a timeout
+  over the whole exchange, a status of 400 or more reported as `FetchError::Status`, the size
+  cap), and `accesskit` 0.25 with `accesskit_winit` 0.34, which must move together.
+  Dependabot no longer offers to bump `dtolnay/rust-toolchain`, whose tag is a Rust version.
+
 - **The shell's test driver presses keys** (J608): `Driver::key(KeyStroke)`, through the same
   handling a window's keys go through, moved into one method. Driving the menu bar with it found
   that the focus could not return to a row once its submenu closed, nor to a word on the bar once
   its menu closed: the menus' portals came and went with them, moving what they wrapped. They
   are now there open or shut.
 
-- **The demonstration has a menu bar on a wide window** (J607, closes #33): File, View (with
+- **The demonstration has a menu bar on a wide window** (J607, #33): File, View (with
   Text size and Language submenus) and Go. Two fixes it found: a menu row with its submenu
   open was laid out at its label's width, its chevron off the menu (a portal now stretches its
   anchor across), and the README's picture tool drew empty frames since the demonstration

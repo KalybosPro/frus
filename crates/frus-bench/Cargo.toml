@@ -20,7 +20,7 @@ frus-widgets = { path = "../frus-widgets" }
 # `plotters` and its HTML reports are left out: the numbers go to the terminal and
 # into a milestone note, and the dependency tree stays small enough to build on a
 # phone-sized machine.
-criterion = { version = "0.5", default-features = false, features = [
+criterion = { version = "0.8", default-features = false, features = [
     "cargo_bench_support",
 ] }
 

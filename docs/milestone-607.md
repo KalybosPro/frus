@@ -1,8 +1,18 @@
 # Milestone 607 — A menu bar in the demonstration, and what it found
 
-Issue #33 is done when a menu bar is in an application and works there. Milestones 603 and 605
-built it and tested it as a widget. This puts it in the demonstration, which found two defects
-on the way: one in the widgets, one in the tool that draws the README's pictures.
+Issue #33 asks for a menu bar in an application, working there. Milestones 603 and 605 built
+it and tested it as a widget. This puts it in the demonstration, which found two defects on the
+way: one in the widgets, one in the tool that draws the README's pictures.
+
+It does not close #33. The issue also asks for:
+
+- a delay before a submenu opens on hover, with the pointer free to travel diagonally to it;
+- the underlined accelerator letter;
+- a radio item;
+- a displayed shortcut that cannot drift from the one bound;
+- menu roles, and an expanded state, for a screen reader.
+
+None of these is here yet.
 
 ## The bar
 

@@ -69,6 +69,8 @@ shrunk the anchor: the fault milestone 607 mended for an open portal. Its style 
 - Tab onto File, then Enter, opens the menu with the focus inside it; Escape closes it, and the
   focus is back on File.
 - A stroke with Ctrl held lets Ctrl go after it.
+- A right-click on a field opens its selection bar, showing only what applies: Select all, with
+  nothing selected and nothing to paste. Milestone 568 had built that path and not run it.
 - A row with its submenu shut is as wide as the menu.
 - Every widget test and every golden, unchanged.
 - Mutations, each failing a test:

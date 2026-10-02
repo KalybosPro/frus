@@ -242,25 +242,34 @@ impl Request {
         // shape of the bug is the reason this crate exists: a call that blocks needs a
         // thread, and the point of milestone 303 is that *waiting* no longer does.
         blocking::unblock(move || {
-            let mut req = ureq::request(self.method.as_str(), &self.url);
+            // An agent per request: what it is configured with is this request's own —
+            // its timeout over the whole exchange — and a status of 400 or more comes back
+            // as an error, as `fetch` reports it.
+            let agent: ureq::Agent = ureq::Agent::config_builder()
+                .timeout_global(self.timeout)
+                .http_status_as_error(true)
+                .build()
+                .into();
+            let mut req = ureq::http::Request::builder()
+                .method(self.method.as_str())
+                .uri(&self.url);
             for (name, value) in &self.headers {
-                req = req.set(name, value);
+                req = req.header(name, value);
             }
-            if let Some(dur) = self.timeout {
-                req = req.timeout(dur);
-            }
-            let result = match &self.body {
-                Some(b) => req.send_string(b),
-                None => req.call(),
+            let malformed = |e: ureq::http::Error| FetchError::Network(e.to_string());
+            let result = match self.body {
+                Some(body) => agent.run(req.body(body).map_err(malformed)?),
+                None => agent.run(req.body(()).map_err(malformed)?),
             };
             match result {
-                Ok(resp) => {
+                Ok(mut resp) => {
                     use std::io::Read;
                     // One byte past the limit, so a body **at** the cap is not mistaken
                     // for one over it: `take(MAX)` fills exactly `MAX` for both, and
                     // there is no way to tell them apart afterwards.
                     let mut body = Vec::new();
-                    resp.into_reader()
+                    resp.body_mut()
+                        .as_reader()
                         .take(MAX_RESPONSE_BYTES as u64 + 1)
                         .read_to_end(&mut body)
                         .map_err(|e| FetchError::Decode(e.to_string()))?;
@@ -271,7 +280,7 @@ impl Request {
                     }
                     Ok(body)
                 }
-                Err(ureq::Error::Status(code, _)) => Err(FetchError::Status(code)),
+                Err(ureq::Error::StatusCode(code)) => Err(FetchError::Status(code)),
                 Err(e) => Err(FetchError::Network(e.to_string())),
             }
         })
