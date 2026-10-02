@@ -56,3 +56,7 @@ interval of 17–18 ms, a 95th percentile near 50 ms, and on those frames a rend
 - `frames_timed_by_the_gpu_come_back`: twenty timed frames on a device with a clock, and a
   duration comes back, never negative and under a second. Skipped on a machine with no
   adapter offering timestamps.
+
+Mutation testing: four mutants of `gpu_timer.rs`, all killed — a slot never marked
+pending, the sign of the difference reversed, the feature check removed, and the map
+callback that never says the buffer is ready.
