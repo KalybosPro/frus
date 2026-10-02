@@ -105,18 +105,22 @@ fn action_size_of(over: Option<f32>, theme: &Theme) -> f32 {
 /// rather than waiting for something to inset it.
 const PRIMARY: bool = true;
 
-/// The space between the bar's elements (the default, overridden by [`AppBar::gap`]).
-const GAP: f32 = 8.0;
+/// The space between the bar's elements (the default, overridden by [`AppBar::gap`]): none,
+/// as the reference's toolbar puts its actions side by side, each an icon button whose own
+/// 48 px box is the room around its glyph (milestone 611). It was 8 px.
+const GAP: f32 = 0.0;
+/// The space between the leading and the title, and between the start edge and a title
+/// with no leading: the reference's `NavigationToolbar.kMiddleSpacing`.
+const TITLE_SPACING: f32 = 16.0;
 /// The width reserved for the `leading` slot (a leading icon, Material style).
 const LEADING_SLOT: f32 = 56.0;
-/// The bar's horizontal margin: the content does not touch the edges (Material
-/// style). Counted in the folding budget.
-const H_PAD: f32 = 8.0;
+/// The bar's horizontal margin: none. The leading's 56 px slot starts at the edge and the
+/// actions end there, as the reference's do; the glyphs' distance from the edge is their
+/// buttons' own (milestone 611). It was 8 px on each side. Counted in the folding budget.
+const H_PAD: f32 = 0.0;
 /// The width the title is never squeezed below, in px. A title cut to nothing tells a
 /// reader less than a title cut to two characters and an ellipsis.
 const TITLE_MIN: f32 = 64.0;
-/// The glyph on the overflow button.
-const OVERFLOW_GLYPH: &str = "\u{22ef}";
 /// The title: styled text, or any widget at all.
 /// An action: labelled (foldable into the overflow) or a free widget (always
 /// inline — an arbitrary widget cannot become a text menu row).
@@ -217,7 +221,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             center_title: None,
             bottom: None,
             leading_width: None,
-            title_spacing: GAP * 2.0,
+            title_spacing: TITLE_SPACING,
             foreground: None,
             elevation: 0.0,
             shape: None,
@@ -513,7 +517,8 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self
     }
 
-    /// Padding around the **actions** as a group, on top of the gap between them.
+    /// Padding **across** the **actions** as a group, at its two ends, on top of the gap
+    /// between them.
     ///
     /// The reference's `actionsPadding`, added in its 3.27 line for the same reason: an
     /// icon button's own hit area already reaches the bar's edge, so a design that wants
@@ -595,8 +600,19 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// The button a labelled action is drawn as — made in this one place, so that the
     /// width the fold is decided on is the width of what is then drawn. The bar used to
     /// estimate it with a padding and no minimum of its own, and the two drifted apart.
+    ///
+    /// A **text button**, as an action with words is in the reference: no outline, the bar
+    /// is its surface (milestone 611). It was an outlined pill.
     fn action_button(label: String, message: Msg, size: f32) -> impl Widget<Msg> + 'static {
-        button(label, message).variant(Variant::Outlined).size(size)
+        button(label, message).variant(Variant::Text).size(size)
+    }
+
+    /// The button that opens the overflow menu: the reference's three dots, upright, in an
+    /// icon button (milestone 611). It was a `⋯` in an outlined pill.
+    fn overflow_button(message: Msg) -> impl Widget<Msg> + 'static {
+        crate::IconButton::new(crate::Icons::MORE_VERT)
+            .label("More")
+            .on_press(message)
     }
 
     /// A widget's declared width (0 if it depends on layout).
@@ -779,11 +795,15 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         // spring before a centred title, the title if there is one, and the spring after
         // it — each joined to the next by a gap. The gap joining the last of them to the
         // actions is each action's own, below, so a bar with no actions still owes it here.
-        let spacer_w = if leading.is_some() && title_spacing > gap {
-            title_spacing - gap
-        } else {
-            0.0
-        };
+        // With a leading, the spacing sits between it and the title; without one, between
+        // the start edge and the title, as the reference's toolbar puts it. A centred title
+        // has no start to keep it from.
+        let spacer_w =
+            if title.is_some() && (leading.is_some() || !center_title) && title_spacing > gap {
+                title_spacing - gap
+            } else {
+                0.0
+            };
         let before_actions = usize::from(leading.is_some())
             + usize::from(spacer_w > 0.0)
             + usize::from(center_title)
@@ -803,7 +823,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         // The `⋯` is made as the actions are, and measured as they are.
         let overflow_btn_w = match &overflow {
             Some((_, toggle)) => {
-                let glyph = Self::action_button(OVERFLOW_GLYPH.into(), toggle.clone(), action_size);
+                let glyph = Self::overflow_button(toggle.clone());
                 Self::widget_width(&glyph, theme) + gap
             }
             None => 0.0,
@@ -896,11 +916,20 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         };
 
         let mut row = Flex::row().align(Align::Center).gap(gap);
+        // The leading **in its slot**, centred: the reference gives it a box of exactly the
+        // leading width, so an icon button's glyph sits 16 px from the edge and the title
+        // starts at 72. The slot used to be counted in the budget and not given, and the
+        // glyph touched the edge (milestone 611).
         if let Some(leading) = leading {
-            row = row.child_boxed(dress(leading, icon_theme));
-            if title_spacing > gap {
-                row = row.child(Container::new().width(title_spacing - gap));
-            }
+            row = row.child(
+                Container::new()
+                    .width(leading_w)
+                    .alignment(crate::Alignment::CENTER)
+                    .child(dress(leading, icon_theme)),
+            );
+        }
+        if spacer_w > 0.0 {
+            row = row.child(Container::new().width(spacer_w));
         }
         // Centred: a spring on either side of the title. Otherwise one spring after it,
         // which is what pushes the actions to the right.
@@ -968,11 +997,8 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                 // A controlled overflow menu: the glyph opens it, the items emit the
                 // actions.
                 Some((open, toggle)) => {
-                    let mut menu = PopupMenuButton::new(
-                        Self::action_button(OVERFLOW_GLYPH.into(), toggle.clone(), action_size),
-                        open,
-                        toggle,
-                    );
+                    let mut menu =
+                        PopupMenuButton::new(Self::overflow_button(toggle.clone()), open, toggle);
                     for (label, message) in folded {
                         menu = menu.item(label, message);
                     }
@@ -989,9 +1015,23 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         // Unset, the actions follow the bar's icon theme; set, they part company with
         // the leading slot — a back arrow in the foreground colour beside actions in a
         // muted one, which is the case the reference's `actionsIconTheme` exists for.
-        let group = dress(Box::new(group), actions_icon_theme.or(icon_theme));
+        // Untold, the actions' glyphs are the scheme's `on_surface_variant`, a step quieter
+        // than the leading's `on_surface`: the reference's default `actionsIconTheme`
+        // (milestone 611).
+        let actions_icons = actions_icon_theme.or(icon_theme).or(Some(IconTheme {
+            color: Some(theme.scheme.on_surface_variant),
+            size: None,
+        }));
+        let group = dress(Box::new(group), actions_icons);
         row = match actions_padding {
-            Some(pad) => row.child(Container::new().padding(pad).child(group)),
+            // Across, at both ends of the group: what insets the glyphs from the bar's edge.
+            // Not above and below, where a bar of a fixed height has no room to give — an
+            // icon button is already 48 of its 64 (milestone 611).
+            Some(pad) => row.child(
+                Container::new()
+                    .padding_each(0.0, pad, 0.0, pad)
+                    .child(group),
+            ),
             None => row.child_boxed(group),
         };
 
@@ -1135,14 +1175,16 @@ mod tests {
                     .action("Action Three", Msg::C)
                     .build()
             });
-            let ui = build_ui(bar.as_ref(), size, &Runtime::default(), &Theme::default());
-            ui.semantics()
-                .iter()
-                .filter(|(_, _, s)| s.role == frus_core::Role::Button)
+            // The actions still on the bar, by their words: a folded one leaves, and the
+            // overflow button that takes its place says no words of its own.
+            texts_of(bar.as_ref(), width)
+                .into_iter()
+                .filter(|t| t.starts_with("Action"))
                 .count()
         };
+        assert_eq!(built(1000.0), 3, "a wide surface shows them all");
         assert!(
-            built(1000.0) > built(360.0),
+            built(1000.0) > built(300.0),
             "a narrow surface folds what a wide one shows"
         );
     }
@@ -1594,16 +1636,15 @@ mod tests {
         assert_eq!(bar_height(bar.as_ref()), Some(APP_BAR_HEIGHT));
     }
 
-    /// **A bar with no title owes the fold no room for one**, not even a gap.
+    /// **A bar with no title owes the fold no room for one**, nor a spacing before it.
     ///
     /// The budget counts the row's children before the actions, and the title was always
-    /// one of them. At exactly the width its margins and one action take, a flush untitled
-    /// bar shows the action; charged a join for a title it has not got, it folds it away.
+    /// one of them. At exactly the width one action takes, an untitled bar shows the action;
+    /// charged a spacing or a join for a title it has not got, it would fold it away.
     ///
-    /// Told where its title goes rather than left to the platform: a centred title's leading
-    /// spring is a child of the row too, and Apple's platforms centre a bar with one action —
-    /// which is how this test first failed, on macOS alone. So the centred bar is checked as
-    /// well, and it needs exactly one gap more.
+    /// Told where its title goes rather than left to the platform: Apple's platforms centre
+    /// a bar with one action, and a centred title has a spring of its own. Neither costs room
+    /// now that the reference's toolbar has no gaps (milestone 611).
     #[test]
     fn an_untitled_bar_gives_its_actions_the_room() {
         let theme = Theme::default();
@@ -1619,19 +1660,15 @@ mod tests {
                 .overflow(false, Msg::PopupMenuButton)
                 .action("Save", Msg::B)
                 .build();
-            let texts = texts_of(bar.as_ref(), width);
-            texts.iter().any(|t| t == "Save") && !texts.iter().any(|t| t == OVERFLOW_GLYPH)
+            texts_of(bar.as_ref(), width).iter().any(|t| t == "Save")
         };
-        let width = H_PAD * 2.0 + save + GAP + 0.25;
+        let width = H_PAD * 2.0 + save + 0.25;
         assert!(
             shows(false, width),
             "flush, the action fits a bar {width} px wide"
         );
-        assert!(
-            !shows(true, width),
-            "centred, the spring before the title costs a gap"
-        );
-        assert!(shows(true, width + GAP), "and exactly one");
+        assert!(shows(true, width), "centred, too");
+        assert!(!shows(false, width - 1.0), "and a pixel less folds it");
     }
 
     /// Every path the bar paints, layers included.
@@ -1850,22 +1887,23 @@ mod tests {
         // narrower, and that slack alone would hide a gap the budget forgot.
         //
         // Each from the narrowest bar it can be, and not a pixel wider: below that, with every
-        // action folded, the leading, the title's floor, the `⋯` and the padding are wider
-        // than the bar on their own, and there is nothing left to fold. A labelled "Menu"
-        // leading is 87 px, so its bar needs 271; a centred title's second spring costs a
-        // gap more, and a 12 px padding two sides of it.
+        // action folded, the leading, the spacing, the title's floor and the overflow button
+        // are wider than the bar on their own, and there is nothing left to fold. The
+        // reference's toolbar has no margin and no gaps (milestone 611), so it is their sum:
+        // an icon leading's 56 px slot + 16 + 64 + the 48 px overflow button is 184; a
+        // labelled "Menu" leading is 87 px, so 215; with no leading the 16 px spacing still
+        // opens the title, so 128; a centred title costs nothing more, and a 12 px padding
+        // two sides of the actions does.
         //
-        // And without a title, which is one child fewer in the row the budget counts: no
-        // title floor and one gap fewer, so 64 + 8 px narrower than the same bar with one.
-        // At a pixel under that floor a centred untitled bar overflows by exactly the pixel.
+        // And without a title: no floor and no spacing, the leading and the overflow alone.
         let configurations = [
-            ("icon", false, None, true, 240),
-            ("button", false, None, true, 271),
-            ("none", false, None, true, 240),
-            ("button", true, None, true, 279),
-            ("button", false, Some(12.0), true, 295),
-            ("button", false, None, false, 199),
-            ("button", true, None, false, 207),
+            ("icon", false, None, true, 184),
+            ("button", false, None, true, 215),
+            ("none", false, None, true, 128),
+            ("button", true, None, true, 215),
+            ("button", false, Some(12.0), true, 239),
+            ("button", false, None, false, 135),
+            ("button", true, None, false, 135),
         ];
         for (leading, centered, padding, titled, narrowest) in configurations {
             for width in (narrowest..=1600).step_by(7) {

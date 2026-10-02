@@ -8,10 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 610 so far, each documenting the objective, the alternatives
+> record — one per step, 611 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The app bar, as the reference lays it out** (J611): a labelled action is a text button,
+  not an outlined pill; the overflow is a `more_vert` icon button; no margins and no gaps,
+  the leading centred in a 56 px slot and the title 16 px after it; the actions' glyphs in
+  `on_surface_variant`. `actions_padding` now insets the actions across only.
 
 - **A layer costs its size, and the display sets the pace** (J610). A layer was drawn into a
   texture the size of the surface and composited by a quad covering it: a 56 × 32 px
