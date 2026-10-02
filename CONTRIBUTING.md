@@ -92,6 +92,11 @@ that default:
 RUST_LOG=frus_shell=debug,frus_gpu=info cargo run -p frus-demo
 ```
 
+How smooth the frames are, and where a slow one went, is measured by the shell itself when
+asked: `FRUS_FRAME_STATS=1` on desktop, `adb shell setprop debug.frus.frames 1` before starting
+the application on Android. A line goes to the log every two seconds of drawing (see
+`crates/frus-shell/src/frame_stats.rs`).
+
 ## The workflow
 
 frus is built in **milestones**. Each one is a single coherent step: a feature, its tests, and a design note in `docs/milestone-N.md` ([index](docs/README.md)). There are 277 of them, and together they are the project's real memory — they record not just what was built but which alternatives were rejected and why.

@@ -6,7 +6,8 @@
 //! that sentence be checked rather than repeated.
 
 use criterion::{criterion_group, BenchmarkId, Criterion};
-use frus_bench::{build, nested, task_list, task_list_wordless};
+use frus_bench::{build, build_on, nested, task_list, task_list_wordless};
+use frus_widgets::Runtime;
 
 fn scene(c: &mut Criterion) {
     let mut group = c.benchmark_group("build_ui");
@@ -37,6 +38,26 @@ fn scene(c: &mut Criterion) {
         let tree = nested(depth);
         group.bench_with_input(BenchmarkId::new("depth", depth), &depth, |b, _| {
             b.iter(|| build(&tree));
+        });
+    }
+    group.finish();
+
+    // **Every frame after the first**: the tree rebuilt from scratch, as `view` does, on a
+    // runtime kept between frames, as the shell's is. This is what a running application
+    // pays sixty times a second; the groups above are its first frame.
+    let mut group = c.benchmark_group("frame/steady");
+    for rows in [12usize, 60, 200] {
+        let runtime = Runtime::default();
+        let _ = build_on(&task_list(rows), &runtime);
+        group.bench_with_input(BenchmarkId::new("task_list", rows), &rows, |b, _| {
+            b.iter(|| build_on(&task_list(rows), &runtime));
+        });
+    }
+    for depth in [8usize, 64] {
+        let runtime = Runtime::default();
+        let _ = build_on(&nested(depth), &runtime);
+        group.bench_with_input(BenchmarkId::new("nested", depth), &depth, |b, _| {
+            b.iter(|| build_on(&nested(depth), &runtime));
         });
     }
     group.finish();

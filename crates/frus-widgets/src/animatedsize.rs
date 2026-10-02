@@ -44,6 +44,11 @@ struct Moving {
     elapsed: f32,
     duration: f32,
     curve: Curve,
+    /// The child's size as this frame's layout last measured it, and how to move to it:
+    /// taken up when the runtime next advances (milestone 609).
+    seen: Option<(Size, SizeAnimation)>,
+    /// First seen in the frame not yet advanced: it takes its child's size at once.
+    fresh: bool,
 }
 
 impl Moving {
@@ -54,6 +59,8 @@ impl Moving {
             elapsed: 0.0,
             duration: 0.0,
             curve: Curve::Linear,
+            seen: None,
+            fresh: false,
         }
     }
 
@@ -90,12 +97,20 @@ fn same(a: Size, b: Size) -> bool {
 }
 
 impl SizeAnims {
-    /// The layout measured the child of `id` at `child`. A box seen for the first time takes
-    /// that size at once; a box whose child has changed size starts over from wherever it
-    /// had got to. Returns the size the box has now.
+    /// The layout measured the child of `id` at `child`. Returns the size the box has now.
     ///
-    /// `record` is false for the layout's intrinsic questions — how big with no room at all
-    /// — which are asked of the child along the way and are not the size it ends up at.
+    /// **Noted, not acted on.** A layout asks the same child several questions in one pass
+    /// — how wide with this much room, with that much, at its widest — and only the last is
+    /// the size it ends up at. Each answer used to be taken as a new target, so a box whose
+    /// child is given the width on offer saw its target move back and forth inside every
+    /// frame, started over every frame, and never settled: the demonstration's home screen
+    /// drew sixty frames a second doing nothing (milestone 609). The answer is kept, the
+    /// last one winning, and taken up once, when the runtime advances: a change starts the
+    /// move on the frame after it, as it did.
+    ///
+    /// A box seen for the first time takes its child's size at once, whichever answer was
+    /// the last. `record` is false for the layout's intrinsic questions — how big with no
+    /// room at all — which are not the size the child ends up at either.
     pub(crate) fn observe(
         &mut self,
         id: WidgetId,
@@ -107,22 +122,44 @@ impl SizeAnims {
         match self.moving.get_mut(&id) {
             None => {
                 if record {
-                    self.moving.insert(id, Moving::settled(child));
+                    let mut fresh = Moving::settled(child);
+                    fresh.fresh = true;
+                    self.moving.insert(id, fresh);
                 }
                 child
             }
             Some(moving) => {
-                if record && !same(moving.to, child) {
-                    *moving = Moving {
-                        from: moving.current(),
-                        to: child,
-                        elapsed: 0.0,
-                        duration: spec.duration.max(0.0),
-                        curve: spec.curve.clone(),
-                    };
+                if record {
+                    if moving.fresh {
+                        // Still the frame it appeared in: it is the size it is.
+                        moving.from = child;
+                        moving.to = child;
+                    } else {
+                        moving.seen = Some((child, spec.clone()));
+                    }
                 }
                 moving.current()
             }
+        }
+    }
+
+    /// Takes up what the last layout measured: a box whose child has changed size starts
+    /// over from wherever it had got to.
+    fn take_up(moving: &mut Moving) {
+        moving.fresh = false;
+        let Some((child, spec)) = moving.seen.take() else {
+            return;
+        };
+        if !same(moving.to, child) {
+            *moving = Moving {
+                from: moving.current(),
+                to: child,
+                elapsed: 0.0,
+                duration: spec.duration.max(0.0),
+                curve: spec.curve,
+                seen: None,
+                fresh: false,
+            };
         }
     }
 
@@ -148,6 +185,7 @@ impl SizeAnims {
         self.moving.retain(|id, _| seen.contains(id));
         let mut animating = false;
         for moving in self.moving.values_mut() {
+            Self::take_up(moving);
             if moving.done() {
                 continue;
             }
@@ -311,6 +349,8 @@ mod tests {
     fn a_grown_child_is_followed_over_the_duration() {
         let mut anims = SizeAnims::default();
         anims.observe(ID, Size::new(100.0, 40.0), &spec(0.2), true);
+        // The next frame, as the shell advances between two.
+        anims.advance(0.0, false);
         let now = anims.observe(ID, Size::new(100.0, 140.0), &spec(0.2), true);
         assert_eq!(now.height, 40.0, "it starts where it was");
         assert!(anims.advance(0.1, false));
@@ -328,6 +368,7 @@ mod tests {
     fn a_change_mid_move_starts_from_where_it_is() {
         let mut anims = SizeAnims::default();
         anims.observe(ID, Size::new(100.0, 0.0), &spec(0.2), true);
+        anims.advance(0.0, false);
         anims.observe(ID, Size::new(100.0, 200.0), &spec(0.2), true);
         anims.advance(0.1, false);
         let back = anims.observe(ID, Size::new(100.0, 0.0), &spec(0.2), true);
@@ -335,6 +376,34 @@ mod tests {
         anims.advance(0.1, false);
         let later = anims.observe(ID, Size::new(100.0, 0.0), &spec(0.2), true);
         assert!((later.height - 50.0).abs() < 0.01, "{later:?}");
+    }
+
+    /// **One frame's questions are not a change** (milestone 609): a layout measures the
+    /// same child at several widths in one pass, and only the last answer is the size it
+    /// ends up at. A box asked about 297, 481 and 312 px in one frame, and about the same in
+    /// the next, has not moved, and asks for no more frames.
+    #[test]
+    fn the_questions_of_one_frame_are_not_a_change() {
+        let mut anims = SizeAnims::default();
+        let asked = |anims: &mut SizeAnims| {
+            for width in [297.0, 481.0, 312.0] {
+                anims.observe(ID, Size::new(width, 22.0), &spec(0.2), true);
+            }
+        };
+        asked(&mut anims);
+        assert!(!anims.advance(0.016, false), "it appeared at its size");
+        for _ in 0..3 {
+            asked(&mut anims);
+            assert!(
+                !anims.advance(0.016, false),
+                "the same answers: nothing to follow"
+            );
+        }
+        // And a real change, the last answer, still starts a move.
+        for width in [297.0, 481.0, 350.0] {
+            anims.observe(ID, Size::new(width, 22.0), &spec(0.2), true);
+        }
+        assert!(anims.advance(0.016, false), "a new last answer is followed");
     }
 
     /// The layout's intrinsic questions are answered and not taken for a change.
@@ -403,6 +472,7 @@ mod tests {
     fn a_page_follows_a_growing_section() {
         let mut rt = Runtime::default();
         assert_eq!(heights(&rt, 1), (40.0, 40.0));
+        rt.advance(0.0);
         assert_eq!(heights(&rt, 3).0, 40.0, "the frame the change is seen");
         assert!(rt.advance(0.1));
         let (half, below) = heights(&rt, 3);
@@ -501,6 +571,7 @@ mod tests {
         let mut rt = Runtime::default();
         let size = Size::new(300.0, 600.0);
         build_ui(&coloured(1), size, &rt, &Theme::default());
+        rt.advance(0.0);
         build_ui(&coloured(3), size, &rt, &Theme::default());
         rt.advance(0.1);
         let ui = build_ui(&coloured(3), size, &rt, &Theme::default());

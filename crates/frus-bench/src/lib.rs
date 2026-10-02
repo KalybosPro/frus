@@ -88,3 +88,10 @@ pub fn nested(depth: usize) -> Container<()> {
 pub fn build(root: &dyn Widget<()>) -> Ui<()> {
     build_ui(root, VIEWPORT, &Runtime::default(), &Theme::dark())
 }
+
+/// Builds a tree on a runtime kept from frame to frame, as the shell's is: what a frame
+/// costs **in steady state**, with whatever the runtime keeps between frames (the layout
+/// and paint caches among it) warm. `build` is the first frame; this is every one after.
+pub fn build_on(root: &dyn Widget<()>, runtime: &Runtime) -> Ui<()> {
+    build_ui(root, VIEWPORT, runtime, &Theme::dark())
+}
