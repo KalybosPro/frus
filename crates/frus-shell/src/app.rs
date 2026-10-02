@@ -1027,6 +1027,10 @@ pub struct App<A: Application> {
     /// The widgets that took the focus on appearing, as of the last frame: one that is new
     /// this frame takes it (milestone 605).
     autofocused: std::collections::HashSet<WidgetId>,
+    /// How smooth the frames are, when asked (milestone 609).
+    frame_stats: crate::frame_stats::FrameStats,
+    /// What the frame being drawn has cost so far, while frames are measured.
+    frame_costs: crate::frame_stats::FrameCosts,
     /// The window is occluded, so rendering is suspended.
     occluded: bool,
     /// Cumulative elapsed time, in seconds, for the continuous animations.
@@ -1170,6 +1174,8 @@ impl<A: Application> App<A> {
             focus_history: Vec::new(),
             prev_focus: None,
             autofocused: std::collections::HashSet::new(),
+            frame_stats: crate::frame_stats::FrameStats::new(),
+            frame_costs: crate::frame_stats::FrameCosts::default(),
             occluded: false,
             elapsed: 0.0,
             last_insets: WindowInsets::ZERO,
@@ -2195,6 +2201,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             }
 
             WindowEvent::RedrawRequested => {
+                // Measured only when asked: a clock read per stage is cheap, but not free.
+                let measuring = self.frame_stats.enabled();
+                let frame_start = measuring.then(Instant::now);
+                self.frame_costs = crate::frame_stats::FrameCosts::default();
                 // Web: pick up the asynchronously initialised renderer as soon as it
                 // is ready; until then, nothing is painted.
                 #[cfg(web)]
@@ -2424,7 +2434,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     // the layout pass has been down it, so an unprepared tree would report
                     // no identities at all inside a deferred subtree — and everything in an
                     // `AppBar` would silently never mount, never fade in and never fade out.
+                    let build_start = measuring.then(Instant::now);
                     let tree = build_view(&self.app, &theme, &self.runtime);
+                    if let Some(at) = build_start {
+                        self.frame_costs.build = Some(at.elapsed().as_secs_f32() * 1000.0);
+                    }
                     let ids = collect_ids(tree.as_ref());
                     let present: std::collections::HashSet<_> = ids.iter().copied().collect();
 
@@ -2581,27 +2595,33 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     apply_sheet_requests(&mut self.runtime, tree, requests, &sheet_areas);
                 self.retry_sheet = retry;
 
-                let animating = scrolled
-                    | sheeted
-                    | self.runtime.advance(dt)
-                    | self.runtime.advance_leaving(dt)
-                    | self.runtime.advance_switchers(tree, dt)
-                    | self.runtime.advance_values(tree, dt)
-                    | self.runtime.advance_colors(tree, dt)
-                    | self.runtime.advance_sizes(tree, dt)
-                    | self.runtime.advance_radii(tree, dt)
-                    | self.runtime.advance_paddings(tree, dt)
-                    | self.runtime.advance_offsets(tree, dt)
-                    | self.runtime.advance_pins(tree, dt)
-                    | self.runtime.advance_fractions(tree, dt)
-                    | self.runtime.advance_text_styles(tree, dt)
-                    | self.runtime.advance_transforms(tree, dt)
-                    | self
-                        .runtime
-                        .advance_scroll(&scroll_regions, scroll_physics, dt)
-                    | self.runtime.advance_glow(dt)
-                    | self.runtime.advance_refresh(&refresh_areas, dt)
-                    | {
+                // Every family is stepped, in this order, whatever an earlier one answered; each
+                // answer is kept by name, so that frame statistics can say which kept the frames
+                // coming (milestone 609).
+                let moving: [(&str, bool); 25] = [
+                    ("scrolled", scrolled),
+                    ("sheeted", sheeted),
+                    ("anims", self.runtime.advance(dt)),
+                    ("leaving", self.runtime.advance_leaving(dt)),
+                    ("switchers", self.runtime.advance_switchers(tree, dt)),
+                    ("values", self.runtime.advance_values(tree, dt)),
+                    ("colors", self.runtime.advance_colors(tree, dt)),
+                    ("sizes", self.runtime.advance_sizes(tree, dt)),
+                    ("radii", self.runtime.advance_radii(tree, dt)),
+                    ("paddings", self.runtime.advance_paddings(tree, dt)),
+                    ("offsets", self.runtime.advance_offsets(tree, dt)),
+                    ("pins", self.runtime.advance_pins(tree, dt)),
+                    ("fractions", self.runtime.advance_fractions(tree, dt)),
+                    ("text_styles", self.runtime.advance_text_styles(tree, dt)),
+                    ("transforms", self.runtime.advance_transforms(tree, dt)),
+                    (
+                        "scroll",
+                        self.runtime
+                            .advance_scroll(&scroll_regions, scroll_physics, dt),
+                    ),
+                    ("glow", self.runtime.advance_glow(dt)),
+                    ("refresh", self.runtime.advance_refresh(&refresh_areas, dt)),
+                    ("dismiss", {
                         // A dismissed item announces itself only once its gap has
                         // finished closing. The messages are *collected* here and
                         // dispatched below: the retained tree is borrowed for the whole
@@ -2611,8 +2631,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                             find_widget(tree, id).and_then(|widget| widget.on_dismissed(direction))
                         }));
                         moving
-                    }
-                    | {
+                    }),
+                    ("sheets", {
                         // A sheet lowered to nothing says so once it has arrived there,
                         // collected like a dismissal and for the same reason.
                         let (moving, closed) = self.runtime.advance_sheets(&sheet_areas, dt);
@@ -2630,15 +2650,22 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                             }
                         }
                         moving | handed
-                    }
-                    | self.runtime.advance_interactive(&interactive_bounds, dt)
-                    | self.runtime.advance_ink(dt)
-                    | reorder_animating
-                    | autoscrolling
-                    | app_animating;
+                    }),
+                    (
+                        "interactive",
+                        self.runtime.advance_interactive(&interactive_bounds, dt),
+                    ),
+                    ("ink", self.runtime.advance_ink(dt)),
+                    ("reorder", reorder_animating),
+                    ("autoscroll", autoscrolling),
+                    ("app", app_animating),
+                ];
+                let animating = moving.iter().any(|(_, on)| *on);
+                self.frame_stats.note_moving(&moving);
                 // With the inspector on, the same build collects the observed nodes,
                 // and the overlay — outlines plus a card for the hovered widget — is
                 // painted on top of a copy of the scene.
+                let layout_start = measuring.then(Instant::now);
                 let (ui, scene) = if self.inspector {
                     let (ui, nodes) = frus_widgets::build_ui_inspected(
                         tree,
@@ -2679,6 +2706,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     };
                     (ui, scene)
                 };
+                if let Some(at) = layout_start {
+                    self.frame_costs.layout_paint = at.elapsed().as_secs_f32() * 1000.0;
+                    self.frame_costs.layers = count_layers(scene.primitives());
+                }
                 self.report_overflows(&ui);
                 // Laid out: the components the build no longer reached are let go, and the
                 // effects it asked for run. An effect that changed something asks for the
@@ -2688,12 +2719,19 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     self.request_redraw();
                 }
                 if let Some(renderer) = self.renderer.as_mut() {
+                    let render_start = measuring.then(Instant::now);
                     match renderer.render(&scene) {
                         frus_gpu::RenderOutcome::Presented => {}
                         frus_gpu::RenderOutcome::NeedsReconfigure => {
                             renderer.reconfigure();
                         }
                         frus_gpu::RenderOutcome::Skipped => {}
+                    }
+                    if let Some(at) = render_start {
+                        self.frame_costs.render = at.elapsed().as_secs_f32() * 1000.0;
+                        let timings = renderer.last_timings();
+                        self.frame_costs.acquire = timings.acquire;
+                        self.frame_costs.draw = timings.draw;
                     }
                 }
 
@@ -2706,9 +2744,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // taking the image out of the tree, so a hook read off `Image` would go
                 // quiet at exactly the moment it is needed. Asking here also keeps `Ui`
                 // answering for its own widgets alone (milestone 411).
-                let wants_animation = ui.wants_animation()
-                    || frus_widgets::images_in_flight() > 0
-                    || frus_widgets::tasks_in_flight() > 0;
+                let widget_asks = ui.wants_animation();
+                let loading =
+                    frus_widgets::images_in_flight() > 0 || frus_widgets::tasks_in_flight() > 0;
+                let wants_animation = widget_asks || loading;
 
                 // Keep the interface, for hit testing. The tree is already retained.
                 self.ui = Some(ui);
@@ -2864,6 +2903,21 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // While an animation is running, ask for another frame.
                 if animating || wants_animation {
                     self.request_redraw();
+                }
+                if let Some(start) = frame_start {
+                    use crate::frame_stats::Why;
+                    let why = [
+                        (app_animating, Why::APP),
+                        (animating, Why::RUNTIME),
+                        (widget_asks, Why::WIDGET),
+                        (loading, Why::LOADING),
+                        (rehovered || revealed, Why::POINTER),
+                    ];
+                    self.frame_costs.why = why
+                        .into_iter()
+                        .filter(|(on, _)| *on)
+                        .fold(Why::NONE, |all, (_, why)| all | why);
+                    self.frame_stats.frame(start, self.frame_costs);
                 }
             }
 
@@ -9078,6 +9132,17 @@ mod back_gesture_tests {
             "a hold with nothing to lift ends the still scroll: the long press had it"
         );
     }
+}
+
+/// How many layers `primitives` hold, nested ones included (milestone 609).
+fn count_layers(primitives: &[frus_widgets::Primitive]) -> u32 {
+    primitives
+        .iter()
+        .map(|p| match p {
+            frus_widgets::Primitive::Layer { primitives, .. } => 1 + count_layers(primitives),
+            _ => 0,
+        })
+        .sum()
 }
 
 /// **What the shell reads of a key going down** (milestone 608). Winit's own event cannot be

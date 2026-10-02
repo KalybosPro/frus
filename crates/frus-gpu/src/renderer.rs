@@ -20,6 +20,8 @@ pub struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     painters: Painters,
+    /// Where the last frame's rendering spent its time.
+    timings: RenderTimings,
 }
 
 impl Renderer {
@@ -107,6 +109,7 @@ impl Renderer {
             queue,
             config,
             painters,
+            timings: RenderTimings::default(),
         })
     }
 
@@ -125,8 +128,17 @@ impl Renderer {
         self.surface.configure(&self.device, &self.config);
     }
 
+    /// Where the last [`render`](Self::render) spent its time, in milliseconds: waiting for
+    /// a surface image to draw into, drawing into it (tessellating, encoding and submitting),
+    /// and handing it to the display (milestone 609). Zero on the web, which has no clock
+    /// here.
+    pub fn last_timings(&self) -> RenderTimings {
+        self.timings
+    }
+
     /// Draws the scene — rectangles, images, paths, text, layers — and presents it.
     pub fn render(&mut self, scene: &Scene) -> RenderOutcome {
+        let clock = Clock::start();
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
@@ -141,6 +153,7 @@ impl Renderer {
                 return RenderOutcome::Skipped;
             }
         };
+        let acquired = clock.lap();
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -156,8 +169,49 @@ impl Renderer {
             Some(CLEAR_COLOR),
         );
 
+        let drawn = clock.lap();
         self.queue.present(frame);
+        let presented = clock.lap();
+        self.timings = RenderTimings {
+            acquire: acquired,
+            draw: drawn - acquired,
+            present: presented - drawn,
+        };
         RenderOutcome::Presented
+    }
+}
+
+/// Where a frame's rendering spent its time, in milliseconds. See
+/// [`Renderer::last_timings`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RenderTimings {
+    /// Waiting for a surface image: time the display, not the drawing, decides.
+    pub acquire: f32,
+    /// Tessellating, encoding and submitting the scene.
+    pub draw: f32,
+    /// Handing the image to the display.
+    pub present: f32,
+}
+
+/// Milliseconds since it started; nothing on the web, where `std` has no clock.
+struct Clock {
+    #[cfg(not(target_arch = "wasm32"))]
+    start: std::time::Instant,
+}
+
+impl Clock {
+    fn start() -> Self {
+        Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            start: std::time::Instant::now(),
+        }
+    }
+
+    fn lap(&self) -> f32 {
+        #[cfg(not(target_arch = "wasm32"))]
+        return self.start.elapsed().as_secs_f32() * 1000.0;
+        #[cfg(target_arch = "wasm32")]
+        0.0
     }
 }
 

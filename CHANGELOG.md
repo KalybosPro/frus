@@ -8,10 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 608 so far, each documenting the objective, the alternatives
+> record — one per step, 609 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Frame statistics, and a screen that drew forever** (J609). The shell measures its own
+  frames when asked (`FRUS_FRAME_STATS=1`, or `adb shell setprop debug.frus.frames 1`): every
+  two seconds of drawing, the intervals, what each stage cost, how many layers, and which
+  motion asked for the next frame. On a phone it showed the demonstration's home screen
+  drawing at 22 frames a second doing nothing: an `AnimatedSize` took each of the layout's
+  questions for a new size and started over every frame. It now takes up the last answer
+  once a frame. Idle, nothing is drawn; scrolling, the median frame is 16.5 ms instead of 45.
 
 - **The shell's test driver presses keys** (J608): `Driver::key(KeyStroke)`, through the same
   handling a window's keys go through, moved into one method. Driving the menu bar with it found
