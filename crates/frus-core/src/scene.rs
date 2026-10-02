@@ -656,9 +656,10 @@ impl Primitive {
                     // rectangle moves, which is handled above.
                     clip_shape,
                     transform: transform.map(|t| t.translated(dx, dy)),
-                    // A blur radius is a length and a mask is written in fractions of
-                    // its box: neither moves with the layer.
-                    filter,
+                    // A blur radius is a length, and does not move; a mask's geometry is
+                    // held in the scene's coordinates once resolved from its box, and moves
+                    // with what it covers (milestone 610: it was left behind).
+                    filter: filter.translated(dx, dy),
                     owner,
                 }
             }
@@ -1764,5 +1765,47 @@ mod tests {
         } else {
             panic!("expected a rect");
         }
+    }
+
+    /// **A layer moved moves its mask** (milestone 610): a mask's geometry is held in the
+    /// scene's coordinates once resolved from its box, so a layer drawn somewhere else
+    /// carries it along. It was left behind, so a moved masked layer was masked where it
+    /// had been.
+    #[test]
+    fn a_moved_layer_carries_its_mask() {
+        let mask = crate::ShaderMask {
+            shader: crate::MaskShader::Linear {
+                from: Point::new(10.0, 0.0),
+                to: Point::new(110.0, 0.0),
+                from_color: Color::WHITE,
+                to_color: Color::TRANSPARENT,
+            },
+            blend: crate::BlendMode::Modulate,
+        };
+        let layer = Primitive::Layer {
+            primitives: Vec::new(),
+            opacity: 1.0,
+            clip: Rect::new(10.0, 0.0, 100.0, 20.0),
+            clip_shape: ClipShape::Rect,
+            transform: None,
+            filter: crate::LayerFilter {
+                mask: Some(mask),
+                ..crate::LayerFilter::NONE
+            },
+            owner: 0,
+        };
+        let moved = layer.translated(-10.0, 5.0);
+        let Primitive::Layer { filter, clip, .. } = moved else {
+            unreachable!()
+        };
+        assert_eq!(clip, Rect::new(0.0, 5.0, 100.0, 20.0));
+        let Some(crate::ShaderMask {
+            shader: crate::MaskShader::Linear { from, to, .. },
+            ..
+        }) = filter.mask
+        else {
+            panic!("the mask is kept")
+        };
+        assert_eq!((from, to), (Point::new(0.0, 5.0), Point::new(100.0, 5.0)));
     }
 }

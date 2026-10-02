@@ -67,6 +67,9 @@ struct CompInstance {
     shape: [f32; 4],
     /// The corner radii of a rrect: `[tl, tr, br, bl]`.
     radii: [f32; 4],
+    /// Where the layer's texture lies on the target: `[x, y, width, height]`, in pixels
+    /// (milestone 610). The whole target for a layer that may draw anywhere.
+    region: [f32; 4],
 }
 
 #[repr(C)]
@@ -182,6 +185,91 @@ struct LayerComposite {
     inverse: [f32; 6],
     /// The colour filter and mask, applied in the compositing fragment.
     filter: LayerFilter,
+    /// Where its texture lies on the target, when it is not the whole of it.
+    region: Option<[f32; 4]>,
+}
+
+/// **The part of the target a layer can draw on**, in whole pixels: its clip, held to the
+/// target (milestone 610). `None` when it may draw anywhere, and has the whole target: a
+/// layer that is transformed, filtered, painted over a backdrop, or clipped to a path, or
+/// one with such a layer inside it. Those move or spread their content past its clip, or
+/// hold geometry in the target's own coordinates.
+///
+/// A layer used to be rendered into a texture the size of the target and composited by a
+/// quad covering it, whatever it held: on a phone, a group-opacity layer of 56 × 32 px cost
+/// two passes over 1080 × 2340 multisampled pixels a frame.
+fn layer_region(
+    clip: Rect,
+    clip_shape: &frus_core::ClipShape,
+    transform: &Option<frus_core::LayerTransform>,
+    filter: &LayerFilter,
+    primitives: &[Primitive],
+    w: u32,
+    h: u32,
+) -> Option<Rect> {
+    if transform.is_some()
+        || filter.image.is_some_and(|f| !f.is_identity())
+        || filter.backdrop.is_some()
+        || matches!(clip_shape, frus_core::ClipShape::Path(_))
+        || !primitives.iter().all(boundable)
+    {
+        return None;
+    }
+    let x0 = clip.x.max(0.0).floor();
+    let y0 = clip.y.max(0.0).floor();
+    let x1 = (clip.x + clip.width).min(w as f32).ceil();
+    let y1 = (clip.y + clip.height).min(h as f32).ceil();
+    if x1 - x0 < 1.0 || y1 - y0 < 1.0 {
+        // Nothing of it is on the target: one pixel, which draws nothing.
+        return Some(Rect::new(
+            x0.min(w as f32 - 1.0).max(0.0),
+            y0.min(h as f32 - 1.0).max(0.0),
+            1.0,
+            1.0,
+        ));
+    }
+    // Nothing gained, and a texture of a different size, for a layer that covers it all.
+    if x0 <= 0.0 && y0 <= 0.0 && x1 >= w as f32 && y1 >= h as f32 {
+        return None;
+    }
+    Some(Rect::new(x0, y0, x1 - x0, y1 - y0))
+}
+
+/// Whether a primitive can be drawn moved: everything but a layer that needs the whole
+/// target, by [`layer_region`]'s rule.
+fn boundable(primitive: &Primitive) -> bool {
+    match primitive {
+        Primitive::Layer {
+            primitives,
+            clip_shape,
+            transform,
+            filter,
+            ..
+        } => {
+            transform.is_none()
+                && !filter.image.is_some_and(|f| !f.is_identity())
+                && filter.backdrop.is_none()
+                && !matches!(clip_shape, frus_core::ClipShape::Path(_))
+                && primitives.iter().all(boundable)
+        }
+        _ => true,
+    }
+}
+
+/// `primitives` moved into a region's own frame, its corner at the origin.
+fn into_region(
+    primitives: &[Primitive],
+    region: Option<Rect>,
+) -> std::borrow::Cow<'_, [Primitive]> {
+    match region {
+        Some(r) => std::borrow::Cow::Owned(
+            primitives
+                .iter()
+                .map(|p| p.translated(-r.x, -r.y))
+                .collect(),
+        ),
+        None => std::borrow::Cow::Borrowed(primitives),
+    }
 }
 
 /// A backdrop waiting for the frame underneath it to exist: where in the draw list
@@ -225,6 +313,9 @@ struct ContentPlan<'a> {
 /// not change the texture is reused as is, and the pre-pass (submit, tessellation
 /// and draw) is skipped entirely.
 struct CachedLayer {
+    /// What the layer draws, **in its own frame**: moved so that its region starts at
+    /// the origin. A layer carried across the screen whole — a row scrolled — draws the
+    /// same there, and is not rendered again (milestone 610).
     primitives: Vec<Primitive>,
     width: u32,
     height: u32,
@@ -538,6 +629,7 @@ impl CompositePainter {
                     inv_tr_opacity: [i[4], i[5], l.opacity, 0.0],
                     shape: l.shape,
                     radii: l.radii,
+                    region: l.region.unwrap_or([0.0, 0.0, w.max(1.0), h.max(1.0)]),
                 }
             })
             .collect();
@@ -672,12 +764,13 @@ impl CompositePainter {
 }
 
 fn comp_instance_layout() -> wgpu::VertexBufferLayout<'static> {
-    const ATTRS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+    const ATTRS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
         1 => Float32x4,
         2 => Float32x4,
         3 => Float32x4,
         4 => Float32x4,
         5 => Float32x4,
+        6 => Float32x4,
     ];
     wgpu::VertexBufferLayout {
         array_stride: std::mem::size_of::<CompInstance>() as wgpu::BufferAddress,
@@ -698,7 +791,9 @@ pub(crate) struct Painters {
     /// The MSAA sample count; 1 means no multisampling.
     sample_count: u32,
     /// The intermediate MSAA texture, created on demand and recreated on resize.
-    msaa: Option<MsaaScratch>,
+    /// The multisampled scratch targets, one per size drawn at: the surface's, and each
+    /// layer region's (milestone 610).
+    msaa: Vec<MsaaScratch>,
     /// The staging texture a frame **with backdrops** is built in, so that a backdrop
     /// can read the frame so far. `None` until the first such frame.
     stage: Option<MsaaScratch>,
@@ -724,7 +819,7 @@ impl Painters {
             composite: CompositePainter::new(device, queue, format, sample_count),
             filter: FilterPainter::new(device, format),
             sample_count,
-            msaa: None,
+            msaa: Vec::new(),
             stage: None,
             layer_cache: Vec::new(),
             layer_renders: 0,
@@ -751,36 +846,47 @@ impl Painters {
         if self.sample_count == 1 {
             return None;
         }
-        let stale = match &self.msaa {
-            Some(s) => s.width != w || s.height != h || s.format != format,
-            None => true,
+        let at = self
+            .msaa
+            .iter()
+            .position(|s| s.width == w && s.height == h && s.format == format);
+        let at = match at {
+            Some(at) => at,
+            None => {
+                // A handful of sizes are drawn at from one frame to the next; a list
+                // that grows past that is regions that have changed, and is started
+                // again rather than kept.
+                if self.msaa.len() >= 16 {
+                    self.msaa.clear();
+                }
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("frus.msaa.scratch"),
+                    size: wgpu::Extent3d {
+                        width: w.max(1),
+                        height: h.max(1),
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: self.sample_count,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                });
+                self.msaa.push(MsaaScratch {
+                    width: w,
+                    height: h,
+                    format,
+                    texture,
+                });
+                self.msaa.len() - 1
+            }
         };
-        if stale {
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("frus.msaa.scratch"),
-                size: wgpu::Extent3d {
-                    width: w.max(1),
-                    height: h.max(1),
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: self.sample_count,
-                dimension: wgpu::TextureDimension::D2,
-                format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[],
-            });
-            self.msaa = Some(MsaaScratch {
-                width: w,
-                height: h,
-                format,
-                texture,
-            });
-        }
-        self.msaa.as_ref().map(|s| {
-            s.texture
-                .create_view(&wgpu::TextureViewDescriptor::default())
-        })
+        Some(
+            self.msaa[at]
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+        )
     }
 
     fn set_viewport(&self, queue: &wgpu::Queue, w: f32, h: f32) {
@@ -837,20 +943,24 @@ impl Painters {
                 ..
             } = primitive
             {
+                let region = layer_region(*clip, clip_shape, transform, filter, primitives, w, h);
+                let (rw, rh) = region.map_or((w, h), |r| (r.width as u32, r.height as u32));
+                let local = into_region(primitives, region);
                 let view = self.layer_texture(
                     device,
                     queue,
                     format,
                     layer_index,
-                    primitives,
+                    &local,
                     filter.image.filter(|f| !f.is_identity()),
-                    w,
-                    h,
+                    rw,
+                    rh,
                 );
-                let entry = self.layer_entry(
+                let mut entry = self.layer_entry(
                     device, queue, format, view, *opacity, *clip, clip_shape, transform, filter, w,
                     h,
                 );
+                entry.region = region.map(|r| r.to_array());
                 let first_draw = draws.len();
                 // The backdrop goes **first**: it is a picture of what was already
                 // there, and the layer is painted over it. It borrows the layer's clip
@@ -875,6 +985,7 @@ impl Painters {
                         // The copy is of the screen, at the screen's own coordinates.
                         inverse: frus_core::Affine::IDENTITY.m,
                         filter: LayerFilter::NONE,
+                        region: None,
                     });
                 }
                 draws.push(entry);
@@ -884,6 +995,8 @@ impl Painters {
         }
         // Forget vanished layers: the scene has fewer than it had last frame.
         self.layer_cache.truncate(layer_index);
+        // Each layer set the painters to its own size: the frame is the surface's again.
+        self.set_viewport(queue, w as f32, h as f32);
 
         self.composite
             .prepare(device, queue, &draws, w as f32, h as f32);
@@ -1098,6 +1211,7 @@ impl Painters {
                 backdrop: None,
                 ..*filter
             },
+            region: None,
         }
     }
 
@@ -1333,17 +1447,23 @@ impl Painters {
                 ..
             } = primitive
             {
-                let mut texture = self.render_group(device, queue, format, inner, w, h);
+                let region = layer_region(*clip, clip_shape, transform, filter, inner, w, h);
+                let (rw, rh) = region.map_or((w, h), |r| (r.width as u32, r.height as u32));
+                let local = into_region(inner, region);
+                let mut texture = self.render_group(device, queue, format, &local, rw, rh);
                 if let Some(f) = filter.image.filter(|f| !f.is_identity()) {
-                    texture = self.filter.apply(device, queue, format, &texture, f, w, h);
+                    texture = self
+                        .filter
+                        .apply(device, queue, format, &texture, f, rw, rh);
                 }
                 // The view holds a reference to its texture, so the texture outlives
                 // this loop without being named again.
                 let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-                let entry = self.layer_entry(
+                let mut entry = self.layer_entry(
                     device, queue, format, view, *opacity, *clip, clip_shape, transform, filter, w,
                     h,
                 );
+                entry.region = region.map(|r| r.to_array());
                 nested_of.insert(scene_index, nested.len());
                 nested.push(entry);
             }
@@ -1370,6 +1490,8 @@ impl Painters {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        // Its own size for the painters: a nested layer set them to its own.
+        self.set_viewport(queue, w as f32, h as f32);
         let batches = batch::plan(&sub);
         let (decorations, decoration_ranges) =
             self.text.prepare_frame(device, queue, &sub, w, h, &batches);
@@ -1587,5 +1709,179 @@ mod tests {
             "no layer left: nothing to render"
         );
         assert!(painters.layer_cache.is_empty(), "cache purged");
+    }
+
+    fn layer(
+        clip: Rect,
+        primitives: Vec<Primitive>,
+    ) -> (
+        Rect,
+        frus_core::ClipShape,
+        Option<frus_core::LayerTransform>,
+        LayerFilter,
+        Vec<Primitive>,
+    ) {
+        (
+            clip,
+            frus_core::ClipShape::Rect,
+            None,
+            LayerFilter::NONE,
+            primitives,
+        )
+    }
+
+    fn square() -> Primitive {
+        let mut scene = Scene::new();
+        scene.fill_rect(Rect::new(10.0, 10.0, 20.0, 20.0), frus_core::Color::WHITE);
+        scene.primitives()[0].clone()
+    }
+
+    /// **A layer's region is its clip in whole pixels, held to the target** (milestone
+    /// 610): a texture of that size, not the target's.
+    #[test]
+    fn a_layer_is_drawn_in_its_clip_and_no_more() {
+        let (clip, shape, transform, filter, prims) =
+            layer(Rect::new(10.5, 20.2, 56.0, 32.0), vec![square()]);
+        let region = layer_region(clip, &shape, &transform, &filter, &prims, 1080, 2340);
+        assert_eq!(region, Some(Rect::new(10.0, 20.0, 57.0, 33.0)));
+        // Partly off the target: what is on it.
+        let region = layer_region(
+            Rect::new(-30.0, 2300.0, 100.0, 100.0),
+            &shape,
+            &transform,
+            &filter,
+            &prims,
+            1080,
+            2340,
+        );
+        assert_eq!(region, Some(Rect::new(0.0, 2300.0, 70.0, 40.0)));
+        // Wholly off it: a pixel, which draws nothing.
+        let region = layer_region(
+            Rect::new(2000.0, 10.0, 50.0, 50.0),
+            &shape,
+            &transform,
+            &filter,
+            &prims,
+            1080,
+            2340,
+        );
+        assert_eq!(region.map(|r| (r.width, r.height)), Some((1.0, 1.0)));
+        // Covering it all, or unbounded: the target, as before.
+        assert_eq!(
+            layer_region(
+                Rect::UNBOUNDED,
+                &shape,
+                &transform,
+                &filter,
+                &prims,
+                1080,
+                2340
+            ),
+            None
+        );
+    }
+
+    /// **What may draw past its clip, or holds the target's own coordinates, keeps the
+    /// target**: a transform, an image filter, a backdrop, a path clip, or such a layer
+    /// anywhere inside.
+    #[test]
+    fn what_may_draw_anywhere_keeps_the_whole_target() {
+        let clip = Rect::new(10.0, 10.0, 100.0, 100.0);
+        let none = LayerFilter::NONE;
+        let moved = Some(frus_core::LayerTransform::new(
+            frus_core::Affine::translation(5.0, 0.0),
+        ));
+        assert_eq!(
+            layer_region(
+                clip,
+                &frus_core::ClipShape::Rect,
+                &moved,
+                &none,
+                &[square()],
+                1080,
+                2340
+            ),
+            None
+        );
+        let blurred = LayerFilter {
+            image: Some(ImageFilter::Blur {
+                sigma_x: 4.0,
+                sigma_y: 4.0,
+            }),
+            ..LayerFilter::NONE
+        };
+        assert_eq!(
+            layer_region(
+                clip,
+                &frus_core::ClipShape::Rect,
+                &None,
+                &blurred,
+                &[square()],
+                1080,
+                2340
+            ),
+            None
+        );
+        let path = frus_core::ClipShape::Path(frus_core::Path::oval(clip));
+        assert_eq!(
+            layer_region(clip, &path, &None, &none, &[square()], 1080, 2340),
+            None
+        );
+        // Inside: a path-clipped layer in a plain one.
+        let mut scene = Scene::new();
+        scene.push_primitive(Primitive::Layer {
+            primitives: vec![square()],
+            opacity: 0.5,
+            clip,
+            clip_shape: frus_core::ClipShape::Path(frus_core::Path::oval(clip)),
+            transform: None,
+            filter: LayerFilter::NONE,
+            owner: 0,
+        });
+        let inner = scene.primitives().to_vec();
+        assert_eq!(
+            layer_region(
+                clip,
+                &frus_core::ClipShape::Rect,
+                &None,
+                &none,
+                &inner,
+                1080,
+                2340
+            ),
+            None
+        );
+        // Two levels down: a plain layer holding the path-clipped one.
+        let wrapped = vec![Primitive::Layer {
+            primitives: inner.clone(),
+            opacity: 1.0,
+            clip,
+            clip_shape: frus_core::ClipShape::Rect,
+            transform: None,
+            filter: LayerFilter::NONE,
+            owner: 0,
+        }];
+        assert_eq!(
+            layer_region(
+                clip,
+                &frus_core::ClipShape::Rect,
+                &None,
+                &none,
+                &wrapped,
+                1080,
+                2340
+            ),
+            None
+        );
+        // A plain layer inside a plain one is fine.
+        assert!(boundable(&Primitive::Layer {
+            primitives: vec![square()],
+            opacity: 0.5,
+            clip,
+            clip_shape: frus_core::ClipShape::RRect(frus_core::BorderRadius::uniform(4.0)),
+            transform: None,
+            filter: LayerFilter::NONE,
+            owner: 0,
+        }));
     }
 }
