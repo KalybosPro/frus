@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 611 so far, each documenting the objective, the alternatives
+> record — one per step, 613 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **An app bar's actions are widgets** (J613), as the reference's `actions` is a list of
+  widgets. **Breaking**: `AppBar::action(widget)` adds any widget (it was `action_widget`,
+  now deprecated), `AppBar::actions(iter)` adds a list, and the labelled button that folds
+  into the overflow menu is `AppBar::foldable_action(label, message)` (it was `action`).
+  Nothing is laid out differently.
 
 - **The app bar, as the reference lays it out** (J611): a labelled action is a text button,
   not an outlined pill; the overflow is a `more_vert` icon button; no margins and no gaps,

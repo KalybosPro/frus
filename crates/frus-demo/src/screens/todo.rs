@@ -235,30 +235,30 @@ impl State for HomeState {
                 self.actions_open,
                 cx.callback(|s| s.actions_open = !s.actions_open),
             )
-            .action(theme_label, act(Demo::toggle_theme))
-            .action(seed_label(prefs.seed_index), act(Demo::cycle_seed))
-            .action(if prefs.rtl { "LTR" } else { "RTL" }, act(Demo::toggle_rtl))
+            .foldable_action(theme_label, act(Demo::toggle_theme))
+            .foldable_action(seed_label(prefs.seed_index), act(Demo::cycle_seed))
+            .foldable_action(if prefs.rtl { "LTR" } else { "RTL" }, act(Demo::toggle_rtl))
             // The language toggle: the label shows the language being switched TO.
-            .action(lang_label(prefs.lang), act(Demo::cycle_lang))
-            .action("A+", {
+            .foldable_action(lang_label(prefs.lang), act(Demo::cycle_lang))
+            .foldable_action("A+", {
                 let demo = demo.clone();
                 on(move || demo.set_density(demo.prefs().density + 0.1))
             })
-            .action("A−", {
+            .foldable_action("A−", {
                 let demo = demo.clone();
                 on(move || demo.set_density(demo.prefs().density - 0.1))
             })
-            .action("Log →", self.go(cx, "/journal"))
-            .action("Settings →", self.go(cx, "/settings"))
-            .action(
+            .foldable_action("Log →", self.go(cx, "/journal"))
+            .foldable_action("Settings →", self.go(cx, "/settings"))
+            .foldable_action(
                 "Quick actions",
                 cx.callback(|s| s.sheet_open = !s.sheet_open),
             )
-            .action("Save", {
+            .foldable_action("Save", {
                 let demo = demo.clone();
                 on(move || demo.save())
             })
-            .action(
+            .foldable_action(
                 "Clear completed",
                 cx.callback(|s| {
                     s.sheet_open = false;
