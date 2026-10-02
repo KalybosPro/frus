@@ -19,6 +19,11 @@ any release may break.
   `, on the GPU` median/95th/max. The start-up log says whether the device has a clock. The
   test phone's Mali-G51 driver has none.
 
+- **The app bar, as the reference lays it out** (J611): a labelled action is a text button,
+  not an outlined pill; the overflow is a `more_vert` icon button; no margins and no gaps,
+  the leading centred in a 56 px slot and the title 16 px after it; the actions' glyphs in
+  `on_surface_variant`. `actions_padding` now insets the actions across only.
+
 - **A layer costs its size, and the display sets the pace** (J610). A layer was drawn into a
   texture the size of the surface and composited by a quad covering it: a 56 × 32 px
   group-opacity layer cost two passes over 1080 × 2340 multisampled pixels. It is now drawn
