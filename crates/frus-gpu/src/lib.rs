@@ -21,6 +21,7 @@ pub use wgpu;
 mod batch;
 mod compositor;
 mod filter;
+mod gpu_timer;
 mod image;
 mod offscreen;
 mod painter;

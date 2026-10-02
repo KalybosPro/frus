@@ -19,6 +19,12 @@ any release may break.
   into the overflow menu is `AppBar::foldable_action(label, message)` (it was `action`).
   Nothing is laid out differently.
 
+- **The GPU's own clock in the frame statistics** (J612). Where the device offers
+  timestamps, the renderer marks the start and end of each frame on the GPU and reads the
+  difference back a few frames later, never waiting for it; the statistics line adds
+  `, on the GPU` median/95th/max. The start-up log says whether the device has a clock. The
+  test phone's Mali-G51 driver has none.
+
 - **The app bar, as the reference lays it out** (J611): a labelled action is a text button,
   not an outlined pill; the overflow is a `more_vert` icon button; no margins and no gaps,
   the leading centred in a 56 px slot and the title 16 px after it; the actions' glyphs in

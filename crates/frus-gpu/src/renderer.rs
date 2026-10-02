@@ -22,6 +22,8 @@ pub struct Renderer {
     painters: Painters,
     /// Where the last frame's rendering spent its time.
     timings: RenderTimings,
+    /// The GPU's own timing of each frame, where the device has a clock (milestone 612).
+    gpu_timer: Option<crate::gpu_timer::GpuTimer>,
 }
 
 impl Renderer {
@@ -67,7 +69,9 @@ impl Renderer {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("frus.device"),
-                required_features: wgpu::Features::empty(),
+                // The GPU's own clock where it has one, for the frame statistics
+                // (milestone 612). Nothing is asked of a device that has not.
+                required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
                 required_limits,
                 memory_hints: wgpu::MemoryHints::Performance,
                 ..Default::default()
@@ -115,11 +119,21 @@ impl Renderer {
         // Warms every pipeline before the first real frame, to avoid jank.
         painters.warm_up(&device, &queue, format);
 
+        let gpu_timer = crate::gpu_timer::GpuTimer::new(&device, &queue);
+        log::info!(
+            "GPU clock: {}",
+            if gpu_timer.is_some() {
+                "frames timed on the GPU"
+            } else {
+                "none, frames timed on the CPU only"
+            }
+        );
         Ok(Self {
             surface,
             device,
             queue,
             config,
+            gpu_timer,
             painters,
             timings: RenderTimings::default(),
         })
@@ -166,6 +180,10 @@ impl Renderer {
             }
         };
         let acquired = clock.lap();
+        let timed = self
+            .gpu_timer
+            .as_mut()
+            .and_then(|timer| timer.begin(&self.device, &self.queue));
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -181,6 +199,9 @@ impl Renderer {
             Some(CLEAR_COLOR),
         );
 
+        if let (Some(timer), Some(at)) = (self.gpu_timer.as_mut(), timed) {
+            timer.end(&self.device, &self.queue, at);
+        }
         let drawn = clock.lap();
         self.queue.present(frame);
         let presented = clock.lap();
@@ -188,6 +209,7 @@ impl Renderer {
             acquire: acquired,
             draw: drawn - acquired,
             present: presented - drawn,
+            gpu: self.gpu_timer.as_ref().and_then(|timer| timer.last_ms()),
         };
         RenderOutcome::Presented
     }
@@ -203,6 +225,9 @@ pub struct RenderTimings {
     pub draw: f32,
     /// Handing the image to the display.
     pub present: f32,
+    /// What the GPU took over the latest frame it has finished, by its own clock, a few
+    /// frames behind: `None` where the device has no clock (milestone 612).
+    pub gpu: Option<f32>,
 }
 
 /// Milliseconds since it started; nothing on the web, where `std` has no clock.

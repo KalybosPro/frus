@@ -2732,6 +2732,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         let timings = renderer.last_timings();
                         self.frame_costs.acquire = timings.acquire;
                         self.frame_costs.draw = timings.draw;
+                        self.frame_costs.gpu = timings.gpu;
                     }
                 }
 
