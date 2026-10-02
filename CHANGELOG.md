@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 612 so far, each documenting the objective, the alternatives
+> record — one per step, 613 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **An app bar's actions are widgets** (J613), as the reference's `actions` is a list of
+  widgets. **Breaking**: `AppBar::action(widget)` adds any widget (it was `action_widget`,
+  now deprecated), `AppBar::actions(iter)` adds a list, and the labelled button that folds
+  into the overflow menu is `AppBar::foldable_action(label, message)` (it was `action`).
+  Nothing is laid out differently.
 
 - **The GPU's own clock in the frame statistics** (J612). Where the device offers
   timestamps, the renderer marks the start and end of each frame on the GPU and reads the
