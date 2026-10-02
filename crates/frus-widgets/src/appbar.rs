@@ -1,26 +1,25 @@
 //! [`AppBar`]: an **adaptive application bar**, Material style.
 //!
-//! The developer declares **one** title, an optional `leading` and a list of
-//! **actions** — never saying "this is for mobile / desktop". The AppBar decides on
-//! its own, from the **available width**, how many actions fit inline and **folds
-//! the rest into a `⋯` overflow menu**. A wide screen → everything inline; a narrow
-//! phone → overflow. One piece of code, adapting automatically.
+//! The developer declares an optional title, an optional `leading` and a list of
+//! **actions**, each any widget — typically icon buttons. Beside them, a bar may have
+//! **foldable actions**: text buttons the bar shows inline while they fit and **folds
+//! into an overflow menu** when the **available width** runs out, never asking whether
+//! this is mobile or desktop. A wide screen → everything inline; a narrow phone →
+//! overflow.
 //!
-//! **Everything is customisable** (themed defaults, never imposed): the title can
-//! be an arbitrary widget (`title`) or styled text (`title_style`), an
-//! action can be an arbitrary widget (`action_widget`, always inline), and the
-//! spacing, the action size, the background and the height can all be overridden.
+//! **Everything is customisable** (themed defaults, never imposed): the title is any
+//! widget (`title`) with a themed type (`title_style`), every action is any widget, and
+//! the spacing, the action size, the background and the height can all be overridden.
 //!
 //! ```ignore
 //! AppBar::new()
 //!     .title(Text::new("My Tasks"))           // any widget; a bar may have none
-//!     .width(available_width)                 // a size, not a platform
-//!     .title_style(TextStyle::new(22.0))      // or .title(logo_row)
-//!     .leading(button("☰", Msg::ToggleMenu))
+//!     .leading(IconButton::new(Icons::MENU).on_press(Msg::ToggleMenu))
+//!     .action(IconButton::new(Icons::SEARCH).on_press(Msg::Search))  // any widget
+//!     .action(Badge::new("3"))
 //!     .overflow(app.menu_open, Msg::ToggleMenu)
-//!     .action("Pause", Msg::ToggleTimer)
-//!     .action_widget(Badge::new("3"))         // a free widget, never folded
-//!     .action("Settings →", Msg::OpenSettings)
+//!     .foldable_action("Pause", Msg::ToggleTimer) // folds when the bar is narrow
+//!     .foldable_action("Settings", Msg::OpenSettings)
 //!     .build()
 //! ```
 
@@ -117,9 +116,8 @@ const H_PAD: f32 = 0.0;
 /// The width the title is never squeezed below, in px. A title cut to nothing tells a
 /// reader less than a title cut to two characters and an ellipsis.
 const TITLE_MIN: f32 = 64.0;
-/// The title: styled text, or any widget at all.
-/// An action: labelled (foldable into the overflow) or a free widget (always
-/// inline — an arbitrary widget cannot become a text menu row).
+/// An action: any widget (always inline — an arbitrary widget cannot become a text menu
+/// row), or labelled and foldable into the overflow.
 enum Action<Msg> {
     Labeled { label: String, message: Msg },
     Custom(Box<dyn Widget<Msg>>),
@@ -317,9 +315,39 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self
     }
 
-    /// Adds a labelled action (a button). Shown inline if it fits, otherwise folded
-    /// into the overflow menu.
-    pub fn action(mut self, label: impl Into<String>, message: Msg) -> Self {
+    /// Adds an action: **any widget**, at the bar's trailing end, after those already
+    /// added. Typically an [`IconButton`](crate::IconButton), or a
+    /// [`PopupMenuButton`] for a menu of its own.
+    ///
+    /// The reference's `actions` is a list of widgets, and this is one more of them. The
+    /// actions sit side by side, centred across the bar, inset by
+    /// [`AppBar::actions_padding`], their glyphs in [`AppBar::actions_icon_theme`]. A widget
+    /// is never folded into the overflow menu: an arbitrary widget cannot become a menu
+    /// row. An action that may fold is a [`AppBar::foldable_action`].
+    ///
+    /// **Breaking**: until milestone 613 this took a label and a message and made the
+    /// foldable button; that is now `foldable_action`, and this is what `action_widget` was.
+    pub fn action(mut self, widget: impl Widget<Msg> + 'static) -> Self {
+        self.actions.push(Action::Custom(Box::new(widget)));
+        self
+    }
+
+    /// Adds every action of an iterator, **already boxed**, for actions built in a loop:
+    /// the reference's `actions: [...]` in one call. The same as [`AppBar::action`] for
+    /// each, in order.
+    pub fn actions(mut self, actions: impl IntoIterator<Item = Box<dyn Widget<Msg>>>) -> Self {
+        self.actions.extend(actions.into_iter().map(Action::Custom));
+        self
+    }
+
+    /// Adds an action that **folds**: a text button with `label`, shown inline while it
+    /// fits and moved into the overflow menu ([`AppBar::overflow`]) when the bar is too
+    /// narrow for it. The last ones fold first.
+    ///
+    /// This is frus's own, beside the reference's list of widgets: a bar that adapts to
+    /// its width without the application measuring anything. It was `action` until
+    /// milestone 613.
+    pub fn foldable_action(mut self, label: impl Into<String>, message: Msg) -> Self {
         self.actions.push(Action::Labeled {
             label: label.into(),
             message,
@@ -327,14 +355,16 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self
     }
 
-    /// Adds a **free widget** action (a badge, an avatar, a field…). Always inline —
-    /// an arbitrary widget cannot fold into a menu row.
-    pub fn action_widget(mut self, widget: impl Widget<Msg> + 'static) -> Self {
-        self.actions.push(Action::Custom(Box::new(widget)));
-        self
+    /// Adds a widget action: [`AppBar::action`], under its former name.
+    #[deprecated(
+        since = "0.3.0",
+        note = "an action is any widget: use `AppBar::action`"
+    )]
+    pub fn action_widget(self, widget: impl Widget<Msg> + 'static) -> Self {
+        self.action(widget)
     }
 
-    /// The labelled actions' font size (16 px by default).
+    /// The foldable actions' font size (the theme's `label_large` by default).
     pub fn action_size(mut self, size: f32) -> Self {
         self.action_size = Some(size);
         self
@@ -1169,9 +1199,9 @@ mod tests {
                 AppBar::new()
                     .title(Text::new("Title"))
                     .overflow(false, Msg::PopupMenuButton)
-                    .action("Action One", Msg::A)
-                    .action("Action Two", Msg::B)
-                    .action("Action Three", Msg::C)
+                    .foldable_action("Action One", Msg::A)
+                    .foldable_action("Action Two", Msg::B)
+                    .foldable_action("Action Three", Msg::C)
                     .build()
             });
             // The actions still on the bar, by their words: a folded one leaves, and the
@@ -1601,7 +1631,7 @@ mod tests {
         let bar = AppBar::<Msg>::new()
             .width(W)
             .leading(button("Back", Msg::A))
-            .action("Save", Msg::B)
+            .foldable_action("Save", Msg::B)
             .build();
         assert_eq!(
             texts_of(bar.as_ref(), W),
@@ -1657,7 +1687,7 @@ mod tests {
                 .width(width)
                 .center_title(centered)
                 .overflow(false, Msg::PopupMenuButton)
-                .action("Save", Msg::B)
+                .foldable_action("Save", Msg::B)
                 .build();
             texts_of(bar.as_ref(), width).iter().any(|t| t == "Save")
         };
@@ -1807,7 +1837,7 @@ mod tests {
             .title(Text::new("Title"))
             .width(W)
             .leading(crate::Icon::new(crate::Icons::STAR))
-            .action_widget(crate::Icon::new(crate::Icons::FAVORITE))
+            .action(crate::Icon::new(crate::Icons::FAVORITE))
             .icon_theme(crate::widgettheme::IconTheme {
                 color: Some(lead),
                 size: None,
@@ -1820,6 +1850,61 @@ mod tests {
         let colors = glyph_colors(bar.as_ref(), W);
         assert!(colors.contains(&lead), "the leading glyph kept its colour");
         assert!(colors.contains(&acts), "the action glyph took its own");
+    }
+
+    /// **An action is any widget**, as the reference's `actions` is a list of widgets
+    /// (milestone 613): added one at a time or as a list, they keep the order they were
+    /// given in, and none of them folds, however narrow the bar.
+    #[test]
+    fn actions_are_widgets_kept_in_order() {
+        let bar = |width: f32| {
+            AppBar::<Msg>::new()
+                .title(Text::new("Title"))
+                .width(width)
+                .overflow(false, Msg::A)
+                .action(Text::new("First"))
+                .actions([
+                    Box::new(Text::new("Second")) as Box<dyn Widget<Msg>>,
+                    Box::new(Text::new("Third")),
+                ])
+                .action(crate::IconButton::new(crate::Icons::SEARCH).on_press(Msg::B))
+                .action(Text::new("Fourth"))
+                .build()
+        };
+        for width in [1000.0, 200.0] {
+            let texts: Vec<String> = texts_of(bar(width).as_ref(), width)
+                .into_iter()
+                .filter(|t| t != "Title")
+                .collect();
+            assert_eq!(
+                texts,
+                ["First", "Second", "Third", "Fourth"],
+                "at {width} px"
+            );
+        }
+    }
+
+    /// **A widget action is a press away**: the bar hands it its message untouched.
+    #[test]
+    fn a_widget_action_emits_its_own_message() {
+        const W: f32 = 600.0;
+        let bar = AppBar::<Msg>::new()
+            .title(Text::new("Title"))
+            .width(W)
+            .action(button("Go", Msg::C))
+            .build();
+        crate::build_deferred(bar.as_ref(), &Theme::default(), &Runtime::default());
+        fn walk(widget: &dyn Widget<Msg>, out: &mut Vec<Msg>) {
+            if let Some(message) = widget.on_click() {
+                out.push(message);
+            }
+            for child in widget.children() {
+                walk(child.as_ref(), out);
+            }
+        }
+        let mut messages = Vec::new();
+        walk(bar.as_ref(), &mut messages);
+        assert_eq!(messages, vec![Msg::C]);
     }
 
     /// **The flexible space is a layer, not a slot**: it fills the bar's box and leaves
@@ -1927,7 +2012,7 @@ mod tests {
                         bar = bar.actions_padding(padding);
                     }
                     for label in LABELS {
-                        bar = bar.action(label, Msg::B);
+                        bar = bar.foldable_action(label, Msg::B);
                     }
                     bar.build()
                 });
@@ -1977,9 +2062,9 @@ mod tests {
             .title(Text::new("Title"))
             .width(width)
             .overflow(open, Msg::PopupMenuButton)
-            .action("Action One", Msg::A)
-            .action("Action Two", Msg::B)
-            .action("Action Three", Msg::C)
+            .foldable_action("Action One", Msg::A)
+            .foldable_action("Action Two", Msg::B)
+            .foldable_action("Action Three", Msg::C)
             .build();
         let ui = build_ui(
             bar.as_ref(),
@@ -2071,8 +2156,8 @@ mod tests {
             .title(Text::new("Title"))
             .width(400.0)
             .leading(button("=", Msg::A))
-            .action("One", Msg::A)
-            .action("Two", Msg::B)
+            .foldable_action("One", Msg::A)
+            .foldable_action("Two", Msg::B)
             .build();
         assert_eq!(bar_height(plain.as_ref()), Some(APP_BAR_HEIGHT));
         assert_eq!(
@@ -2136,7 +2221,7 @@ mod tests {
             .width(W)
             .leading(button("M", Msg::PopupMenuButton).size(16.0))
             .overflow(false, Msg::PopupMenuButton)
-            .action("One", Msg::A)
+            .foldable_action("One", Msg::A)
             .build();
         let ui = build_ui(
             bar.as_ref(),
@@ -2308,7 +2393,7 @@ mod tests {
             ))
             .width(W)
             .overflow(false, Msg::PopupMenuButton)
-            .action("One", Msg::A)
+            .foldable_action("One", Msg::A)
             .build();
         let texts = texts_of(bar.as_ref(), W);
         let title = texts.first().expect("a title");
@@ -2507,8 +2592,8 @@ mod tests {
             .title(Text::new("Title"))
             .width(520.0)
             .overflow(false, Msg::PopupMenuButton)
-            .action("Action One", Msg::A)
-            .action("Action Two", Msg::B)
+            .foldable_action("Action One", Msg::A)
+            .foldable_action("Action Two", Msg::B)
             .build();
         let wide = AppBar::new()
             .title(Text::new("Title"))
@@ -2516,8 +2601,8 @@ mod tests {
             .leading_width(300.0)
             .leading(button("M", Msg::PopupMenuButton).size(16.0))
             .overflow(false, Msg::PopupMenuButton)
-            .action("Action One", Msg::A)
-            .action("Action Two", Msg::B)
+            .foldable_action("Action One", Msg::A)
+            .foldable_action("Action Two", Msg::B)
             .build();
         let inline = |bar: &dyn Widget<Msg>| {
             texts_of(bar, 520.0)
@@ -2539,9 +2624,9 @@ mod tests {
             .title(Text::new("Title"))
             .width(260.0)
             .overflow(false, Msg::PopupMenuButton)
-            .action("A long labelled action", Msg::A)
-            .action_widget(Text::new("★badge★").size(14.0))
-            .action("Another long action", Msg::B)
+            .foldable_action("A long labelled action", Msg::A)
+            .action(Text::new("★badge★").size(14.0))
+            .foldable_action("Another long action", Msg::B)
             .build();
         let ui = build_ui(
             bar.as_ref(),

@@ -20,6 +20,12 @@ any release may break.
   widgets will read; `Theme::with_platform` changes it. On the web, the platform is the
   browser's operating system, read from the navigator at start-up.
 
+- **An app bar's actions are widgets** (J613), as the reference's `actions` is a list of
+  widgets. **Breaking**: `AppBar::action(widget)` adds any widget (it was `action_widget`,
+  now deprecated), `AppBar::actions(iter)` adds a list, and the labelled button that folds
+  into the overflow menu is `AppBar::foldable_action(label, message)` (it was `action`).
+  Nothing is laid out differently.
+
 - **The GPU's own clock in the frame statistics** (J612). Where the device offers
   timestamps, the renderer marks the start and end of each frame on the GPU and reads the
   difference back a few frames later, never waiting for it; the statistics line adds

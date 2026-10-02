@@ -1909,7 +1909,7 @@ mod tests {
                     crate::AppBar::<Msg>::new()
                         .title(crate::Text::new("Title"))
                         .leading(button("Back", Msg::Go(1)))
-                        .action("Save", Msg::Go(2))
+                        .foldable_action("Save", Msg::Go(2))
                         .build(),
                 )
                 .build()
