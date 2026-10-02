@@ -494,6 +494,27 @@ mod tests {
         assert_eq!(Kind::Drawer.label(), Kind::EndDrawer.label());
     }
 
+    /// **The back arrow is the theme's platform's** (`action_buttons.dart:132`,
+    /// milestone 615): the iOS arrow under iOS and macOS, the plain arrow under the other
+    /// four, whatever this test runs on.
+    #[test]
+    fn the_back_arrow_follows_the_theme_s_platform() {
+        use frus_core::TargetPlatform as P;
+        #[cfg(feature = "icons-rounded")]
+        let ios = Icons::ARROW_BACK_IOS_NEW_ROUNDED;
+        #[cfg(not(feature = "icons-rounded"))]
+        let ios = Icons::ARROW_BACK_IOS_NEW;
+        for platform in P::ALL {
+            let theme = Theme::default().with_platform(platform);
+            let expected = if platform.is_apple() {
+                ios
+            } else {
+                Icons::ARROW_BACK
+            };
+            assert_eq!(Kind::Back.icon(&theme), expected, "{platform}");
+        }
+    }
+
     /// **A theme can replace the glyphs** — the reference's `ActionIconTheme`. An
     /// application with its own icon set should not have to leave four of the framework's
     /// showing through.

@@ -663,6 +663,22 @@ impl<Msg: Clone> Widget<Msg> for SearchView<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The theme's platform decides** (`search_anchor.dart:554`, milestone 615): the
+    /// screen on iOS, Android and Fuchsia, a panel on the three desktops — whatever this
+    /// test runs on — and `full_screen` overrules it either way.
+    #[test]
+    fn the_view_takes_the_screen_where_the_theme_s_platform_does() {
+        use frus_core::TargetPlatform as P;
+        for platform in P::ALL {
+            let theme = Theme::default().with_platform(platform);
+            let phone = matches!(platform, P::Ios | P::Android | P::Fuchsia);
+            let anchor = SearchAnchor::<()>::new(true, "");
+            assert_eq!(anchor.is_full_screen(&theme), phone, "{platform}");
+            let told = SearchAnchor::<()>::new(true, "").full_screen(!phone);
+            assert_eq!(told.is_full_screen(&theme), !phone, "told, {platform}");
+        }
+    }
     use frus_core::Primitive;
 
     #[derive(Clone, Debug, PartialEq)]

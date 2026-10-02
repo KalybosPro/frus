@@ -50,8 +50,7 @@ use crate::widgettheme::{DefaultTextStyle, IconTheme};
 /// other platform starts the title after the leading and leaves it there.
 ///
 /// The reference's rule (`app_bar.dart:805`), read from the **theme's** platform, so a
-/// theme set to iOS centres the title on an Android phone (milestone 615). `actions` is
-/// the bar's own, not a button the bar implies for an end drawer.
+/// theme set to iOS centres the title on an Android phone (milestone 615).
 /// [`AppBar::center_title`] overrides it either way.
 pub const fn platform_centers_title(platform: frus_core::TargetPlatform, actions: usize) -> bool {
     use frus_core::TargetPlatform as P;
@@ -743,9 +742,6 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         // And the trailing end, on the same terms: **an empty end**, never a button added
         // beside what the caller put there (`app_bar.dart:1113`). An overflow toggle counts
         // as something at that end, since it is what the bar puts there itself.
-        // The reference counts the bar's own actions when it decides where the title goes
-        // (`app_bar.dart:808`), so the count is taken before one is implied.
-        let own_actions = actions.len();
         let mut actions = actions;
         if actions.is_empty() && overflow.is_none() && automatically_imply_actions {
             if let Some(toggle) = shell.end_drawer_toggle::<Msg>() {
@@ -760,7 +756,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         // it is a design one — see `platform_centers_title`.
         let center_title = center_title
             .or(t.center_title)
-            .unwrap_or_else(|| platform_centers_title(theme.platform, own_actions));
+            .unwrap_or_else(|| platform_centers_title(theme.platform, actions.len()));
 
         // The title's type, likewise: the caller's style, else the theme's, else the
         // reference's `titleLarge`.
@@ -2425,15 +2421,23 @@ mod tests {
         use frus_core::TargetPlatform as P;
         for platform in P::ALL {
             let apple = matches!(platform, P::Ios | P::MacOs);
-            assert_eq!(platform_centers_title(platform, 0), apple, "{platform}, bare");
-            assert_eq!(platform_centers_title(platform, 1), apple, "{platform}, one");
+            assert_eq!(
+                platform_centers_title(platform, 0),
+                apple,
+                "{platform}, bare"
+            );
+            assert_eq!(
+                platform_centers_title(platform, 1),
+                apple,
+                "{platform}, one"
+            );
             assert!(!platform_centers_title(platform, 2), "{platform}, crowded");
         }
     }
 
     /// **The theme's platform, not the build's** (milestone 615): a theme set to iOS
     /// centres the title on whatever this test runs on, and one set to Android does not;
-    /// and a button the bar implies for an end drawer is not one of its actions.
+    /// and two actions put an iOS bar's title flush.
     #[test]
     fn the_title_follows_the_theme_s_platform() {
         fn springs(widget: &dyn Widget<Msg>, theme: &crate::theme::Theme) -> usize {
@@ -2455,11 +2459,7 @@ mod tests {
         assert_eq!(springs(bar().build().as_ref(), &ios), centred);
         assert_eq!(springs(bar().build().as_ref(), &android), flush);
         // Two actions of its own, and an iOS bar puts its title flush.
-        let crowded = || {
-            bar()
-                .action(Text::new("A"))
-                .action(Text::new("B"))
-        };
+        let crowded = || bar().action(Text::new("A")).action(Text::new("B"));
         assert_eq!(
             springs(crowded().build().as_ref(), &ios),
             springs(crowded().center_title(false).build().as_ref(), &ios)

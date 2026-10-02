@@ -264,8 +264,9 @@ struct ReorderHandle<Msg> {
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for ReorderHandle<Msg> {
-    /// Sized by the theme it is laid out under, not by what its list last saw: the two are
-    /// the same theme, but this one does not depend on the order of the walk.
+    /// **Where the theme's platform is recorded** for the list: every row has a grip, laid
+    /// out under the theme the row is, and the gesture hooks — which run outside layout —
+    /// read what the last layout recorded here.
     fn style_themed(&self, theme: &Theme) -> Style {
         self.spec.borrow_mut().platform = theme.platform;
         self.style()
@@ -598,7 +599,9 @@ impl<Msg: Clone + 'static> ReorderableList<Msg> {
 
 /// The grip's contents: the application's widget, or the default glyph.
 fn grip<Msg: Clone + 'static>(spec: &Spec<Msg>, theme: &Theme) -> Box<dyn Widget<Msg>> {
-    if !(spec.enabled && spec.grab.unwrap_or_else(|| platform_grab(theme.platform)) == ReorderGrab::Handle) {
+    if !(spec.enabled
+        && spec.grab.unwrap_or_else(|| platform_grab(theme.platform)) == ReorderGrab::Handle)
+    {
         // Not this mode: an empty box, so that nothing is measured, drawn or hit.
         return Box::new(Container::new().width(0.0).height(0.0));
     }
@@ -621,13 +624,6 @@ fn grip<Msg: Clone + 'static>(spec: &Spec<Msg>, theme: &Theme) -> Box<dyn Widget
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for ReorderableList<Msg> {
-    /// The list is laid out before its rows, so this is where the theme's platform is
-    /// recorded for the rows, the grips and the gesture hooks to follow.
-    fn style_themed(&self, theme: &Theme) -> Style {
-        self.spec.borrow_mut().platform = theme.platform;
-        self.style()
-    }
-
     fn style(&self) -> Style {
         Style {
             width: self.width,
@@ -714,6 +710,51 @@ mod tests {
                     .map(|i| (i, w.reorder_draggable(), w.reorder_droppable()))
             })
             .collect()
+    }
+
+    /// **An untold list picks up the way the theme's platform does** (milestone 615), the
+    /// reference's switch: a grip on the three desktops, a hold on Android, Fuchsia and
+    /// iOS — whatever this test runs on. A list that was told keeps what it was told.
+    #[test]
+    fn an_untold_list_follows_the_theme_s_platform() {
+        use frus_core::TargetPlatform as P;
+        let untold = || {
+            ReorderableList::new(Msg::Moved)
+                .width(300.0)
+                .keyed_row(1, Container::new().height(40.0).child(text("one")))
+                .keyed_row(2, Container::new().height(40.0).child(text("two")))
+        };
+        // Laid out under a theme of that platform, then asked what the shell asks.
+        let held = |list: &ReorderableList<Msg>, platform: P| {
+            let theme = Theme::dark().with_platform(platform);
+            crate::build_ui(list, Size::new(300.0, 400.0), &Runtime::default(), &theme);
+            let mut nodes: Vec<&dyn Widget<Msg>> = vec![list];
+            let mut i = 0;
+            while i < nodes.len() {
+                for child in nodes[i].children() {
+                    nodes.push(child.as_ref());
+                }
+                i += 1;
+            }
+            let rows: Vec<_> = nodes
+                .into_iter()
+                .filter(|w| w.reorder_index().is_some() && w.reorder_droppable())
+                .collect();
+            assert_eq!(rows.len(), 2, "two rows under {platform}");
+            rows.iter().all(|w| w.drag_needs_long_press())
+        };
+        for platform in P::ALL {
+            let finger = matches!(platform, P::Android | P::Fuchsia | P::Ios);
+            assert_eq!(held(&untold(), platform), finger, "{platform}");
+            assert!(
+                !held(&untold().grab(ReorderGrab::Handle), platform),
+                "told, {platform}"
+            );
+            assert!(
+                held(&untold().grab(ReorderGrab::LongPress), platform),
+                "told, {platform}"
+            );
+        }
     }
 
     #[test]
