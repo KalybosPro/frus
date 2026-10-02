@@ -3829,6 +3829,20 @@ impl<A: Application> App<A> {
 
     /// A pointer release, mouse or finger: it ends a drag, or commits a click or tap
     /// when the release lands back on the widget that was pressed.
+    /// What widget `id` emits for a click at the pointer on one of its sub-regions — see
+    /// [`Widget::positional_click`]. Local coordinates are the pointer minus the widget's
+    /// corner.
+    fn positional_click_on(&self, id: WidgetId) -> Option<A::Message> {
+        let rect = self.ui.as_ref()?.widget_rect(id)?;
+        let widget = find_widget(self.tree.as_ref()?.as_ref(), id)?;
+        widget.positional_click(
+            self.cursor.x - rect.x,
+            self.cursor.y - rect.y,
+            rect.width,
+            rect.height,
+        )
+    }
+
     fn pointer_up(&mut self) {
         let ended = self.drag.take();
         if let Some(Drag::Back { .. }) = ended {
@@ -4156,29 +4170,27 @@ impl<A: Application> App<A> {
             .ui
             .as_ref()
             .is_some_and(|ui| ui.toolbar_contains(self.cursor));
+        // A field answers no tap of its own, so it is no hit target and `released` never
+        // names it: its clickable suffix is asked through the focusable the press landed
+        // on, when the release lands on it too. It wins over a tappable parent, the way
+        // the inner target always does.
+        let field_positional = if bar_action.is_some() {
+            None
+        } else {
+            self.ui
+                .as_ref()
+                .and_then(|ui| ui.focus_hit(self.cursor))
+                .map(|(id, _)| id)
+                .filter(|id| self.runtime.input.focused == Some(*id))
+                .and_then(|id| self.positional_click_on(id))
+        };
         let (message, announce) = match (self.runtime.input.pressed, released) {
             (Some(_), Some(_)) if bar_action.is_some() => (None, None),
+            _ if field_positional.is_some() => (field_positional, None),
             (Some(pressed), Some(released)) if pressed == released => {
-                // A **positional** click, on a sub-region such as a field's clickable
-                // suffix, takes priority over `on_click`. Local coordinates are the
-                // pointer minus the widget's corner.
-                let positional = self
-                    .ui
-                    .as_ref()
-                    .and_then(|ui| ui.widget_rect(released))
-                    .and_then(|rect| {
-                        self.tree
-                            .as_ref()
-                            .and_then(|tree| find_widget(tree.as_ref(), released))
-                            .and_then(|widget| {
-                                widget.positional_click(
-                                    self.cursor.x - rect.x,
-                                    self.cursor.y - rect.y,
-                                    rect.width,
-                                    rect.height,
-                                )
-                            })
-                    });
+                // A **positional** click, on a sub-region such as a chart's point, takes
+                // priority over `on_click`.
+                let positional = self.positional_click_on(released);
                 let message =
                     positional.or_else(|| self.ui.as_ref().and_then(|ui| ui.msg_for(pressed)));
                 // The spoken announcement of the effect — a sort, a selection — read off
