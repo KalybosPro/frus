@@ -87,6 +87,8 @@ pub(crate) struct FrameCosts {
     pub(crate) acquire: f32,
     /// Of that, tessellating, encoding and submitting.
     pub(crate) draw: f32,
+    /// What the GPU took, by its own clock, where it has one (milestone 612).
+    pub(crate) gpu: Option<f32>,
     /// How many layers the scene holds, nested ones included: each is a pass of its own
     /// on the GPU, into a texture the size of the surface.
     pub(crate) layers: u32,
@@ -194,6 +196,13 @@ impl FrameStats {
         let (r50, r95, _) = spread(&render);
         let (a50, a95, _) = spread(&costs.iter().map(|c| c.acquire).collect::<Vec<_>>());
         let (d50, d95, _) = spread(&costs.iter().map(|c| c.draw).collect::<Vec<_>>());
+        let gpu: Vec<f32> = costs.iter().filter_map(|c| c.gpu).collect();
+        let gpu = if gpu.is_empty() {
+            String::new()
+        } else {
+            let (g50, g95, gmax) = spread(&gpu);
+            format!(", on the GPU {g50:.1}/{g95:.1}/{gmax:.1}")
+        };
         let (y50, _, ymax) = spread(&costs.iter().map(|c| c.layers as f32).collect::<Vec<_>>());
         // Which reasons kept the frames coming, and in how many of them.
         let asked: Vec<String> = Why::NAMES
@@ -227,7 +236,7 @@ impl FrameStats {
             "{} frames in {seconds:.1} s ({:.0} fps): interval {i50:.1}/{i95:.1}/{imax:.1} ms, \
              {late} over budget; {build}, layout+paint {l50:.1}/{l95:.1} ms, render \
              {r50:.1}/{r95:.1} ms (waiting for an image {a50:.1}/{a95:.1}, drawing \
-             {d50:.1}/{d95:.1}) (median/95th or max); {y50:.0} layers, up to {ymax:.0}; next \
+             {d50:.1}/{d95:.1}{gpu}) (median/95th or max); {y50:.0} layers, up to {ymax:.0}; next \
              frame asked by {asked}",
             costs.len(),
             intervals.len() as f32 / seconds,
@@ -278,6 +287,7 @@ mod tests {
             render: 3.0,
             acquire: 0.5,
             draw: 2.0,
+            gpu: None,
             layers: 0,
             why: Why::WIDGET,
         }

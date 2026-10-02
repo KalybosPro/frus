@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 610 so far, each documenting the objective, the alternatives
+> record — one per step, 612 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The GPU's own clock in the frame statistics** (J612). Where the device offers
+  timestamps, the renderer marks the start and end of each frame on the GPU and reads the
+  difference back a few frames later, never waiting for it; the statistics line adds
+  `, on the GPU` median/95th/max. The start-up log says whether the device has a clock. The
+  test phone's Mali-G51 driver has none.
 
 - **A layer costs its size, and the display sets the pace** (J610). A layer was drawn into a
   texture the size of the surface and composited by a quad covering it: a 56 × 32 px
