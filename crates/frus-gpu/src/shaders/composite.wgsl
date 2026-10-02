@@ -62,6 +62,7 @@ struct InstanceInput {
     @location(3) inv_tr_op: vec4<f32>, // ie, if, opacity, _
     @location(4) shape: vec4<f32>,   // kind (0=rect,1=rrect,2=oval), _, _, _
     @location(5) radii: vec4<f32>,   // rrect radii: tl, tr, br, bl
+    @location(6) region: vec4<f32>,  // where the texture lies: x, y, width, height (px)
 };
 
 struct VertexOutput {
@@ -74,17 +75,23 @@ struct VertexOutput {
     @location(5) @interpolate(flat) inv_tr: vec2<f32>,
     @location(6) @interpolate(flat) shape: vec4<f32>,
     @location(7) @interpolate(flat) radii: vec4<f32>,
+    @location(8) @interpolate(flat) region: vec4<f32>,
 };
 
 @vertex
 fn vs_main(vert: VertexInput, inst: InstanceInput) -> VertexOutput {
-    // The unit quad covers the whole screen, and the layer texture is the size of
-    // the surface, so uv is simply the normalised position.
-    let ndc = vec2<f32>(vert.unit_pos.x * 2.0 - 1.0, 1.0 - vert.unit_pos.y * 2.0);
+    // The unit quad covers the layer's **region** (milestone 610): the whole target for a
+    // layer that may draw anywhere, only its clip for one that may not. Outside the region
+    // there is nothing of the layer, so nothing to shade. `uv` stays the target's, which is
+    // what the full-target clip mask is read in.
+    let px = inst.region.xy + vert.unit_pos * inst.region.zw;
+    let unit = px / viewport.size;
+    let ndc = vec2<f32>(unit.x * 2.0 - 1.0, 1.0 - unit.y * 2.0);
     var out: VertexOutput;
     out.clip_position = vec4<f32>(ndc, 0.0, 1.0);
-    out.uv = vert.unit_pos;
-    out.frag_px = vert.unit_pos * viewport.size;
+    out.uv = unit;
+    out.frag_px = px;
+    out.region = inst.region;
     out.clip = inst.clip;
     out.opacity = inst.inv_tr_op.z;
     out.inv_lin = inst.inv_lin;
@@ -211,7 +218,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         in.inv_lin.x * p.x + in.inv_lin.z * p.y + in.inv_tr.x,
         in.inv_lin.y * p.x + in.inv_lin.w * p.y + in.inv_tr.y,
     );
-    let src_uv = src_px / viewport.size;
+    // The texture holds the region, from its corner.
+    let src_uv = (src_px - in.region.xy) / in.region.zw;
 
     // Outside the texture after counter-rotation: nothing, a transparent edge.
     let in_bounds = f32(
