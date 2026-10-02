@@ -1096,3 +1096,99 @@ mod async_builder_tests {
         );
     }
 }
+
+/// **A field's clickable suffix did nothing in a real application** (the reveal-password
+/// eye). A field answers no tap of its own, so it was never a hit target, and the shell
+/// only asked a widget it had hit for its positional click: `on_suffix` worked when called
+/// on the widget and never through the pointer.
+#[cfg(test)]
+mod suffix_tests {
+    use super::*;
+    use crate::app::testing::Driver;
+    use frus_widgets::{Container, Icons, Point, State, StateContext, TextField};
+    use std::cell::RefCell;
+
+    const SIDE: f32 = 200.0;
+    /// The field's corner, inside the card's padding.
+    const PAD: f32 = 16.0;
+    const FIELD: f32 = 160.0;
+
+    #[derive(Clone)]
+    struct Password {
+        seen: Rc<RefCell<Vec<bool>>>,
+    }
+
+    struct PasswordState {
+        revealed: bool,
+        seen: Rc<RefCell<Vec<bool>>>,
+    }
+
+    impl StatefulWidget for Password {
+        type State = PasswordState;
+        fn create_state(&self) -> PasswordState {
+            PasswordState {
+                revealed: false,
+                seen: self.seen.clone(),
+            }
+        }
+    }
+
+    impl State for PasswordState {
+        type Widget = Password;
+        fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> {
+            self.seen.borrow_mut().push(self.revealed);
+            Box::new(
+                Container::new().padding_each(13.0, PAD, 13.0, PAD).child(
+                    TextField::new("secret")
+                        .width(FIELD)
+                        .borderless()
+                        .obscure(!self.revealed)
+                        .suffix_icon(Icons::VISIBILITY)
+                        .on_suffix(cx.callback(|s: &mut PasswordState| s.revealed = !s.revealed)),
+                ),
+            )
+        }
+    }
+
+    fn tap(driver: &mut Driver<FrusApp>, at: Point) {
+        driver.press(at);
+        driver.release(at);
+        driver.frame(1.0 / 60.0);
+    }
+
+    #[test]
+    fn a_tap_on_a_fields_suffix_reaches_the_state_and_a_tap_on_its_text_does_not() {
+        let seen: Rc<RefCell<Vec<bool>>> = Rc::default();
+        let mut driver = Driver::new(
+            FrusApp::stateful(Password { seen: seen.clone() }),
+            SIDE,
+            SIDE,
+        );
+        driver.frame(1.0 / 60.0);
+        let y = 13.0 + 10.0;
+
+        tap(&mut driver, Point::new(PAD + 20.0, y));
+        assert_eq!(
+            seen.borrow().last(),
+            Some(&false),
+            "the text: {:?}",
+            seen.borrow()
+        );
+
+        let eye = Point::new(PAD + FIELD - 8.0, y);
+        tap(&mut driver, eye);
+        assert_eq!(
+            seen.borrow().last(),
+            Some(&true),
+            "revealed: {:?}",
+            seen.borrow()
+        );
+        tap(&mut driver, eye);
+        assert_eq!(
+            seen.borrow().last(),
+            Some(&false),
+            "hidden again: {:?}",
+            seen.borrow()
+        );
+    }
+}

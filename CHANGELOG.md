@@ -18,6 +18,14 @@ any release may break.
   the leading centred in a 56 px slot and the title 16 px after it; the actions' glyphs in
   `on_surface_variant`. `actions_padding` now insets the actions across only.
 
+- **A layer costs its size, and the display sets the pace** (J610). A layer was drawn into a
+  texture the size of the surface and composited by a quad covering it: a 56 × 32 px
+  group-opacity layer cost two passes over 1080 × 2340 multisampled pixels. It is now drawn
+  in its clip, and a layer carried across the screen whole stays cached. The surface presents
+  in **Fifo**, one image per refresh; it had taken Mailbox, drawing images never shown. A
+  moved layer now moves its mask. On a phone, flicking went from 35–38 to 41–45 fps and a
+  slow drag to 55–58; every golden is unchanged.
+
 - **Frame statistics, and a screen that drew forever** (J609). The shell measures its own
   frames when asked (`FRUS_FRAME_STATS=1`, or `adb shell setprop debug.frus.frames 1`): every
   two seconds of drawing, the intervals, what each stage cost, how many layers, and which

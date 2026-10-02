@@ -88,11 +88,23 @@ impl Renderer {
             color_space: wgpu::SurfaceColorSpace::Auto,
             width,
             height,
-            present_mode: caps.present_modes[0],
+            // **Fifo, always** (milestone 610): one image per refresh of the display, in
+            // order. It was the first mode the surface offered, and on the test phone that
+            // was Mailbox, under which the application draws as fast as it can, the
+            // display shows whichever image is latest, and the rest are drawn for nothing:
+            // frames at 14 ms intervals on a 16.7 ms display, the battery spent on images
+            // never seen, and a motion that is not paced by the display. Fifo is the one
+            // mode every surface supports.
+            present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
+        log::info!(
+            "present mode: {:?}, of {:?}",
+            config.present_mode,
+            caps.present_modes
+        );
         surface.configure(&device, &config);
 
         // MSAA when the adapter supports it for this format; otherwise 1, disabled.
