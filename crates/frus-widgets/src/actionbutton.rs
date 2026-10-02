@@ -31,7 +31,7 @@ impl Kind {
     fn icon(self, theme: &Theme) -> IconData {
         let t = &theme.widgets.action_icons;
         match self {
-            Kind::Back => t.back.unwrap_or(default_back_icon()),
+            Kind::Back => t.back.unwrap_or(default_back_icon(theme.platform)),
             Kind::Close => t.close.unwrap_or(Icons::CLOSE),
             Kind::Drawer => t.drawer.unwrap_or(Icons::MENU),
             Kind::EndDrawer => t.end_drawer.unwrap_or(Icons::MENU),
@@ -53,20 +53,32 @@ impl Kind {
     }
 }
 
-/// **The back arrow the platform draws.** A chevron where the platform's own back control
-/// is a chevron, an arrow everywhere else (`action_buttons.dart:132`).
+/// **The back arrow the platform draws**, as the reference picks it
+/// (`action_buttons.dart:132`): always the arrow on the web, the iOS arrow under a theme
+/// whose platform is iOS or macOS, the arrow everywhere else (milestone 615).
 ///
-/// Resolved at compile time, like [`ScrollPhysics::platform_default`](crate::ScrollPhysics::platform_default):
-/// a binary runs on one platform and the branch it does not take is not a decision it
-/// needs to carry.
-const fn default_back_icon() -> IconData {
-    #[cfg(any(target_os = "ios", target_os = "macos"))]
-    {
-        Icons::CHEVRON_LEFT
+/// The reference's iOS arrow is the rounded one. Its glyphs come with the
+/// `icons-rounded` feature; without it, the filled iOS arrow stands in, which is the same
+/// shape with sharper ends.
+const fn default_back_icon(platform: frus_core::TargetPlatform) -> IconData {
+    if frus_core::IS_WEB {
+        return Icons::ARROW_BACK;
     }
-    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-    {
-        Icons::ARROW_BACK
+    match platform {
+        frus_core::TargetPlatform::Ios | frus_core::TargetPlatform::MacOs => {
+            #[cfg(feature = "icons-rounded")]
+            {
+                Icons::ARROW_BACK_IOS_NEW_ROUNDED
+            }
+            #[cfg(not(feature = "icons-rounded"))]
+            {
+                Icons::ARROW_BACK_IOS_NEW
+            }
+        }
+        frus_core::TargetPlatform::Android
+        | frus_core::TargetPlatform::Fuchsia
+        | frus_core::TargetPlatform::Linux
+        | frus_core::TargetPlatform::Windows => Icons::ARROW_BACK,
     }
 }
 
@@ -492,7 +504,7 @@ mod tests {
         assert_eq!(Kind::Back.icon(&theme), Icons::CHEVRON_LEFT);
         assert_eq!(
             Kind::Back.icon(&Theme::default()),
-            default_back_icon(),
+            default_back_icon(Theme::default().platform),
             "and the framework's own is the platform's"
         );
     }

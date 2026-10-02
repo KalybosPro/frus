@@ -85,18 +85,14 @@ pub enum ReorderGrab {
     LongPress,
 }
 
-impl Default for ReorderGrab {
-    /// The reference's own rule, read from the platform rather than from a flag: a grip
-    /// where there is a pointer, a hold where there is a finger.
-    fn default() -> Self {
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        {
-            ReorderGrab::LongPress
-        }
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        {
-            ReorderGrab::Handle
-        }
+/// The way in a list that was not told, by the theme's platform: the reference's switch
+/// (`reorderable_list.dart:383`), a grip on the desktops and a hold on Android, Fuchsia
+/// and iOS.
+fn platform_grab(platform: frus_core::TargetPlatform) -> ReorderGrab {
+    use frus_core::TargetPlatform as P;
+    match platform {
+        P::Linux | P::Windows | P::MacOs => ReorderGrab::Handle,
+        P::Android | P::Fuchsia | P::Ios => ReorderGrab::LongPress,
     }
 }
 
@@ -126,7 +122,11 @@ type HandleFn<Msg> = Rc<dyn Fn(&Theme) -> Box<dyn Widget<Msg>>>;
 /// calls part of the API, and a list whose `.grab()` silently does nothing because it came
 /// after `.row()` is a bug no compiler catches.
 struct Spec<Msg> {
-    grab: ReorderGrab,
+    /// What the application said; `None` for the platform's way (milestone 615).
+    grab: Option<ReorderGrab>,
+    /// The theme's platform, as the last layout found it: what an untold list follows.
+    /// The gesture hooks run outside layout and read it from here.
+    platform: frus_core::TargetPlatform,
     /// The way the rows run: down, or across.
     axis: ReorderAxis,
     enabled: bool,
@@ -142,14 +142,19 @@ struct Spec<Msg> {
 }
 
 impl<Msg> Spec<Msg> {
+    /// The way in: what the application said, else the platform's.
+    fn grab(&self) -> ReorderGrab {
+        self.grab.unwrap_or_else(|| platform_grab(self.platform))
+    }
+
     /// Is the grip the way in, this frame?
     fn gripped(&self) -> bool {
-        self.enabled && self.grab == ReorderGrab::Handle
+        self.enabled && self.grab() == ReorderGrab::Handle
     }
 
     /// Is the whole row the way in, this frame?
     fn held(&self) -> bool {
-        self.enabled && self.grab == ReorderGrab::LongPress
+        self.enabled && self.grab() == ReorderGrab::LongPress
     }
 }
 
@@ -259,6 +264,13 @@ struct ReorderHandle<Msg> {
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for ReorderHandle<Msg> {
+    /// Sized by the theme it is laid out under, not by what its list last saw: the two are
+    /// the same theme, but this one does not depend on the order of the walk.
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.spec.borrow_mut().platform = theme.platform;
+        self.style()
+    }
+
     fn style(&self) -> Style {
         let spec = self.spec.borrow();
         if !spec.gripped() {
@@ -420,7 +432,8 @@ impl<Msg: Clone + 'static> ReorderableList<Msg> {
     ) -> Self {
         Self {
             spec: Rc::new(RefCell::new(Spec {
-                grab: ReorderGrab::default(),
+                grab: None,
+                platform: frus_core::default_target_platform(),
                 axis: ReorderAxis::Vertical,
                 enabled: true,
                 on_reorder: Some(Rc::new(crate::callback::handler2(on_reorder))),
@@ -482,10 +495,11 @@ impl<Msg: Clone + 'static> ReorderableList<Msg> {
         self
     }
 
-    /// How a row is picked up. Defaults to the platform's habit — see [`ReorderGrab`].
+    /// How a row is picked up. Untold, the theme's platform decides, as the reference's
+    /// does: a grip on Linux, macOS and Windows, a hold on Android, Fuchsia and iOS.
     #[must_use]
     pub fn grab(self, grab: ReorderGrab) -> Self {
-        self.spec.borrow_mut().grab = grab;
+        self.spec.borrow_mut().grab = Some(grab);
         self
     }
 
@@ -584,7 +598,7 @@ impl<Msg: Clone + 'static> ReorderableList<Msg> {
 
 /// The grip's contents: the application's widget, or the default glyph.
 fn grip<Msg: Clone + 'static>(spec: &Spec<Msg>, theme: &Theme) -> Box<dyn Widget<Msg>> {
-    if !spec.gripped() {
+    if !(spec.enabled && spec.grab.unwrap_or_else(|| platform_grab(theme.platform)) == ReorderGrab::Handle) {
         // Not this mode: an empty box, so that nothing is measured, drawn or hit.
         return Box::new(Container::new().width(0.0).height(0.0));
     }
@@ -607,6 +621,13 @@ fn grip<Msg: Clone + 'static>(spec: &Spec<Msg>, theme: &Theme) -> Box<dyn Widget
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for ReorderableList<Msg> {
+    /// The list is laid out before its rows, so this is where the theme's platform is
+    /// recorded for the rows, the grips and the gesture hooks to follow.
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.spec.borrow_mut().platform = theme.platform;
+        self.style()
+    }
+
     fn style(&self) -> Style {
         Style {
             width: self.width,
