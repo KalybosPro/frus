@@ -378,8 +378,8 @@ fn the_app_bar() {
         .title(frus_widgets::Text::new("Inbox"))
         .width(360.0)
         .leading(Icon::new(Icons::MENU).size(20.0))
-        .action("Save", ())
-        .action("Edit", ())
+        .foldable_action("Save", ())
+        .foldable_action("Edit", ())
         .build();
     check("app_bar", 360, 80, &*bar);
 }
