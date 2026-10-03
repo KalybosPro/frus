@@ -98,3 +98,12 @@ theme's platform reached no scrollable at all.
 - `the_scroll_behaviour_at_the_root_is_the_applications`: the shell puts the
   application's behaviour at the root.
 - The scrollbar tests lay out under a behaviour that draws one, or one that does not.
+
+Mutation testing: ten mutants, all killed — the application's behaviour following the
+system instead of the theme, Android's stretch turned to a glow, Fuchsia given scrollbars,
+`with_scrollbars(false)` ignored, a subtree's behaviour never put back, a
+`ScrollConfiguration` that installs nothing, an area with no indicator glowing anyway (on
+a pull and on a fling), a drag reading its fling the application's way instead of the
+area's, and the shell not putting the application's behaviour at the root. The test that
+forwards hooks through every transparent wrapper also caught `ScaffoldScope` dropping a
+`ScrollConfiguration` under it.
