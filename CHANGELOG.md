@@ -8,10 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 617 so far, each documenting the objective, the alternatives
+> record — one per step, 619 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The reference's motion curves** (J619): `Curve::ThreePointCubic`, two cubic Béziers
+  joined at a midpoint, and the presets `ease_in_out_cubic_emphasized`,
+  `fast_ease_in_to_slow_ease_out`, `linear_to_ease_out` and `ease_in_to_linear`, with the
+  reference's numbers — what its page transitions move on.
 
 - **The Android scrollbar, under an Android theme** (J617), as the reference draws it: 4 px,
   flush with the edge, square, an opaque grey at rest, and not something a pointer wakes

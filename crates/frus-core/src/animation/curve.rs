@@ -48,6 +48,23 @@ pub enum Curve {
     /// Mirrored: `f(t) = 1 − inner(1 − t)`, which turns an *ease-in* into an
     /// *ease-out*.
     Flipped(Box<Curve>),
+    /// Two cubic Béziers joined at `midpoint`, each scaled into its own part of the
+    /// unit square: the first runs from `(0, 0)` to `midpoint` with control points `a1`
+    /// and `b1`, the second from `midpoint` to `(1, 1)` with `a2` and `b2` (milestone
+    /// 619). The shape of the reference's emphasized motion, which one cubic cannot
+    /// draw: a slow start, a fast middle and a long settle.
+    ThreePointCubic {
+        /// The first segment's first control point.
+        a1: [f32; 2],
+        /// The first segment's second control point.
+        b1: [f32; 2],
+        /// Where the two segments meet.
+        midpoint: [f32; 2],
+        /// The second segment's first control point.
+        a2: [f32; 2],
+        /// The second segment's second control point.
+        b2: [f32; 2],
+    },
 }
 
 impl Curve {
@@ -91,6 +108,51 @@ impl Curve {
         }
     }
 
+    /// The reference's **emphasized** easing, `easeInOutCubicEmphasized`: Material 3's
+    /// motion for things that move across the screen — a page arriving, a sheet rising.
+    pub fn ease_in_out_cubic_emphasized() -> Curve {
+        Curve::ThreePointCubic {
+            a1: [0.05, 0.0],
+            b1: [0.133333, 0.06],
+            midpoint: [0.166666, 0.4],
+            a2: [0.208333, 0.82],
+            b2: [0.25, 1.0],
+        }
+    }
+
+    /// The reference's `fastEaseInToSlowEaseOut`: an iOS page sliding in.
+    pub fn fast_ease_in_to_slow_ease_out() -> Curve {
+        Curve::ThreePointCubic {
+            a1: [0.056, 0.024],
+            b1: [0.108, 0.3085],
+            midpoint: [0.198, 0.541],
+            a2: [0.3655, 1.0],
+            b2: [0.5465, 0.989],
+        }
+    }
+
+    /// The reference's `linearToEaseOut`, `cubic-bezier(0.35, 0.91, 0.33, 0.97)`: an
+    /// iOS page leaving under the one that arrives.
+    pub fn linear_to_ease_out() -> Curve {
+        Curve::Cubic {
+            x1: 0.35,
+            y1: 0.91,
+            x2: 0.33,
+            y2: 0.97,
+        }
+    }
+
+    /// The reference's `easeInToLinear`, `cubic-bezier(0.67, 0.03, 0.65, 0.09)`: the
+    /// same page coming back.
+    pub fn ease_in_to_linear() -> Curve {
+        Curve::Cubic {
+            x1: 0.67,
+            y1: 0.03,
+            x2: 0.65,
+            y2: 0.09,
+        }
+    }
+
     /// The framework's default spring curve (`omega = 8`): the feel of screen and
     /// sheet transitions, in closed form.
     pub fn critical_spring() -> Curve {
@@ -127,6 +189,37 @@ impl Curve {
                 }
             }
             Curve::Flipped(inner) => 1.0 - inner.transform(1.0 - t),
+            Curve::ThreePointCubic {
+                a1,
+                b1,
+                midpoint,
+                a2,
+                b2,
+            } => {
+                // Exactly as the reference scales its two segments
+                // (`curves.dart:496`): each one is a unit cubic stretched over its own
+                // part of the square.
+                // The ends are the ends, as every curve's are in the reference
+                // (`Curve.transform`); it also keeps a midpoint on the square's edge
+                // from dividing by nothing.
+                if t <= 0.0 || t >= 1.0 {
+                    return t;
+                }
+                let [mx, my] = *midpoint;
+                if t < mx {
+                    cubic_bezier(a1[0] / mx, a1[1] / my, b1[0] / mx, b1[1] / my, t / mx) * my
+                } else {
+                    let (sx, sy) = (1.0 - mx, 1.0 - my);
+                    cubic_bezier(
+                        (a2[0] - mx) / sx,
+                        (a2[1] - my) / sy,
+                        (b2[0] - mx) / sx,
+                        (b2[1] - my) / sy,
+                        (t - mx) / sx,
+                    ) * sy
+                        + my
+                }
+            }
         }
     }
 }
@@ -165,6 +258,48 @@ fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The reference's three-point curves** (milestone 619): each passes through its
+    /// midpoint exactly, keeps its ends, never runs backwards, and gives the reference's
+    /// values along the way.
+    #[test]
+    fn the_three_point_curves_meet_at_their_midpoints() {
+        let emphasized = Curve::ease_in_out_cubic_emphasized();
+        let ios = Curve::fast_ease_in_to_slow_ease_out();
+        for (curve, mx, my) in [(&emphasized, 0.166666, 0.4), (&ios, 0.198, 0.541)] {
+            endpoints(curve);
+            assert!((curve.transform(mx) - my).abs() < 1e-3, "{curve:?} at {mx}");
+            let mut last = 0.0;
+            for i in 0..=200 {
+                let y = curve.transform(i as f32 / 200.0);
+                assert!(y + 1e-4 >= last, "{curve:?} runs back at {i}");
+                last = y;
+            }
+        }
+        // And the reference's values, computed by its own bisection, which stops within a
+        // thousandth.
+        for (curve, table) in [
+            (&emphasized, [0.0937, 0.7715, 0.9508, 0.9914]),
+            (&ios, [0.2386, 0.6668, 0.9423, 0.9916]),
+        ] {
+            for (t, want) in [0.1, 0.25, 0.5, 0.75].into_iter().zip(table) {
+                let got = curve.transform(t);
+                assert!((got - want).abs() < 5e-3, "{curve:?} at {t}: {got} vs {want}");
+            }
+        }
+    }
+
+    /// **The iOS pair**: `linearToEaseOut` is ahead of linear, `easeInToLinear` behind it.
+    #[test]
+    fn the_ios_cubics_lead_and_lag() {
+        let lead = Curve::linear_to_ease_out();
+        let lag = Curve::ease_in_to_linear();
+        endpoints(&lead);
+        endpoints(&lag);
+        for t in [0.25, 0.5, 0.75] {
+            assert!(lead.transform(t) > t && lag.transform(t) < t, "at {t}");
+        }
+    }
 
     fn endpoints(curve: &Curve) {
         assert!(curve.transform(0.0).abs() < 1e-4, "f(0) != 0: {:?}", curve);
