@@ -155,6 +155,7 @@ mod safearea;
 mod scaffold;
 mod scaffoldinfo;
 mod scroll;
+mod scrollbehavior;
 pub mod scrolloverlay;
 pub mod scrollposition;
 mod searchbar;
@@ -385,6 +386,7 @@ pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};
 pub use scaffoldinfo::{ScaffoldGuard, ScaffoldInfo, ScaffoldScope};
 pub use scroll::{Axis, SingleChildScrollView};
+pub use scrollbehavior::{ScrollBehavior, ScrollBehaviorGuard, ScrollConfiguration};
 pub use scrolloverlay::{OverlayBuilder, ScrollOverlay};
 pub use scrollposition::{ScrollPosition, ScrollTarget, ScrollTo};
 pub use searchbar::{SearchBar, SEARCH_BAR_HEIGHT, SEARCH_BAR_MAX_WIDTH, SEARCH_BAR_MIN_WIDTH};
@@ -502,7 +504,7 @@ pub use frus_core::{
 pub use frus_core::{
     AnimationController, ClampedSimulation, Curve, FrictionSimulation, Lerp, Simulation,
     SpringDescription, SpringSimulation, Tolerance, Tween, Velocity, VelocityEstimate,
-    VelocityStrategy, VelocityTracker,
+    VelocityStrategy, VelocityTracker, BOUNCING_FLING_WEIGHTS, DESKTOP_FLING_WEIGHTS,
 };
 // `frus_core::Status`, an animation's progress, is renamed so it does not shadow the
 // interaction `Status`, which is paint state: hover, press, focus and so on.

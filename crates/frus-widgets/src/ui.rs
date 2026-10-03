@@ -103,9 +103,10 @@ pub struct Scrollbar {
 /// A scrollable area of the frame: where it is, how far it may scroll, and how it
 /// is meant to behave at its edges.
 ///
-/// The registry the shell and the runtime both read. It carries the area's own
-/// [`ScrollPhysics`] only when the widget asked for one — resolving the default is
-/// the application's job, through [`Scrollable::physics_or`].
+/// The registry the shell and the runtime both read. What the area does when it is
+/// dragged, flung or pulled past an edge is settled when it is registered: its own
+/// physics if it asked for some, else what the [`ScrollBehavior`](crate::ScrollBehavior)
+/// in force there says, under the theme it is laid out in (milestone 616).
 #[derive(Copy, Clone, Debug)]
 pub struct Scrollable {
     /// The scrollable area's identity.
@@ -116,8 +117,15 @@ pub struct Scrollable {
     pub max_x: f32,
     /// Largest vertical offset the content may rest at.
     pub max_y: f32,
-    /// The area's own physics, when it asked for one.
-    pub physics: Option<ScrollPhysics>,
+    /// How the area moves at its edges and after a fling: its own, when it asked for
+    /// some, else its scroll behaviour's.
+    pub physics: ScrollPhysics,
+    /// What the area shows when pulled past an edge it will not move beyond, from its
+    /// scroll behaviour; `None` for nothing.
+    pub overscroll: Option<crate::physics::OverscrollIndicator>,
+    /// How a fling on this area is read from the finger's last moves, from its scroll
+    /// behaviour.
+    pub fling: frus_core::VelocityStrategy,
     /// The [`crate::RefreshIndicator`] area this scrollable sits inside, when there is one.
     /// Movement refused at its **top** edge feeds that area's pull instead of the
     /// overscroll glow.
@@ -153,9 +161,9 @@ pub struct Scrollable {
 }
 
 impl Scrollable {
-    /// This area's physics, falling back to the application's choice.
-    pub fn physics_or(&self, default: ScrollPhysics) -> ScrollPhysics {
-        self.physics.unwrap_or(default)
+    /// The tracker a drag on this area reads its fling with.
+    pub fn velocity_tracker(&self) -> frus_core::VelocityTracker {
+        frus_core::VelocityTracker::new(self.fling)
     }
 
     /// Whether a finger may move this area at all, resting at `offset`.
@@ -1919,6 +1927,9 @@ fn build_layout_scoped<'a, Msg>(
     // it stands in composes differently — a bar grows a menu button — so it has to be in
     // force before `build_themed` below, exactly as the surface is.
     let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
+    let _scrolling = widget
+        .scroll_behavior_override()
+        .map(crate::ScrollConfiguration::install);
     // A subtree that could not be composed until the theme was known (`ThemeBuilder`).
     // It has to happen **before** anything reads `children()`, and under the subtree's
     // own theme, which is why it sits after the swap above rather than at the call site.
@@ -3637,6 +3648,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             .media_override(crate::MediaQuery::of())
             .map(crate::MediaQuery::install);
         let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
+        let _scrolling = widget
+            .scroll_behavior_override()
+            .map(crate::ScrollConfiguration::install);
         // A region the mouse enters and leaves: registered before its subtree, so that the
         // regions inside it name it as their parent (milestone 583).
         let outer_hover = match (widget.hover_region(), over) {
@@ -3866,7 +3880,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                             viewport: vp,
                             max_x: 0.0,
                             max_y,
-                            physics: widget.scroll_physics(),
+                            physics: widget.scroll_physics().unwrap_or_else(|| {
+                                crate::ScrollConfiguration::of().scroll_physics(&self.theme)
+                            }),
+                            overscroll: crate::ScrollConfiguration::of()
+                                .overscroll_indicator(&self.theme),
+                            fling: crate::ScrollConfiguration::of()
+                                .velocity_tracker(&self.theme)
+                                .strategy(),
                             refresh: self.refresh_host,
                             page: None,
                             reverse_x: false,
@@ -4145,7 +4166,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 viewport,
                 max_x,
                 max_y,
-                physics: None,
+                physics: crate::ScrollPhysics::Clamping,
+                overscroll: None,
+                fling: frus_core::VelocityStrategy::Regression,
                 refresh: None,
                 page: None,
                 reverse_x: reverse.0,
@@ -4197,7 +4220,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 viewport,
                 max_x,
                 max_y,
-                physics: widget.scroll_physics(),
+                physics: widget.scroll_physics().unwrap_or_else(|| {
+                    crate::ScrollConfiguration::of().scroll_physics(&self.theme)
+                }),
+                overscroll: crate::ScrollConfiguration::of().overscroll_indicator(&self.theme),
+                fling: crate::ScrollConfiguration::of()
+                    .velocity_tracker(&self.theme)
+                    .strategy(),
                 refresh: self.refresh_host,
                 page: None,
                 reverse_x: reverse.0,
@@ -4294,7 +4323,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 viewport,
                 max_x: if across { max } else { 0.0 },
                 max_y: if across { 0.0 } else { max },
-                physics: widget.scroll_physics(),
+                physics: widget.scroll_physics().unwrap_or_else(|| {
+                    crate::ScrollConfiguration::of().scroll_physics(&self.theme)
+                }),
+                overscroll: crate::ScrollConfiguration::of().overscroll_indicator(&self.theme),
+                fling: crate::ScrollConfiguration::of()
+                    .velocity_tracker(&self.theme)
+                    .strategy(),
                 refresh: self.refresh_host,
                 page: None,
                 reverse_x: across && reverse,
@@ -4427,7 +4462,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 viewport,
                 max_x: if snap.horizontal { max } else { 0.0 },
                 max_y: if snap.horizontal { 0.0 } else { max },
-                physics: widget.scroll_physics(),
+                physics: widget.scroll_physics().unwrap_or_else(|| {
+                    crate::ScrollConfiguration::of().scroll_physics(&self.theme)
+                }),
+                overscroll: crate::ScrollConfiguration::of().overscroll_indicator(&self.theme),
+                fling: crate::ScrollConfiguration::of()
+                    .velocity_tracker(&self.theme)
+                    .strategy(),
                 refresh: self.refresh_host,
                 page: Some(snap),
                 reverse_x: snap.horizontal && reverse,
@@ -5701,7 +5742,8 @@ impl<Msg: Clone> Builder<'_, Msg> {
         // bar (`app.dart:865` against `:870`). A finger already knows where it is on the
         // page; a permanent bar over the content is an affordance for a pointer that
         // cannot feel the edges. This drew one everywhere, on both axes, always.
-        if asked.unwrap_or(self.runtime.scrollbars) == crate::physics::Scrollbars::Never {
+        let behavior = crate::ScrollConfiguration::of().scrollbars(&self.theme);
+        if asked.unwrap_or(behavior) == crate::physics::Scrollbars::Never {
             return;
         }
         let (track_start, track_len, content_len) = if vertical {
@@ -6296,6 +6338,9 @@ pub fn build_deferred<Msg>(root: &dyn Widget<Msg>, theme: &Theme, runtime: &Runt
             .media_override(crate::MediaQuery::of())
             .map(crate::MediaQuery::install);
         let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
+        let _scrolling = widget
+            .scroll_behavior_override()
+            .map(crate::ScrollConfiguration::install);
         widget.build_in(id, runtime, theme);
         for (index, child) in widget.children().iter().enumerate() {
             walk(
@@ -6940,10 +6985,25 @@ mod tests {
             .collect()
     }
 
+    /// A runtime, and a scroll behaviour in force for as long as the guard lives, that
+    /// draws scrollbars — one that follows a desktop — or does not.
+    fn bars_runtime(how: Scrollbars) -> (Runtime, crate::ScrollBehaviorGuard) {
+        let behavior = match how {
+            Scrollbars::Always => {
+                crate::ScrollBehavior::new().with_platform(frus_core::TargetPlatform::Linux)
+            }
+            Scrollbars::Never => crate::ScrollBehavior::new().with_scrollbars(false),
+        };
+        (
+            Runtime::default(),
+            crate::ScrollConfiguration::install(behavior),
+        )
+    }
+
     /// A tall page in a short window, its bar **pinned**: whether a bar fades is the
     /// business of the tests below, and these are about whether there is one to fade.
     fn bars(area: SingleChildScrollView<()>, how: Scrollbars) -> Vec<(Rect, Color)> {
-        let runtime = Runtime::with_scrollbars(how);
+        let (runtime, _bars) = bars_runtime(how);
         let ui = build_ui(
             &area.thumb_visibility(true),
             Size::new(200.0, 100.0),
@@ -6976,7 +7036,7 @@ mod tests {
         );
 
         // Nothing to drag, either: a bar that is not drawn is not a target.
-        let runtime = Runtime::with_scrollbars(Scrollbars::Never);
+        let (runtime, _bars) = bars_runtime(Scrollbars::Never);
         let ui = build_ui(&tall(), Size::new(200.0, 100.0), &runtime, &Theme::dark());
         assert!(ui.scrollbars().is_empty());
     }
@@ -6999,7 +7059,7 @@ mod tests {
             theme
         };
         let thumb = |theme: &Theme| {
-            let runtime = Runtime::with_scrollbars(Scrollbars::Always);
+            let (runtime, _bars) = bars_runtime(Scrollbars::Always);
             let ui = build_ui(
                 &tall().thumb_visibility(true),
                 Size::new(200.0, 100.0),
@@ -7042,7 +7102,7 @@ mod tests {
         theme.widgets.scrollbar.thumb_color = Some(THUMB);
         theme.widgets.scrollbar.opacity = Some(0.8);
 
-        let runtime = Runtime::with_scrollbars(Scrollbars::Always);
+        let (runtime, _bars) = bars_runtime(Scrollbars::Always);
         let ui = build_ui(
             &tall().thumb_visibility(true),
             Size::new(200.0, 100.0),
@@ -7133,7 +7193,7 @@ mod tests {
             .width(200.0)
             .height(100.0)
             .child(Container::<()>::new().width(1000.0).height(100.0));
-        let runtime = Runtime::with_scrollbars(Scrollbars::Always);
+        let (runtime, _bars) = bars_runtime(Scrollbars::Always);
         let ui = build_ui(&strip, Size::new(200.0, 100.0), &runtime, &Theme::dark());
         assert!(
             ui.scrollbars().is_empty(),
@@ -7166,7 +7226,7 @@ mod tests {
     /// and a mouse coming near it is the only thing that can bring it back.
     #[test]
     fn an_untouched_area_shows_no_bar_but_can_still_be_reached_for() {
-        let runtime = Runtime::with_scrollbars(Scrollbars::Always);
+        let (runtime, _bars) = bars_runtime(Scrollbars::Always);
         let ui = build_ui(&tall(), Size::new(200.0, 100.0), &runtime, &Theme::dark());
         assert_eq!(painted(&ui), vec![], "nothing is painted for it");
 
@@ -7195,7 +7255,7 @@ mod tests {
     /// scrolling first to make the bar appear.
     #[test]
     fn a_pinned_bar_does_not_fade() {
-        let runtime = Runtime::with_scrollbars(Scrollbars::Always);
+        let (runtime, _bars) = bars_runtime(Scrollbars::Always);
         let ui = build_ui(
             &tall().thumb_visibility(true),
             Size::new(200.0, 100.0),
@@ -7213,7 +7273,7 @@ mod tests {
     fn a_thumb_answers_the_pointer() {
         use crate::runtime::ScrollbarFade;
         let build = |prime: &dyn Fn(&mut Runtime)| {
-            let mut runtime = Runtime::with_scrollbars(Scrollbars::Always);
+            let (mut runtime, _bars) = bars_runtime(Scrollbars::Always);
             prime(&mut runtime);
             let ui = build_ui(
                 &tall().thumb_visibility(true),
@@ -7448,7 +7508,9 @@ mod tests {
             viewport: Rect::new(0.0, 0.0, 100.0, 100.0),
             max_x: 0.0,
             max_y: 400.0,
-            physics: None,
+            physics: crate::ScrollPhysics::Clamping,
+            overscroll: Some(crate::OverscrollIndicator::Glow),
+            fling: frus_core::VelocityStrategy::Regression,
             refresh: None,
             page: None,
             reverse_x: false,
@@ -7495,7 +7557,9 @@ mod tests {
             viewport: Rect::new(0.0, 0.0, 100.0, 100.0),
             max_x: 0.0,
             max_y: 400.0,
-            physics: None,
+            physics: crate::ScrollPhysics::Clamping,
+            overscroll: Some(crate::OverscrollIndicator::Glow),
+            fling: frus_core::VelocityStrategy::Regression,
             refresh: None,
             page: None,
             reverse_x: false,
@@ -7521,7 +7585,9 @@ mod tests {
             viewport: Rect::new(0.0, 0.0, 300.0, 50.0),
             max_x: 700.0,
             max_y: 0.0,
-            physics: None,
+            physics: crate::ScrollPhysics::Clamping,
+            overscroll: Some(crate::OverscrollIndicator::Glow),
+            fling: frus_core::VelocityStrategy::Regression,
             refresh: None,
             page: None,
             reverse_x: false,
@@ -8485,7 +8551,12 @@ mod tests {
         // A fling has just landed on the bottom edge.
         let mut rt = Runtime::default();
         let id = build_ui(&tree, size, &rt, &Theme::default()).scroll_regions()[0].id;
-        rt.glow_absorb(id, crate::overscroll::GlowEdge::Bottom, 4000.0);
+        rt.glow_absorb(
+            id,
+            Some(crate::physics::OverscrollIndicator::Glow),
+            crate::overscroll::GlowEdge::Bottom,
+            4000.0,
+        );
         rt.advance_glow(0.02);
         let ui = build_ui(&tree, size, &rt, &Theme::default());
         assert_eq!(
@@ -8575,7 +8646,6 @@ mod tests {
             );
         let size = Size::new(200.0, 100.0);
         let mut rt = Runtime::default();
-        rt.overscroll_indicator = crate::physics::OverscrollIndicator::Stretch;
         let quiet = build_ui(&tree, size, &rt, &Theme::default());
         let id = quiet.scroll_regions()[0].id;
         assert!(
@@ -8589,6 +8659,7 @@ mod tests {
 
         rt.glow_pull(
             id,
+            Some(crate::physics::OverscrollIndicator::Stretch),
             crate::overscroll::GlowEdge::Top,
             100.0,
             100.0,
@@ -8633,9 +8704,13 @@ mod tests {
             .height(100.0);
         let size = Size::new(200.0, 100.0);
         let mut rt = Runtime::default();
-        rt.overscroll_indicator = crate::physics::OverscrollIndicator::Stretch;
         let id = build_ui(&tree, size, &rt, &Theme::default()).scroll_regions()[0].id;
-        rt.glow_absorb(id, crate::overscroll::GlowEdge::Bottom, 4000.0);
+        rt.glow_absorb(
+            id,
+            Some(crate::physics::OverscrollIndicator::Stretch),
+            crate::overscroll::GlowEdge::Bottom,
+            4000.0,
+        );
         rt.advance_glow(0.02);
         let ui = build_ui(&tree, size, &rt, &Theme::default());
         let layers = stretch_layers(&ui);
@@ -8645,36 +8720,67 @@ mod tests {
         assert!(m.apply(Point::new(0.0, 0.0)).y < -0.5);
     }
 
+    /// **What an area does is its scroll behaviour's, settled when it is registered**
+    /// (milestone 616): under the application's behaviour it follows the theme's
+    /// platform, a `ScrollConfiguration` changes it for its subtree, and the area's own
+    /// physics win over both.
     #[test]
     fn a_scroll_area_carries_its_physics_into_the_registry() {
-        let content = Container::<Msg>::new().width(100.0).height(400.0);
-        // Unset: the region says nothing and the application decides.
-        let plain = SingleChildScrollView::new()
-            .width(200.0)
-            .height(100.0)
-            .child(content);
+        use frus_core::TargetPlatform as P;
+        let tall = || Container::<Msg>::new().width(100.0).height(400.0);
+        let plain = || {
+            SingleChildScrollView::new()
+                .width(200.0)
+                .height(100.0)
+                .child(tall())
+        };
         let rt = Runtime::default();
-        let ui = build_ui(&plain, Size::new(200.0, 100.0), &rt, &Theme::default());
-        assert_eq!(ui.scroll_regions()[0].physics, None);
+        let _root = crate::ScrollConfiguration::install(crate::ScrollBehavior::material());
+        let region = |tree: &dyn Widget<Msg>, platform: P| {
+            let theme = Theme::default().with_platform(platform);
+            build_ui(tree, Size::new(200.0, 100.0), &rt, &theme).scroll_regions()[0]
+        };
+
+        // Untold: the theme's platform decides, through the behaviour.
+        let ios = region(&plain(), P::Ios);
+        assert_eq!(ios.physics, ScrollPhysics::BOUNCING);
+        assert_eq!(ios.overscroll, None, "nothing past the edge on iOS");
         assert_eq!(
-            ui.scroll_regions()[0].physics_or(ScrollPhysics::Clamping),
-            ScrollPhysics::Clamping,
-            "an area with no opinion follows the application"
+            ios.fling,
+            frus_core::VelocityStrategy::RecentAverage(frus_core::BOUNCING_FLING_WEIGHTS)
+        );
+        let android = region(&plain(), P::Android);
+        assert_eq!(android.physics, ScrollPhysics::Clamping);
+        assert_eq!(
+            android.overscroll,
+            Some(crate::OverscrollIndicator::Stretch)
+        );
+        assert_eq!(android.fling, frus_core::VelocityStrategy::Regression);
+
+        // A subtree under another behaviour scrolls as that one says.
+        let configured = crate::ScrollConfiguration::new(
+            crate::ScrollBehavior::material()
+                .with_physics(ScrollPhysics::BOUNCING)
+                .with_overscroll(false),
+            plain(),
+        );
+        let inside = region(&configured, P::Android);
+        assert_eq!(inside.physics, ScrollPhysics::BOUNCING);
+        assert_eq!(inside.overscroll, None);
+        // And only that subtree: the behaviour is put back after it.
+        assert_eq!(
+            crate::ScrollConfiguration::of(),
+            crate::ScrollBehavior::material()
         );
 
-        // Set: the area's own choice wins over the application's.
+        // Told: the area's own choice wins over the behaviour's.
         let bouncy = SingleChildScrollView::new()
             .width(200.0)
             .height(100.0)
             .physics(ScrollPhysics::BOUNCING)
-            .child(Container::<Msg>::new().width(100.0).height(400.0));
-        let ui = build_ui(&bouncy, Size::new(200.0, 100.0), &rt, &Theme::default());
-        let area = ui.scroll_regions()[0];
-        assert_eq!(area.physics, Some(ScrollPhysics::BOUNCING));
-        assert_eq!(
-            area.physics_or(ScrollPhysics::Clamping),
-            ScrollPhysics::BOUNCING
-        );
+            .child(tall());
+        let area = region(&bouncy, P::Android);
+        assert_eq!(area.physics, ScrollPhysics::BOUNCING);
         // And the metrics it hands the physics describe the right axis.
         let metrics = area.metrics_y(10.0);
         assert_eq!(metrics.pixels, 10.0);

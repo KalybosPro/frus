@@ -279,6 +279,13 @@ fn hash_node<Msg, H: Hasher>(
         info.shape_hash(hasher);
     }
     let _shell = shell.map(crate::ScaffoldInfo::install);
+    // And the scroll behaviour (milestone 616): it decides whether a scrollable lays out
+    // a scrollbar.
+    let scrolling = widget.scroll_behavior_override();
+    if let Some(behavior) = &scrolling {
+        behavior.shape_hash(hasher);
+    }
+    let _scrolling = scrolling.map(crate::ScrollConfiguration::install);
     // The cache exists to **skip** `build_layout`, so this walk can be the first one down
     // the tree: a deferred subtree has to be composed here too, or the fingerprint would
     // be taken of a node with no children and the cache would agree with itself forever.

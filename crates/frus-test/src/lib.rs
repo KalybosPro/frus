@@ -31,7 +31,7 @@ pub struct ReadmeDoctests;
 use std::path::Path;
 
 use frus_core::{Color, Scene, Size};
-use frus_widgets::{build_deferred, build_ui, Runtime, ScrollPhysics, Theme, Ui, Widget};
+use frus_widgets::{build_deferred, build_ui, Runtime, Theme, Ui, Widget};
 
 /// A rendered frame: sRGB RGBA bytes, origin at the top left.
 pub struct Snapshot {
@@ -85,7 +85,7 @@ pub fn render_widget<Msg: Clone + 'static>(
 /// ```ignore
 /// let mut stage = Stage::new(300, 200);
 /// let id = stage.build(&root).scroll_regions()[0].id;
-/// stage.runtime.glow_pull(id, GlowEdge::Top, 60.0, 200.0);
+/// stage.runtime.glow_pull(id, Some(OverscrollIndicator::Glow), GlowEdge::Top, 60.0, 200.0, 0.0, 300.0);
 /// stage.advance(&root, 1.0 / 60.0);
 /// stage.render(&root).unwrap().assert_golden(path);
 /// ```
@@ -101,8 +101,11 @@ pub struct Stage {
 }
 
 impl Stage {
-    /// A stage for a `width`×`height` window, on the dark theme.
+    /// A stage for a `width`×`height` window, on the dark theme, under the scroll
+    /// behaviour an application has unless it says otherwise — put at the root, as the
+    /// shell puts the application's.
     pub fn new(width: u32, height: u32) -> Self {
+        frus_widgets::ScrollConfiguration::set_root(frus_widgets::ScrollBehavior::material());
         Self {
             runtime: Runtime::default(),
             theme: Theme::dark(),
@@ -164,8 +167,9 @@ impl Stage {
         let mut handed = false;
         for (list, velocity) in self.runtime.take_sheet_handovers() {
             if let Some(area) = regions.iter().find(|area| area.id == list) {
-                let physics = area.physics_or(ScrollPhysics::default());
-                handed |= self.runtime.fling_scroll(*area, physics, (0.0, velocity));
+                handed |= self
+                    .runtime
+                    .fling_scroll(*area, area.physics, (0.0, velocity));
             }
         }
         // `|` and not `||`: every family must be stepped, whatever an earlier one
@@ -183,9 +187,7 @@ impl Stage {
             | self.runtime.advance_fractions(root, dt)
             | self.runtime.advance_text_styles(root, dt)
             | self.runtime.advance_transforms(root, dt)
-            | self
-                .runtime
-                .advance_scroll(&regions, ScrollPhysics::default(), dt)
+            | self.runtime.advance_scroll(&regions, dt)
             | self.runtime.advance_glow(dt)
             | self.runtime.advance_refresh(&refresh_areas, dt)
             | self.runtime.advance_interactive(&interactive, dt)

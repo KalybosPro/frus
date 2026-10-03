@@ -1202,6 +1202,9 @@ crate::transparent::forward_transparent!(Component {
     fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
         self.inner.scaffold_override()
     }
+    fn scroll_behavior_override(&self) -> Option<crate::ScrollBehavior> {
+        self.inner.scroll_behavior_override()
+    }
 
     fn autofill_group(&self) -> bool {
         self.inner.autofill_group()

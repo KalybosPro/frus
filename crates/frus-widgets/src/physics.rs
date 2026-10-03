@@ -9,10 +9,11 @@
 //! - [`ScrollPhysics::Clamping`] — the offset never leaves the content at all. A
 //!   fling follows the platform's spline deceleration and stops dead at the edge.
 //!
-//! [`ScrollPhysics::platform_default`] picks one at compile time, so an app that
-//! says nothing already feels native on each target. A [`crate::scroll::SingleChildScrollView`]
-//! can override it, and so can the application (`Application::scroll_physics`),
-//! for the cases where the content wants a particular feel.
+//! The [`ScrollBehavior`](crate::ScrollBehavior) in force picks one from the platform it
+//! follows, so an app that says nothing already feels native on each platform. A
+//! [`crate::scroll::SingleChildScrollView`] can ask for its own, and an application or a
+//! subtree can change the behaviour, for the cases where the content wants a particular
+//! feel.
 //!
 //! Everything here is a **pure function of the metrics**: no retained state, no
 //! clock. The runtime samples the returned [`Ballistic`] frame by frame; the shell
@@ -74,37 +75,14 @@ pub const MAX_FLING_VELOCITY: f32 = 8000.0;
 /// to move (milestone 591).
 ///
 /// Current touch platforms **stretch** the content towards the edge and spring it back;
-/// others **glow**, an arc of light over the edge. The reference picks per platform, the
-/// stretch on Android and the glow elsewhere it shows one; so does
-/// [`OverscrollIndicator::platform_default`]. An application may pin either.
+/// others **glow**, an arc of light over the edge. The
+/// [`ScrollBehavior`](crate::ScrollBehavior) in force picks one per platform, or none.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum OverscrollIndicator {
     /// An arc of light over the edge, fading as the pull lets go.
     Glow,
     /// The content lengthens towards the edge, and springs back.
     Stretch,
-}
-
-impl Default for OverscrollIndicator {
-    fn default() -> Self {
-        Self::platform_default()
-    }
-}
-
-impl OverscrollIndicator {
-    /// What the running platform does: the stretch on Android, the glow elsewhere.
-    ///
-    /// Resolved at compile time from the target, like [`Scrollbars::platform_default`].
-    pub const fn platform_default() -> Self {
-        #[cfg(target_os = "android")]
-        {
-            OverscrollIndicator::Stretch
-        }
-        #[cfg(not(target_os = "android"))]
-        {
-            OverscrollIndicator::Glow
-        }
-    }
 }
 
 /// **When a scroll area draws a scrollbar** (`app.dart:857`).
@@ -120,30 +98,6 @@ pub enum Scrollbars {
     /// One bar down the inner edge (`app.dart:865`), for the platforms whose own scroll
     /// views have one.
     Always,
-}
-
-impl Default for Scrollbars {
-    fn default() -> Self {
-        Self::platform_default()
-    }
-}
-
-impl Scrollbars {
-    /// What the running platform expects: nothing on a touch screen, a bar on a desktop.
-    ///
-    /// Resolved at **compile time** from the target, like
-    /// [`ScrollPhysics::platform_default`] beside it — a build is for one platform, and a
-    /// constant keeps the choice out of the frame loop.
-    pub const fn platform_default() -> Self {
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        {
-            Scrollbars::Never
-        }
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        {
-            Scrollbars::Always
-        }
-    }
 }
 
 /// **How fast a fling's momentum is taken away** — the bouncing family's second
@@ -193,38 +147,7 @@ impl ScrollPhysics {
     }
 }
 
-impl Default for ScrollPhysics {
-    fn default() -> Self {
-        Self::platform_default()
-    }
-}
-
 impl ScrollPhysics {
-    /// What the running platform expects. Bouncing where the system scroll views
-    /// bounce, clamping everywhere else.
-    ///
-    /// This is resolved at **compile time** from the target, not at runtime: a
-    /// build is for one platform, and a constant keeps the choice out of the frame
-    /// loop.
-    pub const fn platform_default() -> Self {
-        // A hand-held screen is scrolled with a finger; a desktop one with a
-        // trackpad or a wheel. That, and not the operating system's name, is what
-        // the two profiles are about — which is why the two bouncing platforms
-        // answer differently here.
-        #[cfg(target_os = "ios")]
-        {
-            ScrollPhysics::Bouncing(ScrollDecelerationRate::Normal)
-        }
-        #[cfg(target_os = "macos")]
-        {
-            ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast)
-        }
-        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-        {
-            ScrollPhysics::Clamping
-        }
-    }
-
     /// The spring that returns overscrolled content to its edge.
     pub fn spring(self) -> SpringDescription {
         SpringDescription::with_damping_ratio(0.5, 100.0, 1.1)
@@ -854,23 +777,6 @@ mod tests {
         assert!(ScrollPhysics::Clamping
             .page_ballistic(ScrollMetrics::new(0.0, 600.0, 300.0), -900.0, 300.0)
             .is_none());
-    }
-
-    #[test]
-    fn the_platform_default_is_the_one_this_build_targets() {
-        // The two bouncing platforms have not bounced alike since milestone 499 — a finger
-        // on the one, a trackpad on the other — and this said one `BOUNCING` for both. It
-        // was left behind, and only a macOS runner could see it: every build here is for
-        // Windows, Android or Linux, where the branch taken is the last one.
-        let expected = if cfg!(target_os = "ios") {
-            ScrollPhysics::Bouncing(ScrollDecelerationRate::Normal)
-        } else if cfg!(target_os = "macos") {
-            ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast)
-        } else {
-            ScrollPhysics::Clamping
-        };
-        assert_eq!(ScrollPhysics::platform_default(), expected);
-        assert_eq!(ScrollPhysics::default(), expected);
     }
 
     // --- The second deceleration profile (milestone 499) ---

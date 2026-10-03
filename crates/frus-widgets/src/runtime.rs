@@ -634,17 +634,6 @@ pub struct Runtime {
     /// decoration, and a list that jumped to a stop would be harder to use rather than
     /// calmer — the reference draws the same line.
     pub still: bool,
-    /// **Whether scroll areas draw a scrollbar**, as the platform answers it and the
-    /// application may override it. Set by the shell every frame, like `still` above.
-    ///
-    /// It lives here rather than on the theme because it is a platform behaviour and not
-    /// an appearance: the reference resolves it through `ScrollBehavior`, beside the
-    /// physics, and not through `ThemeData`.
-    pub scrollbars: crate::physics::Scrollbars,
-    /// **What a scroll area shows when pulled past its edge**: a glow or a stretch, as the
-    /// platform answers it and the application may override it (milestone 591). Set by
-    /// the shell every frame, like `scrollbars` above.
-    pub overscroll_indicator: crate::physics::OverscrollIndicator,
     /// **How present each area's scrollbar is**, and how close a pointer has come to
     /// it. Advanced by [`Runtime::advance_scroll`], which is where movement is seen.
     pub scrollbar_fade: HashMap<WidgetId, ScrollbarFade>,
@@ -807,16 +796,6 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    /// A runtime that answers a given **scrollbar policy** — what the shell sets from the
-    /// application's `scrollbars()`, and what an isolated render has to say for itself,
-    /// there being no shell to set it.
-    pub fn with_scrollbars(scrollbars: crate::physics::Scrollbars) -> Self {
-        Self {
-            scrollbars,
-            ..Self::default()
-        }
-    }
-
     /// A widget's animated hover progress.
     pub fn hover_progress(&self, id: WidgetId) -> f32 {
         self.anims.get(&id).map(|a| a.hover).unwrap_or(0.0)
@@ -1645,21 +1624,16 @@ impl Runtime {
     /// A fling wins while it runs: it drives the offset directly and keeps the
     /// target in step, so the spring has nothing to pull against.
     ///
-    /// `regions` describes the scrollables of the last frame; `default` is the
-    /// application's physics, used by every region that did not ask for its own.
-    pub fn advance_scroll(
-        &mut self,
-        regions: &[Scrollable],
-        default: ScrollPhysics,
-        dt: f32,
-    ) -> bool {
+    /// `regions` describes the scrollables of the last frame, each with the physics its
+    /// scroll behaviour settled on when it was registered (milestone 616).
+    pub fn advance_scroll(&mut self, regions: &[Scrollable], dt: f32) -> bool {
         // Content that shrank under an offset nobody owns is brought back first, so that
         // everything below starts from where the content now is (milestone 533).
         self.keep_scroll_in_range(regions);
         let mut animating = false;
         let ballistic_ids: Vec<WidgetId> = self.scroll_ballistic.keys().copied().collect();
         for id in ballistic_ids {
-            if self.advance_ballistic(id, regions, default, dt) {
+            if self.advance_ballistic(id, regions, dt) {
                 animating = true;
             }
         }
@@ -1755,13 +1729,7 @@ impl Runtime {
     /// the physics does not let it cross — under clamping physics the simulation
     /// knows nothing of the bounds, so reaching one **stops that axis dead**, which
     /// is exactly the behaviour a platform without a bounce wants.
-    fn advance_ballistic(
-        &mut self,
-        id: WidgetId,
-        regions: &[Scrollable],
-        default: ScrollPhysics,
-        dt: f32,
-    ) -> bool {
+    fn advance_ballistic(&mut self, id: WidgetId, regions: &[Scrollable], dt: f32) -> bool {
         let Some(mut fling) = self.scroll_ballistic.get(&id).copied() else {
             return false;
         };
@@ -1771,7 +1739,7 @@ impl Runtime {
             self.scroll_ballistic.remove(&id);
             return false;
         };
-        let physics = area.physics_or(default);
+        let physics = area.physics;
         fling.elapsed += dt;
         let t = fling.elapsed;
         let current = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
@@ -1803,7 +1771,7 @@ impl Runtime {
         let x = axis(&mut fling.x, current.0, area.max_x, false);
         let y = axis(&mut fling.y, current.1, area.max_y, true);
         for (edge, velocity) in absorbed {
-            self.glow_absorb(id, edge, velocity);
+            self.glow_absorb(id, area.overscroll, edge, velocity);
         }
         self.scroll.insert(id, (x, y));
         // The glide-to-target path must not fight the fling, nor yank the offset
@@ -2373,19 +2341,27 @@ impl Runtime {
     /// `overscroll` is the movement the physics **refused** — which is exactly the
     /// distance the user asked for and did not get, and so exactly what the glow is
     /// there to acknowledge.
+    ///
+    /// `indicator` is what the area's scroll behaviour shows past an edge; `None` shows
+    /// nothing, as on iOS and the desktops (milestone 616).
+    #[allow(clippy::too_many_arguments)]
     pub fn glow_pull(
         &mut self,
         id: WidgetId,
+        indicator: Option<crate::physics::OverscrollIndicator>,
         edge: GlowEdge,
         overscroll: f32,
         extent: f32,
         cross_offset: f32,
         cross_extent: f32,
     ) {
+        let Some(indicator) = indicator else {
+            return;
+        };
         if overscroll.abs() < 1e-3 {
             return;
         }
-        if self.overscroll_indicator == crate::physics::OverscrollIndicator::Stretch {
+        if indicator == crate::physics::OverscrollIndicator::Stretch {
             self.scroll_stretch
                 .entry(id)
                 .or_default()
@@ -2402,8 +2378,17 @@ impl Runtime {
     }
 
     /// Tells the glow on one edge of `id` that a fling just landed on it.
-    pub fn glow_absorb(&mut self, id: WidgetId, edge: GlowEdge, velocity: f32) {
-        if self.overscroll_indicator == crate::physics::OverscrollIndicator::Stretch {
+    pub fn glow_absorb(
+        &mut self,
+        id: WidgetId,
+        indicator: Option<crate::physics::OverscrollIndicator>,
+        edge: GlowEdge,
+        velocity: f32,
+    ) {
+        let Some(indicator) = indicator else {
+            return;
+        };
+        if indicator == crate::physics::OverscrollIndicator::Stretch {
             self.scroll_stretch
                 .entry(id)
                 .or_default()
@@ -2590,13 +2575,23 @@ mod tests {
             viewport: Rect::new(0.0, 0.0, 300.0, 400.0),
             max_x: 0.0,
             max_y: max,
-            physics: None,
+            physics: crate::ScrollPhysics::Clamping,
+            overscroll: Some(crate::OverscrollIndicator::Glow),
+            fling: frus_core::VelocityStrategy::Regression,
             refresh: None,
             page: None,
             reverse_x: false,
             reverse_y: false,
             host: None,
             keep_visible: None,
+        }
+    }
+
+    /// The same region, with these physics settled on it, as its scroll behaviour would.
+    fn region_with(physics: ScrollPhysics, id: WidgetId, max: f32) -> Scrollable {
+        Scrollable {
+            physics,
+            ..region(id, max)
         }
     }
 
@@ -2607,7 +2602,9 @@ mod tests {
             viewport: Rect::new(0.0, 0.0, 300.0, 400.0),
             max_x: 600.0,
             max_y: 0.0,
-            physics: None,
+            physics: crate::ScrollPhysics::Clamping,
+            overscroll: Some(crate::OverscrollIndicator::Glow),
+            fling: frus_core::VelocityStrategy::Regression,
             refresh: None,
             page: Some(crate::PageSnap {
                 snapping: true,
@@ -2632,7 +2629,7 @@ mod tests {
         // A flick far too slow to fling an ordinary list still turns the page.
         assert!(rt.fling_scroll(area, ScrollPhysics::Clamping, (60.0, 0.0)));
         for _ in 0..200 {
-            rt.advance_scroll(&[area], ScrollPhysics::Clamping, 1.0 / 60.0);
+            rt.advance_scroll(&[area], 1.0 / 60.0);
         }
         let (x, _) = rt.scroll[&id];
         assert!((x - 300.0).abs() < 1.0, "settled at {x}");
@@ -2646,7 +2643,7 @@ mod tests {
         rt.scroll.insert(id, (10.0, 0.0));
         rt.fling_scroll(area, ScrollPhysics::Clamping, (7000.0, 0.0));
         for _ in 0..300 {
-            rt.advance_scroll(&[area], ScrollPhysics::Clamping, 1.0 / 60.0);
+            rt.advance_scroll(&[area], 1.0 / 60.0);
         }
         let (x, _) = rt.scroll[&id];
         assert!((x - 300.0).abs() < 1.0, "a fling must not skip pages: {x}");
@@ -3142,7 +3139,7 @@ mod tests {
         rt.scroll_velocity.insert(id, (0.0, 0.0));
         let regions = [region(id, 200.0)];
         for _ in 0..600 {
-            if !rt.advance_scroll(&regions, ScrollPhysics::Clamping, 0.016) {
+            if !rt.advance_scroll(&regions, 0.016) {
                 break;
             }
         }
@@ -3167,7 +3164,7 @@ mod tests {
         let regions = [region(id, 200.0)];
         let run = |rt: &mut Runtime, frames: usize| {
             for _ in 0..frames {
-                rt.advance_scroll(&regions, ScrollPhysics::Clamping, 0.016);
+                rt.advance_scroll(&regions, 0.016);
             }
         };
 
@@ -3211,7 +3208,7 @@ mod tests {
         let regions = [region(id, 200.0)];
         let run = |rt: &mut Runtime, frames: usize| {
             for _ in 0..frames {
-                rt.advance_scroll(&regions, ScrollPhysics::Clamping, 0.016);
+                rt.advance_scroll(&regions, 0.016);
             }
         };
 
@@ -3279,7 +3276,7 @@ mod tests {
         rt.scroll_velocity.insert(id, (0.0, 0.0));
         let regions = [region(id, 200.0)];
         for _ in 0..1000 {
-            if !rt.advance_scroll(&regions, ScrollPhysics::Clamping, 0.016) {
+            if !rt.advance_scroll(&regions, 0.016) {
                 break;
             }
         }
@@ -3291,11 +3288,11 @@ mod tests {
     fn settle(physics: ScrollPhysics, max: f32, from: f32, velocity: f32) -> f32 {
         let id = WidgetId::ROOT;
         let mut rt = Runtime::default();
-        let area = region(id, max);
+        let area = region_with(physics, id, max);
         rt.scroll.insert(id, (0.0, from));
         rt.fling_scroll(area, physics, (0.0, velocity));
         for _ in 0..1200 {
-            if !rt.advance_scroll(&[area], physics, 1.0 / 60.0) {
+            if !rt.advance_scroll(&[area], 1.0 / 60.0) {
                 break;
             }
         }
@@ -3329,12 +3326,12 @@ mod tests {
         let id = WidgetId::ROOT;
         let physics = ScrollPhysics::BOUNCING;
         let mut rt = Runtime::default();
-        let area = region(id, 400.0);
+        let area = region_with(physics, id, 400.0);
         rt.scroll.insert(id, (0.0, 300.0));
         rt.fling_scroll(area, physics, (0.0, 4000.0));
         let mut peak: f32 = 0.0;
         for _ in 0..1200 {
-            let moving = rt.advance_scroll(&[area], physics, 1.0 / 60.0);
+            let moving = rt.advance_scroll(&[area], 1.0 / 60.0);
             peak = peak.max(rt.scroll.get(&id).copied().unwrap().1);
             if !moving {
                 break;
@@ -3379,7 +3376,7 @@ mod tests {
         // was pulled back as fast as it was stretched and never appeared.
         let id = WidgetId::ROOT;
         let physics = ScrollPhysics::BOUNCING;
-        let area = region(id, 400.0);
+        let area = region_with(physics, id, 400.0);
         let pulled = -60.0;
 
         let mut held = Runtime::default();
@@ -3387,7 +3384,7 @@ mod tests {
         held.scroll.insert(id, (0.0, pulled));
         held.scroll_target.insert(id, (0.0, pulled));
         for _ in 0..10 {
-            held.advance_scroll(&[area], physics, 1.0 / 60.0);
+            held.advance_scroll(&[area], 1.0 / 60.0);
         }
         assert_eq!(
             held.scroll.get(&id).copied().unwrap().1,
@@ -3399,7 +3396,7 @@ mod tests {
         let mut free = Runtime::default();
         free.scroll.insert(id, (0.0, pulled));
         free.scroll_target.insert(id, (0.0, pulled));
-        while free.advance_scroll(&[area], physics, 1.0 / 60.0) {}
+        while free.advance_scroll(&[area], 1.0 / 60.0) {}
         assert!(
             free.scroll.get(&id).copied().unwrap().1.abs() < 1.0,
             "a released overscroll springs back"
@@ -3416,13 +3413,13 @@ mod tests {
         let physics = ScrollPhysics::BOUNCING;
         let mut rt = Runtime::default();
         rt.scroll.insert(id, (0.0, 300.0));
-        assert!(rt.fling_scroll(region(id, 400.0), physics, (0.0, 3000.0)));
+        assert!(rt.fling_scroll(region_with(physics, id, 400.0), physics, (0.0, 3000.0)));
 
-        let shrunk = [region(id, 100.0)];
+        let shrunk = [region_with(physics, id, 100.0)];
         let mut previous = 300.0;
         let mut biggest_step: f32 = 0.0;
         let mut frames = 0;
-        while rt.advance_scroll(&shrunk, physics, 1.0 / 60.0) {
+        while rt.advance_scroll(&shrunk, 1.0 / 60.0) {
             let y = rt.scroll.get(&id).copied().unwrap().1;
             biggest_step = biggest_step.max((y - previous).abs());
             previous = y;
@@ -3448,10 +3445,10 @@ mod tests {
         rt.scroll.insert(id, (0.0, 400.0));
         rt.scroll_target.insert(id, (0.0, 400.0));
         let shrunk = [region(id, 100.0)];
-        rt.advance_scroll(&shrunk, ScrollPhysics::Clamping, 1.0 / 60.0);
+        rt.advance_scroll(&shrunk, 1.0 / 60.0);
         let first = rt.scroll.get(&id).copied().unwrap().1;
         assert!(first > 300.0, "one frame in, still gliding: {first}");
-        while rt.advance_scroll(&shrunk, ScrollPhysics::Clamping, 1.0 / 60.0) {}
+        while rt.advance_scroll(&shrunk, 1.0 / 60.0) {}
         let rest = rt.scroll.get(&id).copied().unwrap().1;
         assert!((rest - 100.0).abs() < 1.0, "and it glides home: {rest}");
     }
@@ -3501,10 +3498,10 @@ mod tests {
         let id = WidgetId::ROOT;
         let physics = ScrollPhysics::Clamping;
         let mut rt = Runtime::default();
-        let area = region(id, 400.0);
+        let area = region_with(physics, id, 400.0);
         // Far more momentum than there is content: it will reach the end.
         rt.fling_scroll(area, physics, (0.0, 6000.0));
-        while rt.advance_scroll(&[area], physics, 1.0 / 60.0) {}
+        while rt.advance_scroll(&[area], 1.0 / 60.0) {}
         let glows = rt
             .scroll_glow
             .get(&id)
@@ -3526,9 +3523,9 @@ mod tests {
         let id = WidgetId::ROOT;
         let physics = ScrollPhysics::BOUNCING;
         let mut rt = Runtime::default();
-        let area = region(id, 400.0);
+        let area = region_with(physics, id, 400.0);
         rt.fling_scroll(area, physics, (0.0, 6000.0));
-        while rt.advance_scroll(&[area], physics, 1.0 / 60.0) {}
+        while rt.advance_scroll(&[area], 1.0 / 60.0) {}
         assert!(rt.scroll_glow.is_empty());
     }
 
@@ -3536,7 +3533,15 @@ mod tests {
     fn a_pull_that_was_refused_lights_the_edge_and_fades() {
         let id = WidgetId::ROOT;
         let mut rt = Runtime::default();
-        rt.glow_pull(id, GlowEdge::Top, -30.0, 600.0, 150.0, 300.0);
+        rt.glow_pull(
+            id,
+            Some(crate::physics::OverscrollIndicator::Glow),
+            GlowEdge::Top,
+            -30.0,
+            600.0,
+            150.0,
+            300.0,
+        );
         assert!(!rt.scroll_glow.get(&id).unwrap().is_idle());
         rt.glow_scroll_end(id);
         let mut frames = 0;
@@ -3550,12 +3555,54 @@ mod tests {
     #[test]
     fn a_refusal_of_nothing_lights_nothing() {
         let mut rt = Runtime::default();
-        rt.glow_pull(WidgetId::ROOT, GlowEdge::Top, 0.0, 600.0, 150.0, 300.0);
+        rt.glow_pull(
+            WidgetId::ROOT,
+            Some(crate::physics::OverscrollIndicator::Glow),
+            GlowEdge::Top,
+            0.0,
+            600.0,
+            150.0,
+            300.0,
+        );
         assert!(
             rt.scroll_glow.is_empty(),
             "a zero pull is not an overscroll"
         );
         assert!(!rt.advance_glow(1.0 / 60.0));
+    }
+
+    /// **An area whose behaviour shows nothing past an edge shows nothing** (milestone
+    /// 616): neither a pull nor a fling landing on the edge lights or stretches anything,
+    /// as on iOS and the desktops.
+    #[test]
+    fn an_area_with_no_indicator_shows_nothing_past_its_edge() {
+        let mut rt = Runtime::default();
+        rt.glow_pull(
+            WidgetId::ROOT,
+            None,
+            GlowEdge::Top,
+            80.0,
+            600.0,
+            150.0,
+            300.0,
+        );
+        rt.glow_absorb(WidgetId::ROOT, None, GlowEdge::Bottom, 4000.0);
+        assert!(rt.scroll_glow.is_empty() && rt.scroll_stretch.is_empty());
+        // And a fling that slams into the edge of such an area leaves nothing either.
+        let id = WidgetId::ROOT;
+        let quiet = Scrollable {
+            overscroll: None,
+            ..region(id, 400.0)
+        };
+        rt.fling_scroll(quiet, ScrollPhysics::Clamping, (0.0, 6000.0));
+        while rt.advance_scroll(&[quiet], 1.0 / 60.0) {}
+        assert!(rt.scroll_glow.is_empty() && rt.scroll_stretch.is_empty());
+        // Where the area glows, the same fling does light the edge: the instrument works.
+        let lit = region(id, 400.0);
+        rt.scroll.clear();
+        rt.fling_scroll(lit, ScrollPhysics::Clamping, (0.0, 6000.0));
+        while rt.advance_scroll(&[lit], 1.0 / 60.0) {}
+        assert!(!rt.scroll_glow.is_empty());
     }
 
     #[test]
@@ -3565,7 +3612,7 @@ mod tests {
         rt.fling_scroll(region(id, 400.0), ScrollPhysics::Clamping, (0.0, 2000.0));
         assert!(!rt.scroll_ballistic.is_empty());
         // The route changed: the scrollable is no longer part of the frame.
-        assert!(!rt.advance_scroll(&[], ScrollPhysics::Clamping, 1.0 / 60.0));
+        assert!(!rt.advance_scroll(&[], 1.0 / 60.0));
         assert!(rt.scroll_ballistic.is_empty());
     }
 

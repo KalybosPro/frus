@@ -6,9 +6,7 @@
 //! has a default: one theme, no animation, no navigation.
 
 use frus_widgets::localizations::Localizations;
-use frus_widgets::{
-    Brightness, Curve, Locale, ScrollPhysics, Scrollbars, Theme, ThemeMode, Widget, WindowInsets,
-};
+use frus_widgets::{Brightness, Curve, Locale, Theme, ThemeMode, Widget, WindowInsets};
 
 use crate::command::Command;
 use crate::subscription::Subscription;
@@ -324,35 +322,28 @@ pub trait Application {
         1.0
     }
 
-    /// How the app's scrollables behave at their edges and after a fling.
+    /// **How the application's scrollables behave**: their physics, their scrollbars,
+    /// what they show past an edge and how they read a fling, all from one
+    /// [`frus_widgets::ScrollBehavior`] put in force at the root of the tree.
     ///
-    /// The default is what the running platform does — bouncing where the system
-    /// scroll views bounce, clamping elsewhere — so an app that says nothing feels
-    /// native on each target. Override it to pin one behaviour everywhere; an
-    /// individual [`frus_widgets::SingleChildScrollView`] can still ask for its own.
-    fn scroll_physics(&self) -> ScrollPhysics {
-        ScrollPhysics::platform_default()
-    }
-
-    /// **Whether the app's scrollables draw a scrollbar.**
+    /// The default, [`frus_widgets::ScrollBehavior::material`], follows the **theme's**
+    /// platform, so an application whose theme says iOS bounces and hides its scrollbars on
+    /// any device. Change what it changes and keep the rest:
     ///
-    /// The default is what the running platform does: none on a touch screen, one down
-    /// the inner edge on a desktop — which is the reference's own answer, resolved the
-    /// same way and for the same reason (`app.dart:857`). A finger already knows where it
-    /// is on the page. Override it to pin one behaviour everywhere; an individual
-    /// [`frus_widgets::SingleChildScrollView`] can still ask for its own.
-    fn scrollbars(&self) -> Scrollbars {
-        Scrollbars::platform_default()
-    }
-
-    /// **What the app's scrollables show when pulled past their edge**: the content
-    /// stretching towards it, or a glow over it.
+    /// ```ignore
+    /// fn scroll_behavior(&self) -> ScrollBehavior {
+    ///     ScrollBehavior::material().with_scrollbars(false)
+    /// }
+    /// ```
     ///
-    /// The default is what the running platform does — the stretch on Android, the glow
-    /// elsewhere. Override it to pin one everywhere. It is shown only where the physics
-    /// refuse to move; content that bounces needs no other answer.
-    fn overscroll_indicator(&self) -> frus_widgets::OverscrollIndicator {
-        frus_widgets::OverscrollIndicator::platform_default()
+    /// A subtree can put another in force with a [`frus_widgets::ScrollConfiguration`],
+    /// and a single scrollable can still ask for its own physics or scrollbars.
+    ///
+    /// **Breaking** (milestone 616): this replaces `scroll_physics()`, `scrollbars()` and
+    /// `overscroll_indicator()`, each of which decided one of these on its own, from the
+    /// build target.
+    fn scroll_behavior(&self) -> frus_widgets::ScrollBehavior {
+        frus_widgets::ScrollBehavior::material()
     }
 
     /// **The languages this application has** (`app.dart`'s `supportedLocales`), best

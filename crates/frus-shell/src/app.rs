@@ -764,13 +764,10 @@ enum Drag {
 /// It is one function so that a test can drive it. The frame loop needs a window and an
 /// event-loop proxy, so nothing in this repo can call the loop — which is exactly how a
 /// setting that never reached production got shipped once already (milestone 408).
-fn install_ambient<A: Application>(
-    app: &A,
-    runtime: &mut frus_widgets::Runtime,
-    preferred: &[frus_widgets::Locale],
-) {
-    runtime.scrollbars = app.scrollbars();
-    runtime.overscroll_indicator = app.overscroll_indicator();
+fn install_ambient<A: Application>(app: &A, preferred: &[frus_widgets::Locale]) {
+    // **How the scrollables behave** (milestone 616): the application's behaviour, at the
+    // root of the tree, under every `ScrollConfiguration` the view installs.
+    frus_widgets::ScrollConfiguration::set_root(app.scroll_behavior());
     // **Which language the interface is in**, resolved from what the platform reports
     // against what the application has. Installed before the table, because an
     // application choosing its table by language reads it from here.
@@ -1136,7 +1133,7 @@ impl<A: Application> App<A> {
             app_was_animating: false,
             drag: None,
             pointer_touch: false,
-            gesture_velocity: VelocityTracker::platform_default(),
+            gesture_velocity: VelocityTracker::default(),
             gesture_clock: None,
             gesture_start: Instant::now(),
             reorder_x: 0.0,
@@ -2156,7 +2153,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     // may go is the physics' call — a little elastic overshoot where
                     // the platform bounces, none at all where it does not.
                     let id = area.id;
-                    let physics = area.physics_or(self.app.scroll_physics());
+                    let physics = area.physics;
                     let over = if physics.allows_overscroll() {
                         SCROLL_OVER
                     } else {
@@ -2189,8 +2186,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         let edge = area.refused_edge(vertical, refused);
                         let (offset, cross) =
                             frus_widgets::glow_cross_axis(area.viewport, edge, cursor);
-                        self.runtime
-                            .glow_pull(id, edge, refused, extent, offset, cross);
+                        self.runtime.glow_pull(
+                            id,
+                            area.overscroll,
+                            edge,
+                            refused,
+                            extent,
+                            offset,
+                            cross,
+                        );
                         // A wheel has no "lift off", so the pull is released at once
                         // and simply fades — otherwise it would hang until the hold
                         // timer expired.
@@ -2348,7 +2352,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 //
                 // Read every frame, all of it: these are the application's answers and
                 // they may change while it is running.
-                install_ambient(&self.app, &mut self.runtime, &self.platform.locales);
+                install_ambient(&self.app, &self.platform.locales);
 
                 let theme_moved = self.themes.advance(
                     &self.app,
@@ -2545,7 +2549,6 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .as_ref()
                     .map(|ui| ui.scroll_regions().to_vec())
                     .unwrap_or_default();
-                let scroll_physics = self.app.scroll_physics();
                 // The refresh areas of the frame, with the `refreshing` flag each was
                 // built with: that flag is what tells a spinning indicator when to stop.
                 let refresh_areas = self
@@ -2614,11 +2617,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     ("fractions", self.runtime.advance_fractions(tree, dt)),
                     ("text_styles", self.runtime.advance_text_styles(tree, dt)),
                     ("transforms", self.runtime.advance_transforms(tree, dt)),
-                    (
-                        "scroll",
-                        self.runtime
-                            .advance_scroll(&scroll_regions, scroll_physics, dt),
-                    ),
+                    ("scroll", self.runtime.advance_scroll(&scroll_regions, dt)),
                     ("glow", self.runtime.advance_glow(dt)),
                     ("refresh", self.runtime.advance_refresh(&refresh_areas, dt)),
                     ("dismiss", {
@@ -2644,9 +2643,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         let mut handed = false;
                         for (list, velocity) in self.runtime.take_sheet_handovers() {
                             if let Some(area) = scroll_regions.iter().find(|a| a.id == list) {
-                                let physics = area.physics_or(scroll_physics);
                                 handed |=
-                                    self.runtime.fling_scroll(*area, physics, (0.0, velocity));
+                                    self.runtime
+                                        .fling_scroll(*area, area.physics, (0.0, velocity));
                             }
                         }
                         moving | handed
@@ -3692,7 +3691,7 @@ impl<A: Application> App<A> {
                 // A finger back on the content catches it: the fling stops where it
                 // is rather than sliding under the finger, and hands the next
                 // release whatever momentum the platform lets a swipe build on.
-                let physics = area.physics_or(self.app.scroll_physics());
+                let physics = area.physics;
                 let carried = self.runtime.catch_scroll_fling(area.id, physics);
                 // The offset belongs to the finger until it lifts.
                 self.runtime.hold_scroll(area.id);
@@ -3720,6 +3719,9 @@ impl<A: Application> App<A> {
                     pan: self.pan_target(),
                 });
                 self.begin_gesture();
+                // A fling on a scroll area is read the way its scroll behaviour reads one
+                // (milestone 616), as the reference's scrollable builds its recognizer.
+                self.gesture_velocity = area.velocity_tracker();
             }
         }
 
@@ -4875,7 +4877,7 @@ impl<A: Application> App<A> {
                             // untouched, since it never moved. The winner is caught and
                             // held exactly as the press would have done to it.
                             self.runtime.release_scroll(*id);
-                            let physics = area.physics_or(self.app.scroll_physics());
+                            let physics = area.physics;
                             *carried = self.runtime.catch_scroll_fling(area.id, physics);
                             self.runtime.hold_scroll(area.id);
                             *id = area.id;
@@ -4925,9 +4927,12 @@ impl<A: Application> App<A> {
                 }
                 if *moved {
                     let area = self.ui.as_ref().and_then(|u| u.scroll_region(*id));
-                    let physics = area
-                        .map(|a| a.physics_or(self.app.scroll_physics()))
-                        .unwrap_or_else(|| self.app.scroll_physics());
+                    // A region gone from the frame moves as the application's behaviour says.
+                    let physics = area.map(|a| a.physics).unwrap_or_else(|| {
+                        self.app
+                            .scroll_behavior()
+                            .scroll_physics(&self.themes.displayed(&self.app))
+                    });
                     let cur = self.runtime.scroll.get(id).copied().unwrap_or((0.0, 0.0));
                     // The finger pushes the content, so we follow the delta at once —
                     // but only as far as the physics allows. Past an edge, bouncing
@@ -4975,8 +4980,15 @@ impl<A: Application> App<A> {
                             }
                             let (offset, cross) =
                                 frus_widgets::glow_cross_axis(area.viewport, edge, cursor);
-                            self.runtime
-                                .glow_pull(area.id, edge, refused, extent, offset, cross);
+                            self.runtime.glow_pull(
+                                area.id,
+                                area.overscroll,
+                                edge,
+                                refused,
+                                extent,
+                                offset,
+                                cross,
+                            );
                         }
                         // Content that moves again lets its stretch go, as the
                         // reference's does on any scroll that is not an overscroll.
@@ -5140,8 +5152,14 @@ impl<A: Application> App<A> {
 
     /// Starts a fresh gesture: the history of the previous one must not leak into
     /// the next, or a flick left then right would fling the wrong way.
+    ///
+    /// The tracker is the application's scroll behaviour's; a drag on a scroll area
+    /// replaces it with the area's own.
     fn begin_gesture(&mut self) {
-        self.gesture_velocity = VelocityTracker::platform_default();
+        self.gesture_velocity = self
+            .app
+            .scroll_behavior()
+            .velocity_tracker(&self.themes.displayed(&self.app));
         self.gesture_start = Instant::now();
         if let Some((now, start)) = self.gesture_clock.as_mut() {
             *start = *now;
@@ -5174,7 +5192,7 @@ impl<A: Application> App<A> {
         let Some(area) = self.ui.as_ref().and_then(|ui| ui.scroll_region(id)) else {
             return;
         };
-        let physics = area.physics_or(self.app.scroll_physics());
+        let physics = area.physics;
         // The physics decides everything from here: whether there is a fling at all,
         // how far it runs, and what happens at the edges. A release too slow to
         // fling still gets a chance to spring an overscroll back.
@@ -8030,32 +8048,25 @@ mod tests {
             }
         }
 
-        let mut runtime = frus_widgets::Runtime::default();
-
         // The device speaks Belgian French; the application has French, so it wins.
-        install_ambient(
-            &Speaks(None),
-            &mut runtime,
-            &[Locale::with_country("fr", "BE")],
-        );
+        install_ambient(&Speaks(None), &[Locale::with_country("fr", "BE")]);
         assert_eq!(frus_widgets::locale::of(), Locale::new("fr"));
 
         // A platform that reported nothing is not a failure: the application's own first
         // choice stands.
-        install_ambient(&Speaks(None), &mut runtime, &[]);
+        install_ambient(&Speaks(None), &[]);
         assert_eq!(frus_widgets::locale::of(), Locale::new("en"));
 
         // And an application with a language menu of its own outranks the device — still
         // resolved, so asking for one it does not have gives the nearest thing it does.
         install_ambient(
             &Speaks(Some(Locale::with_country("fr", "FR"))),
-            &mut runtime,
             &[Locale::new("en")],
         );
         assert_eq!(frus_widgets::locale::of(), Locale::new("fr"));
 
         // An application that says nothing at all is where it was: English.
-        install_ambient(&Deferred, &mut runtime, &[Locale::new("fr")]);
+        install_ambient(&Deferred, &[Locale::new("fr")]);
         assert_eq!(
             frus_widgets::locale::of(),
             Locale::new("en"),
@@ -8102,8 +8113,7 @@ mod tests {
             }
         }
 
-        let mut runtime = frus_widgets::Runtime::default();
-        install_ambient(&Speaks, &mut runtime, &[]);
+        install_ambient(&Speaks, &[]);
         assert_eq!(
             frus_widgets::localizations::of().back_button_label(),
             "Retour",
@@ -8116,7 +8126,7 @@ mod tests {
 
         // And an application that says nothing leaves whatever is in force alone rather
         // than forcing English back on top of a table installed elsewhere.
-        install_ambient(&Deferred, &mut runtime, &[]);
+        install_ambient(&Deferred, &[]);
         assert_eq!(
             frus_widgets::localizations::of().back_button_label(),
             "Retour",
@@ -8124,13 +8134,13 @@ mod tests {
         );
     }
 
-    /// **The application's overscroll indicator reaches the runtime** (milestone 591), and
-    /// one that says nothing gets the platform's.
+    /// **The application's scroll behaviour is the one at the root** (milestone 616), and
+    /// one that says nothing gets the behaviour that follows the theme.
     #[test]
-    fn the_overscroll_indicator_is_the_applications() {
-        struct Stretches;
+    fn the_scroll_behaviour_at_the_root_is_the_applications() {
+        struct Quiet;
 
-        impl crate::Application for Stretches {
+        impl crate::Application for Quiet {
             type Message = ();
 
             fn update(&mut self, _message: ()) -> crate::Command<()> {
@@ -8141,8 +8151,8 @@ mod tests {
                 Box::new(frus_widgets::Flex::<()>::column())
             }
 
-            fn overscroll_indicator(&self) -> frus_widgets::OverscrollIndicator {
-                frus_widgets::OverscrollIndicator::Stretch
+            fn scroll_behavior(&self) -> frus_widgets::ScrollBehavior {
+                frus_widgets::ScrollBehavior::material().with_overscroll(false)
             }
         }
 
@@ -8160,16 +8170,15 @@ mod tests {
             }
         }
 
-        let mut runtime = frus_widgets::Runtime::default();
-        install_ambient(&Stretches, &mut runtime, &[]);
+        install_ambient(&Quiet, &[]);
         assert_eq!(
-            runtime.overscroll_indicator,
-            frus_widgets::OverscrollIndicator::Stretch
+            frus_widgets::ScrollConfiguration::of(),
+            frus_widgets::ScrollBehavior::material().with_overscroll(false)
         );
-        install_ambient(&Silent, &mut runtime, &[]);
+        install_ambient(&Silent, &[]);
         assert_eq!(
-            runtime.overscroll_indicator,
-            frus_widgets::OverscrollIndicator::platform_default()
+            frus_widgets::ScrollConfiguration::of(),
+            frus_widgets::ScrollBehavior::material()
         );
     }
 
@@ -8297,7 +8306,9 @@ mod tests {
             viewport: Rect::new(0.0, 0.0, 100.0, 100.0),
             max_x,
             max_y,
-            physics: None,
+            physics: frus_widgets::ScrollPhysics::Clamping,
+            overscroll: Some(frus_widgets::OverscrollIndicator::Glow),
+            fling: frus_widgets::VelocityStrategy::Regression,
             refresh: None,
             page: None,
             reverse_x: false,
@@ -8700,7 +8711,9 @@ mod scroll_request_tests {
             },
             max_x: 0.0,
             max_y: 1000.0,
-            physics: None,
+            physics: frus_widgets::ScrollPhysics::Clamping,
+            overscroll: Some(frus_widgets::OverscrollIndicator::Glow),
+            fling: frus_widgets::VelocityStrategy::Regression,
             refresh: None,
             page: None,
             reverse_x: false,
@@ -9215,6 +9228,12 @@ pub mod testing {
             }
         }
 
+        /// How the gesture under way will read its fling: its scroll area's behaviour's, on
+        /// a drag that landed on one, else the application's (milestone 616).
+        pub fn fling_strategy(&self) -> frus_widgets::VelocityStrategy {
+            self.shell.gesture_velocity.strategy()
+        }
+
         /// Where what is carried is drawn this frame — a reorder's ghost or a lifted item —
         /// or `None` when nothing is.
         pub fn carried(&self) -> Option<Rect> {
@@ -9568,7 +9587,7 @@ pub mod testing {
             );
             app_animating |= theme_moved | s.themes.animating();
             let theme = s.themes.displayed(&s.app);
-            install_ambient(&s.app, &mut s.runtime, &s.platform.locales);
+            install_ambient(&s.app, &s.platform.locales);
             let _surface = s.media_query(width, height).install();
             s.runtime.still = settings.disable_animations;
             let was = std::mem::replace(&mut s.app_was_animating, app_animating);
@@ -9593,11 +9612,10 @@ pub mod testing {
                 s.ui.as_ref()
                     .map(|ui| ui.scroll_regions().to_vec())
                     .unwrap_or_default();
-            let physics = s.app.scroll_physics();
             s.runtime.sync_pages(&regions);
             s.runtime.sync_visible(&regions);
             s.runtime.advance(dt);
-            s.runtime.advance_scroll(&regions, physics, dt);
+            s.runtime.advance_scroll(&regions, dt);
             let tree = s.tree.as_deref().expect("the view was built");
             let ui = build_ui(tree, Size::new(width, height), &s.runtime, &theme);
             s.runtime.states.end_frame();
@@ -12246,5 +12264,56 @@ mod right_click_bar_tests {
         // control (a CI runner's had text on it).
         assert!(shown(&d, "Select all"), "the bar is open: {:?}", d.texts());
         assert!(!shown(&d, "Copy") && !shown(&d, "Cut"));
+    }
+}
+
+#[cfg(test)]
+mod scroll_behavior_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{
+        Container, Point, ScrollBehavior, ScrollConfiguration, SingleChildScrollView,
+        TargetPlatform, Theme, VelocityStrategy, Widget,
+    };
+
+    /// A tall page in a scroll view that follows iOS, in an application whose theme says
+    /// Android.
+    struct Page;
+
+    impl Application for Page {
+        type Message = ();
+
+        fn update(&mut self, _message: ()) -> Command<()> {
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<()>> {
+            Box::new(ScrollConfiguration::new(
+                ScrollBehavior::material().with_platform(TargetPlatform::Ios),
+                SingleChildScrollView::new()
+                    .width(300.0)
+                    .height(400.0)
+                    .child(Container::new().width(300.0).height(2000.0)),
+            ))
+        }
+
+        fn theme(&self) -> Theme {
+            Theme::default().with_platform(TargetPlatform::Android)
+        }
+    }
+
+    /// **A drag on a scroll area reads its fling the way the area's behaviour does**
+    /// (milestone 616), not the application's: the reference's scrollable builds its drag
+    /// recognizer from its own configuration.
+    #[test]
+    fn a_drag_on_an_area_reads_its_fling_the_area_s_way() {
+        let mut d = Driver::new(Page, 300.0, 400.0);
+        d.run(0.2);
+        d.press(Point::new(150.0, 200.0));
+        assert_eq!(
+            d.fling_strategy(),
+            VelocityStrategy::RecentAverage(frus_widgets::BOUNCING_FLING_WEIGHTS)
+        );
+        d.release(Point::new(150.0, 200.0));
     }
 }

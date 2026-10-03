@@ -147,7 +147,7 @@ pub struct ListWheel<Msg = crate::callback::Callback> {
     build: Box<dyn Fn(usize) -> Box<dyn Widget<Msg>>>,
     on_selected: Option<Box<dyn Fn(usize) -> Msg>>,
     label: Option<Box<dyn Fn(usize) -> String>>,
-    physics: ScrollPhysics,
+    physics: Option<ScrollPhysics>,
     width: Dimension,
     height: Dimension,
     /// Whether the width and the height were given; an axis that was not takes the room on
@@ -171,7 +171,7 @@ impl<Msg> ListWheel<Msg> {
             build: Box::new(move |index| Box::new(build(index)) as Box<dyn Widget<Msg>>),
             on_selected: None,
             label: None,
-            physics: ScrollPhysics::default(),
+            physics: None,
             width: Dimension::Auto,
             height: Dimension::Length(180.0),
             sized: (false, false),
@@ -218,9 +218,10 @@ impl<Msg> ListWheel<Msg> {
         self
     }
 
-    /// The scroll physics of the spin — the platform's by default.
+    /// The scroll physics of the spin — its scroll behaviour's by default
+    /// ([`ScrollBehavior`](crate::ScrollBehavior)).
     pub fn physics(mut self, physics: ScrollPhysics) -> Self {
-        self.physics = physics;
+        self.physics = Some(physics);
         self
     }
 
@@ -316,7 +317,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for ListWheel<Msg> {
     }
 
     fn scroll_physics(&self) -> Option<ScrollPhysics> {
-        Some(self.physics)
+        self.physics
     }
 
     /// **The wheel is the control, and this is how a reader hears it change.**
@@ -351,7 +352,6 @@ impl<Msg: Clone + 'static> Widget<Msg> for ListWheel<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::physics::ScrollPhysics;
     use crate::{build_ui, Container, Runtime};
     use frus_core::{Color, Primitive, Size};
     use std::cell::Cell;
@@ -436,11 +436,11 @@ mod tests {
             runtime.scroll.insert(area.id, (0.0, between));
             runtime.scroll_ballistic.remove(&area.id);
             assert!(
-                runtime.fling_scroll(area, ScrollPhysics::default(), (0.0, velocity)),
+                runtime.fling_scroll(area, area.physics, (0.0, velocity)),
                 "a release on a paged region is a spring to a row"
             );
             for _ in 0..600 {
-                if !runtime.advance_scroll(&[area], ScrollPhysics::default(), 1.0 / 60.0) {
+                if !runtime.advance_scroll(&[area], 1.0 / 60.0) {
                     break;
                 }
             }

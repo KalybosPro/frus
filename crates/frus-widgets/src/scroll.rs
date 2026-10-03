@@ -527,7 +527,9 @@ mod tests {
             viewport: R::new(0.0, 0.0, 100.0, 100.0),
             max_x: 0.0,
             max_y: 300.0,
-            physics: None,
+            physics: crate::ScrollPhysics::Clamping,
+            overscroll: Some(crate::OverscrollIndicator::Glow),
+            fling: frus_core::VelocityStrategy::Regression,
             refresh: None,
             page: None,
             reverse_x: false,
@@ -709,7 +711,7 @@ mod shrunk_content_tests {
     /// One turn of the shell's loop over `ui`'s regions.
     fn step(runtime: &mut Runtime, ui: &Ui<()>) {
         let regions = ui.scroll_regions().to_vec();
-        runtime.advance_scroll(&regions, ScrollPhysics::Clamping, FRAME);
+        runtime.advance_scroll(&regions, FRAME);
     }
 
     /// The phone's report: the row fits again and is drawn from its start, in the frame it
