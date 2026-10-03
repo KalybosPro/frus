@@ -449,4 +449,16 @@ pub trait Application {
     /// second. It is up to the app to commit or cancel, usually through an animated
     /// settle in `tick`.
     fn back_gesture_end(&mut self, _velocity: f32) {}
+
+    /// **The system asked to go back** — Android's back button, the browser's Back, a back
+    /// key — with no finger on the page: a pop, played as a page leaves, not as a swipe
+    /// let go (milestone 622). Called only when [`Application::can_go_back`] says yes.
+    ///
+    /// The default plays it as a back gesture let go at once, which is all an application
+    /// that only answers the gesture can do. One that pops its own pages overrides it; an
+    /// application built from components does, through its router.
+    fn go_back(&mut self) {
+        self.back_gesture(0.0);
+        self.back_gesture_end(5.0);
+    }
 }

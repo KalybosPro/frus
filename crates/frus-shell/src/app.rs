@@ -6292,10 +6292,18 @@ impl<A: Application> App<A> {
     /// animation; ③ failing that, at the root, back **quits the application**, as
     /// Android expects.
     fn system_back(&mut self, event_loop: &ActiveEventLoop) {
+        if !self.system_back_step() {
+            event_loop.exit();
+        }
+    }
+
+    /// What the system's Back does short of leaving the application, and whether it did
+    /// anything: `false` means there was nothing left to go back from.
+    fn system_back_step(&mut self) -> bool {
         // An open selection bar goes first, as a platform's own text selection does: Back
         // closes it before it closes anything behind it (milestone 568).
         if self.close_selection_toolbar() {
-            return;
+            return true;
         }
         // Then a selection an area holds with its bar, as for a field's.
         if self
@@ -6306,23 +6314,21 @@ impl<A: Application> App<A> {
         {
             self.runtime.region = None;
             self.request_redraw();
-            return;
+            return true;
         }
         if let Some(message) = self.ui.as_ref().and_then(|ui| ui.top_dismiss()) {
             self.dispatch(message);
             self.request_redraw();
-            return;
+            return true;
         }
         if self.app.can_go_back() {
             self.build_dirty = true;
-            self.app.back_gesture(0.0);
-            // A "committed" momentum: the projection passes the commit threshold and
-            // the settle animates the pop.
-            self.app.back_gesture_end(5.0);
+            // A pop, not a swipe: no finger is on the page (milestone 622).
+            self.app.go_back();
             self.request_redraw();
-            return;
+            return true;
         }
-        event_loop.exit();
+        false
     }
 
     /// Routes **Escape**: a leaf-to-root walk from the focused widget, with a
@@ -9269,6 +9275,12 @@ pub mod testing {
                 size: Size::new(width, height),
                 ghost: None,
             }
+        }
+
+        /// The system's **Back** — Android's back button, the browser's Back — as the shell
+        /// handles it, short of leaving: whether it went back from anything.
+        pub fn system_back(&mut self) -> bool {
+            self.shell.system_back_step()
         }
 
         /// How the gesture under way will read its fling: its scroll area's behaviour's, on
