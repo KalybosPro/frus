@@ -248,6 +248,13 @@ pub struct TextStyle {
     /// *nothing at all*. Text in an unexpected face is a smaller failure than no text, and
     /// naming the Arabic family itself still works.
     pub family: Option<FontFamily>,
+    /// The room added after every character, in **logical pixels** — the reference's
+    /// `letterSpacing`; negative draws them closer (milestone 623). Unset, none.
+    ///
+    /// A length, not a ratio, as the reference has it, and **not** grown by the reader's
+    /// font setting: the reference scales a style's font size and leaves its letter spacing
+    /// as it was written.
+    pub letter_spacing: Option<f32>,
 }
 
 /// A [`TextStyle`] with every question answered: what to measure with, and what to draw.
@@ -275,6 +282,8 @@ pub struct ResolvedTextStyle {
     /// The font family; `None` means the application's default. See
     /// [`TextStyle::family`] for why it does not always win.
     pub family: Option<FontFamily>,
+    /// The room added after every character, in logical pixels; `0` for none.
+    pub letter_spacing: f32,
 }
 
 impl ResolvedTextStyle {
@@ -309,6 +318,7 @@ impl ResolvedTextStyle {
             decoration_color: None,
             height: None,
             family: None,
+            letter_spacing: 0.0,
         }
     }
 }
@@ -324,6 +334,7 @@ impl TextStyle {
         decoration_color: None,
         height: None,
         family: None,
+        letter_spacing: None,
     };
 
     /// A style that names a `size` and nothing else.
@@ -405,6 +416,13 @@ impl TextStyle {
         self
     }
 
+    /// Sets the room added after every character, in logical pixels; negative draws them
+    /// closer. See the [field](Self::letter_spacing).
+    pub const fn letter_spacing(mut self, spacing: f32) -> Self {
+        self.letter_spacing = Some(spacing);
+        self
+    }
+
     /// **Merges** `over` on top of `self`, **field by field**: where `over` said nothing,
     /// this one's answer survives.
     ///
@@ -424,6 +442,7 @@ impl TextStyle {
             decoration_color: over.decoration_color.or(self.decoration_color),
             height: over.height.or(self.height),
             family: over.family.or(self.family),
+            letter_spacing: over.letter_spacing.or(self.letter_spacing),
         }
     }
 
@@ -433,7 +452,7 @@ impl TextStyle {
     /// Three rules, one per kind of field, and the kinds are not a taxonomy — each is a
     /// different answer to *what is halfway between these two*:
     ///
-    /// - **Sizes and ratios travel** (`size`, `height`): a number between the two.
+    /// - **Sizes and ratios travel** (`size`, `height`, `letter_spacing`): a number between the two.
     /// - **A field set at only one end does not travel.** It holds the one value it has,
     ///   from the first frame to the last. `None` here means *unset* — a question passed
     ///   further up the cascade — and there is no number between "18 pixels" and "ask
@@ -492,6 +511,7 @@ impl TextStyle {
             decoration_color: color(self.decoration_color, other.decoration_color, t),
             height: number(self.height, other.height, t),
             family: swap(self.family, other.family, t),
+            letter_spacing: number(self.letter_spacing, other.letter_spacing, t),
         }
     }
 
@@ -547,6 +567,7 @@ impl TextStyle {
             decoration_color: self.decoration_color,
             height: self.height,
             family: self.family,
+            letter_spacing: self.letter_spacing.unwrap_or(0.0),
         }
     }
 }
@@ -779,11 +800,39 @@ pub struct TextRun {
     pub decoration: TextDecoration,
     /// Decoration colour; `None` means the run's own colour.
     pub decoration_color: Option<Color>,
+    /// The room added after every character, in logical pixels; `0` for none.
+    pub letter_spacing: f32,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **Letter spacing cascades, travels, and is not grown by the reader's setting**
+    /// (milestone 623): a style that says nothing inherits it, two that say something
+    /// meet halfway, and a larger text scale grows the size and leaves the spacing as
+    /// it was written.
+    #[test]
+    fn letter_spacing_cascades_travels_and_stays_written() {
+        let spaced = TextStyle::new(14.0).letter_spacing(0.5);
+        assert_eq!(spaced.merge(TextStyle::new(20.0)).letter_spacing, Some(0.5));
+        assert_eq!(
+            spaced
+                .merge(TextStyle::NONE.letter_spacing(-1.0))
+                .letter_spacing,
+            Some(-1.0)
+        );
+        let half = spaced.lerp(TextStyle::new(14.0).letter_spacing(1.5), 0.5);
+        assert_eq!(half.letter_spacing, Some(1.0));
+        assert_eq!(
+            TextStyle::new(14.0).resolved().letter_spacing,
+            0.0,
+            "none by default"
+        );
+        let scaled = with_text_scale(2.0, || spaced.resolved());
+        assert_eq!(scaled.size, 28.0, "the size grows");
+        assert_eq!(scaled.letter_spacing, 0.5, "the spacing does not");
+    }
 
     #[test]
     fn weights_map_to_opentype() {

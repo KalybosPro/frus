@@ -206,6 +206,7 @@ impl TextPainter {
                         // this one is a ratio of the font size.
                         height: line_ratio,
                         family,
+                        letter_spacing,
                         clip,
                         ..
                     } => {
@@ -238,6 +239,8 @@ impl TextPainter {
                             // Upright when no oblique face is loaded: an application
                             // that dropped `bundled-italic` gets straight text, not none.
                             .style(frus_text::available_style(*italic));
+                        // Spaced as the measurement spaced it (milestone 623).
+                        let attrs = frus_text::spaced(attrs, *letter_spacing, *size);
                         buffer.set_text(text, &attrs, glyphon::Shaping::Advanced, None);
                         // Alignment is per buffer line, and it is only set when it was
                         // asked for: the default leaves cosmic-text to align by the
@@ -309,20 +312,24 @@ impl TextPainter {
                         let spans = runs.iter().enumerate().map(|(index, run)| {
                             (
                                 run.text.as_str(),
-                                glyphon::Attrs::new()
-                                    .family(frus_text::family_for(&run.text))
-                                    .weight(glyphon::Weight(frus_text::available_weight(
-                                        run.weight,
-                                    )))
-                                    .style(frus_text::available_style(run.italic))
-                                    .metrics(glyphon::Metrics::new(
-                                        run.size,
-                                        run.size * LINE_HEIGHT_FACTOR,
-                                    ))
-                                    .color(to_glyphon(&run.color))
-                                    // Ties each glyph to its source run, for the
-                                    // per-span decorations.
-                                    .metadata(index),
+                                frus_text::spaced(
+                                    glyphon::Attrs::new()
+                                        .family(frus_text::family_for(&run.text))
+                                        .weight(glyphon::Weight(frus_text::available_weight(
+                                            run.weight,
+                                        )))
+                                        .style(frus_text::available_style(run.italic))
+                                        .metrics(glyphon::Metrics::new(
+                                            run.size,
+                                            run.size * LINE_HEIGHT_FACTOR,
+                                        ))
+                                        .color(to_glyphon(&run.color))
+                                        // Ties each glyph to its source run, for the
+                                        // per-span decorations.
+                                        .metadata(index),
+                                    run.letter_spacing,
+                                    run.size,
+                                ),
                             )
                         });
                         buffer.set_rich_text(
@@ -520,6 +527,7 @@ mod tests {
             color: Color::WHITE,
             decoration: TextDecoration::NONE,
             decoration_color: None,
+            letter_spacing: 0.0,
         };
         let mut scene = Scene::new();
         scene.rich_text(
@@ -587,6 +595,7 @@ mod tests {
             color: Color::WHITE,
             decoration,
             decoration_color: None,
+            letter_spacing: 0.0,
         };
         let plain = {
             let mut scene = Scene::new();

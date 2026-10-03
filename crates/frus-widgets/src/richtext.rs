@@ -206,6 +206,7 @@ impl RichText {
                 // Inherited = the run's color: resolved here so that the
                 // fade-out applies to the decorations too.
                 decoration_color: style.decoration_color.map(|c| c.fade(opacity)),
+                letter_spacing: style.letter_spacing,
             })
             .collect()
     }

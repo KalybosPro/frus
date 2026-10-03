@@ -273,6 +273,10 @@ pub enum Primitive {
         /// reason as `height`: the renderer must shape with the face the measurement used,
         /// and it cannot know which that was from the words alone.
         family: Option<crate::FontFamily>,
+        /// The room added after every character, in logical pixels — carried for the same
+        /// reason again: the renderer must space the glyphs as the measurement did
+        /// (milestone 623).
+        letter_spacing: f32,
         /// Clip rectangle.
         clip: Rect,
         /// The box the text was laid out in — the emitting widget's, so an
@@ -430,6 +434,7 @@ impl Primitive {
                 decoration_color,
                 height,
                 family,
+                letter_spacing,
                 clip,
                 bounds,
                 owner,
@@ -447,6 +452,7 @@ impl Primitive {
                 decoration_color,
                 height,
                 family,
+                letter_spacing: letter_spacing * sx,
                 clip: clip.scale_xy(sx, sy),
                 bounds: bounds.scale_xy(sx, sy),
                 owner,
@@ -569,6 +575,7 @@ impl Primitive {
                 decoration_color,
                 height,
                 family,
+                letter_spacing,
                 clip,
                 bounds,
                 owner,
@@ -586,6 +593,7 @@ impl Primitive {
                 decoration_color,
                 height,
                 family,
+                letter_spacing,
                 clip: clip.translate(dx, dy),
                 bounds: bounds.translate(dx, dy),
                 owner,
@@ -758,6 +766,7 @@ impl Primitive {
                 decoration_color,
                 height,
                 family,
+                letter_spacing,
                 bounds,
                 owner,
                 ..
@@ -775,6 +784,7 @@ impl Primitive {
                 decoration_color,
                 height,
                 family,
+                letter_spacing,
                 clip,
                 bounds,
                 owner,
@@ -995,6 +1005,7 @@ impl Scene {
                 decoration_color,
                 height,
                 family,
+                letter_spacing,
                 clip,
                 bounds,
                 owner,
@@ -1012,6 +1023,7 @@ impl Scene {
                 decoration_color: decoration_color.map(|c| c.fade(opacity)),
                 height,
                 family,
+                letter_spacing,
                 clip,
                 bounds,
                 owner,
@@ -1454,6 +1466,7 @@ impl Scene {
             decoration_color: style.decoration_color,
             height: style.height,
             family: style.family,
+            letter_spacing: style.letter_spacing,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,
@@ -1484,6 +1497,7 @@ impl Scene {
             decoration_color: style.decoration_color,
             height: style.height,
             family: style.family,
+            letter_spacing: style.letter_spacing,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,
@@ -1519,6 +1533,7 @@ impl Scene {
             decoration_color: style.decoration_color,
             height: style.height,
             family: style.family,
+            letter_spacing: style.letter_spacing,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,

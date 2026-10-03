@@ -358,6 +358,8 @@ struct MeasureKey {
     /// The family they were measured in. Different faces have different widths, which is
     /// the reason for naming one at all.
     family: Option<frus_core::FontFamily>,
+    /// The letter spacing, in bits: two spacings give two widths.
+    letter_spacing: u32,
 }
 
 /// How many entries a generation holds before it is retired. Two generations live at
@@ -414,6 +416,17 @@ struct BaselineKey {
 static BASELINES: std::sync::LazyLock<
     std::sync::Mutex<std::collections::HashMap<BaselineKey, f32>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// `attrs` with **letter spacing**: `letter_spacing` logical pixels after every character,
+/// which the shaper takes as a fraction of the size (milestone 623). Every place that shapes
+/// text goes through this, so a measure and a paint space the same words alike.
+pub fn spaced(attrs: Attrs<'static>, letter_spacing: f32, size_px: f32) -> Attrs<'static> {
+    if letter_spacing == 0.0 || size_px <= 0.0 {
+        attrs
+    } else {
+        attrs.letter_spacing(letter_spacing / size_px)
+    }
+}
 
 /// The line height for a given font size, in pixels, **for a style that says nothing
 /// about it**.
@@ -536,15 +549,7 @@ pub fn measure_wrapped_resolved(
     // Through `measure_at`, not `measure_wrapped`: the style may name a line height, and
     // going by the size alone would measure at one height what the renderer draws at
     // another.
-    measure_at(
-        text,
-        style.size,
-        style.weight,
-        style.italic,
-        max_width,
-        style.line_height(),
-        style.family,
-    )
+    measure_at(text, style, max_width)
 }
 
 /// Measures a **styled** text's natural size; weight and italics count, since bold
@@ -563,31 +568,24 @@ pub fn measure_wrapped(
     italic: bool,
     max_width: Option<f32>,
 ) -> Size {
-    measure_at(
-        text,
-        size_px,
+    let style = ResolvedTextStyle {
         weight,
         italic,
-        max_width,
-        line_height(size_px),
-        None,
-    )
+        ..ResolvedTextStyle::exact(size_px)
+    };
+    measure_at(text, &style, max_width)
 }
 
-/// The measurement itself, at an **explicit line height**.
+/// The measurement itself, under a **whole resolved style**.
 ///
-/// Every public form funnels here, and the line height is a parameter rather than a
-/// constant because a style may name it: two callers computing it separately is how a
-/// measure and a paint come to disagree about where the second line starts.
-fn measure_at(
-    text: &str,
-    size_px: f32,
-    weight: FontWeight,
-    italic: bool,
-    max_width: Option<f32>,
-    line_h: f32,
-    family: Option<frus_core::FontFamily>,
-) -> Size {
+/// Every public form funnels here, and it takes the style rather than its parts because
+/// a style may name a line height, a family and a letter spacing (milestone 623): two
+/// callers each passing some of them is how a measure and a paint come to disagree about
+/// where the second line starts, or how wide the first one is.
+fn measure_at(text: &str, style: &ResolvedTextStyle, max_width: Option<f32>) -> Size {
+    let (size_px, weight, italic) = (style.size, style.weight, style.italic);
+    let (line_h, family, letter_spacing) =
+        (style.line_height(), style.family, style.letter_spacing);
     if text.is_empty() {
         // Whole, like every other measurement here: a line height is a fraction of a
         // size — 19.2 for a 16 px label — and an empty label reserving 19.2 is handed a
@@ -614,6 +612,7 @@ fn measure_at(
         // share a cache entry. Nor can two families: that is the point of naming one.
         line_h: line_h.to_bits(),
         family,
+        letter_spacing: letter_spacing.to_bits(),
     };
     if let Some(size) = cached_measurement(&key) {
         return size;
@@ -624,12 +623,16 @@ fn measure_at(
     let mut buffer = Buffer::new(&mut font_system, metrics);
     // A constrained width (wrapping) or a free one; the height is always free.
     buffer.set_size(max_width, None);
-    let attrs = Attrs::new()
-        // The face the **renderer** will use, not the default: measuring in one family and
-        // drawing in another reserves a width for letters of a different shape.
-        .family(family_for_style(text, family))
-        .weight(Weight(available_weight(weight)))
-        .style(available_style(italic));
+    let attrs = spaced(
+        Attrs::new()
+            // The face the **renderer** will use, not the default: measuring in one family
+            // and drawing in another reserves a width for letters of a different shape.
+            .family(family_for_style(text, family))
+            .weight(Weight(available_weight(weight)))
+            .style(available_style(italic)),
+        letter_spacing,
+        size_px,
+    );
     buffer.set_text(text, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut font_system, false);
 
@@ -716,17 +719,38 @@ pub fn line_spans(
     max_width: Option<f32>,
     soft_wrap: bool,
 ) -> Vec<std::ops::Range<usize>> {
+    let style = ResolvedTextStyle {
+        weight,
+        italic,
+        ..ResolvedTextStyle::exact(size_px)
+    };
+    line_spans_resolved(text, &style, max_width, soft_wrap)
+}
+
+/// [`line_spans`] under a whole resolved style: its line height, its family and its letter
+/// spacing break the lines as the renderer will (milestone 623).
+pub fn line_spans_resolved(
+    text: &str,
+    style: &ResolvedTextStyle,
+    max_width: Option<f32>,
+    soft_wrap: bool,
+) -> Vec<std::ops::Range<usize>> {
+    let size_px = style.size;
     let mut font_system = font_system().lock().expect("FontSystem lock");
-    let metrics = Metrics::new(size_px, line_height(size_px));
+    let metrics = Metrics::new(size_px, style.line_height());
     let mut buffer = Buffer::new(&mut font_system, metrics);
     if !soft_wrap {
         buffer.set_wrap(cosmic_text::Wrap::None);
     }
     buffer.set_size(max_width, None);
-    let attrs = Attrs::new()
-        .family(family_for(text))
-        .weight(Weight(available_weight(weight)))
-        .style(available_style(italic));
+    let attrs = spaced(
+        Attrs::new()
+            .family(family_for_style(text, style.family))
+            .weight(Weight(available_weight(style.weight)))
+            .style(available_style(style.italic)),
+        style.letter_spacing,
+        size_px,
+    );
     buffer.set_text(text, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut font_system, false);
 
@@ -782,11 +806,15 @@ pub fn measure_runs_wrapped(runs: &[TextRun], max_width: Option<f32>) -> Size {
     let spans = runs.iter().map(|run| {
         (
             run.text.as_str(),
-            Attrs::new()
-                .family(family_for(&run.text))
-                .weight(Weight(available_weight(run.weight)))
-                .style(available_style(run.italic))
-                .metrics(Metrics::new(run.size, line_height(run.size))),
+            spaced(
+                Attrs::new()
+                    .family(family_for(&run.text))
+                    .weight(Weight(available_weight(run.weight)))
+                    .style(available_style(run.italic))
+                    .metrics(Metrics::new(run.size, line_height(run.size))),
+                run.letter_spacing,
+                run.size,
+            ),
         )
     });
     buffer.set_rich_text(spans, &Attrs::new(), Shaping::Advanced, None);
@@ -840,11 +868,15 @@ pub fn runs_cut_at(
     let spans = runs.iter().map(|run| {
         (
             run.text.as_str(),
-            Attrs::new()
-                .family(family_for(&run.text))
-                .weight(Weight(available_weight(run.weight)))
-                .style(available_style(run.italic))
-                .metrics(Metrics::new(run.size, line_height(run.size))),
+            spaced(
+                Attrs::new()
+                    .family(family_for(&run.text))
+                    .weight(Weight(available_weight(run.weight)))
+                    .style(available_style(run.italic))
+                    .metrics(Metrics::new(run.size, line_height(run.size))),
+                run.letter_spacing,
+                run.size,
+            ),
         )
     });
     buffer.set_rich_text(spans, &Attrs::new(), Shaping::Advanced, None);
@@ -928,6 +960,7 @@ impl TextLayout {
             max_width,
             line_height(size_px),
             None,
+            0.0,
         )
     }
 
@@ -947,9 +980,12 @@ impl TextLayout {
             max_width,
             style.line_height(),
             style.family,
+            style.letter_spacing,
         )
     }
 
+    // A text's whole shaping, argument by argument; grouping them would only move them.
+    #[allow(clippy::too_many_arguments)]
     fn shaped(
         text: &str,
         size_px: f32,
@@ -958,6 +994,7 @@ impl TextLayout {
         max_width: Option<f32>,
         fallback_h: f32,
         family: Option<frus_core::FontFamily>,
+        letter_spacing: f32,
     ) -> Self {
         let mut lines: Vec<LayoutLine> = Vec::new();
         let mut width = 0.0_f32;
@@ -979,10 +1016,14 @@ impl TextLayout {
             let metrics = Metrics::new(size_px, fallback_h);
             let mut buffer = Buffer::new(&mut font_system, metrics);
             buffer.set_size(max_width, None);
-            let attrs = Attrs::new()
-                .family(family_for_style(text, family))
-                .weight(Weight(available_weight(weight)))
-                .style(available_style(italic));
+            let attrs = spaced(
+                Attrs::new()
+                    .family(family_for_style(text, family))
+                    .weight(Weight(available_weight(weight)))
+                    .style(available_style(italic)),
+                letter_spacing,
+                size_px,
+            );
             buffer.set_text(text, &attrs, Shaping::Advanced, None);
             buffer.shape_until_scroll(&mut font_system, false);
 
@@ -1145,6 +1186,58 @@ impl TextLayout {
 #[cfg(test)]
 mod tests {
 
+    /// **Letter spacing widens a word by its spacing, once per character** (milestone 623):
+    /// a word of eight letters spaced 2 px is about 16 px wider, and not the same width as
+    /// the unspaced word cached a moment before — the spacing is part of the question.
+    /// Negative spacing draws the letters closer.
+    #[test]
+    fn letter_spacing_widens_a_word_by_its_spacing() {
+        let word = "Spacious";
+        let plain = ResolvedTextStyle::exact(16.0);
+        let spaced = ResolvedTextStyle {
+            letter_spacing: 2.0,
+            ..plain
+        };
+        let tight = ResolvedTextStyle {
+            letter_spacing: -0.5,
+            ..plain
+        };
+        let w0 = measure_resolved(word, &plain).width;
+        let w2 = measure_resolved(word, &spaced).width;
+        let wt = measure_resolved(word, &tight).width;
+        let added = w2 - w0;
+        assert!(
+            (added - 16.0).abs() <= 2.5,
+            "eight letters, two pixels each: {added} added"
+        );
+        assert!(wt < w0, "negative spacing tightens: {wt} vs {w0}");
+        // And the layout that places the caret agrees with the measurement.
+        let layout = TextLayout::resolved(word, &spaced, None);
+        let laid = layout.size().width;
+        assert!((laid - w2).abs() <= 1.0, "{laid} vs {w2}");
+        // The caret after the last letter is past the spaced word, not the plain one.
+        let end = layout.caret_rect(word.chars().count()).x;
+        assert!(end > w0 + 8.0, "the caret ends past the spacing: {end}");
+    }
+
+    /// **Spacing moves the line breaks**: words that fit a box unspaced need a second line
+    /// spaced, and the lines are cut where the renderer will cut them.
+    #[test]
+    fn letter_spacing_moves_the_line_breaks() {
+        let text = "one two three";
+        let plain = ResolvedTextStyle::exact(14.0);
+        let width = measure_resolved(text, &plain).width + 2.0;
+        assert_eq!(
+            line_spans_resolved(text, &plain, Some(width), true).len(),
+            1
+        );
+        let spaced = ResolvedTextStyle {
+            letter_spacing: 3.0,
+            ..plain
+        };
+        assert!(line_spans_resolved(text, &spaced, Some(width), true).len() >= 2);
+    }
+
     /// **A layout under a resolved style has that style's leading**: the second line of a
     /// paragraph set at twice the line height is twice as far down, and the same paragraph
     /// laid out by [`TextLayout::wrapped`] — which knows the default alone — puts it where the
@@ -1240,6 +1333,7 @@ mod tests {
             color: Color::WHITE,
             decoration: frus_core::TextDecoration::NONE,
             decoration_color: None,
+            letter_spacing: 0.0,
         };
         // "normal BOLD" is wider than "normal" alone; the height comes from the
         // largest run.
@@ -1819,6 +1913,7 @@ mod tests {
             color: frus_core::Color::WHITE,
             decoration: frus_core::TextDecoration::default(),
             decoration_color: None,
+            letter_spacing: 0.0,
         };
         let runs = vec![run("small", 12.0), run("large", 24.0)];
         let mixed = baseline_of_runs(&runs).expect("two runs");
