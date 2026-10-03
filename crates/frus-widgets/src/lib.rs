@@ -478,6 +478,12 @@ pub use widgettheme::{
 };
 
 // Convenience re-exports for callers.
+#[doc(hidden)]
+pub use frus_core::__set_detected_target_platform;
+pub use frus_core::{
+    debug_default_target_platform_override, default_target_platform,
+    set_debug_default_target_platform_override, Platform, TargetPlatform, IS_WEB,
+};
 /// Installing the reader's font size for a whole frame — see
 /// [`frus_core::install_text_scale`]. Re-exported for the shell, which has to hold it
 /// across the build, the layout **and** the paint.

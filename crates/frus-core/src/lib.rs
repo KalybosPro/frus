@@ -21,6 +21,7 @@ mod geometry;
 mod hct;
 mod image;
 mod path;
+mod platform;
 mod responsive;
 mod scene;
 mod semantics;
@@ -55,6 +56,11 @@ pub use image::{
     Fetched, ImageData, ImageFetcher, ImageHandle, DEFAULT_IMAGE_CACHE_BYTES,
 };
 pub use path::{Path, PathVerb, Stroke};
+pub use platform::{
+    __set_detected_target_platform, debug_default_target_platform_override,
+    default_target_platform, set_debug_default_target_platform_override, Platform, TargetPlatform,
+    IS_WEB,
+};
 pub use responsive::{Orientation, SizeClass};
 pub use scene::{ClipShape, LayerTransform, PathGradient, Primitive, Scene, TextBlock};
 pub use semantics::{Role, SemanticsProperties, Toggled};

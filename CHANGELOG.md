@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 613 so far, each documenting the objective, the alternatives
+> record — one per step, 614 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Which platform, and whose conventions** (J614). `TargetPlatform` (Android, Fuchsia,
+  iOS, Linux, macOS, Windows), `default_target_platform()` with a debug override, `IS_WEB`,
+  and `Platform` for facts about the machine (`operating_system()`, `is_android()`,
+  `number_of_processors()`…). `Theme::platform` starts at the default and is what adaptive
+  widgets will read; `Theme::with_platform` changes it. On the web, the platform is the
+  browser's operating system, read from the navigator at start-up.
 
 - **An app bar's actions are widgets** (J613), as the reference's `actions` is a list of
   widgets. **Breaking**: `AppBar::action(widget)` adds any widget (it was `action_widget`,

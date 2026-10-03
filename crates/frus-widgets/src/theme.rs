@@ -760,6 +760,14 @@ pub struct Theme {
     /// checkbox, a radio and an icon button each lay out inside at least
     /// [`MIN_TAP_TARGET`] and paint what they paint in the middle of it.
     pub tap_target: TapTarget,
+    /// **The platform whose conventions the widgets follow**: how a list scrolls past its
+    /// end, where a bar puts its title, how a page arrives. [`default_target_platform`]
+    /// unless said otherwise, so an application can show another platform's behaviour,
+    /// for the whole of it or for a subtree, and a test can try each
+    /// ([`Theme::with_platform`]).
+    ///
+    /// [`default_target_platform`]: frus_core::default_target_platform
+    pub platform: frus_core::TargetPlatform,
 }
 
 impl Theme {
@@ -788,7 +796,14 @@ impl Theme {
             direction: TextDirection::Ltr,
             widgets: crate::widgettheme::WidgetThemes::default(),
             tap_target: TapTarget::default(),
+            platform: frus_core::default_target_platform(),
         }
+    }
+
+    /// The same theme, following `platform`'s conventions ([`Theme::platform`]).
+    pub fn with_platform(mut self, platform: frus_core::TargetPlatform) -> Self {
+        self.platform = platform;
+        self
     }
 
     /// The same theme in **right-to-left** (Arabic, Hebrew…).
@@ -882,6 +897,15 @@ impl Theme {
         // light/dark crossing and came back when it ended.
         out.tap_target = other.tap_target;
         out.widgets = other.widgets.clone();
+        // A platform cannot be half one and half the other: it changes at mid-fade, as
+        // the reference's does (milestone 614). `from_scheme` would have put the
+        // default back, and a theme set to another platform would have lost it for the
+        // whole of a light/dark crossing.
+        out.platform = if t < 0.5 {
+            self.platform
+        } else {
+            other.platform
+        };
         out
     }
 }
@@ -1516,6 +1540,39 @@ mod tests {
         // And the colours are still half way across, which is what the fade is for.
         assert_ne!(mid.background, Theme::dark().background);
         assert_ne!(mid.background, target.background);
+    }
+
+    /// **A theme starts at the default platform**, and is told otherwise by
+    /// `with_platform`.
+    #[test]
+    fn a_theme_follows_the_default_platform_until_told() {
+        assert_eq!(
+            Theme::default().platform,
+            frus_core::default_target_platform()
+        );
+        assert_eq!(Theme::dark().platform, frus_core::default_target_platform());
+        let ios = Theme::default().with_platform(frus_core::TargetPlatform::Ios);
+        assert_eq!(ios.platform, frus_core::TargetPlatform::Ios);
+    }
+
+    /// **The platform changes at mid-fade**, and survives the rest of it.
+    #[test]
+    fn a_fade_keeps_a_platform_whole() {
+        let from = Theme::default().with_platform(frus_core::TargetPlatform::Ios);
+        let to = Theme::dark().with_platform(frus_core::TargetPlatform::Windows);
+        assert_eq!(from.lerp(&to, 0.0).platform, frus_core::TargetPlatform::Ios);
+        assert_eq!(
+            from.lerp(&to, 0.49).platform,
+            frus_core::TargetPlatform::Ios
+        );
+        assert_eq!(
+            from.lerp(&to, 0.5).platform,
+            frus_core::TargetPlatform::Windows
+        );
+        assert_eq!(
+            from.lerp(&to, 1.0).platform,
+            frus_core::TargetPlatform::Windows
+        );
     }
 
     #[test]
