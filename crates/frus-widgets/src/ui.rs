@@ -27,10 +27,6 @@ use crate::runtime::Runtime;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Parallax factor of the screen behind during a transition (0 = fixed, 1 = follows
-/// exactly). It is what gives a native navigation its depth.
-const NAV_PARALLAX: f32 = 0.3;
-
 /// Thickness of a scrollbar, in pixels (`scrollbar.dart:12`).
 const BAR_SIZE: f32 = 8.0;
 /// Minimum length of a thumb (`scrollbar.dart:15`). It is the tap target: a thumb has to
@@ -2943,11 +2939,19 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 hidden.insert(id.as_u64());
             }
         }
-        for primitive in &painted {
-            if !hidden.contains(&primitive.owner()) {
-                self.scene.push_primitive(primitive.clone());
-            }
+        // The destinations' own painting, wherever it was drawn: a page in a transition may
+        // be inside a layer that zooms or fades it (milestone 620), and a hero in flight is
+        // above both pages, untouched by either — as the reference's flies in the overlay.
+        let destinations: std::collections::HashSet<u64> = flights
+            .iter()
+            .flat_map(|(_, _, widget, _, to_id)| subtree_ids(*widget, *to_id))
+            .map(|id| id.as_u64())
+            .collect();
+        let mut taken = Vec::new();
+        for primitive in take_owned(painted, &hidden, &destinations, &mut taken) {
+            self.scene.push_primitive(primitive);
         }
+        let painted = taken;
 
         self.scene.set_clip(Rect::UNBOUNDED);
         for (from, to, _, _, to_id) in &flights {
@@ -3945,72 +3949,72 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let hidden = widget.navigator_retained().min(children.len());
             let shown = &children[hidden..];
             if shown.len() >= 2 {
-                // A transition: two offset screens. The screen "behind" (a negative offset)
-                // moves less (parallax) → the sense of depth.
-                let dir = if forward { 1.0 } else { -1.0 };
-                let raw = [-progress * w * dir, (1.0 - progress) * w * dir];
-                let off = [
-                    if raw[0] < 0.0 {
-                        raw[0] * NAV_PARALLAX
-                    } else {
-                        raw[0]
-                    },
-                    if raw[1] < 0.0 {
-                        raw[1] * NAV_PARALLAX
-                    } else {
-                        raw[1]
-                    },
-                ];
-                // Depth order: the one offset furthest left (the back one) goes first.
-                let (back, front) = if off[0] <= off[1] { (0, 1) } else { (1, 0) };
+                // **A transition, as the theme's platform draws it** (milestone 620): the
+                // builder the theme maps the platform to says where each page is, how big,
+                // how opaque, and what lies between them, `progress` of the way through.
+                let builder = self.theme.page_transitions.builder_for(self.theme.platform);
+                let frame = builder.frame(progress, forward, widget.navigator_gesture());
+                // `Navigator::from` inserts the screen being left at index 0, so
+                // `shown[1]` is always the destination: the page on top on a push, the one
+                // underneath on a pop.
+                let (top, below) = if forward { (1, 0) } else { (0, 1) };
+                let mirror = if frame.mirrored && self.rtl() {
+                    -1.0
+                } else {
+                    1.0
+                };
                 // Where the shared elements of this transition start, in both the
                 // registry and the scene: everything after this point belongs to the
                 // two screens, and the flight is resolved from it once both are drawn.
                 let hero_base = self.heroes.len();
                 let scene_base = self.scene.primitives().len();
-                let outer_screen = self.hero_screen.replace(back as u8);
+                let surface = self.theme.scheme.surface;
+                let fill = |builder: &mut Self, color: Color| {
+                    builder.scene.set_owner(0);
+                    builder.scene.set_clip(clip);
+                    builder.scene.fill_rect(bounds, color);
+                };
+                if frame.backdrop > 0.0 {
+                    fill(self, surface.fade(frame.backdrop));
+                }
+                let outer_screen = self.hero_screen.replace(below as u8);
                 // A screen being left keeps its floating layers to itself.
                 // `process_overlays` draws every overlay above the **whole window**, after
-                // both screens, so a menu left open on the departing screen is painted on
-                // top of the screen that replaced it — opaque, and anchored to a bar the
-                // window no longer shows. A device found it; the parallax is why it is not
-                // self-correcting, since the outgoing screen travels only 30 % of the width
-                // and its anchor never actually leaves.
-                //
-                // `Navigator::from` inserts the screen being left at index 0, so
-                // `children[1]` is always the destination — on a push, on a pop, and under
-                // a back gesture alike. Whatever the other one defers is dropped.
+                // both screens, so a menu left open on the departing screen would be
+                // painted on top of the screen that replaced it. Whatever the departing one
+                // defers is dropped.
                 let overlay_base = self.overlays.len();
-                self.render_screen(
-                    shown[back].as_ref(),
-                    child_id(id, hidden + back, shown[back].as_ref()),
+                self.render_posed(
+                    shown[below].as_ref(),
+                    child_id(id, hidden + below, shown[below].as_ref()),
                     bounds,
-                    off[back],
+                    frame.below,
+                    mirror,
                     clip,
                 );
-                if back != 1 {
+                if below != 1 {
                     self.overlays.truncate(overlay_base);
                 }
-                // Darkens the screen behind in proportion to how far it is covered.
-                let coverage = (off[back].abs() / (w * NAV_PARALLAX)).min(1.0);
-                if coverage > 0.0 {
-                    let scrim =
-                        Rect::new(bounds.x + off[back], bounds.y, bounds.width, bounds.height);
-                    self.scene.set_owner(0);
-                    self.scene.set_clip(clip);
-                    self.scene
-                        .fill_rect(scrim, self.theme.scheme.scrim.with_alpha(0.22 * coverage));
+                if frame.barrier > 0.0 {
+                    fill(self, Color::BLACK.fade(frame.barrier));
                 }
-                self.hero_screen = Some(front as u8);
+                if frame.scrim > 0.0 {
+                    fill(self, surface.fade(frame.scrim));
+                }
+                if frame.edge_shadow > 0.0 {
+                    self.paint_edge_shadow(bounds, frame, mirror, clip);
+                }
+                self.hero_screen = Some(top as u8);
                 let overlay_base = self.overlays.len();
-                self.render_screen(
-                    shown[front].as_ref(),
-                    child_id(id, hidden + front, shown[front].as_ref()),
+                self.render_posed(
+                    shown[top].as_ref(),
+                    child_id(id, hidden + top, shown[top].as_ref()),
                     bounds,
-                    off[front],
+                    frame.top,
+                    mirror,
                     clip,
                 );
-                if front != 1 {
+                if top != 1 {
                     self.overlays.truncate(overlay_base);
                 }
                 self.hero_screen = outer_screen;
@@ -5335,6 +5339,86 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     }
 
     /// Lays out a full-window screen and renders it offset by `off_x`.
+    /// Renders a page in a transition, as `pose` puts it: moved along the reading direction
+    /// (`mirror` turns that round), scaled about its centre and faded. A page at its
+    /// natural size and opacity is drawn as it always was; otherwise it goes into one
+    /// layer, and what can be touched in it moves with it.
+    fn render_posed(
+        &mut self,
+        screen: &'a dyn Widget<Msg>,
+        id: WidgetId,
+        bounds: Rect,
+        pose: crate::PagePose,
+        mirror: f32,
+        clip: Rect,
+    ) {
+        let off_x = pose.dx * bounds.width * mirror;
+        let plain = (pose.scale - 1.0).abs() < 1e-4 && pose.opacity > 0.999;
+        if plain {
+            self.render_screen(screen, id, bounds, off_x, clip);
+            return;
+        }
+        let mark = (self.scene.primitives().len(), self.xform_base());
+        self.render_screen(screen, id, bounds, off_x, clip);
+        let (p0, base) = mark;
+        let group = self.scene.split_off(p0);
+        // A page not yet faded in is still a layer, at nothing: a hero on it is about to
+        // fly from it, and the flight takes it out of here.
+        let centre = Point::new(
+            bounds.x + off_x + bounds.width * 0.5,
+            bounds.y + bounds.height * 0.5,
+        );
+        let matrix = Affine::scale(pose.scale, pose.scale).about(centre);
+        self.scene.push_primitive(Primitive::Layer {
+            primitives: group,
+            opacity: pose.opacity.clamp(0.0, 1.0),
+            clip,
+            clip_shape: ClipShape::Rect,
+            transform: Some(LayerTransform::new(matrix)),
+            filter: LayerFilter::NONE,
+            owner: id.as_u64(),
+        });
+        self.transform_interaction_registries(&base, matrix);
+    }
+
+    /// The iOS page's shadow along its start edge (`route.dart:1065`): black at `0x04`
+    /// fading to nothing over 5 % of the page's width, outside the page, at `frame`'s
+    /// strength.
+    fn paint_edge_shadow(
+        &mut self,
+        bounds: Rect,
+        frame: crate::TransitionFrame,
+        mirror: f32,
+        clip: Rect,
+    ) {
+        let width = bounds.width * 0.05;
+        let edge = if mirror < 0.0 {
+            bounds.x + bounds.width + frame.top.dx * bounds.width * mirror
+        } else {
+            bounds.x + frame.top.dx * bounds.width
+        };
+        let shade = Color::rgba8(0, 0, 0, 0x04).fade(frame.edge_shadow);
+        // Darkest at the page's edge, nothing at the far side: left to right, the colours
+        // are ordered by which side the page is on.
+        let (rect, from, to) = if mirror < 0.0 {
+            (
+                Rect::new(edge, bounds.y, width, bounds.height),
+                shade,
+                Color::TRANSPARENT,
+            )
+        } else {
+            (
+                Rect::new(edge - width, bounds.y, width, bounds.height),
+                Color::TRANSPARENT,
+                shade,
+            )
+        };
+        self.scene.set_owner(0);
+        self.scene.set_clip(clip);
+        self.scene
+            .gradient_rect(rect, from, to, [1.0, 0.0], 0.0, 0.0, Color::TRANSPARENT);
+    }
+
     fn render_screen(
         &mut self,
         screen: &'a dyn Widget<Msg>,
@@ -5902,6 +5986,51 @@ impl<Msg: Clone> Builder<'_, Msg> {
             interactive: bar.interactive.unwrap_or(!android),
         });
     }
+}
+
+/// `primitives` without those owned by `hidden`, looking inside layers too; the ones owned
+/// by `keep` among them are moved into `taken`, as painted, outside any layer. A layer left
+/// with nothing in it is dropped.
+fn take_owned(
+    primitives: Vec<Primitive>,
+    hidden: &std::collections::HashSet<u64>,
+    keep: &std::collections::HashSet<u64>,
+    taken: &mut Vec<Primitive>,
+) -> Vec<Primitive> {
+    let mut out = Vec::with_capacity(primitives.len());
+    for primitive in primitives {
+        match primitive {
+            Primitive::Layer {
+                primitives: inner,
+                opacity,
+                clip,
+                clip_shape,
+                transform,
+                filter,
+                owner,
+            } => {
+                let inner = take_owned(inner, hidden, keep, taken);
+                if !inner.is_empty() {
+                    out.push(Primitive::Layer {
+                        primitives: inner,
+                        opacity,
+                        clip,
+                        clip_shape,
+                        transform,
+                        filter,
+                        owner,
+                    });
+                }
+            }
+            other if hidden.contains(&other.owner()) => {
+                if keep.contains(&other.owner()) {
+                    taken.push(other);
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// Turns a widget tree into a [`Ui`] for a given size, runtime state and theme.

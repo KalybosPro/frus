@@ -1558,6 +1558,12 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// Whether a finger drives the [`navigator`](Self::navigator)'s transition — a back
+    /// gesture — so that it follows the finger linearly (milestone 620).
+    fn navigator_gesture(&self) -> bool {
+        false
+    }
+
     /// Whether a [`navigator`](Self::navigator) **clips its pages to its own box**.
     /// `true`, which is the reference's default (`Clip.hardEdge`) and the only sane one:
     /// a screen sliding in comes from outside the box and has to stop at its edge.
@@ -2183,6 +2189,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()
+    }
+    fn navigator_gesture(&self) -> bool {
+        (**self).navigator_gesture()
     }
     fn navigator_clips(&self) -> bool {
         (**self).navigator_clips()
