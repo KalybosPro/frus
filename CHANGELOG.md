@@ -8,10 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 618 so far, each documenting the objective, the alternatives
+> record — one per step, 619 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The reference's motion curves** (J619): `Curve::ThreePointCubic`, two cubic Béziers
+  joined at a midpoint, and the presets `ease_in_out_cubic_emphasized`,
+  `fast_ease_in_to_slow_ease_out`, `linear_to_ease_out` and `ease_in_to_linear`, with the
+  reference's numbers — what its page transitions move on.
 
 - **The selection bar's desktop form** (J618). Under a theme whose platform is Fuchsia,
   Linux or Windows, Cut/Copy/Paste/Select all is the reference's desktop menu: a 222 px
