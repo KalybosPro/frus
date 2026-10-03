@@ -26,6 +26,12 @@ any release may break.
   `fast_ease_in_to_slow_ease_out`, `linear_to_ease_out` and `ease_in_to_linear`, with the
   reference's numbers — what its page transitions move on.
 
+- **The selection bar's desktop form** (J618). Under a theme whose platform is Fuchsia,
+  Linux or Windows, Cut/Copy/Paste/Select all is the reference's desktop menu: a 222 px
+  column of 36 px rows. A right-click opens the bar where the pointer is, on every platform;
+  otherwise a menu hangs from the selection's top. Fixed on the way: a press on the bar now
+  comes before the selection handles under it.
+
 - **The Android scrollbar, under an Android theme** (J617), as the reference draws it: 4 px,
   flush with the edge, square, an opaque grey at rest, and not something a pointer wakes
   or drags. `ScrollbarTheme::interactive` says otherwise.

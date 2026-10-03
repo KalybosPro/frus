@@ -5467,6 +5467,15 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             return;
         };
         let anchor = local.translate(draw_rect.x, draw_rect.y);
+        // Opened by a right-click, the bar goes where the pointer was (milestone 618), as
+        // the reference's context menu does (`editable_text.dart:3211`); the selection
+        // still decides whether it is shown at all.
+        let pointer = self
+            .runtime
+            .selection_toolbar
+            .filter(|mark| mark.id == id)
+            .and_then(|mark| mark.at)
+            .map(|at| Rect::new(at.x, at.y, 0.0, 0.0));
         // The bar goes with what it points at: a selection scrolled out of the region it is
         // drawn in takes its bar with it, rather than leaving it floating over nothing.
         let seen = anchor.x + anchor.width >= clip.x
@@ -5492,7 +5501,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.overlays.push((
             content,
             id.toolbar(context.variant()),
-            anchor,
+            pointer.unwrap_or(anchor),
             Placement::Selection,
             None,
             1.0,
@@ -5664,7 +5673,16 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     (self.available.height - size.height) * 0.5,
                 ),
                 Placement::Tooltip => (anchor_x, anchor.y - size.height - 6.0),
-                // The bar over a selection: centred on it, above or below, inside the window.
+                // The bar over a selection: on the desktops, a menu hanging from the pointer
+                // or the selection's top (milestone 618); elsewhere centred on it, above or
+                // below, inside the window.
+                Placement::Selection if crate::selectiontoolbar::uses_menu(self.theme.platform) => {
+                    crate::selectiontoolbar::place_menu(
+                        crate::selectiontoolbar::primary_anchor(anchor),
+                        Size::new(size.width, size.height),
+                        window,
+                    )
+                }
                 Placement::Selection => crate::selectiontoolbar::place(
                     anchor,
                     Size::new(size.width, size.height),
@@ -8207,8 +8225,65 @@ mod tests {
         let mut rt = Runtime::default();
         rt.edits.insert(id, edit);
         rt.input.focused = focused.then_some(id);
-        rt.selection_toolbar = marked.then_some(crate::runtime::ToolbarMark { id, can_paste });
-        build_ui(tree, Size::new(300.0, 400.0), &rt, &Theme::default())
+        rt.selection_toolbar = marked.then_some(crate::runtime::ToolbarMark {
+            id,
+            can_paste,
+            at: None,
+        });
+        // The pill's tests: under a theme that follows Android, where the bar is a pill
+        // (milestone 618), whatever this test runs on.
+        build_ui(tree, Size::new(300.0, 400.0), &rt, &pill_theme())
+    }
+
+    /// **On the desktops the bar is a menu, and a right-click puts it at the pointer**
+    /// (milestone 618; `editable_text.dart:3211`): opened any other way it hangs from the
+    /// top of the selection, at its middle; opened by a right-click it hangs from where the
+    /// pointer was; either way it is pushed back inside the window.
+    #[test]
+    fn a_desktop_menu_hangs_from_the_pointer_or_the_selection() {
+        let tree = bar_tree(150.0, "hello world");
+        let id = bar_field_id(&tree);
+        let theme = Theme::default().with_platform(frus_core::TargetPlatform::Linux);
+        let frame = |at: Option<Point>| {
+            let mut rt = Runtime::default();
+            rt.edits.insert(id, selected(5, Some(0)));
+            rt.input.focused = Some(id);
+            rt.selection_toolbar = Some(crate::runtime::ToolbarMark {
+                id,
+                can_paste: false,
+                at,
+            });
+            build_ui(&tree, Size::new(300.0, 400.0), &rt, &theme)
+        };
+        let window = Rect::new(0.0, 0.0, 300.0, 400.0);
+
+        let ui = frame(Some(Point::new(40.0, 60.0)));
+        let menu = ui.toolbars[0];
+        assert_eq!(menu.width, 222.0, "the menu, not the pill");
+        assert_eq!((menu.x, menu.y), (40.0, 60.0), "at the pointer");
+
+        let ui = frame(Some(Point::new(250.0, 380.0)));
+        let menu = ui.toolbars[0];
+        let expected = crate::selectiontoolbar::place_menu(
+            Point::new(250.0, 380.0),
+            Size::new(menu.width, menu.height),
+            window,
+        );
+        assert_eq!((menu.x, menu.y), expected, "pushed back inside");
+        assert!(menu.x + menu.width <= 292.0 && menu.y + menu.height <= 392.0);
+
+        let ui = frame(None);
+        let menu = ui.toolbars[0];
+        let field = ui.widget_rect(id).expect("the field");
+        assert!(
+            (menu.y - field.y).abs() < field.height,
+            "hangs from the selection's top, not above it: {menu:?} {field:?}"
+        );
+    }
+
+    /// A theme whose selection bar is the pill.
+    fn pill_theme() -> Theme {
+        Theme::default().with_platform(frus_core::TargetPlatform::Android)
     }
 
     fn selected(cursor: usize, anchor: Option<usize>) -> Edit {
@@ -8426,7 +8501,7 @@ mod tests {
                     .width(200.0)
                     .on_input(Msg::Edited),
             );
-        let theme = Theme::default();
+        let theme = pill_theme();
         let size = Size::new(300.0, 400.0);
         let ids: Vec<WidgetId> = build_ui(&tree, size, &Runtime::default(), &theme)
             .focusable_ids()
@@ -8441,6 +8516,7 @@ mod tests {
         rt.selection_toolbar = Some(crate::runtime::ToolbarMark {
             id: ids[1],
             can_paste: true,
+            at: None,
         });
         let ui = build_ui(&tree, size, &rt, &theme);
         assert_eq!(ui.toolbars.len(), 1);

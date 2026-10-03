@@ -47,12 +47,16 @@ impl Edit {
 
 /// Which field shows its selection bar, and what the clipboard held when it opened: the
 /// shell asks the platform once, on opening, not on every frame.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ToolbarMark {
     /// The field the bar acts on.
     pub id: WidgetId,
     /// Whether the clipboard held text when the bar opened, so whether Paste is offered.
     pub can_paste: bool,
+    /// Where a right-click opened it, in the frame's coordinates: the bar goes there
+    /// rather than to the selection, as the reference's context menu goes to the last
+    /// secondary tap (milestone 618). `None` when it opened any other way.
+    pub at: Option<frus_core::Point>,
 }
 
 /// One of the two handles under a touch selection, in the field's **local** coordinates
