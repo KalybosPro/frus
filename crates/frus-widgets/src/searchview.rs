@@ -65,21 +65,18 @@ const ELEVATION: f32 = 6.0;
 const BAR_PADDING_X: f32 = 8.0;
 
 /// **Whether a search view takes the whole screen**, decided the way the reference decides
-/// it (`search_anchor.dart:554`): by platform, at compile time here rather than from a
-/// `TargetPlatform` read at run time.
+/// it (`search_anchor.dart:554`): by the theme's platform — iOS, Android and Fuchsia
+/// open the screen; macOS, Linux and Windows do not (milestone 615).
 ///
 /// A phone opens the screen; a desktop hangs a panel under the bar. It is a question about
 /// how much room there is and how a search is got out of, not about taste — but
 /// [`SearchAnchor::full_screen`] overrules it, because a tablet in landscape is a phone
 /// that should be answering *no*.
-const fn full_screen_by_default() -> bool {
-    #[cfg(any(target_os = "ios", target_os = "android"))]
-    {
-        true
-    }
-    #[cfg(not(any(target_os = "ios", target_os = "android")))]
-    {
-        false
+const fn full_screen_by_default(platform: frus_core::TargetPlatform) -> bool {
+    use frus_core::TargetPlatform as P;
+    match platform {
+        P::Ios | P::Android | P::Fuchsia => true,
+        P::MacOs | P::Linux | P::Windows => false,
     }
 }
 
@@ -373,8 +370,9 @@ impl<Msg: Clone + 'static> SearchAnchor<Msg> {
     }
 
     /// Whether this view is the screen.
-    fn is_full_screen(&self) -> bool {
-        self.full_screen.unwrap_or_else(full_screen_by_default)
+    fn is_full_screen(&self, theme: &Theme) -> bool {
+        self.full_screen
+            .unwrap_or(full_screen_by_default(theme.platform))
     }
 
     /// The view's shape, resolved. **A full-screen view has no corners to round**: it is
@@ -386,7 +384,7 @@ impl<Msg: Clone + 'static> SearchAnchor<Msg> {
             self.shape,
             t.shape,
             self.radius.or(t.radius),
-            if self.is_full_screen() {
+            if self.is_full_screen(theme) {
                 ShapeBorder::rounded(BorderRadius::ZERO)
             } else {
                 ShapeBorder::rounded(BorderRadius::uniform(SEARCH_VIEW_RADIUS))
@@ -402,7 +400,7 @@ impl<Msg: Clone + 'static> SearchAnchor<Msg> {
     fn header(&self, theme: &Theme) -> f32 {
         self.header_height
             .or(theme.widgets.search_view.header_height)
-            .unwrap_or(if self.is_full_screen() {
+            .unwrap_or(if self.is_full_screen(theme) {
                 SEARCH_VIEW_FULL_SCREEN_HEADER
             } else {
                 crate::SEARCH_BAR_HEIGHT
@@ -497,7 +495,7 @@ impl<Msg: Clone + 'static> SearchAnchor<Msg> {
     /// The view: the header, the rule, the suggestions.
     fn build_view(&self, theme: &Theme) -> Box<dyn Widget<Msg>> {
         let t = &theme.widgets.search_view;
-        let full = self.is_full_screen();
+        let full = self.is_full_screen(theme);
         let screen = crate::MediaQuery::of().size;
 
         // **The column fills the view, and the list fills the column.** Two flex factors
@@ -554,7 +552,7 @@ impl<Msg: Clone + 'static> SearchAnchor<Msg> {
             // **Where the view goes.** Under the bar on a desktop, over everything on a
             // phone — the second one is `Center` and not a placement of its own because a
             // view that is the size of the screen is centred on it by arithmetic.
-            let placement = if self.is_full_screen() {
+            let placement = if self.is_full_screen(theme) {
                 Placement::Center
             } else {
                 Placement::Below
@@ -665,6 +663,22 @@ impl<Msg: Clone> Widget<Msg> for SearchView<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The theme's platform decides** (`search_anchor.dart:554`, milestone 615): the
+    /// screen on iOS, Android and Fuchsia, a panel on the three desktops — whatever this
+    /// test runs on — and `full_screen` overrules it either way.
+    #[test]
+    fn the_view_takes_the_screen_where_the_theme_s_platform_does() {
+        use frus_core::TargetPlatform as P;
+        for platform in P::ALL {
+            let theme = Theme::default().with_platform(platform);
+            let phone = matches!(platform, P::Ios | P::Android | P::Fuchsia);
+            let anchor = SearchAnchor::<()>::new(true, "");
+            assert_eq!(anchor.is_full_screen(&theme), phone, "{platform}");
+            let told = SearchAnchor::<()>::new(true, "").full_screen(!phone);
+            assert_eq!(told.is_full_screen(&theme), !phone, "told, {platform}");
+        }
+    }
     use frus_core::Primitive;
 
     #[derive(Clone, Debug, PartialEq)]

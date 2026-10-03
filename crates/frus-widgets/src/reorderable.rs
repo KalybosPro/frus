@@ -85,18 +85,14 @@ pub enum ReorderGrab {
     LongPress,
 }
 
-impl Default for ReorderGrab {
-    /// The reference's own rule, read from the platform rather than from a flag: a grip
-    /// where there is a pointer, a hold where there is a finger.
-    fn default() -> Self {
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        {
-            ReorderGrab::LongPress
-        }
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        {
-            ReorderGrab::Handle
-        }
+/// The way in a list that was not told, by the theme's platform: the reference's switch
+/// (`reorderable_list.dart:383`), a grip on the desktops and a hold on Android, Fuchsia
+/// and iOS.
+fn platform_grab(platform: frus_core::TargetPlatform) -> ReorderGrab {
+    use frus_core::TargetPlatform as P;
+    match platform {
+        P::Linux | P::Windows | P::MacOs => ReorderGrab::Handle,
+        P::Android | P::Fuchsia | P::Ios => ReorderGrab::LongPress,
     }
 }
 
@@ -126,7 +122,11 @@ type HandleFn<Msg> = Rc<dyn Fn(&Theme) -> Box<dyn Widget<Msg>>>;
 /// calls part of the API, and a list whose `.grab()` silently does nothing because it came
 /// after `.row()` is a bug no compiler catches.
 struct Spec<Msg> {
-    grab: ReorderGrab,
+    /// What the application said; `None` for the platform's way (milestone 615).
+    grab: Option<ReorderGrab>,
+    /// The theme's platform, as the last layout found it: what an untold list follows.
+    /// The gesture hooks run outside layout and read it from here.
+    platform: frus_core::TargetPlatform,
     /// The way the rows run: down, or across.
     axis: ReorderAxis,
     enabled: bool,
@@ -142,14 +142,19 @@ struct Spec<Msg> {
 }
 
 impl<Msg> Spec<Msg> {
+    /// The way in: what the application said, else the platform's.
+    fn grab(&self) -> ReorderGrab {
+        self.grab.unwrap_or_else(|| platform_grab(self.platform))
+    }
+
     /// Is the grip the way in, this frame?
     fn gripped(&self) -> bool {
-        self.enabled && self.grab == ReorderGrab::Handle
+        self.enabled && self.grab() == ReorderGrab::Handle
     }
 
     /// Is the whole row the way in, this frame?
     fn held(&self) -> bool {
-        self.enabled && self.grab == ReorderGrab::LongPress
+        self.enabled && self.grab() == ReorderGrab::LongPress
     }
 }
 
@@ -259,6 +264,14 @@ struct ReorderHandle<Msg> {
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for ReorderHandle<Msg> {
+    /// **Where the theme's platform is recorded** for the list: every row has a grip, laid
+    /// out under the theme the row is, and the gesture hooks — which run outside layout —
+    /// read what the last layout recorded here.
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.spec.borrow_mut().platform = theme.platform;
+        self.style()
+    }
+
     fn style(&self) -> Style {
         let spec = self.spec.borrow();
         if !spec.gripped() {
@@ -420,7 +433,8 @@ impl<Msg: Clone + 'static> ReorderableList<Msg> {
     ) -> Self {
         Self {
             spec: Rc::new(RefCell::new(Spec {
-                grab: ReorderGrab::default(),
+                grab: None,
+                platform: frus_core::default_target_platform(),
                 axis: ReorderAxis::Vertical,
                 enabled: true,
                 on_reorder: Some(Rc::new(crate::callback::handler2(on_reorder))),
@@ -482,10 +496,11 @@ impl<Msg: Clone + 'static> ReorderableList<Msg> {
         self
     }
 
-    /// How a row is picked up. Defaults to the platform's habit — see [`ReorderGrab`].
+    /// How a row is picked up. Untold, the theme's platform decides, as the reference's
+    /// does: a grip on Linux, macOS and Windows, a hold on Android, Fuchsia and iOS.
     #[must_use]
     pub fn grab(self, grab: ReorderGrab) -> Self {
-        self.spec.borrow_mut().grab = grab;
+        self.spec.borrow_mut().grab = Some(grab);
         self
     }
 
@@ -584,7 +599,9 @@ impl<Msg: Clone + 'static> ReorderableList<Msg> {
 
 /// The grip's contents: the application's widget, or the default glyph.
 fn grip<Msg: Clone + 'static>(spec: &Spec<Msg>, theme: &Theme) -> Box<dyn Widget<Msg>> {
-    if !spec.gripped() {
+    if !(spec.enabled
+        && spec.grab.unwrap_or_else(|| platform_grab(theme.platform)) == ReorderGrab::Handle)
+    {
         // Not this mode: an empty box, so that nothing is measured, drawn or hit.
         return Box::new(Container::new().width(0.0).height(0.0));
     }
@@ -693,6 +710,51 @@ mod tests {
                     .map(|i| (i, w.reorder_draggable(), w.reorder_droppable()))
             })
             .collect()
+    }
+
+    /// **An untold list picks up the way the theme's platform does** (milestone 615), the
+    /// reference's switch: a grip on the three desktops, a hold on Android, Fuchsia and
+    /// iOS — whatever this test runs on. A list that was told keeps what it was told.
+    #[test]
+    fn an_untold_list_follows_the_theme_s_platform() {
+        use frus_core::TargetPlatform as P;
+        let untold = || {
+            ReorderableList::new(Msg::Moved)
+                .width(300.0)
+                .keyed_row(1, Container::new().height(40.0).child(text("one")))
+                .keyed_row(2, Container::new().height(40.0).child(text("two")))
+        };
+        // Laid out under a theme of that platform, then asked what the shell asks.
+        let held = |list: &ReorderableList<Msg>, platform: P| {
+            let theme = Theme::dark().with_platform(platform);
+            crate::build_ui(list, Size::new(300.0, 400.0), &Runtime::default(), &theme);
+            let mut nodes: Vec<&dyn Widget<Msg>> = vec![list];
+            let mut i = 0;
+            while i < nodes.len() {
+                for child in nodes[i].children() {
+                    nodes.push(child.as_ref());
+                }
+                i += 1;
+            }
+            let rows: Vec<_> = nodes
+                .into_iter()
+                .filter(|w| w.reorder_index().is_some() && w.reorder_droppable())
+                .collect();
+            assert_eq!(rows.len(), 2, "two rows under {platform}");
+            rows.iter().all(|w| w.drag_needs_long_press())
+        };
+        for platform in P::ALL {
+            let finger = matches!(platform, P::Android | P::Fuchsia | P::Ios);
+            assert_eq!(held(&untold(), platform), finger, "{platform}");
+            assert!(
+                !held(&untold().grab(ReorderGrab::Handle), platform),
+                "told, {platform}"
+            );
+            assert!(
+                held(&untold().grab(ReorderGrab::LongPress), platform),
+                "told, {platform}"
+            );
+        }
     }
 
     #[test]

@@ -8,10 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 614 so far, each documenting the objective, the alternatives
+> record — one per step, 615 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Widgets follow the theme's platform** (J615), with the reference's tables: the app
+  bar's title centring, the back glyph, the search view's full screen and the reorderable
+  list's way in read `Theme::platform` instead of the build target, so a theme set to iOS
+  behaves as iOS on any device. Fixed on the way: the back glyph on Apple platforms is the
+  iOS arrow, not a chevron, and Fuchsia opens a search full screen and reorders with a hold.
+  **Breaking**: `platform_centers_title(platform, actions)` takes the platform, and
+  `ReorderGrab` no longer implements `Default`.
 
 - **Which platform, and whose conventions** (J614). `TargetPlatform` (Android, Fuchsia,
   iOS, Linux, macOS, Windows), `default_target_platform()` with a debug override, `IS_WEB`,
