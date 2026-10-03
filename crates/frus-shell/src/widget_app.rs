@@ -334,6 +334,14 @@ impl Application for FrusApp {
         }
     }
 
+    /// The router pops: the page leaves with its transition, as it does for a back
+    /// button in the reference, and not as a swipe let go (milestone 622).
+    fn go_back(&mut self) {
+        if let Some(router) = &self.router {
+            router.pop();
+        }
+    }
+
     fn theme(&self) -> Theme {
         host::app().theme()
     }
@@ -630,6 +638,31 @@ mod router_tests {
             seen.borrow().last(),
             Some(&1),
             "and the first page is shown again with its state, not made anew"
+        );
+    }
+
+    /// **The system's Back pops the page** (milestone 622): the page leaves with its own
+    /// transition, at once the stack's, rather than as a swipe let go — which would keep it
+    /// on the stack until a settle had carried it off.
+    #[test]
+    fn the_system_back_pops_the_page() {
+        let (app, router) = app(Rc::default());
+        let mut driver = Driver::new(app, SIDE, SIDE);
+        driver.frame(1.0 / 60.0);
+        router.push("/second");
+        driver.run(1.5);
+        assert_eq!(router.depth(), 2);
+
+        assert!(driver.system_back(), "there was a page to go back from");
+        assert_eq!(
+            (router.location(), router.depth()),
+            ("/".to_string(), 1),
+            "popped at once: a pop, not a swipe settling"
+        );
+        driver.run(1.5);
+        assert!(
+            !driver.system_back(),
+            "and with nothing left to go back from, Back leaves the application"
         );
     }
 

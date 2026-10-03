@@ -19,6 +19,11 @@ any release may break.
   whole style, so a family or a line height of its own no longer measures in one face and
   draws in another.
 
+- **The system's Back is a pop** (J622). Android's back button, the browser's Back and a back
+  key now call `Application::go_back()`, which a router-built application answers with a
+  plain pop — the page leaves with its own transition — instead of a back swipe let go at
+  once. The default still plays the swipe, for applications that only answer the gesture.
+
 - **An iOS page let go** (J621). Under the iOS slide, a back swipe released at a screen width
   a second or more goes or stays by its direction, a slower one by whether it passed
   halfway, and either finishes in 350 ms on `fastEaseInToSlowEaseOut` — the reference's
