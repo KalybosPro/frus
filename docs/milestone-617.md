@@ -47,3 +47,7 @@ frus has no Apple-style widgets to switch to; porting them is its own work.
   whether a pointer can wake or take the bar.
 - `an_android_bar_takes_the_theme_s_word`: a theme that makes the bar interactive, or
   colours it, is obeyed on Android too.
+
+Mutation testing: five mutants, all killed — the Android thickness, margin and
+interactivity each reverted to the desktop's, the resting grey overriding a theme's own
+colour, and a pointer waking a bar that is not interactive.
