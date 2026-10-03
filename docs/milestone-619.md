@@ -31,3 +31,8 @@ the shape and the four curves, ahead of the page transitions that use them.
   five.
 - `the_ios_cubics_lead_and_lag`: `linearToEaseOut` stays ahead of linear,
   `easeInToLinear` behind it.
+
+Mutation testing: four mutants, all killed — the second segment not lifted to its midpoint,
+the segments split at the wrong place, a preset's midpoint moved, and a control point of
+`linearToEaseOut` changed. The last first survived: "ahead of linear" was true of the wrong
+curve too, so the iOS pair is now held to the reference's values as well.

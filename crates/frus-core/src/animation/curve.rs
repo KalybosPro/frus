@@ -284,12 +284,16 @@ mod tests {
         ] {
             for (t, want) in [0.1, 0.25, 0.5, 0.75].into_iter().zip(table) {
                 let got = curve.transform(t);
-                assert!((got - want).abs() < 5e-3, "{curve:?} at {t}: {got} vs {want}");
+                assert!(
+                    (got - want).abs() < 5e-3,
+                    "{curve:?} at {t}: {got} vs {want}"
+                );
             }
         }
     }
 
-    /// **The iOS pair**: `linearToEaseOut` is ahead of linear, `easeInToLinear` behind it.
+    /// **The iOS pair**: `linearToEaseOut` is ahead of linear, `easeInToLinear` behind it,
+    /// each by the reference's margin.
     #[test]
     fn the_ios_cubics_lead_and_lag() {
         let lead = Curve::linear_to_ease_out();
@@ -298,6 +302,19 @@ mod tests {
         endpoints(&lag);
         for t in [0.25, 0.5, 0.75] {
             assert!(lead.transform(t) > t && lag.transform(t) < t, "at {t}");
+        }
+        // And by as much as the reference's: its own evaluation, within a few thousandths.
+        for (curve, table) in [
+            (&lead, [0.6237, 0.9198, 0.9826]),
+            (&lag, [0.0174, 0.0802, 0.3763]),
+        ] {
+            for (t, want) in [0.25, 0.5, 0.75].into_iter().zip(table) {
+                let got = curve.transform(t);
+                assert!(
+                    (got - want).abs() < 5e-3,
+                    "{curve:?} at {t}: {got} vs {want}"
+                );
+            }
         }
     }
 
