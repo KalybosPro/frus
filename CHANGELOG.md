@@ -8,10 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 620 so far, each documenting the objective, the alternatives
+> record — one per step, 621 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **An iOS page let go** (J621). Under the iOS slide, a back swipe released at a screen width
+  a second or more goes or stays by its direction, a slower one by whether it passed
+  halfway, and either finishes in 350 ms on `fastEaseInToSlowEaseOut` — the reference's
+  rules. Other transitions keep frus's own swipe.
 
 - **Page transitions, platform by platform** (J620). `PageTransitionsTheme` on the theme maps
   each platform to the reference's builder — Android fades forwards, iOS and macOS slide,

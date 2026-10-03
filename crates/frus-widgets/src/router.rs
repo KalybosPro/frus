@@ -70,6 +70,12 @@ use crate::widget::Widget;
 const BACK_PROJECT: f32 = 0.12;
 /// Projected position (a fraction) beyond which going back is committed.
 const BACK_COMMIT_POS: f32 = 0.5;
+/// How fast a released iOS page must be moving, in screen widths per second, for its
+/// direction to decide whether it goes (`route.dart:32`).
+const CUPERTINO_FLING: f32 = 1.0;
+/// How long a released iOS page takes to finish going, or to come back
+/// (`route.dart:35`).
+const CUPERTINO_SETTLE: f32 = 0.35;
 /// Stiffness of the page transition's spring.
 const SPRING_K: f32 = 220.0;
 /// Its damping: close to critical, so a page arrives without overshooting.
@@ -1051,13 +1057,35 @@ impl GoRouter {
     pub fn back_gesture_end(&self, velocity: f32) {
         let mut stack = self.inner.stack.borrow_mut();
         let deep_enough = stack.pages.len() > 1;
+        let cupertino = self.inner.transitions.get() == crate::PageTransitionsBuilder::Cupertino;
         if let Some(back) = stack.back.as_mut() {
-            let projected = back.progress + velocity * BACK_PROJECT;
-            let commit = projected > BACK_COMMIT_POS && deep_enough;
-            back.commit = commit;
             let mut settle = AnimationController::unit();
             settle.set_value(back.progress);
-            settle.spring_to(if commit { 1.0 } else { 0.0 }, spring(), velocity);
+            let commit = if cupertino {
+                // **The iOS page's own rules** (`route.dart:851`, milestone 621): moving
+                // fast enough, its direction decides; otherwise, whether it was past
+                // halfway. Then it finishes in 350 ms on its curve, wherever it was.
+                let goes = if velocity.abs() >= CUPERTINO_FLING {
+                    velocity > 0.0
+                } else {
+                    back.progress >= 0.5
+                };
+                let commit = goes && deep_enough;
+                settle.animate_to(
+                    if commit { 1.0 } else { 0.0 },
+                    CUPERTINO_SETTLE,
+                    Curve::fast_ease_in_to_slow_ease_out(),
+                );
+                commit
+            } else {
+                // Elsewhere the swipe is frus's own: where the finger's momentum would
+                // carry the page, and a spring from there.
+                let projected = back.progress + velocity * BACK_PROJECT;
+                let commit = projected > BACK_COMMIT_POS && deep_enough;
+                settle.spring_to(if commit { 1.0 } else { 0.0 }, spring(), velocity);
+                commit
+            };
+            back.commit = commit;
             back.settle = Some(settle);
         }
         drop(stack);
@@ -1531,6 +1559,47 @@ mod tests {
         while r.tick(0.05) {}
         let tree = r.build(&BuildContext::for_test(&runtime, &theme));
         assert!(!tree.navigator_gesture(), "and not once it has let go");
+    }
+
+    /// **An iOS page let go follows the iOS rules** (`route.dart:851`, milestone 621):
+    /// moving at a screen width a second or more, its direction decides — a flick back
+    /// pops it even from near the start, a flick the other way keeps it even from near
+    /// the end; slower, half the way decides. And it takes 350 ms either way.
+    #[test]
+    fn an_ios_page_let_go_follows_the_ios_rules() {
+        let released = |progress: f32, velocity: f32| {
+            let r = router();
+            let runtime = crate::Runtime::default();
+            let theme = crate::Theme::default().with_platform(frus_core::TargetPlatform::Ios);
+            let _ = r.build(&BuildContext::for_test(&runtime, &theme));
+            r.push("/settings");
+            r.back_gesture(progress);
+            r.back_gesture_end(velocity);
+            let mut frames = 0;
+            while r.tick(0.01) {
+                frames += 1;
+                assert!(frames < 1000);
+            }
+            (r.depth(), frames)
+        };
+        assert_eq!(
+            released(0.2, 1.2).0,
+            1,
+            "a flick back pops it from near the start"
+        );
+        assert_eq!(released(0.8, -1.2).0, 2, "a flick the other way keeps it");
+        assert_eq!(released(0.6, 0.5).0, 1, "slow, past halfway: it goes");
+        assert_eq!(released(0.4, 0.9).0, 2, "slow, not halfway: it stays");
+        let (_, frames) = released(0.6, 0.0);
+        assert!(
+            (34..=36).contains(&frames),
+            "350 ms: {frames} frames of 10 ms"
+        );
+        let (_, frames) = released(0.1, 0.0);
+        assert!(
+            (34..=36).contains(&frames),
+            "from wherever it was: {frames}"
+        );
     }
 
     #[test]
