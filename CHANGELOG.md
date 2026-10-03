@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 621 so far, each documenting the objective, the alternatives
+> record — one per step, 623 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Letter spacing** (J623). `TextStyle::letter_spacing(px)`, the reference's
+  `letterSpacing`: cascaded, animated, not grown by the reader's font setting, and carried
+  through measuring, line breaking, caret geometry and drawing. `Text` now measures under its
+  whole style, so a family or a line height of its own no longer measures in one face and
+  draws in another.
 
 - **An iOS page let go** (J621). Under the iOS slide, a back swipe released at a screen width
   a second or more goes or stays by its direction, a slower one by whether it passed
