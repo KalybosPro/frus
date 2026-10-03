@@ -3933,7 +3933,6 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         if let Some((progress, forward)) = widget.navigator() {
             let bounds = draw_rect;
             let children = widget.children();
-            let w = bounds.width;
             // **The pages stop at the navigator's edge.** A screen sliding in comes from
             // outside the box, and one sliding out goes outside it; before milestone 398
             // the only thing stopping them was the window, so a navigator that was not the
