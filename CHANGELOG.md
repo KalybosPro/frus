@@ -8,10 +8,14 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 616 so far, each documenting the objective, the alternatives
+> record — one per step, 617 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The Android scrollbar, under an Android theme** (J617), as the reference draws it: 4 px,
+  flush with the edge, square, an opaque grey at rest, and not something a pointer wakes
+  or drags. `ScrollbarTheme::interactive` says otherwise.
 
 - **A scroll behaviour, in force for a subtree** (J616). `ScrollBehavior` decides a
   scrollable's physics, scrollbars, overscroll indicator and fling reading from one

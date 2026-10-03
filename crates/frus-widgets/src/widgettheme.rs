@@ -1063,25 +1063,33 @@ pub struct DatePickerTheme {
 /// it was set to would be worse than no field.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ScrollbarTheme {
-    /// The thumb's thickness. Unset, 8 — and it is the **thumb's**, not a slot's: the
-    /// margin holds it clear of the edge rather than shrinking it to fit.
+    /// The thumb's thickness. Unset, 8, or 4 under a theme whose platform is Android —
+    /// and it is the **thumb's**, not a slot's: the margin holds it clear of the edge
+    /// rather than shrinking it to fit.
     pub thickness: Option<f32>,
-    /// How far the thumb is held clear of the edge it runs along. Unset, 2.
+    /// How far the thumb is held clear of the edge it runs along. Unset, 2, or none under
+    /// an Android theme.
     pub margin: Option<f32>,
     /// How short the thumb is allowed to get on a very long page. Unset, 48 — below
     /// which it stops reading as a handle and stops being one to grab.
     pub min_thumb_length: Option<f32>,
-    /// The thumb's corner radius. Unset, half its thickness, which is a pill.
+    /// The thumb's corner radius. Unset, half its thickness, which is a pill — or square
+    /// ends under an Android theme.
     pub radius: Option<f32>,
     /// The colour the thumb is a fade of. Unset, the scheme's `on_surface`.
     pub thumb_color: Option<Color>,
-    /// Its opacity at rest. Unset, 0.30 on a dark surface and 0.10 on a light one.
+    /// Its opacity at rest. Unset, 0.30 on a dark surface and 0.10 on a light one; under an
+    /// Android theme, with no `thumb_color` either, the thumb rests an opaque grey instead.
     pub opacity: Option<f32>,
     /// Its opacity with a pointer near it, which it warms towards. Unset, 0.65 and 0.50.
     pub hover_opacity: Option<f32>,
     /// Its opacity while it is held. Unset, 0.75 and 0.60. This one does not fade in —
     /// the hand is already on it, and a fade would only lag behind the grab.
     pub drag_opacity: Option<f32>,
+    /// Whether a pointer can wake, hover and drag the thumb. Unset, it can — except under
+    /// a theme whose platform is Android, where the bar only shows where the page is
+    /// (`scrollbar.dart:218`).
+    pub interactive: Option<bool>,
 }
 
 /// Defaults for [`NavigationBar`](crate::NavigationBar) — the bar at the **head** of a
