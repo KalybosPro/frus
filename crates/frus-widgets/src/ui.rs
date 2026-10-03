@@ -52,6 +52,10 @@ const THUMB_HOVER_ON_LIGHT: f32 = 0.50;
 /// the hand is already on it, and a fade would only lag behind the grab.
 const THUMB_DRAG_ON_DARK: f32 = 0.75;
 const THUMB_DRAG_ON_LIGHT: f32 = 0.60;
+/// An Android thumb at rest: the reference's highlight colours, made opaque
+/// (`theme_data.dart:501`, `scrollbar.dart:240`).
+const ANDROID_THUMB_ON_DARK: Color = Color::rgba8(0xCC, 0xCC, 0xCC, 0xFF);
+const ANDROID_THUMB_ON_LIGHT: Color = Color::rgba8(0xBC, 0xBC, 0xBC, 0xFF);
 
 /// One **axis** of a scroll area, as a scrollbar needs to see it: which way it runs, where
 /// it has got to, how far it may go, whether its numbers run backwards, and what the area
@@ -98,6 +102,9 @@ pub struct Scrollbar {
     /// reaches out like this on purpose (`scrollbar.dart:762`) — a bar 8 pixels wide,
     /// resting at a tenth of an opacity, is not something a hand aims at precisely.
     pub reach: Rect,
+    /// Whether a pointer can wake and drag it; not under an Android theme, where the bar
+    /// only shows where the page is (milestone 617).
+    pub interactive: bool,
 }
 
 /// A scrollable area of the frame: where it is, how far it may scroll, and how it
@@ -1351,7 +1358,7 @@ impl<Msg: Clone> Ui<Msg> {
         self.scrollbars
             .iter()
             .rev()
-            .find(|bar| bar.opacity > 0.0 && bar.thumb.contains(point))
+            .find(|bar| bar.interactive && bar.opacity > 0.0 && bar.thumb.contains(point))
             .copied()
     }
 
@@ -1366,7 +1373,7 @@ impl<Msg: Clone> Ui<Msg> {
         self.scrollbars
             .iter()
             .rev()
-            .find(|bar| bar.reach.contains(point))
+            .find(|bar| bar.interactive && bar.reach.contains(point))
             .copied()
     }
 
@@ -5755,8 +5762,15 @@ impl<Msg: Clone> Builder<'_, Msg> {
         // scrollbar — it is drawn by the walk, not by a widget a caller configured — so
         // the chain is two terms here rather than three.
         let bar = &self.theme.widgets.scrollbar;
-        let bar_size = bar.thickness.unwrap_or(BAR_SIZE);
-        let bar_margin = bar.margin.unwrap_or(BAR_MARGIN);
+        // **Under an Android theme, the platform's own bar** (`scrollbar.dart:331`): half
+        // as thick, flush with the edge, square-ended, an opaque grey at rest, and not
+        // something a pointer takes hold of. The theme's platform decides it, as the
+        // reference's does, so a theme set to Android draws it on any device.
+        let android = self.theme.platform == frus_core::TargetPlatform::Android;
+        let bar_size = bar
+            .thickness
+            .unwrap_or(if android { BAR_SIZE / 2.0 } else { BAR_SIZE });
+        let bar_margin = bar.margin.unwrap_or(if android { 0.0 } else { BAR_MARGIN });
         let thumb_len = (track_len * track_len / content_len)
             .max(bar.min_thumb_length.unwrap_or(MIN_THUMB))
             .min(track_len);
@@ -5841,17 +5855,30 @@ impl<Msg: Clone> Builder<'_, Msg> {
         let rest = bar.opacity.unwrap_or(rest);
         let warm = bar.hover_opacity.unwrap_or(warm);
         let grabbed = bar.drag_opacity.unwrap_or(grabbed);
-        let level = if self.runtime.scrollbar_dragged == Some(id) {
-            grabbed
+        let base = bar.thumb_color.unwrap_or(self.theme.scheme.on_surface);
+        // At rest under an Android theme, the reference's thumb is the theme's highlight
+        // made opaque (`scrollbar.dart:240`, `:246`), not a fade of the content colour —
+        // unless the theme chose a colour or a resting level of its own.
+        let idle = if android && bar.thumb_color.is_none() && bar.opacity.is_none() {
+            if dark {
+                ANDROID_THUMB_ON_DARK
+            } else {
+                ANDROID_THUMB_ON_LIGHT
+            }
         } else {
-            rest + (warm - rest) * fade.hover.clamp(0.0, 1.0)
+            base.fade(rest)
+        };
+        let color = if self.runtime.scrollbar_dragged == Some(id) {
+            base.fade(grabbed)
+        } else {
+            idle.lerp(base.fade(warm), fade.hover.clamp(0.0, 1.0))
         };
         if opacity > 0.0 {
-            let base = bar.thumb_color.unwrap_or(self.theme.scheme.on_surface);
             self.scene.draw_rect(
                 thumb,
-                base.fade(level * opacity),
-                bar.radius.unwrap_or(bar_size * 0.5),
+                color.fade(opacity),
+                bar.radius
+                    .unwrap_or(if android { 0.0 } else { bar_size * 0.5 }),
                 0.0,
                 Color::TRANSPARENT,
             );
@@ -5872,6 +5899,7 @@ impl<Msg: Clone> Builder<'_, Msg> {
             max,
             opacity,
             reach,
+            interactive: bar.interactive.unwrap_or(!android),
         });
     }
 }
@@ -7011,6 +7039,97 @@ mod tests {
             &Theme::dark(),
         );
         painted(&ui)
+    }
+
+    /// **Under an Android theme, the platform's own bar** (`scrollbar.dart:331`, milestone
+    /// 617): 4 px instead of 8, flush with the edge instead of 2 px in, square instead of
+    /// a pill, an opaque grey at rest instead of a fade of the content colour, and nothing
+    /// a pointer can take hold of — whatever this test runs on.
+    #[test]
+    fn an_android_theme_draws_the_android_bar() {
+        let (runtime, _bars) = bars_runtime(Scrollbars::Always);
+        let laid = |platform: frus_core::TargetPlatform| {
+            let ui = build_ui(
+                &tall().thumb_visibility(true),
+                Size::new(200.0, 100.0),
+                &runtime,
+                &Theme::dark().with_platform(platform),
+            );
+            let thumb = ui
+                .scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect {
+                        rect,
+                        color,
+                        radius,
+                        ..
+                    } if rect.x >= 200.0 - BAR_SIZE - BAR_MARGIN * 2.0 => {
+                        Some((*rect, *color, radius.top_left))
+                    }
+                    _ => None,
+                })
+                .expect("a thumb");
+            let bar = ui.scrollbars()[0];
+            let center = Point::new(
+                bar.thumb.x + bar.thumb.width / 2.0,
+                bar.thumb.y + bar.thumb.height / 2.0,
+            );
+            (
+                thumb,
+                bar.interactive,
+                ui.scrollbar_at(center).is_some(),
+                ui.scrollbar_near(center).is_some(),
+            )
+        };
+        let ((rect, color, radius), interactive, grabbed, woken) =
+            laid(frus_core::TargetPlatform::Android);
+        assert_eq!(
+            (rect.width, rect.x + rect.width),
+            (4.0, 200.0),
+            "4 px, flush"
+        );
+        assert_eq!(radius, 0.0, "square ends");
+        assert_eq!(color, ANDROID_THUMB_ON_DARK, "an opaque grey at rest");
+        assert!(
+            !interactive && !grabbed && !woken,
+            "nothing to take hold of"
+        );
+
+        let ((rect, color, radius), interactive, grabbed, woken) =
+            laid(frus_core::TargetPlatform::Linux);
+        assert_eq!(
+            (rect.width, rect.x + rect.width),
+            (8.0, 198.0),
+            "8 px, 2 px in"
+        );
+        assert_eq!(radius, 4.0, "a pill");
+        assert!(color.a < 1.0, "a fade of the content colour");
+        assert!(
+            interactive && grabbed && woken,
+            "a pointer takes hold of it"
+        );
+    }
+
+    /// **A theme's word outranks the platform's** on an Android theme too: a bar it makes
+    /// interactive is one, and a colour it chose is the one at rest.
+    #[test]
+    fn an_android_bar_takes_the_theme_s_word() {
+        let (runtime, _bars) = bars_runtime(Scrollbars::Always);
+        let mut theme = Theme::dark().with_platform(frus_core::TargetPlatform::Android);
+        theme.widgets.scrollbar.interactive = Some(true);
+        theme.widgets.scrollbar.thumb_color = Some(Color::rgb(1.0, 0.0, 0.0));
+        let ui = build_ui(
+            &tall().thumb_visibility(true),
+            Size::new(200.0, 100.0),
+            &runtime,
+            &theme,
+        );
+        let bar = ui.scrollbars()[0];
+        assert!(bar.interactive);
+        let color = painted(&ui)[0].1;
+        assert_eq!((color.r, color.g, color.b), (1.0, 0.0, 0.0));
     }
 
     /// A tall column in a short viewport: something to scroll.
