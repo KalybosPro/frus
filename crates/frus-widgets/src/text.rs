@@ -540,7 +540,6 @@ impl Text {
     /// limit, cutting the last one, deciding whether a line ran past the edge. The paint
     /// draws what comes back, and the overflow mode decides how.
     pub(crate) fn fitted(&self, width: f32, r: &Resolved) -> Fitted {
-        let (size, weight, italic) = (r.style.size, r.style.weight, r.style.italic);
         // Only a line **limit** makes the words the widget's business. Left alone, the
         // text goes to the renderer whole and is broken there.
         //
@@ -551,8 +550,10 @@ impl Text {
         let mut text = self.content.clone();
         let mut too_tall = false;
         if let Some(max) = r.max_lines {
+            // Under the whole style — its line height, family and letter spacing break
+            // the lines as the renderer will (milestone 623).
             let spans =
-                frus_text::line_spans(&self.content, size, weight, italic, Some(width), r.wrap);
+                frus_text::line_spans_resolved(&self.content, &r.style, Some(width), r.wrap);
             if spans.len() > max {
                 too_tall = true;
                 let cut = spans[max].start;
@@ -567,8 +568,7 @@ impl Text {
         }
         // A line can only be wider than the box when nothing may push it onto the next
         // one. Where the text wraps, every line fits by construction.
-        let too_wide =
-            !r.wrap && frus_text::measure_styled(&text, size, weight, italic).width > width + 0.5;
+        let too_wide = !r.wrap && frus_text::measure_resolved(&text, &r.style).width > width + 0.5;
         if too_wide && !too_tall && r.overflow == TextOverflow::Ellipsis {
             text = ellipsise(&text, &r.style, width);
         }
@@ -781,11 +781,13 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
         let max_lines = r.max_lines;
         let wrap = r.wrap;
         Some(Box::new(move |max_width, _| {
-            let mut size = frus_text::measure_wrapped(
+            // Under the whole style, as the renderer draws it: its line height, its family
+            // and its letter spacing (milestone 623). Measured by size, weight and slant
+            // alone, a text with a family or a line height of its own was measured in
+            // another face, at another height, than it was drawn.
+            let mut size = frus_text::measure_wrapped_resolved(
                 &content,
-                style.size,
-                style.weight,
-                style.italic,
+                &style,
                 // A text that only wanted the width to align inside is still one line:
                 // the constraint tells it where its box ends, not where to break.
                 if wrap { max_width } else { None },
@@ -1811,6 +1813,7 @@ mod tests {
                 // declared: unknown, which the renderer reads as "covers everything".
                 bounds: Rect::UNBOUNDED,
                 owner: 0,
+                letter_spacing: 0.0,
             }
         );
     }

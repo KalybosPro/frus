@@ -206,6 +206,7 @@ impl TextPainter {
                         // this one is a ratio of the font size.
                         height: line_ratio,
                         family,
+                        letter_spacing,
                         clip,
                         ..
                     } => {
@@ -238,6 +239,8 @@ impl TextPainter {
                             // Upright when no oblique face is loaded: an application
                             // that dropped `bundled-italic` gets straight text, not none.
                             .style(frus_text::available_style(*italic));
+                        // Spaced as the measurement spaced it (milestone 623).
+                        let attrs = frus_text::spaced(attrs, *letter_spacing, *size);
                         buffer.set_text(text, &attrs, glyphon::Shaping::Advanced, None);
                         // Alignment is per buffer line, and it is only set when it was
                         // asked for: the default leaves cosmic-text to align by the
@@ -309,20 +312,24 @@ impl TextPainter {
                         let spans = runs.iter().enumerate().map(|(index, run)| {
                             (
                                 run.text.as_str(),
-                                glyphon::Attrs::new()
-                                    .family(frus_text::family_for(&run.text))
-                                    .weight(glyphon::Weight(frus_text::available_weight(
-                                        run.weight,
-                                    )))
-                                    .style(frus_text::available_style(run.italic))
-                                    .metrics(glyphon::Metrics::new(
-                                        run.size,
-                                        run.size * LINE_HEIGHT_FACTOR,
-                                    ))
-                                    .color(to_glyphon(&run.color))
-                                    // Ties each glyph to its source run, for the
-                                    // per-span decorations.
-                                    .metadata(index),
+                                frus_text::spaced(
+                                    glyphon::Attrs::new()
+                                        .family(frus_text::family_for(&run.text))
+                                        .weight(glyphon::Weight(frus_text::available_weight(
+                                            run.weight,
+                                        )))
+                                        .style(frus_text::available_style(run.italic))
+                                        .metrics(glyphon::Metrics::new(
+                                            run.size,
+                                            run.size * LINE_HEIGHT_FACTOR,
+                                        ))
+                                        .color(to_glyphon(&run.color))
+                                        // Ties each glyph to its source run, for the
+                                        // per-span decorations.
+                                        .metadata(index),
+                                    run.letter_spacing,
+                                    run.size,
+                                ),
                             )
                         });
                         buffer.set_rich_text(
@@ -469,6 +476,54 @@ mod tests {
         )
     }
 
+    /// The right-most column with a lit pixel, rendering `scene` 256 px wide.
+    fn rightmost_lit(scene: &Scene) -> Option<usize> {
+        let frame = crate::offscreen::render_offscreen(scene, 256, 64, Color::BLACK)?;
+        let width = 256;
+        Some(
+            frame
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .enumerate()
+                .filter(|(_, px)| px[0] > 16)
+                .map(|(i, _)| i % width)
+                .max()
+                .unwrap_or(0),
+        )
+    }
+
+    /// **The renderer spaces the letters as the measurement did** (milestone 623): the
+    /// same four letters drawn 6 px apart reach about 18 px further right — three gaps —
+    /// than drawn without spacing.
+    #[test]
+    fn letter_spacing_reaches_the_pixels() {
+        let draw = |spacing: f32| {
+            let mut scene = Scene::new();
+            scene.text(
+                Point::new(4.0, 4.0),
+                "IIII",
+                &frus_core::ResolvedTextStyle {
+                    letter_spacing: spacing,
+                    ..frus_core::ResolvedTextStyle::exact(32.0)
+                },
+                Color::WHITE,
+            );
+            rightmost_lit(&scene)
+        };
+        match (draw(0.0), draw(6.0)) {
+            (Some(plain), Some(spaced)) => {
+                let further = spaced as f32 - plain as f32;
+                assert!(
+                    (further - 18.0).abs() <= 3.0,
+                    "spaced ink ends {further} px further, three gaps of 6 expected"
+                );
+            }
+            _ => eprintln!("no GPU adapter available: test skipped"),
+        }
+    }
+
     /// Proof of rasterisation: white text produces non-black pixels.
     #[test]
     fn renders_text_to_non_background_pixels() {
@@ -520,6 +575,7 @@ mod tests {
             color: Color::WHITE,
             decoration: TextDecoration::NONE,
             decoration_color: None,
+            letter_spacing: 0.0,
         };
         let mut scene = Scene::new();
         scene.rich_text(
@@ -587,6 +643,7 @@ mod tests {
             color: Color::WHITE,
             decoration,
             decoration_color: None,
+            letter_spacing: 0.0,
         };
         let plain = {
             let mut scene = Scene::new();
