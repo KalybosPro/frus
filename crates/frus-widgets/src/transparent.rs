@@ -782,6 +782,9 @@ macro_rules! forward_transparent {
             fn navigator(&self) -> Option<(f32, bool)> {
                 self.inner.navigator()
             }
+            fn navigator_gesture(&self) -> bool {
+                self.inner.navigator_gesture()
+            }
             fn navigator_retained(&self) -> usize {
                 self.inner.navigator_retained()
             }

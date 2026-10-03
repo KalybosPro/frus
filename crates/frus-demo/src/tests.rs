@@ -25,6 +25,11 @@ struct Bench {
     runtime: Runtime,
     size: Size,
     insets: WindowInsets,
+    /// The platform the theme follows: the page transition, the scroll behaviour and the
+    /// selection bar are the platform's (milestones 615–620). Android — the phone this demo
+    /// is tried on — unless a test says otherwise, so a test sees the same thing on every
+    /// machine that runs it.
+    platform: frus_widgets::TargetPlatform,
 }
 
 impl Bench {
@@ -37,6 +42,7 @@ impl Bench {
             runtime: Runtime::default(),
             size: Size::new(width, height),
             insets: WindowInsets::ZERO,
+            platform: frus_widgets::TargetPlatform::Android,
         };
         // The first frame starts the router.
         let _ = bench.frame();
@@ -85,7 +91,8 @@ impl Bench {
     fn frame(&self) -> (Box<dyn Widget>, Ui) {
         let theme = self
             .app
-            .resolved_theme(frus_widgets::Brightness::Dark, false);
+            .resolved_theme(frus_widgets::Brightness::Dark, false)
+            .with_platform(self.platform);
         MediaQuery::new(self.size)
             .with_insets(self.insets)
             .scope(|| {
@@ -1597,13 +1604,16 @@ fn rotating_the_phone_leaves_the_navigation_at_the_bottom() {
 /// task row, lifted that row instead of sliding the page. The shell builds the view again only
 /// while the application says it is moving, and the tick that ends a push says it is not — so
 /// the frame it hit-tests against is the push's last, with the home page still in it,
-/// parallaxed under the edge. The shell now builds once more on the frame an animation settles
-/// in; this is the premise, on the demo's own page, at the phone's coordinates.
+/// still under the edge as its transition carries it out. The shell now builds once more on the
+/// frame an animation settles in; this is the premise, on the demo's own page, at the phone's
+/// coordinates and on its platform.
 #[test]
 fn the_last_frame_of_a_push_still_holds_the_page_it_left() {
     // The Huawei STK-L21 in logical pixels, and the finger: 8 px in, 1400 px down.
     let size = Size::new(392.7, 850.9);
     let edge = Point::new(3.0, 509.0);
+    // On the phone's platform, the bench's own, whose page transition it was seen under:
+    // the page left behind is still there on the push's last frame, a quarter of the way out.
     let mut bench = Bench::new(size.width, size.height).with_tasks(&["Write code"]);
     bench.router.push("/data");
     // The loop as it was: the view built only while the application says it is moving.

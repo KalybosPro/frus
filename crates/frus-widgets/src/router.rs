@@ -54,7 +54,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::rc::{Rc, Weak};
 
-use frus_core::{AnimationController, SpringDescription};
+use frus_core::{AnimationController, Curve, SpringDescription};
 
 use crate::component::{request_rebuild, BuildContext};
 use crate::navigator::Navigator;
@@ -477,6 +477,10 @@ struct Inner {
     built: Cell<bool>,
     /// Whether the last move swapped the page on top rather than adding or removing one.
     replaced: Cell<bool>,
+    /// The transition the theme the router was last built under asks for: what the next
+    /// push or pop runs for (milestone 620). The zoom, the reference's fallback, until a
+    /// theme has said.
+    transitions: Cell<crate::PageTransitionsBuilder>,
     unique: Cell<u64>,
     refresh: RefCell<Option<Subscription>>,
 }
@@ -524,6 +528,7 @@ impl GoRouter {
                 stack: RefCell::new(Stack::default()),
                 started: Cell::new(false),
                 built: Cell::new(false),
+                transitions: Cell::new(crate::PageTransitionsBuilder::Zoom),
                 replaced: Cell::new(false),
                 unique: Cell::new(0),
                 refresh: RefCell::new(None),
@@ -943,9 +948,15 @@ impl GoRouter {
         if let (true, Some(old), Some(new_key)) = (animate, old_top, new_top_key) {
             if old.key != new_key {
                 let forward = !stack.pages.iter().any(|page| page.key == new_key);
+                // **Linear, over the transition's own duration** (milestone 620): the
+                // reference's route animation runs at a constant pace, and each transition
+                // shapes it with its own curves. It was a spring, shaped by nobody.
                 let mut controller = AnimationController::unit();
                 controller.set_value(0.0);
-                controller.spring_to(1.0, spring(), 0.0);
+                controller.forward(
+                    self.inner.transitions.get().transition_duration(),
+                    Curve::Linear,
+                );
                 stack.transition = Some(Transition {
                     from: old,
                     controller,
@@ -1060,6 +1071,10 @@ impl GoRouter {
     pub fn build(&self, cx: &BuildContext) -> Box<dyn Widget> {
         self.start();
         self.inner.built.set(true);
+        let theme = cx.theme();
+        self.inner
+            .transitions
+            .set(theme.page_transitions.builder_for(theme.platform));
         cx.runtime().states.provide(Rc::new(self.clone()));
         let error_builder = self.inner.config.borrow().error.clone();
         // What is on the stack is copied out, so that a page's builder can ask the router
@@ -1107,7 +1122,9 @@ impl GoRouter {
                         make(top, 1.0 - progress),
                         progress,
                         false,
-                    );
+                    )
+                    // The finger drives it: the pages follow linearly.
+                    .gesture(true);
                 for (at, page) in pages[..depth - 2].iter().enumerate() {
                     navigator = navigator.retain(key_of(page, at), make(page, 1.0));
                 }
@@ -1465,6 +1482,55 @@ mod tests {
             !r.inner.stack.borrow().transition.as_ref().unwrap().forward,
             "going back"
         );
+    }
+
+    /// **A push lasts as long as the theme's platform's transition** (milestone 620): the
+    /// router learns the transition when it is built, and runs the next one at a constant
+    /// pace for that long — 500 ms for iOS's slide, 300 for the desktops' zoom.
+    #[test]
+    fn a_push_lasts_as_long_as_the_platform_s_transition() {
+        let frames = |platform: frus_core::TargetPlatform| {
+            // Animated, unlike the helper's router.
+            let r = GoRouter::new(routes());
+            let runtime = crate::Runtime::default();
+            let theme = crate::Theme::default().with_platform(platform);
+            let _ = r.build(&BuildContext::for_test(&runtime, &theme));
+            r.push("/settings");
+            let mut frames = 0;
+            while r.tick(0.01) {
+                frames += 1;
+                assert!(frames < 1000);
+            }
+            frames
+        };
+        let slide = frames(frus_core::TargetPlatform::Ios);
+        let zoom = frames(frus_core::TargetPlatform::Linux);
+        assert!(
+            (49..=51).contains(&slide),
+            "half a second: {slide} frames of 10 ms"
+        );
+        assert!(
+            (29..=31).contains(&zoom),
+            "three tenths: {zoom} frames of 10 ms"
+        );
+    }
+
+    /// **A back gesture's pages follow the finger**: the navigator it builds says so, so the
+    /// transition is drawn linearly rather than on its curves.
+    #[test]
+    fn a_back_gesture_is_drawn_as_the_finger_moves() {
+        let r = router();
+        let runtime = crate::Runtime::default();
+        let theme = crate::Theme::default();
+        r.push("/settings");
+        while r.tick(0.05) {}
+        r.back_gesture(0.3);
+        let tree = r.build(&BuildContext::for_test(&runtime, &theme));
+        assert!(tree.navigator_gesture(), "under the finger");
+        r.back_gesture_end(0.0);
+        while r.tick(0.05) {}
+        let tree = r.build(&BuildContext::for_test(&runtime, &theme));
+        assert!(!tree.navigator_gesture(), "and not once it has let go");
     }
 
     #[test]

@@ -8,10 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 619 so far, each documenting the objective, the alternatives
+> record — one per step, 620 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Page transitions, platform by platform** (J620). `PageTransitionsTheme` on the theme maps
+  each platform to the reference's builder — Android fades forwards, iOS and macOS slide,
+  Linux, Windows and Fuchsia zoom — each with the reference's duration (450, 500, 300 ms)
+  and curves, at a constant pace instead of a spring; a back gesture moves the pages
+  linearly under the finger. Shared elements fly above pages that zoom or fade.
+  **Changed**: a page no longer always slides in from the right; it arrives as the theme's
+  platform's pages do.
 
 - **The reference's motion curves** (J619): `Curve::ThreePointCubic`, two cubic Béziers
   joined at a midpoint, and the presets `ease_in_out_cubic_emphasized`,

@@ -165,18 +165,25 @@ mod tests {
             &navigator,
             Size::new(400.0, 300.0),
             &runtime,
-            &Theme::dark(),
+            // Under a theme that follows Linux, whose transition zooms the pages inside
+            // layers (milestone 620): a hero still flies above both, whatever the machine.
+            &Theme::dark().with_platform(frus_core::TargetPlatform::Linux),
         );
-        ui.scene()
-            .primitives()
-            .iter()
-            .filter_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.r > 0.5 && color.g < 0.5 => {
-                    Some(*rect)
+        // Inside the pages' layers too: a page in a transition may be one.
+        fn red(primitives: &[Primitive], out: &mut Vec<Rect>) {
+            for p in primitives {
+                match p {
+                    Primitive::Rect { rect, color, .. } if color.r > 0.5 && color.g < 0.5 => {
+                        out.push(*rect)
+                    }
+                    Primitive::Layer { primitives, .. } => red(primitives, out),
+                    _ => {}
                 }
-                _ => None,
-            })
-            .collect()
+            }
+        }
+        let mut found = Vec::new();
+        red(ui.scene().primitives(), &mut found);
+        found
     }
 
     #[test]

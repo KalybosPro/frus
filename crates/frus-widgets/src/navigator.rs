@@ -74,6 +74,9 @@ pub struct Navigator<Msg = crate::callback::Callback> {
     clips: bool,
     /// `true` = push (entering from the right), `false` = pop (entering from the left).
     forward: bool,
+    /// Whether a finger is driving the transition (a back gesture): the motion then follows
+    /// it linearly instead of easing (milestone 620).
+    gesture: bool,
     /// `[retained.., screen]` or `[retained.., outgoing, incoming]`, each wrapped in the
     /// [`Keyed`] its key makes.
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -97,6 +100,7 @@ impl<Msg: 'static> Navigator<Msg> {
             height: surface.size.height,
             progress: 1.0,
             forward: true,
+            gesture: false,
             clips: true,
             children: vec![Box::new(Keyed::new(key, screen))],
             hidden: 0,
@@ -164,6 +168,15 @@ impl<Msg: 'static> Navigator<Msg> {
         self.forward = forward;
         self
     }
+
+    /// Says that a **finger** is driving the transition — a back gesture — so the pages
+    /// follow it linearly, as the reference's do while a pop gesture is under way, rather
+    /// than on the transition's curves.
+    #[must_use]
+    pub fn gesture(mut self, gesture: bool) -> Self {
+        self.gesture = gesture;
+        self
+    }
 }
 
 impl<Msg> Widget<Msg> for Navigator<Msg> {
@@ -189,6 +202,10 @@ impl<Msg> Widget<Msg> for Navigator<Msg> {
         Some((self.progress, self.forward))
     }
 
+    fn navigator_gesture(&self) -> bool {
+        self.gesture
+    }
+
     fn navigator_clips(&self) -> bool {
         self.clips
     }
@@ -201,6 +218,12 @@ impl<Msg> Widget<Msg> for Navigator<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The theme these tests lay out under: one that follows iOS, whose page transition
+    /// is the slide they describe (milestone 620) — whatever machine runs them.
+    fn slide_theme() -> crate::Theme {
+        crate::Theme::default().with_platform(frus_core::TargetPlatform::Ios)
+    }
     use crate::{build_ui, Container, Runtime, Size};
     use frus_core::{Color, Primitive};
 
@@ -234,7 +257,7 @@ mod tests {
                 &navigator,
                 Size::new(400.0, 400.0),
                 &Runtime::default(),
-                &crate::Theme::default(),
+                &slide_theme(),
             );
             // The furthest right anything is allowed to be painted.
             ui.scene()
@@ -257,6 +280,54 @@ mod tests {
         );
     }
 
+    /// **Under a theme that follows Linux, a push zooms** (milestone 620): halfway, the page
+    /// arriving is drawn in a layer scaled just under full size about its centre, and the
+    /// page it covers in one scaled just over — the reference's 85 % → 100 % and
+    /// 100 % → 105 % on the emphasized curve.
+    #[test]
+    fn a_push_under_a_desktop_theme_zooms() {
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let blue = Color::rgb(0.0, 0.0, 1.0);
+        let nav = Navigator::new("blue", screen(blue))
+            .size(400.0, 300.0)
+            .from("red", screen(red), 0.5, true);
+        let ui = build_ui(
+            &nav,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            &crate::Theme::default().with_platform(frus_core::TargetPlatform::Linux),
+        );
+        // The width each page's layer gives it on screen.
+        let width_of = |c: Color| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Layer {
+                        primitives,
+                        transform: Some(transform),
+                        ..
+                    } if primitives
+                        .iter()
+                        .any(|q| matches!(q, Primitive::Rect { color, .. } if *color == c)) =>
+                    {
+                        Some(
+                            transform
+                                .affine
+                                .apply_rect(Rect::new(0.0, 0.0, 400.0, 300.0))
+                                .width,
+                        )
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{c:?} is in a scaled layer"))
+        };
+        let arriving = width_of(blue) / 400.0;
+        let covered = width_of(red) / 400.0;
+        assert!(arriving > 0.98 && arriving < 1.0, "arriving at {arriving}");
+        assert!(covered > 1.04 && covered < 1.05, "covered at {covered}");
+    }
+
     #[test]
     fn transition_renders_both_screens() {
         let red = Color::rgb(1.0, 0.0, 0.0);
@@ -268,7 +339,7 @@ mod tests {
             &nav,
             Size::new(400.0, 300.0),
             &Runtime::default(),
-            &crate::Theme::default(),
+            &slide_theme(),
         );
         let has = |c: Color| {
             ui.scene()
@@ -305,7 +376,7 @@ mod tests {
                 nav,
                 Size::new(400.0, 300.0),
                 &Runtime::default(),
-                &crate::Theme::default(),
+                &slide_theme(),
             );
             ui.scene()
                 .primitives()
@@ -383,12 +454,7 @@ mod tests {
     /// How far the content painted in `mark` is scrolled, as drawn: its top edge sits at
     /// minus the offset. `None` when nothing in that colour is painted.
     fn drawn_offset(nav: &Navigator<()>, runtime: &Runtime, mark: Color) -> Option<f32> {
-        let ui = build_ui(
-            nav,
-            Size::new(400.0, 300.0),
-            runtime,
-            &crate::Theme::default(),
-        );
+        let ui = build_ui(nav, Size::new(400.0, 300.0), runtime, &slide_theme());
         ui.scene().primitives().iter().find_map(|p| match p {
             Primitive::Rect { color, rect, .. } if *color == mark => Some(-rect.y),
             _ => None,
@@ -401,7 +467,7 @@ mod tests {
             nav,
             Size::new(400.0, 300.0),
             &Runtime::default(),
-            &crate::Theme::default(),
+            &slide_theme(),
         );
         let regions = ui.scroll_regions();
         assert_eq!(regions.len(), 1, "one page, one region");
@@ -538,7 +604,7 @@ mod tests {
             &nav,
             Size::new(400.0, 300.0),
             &Runtime::default(),
-            &crate::Theme::default(),
+            &slide_theme(),
         );
         let x_of = |c: Color| {
             ui.scene()
@@ -564,6 +630,12 @@ mod tests {
 #[cfg(test)]
 mod retained_tests {
     use super::*;
+
+    /// The theme these tests lay out under: one that follows iOS, whose page transition
+    /// is the slide they describe (milestone 620) — whatever machine runs them.
+    fn slide_theme() -> crate::Theme {
+        crate::Theme::default().with_platform(frus_core::TargetPlatform::Ios)
+    }
     use crate::{build_ui, Container, Runtime, Size};
     use frus_core::{Color, Primitive};
 
@@ -583,7 +655,7 @@ mod retained_tests {
             nav,
             Size::new(400.0, 300.0),
             &Runtime::default(),
-            &crate::Theme::default(),
+            &slide_theme(),
         );
         let colours: Vec<Color> = ui
             .scene()

@@ -240,6 +240,8 @@ mod clip {
         pub fn new() -> Self {
             Self::System(arboard::Clipboard::new().ok())
         }
+        /// Only a shell with no window — the test driver — holds one.
+        #[cfg(any(test, feature = "testing"))]
         pub fn in_memory() -> Self {
             Self::Memory(None)
         }
@@ -265,7 +267,7 @@ mod clip {
     }
 
     /// Elsewhere a shell with no window keeps the platform's clipboard: no test runs there.
-    #[cfg(not(desktop))]
+    #[cfg(all(not(desktop), any(test, feature = "testing")))]
     impl Clipboard {
         pub fn in_memory() -> Self {
             Self::new()

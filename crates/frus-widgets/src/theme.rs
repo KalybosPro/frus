@@ -768,6 +768,10 @@ pub struct Theme {
     ///
     /// [`default_target_platform`]: frus_core::default_target_platform
     pub platform: frus_core::TargetPlatform,
+    /// **How a page arrives and leaves**, platform by platform: the reference's defaults
+    /// unless said otherwise — the desktops zoom, Apple's platforms slide, Android fades
+    /// forwards (milestone 620). The theme's [`Theme::platform`] picks the builder.
+    pub page_transitions: crate::PageTransitionsTheme,
 }
 
 impl Theme {
@@ -797,6 +801,7 @@ impl Theme {
             widgets: crate::widgettheme::WidgetThemes::default(),
             tap_target: TapTarget::default(),
             platform: frus_core::default_target_platform(),
+            page_transitions: crate::PageTransitionsTheme::default(),
         }
     }
 
@@ -901,6 +906,7 @@ impl Theme {
         // the reference's does (milestone 614). `from_scheme` would have put the
         // default back, and a theme set to another platform would have lost it for the
         // whole of a light/dark crossing.
+        out.page_transitions = other.page_transitions;
         out.platform = if t < 0.5 {
             self.platform
         } else {

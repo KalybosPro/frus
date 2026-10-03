@@ -313,8 +313,11 @@ fn a_drop_zone_under_a_drag() {
 // The six that only ever needed the right arguments
 // ---------------------------------------------------------------------------
 
-/// A navigator with a transition in flight: the outgoing screen sliding off, the
-/// incoming one sliding on, both in the frame at once.
+/// A navigator with a push in flight, both pages in the frame at once, as each platform's
+/// transition draws it (milestone 620): `navigator_mid_push` is iOS's slide — the page
+/// arriving from the right, the one it covers a third of the way out under a dimming —
+/// `navigator_mid_push_zoom` the desktops' zoom, `navigator_mid_push_fade` Android's fade.
+/// Each says its platform, so the picture is the same on every machine.
 #[test]
 fn a_navigator_mid_push() {
     let screen = |title: &str, colour: Color| -> Container<()> {
@@ -334,9 +337,22 @@ fn a_navigator_mid_push() {
             true,
         );
 
-    let mut stage = Stage::new(260, 140);
-    stage.settle(&root);
-    accept("navigator_mid_push", stage.render(&root));
+    for (name, platform) in [
+        ("navigator_mid_push", frus_widgets::TargetPlatform::Ios),
+        (
+            "navigator_mid_push_zoom",
+            frus_widgets::TargetPlatform::Linux,
+        ),
+        (
+            "navigator_mid_push_fade",
+            frus_widgets::TargetPlatform::Android,
+        ),
+    ] {
+        let mut stage =
+            Stage::new(260, 140).theme(frus_widgets::Theme::dark().with_platform(platform));
+        stage.settle(&root);
+        accept(name, stage.render(&root));
+    }
 }
 
 /// A shared element between the two screens of a flight. Statically this is the tag
