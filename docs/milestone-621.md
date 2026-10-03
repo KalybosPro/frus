@@ -36,3 +36,6 @@ belongs to the shell, and to the predictive back still missing on Android.
   the settle lasts 350 ms from wherever the page was.
 - `a_back_gesture_past_halfway_pops_and_a_short_one_does_not` still holds the frus rule
   elsewhere.
+
+Mutation testing: four mutants, all killed — the fling threshold doubled, the direction
+turned round, halfway moved to 30 %, and the settle lengthened to 500 ms.
