@@ -1171,6 +1171,15 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// The [`ScrollBehavior`](crate::ScrollBehavior) this widget puts in force for **its
+    /// subtree**, or `None` — the default — for whatever came down from above. Only
+    /// [`ScrollConfiguration`](crate::ScrollConfiguration) answers otherwise. Applied by
+    /// the same four walks as [`Self::scaffold_override`]: the scrollables under it record
+    /// what it decides when they are registered (milestone 616).
+    fn scroll_behavior_override(&self) -> Option<crate::ScrollBehavior> {
+        None
+    }
+
     /// Builds this widget's subtree **from the ambient theme**, for the widgets that
     /// defer that decision — see [`ThemeBuilder`](crate::ThemeBuilder). Does nothing by
     /// default, which is what all but a handful of widgets want.
@@ -1685,6 +1694,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
         (**self).scaffold_override()
+    }
+    fn scroll_behavior_override(&self) -> Option<crate::ScrollBehavior> {
+        (**self).scroll_behavior_override()
     }
     fn build_themed(&self, theme: &Theme) {
         (**self).build_themed(theme)

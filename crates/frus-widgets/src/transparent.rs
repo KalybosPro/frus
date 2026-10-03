@@ -917,6 +917,9 @@ forward_transparent!(Shared {
     fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
         self.inner.scaffold_override()
     }
+    fn scroll_behavior_override(&self) -> Option<crate::ScrollBehavior> {
+        self.inner.scroll_behavior_override()
+    }
     fn autofill_group(&self) -> bool {
         self.inner.autofill_group()
     }
@@ -976,6 +979,7 @@ mod tests {
             "theme_override",
             "media_override",
             "scaffold_override",
+            "scroll_behavior_override",
             // A wrapper that *is* a form says so; every other one forwards it (512).
             "autofill_group",
         ];
@@ -1063,6 +1067,7 @@ mod tests {
                 "fn theme_override(",
                 "fn media_override(",
                 "fn scaffold_override(",
+                "fn scroll_behavior_override(",
                 "fn restyle(",
                 "fn positioned(",
                 "fn autofill_group(",

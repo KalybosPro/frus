@@ -8,10 +8,20 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 615 so far, each documenting the objective, the alternatives
+> record — one per step, 616 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **A scroll behaviour, in force for a subtree** (J616). `ScrollBehavior` decides a
+  scrollable's physics, scrollbars, overscroll indicator and fling reading from one
+  platform, with the reference's tables; `ScrollBehavior::material()` follows the theme's
+  platform, and `with_scrollbars`, `with_overscroll`, `with_physics`, `with_platform` change
+  it. `ScrollConfiguration::new(behavior, child)` puts one in force for a subtree.
+  **Breaking**: `Application::scroll_behavior()` replaces `scroll_physics()`,
+  `scrollbars()` and `overscroll_indicator()`; the compile-time `platform_default()`
+  constructors are gone; `Scrollable::physics` is settled at registration. Fixed on the
+  way: Fuchsia drew scrollbars, and the desktops glowed past an edge.
 
 - **Widgets follow the theme's platform** (J615), with the reference's tables: the app
   bar's title centring, the back glyph, the search view's full screen and the reorderable

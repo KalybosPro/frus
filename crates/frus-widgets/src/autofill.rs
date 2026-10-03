@@ -194,6 +194,9 @@ crate::transparent::forward_transparent!(AutofillGroup {
     fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
         self.inner.scaffold_override()
     }
+    fn scroll_behavior_override(&self) -> Option<crate::ScrollBehavior> {
+        self.inner.scroll_behavior_override()
+    }
 });
 
 #[cfg(test)]

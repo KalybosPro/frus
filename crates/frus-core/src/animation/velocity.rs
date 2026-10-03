@@ -21,9 +21,9 @@
 //!
 //! Some platforms do something different for scroll flings — a weighted average of
 //! the last three sample-to-sample velocities, which deliberately leans on the
-//! *older* samples. [`VelocityStrategy`] carries both, and
-//! [`VelocityTracker::platform_default`] picks the one the running platform
-//! expects, exactly as [`crate::animation::simulation`]'s scroll physics does.
+//! *older* samples. [`VelocityStrategy`] carries both; which one a scroll reads its
+//! flings with is chosen by the scroll behaviour in force, from the platform it
+//! follows, beside the scroll physics.
 //!
 //! Everything here is pure: samples come in stamped with a time, and the estimate
 //! is a function of the history. No clock is read.
@@ -159,8 +159,10 @@ pub struct VelocityTracker {
 }
 
 impl Default for VelocityTracker {
+    /// The base tracker, a fitted curve ([`VelocityStrategy::Regression`]). Which one a
+    /// scroll reads its flings with is its scroll behaviour's choice (milestone 616).
     fn default() -> Self {
-        Self::platform_default()
+        Self::new(VelocityStrategy::Regression)
     }
 }
 
@@ -172,20 +174,6 @@ impl VelocityTracker {
             samples: [None; HISTORY],
             index: 0,
         }
-    }
-
-    /// The strategy the running platform reads flings with.
-    ///
-    /// Resolved at compile time from the target, like the scroll physics it feeds:
-    /// a build is for one platform.
-    pub fn platform_default() -> Self {
-        #[cfg(target_os = "ios")]
-        let strategy = VelocityStrategy::RecentAverage(BOUNCING_FLING_WEIGHTS);
-        #[cfg(target_os = "macos")]
-        let strategy = VelocityStrategy::RecentAverage(DESKTOP_FLING_WEIGHTS);
-        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-        let strategy = VelocityStrategy::Regression;
-        Self::new(strategy)
     }
 
     /// The strategy in force.

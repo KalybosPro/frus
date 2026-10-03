@@ -182,9 +182,15 @@ fn a_list_glowing_at_its_edge() {
     let Some(region) = region.first().cloned() else {
         panic!("the frame declared no scrollable region");
     };
-    stage
-        .runtime
-        .glow_pull(region.id, GlowEdge::Top, 90.0, 150.0, 0.0, 240.0);
+    stage.runtime.glow_pull(
+        region.id,
+        Some(frus_widgets::OverscrollIndicator::Glow),
+        GlowEdge::Top,
+        90.0,
+        150.0,
+        0.0,
+        240.0,
+    );
     stage.advance(&root, 1.0 / 60.0);
     accept("overscroll_glow", stage.render(&root));
 }
@@ -214,9 +220,15 @@ fn a_wide_list_glowing_at_its_top() {
     };
     // 220 px past the top of a 600 px viewport, the finger near the middle: the pull
     // a thumb gives a list that is already at its top.
-    stage
-        .runtime
-        .glow_pull(region.id, GlowEdge::Top, 220.0, 600.0, 212.0, 424.0);
+    stage.runtime.glow_pull(
+        region.id,
+        Some(frus_widgets::OverscrollIndicator::Glow),
+        GlowEdge::Top,
+        220.0,
+        600.0,
+        212.0,
+        424.0,
+    );
     stage.advance(&root, 1.0 / 60.0);
     accept("overscroll_glow_wide", stage.render(&root));
 }
@@ -490,9 +502,15 @@ fn the_stage_actually_advances_time() {
     let mut stage = Stage::new(200, 120);
     stage.settle(&root);
     let region = stage.build(&root).scroll_regions()[0];
-    stage
-        .runtime
-        .glow_pull(region.id, GlowEdge::Top, 90.0, 120.0, 0.0, 200.0);
+    stage.runtime.glow_pull(
+        region.id,
+        Some(frus_widgets::OverscrollIndicator::Glow),
+        GlowEdge::Top,
+        90.0,
+        120.0,
+        0.0,
+        200.0,
+    );
     stage.advance(&root, 1.0 / 60.0);
     let Some(bright) = stage.render(&root) else {
         eprintln!("no GPU adapter available: test skipped");

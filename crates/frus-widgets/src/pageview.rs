@@ -640,9 +640,12 @@ mod tests {
         let id = crate::interaction::WidgetId::ROOT;
         let physics = ScrollPhysics::Clamping;
 
-        let area = {
-            let ui = ui_of(view(Rc::new(Cell::new(0))), &runtime);
-            ui.scroll_regions()[0]
+        let area = crate::Scrollable {
+            physics,
+            ..{
+                let ui = ui_of(view(Rc::new(Cell::new(0))), &runtime);
+                ui.scroll_regions()[0]
+            }
         };
         // Opening on page 0 is not a change to report.
         assert!(runtime.page_changes(&[area]).is_empty());
@@ -652,7 +655,7 @@ mod tests {
         assert!(runtime.fling_scroll(area, physics, (700.0, 0.0)));
         let mut reported = Vec::new();
         for _ in 0..240 {
-            runtime.advance_scroll(&[area], physics, 1.0 / 60.0);
+            runtime.advance_scroll(&[area], 1.0 / 60.0);
             reported.extend(runtime.page_changes(&[area]));
         }
 
