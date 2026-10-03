@@ -280,6 +280,54 @@ mod tests {
         );
     }
 
+    /// **Under a theme that follows Linux, a push zooms** (milestone 620): halfway, the page
+    /// arriving is drawn in a layer scaled just under full size about its centre, and the
+    /// page it covers in one scaled just over — the reference's 85 % → 100 % and
+    /// 100 % → 105 % on the emphasized curve.
+    #[test]
+    fn a_push_under_a_desktop_theme_zooms() {
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let blue = Color::rgb(0.0, 0.0, 1.0);
+        let nav = Navigator::new("blue", screen(blue))
+            .size(400.0, 300.0)
+            .from("red", screen(red), 0.5, true);
+        let ui = build_ui(
+            &nav,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            &crate::Theme::default().with_platform(frus_core::TargetPlatform::Linux),
+        );
+        // The width each page's layer gives it on screen.
+        let width_of = |c: Color| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Layer {
+                        primitives,
+                        transform: Some(transform),
+                        ..
+                    } if primitives
+                        .iter()
+                        .any(|q| matches!(q, Primitive::Rect { color, .. } if *color == c)) =>
+                    {
+                        Some(
+                            transform
+                                .affine
+                                .apply_rect(Rect::new(0.0, 0.0, 400.0, 300.0))
+                                .width,
+                        )
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{c:?} is in a scaled layer"))
+        };
+        let arriving = width_of(blue) / 400.0;
+        let covered = width_of(red) / 400.0;
+        assert!(arriving > 0.98 && arriving < 1.0, "arriving at {arriving}");
+        assert!(covered > 1.04 && covered < 1.05, "covered at {covered}");
+    }
+
     #[test]
     fn transition_renders_both_screens() {
         let red = Color::rgb(1.0, 0.0, 0.0);

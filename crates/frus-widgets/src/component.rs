@@ -618,6 +618,12 @@ impl<'a> BuildContext<'a> {
         }
     }
 
+    /// A context for a test that builds something by hand, under `theme`.
+    #[cfg(test)]
+    pub(crate) fn for_test(runtime: &'a Runtime, theme: &'a Theme) -> Self {
+        Self::new((WidgetId::ROOT, 0), TypeId::of::<()>(), runtime, theme)
+    }
+
     /// The theme this component is built under.
     pub fn theme(&self) -> &Theme {
         self.theme

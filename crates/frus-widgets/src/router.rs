@@ -1484,6 +1484,55 @@ mod tests {
         );
     }
 
+    /// **A push lasts as long as the theme's platform's transition** (milestone 620): the
+    /// router learns the transition when it is built, and runs the next one at a constant
+    /// pace for that long — 500 ms for iOS's slide, 300 for the desktops' zoom.
+    #[test]
+    fn a_push_lasts_as_long_as_the_platform_s_transition() {
+        let frames = |platform: frus_core::TargetPlatform| {
+            // Animated, unlike the helper's router.
+            let r = GoRouter::new(routes());
+            let runtime = crate::Runtime::default();
+            let theme = crate::Theme::default().with_platform(platform);
+            let _ = r.build(&BuildContext::for_test(&runtime, &theme));
+            r.push("/settings");
+            let mut frames = 0;
+            while r.tick(0.01) {
+                frames += 1;
+                assert!(frames < 1000);
+            }
+            frames
+        };
+        let slide = frames(frus_core::TargetPlatform::Ios);
+        let zoom = frames(frus_core::TargetPlatform::Linux);
+        assert!(
+            (49..=51).contains(&slide),
+            "half a second: {slide} frames of 10 ms"
+        );
+        assert!(
+            (29..=31).contains(&zoom),
+            "three tenths: {zoom} frames of 10 ms"
+        );
+    }
+
+    /// **A back gesture's pages follow the finger**: the navigator it builds says so, so the
+    /// transition is drawn linearly rather than on its curves.
+    #[test]
+    fn a_back_gesture_is_drawn_as_the_finger_moves() {
+        let r = router();
+        let runtime = crate::Runtime::default();
+        let theme = crate::Theme::default();
+        r.push("/settings");
+        while r.tick(0.05) {}
+        r.back_gesture(0.3);
+        let tree = r.build(&BuildContext::for_test(&runtime, &theme));
+        assert!(tree.navigator_gesture(), "under the finger");
+        r.back_gesture_end(0.0);
+        while r.tick(0.05) {}
+        let tree = r.build(&BuildContext::for_test(&runtime, &theme));
+        assert!(!tree.navigator_gesture(), "and not once it has let go");
+    }
+
     #[test]
     fn a_back_gesture_past_halfway_pops_and_a_short_one_does_not() {
         let r = router();
