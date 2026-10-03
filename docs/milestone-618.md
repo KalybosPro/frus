@@ -55,3 +55,7 @@ included, so it now has the first say.
 - `the_desktop_menus_rows_act_on_the_area` (shell): its rows act, over the handles.
 - The pill's tests now say they are about the pill: they lay out under a theme that
   follows Android, where they used to follow whatever machine ran them.
+
+Mutation testing: five mutants, all killed — Fuchsia given the pill, the menu let hang past
+the window's edge, a selection's anchor taken from its bottom, the pointer ignored by the
+layout, and a right-click that does not record it.
