@@ -81,10 +81,12 @@ impl ToolbarContext {
 }
 
 /// One item of the bar: a built-in editing action, or the application's own.
+#[derive(Clone)]
 pub struct ToolbarItem<Msg = crate::callback::Callback> {
     kind: ItemKind<Msg>,
 }
 
+#[derive(Clone)]
 enum ItemKind<Msg> {
     Action(EditAction),
     Custom { label: String, message: Msg },
@@ -185,17 +187,47 @@ fn colours(theme: &Theme) -> (frus_core::Color, frus_core::Color) {
     }
 }
 
-/// The surface the buttons sit on: a pill, opaque, just lifted off the page.
+/// Whether a theme whose platform is `platform` shows the **desktop menu** rather than the
+/// pill: Fuchsia, Linux and Windows, as the reference's adaptive toolbar does
+/// (`adaptive_text_selection_toolbar.dart:325`). Android and the Apple platforms show the
+/// pill; the reference's Apple bars have their own look, which frus does not have yet.
+pub(crate) fn uses_menu(platform: frus_core::TargetPlatform) -> bool {
+    use frus_core::TargetPlatform as P;
+    match platform {
+        P::Fuchsia | P::Linux | P::Windows => true,
+        P::Android | P::Ios | P::MacOs => false,
+    }
+}
+
+/// The desktop menu's width (`desktop_text_selection_toolbar.dart:17`).
+const MENU_WIDTH: f32 = 222.0;
+/// Its corners (`:56`).
+const MENU_RADIUS: f32 = 7.0;
+/// The room it keeps from the window's edges (`:16`).
+const MENU_SCREEN_PADDING: f32 = 8.0;
+/// A row's least height (`desktop_text_selection_toolbar_button.dart:69`).
+const ROW_HEIGHT: f32 = 36.0;
+/// The room before a row's words, after them and under them (`:19`).
+const ROW_PAD_X: f32 = 20.0;
+const ROW_PAD_BOTTOM: f32 = 3.0;
+
+/// The surface the buttons sit on, in the form the theme's platform takes: a pill, opaque,
+/// just lifted off the page, or on the desktops a menu of rows (milestone 618).
 pub(crate) struct SelectionToolbar<Msg> {
-    children: Vec<Box<dyn Widget<Msg>>>,
+    pill: Vec<Box<dyn Widget<Msg>>>,
+    menu: Vec<Box<dyn Widget<Msg>>>,
+    /// Which form the last layout chose, from the theme it was laid out under; read by the
+    /// walks that follow it in the same frame.
+    desktop: std::cell::Cell<bool>,
 }
 
 impl<Msg: Clone + 'static> SelectionToolbar<Msg> {
     /// A bar of `items`, in order.
     pub(crate) fn new(items: Vec<ToolbarItem<Msg>>) -> Self {
         let total = items.len();
-        let children = items
-            .into_iter()
+        let pill = items
+            .iter()
+            .cloned()
             .enumerate()
             .map(|(index, item)| {
                 let button: Box<dyn Widget<Msg>> =
@@ -203,11 +235,34 @@ impl<Msg: Clone + 'static> SelectionToolbar<Msg> {
                 button
             })
             .collect();
-        Self { children }
+        let menu = items
+            .into_iter()
+            .map(|item| Box::new(MenuButton::new(item)) as Box<dyn Widget<Msg>>)
+            .collect();
+        Self {
+            pill,
+            menu,
+            desktop: std::cell::Cell::new(false),
+        }
     }
 }
 
 impl<Msg: Clone> Widget<Msg> for SelectionToolbar<Msg> {
+    fn style_themed(&self, theme: &Theme) -> Style {
+        let desktop = uses_menu(theme.platform);
+        self.desktop.set(desktop);
+        if desktop {
+            Style {
+                width: Dimension::Length(MENU_WIDTH),
+                height: Dimension::Auto,
+                flex_direction: FlexDirection::Column,
+                ..Default::default()
+            }
+        } else {
+            Widget::<Msg>::style(self)
+        }
+    }
+
     fn style(&self) -> Style {
         Style {
             width: Dimension::Auto,
@@ -219,11 +274,33 @@ impl<Msg: Clone> Widget<Msg> for SelectionToolbar<Msg> {
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        &self.children
+        if self.desktop.get() {
+            &self.menu
+        } else {
+            &self.pill
+        }
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
+        if self.desktop.get() {
+            // The desktop menu: a card, its corners rounded, one step off the page
+            // (`desktop_text_selection_toolbar.dart:55`).
+            let radius = BorderRadius::uniform(MENU_RADIUS);
+            frus_core::paint_elevation(
+                scene,
+                bounds,
+                radius,
+                ELEVATION,
+                theme.scheme.shadow.fade(o),
+            );
+            scene.draw_shape(
+                bounds,
+                ShapeBorder::rounded(radius),
+                theme.scheme.surface.fade(o),
+            );
+            return;
+        }
         // A pill: the ends are half circles, whatever the theme's corners are.
         let radius = BorderRadius::uniform(HEIGHT * 0.5);
         let shape = ShapeBorder::rounded(radius);
@@ -373,6 +450,140 @@ impl<Msg: Clone> Widget<Msg> for ToolbarButton<Msg> {
     }
 }
 
+/// One row of the desktop menu (`desktop_text_selection_toolbar_button.dart`): the words at
+/// its start, white on a dark scheme and black at 87 % on a light one, in a square button
+/// the width of the menu.
+struct MenuButton<Msg> {
+    label: String,
+    action: Option<EditAction>,
+    message: Option<Msg>,
+}
+
+impl<Msg> MenuButton<Msg> {
+    fn new(item: ToolbarItem<Msg>) -> Self {
+        let (label, action, message) = match item.kind {
+            ItemKind::Action(action) => (action.label().to_owned(), Some(action), None),
+            ItemKind::Custom { label, message } => (label, None, Some(message)),
+        };
+        Self {
+            label,
+            action,
+            message,
+        }
+    }
+}
+
+/// A row's words: 14 px at the regular weight (`desktop_text_selection_toolbar_button.dart:12`).
+fn menu_label_style() -> frus_core::TextStyle {
+    frus_core::TextStyle::new(14.0).weight(frus_core::FontWeight::Regular)
+}
+
+/// A row's ink: white on a dark scheme, black at 87 % on a light one (`:42`).
+fn menu_ink(theme: &Theme) -> frus_core::Color {
+    if theme.scheme.brightness == crate::Brightness::Dark {
+        frus_core::Color::WHITE
+    } else {
+        frus_core::Color::BLACK.fade(0.87)
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for MenuButton<Msg> {
+    fn style(&self) -> Style {
+        let measured = frus_text::measure_style(&self.label, menu_label_style());
+        Style {
+            width: Dimension::Length(MENU_WIDTH),
+            height: Dimension::Length(ROW_HEIGHT.max(measured.height + ROW_PAD_BOTTOM).ceil()),
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &[]
+    }
+
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        let o = status.opacity;
+        let ink = menu_ink(theme);
+        // Square, the menu's width: the reference's `RoundedRectangleBorder()` with no
+        // radius, so a row's highlight meets the next one edge to edge.
+        let layer = theme.state_layer(frus_core::Color::TRANSPARENT, ink, &status);
+        scene.draw_rect(
+            bounds,
+            layer.fade(o),
+            0.0,
+            0.0,
+            frus_core::Color::TRANSPARENT,
+        );
+        let resolved = menu_label_style().resolved();
+        let measured = frus_text::measure_resolved(&self.label, &resolved);
+        // At the start, centred in the room above the bottom padding.
+        let room = bounds.height - ROW_PAD_BOTTOM;
+        scene.text(
+            frus_core::Point::new(
+                bounds.x + ROW_PAD_X,
+                bounds.y + (room - measured.height) / 2.0,
+            ),
+            self.label.clone(),
+            &resolved,
+            ink.fade(o),
+        );
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        self.message.clone()
+    }
+
+    /// As on the pill: a built-in row is a target with no message, resolved to its action.
+    fn opaque(&self) -> bool {
+        self.action.is_some()
+    }
+
+    fn edit_action(&self) -> Option<EditAction> {
+        self.action
+    }
+
+    /// The field keeps the focus while its menu is used.
+    fn focusable(&self) -> bool {
+        false
+    }
+
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
+        Some(
+            frus_core::SemanticsProperties::new(frus_core::Role::Button)
+                .label(self.label.clone())
+                .clickable(),
+        )
+    }
+}
+
+/// **Where the desktop menu goes**, its top-left corner: at `anchor`, moved back by as much
+/// as it would hang past the window's padded edge on the right or at the bottom
+/// (`desktop_text_selection_toolbar_layout_delegate.dart:39`).
+pub(crate) fn place_menu(anchor: frus_core::Point, size: Size, window: Rect) -> (f32, f32) {
+    let right = window.x + window.width - MENU_SCREEN_PADDING;
+    let bottom = window.y + window.height - MENU_SCREEN_PADDING;
+    let over_x = anchor.x + size.width - right;
+    let over_y = anchor.y + size.height - bottom;
+    (
+        if over_x > 0.0 {
+            anchor.x - over_x
+        } else {
+            anchor.x
+        },
+        if over_y > 0.0 {
+            anchor.y - over_y
+        } else {
+            anchor.y
+        },
+    )
+}
+
+/// The point a menu opened without a pointer hangs from: the top of the selection, at its
+/// middle — the reference's primary anchor (`text_selection_toolbar_anchors.dart:45`).
+pub(crate) fn primary_anchor(selection: Rect) -> frus_core::Point {
+    frus_core::Point::new(selection.x + selection.width * 0.5, selection.y)
+}
+
 /// The gap between the bar and the selection it acts on, in px (the reference's
 /// `_kToolbarContentDistance`).
 pub(crate) const GAP: f32 = 8.0;
@@ -423,6 +634,93 @@ mod tests {
             }
         }
         assert_eq!(seen.len(), usize::from(ToolbarContext::VARIANTS));
+    }
+
+    /// **Which platforms get the menu** (`adaptive_text_selection_toolbar.dart:325`):
+    /// Fuchsia, Linux and Windows; Android and the Apple platforms keep the pill.
+    #[test]
+    fn the_desktops_get_the_menu() {
+        use frus_core::TargetPlatform as P;
+        for platform in P::ALL {
+            let menu = matches!(platform, P::Fuchsia | P::Linux | P::Windows);
+            assert_eq!(uses_menu(platform), menu, "{platform}");
+        }
+    }
+
+    /// **The menu hangs from its anchor**, and is pushed back by as much as it would hang
+    /// past the window's padded right or bottom edge — no more.
+    #[test]
+    fn the_menu_hangs_from_its_anchor_inside_the_window() {
+        let size = Size::new(MENU_WIDTH, 144.0);
+        let at = |x: f32, y: f32| place_menu(frus_core::Point::new(x, y), size, WINDOW);
+        assert_eq!(at(50.0, 60.0), (50.0, 60.0), "room: at the anchor");
+        assert_eq!(
+            at(300.0, 60.0).0,
+            400.0 - 8.0 - MENU_WIDTH,
+            "pushed back from the right"
+        );
+        assert_eq!(
+            at(50.0, 750.0).1,
+            800.0 - 8.0 - 144.0,
+            "and up from the bottom"
+        );
+        assert_eq!(
+            primary_anchor(Rect::new(100.0, 40.0, 60.0, 20.0)),
+            frus_core::Point::new(130.0, 40.0),
+            "a selection's anchor is the middle of its top"
+        );
+    }
+
+    /// **On the desktops, a menu of rows** (`desktop_text_selection_toolbar.dart`): 222 px
+    /// wide, a 36 px row per item, top to bottom in the items' order, the words at the
+    /// start, on the scheme's surface with rounded corners — whatever this test runs on.
+    #[test]
+    fn on_the_desktops_it_is_a_menu_of_rows() {
+        let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
+        let ui = crate::build_ui(
+            &four(),
+            Size::new(600.0, 400.0),
+            &crate::Runtime::default(),
+            &theme,
+        );
+        let words: Vec<(String, frus_core::Point)> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Text { text, position, .. } => {
+                    Some((text.clone(), *position))
+                }
+                _ => None,
+            })
+            .collect();
+        let labels: Vec<&str> = words.iter().map(|(t, _)| t.as_str()).collect();
+        assert_eq!(labels, ["Cut", "Copy", "Paste", "Select all"]);
+        for (i, (_, origin)) in words.iter().enumerate() {
+            assert_eq!(origin.x, ROW_PAD_X, "at the start");
+            assert!(
+                origin.y >= ROW_HEIGHT * i as f32 && origin.y < ROW_HEIGHT * (i + 1) as f32,
+                "row {i} of 36 px: {origin:?}"
+            );
+        }
+        let panel = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect {
+                    rect,
+                    color,
+                    radius,
+                    ..
+                } if rect.width == MENU_WIDTH && *color == theme.scheme.surface => {
+                    Some((*rect, radius.top_left))
+                }
+                _ => None,
+            })
+            .expect("the menu's surface");
+        assert_eq!(panel.0.height, ROW_HEIGHT * 4.0);
+        assert_eq!(panel.1, MENU_RADIUS);
     }
 
     #[test]
@@ -516,12 +814,16 @@ mod tests {
         ])
     }
 
+    /// The bar laid out as the **pill**: under the theme given, following Android, which is
+    /// where the pill is the platform's (milestone 618) — whatever this test runs on.
     fn frame(theme: &Theme) -> crate::Ui<u8> {
         crate::build_ui(
             &four(),
             Size::new(600.0, 100.0),
             &crate::Runtime::default(),
-            theme,
+            &theme
+                .clone()
+                .with_platform(frus_core::TargetPlatform::Android),
         )
     }
 
