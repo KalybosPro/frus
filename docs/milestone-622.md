@@ -24,3 +24,6 @@ iOS theme, like an iOS page let go: 350 ms on the swipe's curve. The reference p
 
 - `the_system_back_pops_the_page`: after Back the page is off the stack at once — a pop, not a
   swipe still settling — and with nothing left, Back says so.
+
+Mutation testing: two mutants, both killed — the router application answering Back with a
+swipe let go again, and the shell playing the swipe instead of calling `go_back`.
