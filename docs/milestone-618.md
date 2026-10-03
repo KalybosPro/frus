@@ -59,3 +59,13 @@ included, so it now has the first say.
 Mutation testing: five mutants, all killed — Fuchsia given the pill, the menu let hang past
 the window's edge, a selection's anchor taken from its bottom, the pointer ignored by the
 layout, and a right-click that does not record it.
+
+## A test run that aborted on macOS
+
+On CI the shell's tests aborted on macOS with an Objective-C exception, in one of the two
+runs of the job and not the other. Every test that opens the bar, copies or pastes went to
+the machine's own clipboard, `NSPasteboard`, which macOS does not let several threads use
+at once — and the tests run side by side; this milestone added two more of them. A shell
+with no window, the test driver's, now holds a clipboard of its own, in memory. The tests no
+longer depend on what the runner's clipboard holds either: the right-click test now checks
+that an empty clipboard offers nothing to paste.

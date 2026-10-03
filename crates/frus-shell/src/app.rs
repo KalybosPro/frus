@@ -226,23 +226,49 @@ mod clip {
     }
 
     #[cfg(desktop)]
-    pub struct Clipboard(Option<arboard::Clipboard>);
+    pub enum Clipboard {
+        /// The system's, through `arboard`.
+        System(Option<arboard::Clipboard>),
+        /// One of its own, in memory: what a shell with no window holds (the test
+        /// driver's). The system's is shared by everything on the machine and, on macOS,
+        /// is not to be touched from several threads at once — and tests run on several.
+        Memory(Option<String>),
+    }
 
     #[cfg(desktop)]
     impl Clipboard {
         pub fn new() -> Self {
-            Self(arboard::Clipboard::new().ok())
+            Self::System(arboard::Clipboard::new().ok())
+        }
+        pub fn in_memory() -> Self {
+            Self::Memory(None)
         }
         pub fn get_text(&mut self) -> Option<String> {
-            self.0.as_mut().and_then(|c| c.get_text().ok())
+            match self {
+                Self::System(system) => system.as_mut().and_then(|c| c.get_text().ok()),
+                Self::Memory(text) => text.clone(),
+            }
         }
         pub fn has_text(&mut self) -> bool {
             self.get_text().is_some_and(|text| !text.is_empty())
         }
         pub fn set_text(&mut self, text: String) {
-            if let Some(c) = self.0.as_mut() {
-                let _ = c.set_text(text);
+            match self {
+                Self::System(system) => {
+                    if let Some(c) = system.as_mut() {
+                        let _ = c.set_text(text);
+                    }
+                }
+                Self::Memory(held) => *held = Some(text),
             }
+        }
+    }
+
+    /// Elsewhere a shell with no window keeps the platform's clipboard: no test runs there.
+    #[cfg(not(desktop))]
+    impl Clipboard {
+        pub fn in_memory() -> Self {
+            Self::new()
         }
     }
 
@@ -1078,7 +1104,12 @@ impl<A: Application> App<A> {
     /// on a machine with no display, which is where the continuous integration runs.
     #[cfg(any(test, feature = "testing"))]
     fn detached(app: A) -> Self {
-        Self::with_mailbox(app, Mailbox(None))
+        let mut shell = Self::with_mailbox(app, Mailbox(None));
+        // A shell with no window is a test's: it keeps a clipboard of its own rather than
+        // the machine's, which tests running side by side would share — and which macOS
+        // does not let several threads touch at once (a test run aborted on it).
+        shell.clipboard = clip::Clipboard::in_memory();
+        shell
     }
 
     fn with_mailbox(app: A, proxy: Mailbox<A::Message>) -> Self {
@@ -12303,11 +12334,15 @@ mod right_click_bar_tests {
             .expect("the field's words");
         d.secondary_click(Point::new(words.x + 20.0, words.y + words.height * 0.5));
         d.run(0.1);
-        // Only what applies: nothing is selected, so nothing to cut or copy. Paste is not
-        // asserted either way: it follows the machine's own clipboard, which a test does not
-        // control (a CI runner's had text on it).
+        // Only what applies: nothing is selected, so nothing to cut or copy; and the
+        // driver's clipboard is its own and empty, so nothing to paste — it no longer
+        // follows the machine's (a CI runner's had text on it).
         assert!(shown(&d, "Select all"), "the bar is open: {:?}", d.texts());
         assert!(!shown(&d, "Copy") && !shown(&d, "Cut"));
+        assert!(
+            !shown(&d, "Paste"),
+            "an empty clipboard offers nothing to paste"
+        );
     }
 
     /// The same field, under a theme that follows Linux.
