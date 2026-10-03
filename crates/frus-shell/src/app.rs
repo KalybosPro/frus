@@ -3455,7 +3455,21 @@ impl<A: Application> App<A> {
         }
         self.pending_word = None;
         self.pending_region_hold = false;
-        // A selection handle first. It hangs below its line, over whatever is drawn
+        // A press **on the bar** comes first: the bar is drawn over everything, the handles
+        // included, and the desktop menu hangs from the selection's top, over its handles
+        // (milestone 618). It acts on the focused field, so nothing here may touch the
+        // focus, the selection or the handles: it is only recorded, and `pointer_up`
+        // resolves it to the button's action.
+        if self
+            .ui
+            .as_ref()
+            .is_some_and(|ui| ui.toolbar_contains(self.cursor))
+        {
+            press_at(&mut self.runtime, self.ui.as_ref(), self.cursor);
+            self.request_redraw();
+            return;
+        }
+        // Then a selection handle. It hangs below its line, over whatever is drawn
         // there, so nothing else may claim the press before it; and any other press puts
         // the handles away (milestone 511).
         // A selection area's handle likewise: a press on one widens or narrows the selection
@@ -3473,18 +3487,6 @@ impl<A: Application> App<A> {
             // The bar is put away while a handle is dragged, and comes back when it is let
             // go (`pointer_up`): a bar that followed a moving selection would flicker.
             self.runtime.selection_toolbar = None;
-            self.request_redraw();
-            return;
-        }
-        // A press **on the bar** acts on the focused field, so nothing here may touch the
-        // focus, the selection or the handles: it is only recorded, and `pointer_up`
-        // resolves it to the button's action.
-        if self
-            .ui
-            .as_ref()
-            .is_some_and(|ui| ui.toolbar_contains(self.cursor))
-        {
-            press_at(&mut self.runtime, self.ui.as_ref(), self.cursor);
             self.request_redraw();
             return;
         }
@@ -7005,8 +7007,14 @@ impl<A: Application> App<A> {
     /// selection (milestone 568). Whether the clipboard holds text is asked once, here, and
     /// kept for as long as the bar is open: it is what decides whether Paste is offered.
     fn show_selection_toolbar(&mut self, id: WidgetId) {
+        self.show_selection_toolbar_at(id, None);
+    }
+
+    /// The same, opened by a right-click at `at`: the bar goes there instead of to the
+    /// selection (milestone 618).
+    fn show_selection_toolbar_at(&mut self, id: WidgetId, at: Option<Point>) {
         let can_paste = self.clipboard.has_text();
-        self.runtime.selection_toolbar = Some(ToolbarMark { id, can_paste });
+        self.runtime.selection_toolbar = Some(ToolbarMark { id, can_paste, at });
         self.request_redraw();
     }
 
@@ -7088,7 +7096,9 @@ impl<A: Application> App<A> {
                 if self.runtime.selection_handles.is_some() {
                     self.runtime.selection_handles = Some(id);
                 }
-                self.show_selection_toolbar(id);
+                // And where it was: a menu a right-click opened stays at the pointer.
+                let at = self.runtime.selection_toolbar.and_then(|mark| mark.at);
+                self.show_selection_toolbar_at(id, at);
             }
         }
         #[cfg(android)]
@@ -7166,7 +7176,7 @@ impl<A: Application> App<A> {
             );
             self.runtime.close_edit_run(id);
         }
-        self.show_selection_toolbar(id);
+        self.show_selection_toolbar_at(id, Some(self.cursor));
     }
 
     /// Types what the clipboard answered into the field that asked for it, if the paste
@@ -10467,6 +10477,9 @@ mod selection_area_tests {
         bar: Bar,
         /// How many times the bar's own item was pressed.
         shared: std::rc::Rc<std::cell::Cell<u32>>,
+        /// The theme's platform: Android unless a test says otherwise, because these are a
+        /// finger's tests and Android's bar is the pill (milestone 618).
+        platform: Option<frus_widgets::TargetPlatform>,
     }
 
     /// The application's say over the area's bar (milestone 578).
@@ -10487,6 +10500,13 @@ mod selection_area_tests {
         fn update(&mut self, _message: ()) -> Command<()> {
             self.shared.set(self.shared.get() + 1);
             Command::none()
+        }
+
+        fn theme(&self) -> Theme {
+            Theme::default().with_platform(
+                self.platform
+                    .unwrap_or(frus_widgets::TargetPlatform::Android),
+            )
         }
 
         fn view(&self, _theme: &Theme) -> Box<dyn Widget<()>> {
@@ -10586,8 +10606,13 @@ mod selection_area_tests {
     }
 
     fn driver_with(bar: Bar) -> Driver<Doc> {
+        driver_on(bar, None)
+    }
+
+    fn driver_on(bar: Bar, platform: Option<frus_widgets::TargetPlatform>) -> Driver<Doc> {
         let doc = Doc {
             bar,
+            platform,
             ..Doc::default()
         };
         let mut driver = Driver::new(doc, W, H);
@@ -10801,6 +10826,25 @@ mod selection_area_tests {
         assert_eq!(d.area_selection().as_deref(), Some("second"));
         assert!(bar_button(&d, "Copy").is_some(), "Copy is on the bar");
         assert!(bar_button(&d, "Select all").is_some(), "and Select all");
+    }
+
+    /// **On a desktop theme the bar is the menu, and its rows act on the area as the pill's
+    /// buttons do** (milestone 618).
+    #[test]
+    fn the_desktop_menus_rows_act_on_the_area() {
+        let mut d = driver_on(Bar::Default, Some(frus_widgets::TargetPlatform::Linux));
+        let at = on(&d, "second line", 12.0);
+        hold(&mut d, at);
+        let select_all = bar_button(&d, "Select all").expect("Select all");
+        // The menu hangs from the selection's top, over the handles under it: the press is
+        // the menu's, not a handle's.
+        d.press(select_all);
+        d.release(select_all);
+        d.run(0.05);
+        assert_eq!(
+            d.area_selection().as_deref(),
+            Some("first line of words\nsecond line\nthird line ends here")
+        );
     }
 
     /// **The bar's Select all takes the whole area and keeps the bar**, which no longer offers
@@ -12264,6 +12308,52 @@ mod right_click_bar_tests {
         // control (a CI runner's had text on it).
         assert!(shown(&d, "Select all"), "the bar is open: {:?}", d.texts());
         assert!(!shown(&d, "Copy") && !shown(&d, "Cut"));
+    }
+
+    /// The same field, under a theme that follows Linux.
+    struct DesktopForm;
+
+    impl Application for DesktopForm {
+        type Message = ();
+
+        fn update(&mut self, _message: ()) -> Command<()> {
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<()>> {
+            Box::new(TextField::new("some words in a field"))
+        }
+
+        fn theme(&self) -> Theme {
+            Theme::default().with_platform(frus_widgets::TargetPlatform::Linux)
+        }
+    }
+
+    /// **A right-click opens the menu where the pointer is** (milestone 618), as the
+    /// reference's context menu goes to the last secondary tap: its first row's words sit
+    /// 20 px after the pointer, on the pointer's line.
+    #[test]
+    fn a_right_click_opens_the_menu_at_the_pointer() {
+        let mut d = Driver::new(DesktopForm, 500.0, 300.0);
+        d.run(0.1);
+        let (_, words) = d
+            .texts()
+            .into_iter()
+            .find(|(t, _)| t.contains("some words"))
+            .expect("the field's words");
+        let click = Point::new(words.x + 20.0, words.y + words.height * 0.5);
+        d.secondary_click(click);
+        d.run(0.1);
+        let (_, row) = d
+            .texts()
+            .into_iter()
+            .find(|(t, _)| t == "Select all")
+            .expect("the menu is open");
+        assert_eq!(row.x, click.x + 20.0, "the menu starts at the pointer");
+        assert!(
+            row.y >= click.y && row.y < click.y + 36.0,
+            "its first row is on the pointer's line: {row:?} {click:?}"
+        );
     }
 }
 

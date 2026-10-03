@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 617 so far, each documenting the objective, the alternatives
+> record — one per step, 618 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The selection bar's desktop form** (J618). Under a theme whose platform is Fuchsia,
+  Linux or Windows, Cut/Copy/Paste/Select all is the reference's desktop menu: a 222 px
+  column of 36 px rows. A right-click opens the bar where the pointer is, on every platform;
+  otherwise a menu hangs from the selection's top. Fixed on the way: a press on the bar now
+  comes before the selection handles under it.
 
 - **The Android scrollbar, under an Android theme** (J617), as the reference draws it: 4 px,
   flush with the edge, square, an opaque grey at rest, and not something a pointer wakes
