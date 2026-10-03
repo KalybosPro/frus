@@ -476,6 +476,54 @@ mod tests {
         )
     }
 
+    /// The right-most column with a lit pixel, rendering `scene` 256 px wide.
+    fn rightmost_lit(scene: &Scene) -> Option<usize> {
+        let frame = crate::offscreen::render_offscreen(scene, 256, 64, Color::BLACK)?;
+        let width = 256;
+        Some(
+            frame
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .enumerate()
+                .filter(|(_, px)| px[0] > 16)
+                .map(|(i, _)| i % width)
+                .max()
+                .unwrap_or(0),
+        )
+    }
+
+    /// **The renderer spaces the letters as the measurement did** (milestone 623): the
+    /// same four letters drawn 6 px apart reach about 18 px further right — three gaps —
+    /// than drawn without spacing.
+    #[test]
+    fn letter_spacing_reaches_the_pixels() {
+        let draw = |spacing: f32| {
+            let mut scene = Scene::new();
+            scene.text(
+                Point::new(4.0, 4.0),
+                "IIII",
+                &frus_core::ResolvedTextStyle {
+                    letter_spacing: spacing,
+                    ..frus_core::ResolvedTextStyle::exact(32.0)
+                },
+                Color::WHITE,
+            );
+            rightmost_lit(&scene)
+        };
+        match (draw(0.0), draw(6.0)) {
+            (Some(plain), Some(spaced)) => {
+                let further = spaced as f32 - plain as f32;
+                assert!(
+                    (further - 18.0).abs() <= 3.0,
+                    "spaced ink ends {further} px further, three gaps of 6 expected"
+                );
+            }
+            _ => eprintln!("no GPU adapter available: test skipped"),
+        }
+    }
+
     /// Proof of rasterisation: white text produces non-black pixels.
     #[test]
     fn renders_text_to_non_background_pixels() {
