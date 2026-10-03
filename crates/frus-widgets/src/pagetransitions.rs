@@ -410,6 +410,11 @@ mod tests {
         assert_eq!((start.top.dx, start.top.opacity), (0.25, 0.0));
         let quarter = B::FadeForwards.frame(0.25, true, false);
         assert_eq!(quarter.below.opacity, 0.0);
+        // Halfway, the new page is two thirds in: its fade runs over the first 75 %.
+        let half = B::FadeForwards.frame(0.5, true, false);
+        assert!((half.top.opacity - 2.0 / 3.0).abs() < 1e-4, "{}", half.top.opacity);
+        let back = B::FadeForwards.frame(0.5, false, false);
+        assert!((back.below.opacity - 2.0 / 3.0).abs() < 1e-4, "and on the way back");
         let end = B::FadeForwards.frame(1.0, true, false);
         assert!((end.below.dx + 0.25).abs() < 1e-4);
         assert!(!end.mirrored);

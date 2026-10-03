@@ -62,3 +62,12 @@ pace, and shapes that pace with its own curves (milestone 619).
 - The navigator's tests now say which transition they describe — the slide, under a theme
   that follows iOS — where they followed whatever machine ran them. The hero tests run
   under a theme that follows Linux, whose zoom puts the pages in layers: the hard case.
+
+Mutation testing: eight mutants, all killed — Android given the zoom, the zoom starting from
+90 %, the slide's parallax a quarter instead of a third, the fade's fade-in over half the
+way, every push timed as the zoom's, a back gesture not marked as the finger's, a page's
+layer not scaled, and a hero not looked for inside the pages' layers. The fade-in first
+survived: its test checked the ends and not the pace; it now checks the halfway point.
+Three more tests came with them: a push's duration on iOS and Linux, a back gesture drawn
+under the finger, and a push under a desktop theme scaling each page in its layer. The
+navigator's golden is now three, one per transition, each under its platform.
