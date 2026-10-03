@@ -8,10 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 621 so far, each documenting the objective, the alternatives
+> record — one per step, 622 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The system's Back is a pop** (J622). Android's back button, the browser's Back and a back
+  key now call `Application::go_back()`, which a router-built application answers with a
+  plain pop — the page leaves with its own transition — instead of a back swipe let go at
+  once. The default still plays the swipe, for applications that only answer the gesture.
 
 - **An iOS page let go** (J621). Under the iOS slide, a back swipe released at a screen width
   a second or more goes or stays by its direction, a slower one by whether it passed
