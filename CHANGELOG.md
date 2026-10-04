@@ -8,11 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 624 so far, each documenting the objective, the alternatives
+> record — one per step, 625 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **On a desktop, Select all puts the menu away** (J625). A field's or a selectable text's
+  menu closes after its Select all on macOS, Linux and Windows, handles with it, as the
+  reference's does; on Android, iOS and Fuchsia the bar stays. The system decides, not the
+  theme. **Changed**: on a desktop the menu no longer stays open after Select all.
+- **`FontFamily` is exported by `frus-widgets`**, next to `FontWeight` and `TextStyle`:
+  `TextStyle::family` takes one, and an application could not name it without depending on
+  `frus-core`.
 - **The reference's type scale, in full** (J624). Every step of `TextTheme::M3` now has the
   reference's letter spacing and line height as well as its size and weight — body text
   0.25–0.5 px apart on lines 1.33–1.5 of its size, labels 0.1–0.5 px apart, display −0.25 px.
