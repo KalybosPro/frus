@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 623 so far, each documenting the objective, the alternatives
+> record — one per step, 624 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The reference's type scale, in full** (J624). Every step of `TextTheme::M3` now has the
+  reference's letter spacing and line height as well as its size and weight — body text
+  0.25–0.5 px apart on lines 1.33–1.5 of its size, labels 0.1–0.5 px apart, display −0.25 px.
+  **Changed**: text across the framework is set more openly, on taller lines; 81 pictures
+  were recorded again.
 
 - **Letter spacing** (J623). `TextStyle::letter_spacing(px)`, the reference's
   `letterSpacing`: cascaded, animated, not grown by the reader's font setting, and carried

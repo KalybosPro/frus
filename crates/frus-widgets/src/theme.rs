@@ -110,21 +110,38 @@ impl TextTheme {
     /// Twelve widgets used to carry their own number, and one of them had drifted two
     /// pixels from the reference without anybody being able to see it.
     pub const M3: Self = Self {
-        display_large: TextStyle::new(57.0),
-        display_medium: TextStyle::new(45.0),
-        display_small: TextStyle::new(36.0),
-        headline_large: TextStyle::new(32.0),
-        headline_medium: TextStyle::new(28.0),
-        headline_small: TextStyle::new(24.0),
-        title_large: TextStyle::new(22.0),
-        title_medium: TextStyle::new(16.0).weight(FontWeight::Medium),
-        title_small: TextStyle::new(14.0).weight(FontWeight::Medium),
-        body_large: TextStyle::new(16.0),
-        body_medium: TextStyle::new(14.0),
-        body_small: TextStyle::new(12.0),
-        label_large: TextStyle::new(14.0).weight(FontWeight::Medium),
-        label_medium: TextStyle::new(12.0).weight(FontWeight::Medium),
-        label_small: TextStyle::new(11.0).weight(FontWeight::Medium),
+        // The reference's English-like 2021 scale (`typography.dart:2097`): size, weight,
+        // letter spacing and line height, step by step (milestone 624).
+        display_large: TextStyle::new(57.0).letter_spacing(-0.25).height(1.12),
+        display_medium: TextStyle::new(45.0).letter_spacing(0.0).height(1.16),
+        display_small: TextStyle::new(36.0).letter_spacing(0.0).height(1.22),
+        headline_large: TextStyle::new(32.0).letter_spacing(0.0).height(1.25),
+        headline_medium: TextStyle::new(28.0).letter_spacing(0.0).height(1.29),
+        headline_small: TextStyle::new(24.0).letter_spacing(0.0).height(1.33),
+        title_large: TextStyle::new(22.0).letter_spacing(0.0).height(1.27),
+        title_medium: TextStyle::new(16.0)
+            .weight(FontWeight::Medium)
+            .letter_spacing(0.15)
+            .height(1.50),
+        title_small: TextStyle::new(14.0)
+            .weight(FontWeight::Medium)
+            .letter_spacing(0.1)
+            .height(1.43),
+        body_large: TextStyle::new(16.0).letter_spacing(0.5).height(1.50),
+        body_medium: TextStyle::new(14.0).letter_spacing(0.25).height(1.43),
+        body_small: TextStyle::new(12.0).letter_spacing(0.4).height(1.33),
+        label_large: TextStyle::new(14.0)
+            .weight(FontWeight::Medium)
+            .letter_spacing(0.1)
+            .height(1.43),
+        label_medium: TextStyle::new(12.0)
+            .weight(FontWeight::Medium)
+            .letter_spacing(0.5)
+            .height(1.33),
+        label_small: TextStyle::new(11.0)
+            .weight(FontWeight::Medium)
+            .letter_spacing(0.5)
+            .height(1.45),
     };
 }
 
@@ -1579,6 +1596,39 @@ mod tests {
             from.lerp(&to, 1.0).platform,
             frus_core::TargetPlatform::Windows
         );
+    }
+
+    /// **The reference's type scale, step by step** (`typography.dart:2097`, milestone
+    /// 624): size, weight, letter spacing and line height of each of the fifteen.
+    #[test]
+    fn the_type_scale_is_the_reference_s() {
+        use frus_core::FontWeight::{Medium, Regular};
+        let t = TextTheme::M3;
+        let table = [
+            (t.display_large, 57.0, Regular, -0.25, 1.12),
+            (t.display_medium, 45.0, Regular, 0.0, 1.16),
+            (t.display_small, 36.0, Regular, 0.0, 1.22),
+            (t.headline_large, 32.0, Regular, 0.0, 1.25),
+            (t.headline_medium, 28.0, Regular, 0.0, 1.29),
+            (t.headline_small, 24.0, Regular, 0.0, 1.33),
+            (t.title_large, 22.0, Regular, 0.0, 1.27),
+            (t.title_medium, 16.0, Medium, 0.15, 1.50),
+            (t.title_small, 14.0, Medium, 0.1, 1.43),
+            (t.body_large, 16.0, Regular, 0.5, 1.50),
+            (t.body_medium, 14.0, Regular, 0.25, 1.43),
+            (t.body_small, 12.0, Regular, 0.4, 1.33),
+            (t.label_large, 14.0, Medium, 0.1, 1.43),
+            (t.label_medium, 12.0, Medium, 0.5, 1.33),
+            (t.label_small, 11.0, Medium, 0.5, 1.45),
+        ];
+        for (i, (style, size, weight, spacing, height)) in table.into_iter().enumerate() {
+            let r = style.resolved();
+            assert_eq!(
+                (r.size, r.weight, r.letter_spacing, r.height),
+                (size, weight, spacing, Some(height)),
+                "step {i}"
+            );
+        }
     }
 
     #[test]
