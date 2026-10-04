@@ -87,6 +87,12 @@ const ARABIC_FAMILY: &str = "Noto Naskh Arabic";
 // family and lets the platform answer, which is the best that can be done and is what
 // the desktop wants anyway. An application that ships its own faces names them here
 // through [`set_default_family`] / [`set_monospace_family`].
+//
+// A slot holds the name **as it was asked for**. What it is drawn in is decided against
+// the faces actually loaded — see [`loaded_family`] — because the name a developer writes
+// and the name inside a font file are often not the same: Inter's static files call their
+// family "Inter 24pt". A family nobody loaded is not a smaller failure on Android, where
+// there is no fallback list behind it: it draws **nothing at all** (milestone 626).
 
 #[cfg(feature = "bundled-sans")]
 static SANS: RwLock<Option<&'static str>> = RwLock::new(Some(SANS_FAMILY));
@@ -109,6 +115,10 @@ static ITALIC: AtomicBool = AtomicBool::new(cfg!(feature = "bundled-italic"));
 /// its own system at start-up, exactly like declaring fonts in a manifest.
 static EXTRA_FONTS: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
 
+/// The families inside [`EXTRA_FONTS`], in the order they were registered: the first
+/// place to look when a name the application gave matches nothing.
+static APP_FAMILIES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
 /// Registers a font face from its bytes (TTF/OTF), for the whole process.
 ///
 /// Call it **before** starting the application: the renderer builds its font database
@@ -118,41 +128,432 @@ static EXTRA_FONTS: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
 /// frus_text::add_font(include_bytes!("../fonts/Inter-Regular.ttf").to_vec());
 /// frus_text::set_default_family("Inter");
 /// ```
+///
+/// Bytes that hold no face this build can read are not registered, and the console says
+/// so: a file that is not a font, or not the one you meant, is otherwise found on a device.
 pub fn add_font(data: Vec<u8>) {
+    let families = families_in(&data);
+    if families.is_empty() {
+        log::warn!(
+            "frus: add_font was given {} bytes that hold no font face; nothing was registered",
+            data.len()
+        );
+        return;
+    }
+    {
+        let mut known = APP_FAMILIES.lock().expect("font registry");
+        for family in families {
+            if !known.contains(&family) {
+                known.push(family);
+            }
+        }
+    }
+    EXTRA_FONTS
+        .lock()
+        .expect("font registry")
+        .push(data.clone());
     // Anything already measuring gets it too, so tests and tools do not have to care
     // about ordering.
     if let Some(system) = FONT_SYSTEM.get() {
         if let Ok(mut system) = system.lock() {
-            system.db_mut().load_font_data(data.clone());
+            let db = system.db_mut();
+            db.load_font_data(data);
+            take_stock(db);
         }
     }
-    EXTRA_FONTS.lock().expect("font registry").push(data);
     forget_measurements();
 }
 
 /// Names the family text uses by default — the one an application ships instead of,
 /// or alongside, the bundled sans. The face itself must be registered with
 /// [`add_font`], or be present on the system.
+///
+/// The name is the one **inside** the font file, which is not always the file's: Inter's
+/// static files are called "Inter 24pt". A name that matches no loaded family is not left
+/// to draw nothing. frus takes the loaded family it plainly means — the same name in
+/// another case or spacing, or one that extends it by a word ("Inter" → "Inter 24pt") —
+/// and failing that the first family the application registered, then the platform's own
+/// sans. The console names what was chosen and what to write instead.
 pub fn set_default_family(name: &'static str) {
     *SANS.write().expect("family registry") = Some(name);
     forget_measurements();
 }
 
-/// Names the family monospaced text uses. See [`set_default_family`].
+/// Names the family monospaced text uses. See [`set_default_family`], whose rules for a
+/// name that is not loaded apply here too; with nothing to fall back on, monospaced text
+/// is drawn in the default family rather than not at all.
 pub fn set_monospace_family(name: &'static str) {
     *MONO.write().expect("family registry") = Some(name);
     forget_measurements();
 }
 
-/// The family a generic role resolves to, or the generic family when nothing is
-/// loaded for it and the platform is the better judge.
-fn family_or_generic(
-    slot: &RwLock<Option<&'static str>>,
-    generic: cosmic_text::Family<'static>,
-) -> cosmic_text::Family<'static> {
-    match *slot.read().expect("family registry") {
+/// The family names a font file declares, in the form fontdb reports them (the
+/// typographic family when the file has one).
+fn families_in(data: &[u8]) -> Vec<String> {
+    let mut db = cosmic_text::fontdb::Database::new();
+    db.load_font_data(data.to_vec());
+    let mut names: Vec<String> = Vec::new();
+    for face in db.faces() {
+        for (name, _) in &face.families {
+            if !names.contains(name) {
+                names.push(name.clone());
+            }
+        }
+    }
+    names
+}
+
+/// A family name with case, spaces, hyphens and underscores taken out: "Open Sans",
+/// "open-sans" and "OpenSans" are one name to a person, and three to an exact match.
+fn squashed(name: &str) -> String {
+    name.chars()
+        .filter(|c| !matches!(c, ' ' | '-' | '_'))
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// The loaded family `requested` means, or `None` when none plainly does.
+///
+/// Three tries, from the strictest: the name exactly; the name up to case, spaces and
+/// hyphens; a family that **extends** it by a word — "Inter" finds "Inter 24pt", which is
+/// what Inter's static files call themselves. Among several extensions the ones in
+/// `preferred` (the application's own faces) come first, then the shortest, so "DejaVu"
+/// finds "DejaVu Sans" before "DejaVu Sans Mono".
+///
+/// It never guesses past that. A name that merely shares a first letter, or that the
+/// loaded family only begins ("Inter Tight" asked, "Inter" loaded), is not a match: a
+/// wrong face drawn silently is the failure this exists to end, not a new one.
+fn match_family<'a>(
+    requested: &str,
+    loaded: &'a [String],
+    preferred: &[String],
+) -> Option<&'a str> {
+    if let Some(exact) = loaded.iter().find(|family| *family == requested) {
+        return Some(exact);
+    }
+    let wanted = squashed(requested);
+    if let Some(same) = loaded.iter().find(|family| squashed(family) == wanted) {
+        return Some(same);
+    }
+    let prefix = format!("{} ", requested.trim().to_lowercase());
+    loaded
+        .iter()
+        .filter(|family| family.to_lowercase().starts_with(&prefix))
+        .min_by_key(|family| (!preferred.contains(family), family.len()))
+        .map(String::as_str)
+}
+
+/// The weights a face covers: one, or the range of its `wght` axis for a variable font,
+/// which draws every weight in between.
+fn weight_range(
+    db: &cosmic_text::fontdb::Database,
+    face: &cosmic_text::fontdb::FaceInfo,
+) -> (u16, u16) {
+    use cosmic_text::skrifa::MetadataProvider;
+    let axis = db.with_face_data(face.id, |data, index| {
+        let font = cosmic_text::skrifa::FontRef::from_index(data, index).ok()?;
+        let axis = font
+            .axes()
+            .get_by_tag(cosmic_text::skrifa::Tag::new(b"wght"))?;
+        Some((axis.min_value() as u16, axis.max_value() as u16))
+    });
+    match axis {
+        Some(Some((low, high))) if low <= high => (low, high),
+        _ => (face.weight.0, face.weight.0),
+    }
+}
+
+/// What the font database holds, as far as naming a family goes. Every `FontSystem` frus
+/// builds loads the same faces, so one inventory answers for all of them.
+struct Loaded {
+    /// Every family, as the files spell it.
+    families: Vec<String>,
+    /// The families that can draw text — every one but the emoji faces.
+    text: Vec<String>,
+    /// The application's own families, in registration order.
+    app: Vec<String>,
+    /// The families with an oblique or italic face.
+    slanted: Vec<String>,
+    /// Whether the generic sans-serif and monospace resolved to a face before frus
+    /// pointed them anywhere: on a desktop they do, on Android nothing answers.
+    generic_sans: bool,
+    generic_mono: bool,
+    /// What [`loaded_family`] answered, per name asked. An inventory is replaced whenever
+    /// a face arrives, and its answers go with it.
+    answers: Mutex<std::collections::HashMap<&'static str, Option<&'static str>>>,
+}
+
+impl Loaded {
+    fn of(db: &cosmic_text::fontdb::Database) -> Self {
+        use cosmic_text::fontdb::{Family, Query, Style};
+        let mut families: Vec<String> = Vec::new();
+        let mut text: Vec<String> = Vec::new();
+        let mut slanted: Vec<String> = Vec::new();
+        for face in db.faces() {
+            let emoji = face.post_script_name.contains("Emoji");
+            for (name, _) in &face.families {
+                if !families.contains(name) {
+                    families.push(name.clone());
+                }
+                if !emoji && !text.contains(name) {
+                    text.push(name.clone());
+                }
+                if face.style != Style::Normal && !slanted.contains(name) {
+                    slanted.push(name.clone());
+                }
+            }
+        }
+        let resolves = |family| {
+            db.query(&Query {
+                families: &[family],
+                ..Query::default()
+            })
+            .is_some()
+        };
+        Loaded {
+            families,
+            text,
+            app: APP_FAMILIES.lock().expect("font registry").clone(),
+            slanted,
+            generic_sans: resolves(Family::SansSerif),
+            generic_mono: resolves(Family::Monospace),
+            answers: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// What text is drawn in when the family asked for is not loaded: the application's
+    /// first face, then the platform's sans (Roboto, on Android), then any face that draws
+    /// text — never nothing while there is something.
+    fn fallback(&self) -> Option<&str> {
+        self.app
+            .iter()
+            .find(|family| self.text.contains(family))
+            .or_else(|| self.text.iter().find(|family| *family == PLATFORM_SANS))
+            .or_else(|| self.text.first())
+            .map(String::as_str)
+    }
+
+    /// Whether default text has nothing good to be drawn in: the family asked for is not
+    /// there, nor any face of the application's, nor a generic sans the platform answers
+    /// for. Only Android gets here with a build that dropped `bundled-sans`, and it is
+    /// the cue to take the platform's own sans from disk.
+    #[cfg(any(target_os = "android", test))]
+    fn wants_platform_sans(&self, requested: Option<&str>) -> bool {
+        let named = requested.is_some_and(|name| {
+            match_family(name, &self.families, &self.app)
+                .is_some_and(|family| self.text.iter().any(|text| text == family))
+        });
+        let own = self.app.iter().any(|family| self.text.contains(family));
+        !(named || own || (requested.is_none() && self.generic_sans))
+    }
+}
+
+/// The weights the default family covers, as ranges — one weight for a static face, the
+/// span of its `wght` axis for a variable one. Empty when the default family is the
+/// platform's generic, which is not frus's to inventory.
+static WEIGHTS: RwLock<Vec<(u16, u16)>> = RwLock::new(Vec::new());
+
+/// The weight ranges `family`'s faces cover in `db`, upright faces first: an italic-only
+/// family still has weights to offer.
+fn weights_of(db: &cosmic_text::fontdb::Database, family: &str) -> Vec<(u16, u16)> {
+    let faces: Vec<_> = db
+        .faces()
+        .filter(|face| face.families.iter().any(|(name, _)| name == family))
+        .collect();
+    let upright: Vec<_> = faces
+        .iter()
+        .filter(|face| face.style == cosmic_text::fontdb::Style::Normal)
+        .collect();
+    let chosen = if upright.is_empty() {
+        faces.iter().collect()
+    } else {
+        upright
+    };
+    let mut ranges: Vec<(u16, u16)> = chosen.iter().map(|face| weight_range(db, face)).collect();
+    ranges.sort_unstable();
+    ranges.dedup();
+    ranges
+}
+
+/// The weight to ask for when `wanted` is asked of a family covering `have`, by the rule
+/// type on the web follows: an exact weight, or one inside a variable face's range, as it
+/// is; for 400 to 500, the next heavier up to 500, then lighter, then heavier; below 400,
+/// lighter first; above 500, heavier first. `have` empty answers `wanted`.
+fn nearest_weight(wanted: u16, have: &[(u16, u16)]) -> u16 {
+    if have
+        .iter()
+        .any(|&(low, high)| (low..=high).contains(&wanted))
+    {
+        return wanted;
+    }
+    // Outside every range, the candidates are the ranges' ends.
+    let mut ends: Vec<u16> = have.iter().flat_map(|&(low, high)| [low, high]).collect();
+    ends.sort_unstable();
+    ends.dedup();
+    let lighter = ends.iter().rev().find(|&&w| w < wanted).copied();
+    let heavier = ends.iter().find(|&&w| w > wanted).copied();
+    let pick = if (400..=500).contains(&wanted) {
+        ends.iter()
+            .find(|&&w| w > wanted && w <= 500)
+            .copied()
+            .or(lighter)
+            .or(heavier)
+    } else if wanted < 400 {
+        lighter.or(heavier)
+    } else {
+        heavier.or(lighter)
+    };
+    pick.unwrap_or(wanted)
+}
+
+/// The family Android draws its own text in, and the one frus takes from the platform
+/// when nothing else can draw.
+const PLATFORM_SANS: &str = "Roboto";
+
+/// The inventory of the last font database frus built. `None` until one is built — and
+/// then nothing can be judged, and names are taken as written.
+static LOADED: RwLock<Option<Loaded>> = RwLock::new(None);
+
+/// Family names the inventory gave out. The slots hold `&'static str`, and a name read
+/// from a font file is not one; each is leaked once, and only once.
+static INTERNED: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+
+fn interned(name: &str) -> &'static str {
+    let mut interned = INTERNED.lock().expect("family registry");
+    if let Some(found) = interned.iter().find(|known| **known == name) {
+        return found;
+    }
+    let leaked: &'static str = Box::leak(name.to_string().into_boxed_str());
+    interned.push(leaked);
+    leaked
+}
+
+/// What the console has already been told. A warning a frame would print sixty times a
+/// second is noise; once is the message.
+static WARNED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn warn_once(message: String) {
+    let mut warned = WARNED.lock().expect("family registry");
+    if !warned.contains(&message) {
+        log::warn!("{message}");
+        warned.push(message);
+    }
+}
+
+/// Takes the inventory of `db` and points its generic families at faces that are there.
+/// Run whenever the faces change: a family's weights, its italic and the names it answers
+/// to are all read from it.
+fn take_stock(db: &mut cosmic_text::fontdb::Database) {
+    *LOADED.write().expect("family registry") = Some(Loaded::of(db));
+    // Makes every generic family resolve to a font that is actually present — but
+    // only when one is: pointing `sans-serif` at a family nobody loaded is worse than
+    // leaving fontdb's own answer alone.
+    let sans = default_family();
+    if let Some(sans) = sans {
+        db.set_sans_serif_family(sans);
+        db.set_serif_family(sans);
+        db.set_cursive_family(sans);
+        db.set_fantasy_family(sans);
+    }
+    if let cosmic_text::Family::Name(mono) = monospace_family() {
+        db.set_monospace_family(mono);
+    }
+    *WEIGHTS.write().expect("family registry") = match sans {
+        Some(name) => weights_of(db, name),
+        None => Vec::new(),
+    };
+    // What is *actually* there decides whether italic is asked for, since an
+    // application may have supplied an oblique face of its own — or none.
+    let italic = match LOADED.read().expect("family registry").as_ref() {
+        Some(loaded) => match sans {
+            Some(name) => loaded.slanted.iter().any(|family| family == name),
+            None => !loaded.slanted.is_empty(),
+        },
+        None => false,
+    };
+    ITALIC.store(italic, Ordering::Relaxed);
+}
+
+/// The loaded family `name` means — itself when a face carries it, otherwise what
+/// [`match_family`] finds, with a warning naming it — or `None` when nothing loaded
+/// answers to it. Before any font database exists there is nothing to judge against, and
+/// the name is taken as written.
+fn loaded_family(name: &'static str) -> Option<&'static str> {
+    let guard = LOADED.read().expect("family registry");
+    let Some(loaded) = guard.as_ref() else {
+        return Some(name);
+    };
+    let mut answers = loaded.answers.lock().expect("family registry");
+    if let Some(answer) = answers.get(name) {
+        return *answer;
+    }
+    let answer = match_family(name, &loaded.families, &loaded.app).map(interned);
+    if let Some(actual) = answer {
+        if actual != name {
+            warn_once(format!(
+                "frus: no font family is called \"{name}\"; drawing \"{actual}\", the name \
+                 inside the font files. Write \"{actual}\" to say so."
+            ));
+        }
+    }
+    answers.insert(name, answer);
+    answer
+}
+
+/// The family to draw in when `name`, asked for in the role `role`, is not loaded — with
+/// a warning that says so and lists what the application did register.
+fn fallback_for(role: &str, name: &str) -> Option<&'static str> {
+    let guard = LOADED.read().expect("family registry");
+    let loaded = guard.as_ref()?;
+    let fallback = loaded.fallback().map(interned);
+    let registered = if loaded.app.is_empty() {
+        "add_font registered none".to_string()
+    } else {
+        format!("add_font registered {:?}", loaded.app)
+    };
+    let drawn = match fallback {
+        Some(family) => format!("drawing \"{family}\" instead"),
+        None => "and no other face can draw text".to_string(),
+    };
+    warn_once(format!(
+        "frus: the {role} font family \"{name}\" is not loaded; {drawn}. The name must be \
+         the one inside the font file ({registered})."
+    ));
+    fallback
+}
+
+/// The family default text is drawn in: the one the application named, as it is loaded;
+/// failing that a face that can draw, never a name that resolves to nothing. `None` leaves
+/// the generic sans-serif to the platform, which answers on a desktop.
+fn default_family() -> Option<&'static str> {
+    let requested = *SANS.read().expect("family registry");
+    match requested {
+        Some(name) => loaded_family(name).or_else(|| fallback_for("default", name)),
+        None => {
+            let generic = LOADED
+                .read()
+                .expect("family registry")
+                .as_ref()
+                .is_none_or(|loaded| loaded.generic_sans);
+            if generic {
+                None
+            } else {
+                LOADED
+                    .read()
+                    .expect("family registry")
+                    .as_ref()
+                    .and_then(Loaded::fallback)
+                    .map(interned)
+            }
+        }
+    }
+}
+
+/// The default sans-serif as a cosmic-text family.
+fn sans_family() -> cosmic_text::Family<'static> {
+    match default_family() {
         Some(name) => cosmic_text::Family::Name(name),
-        None => generic,
+        None => cosmic_text::Family::SansSerif,
     }
 }
 
@@ -176,12 +577,13 @@ pub fn family_for(text: &str) -> cosmic_text::Family<'static> {
     if contains_arabic(text) {
         // No Arabic face loaded: the sans is a better guess than a family name that
         // resolves to nothing, and on the desktop the system usually has one.
-        match *ARABIC.read().expect("family registry") {
+        let arabic = *ARABIC.read().expect("family registry");
+        match arabic.and_then(loaded_family) {
             Some(name) => cosmic_text::Family::Name(name),
-            None => family_or_generic(&SANS, cosmic_text::Family::SansSerif),
+            None => sans_family(),
         }
     } else {
-        family_or_generic(&SANS, cosmic_text::Family::SansSerif)
+        sans_family()
     }
 }
 
@@ -196,6 +598,10 @@ pub fn family_for(text: &str) -> cosmic_text::Family<'static> {
 /// smaller failure than a blank screen, and a caller who wants an Arabic family names it
 /// and gets it.
 ///
+/// The same reasoning covers a named family that is not loaded: it is matched to the
+/// loaded family it plainly means, or drawn in the default family, and the console says
+/// which — never a name that resolves to nothing.
+///
 /// Coverage is what would settle this properly — asking the face whether it has the
 /// characters — and fontdb does not offer it cheaply. That is a limit, and it is written
 /// down here rather than left for someone to discover on a device.
@@ -209,16 +615,45 @@ pub fn family_for_style(
         None => family_for(text),
         // Named, but the run needs the Arabic face to be drawn at all.
         Some(_) if contains_arabic(text) => family_for(text),
-        Some(FontFamily::SansSerif) => family_or_generic(&SANS, cosmic_text::Family::SansSerif),
+        Some(FontFamily::SansSerif) => sans_family(),
         Some(FontFamily::Serif) => cosmic_text::Family::Serif,
         Some(FontFamily::Monospace) => monospace_family(),
-        Some(FontFamily::Named(name)) => cosmic_text::Family::Name(name),
+        Some(FontFamily::Named(name)) => match loaded_family(name) {
+            Some(found) => cosmic_text::Family::Name(found),
+            None => {
+                fallback_for("named", name);
+                sans_family()
+            }
+        },
     }
 }
 
-/// The monospaced family, for the widgets that ask for one.
+/// The monospaced family, for the widgets that ask for one. When neither the family
+/// named nor the platform's generic monospace is there — Android without
+/// `bundled-mono` — it is the default family: text in the wrong face, not none.
 pub fn monospace_family() -> cosmic_text::Family<'static> {
-    family_or_generic(&MONO, cosmic_text::Family::Monospace)
+    let requested = *MONO.read().expect("family registry");
+    match requested {
+        Some(name) => match loaded_family(name) {
+            Some(found) => cosmic_text::Family::Name(found),
+            None => {
+                fallback_for("monospace", name);
+                sans_family()
+            }
+        },
+        None => {
+            let generic = LOADED
+                .read()
+                .expect("family registry")
+                .as_ref()
+                .is_none_or(|loaded| loaded.generic_mono);
+            if generic {
+                cosmic_text::Family::Monospace
+            } else {
+                sans_family()
+            }
+        }
+    }
 }
 
 /// The style **actually available** for the default family. Italic when an oblique
@@ -238,16 +673,14 @@ pub fn available_style(italic: bool) -> Style {
 #[cfg(target_os = "android")]
 const ANDROID_FONT_DIR: &str = "/system/fonts";
 
-/// Loads the **emoji** faces from a font directory — every font file whose name says
-/// `emoji` — and nothing else from it. Returns how many files were taken.
-///
-/// Only the emoji faces, because that is the gap: the bundled faces answer for text, and
-/// a platform's whole font directory is hundreds of files. They are taken from the
-/// platform rather than bundled because colour emoji are the platform's own look and the
-/// largest font on it. They then need no fallback list to be found: cosmic-text's last
-/// pass tries every face whose name says `Emoji`, whatever the style asked for.
+/// Loads the font files of `dir` whose lower-cased name `keep` accepts. Returns how many
+/// files were taken; a directory that is not there is a platform without one, and none.
 #[cfg(any(target_os = "android", test))]
-fn load_emoji_faces(db: &mut cosmic_text::fontdb::Database, dir: &std::path::Path) -> usize {
+fn load_platform_faces(
+    db: &mut cosmic_text::fontdb::Database,
+    dir: &std::path::Path,
+    keep: impl Fn(&str) -> bool,
+) -> usize {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return 0;
     };
@@ -261,11 +694,36 @@ fn load_emoji_faces(db: &mut cosmic_text::fontdb::Database, dir: &std::path::Pat
         let font = [".ttf", ".otf", ".ttc"]
             .iter()
             .any(|extension| name.ends_with(extension));
-        if font && name.contains("emoji") && db.load_font_file(&path).is_ok() {
+        if font && keep(&name) && db.load_font_file(&path).is_ok() {
             taken += 1;
         }
     }
     taken
+}
+
+/// Loads the **emoji** faces from a font directory — every font file whose name says
+/// `emoji` — and nothing else from it. Returns how many files were taken.
+///
+/// Only the emoji faces, because that is the gap: the bundled faces answer for text, and
+/// a platform's whole font directory is hundreds of files. They are taken from the
+/// platform rather than bundled because colour emoji are the platform's own look and the
+/// largest font on it. They then need no fallback list to be found: cosmic-text's last
+/// pass tries every face whose name says `Emoji`, whatever the style asked for.
+#[cfg(any(target_os = "android", test))]
+fn load_emoji_faces(db: &mut cosmic_text::fontdb::Database, dir: &std::path::Path) -> usize {
+    load_platform_faces(db, dir, |name| name.contains("emoji"))
+}
+
+/// Loads the platform's own **sans** — Roboto's files, not its condensed cut — for when
+/// nothing frus or the application loaded can draw text. Returns how many files were
+/// taken.
+///
+/// It is the last resort, not the default: a build that dropped `bundled-sans` and
+/// registered no face of its own used to draw no text at all on Android, and the platform
+/// has a perfectly good face on disk.
+#[cfg(any(target_os = "android", test))]
+fn load_platform_sans(db: &mut cosmic_text::fontdb::Database, dir: &std::path::Path) -> usize {
+    load_platform_faces(db, dir, |name| name.starts_with("roboto-"))
 }
 
 /// Builds a ready-to-use `FontSystem`: the system fonts, which provide the emoji
@@ -276,7 +734,8 @@ fn load_emoji_faces(db: &mut cosmic_text::fontdb::Database, dir: &std::path::Pat
 ///
 /// On Android "the system fonts" used to be **none**: fontdb reads no directory there,
 /// and cosmic-text has no fallback list for the platform, so an emoji in a run was drawn
-/// as an empty box (milestone 506). The platform's emoji faces are loaded explicitly.
+/// as an empty box (milestone 506). The platform's emoji faces are loaded explicitly —
+/// and its sans too, when nothing else loaded can draw text (milestone 626).
 pub fn new_font_system() -> FontSystem {
     let mut font_system = FontSystem::new();
     let db = font_system.db_mut();
@@ -303,34 +762,21 @@ pub fn new_font_system() -> FontSystem {
     for face in EXTRA_FONTS.lock().expect("font registry").iter() {
         db.load_font_data(face.clone());
     }
-    // Makes every generic family resolve to a font that is actually present — but
-    // only when one is: pointing `sans-serif` at a family nobody loaded is worse than
-    // leaving fontdb's own answer alone.
-    if let Some(sans) = *SANS.read().expect("family registry") {
-        db.set_sans_serif_family(sans);
-        db.set_serif_family(sans);
-        db.set_cursive_family(sans);
-        db.set_fantasy_family(sans);
+    // Nothing loaded draws default text: the platform's own sans, rather than a blank
+    // screen.
+    #[cfg(target_os = "android")]
+    {
+        let requested = *SANS.read().expect("family registry");
+        if Loaded::of(db).wants_platform_sans(requested)
+            && load_platform_sans(db, std::path::Path::new(ANDROID_FONT_DIR)) > 0
+        {
+            log::info!(
+                "frus: no bundled or registered face draws text; using the platform's Roboto"
+            );
+        }
     }
-    if let Some(mono) = *MONO.read().expect("family registry") {
-        db.set_monospace_family(mono);
-    }
-    // What is *actually* there decides whether italic is asked for, since an
-    // application may have supplied an oblique face of its own — or none.
-    ITALIC.store(has_italic_face(db), Ordering::Relaxed);
+    take_stock(db);
     font_system
-}
-
-/// Does the database hold an oblique or italic face for the default family?
-fn has_italic_face(db: &cosmic_text::fontdb::Database) -> bool {
-    let sans = *SANS.read().expect("family registry");
-    db.faces().any(|face| {
-        face.style != cosmic_text::fontdb::Style::Normal
-            && match sans {
-                Some(name) => face.families.iter().any(|(family, _)| family == name),
-                None => true,
-            }
-    })
 }
 
 static FONT_SYSTEM: OnceLock<Mutex<FontSystem>> = OnceLock::new();
@@ -389,18 +835,25 @@ fn forget_measurements() {
     }
 }
 
-/// The weight **actually available** among the bundled faces (400 or 700) closest to
-/// the one requested. This is essential: cosmic-text demands an **exact** weight
-/// match on the primary family, and a missing weight (Medium 500 on DejaVu) sends it
-/// off to the platform fallback lists — which do not exist on Android ("no default
-/// font found", a panic caught on the device). Routing every `Attrs` through here
-/// is what makes rendering deterministic.
+/// The weight **actually available** in the default family closest to the one
+/// requested. This is essential: cosmic-text demands an **exact** weight match on the
+/// primary family, and a missing weight (Medium 500 on DejaVu) sends it off to the
+/// platform fallback lists — which do not exist on Android ("no default font found", a
+/// panic caught on the device). Routing every `Attrs` through here is what makes
+/// rendering deterministic.
+///
+/// "Available" is read from the faces loaded, not assumed: the bundled sans has 400 and
+/// 700, so Medium draws as Regular and SemiBold as Bold; an application that registers
+/// Medium and SemiBold faces of its own gets them, and a variable face draws every weight
+/// its axis spans (milestone 626). With the generic family in charge — nothing named, on
+/// a desktop — the answer is the bundled sans's, 400 or 700.
 pub fn available_weight(weight: FontWeight) -> u16 {
-    if weight.to_u16() < 550 {
-        400
-    } else {
-        700
+    let wanted = weight.to_u16();
+    let have = WEIGHTS.read().expect("family registry");
+    if have.is_empty() {
+        return if wanted < 550 { 400 } else { 700 };
     }
+    nearest_weight(wanted, &have)
 }
 
 /// What a baseline depends on: the size and the **resolved** weight and style. The
@@ -1544,6 +1997,153 @@ mod tests {
         assert_eq!(db.faces().count(), 1, "and one face in the database");
         // A directory that is not there is a platform without one, not an error.
         assert_eq!(load_emoji_faces(&mut db, &dir.0.join("absent")), 0);
+    }
+
+    /// **The platform's sans is Roboto's own files** (milestone 626): not its condensed
+    /// cut, not the emoji face, not a file that is not a font.
+    #[test]
+    #[cfg(feature = "bundled-sans")]
+    fn the_platform_sans_is_robotos_files_and_nothing_else() {
+        let dir = FontDir::new("platform-sans");
+        dir.put("Roboto-Regular.ttf", DEJAVU_SANS);
+        dir.put("Roboto-Bold.ttf", DEJAVU_SANS_BOLD);
+        dir.put("RobotoCondensed-Regular.ttf", DEJAVU_SANS);
+        dir.put("NotoColorEmoji.ttf", DEJAVU_SANS);
+        dir.put("roboto-notes.txt", DEJAVU_SANS);
+        let mut db = cosmic_text::fontdb::Database::new();
+        assert_eq!(load_platform_sans(&mut db, &dir.0), 2, "two files taken");
+        assert_eq!(db.faces().count(), 2);
+        assert_eq!(load_platform_sans(&mut db, &dir.0.join("absent")), 0);
+    }
+
+    /// **A family is asked for by the name a person writes, and found by the one in the
+    /// file** (milestone 626). The case that started it: an application registered Inter's
+    /// static files, named "Inter", and drew nothing on Android — the files say
+    /// "Inter 24pt".
+    #[test]
+    fn a_family_name_finds_the_one_inside_the_file() {
+        let loaded: Vec<String> = ["DejaVu Sans", "DejaVu Sans Mono", "Inter 24pt", "Open Sans"]
+            .map(String::from)
+            .to_vec();
+        let none: Vec<String> = Vec::new();
+        // Exactly, first.
+        assert_eq!(
+            match_family("DejaVu Sans", &loaded, &none),
+            Some("DejaVu Sans")
+        );
+        // Up to case, spaces and hyphens.
+        assert_eq!(match_family("open-sans", &loaded, &none), Some("Open Sans"));
+        assert_eq!(match_family("OPENSANS", &loaded, &none), Some("Open Sans"));
+        // Extended by a word: the file's own name.
+        assert_eq!(match_family("Inter", &loaded, &none), Some("Inter 24pt"));
+        assert_eq!(match_family("inter", &loaded, &none), Some("Inter 24pt"));
+        // Several extensions: the shortest, unless the application's own come first.
+        assert_eq!(match_family("DejaVu", &loaded, &none), Some("DejaVu Sans"));
+        let mono = vec!["DejaVu Sans Mono".to_string()];
+        assert_eq!(
+            match_family("DejaVu", &loaded, &mono),
+            Some("DejaVu Sans Mono")
+        );
+        // And no further: a name the loaded family only begins, a part of a word, nothing.
+        assert_eq!(match_family("Inter Tight", &loaded, &none), None);
+        assert_eq!(match_family("Int", &loaded, &none), None);
+        assert_eq!(match_family("Roboto", &loaded, &none), None);
+    }
+
+    /// **The weight drawn is the nearest one loaded, by the web's rule** (milestone 626).
+    #[test]
+    fn a_weight_snaps_to_the_nearest_loaded_by_the_webs_rule() {
+        let bundled = [(400, 400), (700, 700)];
+        // The bundled sans: the old 400-or-700 answers, unchanged.
+        assert_eq!(nearest_weight(400, &bundled), 400);
+        assert_eq!(nearest_weight(500, &bundled), 400);
+        assert_eq!(nearest_weight(600, &bundled), 700);
+        assert_eq!(nearest_weight(300, &bundled), 400);
+        assert_eq!(nearest_weight(900, &bundled), 700);
+        // An application's four static faces are all used.
+        let four = [(400, 400), (500, 500), (600, 600), (700, 700)];
+        for weight in [400, 500, 600, 700] {
+            assert_eq!(nearest_weight(weight, &four), weight);
+        }
+        // 400 to 500 look heavier up to 500 first, then lighter.
+        assert_eq!(nearest_weight(400, &[(300, 300), (500, 500)]), 500);
+        assert_eq!(nearest_weight(450, &[(300, 300), (600, 600)]), 300);
+        // Below 400 lighter first; above 500 heavier first.
+        assert_eq!(nearest_weight(350, &[(300, 300), (400, 400)]), 300);
+        assert_eq!(nearest_weight(550, &[(500, 500), (600, 600)]), 600);
+        // A variable face draws every weight its axis spans, and its ends outside it.
+        assert_eq!(nearest_weight(650, &[(100, 900)]), 650);
+        assert_eq!(nearest_weight(950, &[(100, 900)]), 900);
+        // Nothing known: the weight as asked.
+        assert_eq!(nearest_weight(500, &[]), 500);
+    }
+
+    /// **The inventory reads what a database holds** — and says when default text would
+    /// have nothing to be drawn in, the cue Android takes to load its own sans.
+    #[test]
+    #[cfg(all(feature = "bundled-sans", feature = "bundled-italic"))]
+    fn the_inventory_reads_the_faces_loaded() {
+        assert_eq!(families_in(DEJAVU_SANS), vec!["DejaVu Sans".to_string()]);
+        assert!(families_in(b"not a font").is_empty());
+
+        let mut db = cosmic_text::fontdb::Database::new();
+        db.load_font_data(DEJAVU_SANS.to_vec());
+        db.load_font_data(DEJAVU_SANS_BOLD.to_vec());
+        db.load_font_data(DEJAVU_SANS_OBLIQUE.to_vec());
+        let mut loaded = Loaded::of(&db);
+        loaded.app.clear();
+        assert_eq!(loaded.text, vec!["DejaVu Sans".to_string()]);
+        assert_eq!(loaded.slanted, vec!["DejaVu Sans".to_string()]);
+        assert_eq!(weights_of(&db, "DejaVu Sans"), vec![(400, 400), (700, 700)]);
+        assert!(weights_of(&db, "Inter").is_empty());
+
+        // fontdb's generic sans is a name nobody loaded here, as on Android.
+        assert!(!loaded.generic_sans);
+        assert!(
+            !loaded.wants_platform_sans(Some("DejaVu")),
+            "a name it plainly means"
+        );
+        assert!(
+            loaded.wants_platform_sans(Some("Inter")),
+            "a name nothing answers to"
+        );
+        assert!(
+            loaded.wants_platform_sans(None),
+            "no name, and no generic either"
+        );
+        // Nothing the name means — but a face of the application's own is a better
+        // answer than the platform's, and it is the one drawn.
+        loaded.app = vec!["DejaVu Sans".to_string()];
+        assert!(!loaded.wants_platform_sans(Some("Inter")));
+        assert_eq!(loaded.fallback(), Some("DejaVu Sans"));
+    }
+
+    /// **A misspelt family is drawn in the face it means**, in the database Android is left
+    /// with: no system font, so no fallback list behind a name that resolves to nothing.
+    /// Shaping in the name `match_family` found gives real glyphs from that face.
+    #[test]
+    #[cfg(feature = "bundled-sans")]
+    fn a_family_found_by_its_plain_name_draws_real_glyphs() {
+        let mut db = cosmic_text::fontdb::Database::new();
+        db.load_font_data(DEJAVU_SANS.to_vec());
+        let face = db.faces().next().map(|face| face.id).expect("the face");
+        let loaded = Loaded::of(&db);
+        let family = match_family("dejavu", &loaded.families, &[]).expect("found");
+        let mut fs = FontSystem::new_with_locale_and_db("en-TG".to_string(), db);
+        let mut buffer = Buffer::new(&mut fs, Metrics::new(20.0, 24.0));
+        buffer.set_size(None, None);
+        let attrs = Attrs::new().family(cosmic_text::Family::Name(family));
+        buffer.set_text("Hello", &attrs, Shaping::Advanced, None);
+        buffer.shape_until_scroll(&mut fs, false);
+        let glyphs: Vec<_> = buffer
+            .layout_runs()
+            .flat_map(|run| run.glyphs.iter())
+            .map(|glyph| (glyph.font_id, glyph.glyph_id))
+            .collect();
+        assert_eq!(glyphs.len(), 5);
+        assert!(glyphs
+            .iter()
+            .all(|&(font, glyph)| font == face && glyph != 0));
     }
 
     /// **An emoji is drawn from the emoji face** when the run's own font lacks it, in the

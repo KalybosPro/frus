@@ -38,6 +38,8 @@ frus-image = { path = "../frus-image", version = "0.2", optional = true }
 frus-layout = { path = "../frus-layout", version = "0.2" }
 frus-text = { path = "../frus-text", version = "0.2", default-features = false }
 typed-arena = { workspace = true }
+# An image that cannot be decoded says so in the console, once.
+log.workspace = true
 
 [dev-dependencies]
 # Encoding a tiny PNG in-test, so the image tests carry no binary fixture.

@@ -372,8 +372,13 @@ Each group is a feature, all on by default. An application that ships its own fa
 or simply never draws italics or Arabic, can turn off what it does not need:
 
 ```toml
-frus = { version = "0.2", default-features = false, features = ["bundled-sans"] }
+frus = { version = "0.2", default-features = false, features = ["bundled-sans", "images"] }
 ```
+
+`default-features = false` turns off **everything** on by default, and that is not only the
+fonts: `images`, the PNG and JPEG decoder behind `Image::memory` and `asset!`, goes with them.
+Name it again, as above, if the application shows any picture. Without it an image paints
+nothing, and the console says why.
 
 | feature          | what it bundles                  | cost   |
 | ---------------- | -------------------------------- | ------ |
@@ -383,11 +388,9 @@ frus = { version = "0.2", default-features = false, features = ["bundled-sans"] 
 | `bundled-arabic` | Arabic (Naskh), regular and bold | 357 kB |
 
 Turning one off is never a crash: italic text renders upright, a script with no face
-falls back to the sans, and with no sans at all frus asks the platform for its own.
-
-Be careful with that last one on **Android**, though, where the platform's answer is
-nothing: `fonts.xml` is not a font list an application can resolve. Dropping
-`bundled-sans` there means you must supply a face yourself, or draw no text at all.
+falls back to the sans, and with no sans at all frus asks the platform for its own. On
+**Android**, where `fonts.xml` is not a font list an application can resolve, that means
+frus loads the platform's Roboto from `/system/fonts` itself.
 
 To ship your own face instead, register it before the application starts. `frus::main!`
 takes an expression, so a block is the place, and it runs first on every platform —
@@ -396,10 +399,30 @@ desktop, Android and the web:
 ```rust
 frus::main!({
     frus::fonts::add_font(include_bytes!("../fonts/Inter-Regular.ttf").to_vec());
+    frus::fonts::add_font(include_bytes!("../fonts/Inter-Medium.ttf").to_vec());
+    frus::fonts::add_font(include_bytes!("../fonts/Inter-Bold.ttf").to_vec());
     frus::fonts::set_default_family("Inter");
     FrusApp::stateful(Counter).title("my-app")
 });
 ```
+
+Every weight you register is used: a Medium face draws `FontWeight::Medium`, and a variable
+face draws every weight its axis spans. A weight you did not register draws in the nearest
+one you did.
+
+The family is the name **inside** the font file, which is not always the file's name: Inter's
+static files call themselves "Inter 24pt". You do not have to know that. A name that matches
+no loaded family is matched to the one it plainly means — the same name in another case or
+spacing, or one that extends it by a word, as "Inter" extends to "Inter 24pt". A name that
+matches nothing is drawn in the first face you registered. Either way the console says which
+family was drawn and what to write instead:
+
+```text
+WARN frus: no font family is called "Inter"; drawing "Inter 24pt", the name inside the font files. Write "Inter 24pt" to say so.
+```
+
+The same goes for a family named in a `TextStyle`, and for bytes given to `add_font` that
+hold no font at all.
 
 ### Shipping only the glyphs you draw
 
@@ -426,7 +449,8 @@ python -m fontTools.subset DejaVuSans.ttf     --unicodes=U+0020-007E,U+00A0-00FF
 ```
 
 Take the faces from `crates/frus-text/assets/` in the repository, or use your own. Then
-turn the bundled ones off (`default-features = false`) and register the result as above.
+turn the bundled ones off (`default-features = false`, keeping `images` if you show
+pictures) and register the result as above.
 Three things to know before you rely on it:
 
 - **The subset cannot know your runtime text.** Reading your sources finds what the interface

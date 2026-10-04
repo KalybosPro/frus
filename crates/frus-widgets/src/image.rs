@@ -20,18 +20,37 @@ use crate::skeleton::Skeleton;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Turns file bytes into pixels, through whichever decoder this build carries.
-#[cfg(feature = "images")]
+/// Turns file bytes into pixels, through whichever decoder this build carries — and says
+/// so in the console when it cannot. [`frus_core::cached`] and [`frus_core::fetched`] call
+/// this once per image, so it is said once; an image that paints nothing with no word
+/// anywhere is otherwise found on a device (milestone 626).
 fn decode(bytes: &[u8]) -> Result<frus_core::ImageData, String> {
+    decode_in_this_build(bytes).inspect_err(|why| {
+        log::warn!(
+            "frus: an image of {} bytes could not be decoded: {why}",
+            bytes.len()
+        )
+    })
+}
+
+#[cfg(feature = "images")]
+fn decode_in_this_build(bytes: &[u8]) -> Result<frus_core::ImageData, String> {
     frus_image::decode(bytes).map_err(|e| e.message().to_string())
 }
 
 /// Without the `images` feature there is no decoder, and saying so is the whole job.
 /// It must not panic: an application that dropped the feature deliberately, or a test
-/// binary built with `--no-default-features`, is not a broken program.
+/// binary built with `--no-default-features`, is not a broken program. The message says
+/// how to get it back, because the usual way to lose it is `default-features = false`,
+/// written to drop the bundled fonts.
 #[cfg(not(feature = "images"))]
-fn decode(_bytes: &[u8]) -> Result<frus_core::ImageData, String> {
-    Err("no image decoder: this build dropped the `images` feature".to_string())
+fn decode_in_this_build(_bytes: &[u8]) -> Result<frus_core::ImageData, String> {
+    Err(
+        "no image decoder: this build dropped the `images` feature, which \
+         `default-features = false` turns off; add `features = [\"images\"]` to the frus \
+         dependency"
+            .to_string(),
+    )
 }
 
 /// Where an [`Image`]'s pixels are: here, on their way, or never coming.

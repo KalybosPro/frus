@@ -13,6 +13,14 @@ any release may break.
 
 ## [Unreleased]
 
+- **A font family name finds what was loaded** (J626). A family that matches no loaded face is
+  matched to the one it plainly means (`"Inter"` → `"Inter 24pt"`, the name inside Inter's
+  static files), or drawn in the application's first registered face, and the console says
+  which, instead of drawing nothing on Android. With no face that can draw text, Android
+  loads its own Roboto. Every registered weight is now drawn, not just 400 and 700, and a
+  variable face covers its whole axis. An image that cannot be decoded is logged, and the
+  missing-`images` message says that `default-features = false` turns it off.
+
 - **The reference's type scale, in full** (J624). Every step of `TextTheme::M3` now has the
   reference's letter spacing and line height as well as its size and weight — body text
   0.25–0.5 px apart on lines 1.33–1.5 of its size, labels 0.1–0.5 px apart, display −0.25 px.
