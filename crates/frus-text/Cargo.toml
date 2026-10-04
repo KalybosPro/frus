@@ -31,6 +31,8 @@ bundled-arabic = []
 [dependencies]
 frus-core = { path = "../frus-core", version = "0.2" }
 cosmic-text.workspace = true
+# A family name that matches no loaded face is resolved, and the console is told so.
+log.workspace = true
 
 # The Web: cosmic-text asks `sys-locale` for the reader's language when it builds a font system,
 # and `sys-locale` reads the browser's only with this feature. Without it the answer is nothing,

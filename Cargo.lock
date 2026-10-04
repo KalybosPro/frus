@@ -1434,6 +1434,7 @@ version = "0.2.1"
 dependencies = [
  "cosmic-text",
  "frus-core",
+ "log",
  "sys-locale",
 ]
 
@@ -1456,6 +1457,7 @@ dependencies = [
  "frus-image",
  "frus-layout",
  "frus-text",
+ "log",
  "png 0.17.16",
  "typed-arena",
 ]
