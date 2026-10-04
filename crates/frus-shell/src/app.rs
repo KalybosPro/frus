@@ -174,6 +174,16 @@ struct PendingTap<M> {
     single: Option<M>,
 }
 
+/// Whether a field's **Select all**, pressed on its bar, puts the bar away: on macOS, Linux
+/// and Windows it does, its work done; on Android, iOS and Fuchsia the bar stays, offering
+/// what can be done with everything selected (`editable_text.dart:2914`, milestone 625).
+///
+/// The **system's** platform decides, not the theme's, as in the reference: it is how the
+/// system's own menus behave, not how the application looks.
+fn select_all_hides_bar(platform: frus_widgets::TargetPlatform) -> bool {
+    platform.is_desktop()
+}
+
 /// The clipboard: `arboard` on the desktop platforms, the platform's own on Android
 /// (`ClipboardManager`, through the bundled dex — milestone 509, #22), the browser's
 /// asynchronous Clipboard API on the Web (milestone 526, #17), and a no-op on iOS
@@ -7077,7 +7087,8 @@ impl<A: Application> App<A> {
 
     /// What pressing a built-in button of the selection bar does, to the field the bar is
     /// open on. Copy, Cut and Paste close it and the handles with it; Select all leaves
-    /// both open, on the selection it has just made larger.
+    /// both open on a phone, on the selection it has just made larger, and closes both on a
+    /// desktop (milestone 625).
     fn perform_edit_action(&mut self, action: frus_widgets::EditAction) {
         use frus_widgets::EditAction;
         // The bar of a selection area's selection, which acts on the area and not on a field.
@@ -7131,13 +7142,21 @@ impl<A: Application> App<A> {
             EditAction::SelectAll => {
                 self.select_all(id);
                 // Made with a finger or a right-click, the selection keeps whatever
-                // marked it; the bar stays, with the list its new state calls for.
+                // marked it.
                 if self.runtime.selection_handles.is_some() {
                     self.runtime.selection_handles = Some(id);
                 }
-                // And where it was: a menu a right-click opened stays at the pointer.
-                let at = self.runtime.selection_toolbar.and_then(|mark| mark.at);
-                self.show_selection_toolbar_at(id, at);
+                if select_all_hides_bar(frus_widgets::default_target_platform()) {
+                    // On a desktop the menu has done its work, and goes with the handles,
+                    // as the reference's `hideToolbar()` takes both (milestone 625).
+                    self.runtime.selection_handles = None;
+                    self.hide_selection_toolbar();
+                } else {
+                    // On a phone the bar stays, with the list its new state calls for,
+                    // where it was: a menu a right-click opened stays at the pointer.
+                    let at = self.runtime.selection_toolbar.and_then(|mark| mark.at);
+                    self.show_selection_toolbar_at(id, at);
+                }
             }
         }
         #[cfg(android)]
@@ -7744,6 +7763,19 @@ mod tests {
     use super::{clipboard_command, ClipCommand, KeyCode, PhysicalKey, WinitKey};
     use super::{collect_ids, find_widget, MediaQuery};
     use frus_widgets::Locale;
+
+    /// **Which systems put the bar away after its Select all** (milestone 625): the three
+    /// desktops, as the reference's field does; on a phone the bar stays.
+    #[test]
+    fn select_all_hides_the_bar_on_the_desktops() {
+        use frus_widgets::TargetPlatform as P;
+        for p in [P::MacOs, P::Linux, P::Windows] {
+            assert!(super::select_all_hides_bar(p), "{p:?}");
+        }
+        for p in [P::Android, P::Ios, P::Fuchsia] {
+            assert!(!super::select_all_hides_bar(p), "{p:?}");
+        }
+    }
 
     /// **The keys that open the selection bar** (milestone 568): the context-menu key, and
     /// F10 with Shift — F10 alone is the menu bar's key in other toolkits and asks for nothing
@@ -12403,6 +12435,37 @@ mod right_click_bar_tests {
             row.y >= click.y && row.y < click.y + 36.0,
             "its first row is on the pointer's line: {row:?} {click:?}"
         );
+    }
+
+    /// **On a desktop, the menu's Select all puts the menu away** (milestone 625), as the
+    /// reference's field does on macOS, Linux and Windows. A test runs on one of the three,
+    /// whose system — not the theme — decides. The selection stays: the menu opened again
+    /// over it offers Copy.
+    #[test]
+    fn a_desktop_s_select_all_puts_the_menu_away() {
+        assert!(frus_widgets::default_target_platform().is_desktop());
+        let mut d = Driver::new(DesktopForm, 500.0, 300.0);
+        d.run(0.1);
+        let shown = |d: &Driver<DesktopForm>, label: &str| {
+            d.texts()
+                .into_iter()
+                .find(|(t, _)| t == label)
+                .map(|(_, r)| r)
+        };
+        let words = shown(&d, "some words in a field").expect("the field's words");
+        let click = Point::new(words.x + 20.0, words.y + words.height * 0.5);
+        d.secondary_click(click);
+        d.run(0.1);
+        let row = shown(&d, "Select all").expect("the menu is open");
+        let row = Point::new(row.x + 10.0, row.y + row.height * 0.5);
+        d.press(row);
+        d.release(row);
+        d.run(0.1);
+        assert!(shown(&d, "Select all").is_none(), "the menu is gone");
+        assert!(shown(&d, "Copy").is_none(), "all of it: {:?}", d.texts());
+        d.secondary_click(click);
+        d.run(0.1);
+        assert!(shown(&d, "Copy").is_some(), "the text is still selected");
     }
 }
 
