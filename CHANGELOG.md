@@ -8,11 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 625 so far, each documenting the objective, the alternatives
+> record — one per step, 627 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The colours of Apple's platforms** (J627). `CupertinoColors`, the reference's palette of
+  47 entries, and `CupertinoDynamicColor`, a colour with up to eight variants resolved by
+  brightness, contrast and interface level (`resolve(&theme)`, `resolve_with`).
+  `CupertinoUserInterfaceLevelData` and `Theme::user_interface_level` carry the level;
+  `Elevated.around(child)` raises a subtree.
 - **A font family name finds what was loaded** (J626). A family that matches no loaded face is
   matched to the one it plainly means (`"Inter"` → `"Inter 24pt"`, the name inside Inter's
   static files), or drawn in the application's first registered face, and the console says

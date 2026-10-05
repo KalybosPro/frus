@@ -789,6 +789,12 @@ pub struct Theme {
     /// unless said otherwise — the desktops zoom, Apple's platforms slide, Android fades
     /// forwards (milestone 620). The theme's [`Theme::platform`] picks the builder.
     pub page_transitions: crate::PageTransitionsTheme,
+    /// **How high the subtree sits**: on the window's surface, or raised above it in a sheet
+    /// or a dialog. [`Base`](crate::CupertinoUserInterfaceLevelData::Base) unless a subtree
+    /// says otherwise with
+    /// [`CupertinoUserInterfaceLevelData::around`](crate::CupertinoUserInterfaceLevelData::around);
+    /// the adaptive colours read it (milestone 627).
+    pub user_interface_level: crate::CupertinoUserInterfaceLevelData,
 }
 
 impl Theme {
@@ -819,6 +825,7 @@ impl Theme {
             tap_target: TapTarget::default(),
             platform: frus_core::default_target_platform(),
             page_transitions: crate::PageTransitionsTheme::default(),
+            user_interface_level: crate::CupertinoUserInterfaceLevelData::Base,
         }
     }
 
@@ -928,6 +935,12 @@ impl Theme {
             self.platform
         } else {
             other.platform
+        };
+        // A level is one or the other too.
+        out.user_interface_level = if t < 0.5 {
+            self.user_interface_level
+        } else {
+            other.user_interface_level
         };
         out
     }
