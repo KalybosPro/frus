@@ -165,17 +165,18 @@ impl CupertinoDynamicColor {
         }
     }
 
-    /// **The value where it is used**: in `theme`'s brightness, at the level `theme` says its
-    /// subtree is at, and in high contrast if the reader has asked for it
-    /// ([`Accessibility::high_contrast`](crate::Accessibility::high_contrast), read from the
-    /// ambient [`MediaQuery`]).
+    /// **The value where it is used**: in the brightness of the Apple-style theme under
+    /// `theme` ([`CupertinoTheme::brightness_of`](crate::CupertinoTheme::brightness_of)), at
+    /// the level `theme` says its subtree is at, and in high contrast if the reader has asked
+    /// for it ([`Accessibility::high_contrast`](crate::Accessibility::high_contrast), read
+    /// from the ambient [`MediaQuery`]).
     ///
-    /// The theme's brightness, not the system's: an application that keeps a light theme on
-    /// a dark system gets the light values, as the reference's adaptive colours under its
-    /// main theme do.
+    /// That brightness is the theme's, not the system's, unless the theme says otherwise: an
+    /// application that keeps a light theme on a dark system gets the light values, as the
+    /// reference's adaptive colours under its main theme do.
     pub fn resolve(&self, theme: &Theme) -> Color {
         self.resolve_with(
-            theme.brightness(),
+            crate::CupertinoTheme::brightness_of(theme),
             theme.user_interface_level,
             MediaQuery::of().accessibility.high_contrast,
         )
@@ -193,6 +194,14 @@ impl PartialEq for CupertinoDynamicColor {
             && self.dark_elevated_color == other.dark_elevated_color
             && self.high_contrast_elevated_color == other.high_contrast_elevated_color
             && self.dark_high_contrast_elevated_color == other.dark_high_contrast_elevated_color
+    }
+}
+
+/// A plain colour as an adaptive one: the same in every condition, so that a theme takes
+/// either where it takes a colour.
+impl From<Color> for CupertinoDynamicColor {
+    fn from(c: Color) -> Self {
+        Self::with_brightness(c, c)
     }
 }
 
