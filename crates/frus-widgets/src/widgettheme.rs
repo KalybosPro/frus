@@ -615,16 +615,22 @@ pub struct ProgressTheme {
     /// A track **behind the ring**, for a determinate circular indicator
     /// (`progress_indicator.dart:1590`). Unset, none is drawn.
     pub circular_track_color: Option<Color>,
-    /// The corners of the bar and of its track. Unset, fully rounded.
+    /// The corners of the bar and of its track. Unset, square in the 2023 look and 2 px in
+    /// the newer one (`progress_indicator.dart:1627`).
     pub border_radius: Option<BorderRadius>,
-    /// The dot at the far end of the track, which says where the bar is going. Unset,
-    /// the same colour as the fill (`progress_indicator.dart:1630`).
+    /// The dot at the far end of the track, which says where the bar is going, in the
+    /// newer look. Unset, `primary` (`progress_indicator.dart:1630`).
     pub stop_indicator_color: Option<Color>,
-    /// That dot's radius. Unset, two (`progress_indicator.dart:1633`). Zero draws none.
+    /// That dot's radius, in the newer look. Unset, two (`progress_indicator.dart:1633`).
+    /// Zero draws none.
     pub stop_indicator_radius: Option<f32>,
-    /// The gap left between the end of the fill and the start of the track. Unset, four
+    /// The gap left between a line and the track, in the newer look. Unset, four
     /// (`progress_indicator.dart:1636`).
     pub track_gap: Option<f32>,
+    /// **Which look** a bar takes when it does not say: the 2023 one (`true`), or the newer
+    /// one with a gap, a stop dot and rounded ends (`false`). Unset, the 2023 one, as the
+    /// reference's default (`progress_indicator.dart:595`, milestone 629).
+    pub year2023: Option<bool>,
     /// How thick the ring's dots are. Unset, the framework's own proportional rule, so
     /// that a large indicator does not draw a hairline.
     pub stroke_width: Option<f32>,
