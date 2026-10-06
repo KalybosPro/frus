@@ -108,8 +108,8 @@ fn toggles_in_both_states() {
     check("controls_toggles", 260, 240, &root);
 }
 
-/// The small indicators — a bar part-way and full, a spinner, a badge, two keycaps
-/// and two skeleton lines.
+/// The small indicators — a bar part-way and full, a spinner, two determinate rings (the
+/// 2023 look and the newer one), a badge, two keycaps and two skeleton lines.
 #[test]
 fn the_small_indicators() {
     let root: Card<()> = Card::new().padding(16.0).child(
@@ -122,6 +122,15 @@ fn the_small_indicators() {
                     .gap(12.0)
                     .align(Align::Center)
                     .child(CircularProgressIndicator::new().size(24.0))
+                    // A determinate arc, and the newer look's track and gaps around it
+                    // (milestone 630): a spinner at time zero is only a dot.
+                    .child(CircularProgressIndicator::determinate(0.6).size(24.0))
+                    .child(
+                        CircularProgressIndicator::determinate(0.6)
+                            .size(24.0)
+                            .padding(0.0)
+                            .year2023(false),
+                    )
                     .child(Badge::new("3"))
                     .child(Kbd::new("Ctrl"))
                     .child(Kbd::new("K")),

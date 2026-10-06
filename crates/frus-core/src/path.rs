@@ -116,19 +116,45 @@ impl PathVerb {
     }
 }
 
-/// An **outline** (the line a path is drawn with): colour and width, in pixels.
+/// **How an open line ends** — the reference's `StrokeCap` (milestone 630).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum StrokeCap {
+    /// Flat, exactly at the end point.
+    #[default]
+    Butt,
+    /// Flat, half the line's width past the end point.
+    Square,
+    /// A half circle past the end point.
+    Round,
+}
+
+/// An **outline** (the line a path is drawn with): colour, width, in pixels, and how its
+/// ends are drawn.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Stroke {
     /// The line's colour.
     pub color: Color,
     /// The line's width, in logical pixels.
     pub width: f32,
+    /// How an open line ends. [`StrokeCap::Butt`] unless said otherwise.
+    pub cap: StrokeCap,
 }
 
 impl Stroke {
-    /// A stroke of the given colour and width.
+    /// A stroke of the given colour and width, its ends flat.
     pub const fn new(color: Color, width: f32) -> Self {
-        Self { color, width }
+        Self {
+            color,
+            width,
+            cap: StrokeCap::Butt,
+        }
+    }
+
+    /// The same stroke, its ends drawn as `cap`.
+    #[must_use]
+    pub const fn with_cap(mut self, cap: StrokeCap) -> Self {
+        self.cap = cap;
+        self
     }
 }
 

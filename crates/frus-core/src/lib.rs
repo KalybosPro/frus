@@ -55,7 +55,7 @@ pub use image::{
     image_cache_bytes, images_in_flight, set_image_cache_budget, set_image_fetcher, BoxFit,
     Fetched, ImageData, ImageFetcher, ImageHandle, DEFAULT_IMAGE_CACHE_BYTES,
 };
-pub use path::{Path, PathVerb, Stroke};
+pub use path::{Path, PathVerb, Stroke, StrokeCap};
 pub use platform::{
     __set_detected_target_platform, debug_default_target_platform_override,
     default_target_platform, set_debug_default_target_platform_override, Platform, TargetPlatform,

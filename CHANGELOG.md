@@ -8,11 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 629 so far, each documenting the objective, the alternatives
+> record — one per step, 630 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The circular progress indicator, as the reference's** (J630). `CircularProgressIndicator`
+  draws the reference's arc instead of a ring of dots: determinate (`determinate(value)`)
+  or spinning on its timing (`new()`), in its 2023 look by default or its newer one, with
+  the reference's sizes, stroke, ends, track and semantics. `Stroke` gains a `cap`
+  (`StrokeCap`). **Changed**: every circular indicator looks different; one that set
+  `size(24.0)` keeps that size.
 - **The linear progress indicator, as the reference's** (J629). `LinearProgressIndicator`
   gains the reference's **indeterminate** mode (`indeterminate()`, `with_value(None)`): two
   lines on its 1.8 s timing. It takes the reference's default look (the 2023 one; newer
