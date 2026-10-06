@@ -508,8 +508,9 @@ pub use frus_core::{
     BorderRadius, BoxDecoration, BoxFit, BoxShadow, ClipShape, Color, ColorFilter, Colors,
     FontFamily, FontWeight, FractionalMask, ImageData, ImageFilter, ImageHandle, Insets,
     InsetsDirectional, InsetsGeometry, LinearGradient, MaterialColor, Orientation, Path, PathVerb,
-    Point, Primitive, Rect, Role, Scene, SemanticsProperties, Size, SizeClass, TextAlign,
-    TextDecoration, TextDirection, TextOverflow, TextSpan, TextStyle, Toggled, WindowInsets,
+    Point, Primitive, Rect, Role, Scene, SemanticsProperties, Size, SizeClass, StrokeCap,
+    TextAlign, TextDecoration, TextDirection, TextOverflow, TextSpan, TextStyle, Toggled,
+    WindowInsets,
 };
 /// The shared animation layer — physics, curves, driver — see
 /// [`frus_core::animation`]. Re-exported here so applications can reach it through

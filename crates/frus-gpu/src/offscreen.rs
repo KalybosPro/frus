@@ -238,6 +238,48 @@ mod tests {
         assert_eq!(px(32, 32), [0, 0, 0], "in the middle → clear, not filled");
     }
 
+    /// **A line's ends are drawn as asked** (milestone 630): a flat end stops at the end
+    /// point, a square one runs half the width past it, and a round one is a half circle,
+    /// so its corners stay clear where a square end's are painted.
+    #[test]
+    fn strokes_end_as_asked() {
+        use frus_core::{Stroke, StrokeCap};
+        // An 8 px line from x = 20 to x = 44, on y = 32.
+        let line = Path::new()
+            .move_to(Point::new(20.0, 32.0))
+            .line_to(Point::new(44.0, 32.0));
+        let blue_at = |cap: StrokeCap, x: u32, y: u32| -> Option<bool> {
+            let mut scene = Scene::new();
+            scene.paint_path(
+                &line,
+                None,
+                Some(Stroke::new(Color::rgb(0.0, 0.0, 1.0), 8.0).with_cap(cap)),
+            );
+            let frame = render_offscreen(&scene, 64, 64, Color::BLACK)?;
+            let i = ((y * frame.width + x) * 4) as usize;
+            Some(frame.rgba[i + 2] > 200)
+        };
+        // Just past the end, on the line: 2.5 px out. The pixel at (16, 28): 3.5 px out
+        // and 3.5 px up, inside a square end's corner and outside a round end's.
+        let Some(butt) = blue_at(StrokeCap::Butt, 17, 31) else {
+            eprintln!("no GPU adapter available: test skipped");
+            return;
+        };
+        assert!(!butt, "a flat end stops at the end point");
+        assert_eq!(blue_at(StrokeCap::Square, 17, 31), Some(true));
+        assert_eq!(
+            blue_at(StrokeCap::Square, 16, 28),
+            Some(true),
+            "a square corner"
+        );
+        assert_eq!(blue_at(StrokeCap::Round, 17, 31), Some(true));
+        assert_eq!(
+            blue_at(StrokeCap::Round, 16, 28),
+            Some(false),
+            "a round end's corner"
+        );
+    }
+
     /// Texture sampling: a 2×2 image — red, green, blue, white — stretched (`Fill`)
     /// over the whole surface, so each quadrant reads its own colour. Proof of the
     /// upload, the sampling and the UV mapping.
