@@ -8,11 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 628 so far, each documenting the objective, the alternatives
+> record — one per step, 629 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The linear progress indicator, as the reference's** (J629). `LinearProgressIndicator`
+  gains the reference's **indeterminate** mode (`indeterminate()`, `with_value(None)`): two
+  lines on its 1.8 s timing. It takes the reference's default look (the 2023 one; newer
+  look with `year2023(false)`), its newer look's exact numbers, right-to-left mirroring, and
+  its semantics. **Changed**: bars that chose no look are drawn square, with no gap and no
+  stop dot.
 - **The Apple-style theme** (J628). `CupertinoThemeData` and `CupertinoTextThemeData`, as in
   the reference: part of the main theme (`Theme::with_cupertino_override_theme`), taking its
   primary colour, background and brightness unless told otherwise, or a subtree's own
