@@ -612,8 +612,9 @@ pub struct ProgressTheme {
     pub linear_track_color: Option<Color>,
     /// How tall the bar is. Unset, four (`progress_indicator.dart:1624`).
     pub linear_min_height: Option<f32>,
-    /// A track **behind the ring**, for a determinate circular indicator
-    /// (`progress_indicator.dart:1590`). Unset, none is drawn.
+    /// The circle **behind the arc** of a circular indicator. Unset, none in the 2023 look;
+    /// in the newer one `secondary_container` for a determinate indicator and none for an
+    /// indeterminate one (`progress_indicator.dart:1590`).
     pub circular_track_color: Option<Color>,
     /// The corners of the bar and of its track. Unset, square in the 2023 look and 2 px in
     /// the newer one (`progress_indicator.dart:1627`).
@@ -631,9 +632,22 @@ pub struct ProgressTheme {
     /// one with a gap, a stop dot and rounded ends (`false`). Unset, the 2023 one, as the
     /// reference's default (`progress_indicator.dart:595`, milestone 629).
     pub year2023: Option<bool>,
-    /// How thick the ring's dots are. Unset, the framework's own proportional rule, so
-    /// that a large indicator does not draw a hairline.
+    /// How thick a circular indicator's arc is. Unset, four
+    /// (`progress_indicator.dart:1593`).
     pub stroke_width: Option<f32>,
+    /// Where that arc's line sits on the circle: `-1` inside it, `0` centred on it, `1`
+    /// outside. Unset, centred in the 2023 look and inside in the newer one
+    /// (`progress_indicator.dart:1596`, milestone 630).
+    pub stroke_align: Option<f32>,
+    /// How the arc's ends are drawn. Unset, flat — square while spinning — in the 2023 look
+    /// and round in the newer one (`progress_indicator.dart:754`).
+    pub stroke_cap: Option<frus_core::StrokeCap>,
+    /// The side of a circular indicator's circle. Unset, 36 in the 2023 look and 40 in the
+    /// newer one (`progress_indicator.dart:1552`, `:1599`).
+    pub circular_size: Option<f32>,
+    /// The room around a circular indicator's circle. Unset, none in the 2023 look and four
+    /// on every side in the newer one (`progress_indicator.dart:1608`).
+    pub circular_track_padding: Option<f32>,
 }
 
 /// Defaults for [`Tooltip`](crate::Tooltip) — the reference's `TooltipThemeData`.

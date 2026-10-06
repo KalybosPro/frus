@@ -324,7 +324,14 @@ impl PathPainter {
                     if let Some(s) = stroke {
                         // A stroke is never given a gradient today.
                         let ctor = Ctor::flat(s.color.to_array(), clip);
-                        let options = StrokeOptions::default().with_line_width(s.width);
+                        let cap = match s.cap {
+                            frus_core::StrokeCap::Butt => lyon::tessellation::LineCap::Butt,
+                            frus_core::StrokeCap::Square => lyon::tessellation::LineCap::Square,
+                            frus_core::StrokeCap::Round => lyon::tessellation::LineCap::Round,
+                        };
+                        let options = StrokeOptions::default()
+                            .with_line_width(s.width)
+                            .with_line_cap(cap);
                         let _ = self.stroke_tess.tessellate_path(
                             &lyon_path,
                             &options,
