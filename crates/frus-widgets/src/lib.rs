@@ -52,6 +52,7 @@ mod container;
 mod controltile;
 mod crossfade;
 mod cupertinocolors;
+mod cupertinotheme;
 mod customlayout;
 mod custompaint;
 mod datatable;
@@ -265,6 +266,9 @@ pub use controltile::{CheckboxListTile, RadioListTile, SwitchListTile};
 pub use crossfade::AnimatedCrossFade;
 pub use cupertinocolors::{
     CupertinoColors, CupertinoDynamicColor, CupertinoUserInterfaceLevelData,
+};
+pub use cupertinotheme::{
+    CupertinoTextTheme, CupertinoTextThemeData, CupertinoTheme, CupertinoThemeData,
 };
 pub use customlayout::{
     ChildAxis, ChildConstraints, ChildLayout, CustomLayout, CustomMultiChildLayout, LayoutFn,

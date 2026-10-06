@@ -19,6 +19,13 @@ any release may break.
   look with `year2023(false)`), its newer look's exact numbers, right-to-left mirroring, and
   its semantics. **Changed**: bars that chose no look are drawn square, with no gap and no
   stop dot.
+- **The Apple-style theme** (J628). `CupertinoThemeData` and `CupertinoTextThemeData`, as in
+  the reference: part of the main theme (`Theme::with_cupertino_override_theme`), taking its
+  primary colour, background and brightness unless told otherwise, or a subtree's own
+  (`CupertinoTheme::around`) with Apple's defaults. `CupertinoTheme::of` resolves either;
+  the default type is the reference's. **Changed**: adaptive colours resolve by the
+  Apple-style theme's brightness, which is the main theme's unless an override says
+  otherwise.
 - **The colours of Apple's platforms** (J627). `CupertinoColors`, the reference's palette of
   47 entries, and `CupertinoDynamicColor`, a colour with up to eight variants resolved by
   brightness, contrast and interface level (`resolve(&theme)`, `resolve_with`).
