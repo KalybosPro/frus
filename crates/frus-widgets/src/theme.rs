@@ -795,6 +795,14 @@ pub struct Theme {
     /// [`CupertinoUserInterfaceLevelData::around`](crate::CupertinoUserInterfaceLevelData::around);
     /// the adaptive colours read it (milestone 627).
     pub user_interface_level: crate::CupertinoUserInterfaceLevelData,
+    /// **What the Apple-style widgets take differently from this theme** — the reference's
+    /// `cupertinoOverrideTheme`. Unset, they take this theme's primary colour, the colour on
+    /// it, its background and its brightness, and Apple's defaults for the rest (milestone
+    /// 628). See [`CupertinoTheme::of`](crate::CupertinoTheme::of).
+    pub cupertino_override_theme: Option<Box<crate::CupertinoThemeData>>,
+    /// **A subtree's own Apple-style theme**, which replaces the one above with Apple's
+    /// defaults under it. Set by [`CupertinoTheme::around`](crate::CupertinoTheme::around).
+    pub cupertino_theme: Option<Box<crate::CupertinoThemeData>>,
 }
 
 impl Theme {
@@ -826,12 +834,21 @@ impl Theme {
             platform: frus_core::default_target_platform(),
             page_transitions: crate::PageTransitionsTheme::default(),
             user_interface_level: crate::CupertinoUserInterfaceLevelData::Base,
+            cupertino_override_theme: None,
+            cupertino_theme: None,
         }
     }
 
     /// The same theme, following `platform`'s conventions ([`Theme::platform`]).
     pub fn with_platform(mut self, platform: frus_core::TargetPlatform) -> Self {
         self.platform = platform;
+        self
+    }
+
+    /// The same theme, its Apple-style widgets taking what `data` sets instead of what this
+    /// theme would give them ([`Theme::cupertino_override_theme`]).
+    pub fn with_cupertino_override_theme(mut self, data: crate::CupertinoThemeData) -> Self {
+        self.cupertino_override_theme = Some(Box::new(data));
         self
     }
 
@@ -936,12 +953,12 @@ impl Theme {
         } else {
             other.platform
         };
-        // A level is one or the other too.
-        out.user_interface_level = if t < 0.5 {
-            self.user_interface_level
-        } else {
-            other.user_interface_level
-        };
+        // A level is one or the other too, and so are the Apple-style themes, as the
+        // reference's override is.
+        let near = if t < 0.5 { self } else { other };
+        out.user_interface_level = near.user_interface_level;
+        out.cupertino_override_theme = near.cupertino_override_theme.clone();
+        out.cupertino_theme = near.cupertino_theme.clone();
         out
     }
 }
