@@ -973,10 +973,36 @@ impl<Msg: Clone + 'static> Widget<Msg> for Button<Msg> {
             (Some(w), _) | (None, Some(w)) => Dimension::Length(w + 2.0 * g.extra.0),
             (None, None) => Dimension::Auto,
         };
-        let height = g
-            .fixed
-            .1
-            .map_or(Dimension::Auto, |h| Dimension::Length(h + 2.0 * g.extra.1));
+        // Down, a labelled button knows its height too: the line and the padding, at
+        // least the minimum. Its box is that and the touch target's room, **up to what its
+        // parent allows**: in a slot 40 px tall the room gives way and the button is
+        // 40 px, as the reference's input padding is constrained by its parent
+        // (`button_style_button.dart:696`). Any other content is measured by the layout,
+        // its room always kept.
+        let visible_height = self.label.as_ref().map(|label| {
+            let line = frus_text::measure_style(label, r.text_style).height;
+            (line + g.padding.top + g.padding.bottom)
+                .ceil()
+                .clamp(g.min.1, r.maximum.height.max(g.min.1))
+        });
+        let (height, min_height, max_height) = match (g.fixed.1, visible_height) {
+            (Some(h), _) => (
+                Dimension::Length(h + 2.0 * g.extra.1),
+                Dimension::Length(g.min.1 + 2.0 * g.extra.1),
+                None,
+            ),
+            (None, Some(h)) if g.extra.1 > 0.0 => (
+                Dimension::Length(h + 2.0 * g.extra.1),
+                Dimension::Length(h),
+                Some(Dimension::Percent(1.0)),
+            ),
+            (None, Some(h)) => (Dimension::Length(h), Dimension::Auto, None),
+            (None, None) => (
+                Dimension::Auto,
+                Dimension::Length(g.min.1 + 2.0 * g.extra.1),
+                None,
+            ),
+        };
         let length = |v: f32| {
             if v.is_finite() {
                 Dimension::Length(v)
@@ -995,9 +1021,9 @@ impl<Msg: Clone + 'static> Widget<Msg> for Button<Msg> {
             } else {
                 Dimension::Length(g.min.0 + 2.0 * g.extra.0)
             },
-            min_height: Dimension::Length(g.min.1 + 2.0 * g.extra.1),
+            min_height,
             max_width: length(r.maximum.width + 2.0 * g.extra.0),
-            max_height: length(r.maximum.height + 2.0 * g.extra.1),
+            max_height: max_height.unwrap_or(length(r.maximum.height + 2.0 * g.extra.1)),
             flex_direction: FlexDirection::Row,
             justify,
             align,
@@ -1055,11 +1081,18 @@ impl<Msg: Clone + 'static> Widget<Msg> for Button<Msg> {
         };
         let r = self.resolved(theme, states);
         let g = self.geometry(&r);
+        // The touch target's room is what the box has beyond the visible button, up to
+        // the room asked for: a parent that gave less has taken it back.
+        let room = |given: f32, least: f32, asked: f32| ((given - least) * 0.5).clamp(0.0, asked);
+        let (ex, ey) = (
+            room(bounds.width, g.min.0, g.extra.0),
+            room(bounds.height, g.min.1, g.extra.1),
+        );
         let visible = Rect::new(
-            bounds.x + g.extra.0,
-            bounds.y + g.extra.1,
-            (bounds.width - 2.0 * g.extra.0).max(0.0),
-            (bounds.height - 2.0 * g.extra.1).max(0.0),
+            bounds.x + ex,
+            bounds.y + ey,
+            (bounds.width - 2.0 * ex).max(0.0),
+            (bounds.height - 2.0 * ey).max(0.0),
         );
         let radius = r
             .shape
@@ -1259,6 +1292,38 @@ mod tests {
             &phone(),
         );
         assert!((text_button.width - (text.width + 24.0)).abs() < 1.0);
+    }
+
+    /// **The touch target gives way to a parent that has less room**: in a slot 40 px
+    /// tall, a button is 40 px and overflows nothing, as the reference's input padding is
+    /// constrained by its parent (`button_style_button.dart:696`).
+    #[test]
+    fn the_touch_target_gives_way_to_a_smaller_slot() {
+        let t = phone();
+        let tree = Flex::<Msg>::column()
+            .width(400.0)
+            .height(300.0)
+            .align(frus_layout::Align::Start)
+            .child(
+                crate::Container::new()
+                    .height(40.0)
+                    .child(Button::new("Skip").on_press(Msg::Pressed)),
+            );
+        let (_, nodes) = crate::build_ui_inspected(
+            &tree as &dyn Widget<Msg>,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            &t,
+        );
+        let b = nodes.iter().find(|n| n.name == "Button").unwrap().rect;
+        assert_eq!(b.height, 40.0, "{b:?}");
+        // Free to grow, it keeps its room.
+        let (free, _) = laid_out(Button::new("Skip").on_press(Msg::Pressed), &t);
+        assert_eq!(
+            (free.y, free.height),
+            (4.0, 40.0),
+            "a 40 px button in a 48 px target"
+        );
     }
 
     /// **The desktops are compact** (milestone 631): the minimum loses 8 px each way and

@@ -75,6 +75,13 @@ and elevation, and a variant says so. What it did with them differed from the re
 - **`Tooltip` forwarded its child's padding** as well as its structure, so a tooltip round a
   button padded itself by the button's 24 px and squeezed the button inside. It now forwards
   everything but the padding.
+- **The touch target gives way to a parent with less room**, as the reference's input
+  padding is constrained by its parent (`button_style_button.dart:696`). A labelled button
+  declares its visible height plus the target's room, at most its parent's height and at
+  least the visible height; it paints the room it was actually given. The continuous
+  integration found it: the demo's tour puts a button in a 40 px slot, which a 48 px box
+  overflowed by 8. The demo's journal computes a list's height from its header row's, and
+  now counts the 48 px the row is with a button in it.
 - **The pictures' buttons are given an action.** In the reference a button with nothing to
   do is disabled, and the test buttons that were meant to look enabled had none.
 
@@ -103,7 +110,8 @@ touching the sources.
   `the_padding_follows_the_text_size`, `each_kind_has_the_reference_s_colours`,
   `the_overlays_are_the_reference_s`, `an_outline_follows_the_state`,
   `any_content_takes_the_button_s_colours`,
-  `a_style_outranks_the_theme_which_outranks_the_default`, `a_button_is_a_stadium`.
+  `a_style_outranks_the_theme_which_outranks_the_default`, `a_button_is_a_stadium`,
+  `the_touch_target_gives_way_to_a_smaller_slot`.
 
 Mutation testing: seven mutants, all killed. They are a hover overlay of 12 %, a button
 enabled without an action, the minimum size blind to the density, padding that does not

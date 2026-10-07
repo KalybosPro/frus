@@ -105,8 +105,9 @@ impl State for JournalState {
         // under it. It said 152 until milestone 349, and the four missing pixels were being
         // paid for by the list quietly giving way — which is exactly the kind of arithmetic
         // slip that no longer hides. Milestone 493 added the position row: 28 more, and its
-        // own 12 of gap.
-        .height((height - bars - 196.0).max(160.0))
+        // own 12 of gap. Milestone 632 gave the header row's button the reference's 48 px
+        // touch target: 8 more.
+        .height((height - bars - 204.0).max(160.0))
         // Where it is, whenever it moves. Not every pixel: four is a tenth of a row, so the
         // number in the header is never a row out, and a slow drag says so ten times less
         // often. A fling still reports every frame — nothing under four pixels happens
