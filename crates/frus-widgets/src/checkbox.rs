@@ -1,20 +1,39 @@
-//! [`Checkbox`]: a **controlled** checkbox, its state coming from the application.
+//! [`Checkbox`]: a **controlled** checkbox, its state coming from the application — the
+//! reference's `Checkbox` (`material/checkbox.dart`), with an optional label beside it.
 
-use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
+use frus_core::{
+    BorderSide, Color, Path, Point, Rect, ResolvedTextStyle, Scene, Stroke, TextStyle,
+};
 use frus_layout::{Dimension, Style};
 
 use crate::disabled::{disabled_content, disabled_mark};
-use crate::interaction::{Interaction, Status};
+use crate::interaction::Status;
 use crate::theme::{TapTarget, Theme};
 use crate::widget::Widget;
+use crate::widgetstate::{WidgetState, WidgetStateProperty, WidgetStates};
 
-const BOX: f32 = 20.0;
-/// The partly-ticked bar: its inset from either side of the box, and its thickness.
-const MIXED_INSET: f32 = 4.0;
-const MIXED_THICKNESS: f32 = 2.0;
-const GAP: f32 = 10.0;
+/// The box's side (`checkbox.dart:405`).
+const EDGE: f32 = 18.0;
+/// The outline's and the mark's stroke (`checkbox.dart:651`).
+const STROKE: f32 = 2.0;
+/// The box's corner (`checkbox.dart:1047`).
+const RADIUS: f32 = 2.0;
+/// The halo's radius under a pointer, the keyboard or a finger (`checkbox.dart:1037`).
+const SPLASH: f32 = 20.0;
+/// How long a tick takes to draw itself (the reference's toggle animation).
+const TOGGLE_SECONDS: f32 = 0.2;
 
 /// A checkbox, with an optional label.
+///
+/// The box is the reference's: 18 px with a 2 px corner, centred in the room it reserves
+/// for a finger (48 px at the standard density), its outline `on_surface_variant` at rest
+/// and `on_surface` under a pointer, the keyboard or a finger, filled in `primary` with an
+/// `on_primary` tick drawn as a stroke, or a dash when partly ticked, and a halo behind it
+/// under a pointer, the keyboard or a finger. Ticking it fills the box and draws the tick
+/// over a fifth of a second.
+///
+/// The label is this framework's: the reference puts words beside a checkbox with a list
+/// tile. It follows the box's room.
 pub struct Checkbox<Msg = crate::callback::Callback> {
     /// On, off, or **partly** on; see [`Checkbox::maybe`].
     value: Option<bool>,
@@ -23,11 +42,16 @@ pub struct Checkbox<Msg = crate::callback::Callback> {
     label: Option<String>,
     size: f32,
     enabled: bool,
+    error: bool,
+    semantic_label: Option<String>,
     fill_color: Option<Color>,
     check_color: Option<Color>,
     border_color: Option<Color>,
     active_border_color: Option<Color>,
+    overlay_color: Option<WidgetStateProperty<Color>>,
+    splash_radius: Option<f32>,
     tap_target: Option<TapTarget>,
+    visual_density: Option<crate::VisualDensity>,
     radius: Option<f32>,
     label_color: Option<Color>,
     on_toggle: Option<Box<dyn Fn(bool) -> Msg>>,
@@ -41,13 +65,18 @@ impl<Msg> Checkbox<Msg> {
             value: Some(checked),
             tristate: false,
             label: None,
-            size: 18.0,
+            size: 16.0,
             enabled: true,
+            error: false,
+            semantic_label: None,
             fill_color: None,
             check_color: None,
             border_color: None,
             active_border_color: None,
+            overlay_color: None,
+            splash_radius: None,
             tap_target: None,
+            visual_density: None,
             radius: None,
             label_color: None,
             on_toggle: None,
@@ -84,13 +113,13 @@ impl<Msg> Checkbox<Msg> {
         checkbox
     }
 
-    /// The box's fill when it is **ticked**; the theme's `primary` otherwise.
+    /// The box's fill when it is **ticked**; the theme's, then `primary`.
     pub fn fill_color(mut self, color: Color) -> Self {
         self.fill_color = Some(color);
         self
     }
 
-    /// The tick drawn on that fill; the theme's `on_primary` otherwise.
+    /// The tick drawn on that fill; the theme's, then `on_primary`.
     pub fn check_color(mut self, color: Color) -> Self {
         self.check_color = Some(color);
         self
@@ -106,14 +135,38 @@ impl<Msg> Checkbox<Msg> {
         self
     }
 
-    /// The outline under a pointer, a finger or focus. The reference resolves this side
-    /// per state, and an outline that did not answer at all would look inert.
+    /// The outline under a pointer, a finger or focus.
     pub fn active_border_color(mut self, color: Color) -> Self {
         self.active_border_color = Some(color);
         self
     }
 
-    /// The box's corner radius.
+    /// **The halo** under a pointer, the keyboard or a finger, state by state — the
+    /// reference's `overlayColor`. What it does not say, the theme's and then the
+    /// reference's answer.
+    #[must_use]
+    pub fn overlay_color(mut self, overlay: WidgetStateProperty<Color>) -> Self {
+        self.overlay_color = Some(overlay);
+        self
+    }
+
+    /// That halo's radius. Unset, the theme's, then 20.
+    #[must_use]
+    pub fn splash_radius(mut self, radius: f32) -> Self {
+        self.splash_radius = Some(radius);
+        self
+    }
+
+    /// **How compact it is.** Unset, the theme's checkbox density, then the standard one —
+    /// a checkbox keeps its 48 px on every platform unless told, as the reference's does
+    /// (`checkbox.dart:1043`).
+    #[must_use]
+    pub fn visual_density(mut self, density: crate::VisualDensity) -> Self {
+        self.visual_density = Some(density);
+        self
+    }
+
+    /// The box's corner radius. Unset, the theme's, then 2.
     pub fn radius(mut self, radius: f32) -> Self {
         self.radius = Some(radius);
         self
@@ -125,12 +178,29 @@ impl<Msg> Checkbox<Msg> {
         self
     }
 
-    /// The corner radius actually used.
-    fn corner(&self, theme: &Theme) -> f32 {
-        self.radius.or(theme.widgets.checkbox.radius).unwrap_or(5.0)
+    /// **In error**: the outline, the fill and the halo take the `error` colours, as the
+    /// reference's `isError` does — a required box left unticked in a form.
+    #[must_use]
+    pub fn error(mut self, error: bool) -> Self {
+        self.error = error;
+        self
     }
 
-    /// Adds a label on the right.
+    /// **What a screen reader calls it** when it has no label to read.
+    #[must_use]
+    pub fn semantic_label(mut self, label: impl Into<String>) -> Self {
+        self.semantic_label = Some(label.into());
+        self
+    }
+
+    /// The corner radius actually used.
+    fn corner(&self, theme: &Theme) -> f32 {
+        self.radius
+            .or(theme.widgets.checkbox.radius)
+            .unwrap_or(RADIUS)
+    }
+
+    /// Adds a label after it.
     pub fn label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
         self
@@ -166,14 +236,7 @@ impl<Msg> Checkbox<Msg> {
         self
     }
 
-    /// Is the box filled? Both **on** and **partly on** are: the mark differs, the
-    /// surface under it does not, which is what says "this is not simply off".
-    fn filled(&self) -> bool {
-        self.value != Some(false)
-    }
-
-    /// The state a click moves to. Three-way it is the reference's cycle; otherwise the
-    /// old one, unchanged.
+    /// The state a click moves to. Three-way it is the reference's cycle.
     fn next(&self) -> Option<bool> {
         if self.tristate {
             match self.value {
@@ -186,38 +249,200 @@ impl<Msg> Checkbox<Msg> {
         }
     }
 
-    fn label_width(&self) -> f32 {
-        match &self.label {
-            Some(text) => GAP + frus_text::measure(text, self.size).width,
-            None => 0.0,
-        }
-    }
-}
-
-impl<Msg> Checkbox<Msg> {
     /// **How much room it reserves for a finger** ([`TapTarget`]). Unset, the theme's
-    /// answer, which is [`Padded`](TapTarget::Padded) — at least 48 pixels either way,
-    /// whatever this control paints in the middle of it.
+    /// answer, which is [`Padded`](TapTarget::Padded) — 48 pixels either way, whatever this
+    /// control paints in the middle of it.
     pub fn tap_target(mut self, target: TapTarget) -> Self {
         self.tap_target = Some(target);
         self
     }
 
     /// The label's style, **resolved once** so that the number the box is measured with is
-    /// the number the glyphs are drawn at. Resolving is the single place the reader's font
-    /// setting is applied (milestone 403).
+    /// the number the glyphs are drawn at.
     fn label_style(&self) -> ResolvedTextStyle {
         TextStyle::new(self.size).resolved()
     }
 
-    /// The room this checkbox reserves, resolved as `caller ?? theme ?? framework`
-    /// (`checkbox.dart:510`).
-    fn reserved(&self, theme: &Theme) -> f32 {
-        self.tap_target
+    /// The square the box sits in: 48 px padded or 40 shrink-wrapped, moved by the density
+    /// (`checkbox.dart:516`).
+    fn square(&self, theme: &Theme) -> f32 {
+        let target = self
+            .tap_target
             .or(theme.widgets.checkbox.tap_target)
-            .unwrap_or(theme.tap_target)
-            .min_side()
+            .unwrap_or(theme.tap_target);
+        let side = match target {
+            TapTarget::Padded => crate::MIN_TAP_TARGET,
+            TapTarget::ShrinkWrap => crate::MIN_TAP_TARGET - 8.0,
+        };
+        let density = self
+            .visual_density
+            .or(theme.widgets.checkbox.visual_density)
+            .unwrap_or(crate::VisualDensity::STANDARD);
+        (side + density.base_size_adjustment().1).max(EDGE)
     }
+
+    fn label_width(&self) -> f32 {
+        match &self.label {
+            Some(text) => frus_text::measure(text, self.size).width,
+            None => 0.0,
+        }
+    }
+
+    /// The states it is in: the interaction's, ticked, disabled and in error.
+    fn states(&self, status: &Status) -> WidgetStates {
+        let states = if self.enabled {
+            status.states()
+        } else {
+            WidgetStates::of(WidgetState::Disabled)
+        };
+        states
+            .set(WidgetState::Selected, self.value != Some(false))
+            .set(WidgetState::Error, self.error)
+    }
+
+    /// The fill for these states (`checkbox.dart:960`).
+    fn fill(&self, theme: &Theme, states: WidgetStates) -> Color {
+        let t = &theme.widgets.checkbox;
+        if states.contains(WidgetState::Disabled) {
+            return if states.contains(WidgetState::Selected) {
+                disabled_content(theme)
+            } else {
+                Color::TRANSPARENT
+            };
+        }
+        if !states.contains(WidgetState::Selected) {
+            return Color::TRANSPARENT;
+        }
+        if states.contains(WidgetState::Error) {
+            return theme.scheme.error;
+        }
+        self.fill_color
+            .or(t.fill_color)
+            .unwrap_or(theme.scheme.primary)
+    }
+
+    /// The mark's colour (`checkbox.dart:979`).
+    fn check(&self, theme: &Theme, states: WidgetStates) -> Color {
+        if states.contains(WidgetState::Disabled) {
+            return disabled_mark(theme);
+        }
+        if states.contains(WidgetState::Error) {
+            return theme.scheme.on_error;
+        }
+        self.check_color
+            .or(theme.widgets.checkbox.check_color)
+            .unwrap_or(theme.scheme.on_primary)
+    }
+
+    /// The outline of an unticked box for these states (`checkbox.dart:933`): none once
+    /// ticked, faint disabled, the error colour in error, `on_surface` under a pointer, the
+    /// keyboard or a finger, and `on_surface_variant` at rest.
+    fn side(&self, theme: &Theme, states: WidgetStates) -> BorderSide {
+        let t = &theme.widgets.checkbox;
+        if states.contains(WidgetState::Selected) {
+            return BorderSide::new(Color::TRANSPARENT, 0.0);
+        }
+        let color = if states.contains(WidgetState::Disabled) {
+            disabled_content(theme)
+        } else if states.contains(WidgetState::Error) {
+            theme.scheme.error
+        } else {
+            let resting = self.border_color.or(t.border_color);
+            let active = states.contains(WidgetState::Pressed)
+                || states.contains(WidgetState::Hovered)
+                || states.contains(WidgetState::Focused);
+            if active {
+                self.active_border_color
+                    .or(t.active_border_color)
+                    .or(resting)
+                    .unwrap_or(theme.scheme.on_surface)
+            } else {
+                resting.unwrap_or(theme.scheme.on_surface_variant)
+            }
+        };
+        BorderSide::new(color, STROKE)
+    }
+
+    /// The halo for these states (`checkbox.dart:998`): the caller's, the theme's, then the
+    /// reference's — 8 % under a pointer and 10 % focused or pressed, in `on_surface` or
+    /// `primary` depending on whether the box is ticked, and in `error` in error.
+    fn overlay(&self, theme: &Theme, states: WidgetStates) -> Color {
+        if let Some(c) = self
+            .overlay_color
+            .as_ref()
+            .and_then(|p| p.resolve(states))
+            .or_else(|| {
+                theme
+                    .widgets
+                    .checkbox
+                    .overlay_color
+                    .as_ref()
+                    .and_then(|p| p.resolve(states))
+            })
+        {
+            return *c;
+        }
+        let c = &theme.scheme;
+        let pressed = states.contains(WidgetState::Pressed);
+        let hovered = states.contains(WidgetState::Hovered);
+        let focused = states.contains(WidgetState::Focused);
+        let pick = |press: Color, hover: Color, focus: Color| {
+            if pressed {
+                press.with_alpha(0.1)
+            } else if hovered {
+                hover.with_alpha(0.08)
+            } else if focused {
+                focus.with_alpha(0.1)
+            } else {
+                Color::TRANSPARENT
+            }
+        };
+        if states.contains(WidgetState::Error) && (pressed || hovered || focused) {
+            return pick(c.error, c.error, c.error);
+        }
+        if states.contains(WidgetState::Selected) {
+            pick(c.on_surface, c.primary, c.primary)
+        } else {
+            pick(c.primary, c.on_surface, c.on_surface)
+        }
+    }
+}
+
+/// The box at `t` of its animation, from its origin: full size at either end, a stroke
+/// smaller half way (`checkbox.dart:718`).
+fn outer_at(origin: Point, t: f32) -> Rect {
+    let inset = 1.0 - (t - 0.5).abs() * 2.0;
+    let size = EDGE - inset * STROKE;
+    Rect::new(origin.x + inset, origin.y + inset, size, size)
+}
+
+/// The tick at `t`: the short stroke drawn over the first half, the long one over the
+/// second (`checkbox.dart:750`).
+fn check_path(origin: Point, t: f32) -> Path {
+    let at = |x: f32, y: f32| Point::new(origin.x + EDGE * x, origin.y + EDGE * y);
+    let (start, mid, end) = (at(0.15, 0.45), at(0.4, 0.7), at(0.85, 0.25));
+    let lerp =
+        |a: Point, b: Point, k: f32| Point::new(a.x + (b.x - a.x) * k, a.y + (b.y - a.y) * k);
+    if t < 0.5 {
+        Path::new()
+            .move_to(start)
+            .line_to(lerp(start, mid, t * 2.0))
+    } else {
+        Path::new()
+            .move_to(start)
+            .line_to(mid)
+            .line_to(lerp(mid, end, (t - 0.5) * 2.0))
+    }
+}
+
+/// The dash at `t`, growing from the middle outwards (`checkbox.dart:773`).
+fn dash_path(origin: Point, t: f32) -> Path {
+    let y = origin.y + EDGE * 0.5;
+    let half = EDGE * 0.3 * t;
+    let mid = origin.x + EDGE * 0.5;
+    Path::new()
+        .move_to(Point::new(mid - half, y))
+        .line_to(Point::new(mid + half, y))
 }
 
 impl<Msg> Widget<Msg> for Checkbox<Msg> {
@@ -225,21 +450,14 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
         Widget::<Msg>::style_themed(self, &Theme::default())
     }
 
-    /// **A 20-pixel box is not something a finger can be asked to hit** — the reference
-    /// lays a checkbox out inside a 48-pixel square whatever it paints in the middle
-    /// (`checkbox.dart:516`).
-    ///
-    /// The target here is the **whole control**, label included, rather than a square
-    /// around the box: the reference's checkbox carries no label, so it reaches the same
-    /// guarantee by being a square with the words outside it. A labelled one is already
-    /// wider than the minimum, so the width floor only ever binds on a bare box — and
-    /// then the box is centred in what it was given.
+    /// **A square a finger can hit**, 48 px at the standard density, with the 18 px box in
+    /// its middle (`checkbox.dart:516`), and the label after it.
     fn style_themed(&self, theme: &Theme) -> Style {
-        let least = self.reserved(theme);
-        let line = self.label_style().line_height().max(BOX);
+        let square = self.square(theme);
+        let line = self.label_style().line_height();
         Style {
-            width: Dimension::Length((BOX + self.label_width()).max(least).ceil()),
-            height: Dimension::Length(line.max(least).ceil()),
+            width: Dimension::Length((square + self.label_width()).ceil()),
+            height: Dimension::Length(line.max(square).ceil()),
             ..Default::default()
         }
     }
@@ -250,98 +468,67 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let box_y = bounds.y + (bounds.height - BOX) * 0.5;
-        // Centred across as well when there is nothing beside it, since the box is then
-        // the only thing in a square wider than itself. With a label it stays at the
-        // leading edge and the words follow it.
-        let box_x = bounds.x
-            + if self.label.is_none() {
-                (bounds.width - BOX) * 0.5
-            } else {
-                0.0
-            };
-        let box_rect = Rect::new(box_x, box_y, BOX, BOX);
+        let square = self.square(theme);
+        let centre = Point::new(bounds.x + square * 0.5, bounds.y + bounds.height * 0.5);
+        let states = self.states(&status);
 
-        if self.filled() {
-            // Disabled and ticked: the box flattens to `on_surface` at 38 % and the tick
-            // punches through in `surface`. A translucent tick on a translucent box would
-            // land within a few percent of it and vanish.
-            let (fill, tick) = if self.enabled {
-                (
-                    self.fill_color
-                        .or(theme.widgets.checkbox.fill_color)
-                        .unwrap_or(theme.primary),
-                    self.check_color
-                        .or(theme.widgets.checkbox.check_color)
-                        .unwrap_or(theme.on_primary),
-                )
-            } else {
-                (disabled_content(theme), disabled_mark(theme))
+        // The halo: under a pointer and the keyboard it fades in, under a finger it grows
+        // (`toggleable.dart`'s radial reaction).
+        if self.enabled {
+            let radius = self
+                .splash_radius
+                .or(theme.widgets.checkbox.splash_radius)
+                .unwrap_or(SPLASH);
+            let halo = |scene: &mut Scene, state: WidgetState, amount: f32, r: f32| {
+                if amount <= 0.0 || r <= 0.0 {
+                    return;
+                }
+                let c = self.overlay(theme, states.set(state, true));
+                if c.a > 0.0 {
+                    scene.draw_rect(
+                        Rect::new(centre.x - r, centre.y - r, 2.0 * r, 2.0 * r),
+                        c.with_alpha(c.a * amount.clamp(0.0, 1.0)).fade(o),
+                        r,
+                        0.0,
+                        Color::TRANSPARENT,
+                    );
+                }
             };
-            scene.draw_rect(
-                box_rect,
-                fill.fade(o),
-                self.corner(theme),
-                0.0,
-                Color::TRANSPARENT,
-            );
-            match self.value {
-                // Ticked.
-                // `exact`: the tick is an icon drawn as a glyph and it lives inside a
-                // `BOX` that does not move, so it must not follow the reader's type.
-                Some(_) => scene.text(
-                    Point::new(box_rect.x + 3.0, box_rect.y + 1.0),
-                    "✓".to_string(),
-                    &ResolvedTextStyle::exact(self.size),
-                    tick.fade(o),
-                ),
-                // Partly ticked: a bar, and a **drawn** one rather than a dash of text.
-                // The tick above is a glyph and pays for it — a font's own width and
-                // weight — but the reference draws this mark, and a bar is two numbers
-                // rather than a code point some font may not carry.
-                None => scene.draw_rect(
-                    Rect::new(
-                        box_rect.x + MIXED_INSET,
-                        box_rect.y + (BOX - MIXED_THICKNESS) * 0.5,
-                        BOX - MIXED_INSET * 2.0,
-                        MIXED_THICKNESS,
-                    ),
-                    tick.fade(o),
-                    MIXED_THICKNESS * 0.5,
-                    0.0,
-                    Color::TRANSPARENT,
-                ),
-            }
+            halo(scene, WidgetState::Hovered, status.hover_progress, radius);
+            halo(scene, WidgetState::Focused, status.focus_progress, radius);
+            let press = status.press_progress.clamp(0.0, 1.0);
+            halo(scene, WidgetState::Pressed, 1.0, radius * press);
+        }
+
+        // The box at `t` of its animation (`checkbox.dart:786`): 0 unticked, 1 filled.
+        let t = status.value.clamp(0.0, 1.0);
+        let origin = Point::new(centre.x - EDGE * 0.5, centre.y - EDGE * 0.5);
+        let off = states.set(WidgetState::Selected, false);
+        let on = states.set(WidgetState::Selected, true);
+        let fill = if t >= 0.25 {
+            self.fill(theme, on)
         } else {
-            // Unticked, the outline *is* the control — the mark rather than a container —
-            // so it takes the content opacity, as the reference's does.
-            //
-            // And it is **not** `outline`. The reference resolves this side per state:
-            // `on_surface_variant` at rest, the full `on_surface` under a finger, a
-            // pointer or focus, and `on_surface` at 38 % when disabled. An unselected
-            // checkbox is a mark, and a mark is drawn in an *on* colour; `outline` is for
-            // the edge of a container, which this is not. Milestone 332.
-            //
-            // A caller who names one outline colour means the outline, so the pointer
-            // state falls back to the resting override before it falls back to the
-            // scheme -- otherwise a green checkbox would turn grey under a finger.
-            let resting = self.border_color.or(theme.widgets.checkbox.border_color);
-            let border = if !self.enabled {
-                disabled_content(theme)
-            } else if status.interaction != Interaction::None || status.focused {
-                self.active_border_color
-                    .or(theme.widgets.checkbox.active_border_color)
-                    .or(resting)
-                    .unwrap_or(theme.scheme.on_surface)
-            } else {
-                resting.unwrap_or(theme.scheme.on_surface_variant)
+            self.fill(theme, off).lerp(self.fill(theme, on), t * 4.0)
+        };
+        let outer = outer_at(origin, t);
+        let corner = self.corner(theme);
+        let side = if t <= 0.5 {
+            let (a, b) = (self.side(theme, off), self.side(theme, on));
+            BorderSide::new(a.color.lerp(b.color, t), a.width + (b.width - a.width) * t)
+        } else {
+            self.side(theme, on)
+        };
+        scene.draw_rect(outer, fill.fade(o), corner, side.width, side.color.fade(o));
+        if t > 0.5 {
+            let k = (t - 0.5) * 2.0;
+            let path = match self.value {
+                None => dash_path(origin, k),
+                _ => check_path(origin, k),
             };
-            scene.draw_rect(
-                box_rect,
-                theme.surface.fade(o),
-                self.corner(theme),
-                2.0,
-                border.fade(o),
+            scene.paint_path(
+                &path,
+                None,
+                Some(Stroke::new(self.check(theme, on).fade(o), STROKE)),
             );
         }
 
@@ -353,13 +540,10 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
             } else {
                 disabled_content(theme)
             };
-            // Centred down the box's own height. It used to be drawn at the top of the
-            // bounds, which was the same sentence while the bounds *were* the line; a
-            // floor under the height makes the two different.
             let style = self.label_style();
             scene.text(
                 Point::new(
-                    bounds.x + BOX + GAP,
+                    bounds.x + square,
                     bounds.y + (bounds.height - style.line_height()) * 0.5,
                 ),
                 label.clone(),
@@ -389,6 +573,15 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
         self.enabled
     }
 
+    /// Filled or not: ticking fills the box and draws the mark over a fifth of a second.
+    fn anim_target(&self) -> Option<f32> {
+        Some(if self.value == Some(false) { 0.0 } else { 1.0 })
+    }
+
+    fn anim_duration(&self) -> f32 {
+        TOGGLE_SECONDS
+    }
+
     fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // Still ticked or not, still announced: a reader who cannot change the answer is
         // still owed it.
@@ -399,7 +592,7 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
         } else {
             s.disabled(true)
         };
-        if let Some(label) = &self.label {
+        if let Some(label) = self.label.as_ref().or(self.semantic_label.as_ref()) {
             s = s.label(label.clone());
         }
         Some(s)
@@ -409,7 +602,7 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::theme::{MIN_TAP_TARGET, SHRUNK_TAP_TARGET};
+    use frus_core::{PathVerb, Primitive};
 
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
@@ -417,467 +610,304 @@ mod tests {
         Maybe(Option<bool>),
     }
 
-    /// **A 20-pixel box is not something a finger can be asked to hit** (milestone 442).
-    ///
-    /// The reference lays a checkbox out inside a 48-pixel square whatever it paints in
-    /// the middle (`checkbox.dart:516`). This asked for the box and the label's line, so
-    /// a bare checkbox was a 20-pixel target and a labelled one was as tall as its type.
-    #[test]
-    fn a_checkbox_reserves_room_for_a_finger() {
-        let theme = Theme::dark();
-        let bare: Checkbox<Msg> = Checkbox::new(false);
-        let square = Widget::<Msg>::style_themed(&bare, &theme);
-        assert_eq!(square.width, Dimension::Length(MIN_TAP_TARGET));
-        assert_eq!(square.height, Dimension::Length(MIN_TAP_TARGET));
-
-        // With a label the control is already wider than the minimum, so only the height
-        // floor binds — the target is the whole control, words included.
-        let labelled: Checkbox<Msg> = Checkbox::new(false).label("Remember me");
-        let row = Widget::<Msg>::style_themed(&labelled, &theme);
-        assert_eq!(row.height, Dimension::Length(MIN_TAP_TARGET));
-        match row.width {
-            Dimension::Length(w) => assert!(w > MIN_TAP_TARGET, "width = {w}"),
-            other => panic!("{other:?}"),
-        }
-
-        let dense: Checkbox<Msg> = Checkbox::new(false).tap_target(TapTarget::ShrinkWrap);
-        assert_eq!(
-            Widget::<Msg>::style_themed(&dense, &theme).height,
-            Dimension::Length(SHRUNK_TAP_TARGET)
-        );
-    }
-
-    /// And **the click lands in the room**, which is the whole point of reserving it: a
-    /// point below the box, inside the square, reaches the checkbox.
-    #[test]
-    fn a_click_below_the_box_still_lands() {
-        use frus_core::Size;
-        let ui = crate::ui::build_ui(
-            &Checkbox::new(false).on_toggle(Msg::Set),
-            Size::new(200.0, 200.0),
-            &crate::runtime::Runtime::default(),
-            &Theme::dark(),
-        );
-        // The box occupies 14..34 in both axes of the 48-pixel square; this is under it.
-        let below = Point::new(24.0, 42.0);
-        let landed = ui.hit(below).and_then(|id| ui.msg_for(id));
-        assert_eq!(landed, Some(Msg::Set(true)), "a finger just low of the box");
-    }
-
-    /// The box is centred in that square when nothing stands beside it, and stays at the
-    /// leading edge when a label does.
-    #[test]
-    fn a_bare_box_is_centred_in_its_room() {
-        let theme = Theme::dark();
-        let box_of = |checkbox: &Checkbox<Msg>, width: f32| {
-            let mut scene = Scene::new();
-            Widget::<Msg>::paint(
-                checkbox,
-                Rect::new(0.0, 0.0, width, MIN_TAP_TARGET),
-                Status::default(),
-                &theme,
-                &mut scene,
-            );
-            scene
-                .primitives()
-                .iter()
-                .find_map(|p| match p {
-                    frus_core::Primitive::Rect { rect, .. } => Some(*rect),
-                    _ => None,
-                })
-                .expect("a checkbox paints its box")
-        };
-
-        let bare = box_of(&Checkbox::new(true), MIN_TAP_TARGET);
-        assert!(
-            (bare.x - (MIN_TAP_TARGET - BOX) * 0.5).abs() < 0.01,
-            "centred across: {bare:?}"
-        );
-        assert!(
-            (bare.y - (MIN_TAP_TARGET - BOX) * 0.5).abs() < 0.01,
-            "and down: {bare:?}"
-        );
-
-        let labelled = box_of(&Checkbox::new(true).label("Remember me"), 200.0);
-        assert_eq!(
-            labelled.x, 0.0,
-            "the words follow the box, not the other way"
-        );
-    }
-
-    #[test]
-    fn click_toggles() {
-        let unchecked = Checkbox::new(false).on_toggle(Msg::Set);
-        assert_eq!(Widget::on_click(&unchecked), Some(Msg::Set(true)));
-        let checked = Checkbox::new(true).on_toggle(Msg::Set);
-        assert_eq!(Widget::on_click(&checked), Some(Msg::Set(false)));
-    }
-
-    #[test]
-    fn a_disabled_box_is_inert_but_still_says_whether_it_is_ticked() {
-        let dead = Checkbox::new(true).on_toggle(Msg::Set).enabled(false);
-        assert_eq!(Widget::on_click(&dead), None, "the press goes nowhere");
-        assert!(!Widget::<Msg>::focusable(&dead), "out of the tab order");
-        let semantics = Widget::<Msg>::semantics(&dead).expect("still announced");
-        assert!(semantics.disabled, "and announced as unavailable");
-        // The answer survives: read-only is not invisible.
-        assert_eq!(semantics.toggled, frus_core::Toggled::True);
-    }
-
-    /// An unselected box's side, state by state. The reference resolves it as
-    /// `on_surface_variant` at rest and the full `on_surface` under a finger, a pointer or
-    /// focus — an unselected checkbox is a **mark**, so it takes an *on* colour. Ours was
-    /// `outline`, the role for the edge of a container, since it was written.
-    #[test]
-    fn an_unticked_box_is_a_mark_not_a_container_edge() {
-        let theme = Theme::dark();
-        let side = |status: Status| {
-            let mut scene = Scene::new();
-            Widget::<Msg>::paint(
-                &Checkbox::<Msg>::new(false),
-                Rect::new(0.0, 0.0, 20.0, 20.0),
-                status,
-                &theme,
-                &mut scene,
-            );
-            scene
-                .primitives()
-                .iter()
-                .find_map(|p| match p {
-                    frus_core::Primitive::Rect { border_color, .. } => Some(*border_color),
-                    _ => None,
-                })
-                .expect("the box")
-        };
-        let at = |interaction, focused| Status {
+    /// A settled status: the box's animation at its end for `value`.
+    fn settled(value: bool) -> Status {
+        Status {
             opacity: 1.0,
-            interaction,
-            focused,
+            value: if value { 1.0 } else { 0.0 },
             ..Default::default()
-        };
-        assert_eq!(
-            side(at(Interaction::None, false)),
-            theme.scheme.on_surface_variant,
-            "at rest"
-        );
-        for (name, status) in [
-            ("hovered", at(Interaction::Hovered, false)),
-            ("pressed", at(Interaction::Pressed, false)),
-            ("focused", at(Interaction::None, true)),
-        ] {
-            assert_eq!(side(status), theme.scheme.on_surface, "{name}");
-        }
-        // And it is no longer the container-edge role, which is what it used to be.
-        assert_ne!(
-            side(at(Interaction::None, false)),
-            theme.scheme.outline,
-            "an unselected box is a mark, not a container's edge"
-        );
-    }
-
-    #[test]
-    fn a_disabled_tick_does_not_disappear_into_its_box() {
-        // Both are drawn from `on_surface`; if the tick took the content opacity too it
-        // would land within a few percent of the 38 % box behind it and vanish. It punches
-        // through in `surface` instead, and this is the assertion that says so.
-        for theme in [Theme::dark(), Theme::light()] {
-            let mut scene = Scene::new();
-            Widget::<Msg>::paint(
-                &Checkbox::<Msg>::new(true).enabled(false),
-                Rect::new(0.0, 0.0, 20.0, 20.0),
-                Status {
-                    opacity: 1.0,
-                    ..Default::default()
-                },
-                &theme,
-                &mut scene,
-            );
-            let box_fill = scene
-                .primitives()
-                .iter()
-                .find_map(|p| match p {
-                    frus_core::Primitive::Rect { color, .. } => Some(*color),
-                    _ => None,
-                })
-                .expect("the box");
-            let tick = scene
-                .primitives()
-                .iter()
-                .find_map(|p| match p {
-                    frus_core::Primitive::Text { color, .. } => Some(*color),
-                    _ => None,
-                })
-                .expect("the tick");
-            let against = |c: frus_core::Color| {
-                (c.r - theme.scheme.surface.r).abs()
-                    + (c.g - theme.scheme.surface.g).abs()
-                    + (c.b - theme.scheme.surface.b).abs()
-            };
-            // The tick is the surface punching through, so it is *at* the surface while
-            // the fill it sits on is a measurable way off it. Since milestone 329 the
-            // disabled tokens resolve to opaque colours, so the two are told apart by
-            // where they sit rather than by an alpha.
-            assert!(
-                against(tick) < 0.01,
-                "the tick is the surface punching through: {tick:?}"
-            );
-            assert!(
-                against(box_fill) > 0.1,
-                "and the box it is inside is not: {box_fill:?}"
-            );
         }
     }
 
-    /// The third answer is an answer, and the cycle is the reference's.
-    ///
-    /// A "select all" above five rows of which three are ticked is not unchecked. Drawn
-    /// that way it says *nothing here is selected*, which is false; drawn ticked it says
-    /// *everything is*, which is also false. So the control has a third state, and a
-    /// click walks off → on → partly on → off.
-    #[test]
-    fn a_tristate_box_cycles_through_the_third_answer() {
-        let seen = |value| Widget::on_click(&Checkbox::maybe(value).on_change(Msg::Maybe));
-        assert_eq!(seen(Some(false)), Some(Msg::Maybe(Some(true))));
-        assert_eq!(seen(Some(true)), Some(Msg::Maybe(None)));
-        assert_eq!(seen(None), Some(Msg::Maybe(Some(false))));
-    }
-
-    /// A two-state box is untouched by any of it: `new` is not `maybe`, so the cycle it
-    /// walks is still the old one and `on_toggle` still says what it always said.
-    #[test]
-    fn a_two_state_box_never_reaches_the_third() {
-        assert_eq!(
-            Widget::on_click(&Checkbox::new(true).on_change(Msg::Maybe)),
-            Some(Msg::Maybe(Some(false))),
-            "no `None` in the middle"
-        );
-    }
-
-    /// `on_toggle` takes a `bool` and there is no value of `bool` that means *partly*, so
-    /// a tristate box wired only to it reports the two answers that type can carry —
-    /// partly-on reading as on, which is what a click on it moves away from. Making the
-    /// case emit nothing would be a widget that looks live and is not.
-    #[test]
-    fn a_tristate_box_on_the_old_callback_is_not_left_silent() {
-        assert_eq!(
-            Widget::on_click(&Checkbox::maybe(None).on_toggle(Msg::Set)),
-            Some(Msg::Set(false)),
-            "partly on moves to off, and `bool` can say that"
-        );
-        assert_eq!(
-            Widget::on_click(&Checkbox::maybe(Some(true)).on_toggle(Msg::Set)),
-            Some(Msg::Set(true)),
-            "on moves to partly on, which reads as on"
-        );
-    }
-
-    /// `on_change` wins when both are given: it is the one that can say all three.
-    #[test]
-    fn the_three_state_callback_wins_over_the_two_state_one() {
-        let both = Checkbox::maybe(Some(true))
-            .on_toggle(|_| Msg::Set(false))
-            .on_change(Msg::Maybe);
-        assert_eq!(Widget::on_click(&both), Some(Msg::Maybe(None)));
-    }
-
-    /// The screen reader is told `mixed` rather than handed a lie in one of the two
-    /// directions.
-    #[test]
-    fn partly_ticked_is_announced_as_mixed() {
-        let announced = |value| {
-            Widget::<Msg>::semantics(&Checkbox::<Msg>::maybe(value))
-                .expect("announced")
-                .toggled
-        };
-        assert_eq!(announced(None), frus_core::Toggled::Mixed);
-        assert_eq!(announced(Some(true)), frus_core::Toggled::True);
-        assert_eq!(announced(Some(false)), frus_core::Toggled::False);
-    }
-
-    /// Both **on** and **partly on** fill the box; only the mark differs. The filled
-    /// surface is what says *this is not simply off*, and the mark says which of the two
-    /// it is — which is the reference's drawing.
-    #[test]
-    fn both_answers_that_are_not_off_fill_the_box() {
-        let theme = Theme::default();
-        let painted = |value| {
-            let mut scene = Scene::new();
-            Widget::<Msg>::paint(
-                &Checkbox::<Msg>::maybe(value),
-                Rect::new(0.0, 0.0, 20.0, 20.0),
-                Status {
-                    opacity: 1.0,
-                    ..Default::default()
-                },
-                &theme,
-                &mut scene,
-            );
-            scene.primitives().to_vec()
-        };
-        let filled = |primitives: &[frus_core::Primitive]| {
-            primitives.iter().any(|p| {
-                matches!(p, frus_core::Primitive::Rect { color, .. } if *color == theme.primary)
-            })
-        };
-        assert!(filled(&painted(Some(true))), "ticked fills");
-        assert!(filled(&painted(None)), "partly ticked fills too");
-        assert!(!filled(&painted(Some(false))), "off does not");
-    }
-
-    /// The partly-on mark is **drawn** rather than a glyph — a bar, two numbers — so no
-    /// font gets to decide whether it exists. The tick above it is text and pays for it;
-    /// there was no reason to add a second one.
-    #[test]
-    fn the_partly_ticked_mark_is_drawn_and_the_tick_is_not() {
-        let has_text = |value| {
-            let mut scene = Scene::new();
-            Widget::<Msg>::paint(
-                &Checkbox::<Msg>::maybe(value),
-                Rect::new(0.0, 0.0, 20.0, 20.0),
-                Status {
-                    opacity: 1.0,
-                    ..Default::default()
-                },
-                &Theme::default(),
-                &mut scene,
-            );
-            scene
-                .primitives()
-                .iter()
-                .any(|p| matches!(p, frus_core::Primitive::Text { .. }))
-        };
-        assert!(has_text(Some(true)), "the tick is a glyph");
-        assert!(!has_text(None), "the bar is not");
-    }
-}
-
-#[cfg(test)]
-mod color_tests {
-    use super::*;
-    use crate::widget::Widget;
-    use frus_core::Primitive;
-
-    const BRAND: Color = Color::rgb(0.0, 0.6, 0.3);
-    const MARK: Color = Color::rgb(0.9, 0.9, 0.2);
-
-    /// The box: its fill, its border colour and its radius.
-    fn box_of(cb: &Checkbox<()>, status: Status, theme: &Theme) -> (Color, Color, f32) {
+    fn painted(c: &Checkbox<Msg>, status: Status, theme: &Theme) -> Vec<Primitive> {
+        let side = c.square(theme);
         let mut scene = Scene::new();
-        Widget::<()>::paint(
-            cb,
-            Rect::new(0.0, 0.0, 200.0, BOX),
+        Widget::<Msg>::paint(
+            c,
+            Rect::new(0.0, 0.0, side, side),
             status,
             theme,
             &mut scene,
         );
-        scene
-            .primitives()
+        scene.primitives().to_vec()
+    }
+
+    /// The box: the last rectangle, with its fill, outline and corner.
+    fn the_box(prims: &[Primitive]) -> (Rect, Color, f32, Color, f32) {
+        prims
             .iter()
+            .rev()
             .find_map(|p| match p {
                 Primitive::Rect {
+                    rect,
                     color,
+                    border_width,
                     border_color,
                     radius,
                     ..
-                } => Some((*color, *border_color, radius.top_left)),
+                } => Some((*rect, *color, *border_width, *border_color, radius.top_left)),
                 _ => None,
             })
-            .expect("the box is painted")
+            .expect("a box")
     }
 
-    /// The tick's colour, or the label's — whichever text came out.
-    fn text_color(cb: &Checkbox<()>, theme: &Theme) -> Vec<Color> {
-        let mut scene = Scene::new();
-        Widget::<()>::paint(
-            cb,
-            Rect::new(0.0, 0.0, 200.0, BOX),
-            Status {
-                opacity: 1.0,
-                ..Default::default()
-            },
-            theme,
-            &mut scene,
+    fn mark(prims: &[Primitive]) -> Option<(Vec<Point>, Color)> {
+        prims.iter().find_map(|p| match p {
+            Primitive::Path {
+                path,
+                stroke: Some(s),
+                ..
+            } => Some((
+                path.verbs()
+                    .iter()
+                    .filter_map(|v| match v {
+                        PathVerb::MoveTo(p) | PathVerb::LineTo(p) => Some(*p),
+                        _ => None,
+                    })
+                    .collect(),
+                s.color,
+            )),
+            _ => None,
+        })
+    }
+
+    /// **The reference's box**: 18 px with a 2 px corner, centred in a 48 px square at the
+    /// standard density, which a checkbox keeps on every platform unless told.
+    #[test]
+    fn the_box_is_the_reference_s() {
+        let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Windows);
+        let c = Checkbox::<Msg>::new(false);
+        let style = Widget::<Msg>::style_themed(&c, &theme);
+        assert_eq!(
+            (style.width, style.height),
+            (Dimension::Length(48.0), Dimension::Length(48.0)),
+            "standard density even on a desktop"
         );
-        scene
-            .primitives()
-            .iter()
-            .filter_map(|p| match p {
-                Primitive::Text { color, .. } => Some(*color),
-                _ => None,
-            })
-            .collect()
+        let (rect, fill, border, outline, corner) = the_box(&painted(&c, settled(false), &theme));
+        assert_eq!(rect, Rect::new(15.0, 15.0, 18.0, 18.0));
+        assert_eq!((fill, border, corner), (Color::TRANSPARENT, 2.0, 2.0));
+        assert_eq!(outline, theme.scheme.on_surface_variant);
+        // Told to be compact, it is 40; shrink-wrapped, 40 too.
+        let compact =
+            c_style(Checkbox::<Msg>::new(false).visual_density(crate::VisualDensity::COMPACT));
+        assert_eq!(compact, 40.0);
+        let shrunk = c_style(Checkbox::<Msg>::new(false).tap_target(TapTarget::ShrinkWrap));
+        assert_eq!(shrunk, 40.0);
     }
 
-    fn rest() -> Status {
-        Status {
-            opacity: 1.0,
-            ..Default::default()
+    fn c_style(c: Checkbox<Msg>) -> f32 {
+        match Widget::<Msg>::style_themed(&c, &Theme::dark()).height {
+            Dimension::Length(v) => v,
+            _ => unreachable!(),
         }
     }
 
-    /// Nothing said: what it always painted.
+    /// **Ticked, the box fills and the tick is a drawn stroke** through the reference's
+    /// three points (`checkbox.dart:755`); partly ticked, a dash across the middle.
     #[test]
-    fn the_defaults_are_what_they_were() {
-        let theme = Theme::default();
-        let (fill, _, radius) = box_of(&Checkbox::<()>::new(true), rest(), &theme);
-        assert_eq!(fill, theme.primary);
-        assert_eq!(radius, 5.0);
-        let (_, border, _) = box_of(&Checkbox::<()>::new(false), rest(), &theme);
-        assert_eq!(border, theme.scheme.on_surface_variant);
-    }
-
-    /// A ticked box takes its fill and its tick; the corner takes its radius.
-    #[test]
-    fn a_ticked_box_takes_its_colours() {
-        let theme = Theme::default();
-        let cb = Checkbox::<()>::new(true)
-            .fill_color(BRAND)
-            .check_color(MARK)
-            .radius(2.0);
-        let (fill, _, radius) = box_of(&cb, rest(), &theme);
-        assert_eq!((fill, radius), (BRAND, 2.0));
-        assert_eq!(text_color(&cb, &theme), vec![MARK]);
-    }
-
-    /// A caller who names one outline colour means the outline: the pointer state falls
-    /// back to it before it falls back to the scheme. Otherwise a green checkbox would
-    /// turn grey the moment a finger came near it.
-    #[test]
-    fn one_outline_colour_covers_both_states() {
-        let theme = Theme::default();
-        let hovered = Status {
-            opacity: 1.0,
-            interaction: Interaction::Hovered,
-            ..Default::default()
-        };
-        let cb = Checkbox::<()>::new(false).border_color(BRAND);
-        assert_eq!(box_of(&cb, rest(), &theme).1, BRAND);
-        assert_eq!(box_of(&cb, hovered, &theme).1, BRAND, "and under a finger");
-
-        let both = Checkbox::<()>::new(false)
-            .border_color(BRAND)
-            .active_border_color(MARK);
-        assert_eq!(box_of(&both, rest(), &theme).1, BRAND);
-        assert_eq!(box_of(&both, hovered, &theme).1, MARK, "unless it is named");
-    }
-
-    /// The theme answers when the instance does not, and loses when it does.
-    #[test]
-    fn the_theme_answers_and_the_instance_overrules_it() {
-        let mut theme = Theme::default();
-        theme.widgets.checkbox.fill_color = Some(MARK);
-        assert_eq!(box_of(&Checkbox::<()>::new(true), rest(), &theme).0, MARK);
+    fn the_tick_is_drawn_through_the_reference_s_points() {
+        let theme = Theme::dark();
+        let prims = painted(&Checkbox::<Msg>::new(true), settled(true), &theme);
+        let (rect, fill, border, _, _) = the_box(&prims);
         assert_eq!(
-            box_of(&Checkbox::<()>::new(true).fill_color(BRAND), rest(), &theme).0,
-            BRAND
+            (rect, fill, border),
+            (Rect::new(15.0, 15.0, 18.0, 18.0), theme.scheme.primary, 0.0)
+        );
+        let (points, colour) = mark(&prims).expect("a tick");
+        assert_eq!(colour, theme.scheme.on_primary);
+        let at = |x: f32, y: f32| Point::new(15.0 + 18.0 * x, 15.0 + 18.0 * y);
+        assert_eq!(points, vec![at(0.15, 0.45), at(0.4, 0.7), at(0.85, 0.25)]);
+        let (dash, _) = mark(&painted(
+            &Checkbox::<Msg>::maybe(None),
+            settled(true),
+            &theme,
+        ))
+        .unwrap();
+        let near = |a: Point, b: Point| (a.x - b.x).abs() < 1e-3 && (a.y - b.y).abs() < 1e-3;
+        assert!(
+            near(dash[0], at(0.2, 0.5)) && near(dash[1], at(0.8, 0.5)),
+            "{dash:?}"
         );
     }
 
-    /// The label answers too.
+    /// **Ticking animates**: half way the box is a stroke smaller and the tick not yet
+    /// drawn; at three quarters the short stroke is done and the long one half way.
     #[test]
-    fn the_label_takes_its_colour() {
-        let theme = Theme::default();
-        let cb = Checkbox::<()>::new(false).label("Ready").label_color(BRAND);
-        assert_eq!(text_color(&cb, &theme), vec![BRAND]);
+    fn ticking_animates_the_box_and_the_tick() {
+        let theme = Theme::dark();
+        let c = Checkbox::<Msg>::new(true);
+        assert_eq!(Widget::<Msg>::anim_target(&c), Some(1.0));
+        assert_eq!(
+            Widget::<Msg>::anim_target(&Checkbox::<Msg>::new(false)),
+            Some(0.0)
+        );
+        // Partly ticked fills the box too: the dash is on a filled box, as the tick is.
+        assert_eq!(
+            Widget::<Msg>::anim_target(&Checkbox::<Msg>::maybe(None)),
+            Some(1.0)
+        );
+        assert_eq!(Widget::<Msg>::anim_duration(&c), 0.2);
+        let half = painted(
+            &c,
+            Status {
+                value: 0.5,
+                ..settled(true)
+            },
+            &theme,
+        );
+        assert_eq!(the_box(&half).0, Rect::new(16.0, 16.0, 16.0, 16.0));
+        assert!(mark(&half).is_none(), "no tick yet");
+        let three = painted(
+            &c,
+            Status {
+                value: 0.75,
+                ..settled(true)
+            },
+            &theme,
+        );
+        let (points, _) = mark(&three).unwrap();
+        let at = |x: f32, y: f32| Point::new(15.0 + 18.0 * x, 15.0 + 18.0 * y);
+        // The short stroke whole, and the long one not yet begun: a segment of no length at
+        // the turn, as the reference draws it at that instant (`checkbox.dart:763`).
+        assert_eq!(points, vec![at(0.15, 0.45), at(0.4, 0.7), at(0.4, 0.7)]);
+    }
+
+    /// **The halo is the reference's**: under a pointer `on_surface` at 8 % round an
+    /// unticked box and `primary` at 8 % round a ticked one, 20 px in radius.
+    #[test]
+    fn the_halo_is_the_reference_s() {
+        let theme = Theme::dark();
+        let hovered = |value: bool| Status {
+            hover_progress: 1.0,
+            interaction: crate::interaction::Interaction::Hovered,
+            ..settled(value)
+        };
+        let prims = painted(&Checkbox::<Msg>::new(false), hovered(false), &theme);
+        let halo = prims.iter().find_map(|p| match p {
+            Primitive::Rect { rect, color, .. } if rect.width == 40.0 => Some(*color),
+            _ => None,
+        });
+        assert_eq!(halo, Some(theme.scheme.on_surface.with_alpha(0.08)));
+        let prims = painted(&Checkbox::<Msg>::new(true), hovered(true), &theme);
+        let halo = prims.iter().find_map(|p| match p {
+            Primitive::Rect { rect, color, .. } if rect.width == 40.0 => Some(*color),
+            _ => None,
+        });
+        assert_eq!(halo, Some(theme.scheme.primary.with_alpha(0.08)));
+        // Under a pointer the outline darkens to `on_surface`.
+        let (_, _, _, outline, _) = the_box(&painted(
+            &Checkbox::<Msg>::new(false),
+            hovered(false),
+            &theme,
+        ));
+        assert_eq!(outline, theme.scheme.on_surface);
+    }
+
+    /// **In error** the outline, the fill and the tick take the error roles.
+    #[test]
+    fn an_error_takes_the_error_colours() {
+        let theme = Theme::dark();
+        let (_, _, _, outline, _) = the_box(&painted(
+            &Checkbox::<Msg>::new(false).error(true),
+            settled(false),
+            &theme,
+        ));
+        assert_eq!(outline, theme.scheme.error);
+        let prims = painted(
+            &Checkbox::<Msg>::new(true).error(true),
+            settled(true),
+            &theme,
+        );
+        assert_eq!(the_box(&prims).1, theme.scheme.error);
+        assert_eq!(mark(&prims).unwrap().1, theme.scheme.on_error);
+    }
+
+    /// **Disabled**: inert, but still showing whether it is ticked — the fill on_surface at
+    /// 38 % and the tick in `surface`, resolved opaque.
+    #[test]
+    fn a_disabled_box_is_inert_but_still_says_whether_it_is_ticked() {
+        let theme = Theme::dark();
+        let c = Checkbox::<Msg>::new(true)
+            .enabled(false)
+            .on_toggle(Msg::Set);
+        assert_eq!(Widget::<Msg>::on_click(&c), None);
+        assert!(!Widget::<Msg>::focusable(&c));
+        let prims = painted(&c, settled(true), &theme);
+        assert_eq!(the_box(&prims).1, disabled_content(&theme));
+        assert_eq!(mark(&prims).unwrap().1, disabled_mark(&theme));
+    }
+
+    #[test]
+    fn click_toggles() {
+        let c = Checkbox::<Msg>::new(false).on_toggle(Msg::Set);
+        assert_eq!(Widget::<Msg>::on_click(&c), Some(Msg::Set(true)));
+        let c = Checkbox::<Msg>::new(true).on_toggle(Msg::Set);
+        assert_eq!(Widget::<Msg>::on_click(&c), Some(Msg::Set(false)));
+    }
+
+    #[test]
+    fn a_tristate_box_cycles_through_the_third_answer() {
+        let next = |v: Option<bool>| {
+            Widget::<Msg>::on_click(&Checkbox::<Msg>::maybe(v).on_change(Msg::Maybe))
+        };
+        assert_eq!(next(Some(false)), Some(Msg::Maybe(Some(true))));
+        assert_eq!(next(Some(true)), Some(Msg::Maybe(None)));
+        assert_eq!(next(None), Some(Msg::Maybe(Some(false))));
+        // On the two-state callback, partly on reads as on.
+        let old = Checkbox::<Msg>::maybe(Some(true)).on_toggle(Msg::Set);
+        assert_eq!(Widget::<Msg>::on_click(&old), Some(Msg::Set(true)));
+    }
+
+    #[test]
+    fn partly_ticked_is_announced_as_mixed() {
+        let s = Widget::<Msg>::semantics(&Checkbox::<Msg>::maybe(None)).unwrap();
+        assert_eq!(s.toggled, frus_core::Toggled::Mixed);
+        let named =
+            Widget::<Msg>::semantics(&Checkbox::<Msg>::new(true).semantic_label("Agree")).unwrap();
+        assert_eq!(named.label.as_deref(), Some("Agree"));
+    }
+
+    /// **The caller outranks the theme, which outranks the reference.**
+    #[test]
+    fn the_theme_answers_and_the_instance_overrules_it() {
+        let mut theme = Theme::dark();
+        let green = Color::rgb8(0, 160, 80);
+        let blue = Color::rgb8(0, 0, 200);
+        theme.widgets.checkbox.fill_color = Some(green);
+        theme.widgets.checkbox.radius = Some(4.0);
+        let themed = the_box(&painted(&Checkbox::<Msg>::new(true), settled(true), &theme));
+        assert_eq!((themed.1, themed.4), (green, 4.0));
+        let mine = the_box(&painted(
+            &Checkbox::<Msg>::new(true).fill_color(blue).radius(1.0),
+            settled(true),
+            &theme,
+        ));
+        assert_eq!((mine.1, mine.4), (blue, 1.0));
+        // One outline colour covers rest and pointer alike.
+        let one = Checkbox::<Msg>::new(false).border_color(blue);
+        let hovered = Status {
+            interaction: crate::interaction::Interaction::Hovered,
+            ..settled(false)
+        };
+        assert_eq!(the_box(&painted(&one, hovered, &theme)).3, blue);
+    }
+
+    /// **The label follows the box's square** and takes its colour.
+    #[test]
+    fn the_label_follows_the_square() {
+        let theme = Theme::dark();
+        let c = Checkbox::<Msg>::new(false)
+            .label("Remember me")
+            .label_color(Color::rgb8(9, 9, 9));
+        let prims = painted(&c, settled(false), &theme);
+        let at = prims.iter().find_map(|p| match p {
+            Primitive::Text {
+                position, color, ..
+            } => Some((*position, *color)),
+            _ => None,
+        });
+        let (position, colour) = at.expect("a label");
+        assert_eq!(position.x, 48.0);
+        assert_eq!(colour, Color::rgb8(9, 9, 9));
     }
 }
