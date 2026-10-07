@@ -8,11 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 633 so far, each documenting the objective, the alternatives
+> record — one per step, 634 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The checkbox, as the reference's** (J634). An 18 px box with a 2 px corner in a 48 px
+  square (standard density unless told), a tick drawn as a stroke and a dash for partly
+  ticked, the reference's 200 ms fill-and-tick animation, its halo under a pointer, the
+  keyboard and a finger, `error`, `semantic_label`, and theme `overlay_color`,
+  `splash_radius` and `visual_density`. **Changed**: every checkbox looks different;
+  `CheckboxTheme` is no longer `Copy`.
 - **The container, as the reference's** (J633). An empty `Container`, and one with an
   `alignment`, take the room their parent allows, as the reference's do (nothing along a
   shared row or column); `min_width`/`max_width`/`min_height`/`max_height` are the

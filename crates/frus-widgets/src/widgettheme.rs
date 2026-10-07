@@ -221,7 +221,7 @@ pub struct BadgeTheme {
 /// mark punched through it, unticked it is an **outline** and nothing else. The colours
 /// do not carry over between the two, which is why they are named apart rather than as
 /// one "active"/"inactive" pair.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct CheckboxTheme {
     /// The box's fill, ticked.
     pub fill_color: Option<Color>,
@@ -239,6 +239,13 @@ pub struct CheckboxTheme {
     /// **How much room it reserves for a finger** — the reference's per-widget say over
     /// the theme's (`checkbox.dart:512`). Unset, the theme's own answer.
     pub tap_target: Option<crate::theme::TapTarget>,
+    /// The halo under a pointer, the keyboard or a finger, state by state. Unset, the
+    /// reference's (milestone 634).
+    pub overlay_color: Option<crate::WidgetStateProperty<Color>>,
+    /// That halo's radius. Unset, 20.
+    pub splash_radius: Option<f32>,
+    /// How compact a checkbox is. Unset, the standard density, whatever the theme's.
+    pub visual_density: Option<crate::VisualDensity>,
 }
 
 /// Defaults for [`RadioGroup`](crate::RadioGroup).
