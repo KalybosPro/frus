@@ -8,11 +8,14 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 630 so far, each documenting the objective, the alternatives
+> record — one per step, 631 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Visual density** (J631). `VisualDensity` and `Theme::visual_density()`, as in the
+  reference: compact (−2, −2) on the desktops and standard on phones unless the theme is
+  given one, four pixels a step. No widget reads it yet; each widget's review applies it.
 - **The circular progress indicator, as the reference's** (J630). `CircularProgressIndicator`
   draws the reference's arc instead of a ring of dots: determinate (`determinate(value)`)
   or spinning on its timing (`new()`), in its 2023 look by default or its newer one, with

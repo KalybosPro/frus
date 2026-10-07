@@ -200,6 +200,7 @@ mod tree;
 mod twopane;
 mod ui;
 mod undo;
+mod visualdensity;
 mod wheel;
 mod widget;
 mod widgetstate;
@@ -474,6 +475,7 @@ pub use ui::{
     FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
 };
 pub use undo::{EditKind, EditSnapshot, UndoHistory, RUN_PAUSE};
+pub use visualdensity::VisualDensity;
 pub use wheel::{ListWheel, RowOnWheel, WheelGeometry};
 pub use widget::{CellFn, FillAxes, FilterContext, ReorderAxis, Widget};
 pub use widgetstate::{StateFilter, WidgetState, WidgetStateProperty, WidgetStates};
