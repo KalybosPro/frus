@@ -803,6 +803,10 @@ pub struct Theme {
     /// **A subtree's own Apple-style theme**, which replaces the one above with Apple's
     /// defaults under it. Set by [`CupertinoTheme::around`](crate::CupertinoTheme::around).
     pub cupertino_theme: Option<Box<crate::CupertinoThemeData>>,
+    /// **How compact the controls are**, if the application says
+    /// ([`Theme::with_visual_density`]). Unset, the theme's platform decides: standard on
+    /// phones, compact on the desktops — see [`Theme::visual_density`] (milestone 631).
+    pub visual_density: Option<crate::VisualDensity>,
 }
 
 impl Theme {
@@ -836,6 +840,7 @@ impl Theme {
             user_interface_level: crate::CupertinoUserInterfaceLevelData::Base,
             cupertino_override_theme: None,
             cupertino_theme: None,
+            visual_density: None,
         }
     }
 
@@ -850,6 +855,21 @@ impl Theme {
     pub fn with_cupertino_override_theme(mut self, data: crate::CupertinoThemeData) -> Self {
         self.cupertino_override_theme = Some(Box::new(data));
         self
+    }
+
+    /// The same theme, its controls at `density` whatever the platform.
+    pub fn with_visual_density(mut self, density: crate::VisualDensity) -> Self {
+        self.visual_density = Some(density);
+        self
+    }
+
+    /// **How compact the controls are**: the density the theme was given, else the one its
+    /// [`platform`](Self::platform) takes (the reference's `ThemeData.visualDensity`,
+    /// `theme_data.dart:412`). Buttons, checkboxes, radios, chips, icon buttons and list
+    /// tiles grow or shrink by it.
+    pub fn visual_density(&self) -> crate::VisualDensity {
+        self.visual_density
+            .unwrap_or_else(|| crate::VisualDensity::default_for_platform(self.platform))
     }
 
     /// The same theme in **right-to-left** (Arabic, Hebrew…).
@@ -959,6 +979,16 @@ impl Theme {
         out.user_interface_level = near.user_interface_level;
         out.cupertino_override_theme = near.cupertino_override_theme.clone();
         out.cupertino_theme = near.cupertino_theme.clone();
+        // A density moves smoothly, as the reference's does; a pair that both follow their
+        // platform keeps following it.
+        out.visual_density = match (self.visual_density, other.visual_density) {
+            (None, None) => None,
+            _ => Some(crate::VisualDensity::lerp(
+                self.visual_density(),
+                other.visual_density(),
+                t,
+            )),
+        };
         out
     }
 }
