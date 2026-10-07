@@ -471,7 +471,9 @@ mod tests {
         let c = Constraints::definite(Size::new(300.0, 200.0));
         let page = |label: &'static str, rule: crate::constraints::AxisConstraint| -> Flex<()> {
             Flex::column()
-                .child(Container::new().height(20.0))
+                // A spacer with a width of its own: an empty container takes the width on
+                // offer (milestone 633), and this test is about the label's.
+                .child(Container::new().width(10.0).height(20.0))
                 .child(crate::ConstraintsTransformBox::new(crate::Text::new(label)).width(rule))
         };
         let unbounded = crate::constraints::AxisConstraint::Unbounded;

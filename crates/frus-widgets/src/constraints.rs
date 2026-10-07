@@ -981,7 +981,11 @@ mod tests {
         let root = Flex::<()>::row()
             .width(400.0)
             .height(60.0)
-            .child(ConstrainedBox::new(filler()).min_width(90.0));
+            .child(ConstrainedBox::new(filler()).min_width(90.0))
+            // Along a row the room is the row's to share out: with a neighbour, an empty
+            // box is nothing there, as the reference's is (milestone 633). Alone in the row
+            // frus gives it the room instead, where the reference would give it none.
+            .child(Container::new().width(10.0).height(10.0));
         let rect = red_box(root, Size::new(400.0, 200.0));
         assert!((rect.width - 90.0).abs() < 0.5, "floored: {rect:?}");
     }

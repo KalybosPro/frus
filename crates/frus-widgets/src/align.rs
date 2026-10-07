@@ -56,7 +56,7 @@ impl<Msg: Clone + 'static> Aligned<Msg> {
     pub fn new(alignment: impl Into<AlignmentGeometry>, child: impl Widget<Msg> + 'static) -> Self {
         let alignment = alignment.into();
         Self {
-            inner: Container::new().alignment(alignment).child(child),
+            inner: Container::new().hugging().alignment(alignment).child(child),
             alignment,
             factors: (None, None),
             factored: Vec::new(),
@@ -78,6 +78,7 @@ impl<Msg: Clone + 'static> Aligned<Msg> {
         let alignment = alignment.into();
         Self {
             inner: Container::new()
+                .hugging()
                 .animated_alignment(alignment, duration, curve.clone())
                 .child(child),
             alignment,
