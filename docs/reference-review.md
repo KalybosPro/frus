@@ -14,7 +14,7 @@ Status: **done** (milestone), **to review**.
 
 | frus | reference | source | status |
 |---|---|---|---|
-| `Button` | `ElevatedButton, FilledButton, FilledButton.tonal, OutlinedButton, TextButton` | `material/elevated_button.dart …` | to review |
+| `Button` | `ElevatedButton, FilledButton, FilledButton.tonal, OutlinedButton, TextButton` | `material/elevated_button.dart …` | **done** (J632) |
 | `IconButton` | `IconButton` | `material/icon_button.dart` | to review |
 | `FloatingActionButton` | `FloatingActionButton` | `material/floating_action_button.dart` | to review |
 | `SegmentedButton` | `SegmentedButton` | `material/segmented_button.dart` | to review |

@@ -8,11 +8,20 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 631 so far, each documenting the objective, the alternatives
+> record — one per step, 632 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The buttons, as the reference's** (J632). `Button` takes any widget
+  (`with_child`) and an icon beside it (`icon`); it resolves a per-state `ButtonStyle`
+  (button → `ButtonTheme`'s style for its kind → the reference's defaults); its padding
+  shrinks as the reader's text grows; its minimum size follows the visual density; and it
+  has a 48 px touch target, the reference's overlays (8/10/10 %), an outline that turns to
+  the accent when focused, and `on_long_press`. **Changed**: a button with no action is
+  disabled; desktop buttons are 8 px smaller (compact density); a long label wraps instead
+  of being cut; `ButtonTheme` is no longer `Copy`. The reference pictures pin their
+  platform to Linux.
 - **Visual density** (J631). `VisualDensity` and `Theme::visual_density()`, as in the
   reference: compact (−2, −2) on the desktops and standard on phones unless the theme is
   given one, four pixels a step. No widget reads it yet; each widget's review applies it.

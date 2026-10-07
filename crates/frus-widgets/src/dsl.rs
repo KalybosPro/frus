@@ -42,7 +42,10 @@ pub fn center<Msg: Clone + 'static>(child: impl Widget<Msg> + 'static) -> Center
 
 /// Shorthand: a button with its click message.
 /// `button("Ajouter", Msg::Add)` = `Button::new("Ajouter").on_press(Msg::Add)`.
-pub fn button<Msg>(label: impl Into<String>, on_press: impl Into<Msg>) -> Button<Msg> {
+pub fn button<Msg: Clone + 'static>(
+    label: impl Into<String>,
+    on_press: impl Into<Msg>,
+) -> Button<Msg> {
     Button::new(label).on_press(on_press)
 }
 

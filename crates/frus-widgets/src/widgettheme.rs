@@ -475,9 +475,20 @@ pub struct TextFieldTheme {
     pub focused_border_width: Option<f32>,
 }
 
-/// Defaults for [`Button`](crate::Button).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+/// Defaults for [`Button`](crate::Button): a style for each kind of button — the
+/// reference's `ElevatedButtonTheme`, `FilledButtonTheme`, `OutlinedButtonTheme` and
+/// `TextButtonTheme` — and, under them, plain values for every kind (milestone 632).
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ButtonTheme {
+    /// How an elevated button looks, state by state.
+    pub elevated_style: Option<crate::ButtonStyle>,
+    /// How a filled button looks — tonal and danger ones included, as the reference's
+    /// tonal button shares the filled button's theme.
+    pub filled_style: Option<crate::ButtonStyle>,
+    /// How an outlined button looks.
+    pub outlined_style: Option<crate::ButtonStyle>,
+    /// How a text button looks.
+    pub text_button_style: Option<crate::ButtonStyle>,
     /// **What shape it is** (`shape_border.dart`), over the plain `radius` below:
     /// a button's, whose default is a **pill** (`button_style.dart`). Unset, the widget decides.
     pub shape: Option<ShapeBorder>,
@@ -1718,9 +1729,10 @@ mod tests {
         let mine = Color::rgb8(255, 0, 128);
         let mut theme = Theme::default();
         theme.widgets.ink.color = Some(mine);
-        let button = crate::button::Button::<Msg>::new("Go");
+        // An enabled one: a button with nothing to do is disabled, and does not splash.
+        let button = crate::button::Button::<()>::new("Go").on_press(());
         assert_eq!(
-            Widget::<Msg>::ink(&button, &theme).map(|i| i.color),
+            Widget::<()>::ink(&button, &theme).map(|i| i.color),
             Some(mine)
         );
         // And a plain surface takes it too.

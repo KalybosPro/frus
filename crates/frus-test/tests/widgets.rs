@@ -43,7 +43,7 @@ fn golden(name: &str) -> String {
 /// Renders `root` in a `width`×`height` dark-theme window, the way the shell would,
 /// and compares it against `tests/goldens/<name>.png`.
 fn check(name: &str, width: u32, height: u32, root: &dyn Widget<()>) {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let Some(snapshot) = render_widget(root, width, height, &theme) else {
         eprintln!("no GPU adapter available: {name} skipped");
         return;
@@ -1056,7 +1056,7 @@ fn swatch_image() -> ImageHandle {
 /// One line, several styles, inheritance cascading through the tree.
 #[test]
 fn rich_text_in_one_line() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     // The width is explicit: a `Container` that is `Auto` shrinks to fit, so the run
     // measures unbounded and never wraps. The demo works around the same thing by
     // computing its content width by hand.

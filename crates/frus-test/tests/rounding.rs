@@ -27,7 +27,12 @@ fn middle_column(height: f32) -> Option<Vec<(u8, u8, u8)>> {
                 .child(Container::new().flex(1.0).color(Color::rgb(1.0, 0.0, 0.0)))
                 .child(Container::new().flex(1.0).color(Color::rgb(0.0, 0.0, 1.0))),
         );
-    let shot = render_widget(&tree, 20, height as u32, &Theme::dark())?;
+    let shot = render_widget(
+        &tree,
+        20,
+        height as u32,
+        &Theme::dark().with_platform(frus_core::TargetPlatform::Linux),
+    )?;
     let _ = Size::new(0.0, 0.0);
     Some(
         (0..height as usize)

@@ -236,8 +236,8 @@ pub use bottomsheet::BottomSheet;
 pub use boxes::{ClipRect, ColoredBox, DecoratedBox, Padding};
 pub use breadcrumb::Breadcrumb;
 pub use button::{
-    Button, Variant, BUTTON_BORDER_WIDTH, BUTTON_ELEVATION, BUTTON_HEIGHT, BUTTON_MIN_WIDTH,
-    BUTTON_PADDING, BUTTON_TEXT_PADDING,
+    Button, ButtonStyle, IconAlignment, Variant, BUTTON_BORDER_WIDTH, BUTTON_ELEVATION,
+    BUTTON_HEIGHT, BUTTON_ICON_SIZE, BUTTON_MIN_WIDTH, BUTTON_PADDING, BUTTON_TEXT_PADDING,
 };
 pub use callback::{Callback, IntoMsg};
 pub use card::{Card, CardVariant, CARD_ELEVATION, CARD_MARGIN};

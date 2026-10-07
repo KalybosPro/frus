@@ -37,7 +37,8 @@ fn halfway_through_a_switch_both_children_are_in_the_pixel() {
             .color(Color::WHITE)
             .child(AnimatedSwitcher::new(0.2, value, tile))
     };
-    let mut stage = Stage::new(60, 60).theme(Theme::dark());
+    let mut stage =
+        Stage::new(60, 60).theme(Theme::dark().with_platform(frus_core::TargetPlatform::Linux));
     stage.settle(&view(1));
     stage.advance(&view(2), 0.1);
     let Some(shot) = stage.render(&view(2)) else {
@@ -75,7 +76,8 @@ fn a_number_changing_matches_its_golden() {
                 ),
         )
     };
-    let mut stage = Stage::new(180, 100).theme(Theme::dark());
+    let mut stage =
+        Stage::new(180, 100).theme(Theme::dark().with_platform(frus_core::TargetPlatform::Linux));
     stage.settle(&view(3));
     stage.advance(&view(4), 0.1);
     let Some(shot) = stage.render(&view(4)) else {

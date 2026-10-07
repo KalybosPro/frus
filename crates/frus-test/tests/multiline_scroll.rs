@@ -15,7 +15,7 @@ fn scrolled_multiline_matches_golden() {
     .rows(3);
     let root: Container<()> = Container::new().padding(20.0).child(field);
 
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let size = Size::new(340.0, 160.0);
 
     // The field's identity, so a retained scroll can be placed on it.

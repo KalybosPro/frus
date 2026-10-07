@@ -108,7 +108,7 @@ impl Stage {
         frus_widgets::ScrollConfiguration::set_root(frus_widgets::ScrollBehavior::material());
         Self {
             runtime: Runtime::default(),
-            theme: Theme::dark(),
+            theme: Theme::dark().with_platform(frus_core::TargetPlatform::Linux),
             width,
             height,
         }
@@ -428,7 +428,7 @@ mod tests {
             &screen,
             Size::new(400.0, 800.0),
             &Runtime::default(),
-            &Theme::default(),
+            &Theme::default().with_platform(frus_core::TargetPlatform::Linux),
         );
         let calls = frus_gpu::draw_calls(ui.scene());
         let primitives = ui.scene().primitives().len();
