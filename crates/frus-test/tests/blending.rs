@@ -60,7 +60,7 @@ fn srgb_blend(src: f32, dst: f32, alpha: f32) -> u8 {
 
 #[test]
 fn a_translucent_token_blends_in_linear_light_not_in_srgb() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let alpha = frus_widgets::DISABLED_CONTAINER_OPACITY;
     let wash = theme.scheme.on_surface.fade(alpha);
     // A patch of the disabled wash, on the theme's own background, with nothing else in

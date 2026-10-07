@@ -202,8 +202,14 @@ impl<Msg: Clone> Widget<Msg> for Tooltip<Msg> {
     /// crate has to (milestone 425) — a tooltip round a row must not turn the row into a
     /// column.
     fn style_themed(&self, theme: &Theme) -> Style {
+        // Everything but the padding, which is the child's own: the child is a node
+        // inside this one, and a padding said twice squeezes it by its own room — a
+        // button's 24 px either side, since buttons lay out their content (milestone 632).
         match self.children.first() {
-            Some(child) => child.style_themed(theme),
+            Some(child) => Style {
+                padding: frus_core::Insets::ZERO,
+                ..child.style_themed(theme)
+            },
             None => Style::default(),
         }
     }

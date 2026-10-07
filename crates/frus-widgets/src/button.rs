@@ -1,504 +1,1127 @@
-//! [`Button`]: the reference's five buttons, in one widget with a variant.
+//! [`Button`]: the reference's buttons — elevated, filled, filled tonal, outlined and text
+//! (`material/button_style_button.dart`), in one widget with a variant.
 //!
-//! They are one box with one label and differ in **emphasis**: filled for the action a
-//! screen is about, tonal for the one beside it, elevated where the surface underneath is
-//! busy, outlined for a secondary action, and text for the least of all. Everything else —
-//! the 40 px height, the 64 px minimum width, the stadium shape, the `label_large` label,
-//! the 24 px of room either side — is shared, which is why they are a variant here and not
-//! five types.
+//! They share everything but their colours and their elevation: any widget as their
+//! content, or a label, with an icon beside it if asked; a minimum size of 64 × 40 moved by
+//! the theme's visual density; padding that shrinks as the reader's text grows; a 48 px
+//! touch target around a smaller button; a stadium; and a style resolved **per state** —
+//! the caller's [`ButtonStyle`], then the theme's for that kind of button, then the
+//! reference's defaults (milestone 632).
 //!
 //! ```ignore
 //! Button::new("Save").on_press(Msg::Save)                              // filled
 //! Button::new("Cancel").variant(Variant::Text).on_press(Msg::Cancel)  // text
-//! Button::new("Delete").variant(Variant::Danger).on_press(Msg::Delete) // the error role
+//! Button::with_child(row![...]).variant(Variant::Outlined)             // any content
+//! Button::new("Send").icon(Icon::new(Icons::SEND)).on_press(Msg::Send) // icon and label
 //! ```
-//!
-//! Every measurement and colour is overridable, per call or through
-//! [`ButtonTheme`](crate::ButtonTheme).
 
-use frus_core::{BorderRadius, Color, Point, Rect, Scene, ShapeBorder, TextStyle};
-use frus_layout::{Dimension, Style};
+use frus_core::{
+    Alignment, BorderRadius, BorderSide, Color, Insets, Rect, Scene, ShapeBorder, Size, TextStyle,
+};
+use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
-use crate::disabled::{disabled_container, disabled_content};
 use crate::interaction::Status;
-use crate::theme::Theme;
+use crate::theme::{TapTarget, Theme};
 use crate::widget::Widget;
+use crate::widgetstate::{WidgetState, WidgetStateProperty, WidgetStates};
 
-/// A button's height, and the smallest it will be.
+/// A button's minimum height at the standard density (`elevated_button.dart:593`).
 pub const BUTTON_HEIGHT: f32 = 40.0;
-/// The narrowest a button gets, however short its label.
+/// The narrowest a button gets at the standard density, however short its label.
 pub const BUTTON_MIN_WIDTH: f32 = 64.0;
-/// The room either side of the label.
+/// The room either side of the label (`elevated_button.dart:458`).
 pub const BUTTON_PADDING: f32 = 24.0;
-/// The room either side of a **text** button's label, which has no box to fill.
+/// The room either side of a **text** button's label (`text_button.dart:442`).
 pub const BUTTON_TEXT_PADDING: f32 = 12.0;
-/// How far an elevated button sits off the surface **at rest** — see [`Button::elevation`]
-/// for the other states.
+/// How far an elevated button sits off the surface at rest.
 pub const BUTTON_ELEVATION: f32 = 1.0;
-/// How far an elevated button rises under a pointer (the reference's elevated button
-/// defaults, line 579).
-const ELEVATED_HOVER_ELEVATION: f32 = 3.0;
-/// How far a filled or tonal button rises under a pointer, from flat (the reference's
-/// filled button defaults, lines 597 and 738).
-const FILLED_HOVER_ELEVATION: f32 = 1.0;
 /// An outlined button's outline.
 pub const BUTTON_BORDER_WIDTH: f32 = 1.0;
+/// An icon's side inside a button (`elevated_button.dart:599`).
+pub const BUTTON_ICON_SIZE: f32 = 18.0;
 
-/// How much of a screen's attention a button is asking for.
+/// How much of a screen's attention a button is asking for: which of the reference's
+/// buttons it is.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum Variant {
-    /// The accent, filled: the one action a screen is about.
+    /// The accent, filled — the reference's `FilledButton`: the one action a screen is
+    /// about.
     #[default]
     Filled,
-    /// A tonal fill — beside a filled button, not competing with it.
+    /// A tonal fill — `FilledButton.tonal`: beside a filled button, not competing with it.
     Tonal,
-    /// A raised surface with a shadow, for a button over busy content.
+    /// A raised surface with a shadow — `ElevatedButton`, for a button over busy content.
     Elevated,
-    /// An outline and no fill.
+    /// An outline and no fill — `OutlinedButton`.
     Outlined,
-    /// A label alone.
+    /// A label alone — `TextButton`.
     Text,
     /// Filled in the **error** role — a destructive action.
     ///
     /// Not one of the reference's five: there, a destructive button is a filled button
     /// given the error colours by hand. It is here because saying *this action destroys
-    /// something* is worth a name, and because the alternative is every application
-    /// writing the same two colour overrides.
+    /// something* is worth a name.
     Danger,
 }
 
-impl Variant {
-    /// How far the variant sits off the surface in each state it can be in while enabled.
-    ///
-    /// The reference's, variant by variant: an elevated button rests at 1, rises to 3 under
-    /// a pointer and is back at 1 focused or pressed (its elevated button defaults, lines
-    /// 570–585); a filled or a tonal one is flat except under a pointer, where it rises to 1
-    /// (its filled button defaults, lines 588–603 and 729–744) — and so is a danger one,
-    /// being a filled button in the error colours; an outlined or a text button never
-    /// leaves the surface.
-    const fn heights(self) -> Heights {
-        match self {
-            Variant::Elevated => Heights {
-                rest: BUTTON_ELEVATION,
-                hovered: ELEVATED_HOVER_ELEVATION,
-                focused: BUTTON_ELEVATION,
-                pressed: BUTTON_ELEVATION,
-            },
-            Variant::Filled | Variant::Tonal | Variant::Danger => Heights {
-                rest: 0.0,
-                hovered: FILLED_HOVER_ELEVATION,
-                focused: 0.0,
-                pressed: 0.0,
-            },
-            Variant::Outlined | Variant::Text => Heights::all(0.0),
-        }
+/// **Which side of the label an icon goes** (`button_style_button.dart:55`).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum IconAlignment {
+    /// Before the label: left in a left-to-right layout.
+    #[default]
+    Start,
+    /// After it.
+    End,
+}
+
+/// **How a button looks in each state** — the reference's `ButtonStyle`
+/// (`material/button_style.dart`).
+///
+/// Every field is optional: what is unset falls through to the theme's style for that
+/// kind of button ([`ButtonTheme`](crate::ButtonTheme)), then to the reference's defaults.
+/// A [`WidgetStateProperty`] that has no answer for a state falls through the same way,
+/// so a style that only says what a button looks like while enabled keeps the default
+/// disabled look.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ButtonStyle {
+    /// The label's type; its colour is the foreground's.
+    pub text_style: Option<WidgetStateProperty<TextStyle>>,
+    /// The surface.
+    pub background_color: Option<WidgetStateProperty<Color>>,
+    /// The label's colour, and the icon's unless `icon_color` says otherwise.
+    pub foreground_color: Option<WidgetStateProperty<Color>>,
+    /// The highlight under a pointer or the keyboard's focus, and the ripple of a press.
+    pub overlay_color: Option<WidgetStateProperty<Color>>,
+    /// The shadow's colour.
+    pub shadow_color: Option<WidgetStateProperty<Color>>,
+    /// How far it sits off the surface.
+    pub elevation: Option<WidgetStateProperty<f32>>,
+    /// The room between the edge and the content.
+    pub padding: Option<WidgetStateProperty<Insets>>,
+    /// The smallest it is, before the visual density.
+    pub minimum_size: Option<WidgetStateProperty<Size>>,
+    /// The size it is, within the minimum and maximum. An infinite side is left free.
+    pub fixed_size: Option<WidgetStateProperty<Size>>,
+    /// The largest it is.
+    pub maximum_size: Option<WidgetStateProperty<Size>>,
+    /// The icon's colour.
+    pub icon_color: Option<WidgetStateProperty<Color>>,
+    /// The icon's side.
+    pub icon_size: Option<WidgetStateProperty<f32>>,
+    /// The outline.
+    pub side: Option<WidgetStateProperty<BorderSide>>,
+    /// The shape.
+    pub shape: Option<WidgetStateProperty<ShapeBorder>>,
+    /// How compact it is. Unset, the theme's.
+    pub visual_density: Option<crate::VisualDensity>,
+    /// How much room it reserves for a finger. Unset, the theme's.
+    pub tap_target: Option<TapTarget>,
+    /// Where the content sits inside it.
+    pub alignment: Option<Alignment>,
+    /// Which side of the label an icon goes.
+    pub icon_alignment: Option<IconAlignment>,
+}
+
+impl ButtonStyle {
+    /// A style that says nothing.
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    /// The room either side of the label.
-    const fn padding(self) -> f32 {
-        match self {
-            Variant::Text => BUTTON_TEXT_PADDING,
-            _ => BUTTON_PADDING,
-        }
+    /// The same, its surface `property`.
+    #[must_use]
+    pub fn background_color(mut self, property: WidgetStateProperty<Color>) -> Self {
+        self.background_color = Some(property);
+        self
+    }
+
+    /// The same, its label `property`.
+    #[must_use]
+    pub fn foreground_color(mut self, property: WidgetStateProperty<Color>) -> Self {
+        self.foreground_color = Some(property);
+        self
+    }
+
+    /// The same, its highlight and ripple `property`.
+    #[must_use]
+    pub fn overlay_color(mut self, property: WidgetStateProperty<Color>) -> Self {
+        self.overlay_color = Some(property);
+        self
+    }
+
+    /// The same, its elevation `property`.
+    #[must_use]
+    pub fn elevation(mut self, property: WidgetStateProperty<f32>) -> Self {
+        self.elevation = Some(property);
+        self
+    }
+
+    /// The same, its padding `property`.
+    #[must_use]
+    pub fn padding(mut self, property: WidgetStateProperty<Insets>) -> Self {
+        self.padding = Some(property);
+        self
+    }
+
+    /// The same, at least `size`.
+    #[must_use]
+    pub fn minimum_size(mut self, size: Size) -> Self {
+        self.minimum_size = Some(WidgetStateProperty::all(size));
+        self
+    }
+
+    /// The same, `size` exactly where it is finite.
+    #[must_use]
+    pub fn fixed_size(mut self, size: Size) -> Self {
+        self.fixed_size = Some(WidgetStateProperty::all(size));
+        self
+    }
+
+    /// The same, at most `size`.
+    #[must_use]
+    pub fn maximum_size(mut self, size: Size) -> Self {
+        self.maximum_size = Some(WidgetStateProperty::all(size));
+        self
+    }
+
+    /// The same, its outline `property`.
+    #[must_use]
+    pub fn side(mut self, property: WidgetStateProperty<BorderSide>) -> Self {
+        self.side = Some(property);
+        self
+    }
+
+    /// The same, shaped `shape` in every state.
+    #[must_use]
+    pub fn shape(mut self, shape: ShapeBorder) -> Self {
+        self.shape = Some(WidgetStateProperty::all(shape));
+        self
+    }
+
+    /// The same, its icon `property`.
+    #[must_use]
+    pub fn icon_color(mut self, property: WidgetStateProperty<Color>) -> Self {
+        self.icon_color = Some(property);
+        self
+    }
+
+    /// The same, its icon `size` on a side.
+    #[must_use]
+    pub fn icon_size(mut self, size: f32) -> Self {
+        self.icon_size = Some(WidgetStateProperty::all(size));
+        self
+    }
+
+    /// The same, its label in `style`.
+    #[must_use]
+    pub fn text_style(mut self, style: TextStyle) -> Self {
+        self.text_style = Some(WidgetStateProperty::all(style));
+        self
+    }
+
+    /// The same, at `density`.
+    #[must_use]
+    pub fn visual_density(mut self, density: crate::VisualDensity) -> Self {
+        self.visual_density = Some(density);
+        self
+    }
+
+    /// The same, reserving `target` for a finger.
+    #[must_use]
+    pub fn tap_target(mut self, target: TapTarget) -> Self {
+        self.tap_target = Some(target);
+        self
+    }
+
+    /// The same, its content at `alignment`.
+    #[must_use]
+    pub fn alignment(mut self, alignment: Alignment) -> Self {
+        self.alignment = Some(alignment);
+        self
+    }
+
+    /// The same, its icon on the `alignment` side.
+    #[must_use]
+    pub fn icon_alignment(mut self, alignment: IconAlignment) -> Self {
+        self.icon_alignment = Some(alignment);
+        self
     }
 }
 
-/// A button's height in each state it can be in while enabled. Disabled, every button is
-/// flat, and that is decided before these are read.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Heights {
-    rest: f32,
-    hovered: f32,
-    focused: f32,
-    pressed: f32,
+/// `value` while enabled, and nothing while disabled: what a caller's plain colour or
+/// number means, so that a disabled button keeps the disabled look (the reference's
+/// `styleFrom`).
+fn enabled_only<T>(value: T) -> WidgetStateProperty<T> {
+    WidgetStateProperty::new().when(!crate::StateFilter::from(WidgetState::Disabled), value)
 }
 
-impl Heights {
-    const fn all(height: f32) -> Self {
-        Self {
-            rest: height,
-            hovered: height,
-            focused: height,
-            pressed: height,
-        }
-    }
-
-    /// The height this frame.
-    ///
-    /// From rest towards the focused height, then the hovered one, then the pressed one,
-    /// each by its own progress. So a press outranks a hover and a hover outranks a focus,
-    /// which is the order the reference resolves the states in, and every change is exactly
-    /// as gradual as the state layer painted from the same status: the reference animates a
-    /// height it resolved outright, and this one is continuous by construction.
-    fn at(self, status: &Status) -> f32 {
-        let toward =
-            |from: f32, to: f32, progress: f32| from + (to - from) * progress.clamp(0.0, 1.0);
-        let height = toward(self.rest, self.focused, status.focus_progress);
-        let height = toward(height, self.hovered, status.hover_progress);
-        toward(height, self.pressed, status.press_progress)
+/// Puts `value` in `slot` if nothing is there yet.
+fn fill<T>(slot: &mut Option<T>, value: Option<T>) {
+    if slot.is_none() {
+        *slot = value;
     }
 }
 
-/// A clickable button.
+/// The reference's `scaledPadding` (`button_style_button.dart:294`): the padding at the
+/// standard text size, at twice it, at three times it, and in between.
+fn scaled_padding(one: Insets, two: Insets, three: Insets, scale: f32) -> Insets {
+    let lerp = |a: Insets, b: Insets, t: f32| {
+        Insets::new(
+            a.top + (b.top - a.top) * t,
+            a.right + (b.right - a.right) * t,
+            a.bottom + (b.bottom - a.bottom) * t,
+            a.left + (b.left - a.left) * t,
+        )
+    };
+    if scale <= 1.0 {
+        one
+    } else if scale < 2.0 {
+        lerp(one, two, scale - 1.0)
+    } else if scale < 3.0 {
+        lerp(two, three, scale - 2.0)
+    } else {
+        three
+    }
+}
+
+/// Padding given start and end, laid out for the reading direction.
+fn directional(start: f32, top: f32, end: f32, bottom: f32, rtl: bool) -> Insets {
+    if rtl {
+        Insets::new(top, start, bottom, end)
+    } else {
+        Insets::new(top, end, bottom, start)
+    }
+}
+
+/// **The reference's defaults for each kind of button**, Material 3
+/// (`elevated_button.dart:513`, `filled_button.dart:531` and `:672`,
+/// `outlined_button.dart:460`, `text_button.dart:493`), with the padding for a button that
+/// has an icon (`elevated_button.dart:421`, `text_button.dart:412`).
+fn default_style(variant: Variant, theme: &Theme, with_icon: bool) -> ButtonStyle {
+    let c = &theme.scheme;
+    let disabled = WidgetState::Disabled;
+    // The reference's `onSurface` at 12 % and 38 %, resolved over the surface rather than
+    // drawn translucent: the GPU blends in linear light, where 12 % paints like a third
+    // (see `disabled.rs`).
+    let disabled_fill = crate::disabled::disabled_container(theme);
+    let disabled_ink = crate::disabled::disabled_content(theme);
+    let (background, foreground, overlay): (Option<Color>, Color, Color) = match variant {
+        Variant::Elevated => (Some(c.surface_container_low), c.primary, c.primary),
+        Variant::Filled => (Some(c.primary), c.on_primary, c.on_primary),
+        Variant::Tonal => (
+            Some(c.secondary_container),
+            c.on_secondary_container,
+            c.on_secondary_container,
+        ),
+        Variant::Danger => (Some(c.error), c.on_error, c.on_error),
+        Variant::Outlined | Variant::Text => (None, c.primary, c.primary),
+    };
+    // Raised at rest, higher under a pointer; flat and raised a step under a pointer; or
+    // flat throughout.
+    let (rest, hovered) = match variant {
+        Variant::Elevated => (1.0, 3.0),
+        Variant::Filled | Variant::Tonal | Variant::Danger => (0.0, 1.0),
+        Variant::Outlined | Variant::Text => (0.0, 0.0),
+    };
+    let scale = text_size_scale(theme);
+    let rtl = theme.direction == frus_core::TextDirection::Rtl;
+    let padding = match (variant, with_icon) {
+        (Variant::Text, false) => scaled_padding(
+            Insets::new(8.0, 12.0, 8.0, 12.0),
+            Insets::new(0.0, 8.0, 0.0, 8.0),
+            Insets::new(0.0, 4.0, 0.0, 4.0),
+            scale,
+        ),
+        (Variant::Text, true) => scaled_padding(
+            directional(12.0, 8.0, 16.0, 8.0, rtl),
+            Insets::new(0.0, 4.0, 0.0, 4.0),
+            Insets::new(0.0, 4.0, 0.0, 4.0),
+            scale,
+        ),
+        (_, false) => scaled_padding(
+            Insets::new(0.0, BUTTON_PADDING, 0.0, BUTTON_PADDING),
+            Insets::new(0.0, 12.0, 0.0, 12.0),
+            Insets::new(0.0, 6.0, 0.0, 6.0),
+            scale,
+        ),
+        (_, true) => scaled_padding(
+            directional(16.0, 0.0, 24.0, 0.0, rtl),
+            directional(8.0, 0.0, 12.0, 0.0, rtl),
+            directional(4.0, 0.0, 6.0, 0.0, rtl),
+            scale,
+        ),
+    };
+    let mut style = ButtonStyle {
+        text_style: Some(WidgetStateProperty::all(theme.text.label_large)),
+        background_color: background.map(|bg| {
+            WidgetStateProperty::new()
+                .when(disabled, disabled_fill)
+                .otherwise(bg)
+        }),
+        foreground_color: Some(
+            WidgetStateProperty::new()
+                .when(disabled, disabled_ink)
+                .otherwise(foreground),
+        ),
+        // The ripple of a press, the highlight under a pointer, and the keyboard's focus
+        // (`elevated_button.dart:547`): ten, eight and ten percent.
+        overlay_color: Some(
+            WidgetStateProperty::new()
+                .when(WidgetState::Pressed, overlay.with_alpha(0.1))
+                .when(WidgetState::Hovered, overlay.with_alpha(0.08))
+                .when(WidgetState::Focused, overlay.with_alpha(0.1)),
+        ),
+        shadow_color: Some(WidgetStateProperty::all(c.shadow)),
+        elevation: Some(
+            WidgetStateProperty::new()
+                .when(disabled, 0.0)
+                .when(WidgetState::Pressed, rest)
+                .when(WidgetState::Hovered, hovered)
+                .otherwise(rest),
+        ),
+        padding: Some(WidgetStateProperty::all(padding)),
+        minimum_size: Some(WidgetStateProperty::all(Size::new(
+            BUTTON_MIN_WIDTH,
+            BUTTON_HEIGHT,
+        ))),
+        fixed_size: None,
+        maximum_size: Some(WidgetStateProperty::all(Size::new(
+            f32::INFINITY,
+            f32::INFINITY,
+        ))),
+        icon_color: None,
+        icon_size: Some(WidgetStateProperty::all(BUTTON_ICON_SIZE)),
+        side: None,
+        shape: Some(WidgetStateProperty::all(ShapeBorder::stadium())),
+        visual_density: Some(theme.visual_density()),
+        tap_target: Some(theme.tap_target),
+        alignment: Some(Alignment::CENTER),
+        icon_alignment: Some(IconAlignment::Start),
+    };
+    if variant == Variant::Outlined {
+        // The outline: faint while disabled, the accent while focused, the outline role
+        // otherwise (`outlined_button.dart:553`).
+        style.side = Some(
+            WidgetStateProperty::new()
+                .when(
+                    disabled,
+                    BorderSide::new(disabled_fill, BUTTON_BORDER_WIDTH),
+                )
+                .when(
+                    WidgetState::Focused,
+                    BorderSide::new(c.primary, BUTTON_BORDER_WIDTH),
+                )
+                .otherwise(BorderSide::new(c.outline, BUTTON_BORDER_WIDTH)),
+        );
+    }
+    style
+}
+
+/// How much larger than the standard the reader's label is: the label's size at the
+/// reader's text scale over 14 (`elevated_button.dart:460`).
+fn text_size_scale(theme: &Theme) -> f32 {
+    let size = theme.text.label_large.size.unwrap_or(14.0);
+    size * frus_core::text_scale() / 14.0
+}
+
+/// Resolves one property for `states`: the button's, the theme's, the default's.
+fn resolve<T: Clone>(
+    states: WidgetStates,
+    get: impl Fn(&ButtonStyle) -> Option<&WidgetStateProperty<T>>,
+    styles: [Option<&ButtonStyle>; 3],
+) -> Option<T> {
+    styles
+        .into_iter()
+        .flatten()
+        .find_map(|style| get(style).and_then(|p| p.resolve(states)).cloned())
+}
+
+/// Resolves one state-independent setting: the button's, the theme's, the default's.
+fn setting<T: Copy>(
+    get: impl Fn(&ButtonStyle) -> Option<T>,
+    styles: [Option<&ButtonStyle>; 3],
+) -> Option<T> {
+    styles.into_iter().flatten().find_map(get)
+}
+
+/// The content a button was given, kept until the walk first asks for its children: the
+/// icon beside it is put together then, once and for all.
+struct Parts<Msg> {
+    content: Box<dyn Widget<Msg>>,
+    icon: Option<Box<dyn Widget<Msg>>>,
+}
+
+/// A clickable button: the reference's `ElevatedButton`, `FilledButton`,
+/// `FilledButton.tonal`, `OutlinedButton` and `TextButton`, chosen by [`Variant`].
 pub struct Button<Msg = crate::callback::Callback> {
-    label: String,
+    label: Option<String>,
+    parts: std::cell::RefCell<Option<Parts<Msg>>>,
+    built: std::cell::OnceCell<Vec<Box<dyn Widget<Msg>>>>,
+    has_icon: bool,
     variant: Variant,
     on_press: Option<Msg>,
-    /// Enabled? Disabled (`false`): greyed out, no shadow, no click, no focus.
+    on_long_press: Option<Msg>,
+    /// `false` turns the button off whatever its actions.
     enabled: bool,
-    label_style: Option<TextStyle>,
-    color: Option<Color>,
-    label_color: Option<Color>,
-    border_color: Option<Color>,
-    border_width: Option<f32>,
-    shape: Option<ShapeBorder>,
-    padding: Option<f32>,
-    height: Option<f32>,
+    style: ButtonStyle,
+    /// The older builders' word on the minimum width and the fixed height, which name one
+    /// side of a size the style holds whole.
     min_width: Option<f32>,
-    elevation: Option<f32>,
+    height: Option<f32>,
+}
+
+impl<Msg: Clone + 'static> Button<Msg> {
+    /// A button reading `label`.
+    pub fn new(label: impl Into<String>) -> Self {
+        let label = label.into();
+        // The button's own node says the label; the words drawn inside it say nothing,
+        // so a reader hears it once.
+        let mut button = Self::with_child(crate::ExcludeSemantics::new(crate::Text::new(
+            label.clone(),
+        )));
+        button.label = Some(label);
+        button
+    }
+
+    /// A button holding `child` — any widget, as the reference's buttons hold any widget.
+    /// The child's text takes the button's label style and colour, and its icons the
+    /// button's icon colour and size.
+    pub fn with_child(child: impl Widget<Msg> + 'static) -> Self {
+        Self {
+            label: None,
+            parts: std::cell::RefCell::new(Some(Parts {
+                content: Box::new(child),
+                icon: None,
+            })),
+            built: std::cell::OnceCell::new(),
+            has_icon: false,
+            variant: Variant::default(),
+            on_press: None,
+            on_long_press: None,
+            enabled: true,
+            style: ButtonStyle::default(),
+            min_width: None,
+            height: None,
+        }
+    }
+
+    /// **An icon beside the content** — the reference's `.icon` constructors: before the
+    /// label unless [`icon_alignment`](Self::icon_alignment) says after, 8 px from it
+    /// (4 at twice the standard text size), and the padding becomes the reference's for
+    /// a button with an icon.
+    pub fn icon(mut self, icon: impl Widget<Msg> + 'static) -> Self {
+        if let Some(parts) = self.parts.get_mut().as_mut() {
+            parts.icon = Some(Box::new(icon));
+            self.has_icon = true;
+        }
+        self
+    }
 }
 
 impl<Msg> Button<Msg> {
-    /// Creates a button with a label.
-    pub fn new(label: impl Into<String>) -> Self {
-        Self {
-            label: label.into(),
-            variant: Variant::default(),
-            on_press: None,
-            enabled: true,
-            label_style: None,
-            color: None,
-            label_color: None,
-            border_color: None,
-            border_width: None,
-            shape: None,
-            padding: None,
-            height: None,
-            min_width: None,
-            elevation: None,
-        }
-    }
-
-    /// Enables or **disables** the button: disabled, it is greyed out, has no shadow
-    /// and emits nothing at all (neither click nor keyboard focus) — the rendering of
-    /// an unavailable control, e.g. "Next" while a step is invalid.
+    /// Enables or **disables** the button. A button is also disabled when it has neither
+    /// a press nor a long press to answer, as the reference's is.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
-    /// Overrides the corner radii (uniform via `f32`, per corner via [`BorderRadius`] —
-    /// connected segments, button groups…). Defaults to a **stadium**: the radius is half
-    /// the button's height, whatever that height turns out to be.
-    pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
-        self.shape = Some(ShapeBorder::rounded(radius));
+    /// Is it on: told so, and with something to do?
+    fn is_enabled(&self) -> bool {
+        self.enabled && (self.on_press.is_some() || self.on_long_press.is_some())
+    }
+
+    /// **How it looks, state by state** — over the theme's style and the reference's
+    /// defaults. The builders below each set one property of it.
+    #[must_use]
+    pub fn style(mut self, style: ButtonStyle) -> Self {
+        self.style = style;
         self
     }
 
-    /// **What shape it is** (`shape_border.dart`), over the corners named above. The last
-    /// of the two to be called is the one that counts — they are one property, and
-    /// [`radius`](Self::radius) is the shorthand for the common case.
+    /// The corner radii (uniform via `f32`, per corner via [`BorderRadius`]). Unset, a
+    /// **stadium**.
+    pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
+        self.style.shape = Some(WidgetStateProperty::all(ShapeBorder::rounded(radius)));
+        self
+    }
+
+    /// **What shape it is** (`shape_border.dart`).
     #[must_use]
     pub fn shape(mut self, shape: ShapeBorder) -> Self {
-        self.shape = Some(shape);
+        self.style.shape = Some(WidgetStateProperty::all(shape));
         self
     }
 
-    /// Chooses the visual variant.
+    /// Which of the reference's buttons it is.
     pub fn variant(mut self, variant: Variant) -> Self {
         self.variant = variant;
         self
     }
 
-    /// The label's type. Defaults to the theme's `label_large` step.
+    /// The label's type. Unset, the theme's `label_large`.
     pub fn label_style(mut self, style: TextStyle) -> Self {
-        self.label_style = Some(style);
+        self.style.text_style = Some(WidgetStateProperty::all(style));
         self
     }
 
     /// Font size — sugar for [`Button::label_style`] with the label step resized.
     pub fn size(mut self, size: f32) -> Self {
-        let mut style = self.label_style.unwrap_or(TextStyle::new(size));
-        style.size = Some(size);
-        self.label_style = Some(style);
+        self.style.text_style = Some(WidgetStateProperty::all(TextStyle::new(size)));
         self
     }
 
-    /// The surface under the label.
+    /// The surface while enabled.
     pub fn color(mut self, color: Color) -> Self {
-        self.color = Some(color);
+        self.style.background_color = Some(enabled_only(color));
         self
     }
 
-    /// The label's colour.
+    /// The label's colour while enabled.
     pub fn label_color(mut self, color: Color) -> Self {
-        self.label_color = Some(color);
+        self.style.foreground_color = Some(enabled_only(color));
         self
     }
 
-    /// The outline's colour.
+    /// The outline's colour, `1` px thick unless [`border_width`](Self::border_width) says.
     pub fn border_color(mut self, color: Color) -> Self {
-        self.border_color = Some(color);
+        let width = self.border_width_said().unwrap_or(BUTTON_BORDER_WIDTH);
+        self.style.side = Some(enabled_only(BorderSide::new(color, width)));
         self
     }
 
     /// The outline's thickness; `0.0` removes it.
     pub fn border_width(mut self, width: f32) -> Self {
-        self.border_width = Some(width);
+        let color = self
+            .style
+            .side
+            .as_ref()
+            .and_then(|s| s.resolve(WidgetStates::EMPTY))
+            .map(|s| s.color);
+        self.style.side = Some(match color {
+            Some(color) => enabled_only(BorderSide::new(color, width)),
+            None => WidgetStateProperty::all(BorderSide::new(Color::TRANSPARENT, width)),
+        });
         self
     }
 
-    /// The room either side of the label.
+    fn border_width_said(&self) -> Option<f32> {
+        self.style
+            .side
+            .as_ref()
+            .and_then(|s| s.resolve(WidgetStates::EMPTY))
+            .map(|s| s.width)
+    }
+
+    /// The room either side of the content.
     pub fn padding(mut self, padding: f32) -> Self {
-        self.padding = Some(padding);
+        self.style.padding = Some(WidgetStateProperty::all(Insets::new(
+            0.0, padding, 0.0, padding,
+        )));
         self
     }
 
-    /// The button's height.
+    /// **The button's height**, exactly: the reference's fixed height, which the visual
+    /// density does not move.
     pub fn height(mut self, height: f32) -> Self {
         self.height = Some(height);
         self
     }
 
-    /// The narrowest it will be, however short its label.
+    /// The narrowest it will be, before the visual density.
     pub fn min_width(mut self, width: f32) -> Self {
         self.min_width = Some(width);
         self
     }
 
-    /// How far it sits off the surface, **in every state**. `0.0` is flat whatever the
-    /// pointer does.
-    ///
-    /// Unset, the variant's own heights, and they move with the state as the reference's
-    /// do: an elevated button rests at 1, rises to 3 under a pointer and is back at 1 while
-    /// pressed; a filled, tonal or danger button is flat and rises to 1 under a pointer; an
-    /// outlined or a text button stays flat. A disabled button is flat either way.
+    /// How far it sits off the surface **in every state** while enabled. Unset, the
+    /// variant's: an elevated button rests at 1 and rises to 3 under a pointer; a filled
+    /// or tonal one is flat and rises to 1; an outlined or text one stays flat.
     pub fn elevation(mut self, elevation: f32) -> Self {
-        self.elevation = Some(elevation);
+        self.style.elevation = Some(enabled_only(elevation));
         self
     }
 
-    /// Message emitted on click.
+    /// Which side of the label an icon goes.
+    #[must_use]
+    pub fn icon_alignment(mut self, alignment: IconAlignment) -> Self {
+        self.style.icon_alignment = Some(alignment);
+        self
+    }
+
+    /// Message emitted on a press.
     pub fn on_press(mut self, message: impl Into<Msg>) -> Self {
         self.on_press = Some(message.into());
         self
     }
 
-    fn label_style_of(&self, theme: &Theme) -> TextStyle {
-        self.label_style
-            .or(theme.widgets.button.label_style)
-            .unwrap_or(theme.text.label_large)
+    /// Message emitted on a **long press**, which takes the place of the press.
+    #[must_use]
+    pub fn on_long_press(mut self, message: impl Into<Msg>) -> Self {
+        self.on_long_press = Some(message.into());
+        self
     }
 
-    fn padding_of(&self, theme: &Theme) -> f32 {
-        self.padding
-            .or(theme.widgets.button.padding)
-            .unwrap_or(self.variant.padding())
-    }
-
-    fn height_of(&self, theme: &Theme) -> f32 {
-        self.height
-            .or(theme.widgets.button.height)
-            .unwrap_or(BUTTON_HEIGHT)
-    }
-
-    fn min_width_of(&self, theme: &Theme) -> f32 {
-        self.min_width
-            .or(theme.widgets.button.min_width)
-            .unwrap_or(BUTTON_MIN_WIDTH)
-    }
-
-    /// The height this frame: nought while disabled, the caller's or the theme's in every
-    /// state, and otherwise the variant's own for the state the button is in.
-    ///
-    /// It was one number whatever the state, so an elevated button did not rise under a
-    /// pointer and a filled one never left the surface.
-    fn elevation_of(&self, theme: &Theme, status: &Status) -> f32 {
-        if !self.enabled {
-            return 0.0;
-        }
-        match self.elevation.or(theme.widgets.button.elevation) {
-            Some(height) => height,
-            None => self.variant.heights().at(status),
-        }
-    }
-
-    /// **What shape this button is**: its own word, then the theme's shape, then the
-    /// theme's plain radius, then a **stadium** — which is what the reference's buttons
-    /// are (`button_style.dart`).
-    ///
-    /// It used to work the stadium out here as `height / 2`, which is the right number
-    /// for a button wider than it is tall and the wrong one for a button that is not:
-    /// a stadium takes half its **short** side. Saying the word instead of the number
-    /// gets that right at every size, and lets a caller say `circle` or `beveled`.
-    fn shape_of(&self, theme: &Theme) -> ShapeBorder {
-        crate::resolve_shape(
-            self.shape,
-            theme.widgets.button.shape,
-            theme.widgets.button.radius,
-            ShapeBorder::stadium(),
-        )
-    }
-
-    /// `(background, label, outline)` for the variant and the theme, disabled included.
-    ///
-    /// A disabled button loses its accent in every variant — the label goes to `on_surface`
-    /// at 38 % throughout, so unavailable reads as unavailable rather than as a quieter
-    /// version of the variant. What it does **not** do is give every variant a container.
-    ///
-    /// Until milestone 324 it did, and the reference is explicit that it should not: a text
-    /// button's background is `transparent` in every state, and an outlined one's disabled
-    /// state keeps its outline at 12 % rather than trading it for a fill. Flattening all six
-    /// to the same grey pill destroyed any selection a group of buttons was carrying — a
-    /// disabled page strip showed six identical pills with no current page — which is the
-    /// same mistake as fading a selected chip's accent, arrived at from the other side.
-    fn palette(&self, theme: &Theme) -> (Color, Color, Option<Color>) {
-        if !self.enabled {
-            let label = disabled_content(theme);
-            return match self.variant {
-                // No container, disabled or not.
-                Variant::Text => (Color::TRANSPARENT, label, None),
-                // The outline *is* the container here, so it takes the container opacity.
-                Variant::Outlined => (Color::TRANSPARENT, label, Some(disabled_container(theme))),
-                // The variants that genuinely are a filled container flatten to one.
-                _ => (disabled_container(theme), label, None),
-            };
-        }
-        let (background, label, outline) = match self.variant {
-            Variant::Filled => (theme.scheme.primary, theme.scheme.on_primary, None),
-            Variant::Tonal => (
-                theme.scheme.secondary_container,
-                theme.scheme.on_secondary_container,
-                None,
-            ),
-            // `elevated_button.dart:534` — off the page, on the low rung.
-            Variant::Elevated => (
-                theme.scheme.surface_container_low,
-                theme.scheme.primary,
-                None,
-            ),
-            Variant::Outlined => (
-                Color::TRANSPARENT,
-                theme.scheme.primary,
-                Some(theme.scheme.outline),
-            ),
-            Variant::Text => (Color::TRANSPARENT, theme.scheme.primary, None),
-            Variant::Danger => (theme.scheme.error, theme.scheme.on_error, None),
-        };
-        (
-            self.color
-                .or(theme.widgets.button.color)
-                .unwrap_or(background),
-            self.label_color
-                .or(theme.widgets.button.label_color)
-                .unwrap_or(label),
-            self.border_color
-                .or(theme.widgets.button.border_color)
-                .or(outline),
-        )
+    /// The theme's style for this kind of button: its own style for the kind, with the
+    /// theme's plain fields under it.
+    fn theme_style(&self, theme: &Theme) -> ButtonStyle {
+        themed_style(theme, self.variant)
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for Button<Msg> {
+/// The theme's style for `variant`: the style it gives that kind of button, with its plain
+/// fields under it.
+fn themed_style(theme: &Theme, variant: Variant) -> ButtonStyle {
+    let t = &theme.widgets.button;
+    let mut style = match variant {
+        Variant::Elevated => t.elevated_style.clone(),
+        Variant::Filled | Variant::Tonal | Variant::Danger => t.filled_style.clone(),
+        Variant::Outlined => t.outlined_style.clone(),
+        Variant::Text => t.text_button_style.clone(),
+    }
+    .unwrap_or_default();
+    fill(&mut style.background_color, t.color.map(enabled_only));
+    fill(&mut style.foreground_color, t.label_color.map(enabled_only));
+    fill(
+        &mut style.text_style,
+        t.label_style.map(WidgetStateProperty::all),
+    );
+    fill(
+        &mut style.shape,
+        t.shape
+            .or(t.radius.map(ShapeBorder::rounded))
+            .map(WidgetStateProperty::all),
+    );
+    fill(
+        &mut style.padding,
+        t.padding
+            .map(|p| WidgetStateProperty::all(Insets::new(0.0, p, 0.0, p))),
+    );
+    fill(&mut style.elevation, t.elevation.map(enabled_only));
+    if style.side.is_none() && (t.border_color.is_some() || t.border_width.is_some()) {
+        style.side = Some(enabled_only(BorderSide::new(
+            t.border_color.unwrap_or(theme.scheme.outline),
+            t.border_width.unwrap_or(BUTTON_BORDER_WIDTH),
+        )));
+    }
+    style
+}
+
+impl<Msg> Button<Msg> {
+    /// The states it is in, disabled included.
+    fn states(&self, status: &Status) -> WidgetStates {
+        if self.is_enabled() {
+            status.states()
+        } else {
+            WidgetStates::of(WidgetState::Disabled)
+        }
+    }
+
+    /// Everything about it, resolved for `states`.
+    fn resolved(&self, theme: &Theme, states: WidgetStates) -> Resolved {
+        let own = &self.style;
+        let themed = self.theme_style(theme);
+        let default = default_style(self.variant, theme, self.has_icon);
+        let styles = [Some(own), Some(&themed), Some(&default)];
+        let r =
+            |f: fn(&ButtonStyle) -> Option<&WidgetStateProperty<Color>>| resolve(states, f, styles);
+        let foreground = r(|s| s.foreground_color.as_ref()).unwrap_or(theme.scheme.primary);
+        // The icon's colour: the icon colour said by the button or the theme, then their
+        // foreground, then the default's icon colour, then its foreground
+        // (`button_style_button.dart:395`).
+        let icon_color = resolve(
+            states,
+            |s| s.icon_color.as_ref(),
+            [Some(own), Some(&themed), None],
+        )
+        .or_else(|| {
+            resolve(
+                states,
+                |s| s.foreground_color.as_ref(),
+                [Some(own), Some(&themed), None],
+            )
+        })
+        .or_else(|| {
+            resolve(
+                states,
+                |s| s.icon_color.as_ref(),
+                [Some(&default), None, None],
+            )
+        })
+        .unwrap_or(foreground);
+        let mut minimum = resolve(states, |s| s.minimum_size.as_ref(), styles)
+            .unwrap_or(Size::new(BUTTON_MIN_WIDTH, BUTTON_HEIGHT));
+        if let Some(w) = self.min_width {
+            minimum.width = w;
+        }
+
+        Resolved {
+            text_style: resolve(states, |s| s.text_style.as_ref(), styles)
+                .unwrap_or(theme.text.label_large),
+            background: r(|s| s.background_color.as_ref()),
+            foreground,
+            overlay: r(|s| s.overlay_color.as_ref()),
+            shadow: r(|s| s.shadow_color.as_ref()).unwrap_or(theme.scheme.shadow),
+            elevation: resolve(states, |s| s.elevation.as_ref(), styles).unwrap_or(0.0),
+            padding: resolve(states, |s| s.padding.as_ref(), styles).unwrap_or(Insets::ZERO),
+            minimum,
+            fixed: match (
+                resolve(states, |s| s.fixed_size.as_ref(), styles),
+                self.height,
+            ) {
+                (fixed, None) => fixed,
+                (Some(size), Some(h)) => Some(Size::new(size.width, h)),
+                (None, Some(h)) => Some(Size::new(f32::INFINITY, h)),
+            },
+            maximum: resolve(states, |s| s.maximum_size.as_ref(), styles)
+                .unwrap_or(Size::new(f32::INFINITY, f32::INFINITY)),
+            icon_color,
+            icon_size: resolve(states, |s| s.icon_size.as_ref(), styles)
+                .unwrap_or(BUTTON_ICON_SIZE),
+            side: resolve(states, |s| s.side.as_ref(), styles),
+            shape: resolve(states, |s| s.shape.as_ref(), styles).unwrap_or(ShapeBorder::stadium()),
+            density: setting(|s| s.visual_density, styles).unwrap_or(theme.visual_density()),
+            tap_target: setting(|s| s.tap_target, styles).unwrap_or(theme.tap_target),
+            alignment: setting(|s| s.alignment, styles).unwrap_or(Alignment::CENTER),
+        }
+    }
+
+    /// The box laid out and the button drawn inside it: the room the touch target adds
+    /// around the visible button on each axis, and the visible button's minimum size
+    /// (`button_style_button.dart:473`, `:578`).
+    fn geometry(&self, r: &Resolved) -> Geometry {
+        let (dx, dy) = r.density.base_size_adjustment();
+        let (mut min_w, mut min_h) = r.density.effective_min_size(
+            (r.minimum.width, r.minimum.height),
+            (r.maximum.width, r.maximum.height),
+        );
+        let mut fixed = (None, None);
+        if let Some(size) = r.fixed {
+            if size.width.is_finite() {
+                let w = size.width.clamp(min_w, r.maximum.width.max(min_w));
+                min_w = w;
+                fixed.0 = Some(w);
+            }
+            if size.height.is_finite() {
+                let h = size.height.clamp(min_h, r.maximum.height.max(min_h));
+                min_h = h;
+                fixed.1 = Some(h);
+            }
+        }
+        let tap = match r.tap_target {
+            TapTarget::Padded => (crate::MIN_TAP_TARGET + dx, crate::MIN_TAP_TARGET + dy),
+            TapTarget::ShrinkWrap => (0.0, 0.0),
+        };
+        let extra = (
+            ((tap.0 - min_w) * 0.5).max(0.0),
+            ((tap.1 - min_h) * 0.5).max(0.0),
+        );
+        // The density moves the padding too: across never inwards, down either way, and
+        // never below nothing (`button_style_button.dart:501`).
+        let p = r.padding;
+        let ddx = dx.max(0.0);
+        let padding = Insets::new(
+            (p.top + dy).max(0.0),
+            (p.right + ddx).max(0.0),
+            (p.bottom + dy).max(0.0),
+            (p.left + ddx).max(0.0),
+        );
+        Geometry {
+            extra,
+            min: (min_w, min_h),
+            fixed,
+            padding,
+        }
+    }
+}
+
+/// A button's style, resolved for one set of states.
+struct Resolved {
+    text_style: TextStyle,
+    background: Option<Color>,
+    foreground: Color,
+    overlay: Option<Color>,
+    shadow: Color,
+    elevation: f32,
+    padding: Insets,
+    minimum: Size,
+    fixed: Option<Size>,
+    maximum: Size,
+    icon_color: Color,
+    icon_size: f32,
+    side: Option<BorderSide>,
+    shape: ShapeBorder,
+    density: crate::VisualDensity,
+    tap_target: TapTarget,
+    alignment: Alignment,
+}
+
+/// Where a button's parts go.
+struct Geometry {
+    /// The touch target's room around the visible button, across and down, on each side.
+    extra: (f32, f32),
+    /// The visible button's minimum size.
+    min: (f32, f32),
+    /// Its fixed width and height, where it has them.
+    fixed: (Option<f32>, Option<f32>),
+    /// The room between its edge and its content.
+    padding: Insets,
+}
+
+/// `top` over `base` at `amount` of its own opacity.
+fn over(base: Color, top: Color, amount: f32) -> Color {
+    let a = (top.a * amount).clamp(0.0, 1.0);
+    if a <= 0.0 {
+        return base;
+    }
+    if base.a <= 0.0 {
+        return top.with_alpha(a);
+    }
+    base.lerp(top.with_alpha(base.a), a)
+}
+
+/// Where along an axis an alignment puts the content.
+fn place(v: f32) -> (Justify, Align) {
+    let j = if v < -0.5 {
+        Justify::Start
+    } else if v > 0.5 {
+        Justify::End
+    } else {
+        Justify::Center
+    };
+    let a = match j {
+        Justify::Start => Align::Start,
+        Justify::End => Align::End,
+        _ => Align::Center,
+    };
+    (j, a)
+}
+
+/// An icon beside a label, as the reference's `.icon` buttons lay them out
+/// (`elevated_button.dart:470`): 8 px apart at the standard text size, closing to 4 at
+/// twice it.
+struct IconLabel<Msg> {
+    children: Vec<Box<dyn Widget<Msg>>>,
+    /// The button's own word on the icon's side.
+    own: Option<IconAlignment>,
+    /// Which kind of button, for the theme's word.
+    variant: Variant,
+}
+
+impl<Msg> Widget<Msg> for IconLabel<Msg> {
     fn style(&self) -> Style {
-        Widget::<Msg>::style_themed(self, &Theme::default())
+        self.style_themed(&Theme::default())
     }
 
     fn style_themed(&self, theme: &Theme) -> Style {
-        let style = self.label_style_of(theme);
-        let measured = frus_text::measure_style(&self.label, style);
-        let width = (measured.width + self.padding_of(theme) * 2.0).max(self.min_width_of(theme));
+        let scale = (text_size_scale(theme).clamp(1.0, 2.0)) - 1.0;
         Style {
-            width: Dimension::Length(width.ceil()),
-            height: Dimension::Length(self.height_of(theme).max(measured.height).ceil()),
+            flex_direction: if self
+                .own
+                .or_else(|| themed_style(theme, self.variant).icon_alignment)
+                .unwrap_or_default()
+                == IconAlignment::End
+            {
+                FlexDirection::RowReverse
+            } else {
+                FlexDirection::Row
+            },
+            align: Align::Center,
+            gap: 8.0 + (4.0 - 8.0) * scale,
             ..Default::default()
         }
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        &[]
+        &self.children
+    }
+
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+}
+
+impl<Msg: Clone + 'static> Widget<Msg> for Button<Msg> {
+    fn style(&self) -> Style {
+        Widget::<Msg>::style_themed(self, &Theme::default())
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        let r = self.resolved(theme, self.states(&Status::default()));
+        let g = self.geometry(&r);
+        let (justify, _) = place(r.alignment.x);
+        let (_, align) = place(r.alignment.y);
+        // A labelled button knows its width before it is laid out — the label, the
+        // padding, the icon and its gap, within the minimum and the maximum — and says it,
+        // so that a bar deciding which actions fit can ask. Any other content is measured
+        // by the layout.
+        let natural = self.label.as_ref().map(|label| {
+            let text = frus_text::measure_style(label, r.text_style).width;
+            let icon = if self.has_icon {
+                let scale = text_size_scale(theme).clamp(1.0, 2.0) - 1.0;
+                r.icon_size + 8.0 + (4.0 - 8.0) * scale
+            } else {
+                0.0
+            };
+            (text + icon + g.padding.left + g.padding.right)
+                .ceil()
+                .clamp(g.min.0, r.maximum.width.max(g.min.0))
+        });
+        let width = match (g.fixed.0, natural) {
+            (Some(w), _) | (None, Some(w)) => Dimension::Length(w + 2.0 * g.extra.0),
+            (None, None) => Dimension::Auto,
+        };
+        let height = g
+            .fixed
+            .1
+            .map_or(Dimension::Auto, |h| Dimension::Length(h + 2.0 * g.extra.1));
+        let length = |v: f32| {
+            if v.is_finite() {
+                Dimension::Length(v)
+            } else {
+                Dimension::Auto
+            }
+        };
+        Style {
+            width,
+            height,
+            // A width already said holds the minimum. Saying both, equal, made the layout
+            // measure the label at no width at all: "Edit" one letter a line, and a
+            // button 85 px tall inside a 56 px bar.
+            min_width: if matches!(width, Dimension::Length(_)) {
+                Dimension::Auto
+            } else {
+                Dimension::Length(g.min.0 + 2.0 * g.extra.0)
+            },
+            min_height: Dimension::Length(g.min.1 + 2.0 * g.extra.1),
+            max_width: length(r.maximum.width + 2.0 * g.extra.0),
+            max_height: length(r.maximum.height + 2.0 * g.extra.1),
+            flex_direction: FlexDirection::Row,
+            justify,
+            align,
+            padding: Insets::new(
+                g.padding.top + g.extra.1,
+                g.padding.right + g.extra.0,
+                g.padding.bottom + g.extra.1,
+                g.padding.left + g.extra.0,
+            ),
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        self.built.get_or_init(|| {
+            let Some(Parts { content, icon }) = self.parts.borrow_mut().take() else {
+                return Vec::new();
+            };
+            let node: Box<dyn Widget<Msg>> = match icon {
+                None => content,
+                Some(icon) => Box::new(IconLabel {
+                    children: vec![icon, content],
+                    own: self.style.icon_alignment,
+                    variant: self.variant,
+                }),
+            };
+            vec![node]
+        })
+    }
+
+    /// The content's text takes the button's label style in its foreground colour, and
+    /// its icons the button's icon colour and size, as the reference hands them down
+    /// through its `Material` and its `IconTheme` (`button_style_button.dart:550`, `:601`).
+    fn theme_override(&self, inherited: &Theme) -> Option<Box<Theme>> {
+        let r = self.resolved(inherited, self.states(&Status::default()));
+        let mut theme = Box::new(inherited.clone());
+        // In place of the text style around it, not merged into it: inside an app bar the
+        // style around is the title's, and a label that took its spacing would no longer
+        // be the width the button measured (the reference's `Material` sets its text style
+        // outright).
+        theme.widgets.text =
+            crate::DefaultTextStyle::from_text_style(r.text_style.color(r.foreground));
+        theme.widgets.icon.color = Some(r.icon_color);
+        theme.widgets.icon.size = Some(r.icon_size);
+        Some(theme)
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let (base, on_color, border) = self.palette(theme);
-        let shape = self.shape_of(theme);
-        let radius = shape
-            .as_rounded(bounds)
+        let states = self.states(&status);
+        let base = if self.is_enabled() {
+            WidgetStates::EMPTY
+        } else {
+            WidgetStates::of(WidgetState::Disabled)
+        };
+        let r = self.resolved(theme, states);
+        let g = self.geometry(&r);
+        let visible = Rect::new(
+            bounds.x + g.extra.0,
+            bounds.y + g.extra.1,
+            (bounds.width - 2.0 * g.extra.0).max(0.0),
+            (bounds.height - 2.0 * g.extra.1).max(0.0),
+        );
+        let radius = r
+            .shape
+            .as_rounded(visible)
             .map(|(_, radius)| radius)
             .unwrap_or(BorderRadius::ZERO);
-        let elevation = self.elevation_of(theme, &status);
 
-        // At rest the shadow belongs to **one** variant — every enabled button used to cast
-        // one, which is the reference's elevated button drawn five times over — and under a
-        // pointer to the filled three as well.
-        if elevation > 0.0 {
-            // The reference's shadows for this height (milestone 606).
-            frus_core::paint_elevation(
-                scene,
-                bounds,
-                radius,
-                elevation,
-                theme.scheme.shadow.fade(o),
+        // The elevation in each state, eased between by the same progress the highlight
+        // fades by: a press outranks a hover, a hover a focus.
+        let at = |extra: Option<WidgetState>| {
+            let s = extra.map_or(base, |e| base.set(e, true));
+            self.resolved(theme, s).elevation
+        };
+        let elevation = if self.is_enabled() {
+            let toward = |from: f32, to: f32, p: f32| from + (to - from) * p.clamp(0.0, 1.0);
+            let e = toward(
+                at(None),
+                at(Some(WidgetState::Focused)),
+                status.focus_progress,
             );
-        }
-
-        // Hover/press/focus through the theme's baked state layer. A disabled control has
-        // no states to layer, and a transparent surface must stay transparent at rest:
-        // the layer is what tints it under the pointer.
-        let color = if self.enabled {
-            theme.state_layer(base, on_color, &status)
+            let e = toward(e, at(Some(WidgetState::Hovered)), status.hover_progress);
+            toward(e, at(Some(WidgetState::Pressed)), status.press_progress)
         } else {
-            base
+            r.elevation
         };
-        let (border_width, border_color) = match (
-            self.border_width.or(theme.widgets.button.border_width),
-            border,
-        ) {
-            (Some(width), Some(color)) => (width, color),
-            (Some(width), None) => (width, theme.scheme.outline),
-            (None, Some(color)) => (BUTTON_BORDER_WIDTH, color),
-            (None, None) => (0.0, Color::TRANSPARENT),
-        };
-        scene.draw_shape(
-            bounds,
-            shape.with_side(frus_core::BorderSide::new(
-                border_color.fade(o),
-                border_width,
-            )),
-            color.fade(o),
-        );
-
-        // Centred, both ways: a label pinned to the padding drifts off centre the moment
-        // the button is given a width of its own.
-        let style = self.label_style_of(theme);
-        let resolved = style.resolved();
-        // **A box narrower than the label ellipsises it**, rather than painting the words
-        // straight out of the pill on both sides. A button asks for the width its label
-        // needs and almost always gets it, so this is the rare case — a layout that had to
-        // squeeze it, which is what a bar of actions folding into a column does to the
-        // longest answer at a reader's font size. What it must not do is come apart.
-        let room = bounds.width - self.padding_of(theme) * 2.0;
-        let mut label = self.label.clone();
-        let mut measured = frus_text::measure_style(&label, style);
-        if room > 0.0 && measured.width > room + 0.5 {
-            label = crate::text::ellipsise(&label, &resolved, room);
-            measured = frus_text::measure_resolved(&label, &resolved);
+        if elevation > 0.0 {
+            frus_core::paint_elevation(scene, visible, radius, elevation, r.shadow.fade(o));
         }
-        scene.text(
-            Point::new(
-                bounds.x + (bounds.width - measured.width) / 2.0,
-                bounds.y + (bounds.height - measured.height) / 2.0,
-            ),
-            label,
-            &resolved,
-            on_color.fade(o),
-        );
+
+        // The surface, with the focus and hover highlights over it, each fading in by its
+        // own progress (`ink_well.dart` highlights). The press is the ripple's, not a
+        // highlight: its overlay colour is the splash (see `ink`).
+        let mut fill = r.background.unwrap_or(Color::TRANSPARENT);
+        if self.is_enabled() {
+            let overlay = |s: WidgetState| self.resolved(theme, base.set(s, true)).overlay;
+            if let Some(focus) = overlay(WidgetState::Focused) {
+                fill = over(fill, focus, status.focus_progress);
+            }
+            if let Some(hover) = overlay(WidgetState::Hovered) {
+                fill = over(fill, hover, status.hover_progress);
+            }
+        }
+        let shape = match r.side {
+            Some(side) => r
+                .shape
+                .with_side(BorderSide::new(side.color.fade(o), side.width)),
+            None => r.shape,
+        };
+        scene.draw_shape(visible, shape, fill.fade(o));
     }
 
     fn on_click(&self) -> Option<Msg> {
-        if self.enabled {
+        if self.is_enabled() {
             self.on_press.clone()
+        } else {
+            None
+        }
+    }
+
+    fn on_long_press(&self) -> Option<Msg> {
+        if self.is_enabled() {
+            self.on_long_press.clone()
         } else {
             None
         }
@@ -506,50 +1129,44 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
 
     fn ink(&self, theme: &Theme) -> Option<crate::InkStyle> {
         // A disabled control does not answer a tap, so it does not splash either.
-        if !self.enabled {
+        if !self.is_enabled() {
             return None;
         }
-        // The splash takes the button's **own** label colour: white-ish ink on a filled
-        // button, the accent on a text one. The theme's default (`on_surface`) would
-        // vanish on the first and shout on the second.
-        let (_, on_color, _) = self.palette(theme);
-        // Unless the application has named one: a theme that says what ink looks like has
-        // said it for every surface, not for the plain ones only.
+        // The ripple is the pressed overlay (`button_style_button.dart:566`), unless the
+        // application has named one for every surface.
+        let pressed = self.resolved(theme, WidgetStates::of(WidgetState::Pressed));
         let splash = theme
             .widgets
             .ink
             .color
-            .unwrap_or_else(|| on_color.fade(0.16));
+            .or(pressed.overlay)
+            .unwrap_or_else(|| pressed.foreground.with_alpha(0.1));
+        let g = self.geometry(&pressed);
+        let side = g.min.1;
         Some(
-            crate::InkStyle::of(theme)
-                .color(splash)
-                // The ink is clipped to the button, so it takes the corners the shape
-                // resolves to at the button's own height. A width is not known here —
-                // the ripple is placed before layout — so the height stands in, which
-                // is what a stadium's short side is for a button wider than it is tall.
-                .radius(
-                    self.shape_of(theme)
-                        .as_rounded(Rect::new(
-                            0.0,
-                            0.0,
-                            self.height_of(theme),
-                            self.height_of(theme),
-                        ))
-                        .map(|(_, radius)| radius)
-                        .unwrap_or(BorderRadius::ZERO),
-                ),
+            crate::InkStyle::of(theme).color(splash).radius(
+                pressed
+                    .shape
+                    .as_rounded(Rect::new(0.0, 0.0, side, side))
+                    .map(|(_, radius)| radius)
+                    .unwrap_or(BorderRadius::ZERO),
+            ),
         )
     }
 
     fn focusable(&self) -> bool {
-        self.enabled
+        self.is_enabled()
     }
 
     fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
-        let semantics =
-            frus_core::SemanticsProperties::new(frus_core::Role::Button).label(self.label.clone());
+        // A labelled button's node carries its label, as the reference's button takes in
+        // the text inside it (`button_style_button.dart:591`).
+        let mut semantics = frus_core::SemanticsProperties::new(frus_core::Role::Button);
+        if let Some(label) = &self.label {
+            semantics = semantics.label(label.clone());
+        }
         // A disabled button does not announce a clickable action.
-        Some(if self.enabled {
+        Some(if self.is_enabled() {
             semantics.clickable()
         } else {
             semantics.disabled(true)
@@ -560,447 +1177,311 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frus_core::Primitive;
+    use crate::{build_ui, Flex, Runtime, VisualDensity};
+    use frus_core::{Primitive, TargetPlatform};
 
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         Pressed,
+        Held,
     }
 
-    /// What a button paints, in order: the shadow if it has one, then its box, then its
-    /// label.
-    fn painted(button: &Button<Msg>) -> Vec<Primitive> {
-        let mut scene = Scene::new();
-        Widget::<Msg>::paint(
-            button,
-            Rect::new(0.0, 0.0, 120.0, BUTTON_HEIGHT),
-            Status::default(),
-            &Theme::default(),
-            &mut scene,
-        );
-        scene.primitives().to_vec()
+    /// A phone's theme: the standard density, so a button is the reference's 64 × 40 in a
+    /// 48 px touch target.
+    fn phone() -> Theme {
+        Theme::dark().with_platform(TargetPlatform::Android)
     }
 
-    /// **A box narrower than the label ellipsises it.** A button asks for the width its
-    /// words need and nearly always gets it; when a layout has to squeeze one — a bar of
-    /// actions folding into a column, at a reader's font size — the label used to be
-    /// painted at its full width straight out of both ends of the pill.
-    #[test]
-    fn a_squeezed_label_is_cut_rather_than_painted_out_of_the_pill() {
-        let button = crate::dsl::button("Delete permanently", Msg::Pressed);
-        let drawn = |width: f32| {
-            let mut scene = Scene::new();
-            Widget::<Msg>::paint(
-                &button,
-                Rect::new(0.0, 0.0, width, BUTTON_HEIGHT),
-                Status::default(),
-                &Theme::default(),
-                &mut scene,
-            );
-            scene
-                .primitives()
-                .iter()
-                .find_map(|p| match p {
-                    Primitive::Text { text, position, .. } => Some((text.clone(), *position)),
-                    _ => None,
-                })
-                .expect("a label")
-        };
-        let (whole, _) = drawn(400.0);
-        assert_eq!(whole, "Delete permanently", "room enough: nothing is cut");
-        let (cut, at) = drawn(120.0);
-        assert!(cut.ends_with('…'), "cut short: {cut:?}");
-        assert!(at.x >= 0.0, "and it starts inside the pill: {at:?}");
-    }
-
-    /// **A button is a pill at any size** (`button_style.dart`), which it was not.
-    ///
-    /// The stadium used to be worked out here as `height / 2` — the right number for a
-    /// button wider than it is tall, and the wrong one for a button that is not: a
-    /// stadium takes half its **short** side. Saying the word instead of the number gets
-    /// it right at every size.
-    #[test]
-    fn a_button_is_a_pill_at_any_size() {
-        let corners = |w: f32, h: f32, button: &Button<Msg>| {
-            let mut scene = Scene::new();
-            Widget::<Msg>::paint(
-                button,
-                Rect::new(0.0, 0.0, w, h),
-                Status::default(),
-                &Theme::default(),
-                &mut scene,
-            );
-            // The first crisp rectangle is the box: the shadow before it is blurred, and
-            // a circle's box is **not** the one the button was given, so the search
-            // cannot be narrowed by width.
-            scene.primitives().iter().find_map(|p| match p {
-                Primitive::Rect {
-                    rect, radius, blur, ..
-                } if *blur == 0.0 => Some((*rect, *radius)),
-                _ => None,
-            })
-        };
-        let button = Button::new("OK").on_press(Msg::Pressed);
-
-        let (_, wide) = corners(120.0, 40.0, &button).expect("a box");
-        assert_eq!(
-            wide,
-            BorderRadius::uniform(20.0),
-            "half the height, being shorter"
+    /// The button laid out alone at the top left of a large surface: the box it takes
+    /// and what it paints.
+    fn laid_out(button: Button<Msg>, theme: &Theme) -> (Rect, Vec<Primitive>) {
+        let tree = Flex::<Msg>::column()
+            .width(400.0)
+            .height(300.0)
+            .align(frus_layout::Align::Start)
+            .child(button);
+        let ui = build_ui(
+            &tree as &dyn Widget<Msg>,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            theme,
         );
-
-        let (_, narrow) = corners(24.0, 80.0, &button).expect("a box");
-        assert_eq!(
-            narrow,
-            BorderRadius::uniform(12.0),
-            "half the *width* here — the old `height / 2` said 40 and turned the box \
-             inside out"
-        );
-
-        // And a caller may say something else entirely.
-        let boxed = Button::new("OK")
-            .on_press(Msg::Pressed)
-            .shape(frus_core::ShapeBorder::rounded(4.0));
-        assert_eq!(
-            corners(120.0, 40.0, &boxed).unwrap().1,
-            BorderRadius::uniform(4.0)
-        );
-
-        // A circle takes a square out of the middle rather than filling the box.
-        let round = Button::new("OK")
-            .on_press(Msg::Pressed)
-            .shape(frus_core::ShapeBorder::circle());
-        let (box_, _) = corners(120.0, 40.0, &round).expect("a box");
-        assert_eq!(box_, Rect::new(40.0, 0.0, 40.0, 40.0));
-    }
-
-    fn surface(button: &Button<Msg>) -> (Color, BorderRadius, f32) {
-        painted(button)
+        let prims = ui.scene().primitives().to_vec();
+        let surface = prims
             .iter()
             .find_map(|p| match p {
-                Primitive::Rect {
-                    color,
-                    radius,
-                    border_width,
-                    blur,
-                    ..
-                } if *blur == 0.0 => Some((*color, *radius, *border_width)),
+                Primitive::Rect { rect, blur, .. } if *blur == 0.0 => Some(*rect),
                 _ => None,
             })
-            .expect("a button paints its box")
+            .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+        (surface, prims)
     }
 
-    #[test]
-    fn on_click_returns_message() {
-        let button = Button::new("OK").on_press(Msg::Pressed);
-        assert_eq!(Widget::on_click(&button), Some(Msg::Pressed));
+    fn label_colour(prims: &[Primitive]) -> Option<Color> {
+        prims.iter().find_map(|p| match p {
+            Primitive::Text { color, .. } => Some(*color),
+            _ => None,
+        })
     }
 
+    fn surface_colour(prims: &[Primitive]) -> Option<Color> {
+        prims.iter().find_map(|p| match p {
+            Primitive::Rect { color, blur, .. } if *blur == 0.0 => Some(*color),
+            _ => None,
+        })
+    }
+
+    /// **The reference's size**: at least 64 × 40, centred in a 48 px touch target, and
+    /// as wide as its label and 24 px either side (`elevated_button.dart:593`, `:458`;
+    /// `button_style_button.dart:578`).
     #[test]
-    fn disabled_button_is_inert_and_unfocusable() {
-        let button = Button::new("Next").on_press(Msg::Pressed).enabled(false);
-        assert_eq!(Widget::on_click(&button), None, "disabled: no message");
+    fn a_button_is_the_reference_s_size() {
+        // Nothing but padding: 48 px, under the minimum.
+        let (short, _) = laid_out(Button::new("").on_press(Msg::Pressed), &phone());
+        assert_eq!((short.width, short.height), (64.0, 40.0), "the minimum");
+        assert_eq!(short.y, 4.0, "centred in a 48 px target");
+        let (long, _) = laid_out(
+            Button::new("A rather longer label").on_press(Msg::Pressed),
+            &phone(),
+        );
+        let text = frus_text::measure_style("A rather longer label", phone().text.label_large);
         assert!(
-            !Widget::<Msg>::focusable(&button),
-            "disabled: out of the tab order"
+            (long.width - (text.width + 48.0)).abs() < 1.0,
+            "the label and 24 px either side: {} vs {}",
+            long.width,
+            text.width
         );
-        let semantics = Widget::<Msg>::semantics(&button).expect("semantics present");
-        assert!(!semantics.clickable, "disabled: not announced as clickable");
-        assert!(semantics.disabled, "and announced as unavailable");
-        let enabled = Button::new("Next").on_press(Msg::Pressed).enabled(true);
-        assert_eq!(Widget::on_click(&enabled), Some(Msg::Pressed));
-    }
-
-    #[test]
-    fn only_the_elevated_variant_casts_a_shadow() {
-        // Every enabled button used to cast one, which is the reference's *elevated*
-        // button drawn five times over — and an emphasis order in which nothing is quiet.
-        let shadows = |variant: Variant| {
-            crate::shadowprobe::casts(&painted(&Button::<Msg>::new("Go").variant(variant)))
-        };
-        assert_eq!(shadows(Variant::Elevated), 1);
-        for flat in [
-            Variant::Filled,
-            Variant::Tonal,
-            Variant::Outlined,
-            Variant::Text,
-            Variant::Danger,
-        ] {
-            assert_eq!(shadows(flat), 0, "{flat:?} is flat");
-        }
-        assert_eq!(
-            shadows(Variant::Elevated).min(
-                painted(
-                    &Button::<Msg>::new("Go")
-                        .variant(Variant::Elevated)
-                        .enabled(false)
-                )
-                .iter()
-                .filter(|p| matches!(p, Primitive::Rect { blur, .. } if *blur > 0.0))
-                .count()
-                    / 3
-            ),
-            0,
-            "and a disabled one does not float"
-        );
-    }
-
-    #[test]
-    fn the_variants_are_told_apart_by_their_surface() {
-        let theme = Theme::default();
-        assert_eq!(surface(&Button::<Msg>::new("Go")).0, theme.scheme.primary);
-        assert_eq!(
-            surface(&Button::<Msg>::new("Go").variant(Variant::Tonal)).0,
-            theme.scheme.secondary_container
-        );
-        assert_eq!(
-            surface(&Button::<Msg>::new("Go").variant(Variant::Danger)).0,
-            theme.scheme.error
-        );
-        // The two quiet ones have no surface at all until something happens to them.
-        assert_eq!(
-            surface(&Button::<Msg>::new("Go").variant(Variant::Text)).0,
-            Color::TRANSPARENT
-        );
-        let outlined = surface(&Button::<Msg>::new("Go").variant(Variant::Outlined));
-        assert_eq!(outlined.0, Color::TRANSPARENT);
-        assert_eq!(
-            outlined.2, BUTTON_BORDER_WIDTH,
-            "an outline, and only there"
-        );
-        assert_eq!(
-            surface(&Button::<Msg>::new("Go").variant(Variant::Text)).2,
-            0.0
-        );
-    }
-
-    #[test]
-    fn a_button_is_a_stadium_whatever_its_height() {
-        // The radius follows the height rather than the theme's corner setting: half of it,
-        // so a button stays a lozenge instead of becoming a box with soft corners.
-        assert_eq!(
-            surface(&Button::<Msg>::new("Go")).1,
-            BorderRadius::uniform(BUTTON_HEIGHT / 2.0)
-        );
-        // And a caller who wants corners can still have them.
-        assert_eq!(
-            surface(&Button::<Msg>::new("Go").radius(4.0)).1,
-            BorderRadius::uniform(4.0)
-        );
-    }
-
-    #[test]
-    fn a_button_is_the_references_size() {
-        let theme = Theme::default();
-        let size = |button: Button<Msg>| {
-            let style = Widget::<Msg>::style_themed(&button, &theme);
-            match (style.width, style.height) {
-                (Dimension::Length(w), Dimension::Length(h)) => (w, h),
-                other => panic!("{other:?}"),
-            }
-        };
-        let (width, height) = size(Button::new("OK"));
-        assert_eq!(height, BUTTON_HEIGHT);
-        // The minimum binds only where the label plus its room falls short of it, which
-        // at 24 px either side means a label of about one character.
-        assert!(width >= BUTTON_MIN_WIDTH);
-        assert_eq!(
-            size(Button::new("I")).0,
-            BUTTON_MIN_WIDTH,
-            "a one-letter label does not give a narrower button"
-        );
-        // A long one grows past the minimum, by the padding on either side.
-        let (wide, _) = size(Button::new("A considerably longer label"));
-        assert!(wide > BUTTON_MIN_WIDTH);
-        // A text button keeps the height and gives back the room.
-        let (narrow, _) = size(Button::new("A considerably longer label").variant(Variant::Text));
-        assert_eq!(
-            wide - narrow,
-            (BUTTON_PADDING - BUTTON_TEXT_PADDING) * 2.0,
-            "a text button's label sits closer to its edges"
-        );
-    }
-
-    /// A disabled button loses its **accent** in every variant — that is what makes
-    /// unavailable read as unavailable rather than as a quieter version of the variant.
-    ///
-    /// It does not lose its **shape**. This test asserted the opposite until milestone 324,
-    /// and the picture is what settled it: flattening all six to the same grey pill left a
-    /// disabled page strip showing six identical pills with no current page, and the
-    /// reference is explicit that a text button's background is transparent in every state.
-    #[test]
-    fn a_disabled_button_drops_its_accent_but_keeps_its_shape() {
-        let theme = Theme::default();
-        let grey = disabled_container(&theme);
-        // The variants that genuinely are a filled container flatten to one.
-        for variant in [
-            Variant::Filled,
-            Variant::Tonal,
-            Variant::Elevated,
-            Variant::Danger,
-        ] {
-            let (fill, _, _) = surface(&Button::<Msg>::new("Go").variant(variant).enabled(false));
-            assert_eq!(fill, grey, "{variant:?} should flatten to a container");
-        }
-        // A text button has no container, disabled or not.
-        let (fill, _, width) = surface(
-            &Button::<Msg>::new("Go")
+        // A text button keeps 12 px either side and 8 above and below.
+        let (text_button, _) = laid_out(
+            Button::new("A rather longer label")
                 .variant(Variant::Text)
-                .enabled(false),
+                .on_press(Msg::Pressed),
+            &phone(),
         );
-        assert_eq!(fill.a, 0.0, "a disabled text button gains no fill");
-        assert_eq!(width, 0.0, "and no outline");
-        // An outlined one keeps its outline, at the container opacity, and gains no fill.
-        let (fill, _, width) = surface(
-            &Button::<Msg>::new("Go")
-                .variant(Variant::Outlined)
-                .enabled(false),
-        );
-        assert_eq!(fill.a, 0.0, "a disabled outlined button gains no fill");
-        assert!(width > 0.0, "and keeps its outline");
+        assert!((text_button.width - (text.width + 24.0)).abs() < 1.0);
     }
 
-    /// Whatever the shape, the **label** is the same grey in every variant: that is the
-    /// half of the rule that says "unavailable".
+    /// **The desktops are compact** (milestone 631): the minimum loses 8 px each way and
+    /// so does the touch target, so the button is 56 × 32 in a 40 px target.
     #[test]
-    fn a_disabled_label_is_the_same_in_every_variant() {
-        let theme = Theme::default();
-        for variant in [
-            Variant::Filled,
-            Variant::Tonal,
-            Variant::Elevated,
-            Variant::Outlined,
-            Variant::Text,
-            Variant::Danger,
-        ] {
-            let label = painted(&Button::<Msg>::new("Go").variant(variant).enabled(false))
-                .iter()
-                .find_map(|p| match p {
-                    Primitive::Text { color, .. } => Some(*color),
-                    _ => None,
-                })
-                .expect("a button paints its label");
-            assert_eq!(label, disabled_content(&theme), "{variant:?}");
-            assert_ne!(label, theme.scheme.primary, "never the accent: {variant:?}");
-        }
+    fn a_desktop_s_button_is_compact() {
+        let desk = Theme::dark().with_platform(TargetPlatform::Windows);
+        let (b, _) = laid_out(Button::new("").on_press(Msg::Pressed), &desk);
+        assert_eq!((b.width, b.height, b.y), (56.0, 32.0, 4.0));
+        let told = desk.with_visual_density(VisualDensity::STANDARD);
+        let (b, _) = laid_out(Button::new("").on_press(Msg::Pressed), &told);
+        assert_eq!((b.width, b.height), (64.0, 40.0));
+        // Shrink-wrapped, there is no room around it.
+        let mut wrapped = phone();
+        wrapped.tap_target = TapTarget::ShrinkWrap;
+        let (b, _) = laid_out(Button::new("OK").on_press(Msg::Pressed), &wrapped);
+        assert_eq!(b.y, 0.0);
     }
 
+    /// **The padding shrinks as the reader's text grows** (`button_style_button.dart:294`):
+    /// 24 px either side at the standard size, 12 at twice it, 6 at three times.
     #[test]
-    fn every_measurement_is_the_callers_and_then_the_themes() {
-        let mut theme = Theme::default();
-        theme.widgets.button.height = Some(56.0);
-        let height =
-            |button: Button<Msg>, theme: &Theme| match Widget::<Msg>::style_themed(&button, theme)
-                .height
-            {
-                Dimension::Length(h) => h,
-                other => panic!("{other:?}"),
-            };
+    fn the_padding_follows_the_text_size() {
+        let p = |scale: f32| {
+            frus_core::with_text_scale(scale, || {
+                default_style(Variant::Filled, &phone(), false)
+                    .padding
+                    .unwrap()
+                    .resolve(WidgetStates::EMPTY)
+                    .copied()
+                    .unwrap()
+                    .left
+            })
+        };
+        assert_eq!(p(1.0), 24.0);
+        assert_eq!(p(1.5), 18.0);
+        assert_eq!(p(2.0), 12.0);
+        assert_eq!(p(3.0), 6.0);
+        // With an icon: 16 before and 24 after, in the reading direction.
+        let icon = default_style(Variant::Filled, &phone(), true)
+            .padding
+            .unwrap()
+            .resolve(WidgetStates::EMPTY)
+            .copied()
+            .unwrap();
+        assert_eq!((icon.left, icon.right), (16.0, 24.0));
+        let rtl = default_style(Variant::Filled, &phone().rtl(), true)
+            .padding
+            .unwrap()
+            .resolve(WidgetStates::EMPTY)
+            .copied()
+            .unwrap();
+        assert_eq!((rtl.left, rtl.right), (24.0, 16.0));
+    }
+
+    /// **Each kind's colours are the reference's**, enabled and disabled; a button with
+    /// nothing to do is disabled, as the reference's is.
+    #[test]
+    fn each_kind_has_the_reference_s_colours() {
+        let t = phone();
+        let c = &t.scheme;
+        let colours = |v: Variant, on: bool| {
+            let b = Button::new("OK").variant(v);
+            let b = if on { b.on_press(Msg::Pressed) } else { b };
+            let (_, prims) = laid_out(b, &t);
+            (surface_colour(&prims), label_colour(&prims))
+        };
         assert_eq!(
-            height(Button::new("Go"), &Theme::default()),
-            BUTTON_HEIGHT,
-            "the framework's"
+            colours(Variant::Filled, true),
+            (Some(c.primary), Some(c.on_primary))
         );
-        assert_eq!(height(Button::new("Go"), &theme), 56.0, "the theme's");
         assert_eq!(
-            height(Button::new("Go").height(30.0), &theme),
-            30.0,
-            "the caller's, over the theme's"
+            colours(Variant::Tonal, true),
+            (Some(c.secondary_container), Some(c.on_secondary_container))
         );
+        assert_eq!(
+            colours(Variant::Elevated, true),
+            (Some(c.surface_container_low), Some(c.primary))
+        );
+        assert_eq!(colours(Variant::Text, true).1, Some(c.primary));
+        // Nothing to do: disabled, on_surface at 12 % under on_surface at 38 %, resolved
+        // over the surface.
+        assert_eq!(
+            colours(Variant::Filled, false),
+            (
+                Some(crate::disabled::disabled_container(&t)),
+                Some(crate::disabled::disabled_content(&t))
+            )
+        );
+        let off = Button::new("OK").variant(Variant::Filled);
+        assert!(!Widget::<Msg>::focusable(&off));
+        assert_eq!(Widget::<Msg>::on_click(&off), None);
+        // A long press alone is something to do.
+        let held = Button::new("OK").on_long_press(Msg::Held);
+        assert!(Widget::<Msg>::focusable(&held));
+        assert_eq!(Widget::<Msg>::on_long_press(&held), Some(Msg::Held));
     }
 
-    /// **A button's height follows its state**, as the reference's does. An elevated one
-    /// rests at 1, rises to 3 under a pointer and is back at 1 once pressed; a filled, tonal
-    /// or danger one is flat and rises to 1 under a pointer. Every button here held one
-    /// height whatever the pointer did. The height moves by the progress the state layer is
-    /// painted with, so half-way into a hover is half-way up.
+    /// **The overlays are the reference's**: 8 % under a pointer, 10 % focused, and the
+    /// ripple of a press 10 % — in the label's colour for a filled button, the accent for
+    /// the others (`elevated_button.dart:547`, `filled_button.dart:565`).
     #[test]
-    fn the_height_follows_the_state() {
-        // The height the painted shadows stand for (milestone 606).
-        let height = |button: &Button<Msg>, status: Status, theme: &Theme| {
-            let mut scene = Scene::new();
-            Widget::<Msg>::paint(
-                button,
-                Rect::new(0.0, 0.0, 120.0, BUTTON_HEIGHT),
-                status,
-                theme,
-                &mut scene,
-            );
-            crate::shadowprobe::height(scene.primitives())
-        };
-        let theme = Theme::default();
-        let rest = Status::default();
-        let hovered = Status {
-            hover_progress: 1.0,
-            ..Default::default()
-        };
-        let held = Status {
-            hover_progress: 1.0,
-            press_progress: 1.0,
-            ..Default::default()
-        };
-        let focused = Status {
-            focus_progress: 1.0,
-            ..Default::default()
-        };
-        let half = Status {
-            hover_progress: 0.5,
-            ..Default::default()
-        };
-
-        let elevated = Button::new("Go")
+    fn the_overlays_are_the_reference_s() {
+        let t = phone();
+        let c = &t.scheme;
+        let b = Button::new("OK").on_press(Msg::Pressed);
+        let ink = Widget::<Msg>::ink(&b, &t).unwrap();
+        assert_eq!(ink.color, c.on_primary.with_alpha(0.1));
+        let e = Button::new("OK")
             .variant(Variant::Elevated)
             .on_press(Msg::Pressed);
-        assert_eq!(height(&elevated, rest, &theme), 1.0);
-        assert_eq!(height(&elevated, hovered, &theme), 3.0);
         assert_eq!(
-            height(&elevated, held, &theme),
-            1.0,
-            "a press outranks the hover"
+            Widget::<Msg>::ink(&e, &t).unwrap().color,
+            c.primary.with_alpha(0.1)
         );
-        assert_eq!(height(&elevated, focused, &theme), 1.0);
+        let hover = e.resolved(&t, WidgetStates::of(WidgetState::Hovered));
+        assert_eq!(hover.overlay, Some(c.primary.with_alpha(0.08)));
+        let focus = e.resolved(&t, WidgetStates::of(WidgetState::Focused));
+        assert_eq!(focus.overlay, Some(c.primary.with_alpha(0.1)));
+        // The elevations: an elevated button rests at 1, rises to 3 under a pointer and
+        // is back at 1 pressed; a filled one is flat and rises to 1.
+        assert_eq!(hover.elevation, 3.0);
+        assert_eq!(e.resolved(&t, WidgetStates::EMPTY).elevation, 1.0);
         assert_eq!(
-            height(&elevated, half, &theme),
-            2.0,
-            "it moves, it does not jump"
+            e.resolved(&t, WidgetState::Pressed | WidgetState::Hovered)
+                .elevation,
+            1.0
         );
+        assert_eq!(
+            b.resolved(&t, WidgetStates::of(WidgetState::Hovered))
+                .elevation,
+            1.0
+        );
+        assert_eq!(b.resolved(&t, WidgetStates::EMPTY).elevation, 0.0);
+    }
 
-        for variant in [Variant::Filled, Variant::Tonal, Variant::Danger] {
-            let button = Button::new("Go").variant(variant).on_press(Msg::Pressed);
-            assert_eq!(height(&button, rest, &theme), 0.0, "{variant:?} rests flat");
-            assert_eq!(height(&button, hovered, &theme), 1.0, "{variant:?} rises");
-            assert_eq!(height(&button, held, &theme), 0.0, "{variant:?} pressed");
-            assert_eq!(height(&button, focused, &theme), 0.0, "{variant:?} focused");
-        }
-        for variant in [Variant::Outlined, Variant::Text] {
-            let button = Button::new("Go").variant(variant).on_press(Msg::Pressed);
-            assert_eq!(
-                height(&button, hovered, &theme),
-                0.0,
-                "{variant:?} stays flat"
-            );
-        }
-        let disabled = Button::new("Go")
-            .variant(Variant::Elevated)
-            .on_press(Msg::Pressed)
-            .enabled(false);
+    /// **An outlined button's outline** is the outline role, the accent while focused,
+    /// and faint while disabled (`outlined_button.dart:553`).
+    #[test]
+    fn an_outline_follows_the_state() {
+        let t = phone();
+        let c = &t.scheme;
+        let b = Button::<Msg>::new("OK")
+            .variant(Variant::Outlined)
+            .on_press(Msg::Pressed);
+        let side = |s: WidgetStates| b.resolved(&t, s).side.unwrap().color;
+        assert_eq!(side(WidgetStates::EMPTY), c.outline);
+        assert_eq!(side(WidgetStates::of(WidgetState::Focused)), c.primary);
         assert_eq!(
-            height(&disabled, hovered, &theme),
-            0.0,
-            "a disabled one does not rise"
+            side(WidgetStates::of(WidgetState::Disabled)),
+            crate::disabled::disabled_container(&t)
         );
+    }
 
-        // A height the caller or the theme names holds in every state.
-        let told = Button::new("Go").elevation(2.0).on_press(Msg::Pressed);
-        assert_eq!(height(&told, rest, &theme), 2.0);
-        assert_eq!(height(&told, held, &theme), 2.0);
-        let mut flat = Theme::default();
-        flat.widgets.button.elevation = Some(0.0);
-        assert_eq!(height(&elevated, hovered, &flat), 0.0, "the theme's word");
+    /// **Any widget as content, an icon beside it**: the content's text takes the
+    /// button's label colour and its icons the button's icon colour and 18 px
+    /// (`button_style_button.dart:550`).
+    #[test]
+    fn any_content_takes_the_button_s_colours() {
+        let t = phone();
+        let b = Button::with_child(crate::Text::new("Mine"))
+            .icon(crate::Icon::new(crate::Icons::ADD))
+            .on_press(Msg::Pressed);
+        let (surface, prims) = laid_out(b, &t);
+        assert_eq!(label_colour(&prims), Some(t.scheme.on_primary));
+        let glyph = prims.iter().find_map(|p| match p {
+            Primitive::Path { fill: Some(c), .. } => Some(*c),
+            _ => None,
+        });
         assert_eq!(
-            height(&told, hovered, &flat),
-            2.0,
-            "and the caller's over it"
+            glyph,
+            Some(t.scheme.on_primary),
+            "the icon in the label's colour"
         );
+        // 16 before the icon, as the reference's `.icon` padding says.
+        let icon_x = prims
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Path { path, .. } => path.verbs().iter().find_map(|v| match v {
+                    frus_core::PathVerb::MoveTo(pt) => Some(pt.x),
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .unwrap();
+        assert!(icon_x >= surface.x + 16.0 - 0.5, "{icon_x} vs {surface:?}");
+    }
+
+    /// **A caller's style outranks the theme's, which outranks the default** — and a
+    /// caller's plain colour leaves the disabled look alone.
+    #[test]
+    fn a_style_outranks_the_theme_which_outranks_the_default() {
+        let mut t = phone();
+        let red = Color::rgb8(200, 0, 0);
+        let blue = Color::rgb8(0, 0, 200);
+        t.widgets.button.filled_style =
+            Some(ButtonStyle::new().background_color(WidgetStateProperty::all(red)));
+        let (_, themed) = laid_out(Button::new("OK").on_press(Msg::Pressed), &t);
+        assert_eq!(surface_colour(&themed), Some(red));
+        let (_, mine) = laid_out(Button::new("OK").color(blue).on_press(Msg::Pressed), &t);
+        assert_eq!(surface_colour(&mine), Some(blue));
+        let (_, off) = laid_out(Button::new("OK").color(blue), &phone());
+        assert_eq!(
+            surface_colour(&off),
+            Some(crate::disabled::disabled_container(&phone())),
+            "a plain colour is the enabled one"
+        );
+        // A fixed size is kept.
+        let sized = Button::new("OK")
+            .style(ButtonStyle::new().fixed_size(Size::new(120.0, 50.0)))
+            .on_press(Msg::Pressed);
+        let (b, _) = laid_out(sized, &phone());
+        assert_eq!((b.width, b.height), (120.0, 50.0));
+    }
+
+    /// **A button is a stadium whatever its size**, unless told otherwise.
+    #[test]
+    fn a_button_is_a_stadium() {
+        let (_, prims) = laid_out(Button::new("OK").on_press(Msg::Pressed), &phone());
+        let radius = prims.iter().find_map(|p| match p {
+            Primitive::Rect { radius, blur, .. } if *blur == 0.0 => Some(*radius),
+            _ => None,
+        });
+        assert_eq!(radius, Some(BorderRadius::uniform(20.0)));
     }
 }

@@ -54,7 +54,7 @@ fn scene_matches_golden() {
 /// reproduces its golden.
 #[test]
 fn widget_tree_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(12.0).child(
         Flex::column()
             .gap(8.0)
@@ -74,7 +74,7 @@ fn widget_tree_matches_golden() {
 /// Reproduces its golden — both decoration states are pinned down.
 #[test]
 fn decorated_form_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(24.0).child(
         Flex::column()
             .gap(16.0)
@@ -109,7 +109,7 @@ fn decorated_form_matches_golden() {
 /// filled — label raised, notch open — and the second empty: label at rest, no notch.
 #[test]
 fn outlined_field_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(24.0).child(
         Flex::column()
             .gap(20.0)
@@ -145,7 +145,7 @@ fn outlined_field_matches_golden() {
 /// segment is still identifiable, because a disabled control is read-only, not invisible.
 #[test]
 fn disabled_controls_match_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(24.0).child(
         Flex::column()
             .gap(20.0)
@@ -209,7 +209,7 @@ fn disabled_controls_match_golden() {
 /// is easy to assert and hard to believe without looking.
 #[test]
 fn disabled_selection_controls_match_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let pair = |live: Box<dyn frus_widgets::Widget<()>>,
                 dead: Box<dyn frus_widgets::Widget<()>>| {
         Flex::row().gap(28.0).child(live).child(dead)
@@ -259,7 +259,7 @@ fn disabled_selection_controls_match_golden() {
 }
 
 /// **The light theme, which nothing else photographs (milestone 325)** — the outlined
-/// controls, live beside disabled, on `Theme::light()`.
+/// controls, live beside disabled, on `Theme::light().with_platform(frus_core::TargetPlatform::Linux)`.
 ///
 /// Every other golden here is dark, and that is how both shipped palettes came to put a
 /// live outline on top of a disabled one without a picture ever objecting. The tone
@@ -268,7 +268,7 @@ fn disabled_selection_controls_match_golden() {
 /// theme somebody would want to use rather than a wireframe.
 #[test]
 fn light_outlines_match_golden() {
-    let theme = Theme::light();
+    let theme = Theme::light().with_platform(frus_core::TargetPlatform::Linux);
     let pair = |live: Box<dyn frus_widgets::Widget<()>>,
                 dead: Box<dyn frus_widgets::Widget<()>>| {
         Flex::row().gap(24.0).child(live).child(dead)
@@ -340,7 +340,7 @@ fn light_outlines_match_golden() {
 /// trap a press and return nothing.
 #[test]
 fn disabled_inputs_match_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(24.0).child(
         Flex::column()
             .gap(20.0)
@@ -402,7 +402,7 @@ fn disabled_inputs_match_golden() {
 /// being *quietly* selected.
 #[test]
 fn disabled_actions_match_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(20.0).child(
         Flex::column()
             .gap(18.0)
@@ -453,7 +453,7 @@ fn disabled_actions_match_golden() {
 /// dimmed to 38% but still readable.
 #[test]
 fn filled_field_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(24.0).child(
         Flex::column()
             .gap(20.0)
@@ -493,7 +493,7 @@ fn filled_field_matches_golden() {
 /// sorted column, and a highlighted selected row. Reproduces its golden.
 #[test]
 fn data_table_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(20.0).child(
         Table::<()>::new(3)
             .width(300.0)
@@ -519,7 +519,7 @@ fn data_table_matches_golden() {
 /// the header, and a fixed-width first column. Two rows checked.
 #[test]
 fn data_table_multiselect_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(20.0).child(
         Table::<()>::new(3)
             .width(320.0)
@@ -551,7 +551,7 @@ fn data_table_multiselect_matches_golden() {
 fn table_reorder_preview_matches_golden() {
     use frus_widgets::{build_ui, reflow_reorder_columns, Primitive, Runtime, Size};
 
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let table = Table::<()>::new(3)
         .column_widths(&[110.0, 110.0, 90.0])
         .header(&["Name", "Role", "Score"])
@@ -631,7 +631,7 @@ fn table_reorder_preview_matches_golden() {
 /// **chips** (`Chip`), beyond mere text. Reproduces its golden.
 #[test]
 fn table_widget_cells_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let table = Table::<()>::new(2)
         .width(260.0)
         .column_widths(&[70.0])
@@ -661,7 +661,7 @@ fn table_widget_cells_matches_golden() {
 /// comfortable height — nothing is cropped. Reproduces its golden.
 #[test]
 fn table_adaptive_rows_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let table = Table::<()>::new(2)
         .width(260.0)
         .column_widths(&[70.0])
@@ -687,7 +687,7 @@ fn table_adaptive_rows_matches_golden() {
 /// label, icon then text, and the header stays sortable. Reproduces its golden.
 #[test]
 fn table_header_icons_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let table = Table::<()>::new(2)
         .width(260.0)
         .header(&["Name", "Rating"])
@@ -712,7 +712,7 @@ fn table_header_icons_matches_golden() {
 /// note the ▲ indicator on "Name". Reproduces its golden.
 #[test]
 fn table_header_action_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let table = Table::<()>::new(2)
         .width(300.0)
         .header(&["Name", "Status"])
@@ -745,7 +745,7 @@ fn table_header_action_matches_golden() {
 /// labels. The behaviour, sorting, is wired by the application. Reproduces its golden.
 #[test]
 fn table_widget_header_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let table = Table::<()>::new(2)
         .width(300.0)
         .column_widths(&[110.0])
@@ -779,7 +779,7 @@ fn table_widget_header_matches_golden() {
 /// is nested in the header — with no table-specific code. Reproduces its golden.
 #[test]
 fn table_column_menu_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let table = Table::<()>::new(2)
         .width(300.0)
         .column_widths(&[150.0])
@@ -791,6 +791,7 @@ fn table_column_menu_matches_golden() {
                     // Three dots in a header cell: a button sized for a word would take
                     // the column's width. See milestone 313 on the missing icon button.
                     Button::new("...")
+                        .on_press(())
                         .size(12.0)
                         .variant(Variant::Outlined)
                         .min_width(28.0)
@@ -827,7 +828,7 @@ fn table_column_menu_matches_golden() {
 /// golden, which is the visible window at the top.
 #[test]
 fn table_virtualized_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let table = Table::<()>::new(2)
         .width(260.0)
         .column_widths(&[60.0])
@@ -852,7 +853,7 @@ fn table_virtualized_matches_golden() {
 /// its golden.
 #[test]
 fn table_virtual_widgets_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let table = Table::<()>::new(2)
         .width(260.0)
         .column_widths(&[70.0])
@@ -881,7 +882,7 @@ fn table_virtual_widgets_matches_golden() {
 /// golden.
 #[test]
 fn table_virtual_checkboxes_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let table = Table::<()>::new(2)
         .width(280.0)
         .column_widths(&[120.0])
@@ -908,7 +909,7 @@ fn table_virtual_checkboxes_matches_golden() {
 /// frame. Reproduces its golden at the initial position, horizontal offset zero.
 #[test]
 fn table_frozen_columns_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let table = Table::<()>::new(4)
         .width(280.0)
         .column_widths(&[90.0, 90.0, 90.0, 90.0])
@@ -935,7 +936,7 @@ fn table_frozen_columns_matches_golden() {
 /// each frozen edge. Reproduces its golden.
 #[test]
 fn table_frozen_both_edges_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let table = Table::<()>::new(4)
         .width(300.0)
         .column_widths(&[80.0, 110.0, 110.0, 70.0])
@@ -962,7 +963,7 @@ fn table_frozen_both_edges_matches_golden() {
 #[test]
 fn form_error_summary_matches_golden() {
     use frus_widgets::form::{Form, Rule};
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let report = Form::new()
         .field("email", "nope", Rule::email("Enter a valid email address"))
         .field("password", "x", Rule::min_len(8, "At least 8 characters"));
@@ -994,7 +995,7 @@ fn form_error_summary_matches_golden() {
 #[test]
 fn form_wizard_matches_golden() {
     use frus_widgets::Steps;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(20.0).child(
         Flex::column()
             .gap(18.0)
@@ -1008,8 +1009,8 @@ fn form_wizard_matches_golden() {
             .child(
                 Flex::row()
                     .gap(12.0)
-                    .child(Button::new("Back").variant(Variant::Outlined))
-                    .child(Button::new("Next")),
+                    .child(Button::new("Back").on_press(()).variant(Variant::Outlined))
+                    .child(Button::new("Next").on_press(())),
             ),
     );
     let Some(snapshot) = render_widget(&root, 420, 280, &theme) else {
@@ -1029,7 +1030,7 @@ fn form_wizard_matches_golden() {
 #[test]
 fn date_bounded_matches_golden() {
     use frus_widgets::DatePicker;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let picker = DatePicker::bounded(
         2026,
         7,
@@ -1061,7 +1062,7 @@ fn date_bounded_matches_golden() {
 #[test]
 fn date_picker_in_french_matches_golden() {
     use frus_widgets::{localizations, DatePicker, French};
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     // **Built inside the scope, not merely rendered inside it.** A picker composes its
     // header and its weekday row when it is constructed, so the words it puts on screen
     // are the ones in force at that moment — which in an application is every frame, the
@@ -1085,7 +1086,7 @@ fn date_picker_in_french_matches_golden() {
 #[test]
 fn date_range_bounded_matches_golden() {
     use frus_widgets::DatePicker;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let picker = DatePicker::range_bounded(
         2026,
         7,
@@ -1111,7 +1112,7 @@ fn date_range_bounded_matches_golden() {
 #[test]
 fn date_blackout_matches_golden() {
     use frus_widgets::DatePicker;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let blackout = [
         (2026, 7, 4),
         (2026, 7, 5),
@@ -1145,7 +1146,7 @@ fn date_blackout_matches_golden() {
 #[test]
 fn date_range_matches_golden() {
     use frus_widgets::DatePicker;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let picker = DatePicker::range(
         2026,
         7,
@@ -1172,7 +1173,7 @@ fn date_range_matches_golden() {
 #[test]
 fn date_range_dual_matches_golden() {
     use frus_widgets::DatePicker;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let picker = DatePicker::range_dual(
         2026,
         7,
@@ -1198,7 +1199,7 @@ fn date_range_dual_matches_golden() {
 #[test]
 fn time_range_matches_golden() {
     use frus_widgets::TimeRange;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let range = TimeRange::new((9, 0), (17, 30), |_, _, _| ()).minute_step(15);
     let root: Container<()> = Container::new().padding(16.0).child(range);
     let Some(snapshot) = render_widget(&root, 540, 420, &theme) else {
@@ -1214,7 +1215,7 @@ fn time_range_matches_golden() {
 #[test]
 fn toast_host_matches_golden() {
     use frus_widgets::{ScaffoldMessenger, SnackBar, SnackBarPosition};
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let host: ScaffoldMessenger<()> = ScaffoldMessenger::new(SnackBarPosition::BottomEnd)
         .toast(SnackBar::new("File uploaded").success())
         .toast(SnackBar::new("Message archived").action("Undo", ()));
@@ -1231,7 +1232,7 @@ fn toast_host_matches_golden() {
 #[test]
 fn datetime_range_matches_golden() {
     use frus_widgets::DateTimeRange;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let picker = DateTimeRange::new(
         2026,
         7,
@@ -1262,7 +1263,7 @@ fn datetime_range_matches_golden() {
 #[test]
 fn wizard_review_errors_matches_golden() {
     use frus_widgets::{ErrorSummary, Steps};
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let summary = ErrorSummary::links([
         ("Email is required".to_string(), ()),
         ("Passwords do not match".to_string(), ()),
@@ -1280,8 +1281,8 @@ fn wizard_review_errors_matches_golden() {
             .child(
                 Flex::row()
                     .gap(12.0)
-                    .child(Button::new("Back").variant(Variant::Outlined))
-                    .child(Button::new("Create account")),
+                    .child(Button::new("Back").on_press(()).variant(Variant::Outlined))
+                    .child(Button::new("Create account").on_press(())),
             ),
     );
     let Some(snapshot) = render_widget(&root, 480, 380, &theme) else {
@@ -1299,12 +1300,12 @@ fn wizard_review_errors_matches_golden() {
 /// beside its disabled version, greyed and shadowless. Reproduces its golden.
 #[test]
 fn button_disabled_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(20.0).child(
         Flex::row()
             .gap(16.0)
-            .child(Button::new("Next"))
-            .child(Button::new("Next").enabled(false)),
+            .child(Button::new("Next").on_press(()))
+            .child(Button::new("Next").on_press(()).enabled(false)),
     );
     let Some(snapshot) = render_widget(&root, 260, 90, &theme) else {
         eprintln!("no GPU adapter available: test skipped");
@@ -1320,7 +1321,7 @@ fn button_disabled_matches_golden() {
 #[test]
 fn wizard_password_step_matches_golden() {
     use frus_widgets::Steps;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(24.0).child(
         Flex::column()
             .gap(24.0)
@@ -1344,8 +1345,8 @@ fn wizard_password_step_matches_golden() {
             .child(
                 Flex::row()
                     .gap(12.0)
-                    .child(Button::new("Back").variant(Variant::Outlined))
-                    .child(Button::new("Next").enabled(false)),
+                    .child(Button::new("Back").on_press(()).variant(Variant::Outlined))
+                    .child(Button::new("Next").on_press(()).enabled(false)),
             ),
     );
     let Some(snapshot) = render_widget(&root, 440, 420, &theme) else {
@@ -1363,7 +1364,7 @@ fn wizard_password_step_matches_golden() {
 #[test]
 fn wizard_password_revealed_matches_golden() {
     use frus_widgets::Steps;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(24.0).child(
         Flex::column()
             .gap(24.0)
@@ -1385,13 +1386,17 @@ fn wizard_password_revealed_matches_golden() {
                             .width(340.0)
                             .label("Confirm password"),
                     )
-                    .child(Button::new("Hide password").variant(Variant::Outlined)),
+                    .child(
+                        Button::new("Hide password")
+                            .on_press(())
+                            .variant(Variant::Outlined),
+                    ),
             )
             .child(
                 Flex::row()
                     .gap(12.0)
-                    .child(Button::new("Back").variant(Variant::Outlined))
-                    .child(Button::new("Next")),
+                    .child(Button::new("Back").on_press(()).variant(Variant::Outlined))
+                    .child(Button::new("Next").on_press(())),
             ),
     );
     let Some(snapshot) = render_widget(&root, 440, 460, &theme) else {
@@ -1409,7 +1414,7 @@ fn wizard_password_revealed_matches_golden() {
 #[test]
 fn table_editable_matches_golden() {
     use frus_widgets::Table;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     // A factory for a static clickable cell; clicking it puts the cell into editing.
     let cell = |value: &str| -> Box<dyn Fn() -> Box<dyn frus_widgets::Widget<()>>> {
         let value = value.to_string();
@@ -1470,7 +1475,7 @@ fn table_editable_matches_golden() {
 #[test]
 fn data_table_sorted_matches_golden() {
     use frus_widgets::DataTable;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let rows = vec![
         vec!["Ada".to_string(), "9".to_string(), "London".to_string()],
         vec!["Bob".to_string(), "12".to_string(), "Paris".to_string()],
@@ -1502,7 +1507,7 @@ fn data_table_sorted_matches_golden() {
 #[test]
 fn data_table_lazy_page_of_many_matches_golden() {
     use frus_widgets::DataTable;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let table: DataTable<()> = DataTable::lazy(["#", "Name", "Score"], 4_000, |i| {
         vec![
             format!("{}", i + 1),
@@ -1527,7 +1532,7 @@ fn data_table_lazy_page_of_many_matches_golden() {
 #[test]
 fn data_table_paginated_matches_golden() {
     use frus_widgets::DataTable;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let rows: Vec<Vec<String>> = [
         ("Ada", 9),
         ("Bob", 12),
@@ -1564,7 +1569,7 @@ fn data_table_paginated_matches_golden() {
 #[test]
 fn data_table_selected_matches_golden() {
     use frus_widgets::DataTable;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let rows = vec![
         vec!["Ada".to_string(), "9".to_string(), "London".to_string()],
         vec!["Bob".to_string(), "12".to_string(), "Paris".to_string()],
@@ -1599,7 +1604,7 @@ fn data_table_selected_matches_golden() {
 fn data_table_custom_sort_matches_golden() {
     use frus_widgets::DataTable;
     use std::cmp::Ordering;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let rows = vec![
         vec!["Ada".to_string(), "High".to_string()],
         vec!["Bob".to_string(), "Low".to_string()],
@@ -1636,7 +1641,7 @@ fn data_table_custom_sort_matches_golden() {
 #[test]
 fn data_table_checkboxes_matches_golden() {
     use frus_widgets::DataTable;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let rows = vec![
         vec!["Ada".to_string(), "9".to_string(), "London".to_string()],
         vec!["Bob".to_string(), "12".to_string(), "Paris".to_string()],
@@ -1668,7 +1673,7 @@ fn data_table_checkboxes_matches_golden() {
 #[test]
 fn data_table_search_matches_golden() {
     use frus_widgets::DataTable;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let rows = vec![
         vec!["Ada".to_string(), "London".to_string()],
         vec!["Bob".to_string(), "Paris".to_string()],
@@ -1699,7 +1704,7 @@ fn data_table_search_matches_golden() {
 #[test]
 fn data_table_bulk_actions_matches_golden() {
     use frus_widgets::{Button, DataTable, Variant};
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let rows = vec![
         vec!["Ada".to_string(), "9".to_string()],
         vec!["Bob".to_string(), "12".to_string()],
@@ -1712,8 +1717,18 @@ fn data_table_bulk_actions_matches_golden() {
         .selected(&[0, 3])
         .bulk_actions(|| {
             vec![
-                Box::new(Button::new("Clear").variant(Variant::Outlined).size(14.0)),
-                Box::new(Button::new("Delete").variant(Variant::Danger).size(14.0)),
+                Box::new(
+                    Button::new("Clear")
+                        .on_press(())
+                        .variant(Variant::Outlined)
+                        .size(14.0),
+                ),
+                Box::new(
+                    Button::new("Delete")
+                        .on_press(())
+                        .variant(Variant::Danger)
+                        .size(14.0),
+                ),
             ]
         });
     let root: Container<()> = Container::new().padding(16.0).child(table);
@@ -1734,7 +1749,7 @@ fn data_table_bulk_actions_matches_golden() {
 #[test]
 fn data_table_empty_matches_golden() {
     use frus_widgets::DataTable;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let rows = vec![
         vec!["Ada".to_string(), "London".to_string()],
         vec!["Bob".to_string(), "Paris".to_string()],
@@ -1762,7 +1777,7 @@ fn data_table_empty_matches_golden() {
 #[test]
 fn tree_selected_matches_golden() {
     use frus_widgets::Tree;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let tree = Tree::<()>::new(|_| ())
         .on_select(|_| ())
         .selected(Some(3))
@@ -1788,7 +1803,7 @@ fn tree_selected_matches_golden() {
 #[test]
 fn kanban_matches_golden() {
     use frus_widgets::Kanban;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let board = Kanban::<()>::new(|_, _, _, _| ())
         .column("To do", ["Design API", "Write spec"])
         .column("Doing", ["Build widget"])
@@ -1808,7 +1823,7 @@ fn kanban_matches_golden() {
 #[test]
 fn kanban_rich_matches_golden() {
     use frus_widgets::{Align, Button, Flex, Kanban, Text, Variant};
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     // A factory for a rich card: the label on the left, the × button on the right.
     fn rich(label: &'static str) -> Box<dyn Fn() -> Box<dyn frus_widgets::Widget<()>>> {
         Box::new(move || {
@@ -1818,7 +1833,12 @@ fn kanban_rich_matches_golden() {
                     .gap(8.0)
                     .child(Text::new(label).size(14.0))
                     .child(Flex::row().flex(1.0))
-                    .child(Button::new("×").variant(Variant::Outlined).size(13.0)),
+                    .child(
+                        Button::new("×")
+                            .on_press(())
+                            .variant(Variant::Outlined)
+                            .size(13.0),
+                    ),
             ) as Box<dyn frus_widgets::Widget<()>>
         })
     }
@@ -1843,7 +1863,7 @@ fn kanban_rich_matches_golden() {
 #[test]
 fn bar_chart_matches_golden() {
     use frus_widgets::BarChart;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let chart = BarChart::new([
         ("Mon", 3.0),
         ("Tue", 7.0),
@@ -1872,7 +1892,7 @@ fn bar_chart_matches_golden() {
 #[test]
 fn bar_chart_grouped_matches_golden() {
     use frus_widgets::BarChart;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let chart = BarChart::new([
         ("Mon", 3.0),
         ("Tue", 7.0),
@@ -1908,7 +1928,7 @@ fn bar_chart_grouped_matches_golden() {
 #[test]
 fn bar_chart_stacked_matches_golden() {
     use frus_widgets::BarChart;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let chart = BarChart::<()>::new([
         ("Mon", 3.0),
         ("Tue", 7.0),
@@ -1944,7 +1964,7 @@ fn bar_chart_stacked_matches_golden() {
 /// and a baseline. Reproduces its golden.
 #[test]
 fn line_chart_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let chart = LineChart::new([
         ("Mon", 3.0),
         ("Tue", 7.0),
@@ -1972,7 +1992,7 @@ fn line_chart_matches_golden() {
 /// in a left margin, shared with the BarChart. Reproduces its golden.
 #[test]
 fn line_chart_axis_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let chart = LineChart::new([
         ("Mon", 3.0),
         ("Tue", 7.0),
@@ -2002,7 +2022,7 @@ fn line_chart_axis_matches_golden() {
 /// the curve filled (`area(true)`) and the y axis (`grid(4)`). Reproduces its golden.
 #[test]
 fn line_chart_area_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let chart = LineChart::new([
         ("Mon", 3.0),
         ("Tue", 7.0),
@@ -2034,7 +2054,7 @@ fn line_chart_area_matches_golden() {
 /// and a legend of swatch plus name. Reproduces its golden.
 #[test]
 fn line_chart_multi_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let chart = LineChart::new([
         ("Mon", 3.0),
         ("Tue", 7.0),
@@ -2072,7 +2092,7 @@ fn line_chart_multi_matches_golden() {
 /// (`grid(4)`) and a legend. Reproduces its golden.
 #[test]
 fn line_chart_stacked_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let chart = LineChart::new([
         ("Mon", 3.0),
         ("Tue", 7.0),
@@ -2108,7 +2128,7 @@ fn line_chart_stacked_matches_golden() {
 /// clickable. Reproduces its golden.
 #[test]
 fn line_chart_hidden_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let chart = LineChart::<()>::new([
         ("Mon", 3.0),
         ("Tue", 7.0),
@@ -2147,7 +2167,7 @@ fn line_chart_hidden_matches_golden() {
 /// with no hover involved. Reproduces its golden.
 #[test]
 fn line_chart_selected_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let chart = LineChart::<()>::new([
         ("Mon", 3.0),
         ("Tue", 7.0),
@@ -2183,7 +2203,7 @@ fn line_chart_selected_matches_golden() {
 /// Reproduces its golden.
 #[test]
 fn bar_chart_selected_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let chart = BarChart::<()>::new([
         ("Mon", 3.0),
         ("Tue", 7.0),
@@ -2219,7 +2239,7 @@ fn bar_chart_selected_matches_golden() {
 /// percentages. Reproduces its golden.
 #[test]
 fn bar_chart_normalized_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let chart = BarChart::<()>::new([
         ("Mon", 3.0),
         ("Tue", 7.0),
@@ -2256,7 +2276,7 @@ fn bar_chart_normalized_matches_golden() {
 /// percentages. Reproduces its golden.
 #[test]
 fn line_chart_normalized_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let chart = LineChart::<()>::new([
         ("Mon", 3.0),
         ("Tue", 7.0),
@@ -2293,7 +2313,7 @@ fn line_chart_normalized_matches_golden() {
 /// golden.
 #[test]
 fn password_eye_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let field = TextField::<()>::new("hunter2")
         .width(280.0)
         .label("Password")
@@ -2316,7 +2336,7 @@ fn password_eye_matches_golden() {
 /// a clickable "✕" suffix icon (`on_suffix`) that clears it. Reproduces its golden.
 #[test]
 fn textinput_clear_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let field = TextField::<()>::new("Buy milk")
         .width(280.0)
         .label("New task")
@@ -2339,7 +2359,7 @@ fn textinput_clear_matches_golden() {
 #[test]
 fn snackbar_action_matches_golden() {
     use frus_widgets::SnackBar;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let toast = SnackBar::new("Message archived").action("Undo", ());
     let root: Container<()> = Container::new().padding(20.0).child(toast);
     let Some(snapshot) = render_widget(&root, 340, 90, &theme) else {
@@ -2357,7 +2377,7 @@ fn snackbar_action_matches_golden() {
 /// handle at each column's right edge, the last one excepted. Reproduces its golden.
 #[test]
 fn data_table_resizable_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(20.0).child(
         Table::<()>::new(3)
             .column_widths(&[110.0, 110.0, 70.0])
@@ -2384,7 +2404,7 @@ fn data_table_resizable_matches_golden() {
 /// golden.
 #[test]
 fn time_picker_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> =
         Container::new()
             .padding(20.0)
@@ -2404,7 +2424,7 @@ fn time_picker_matches_golden() {
 /// a `3:05 PM` preview.
 #[test]
 fn time_picker_12h_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new()
         .padding(20.0)
         .child(TimePicker::<()>::new(15, 5, |_| (), |_| ()).hour12());
@@ -2423,7 +2443,7 @@ fn time_picker_12h_matches_golden() {
 /// a summary of the selection. Reproduces its golden.
 #[test]
 fn date_time_picker_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new()
         .padding(20.0)
         .child(DateTimePicker::<()>::new(
@@ -2452,7 +2472,7 @@ fn date_time_picker_matches_golden() {
 /// option highlighted and ticked. Reproduces its golden.
 #[test]
 fn dropdown_menu_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(16.0).child(
         DropdownButton::<()>::new("Medium", ())
             .width(200.0)
@@ -2475,7 +2495,7 @@ fn dropdown_menu_matches_golden() {
 /// highlighted. Reproduces its golden.
 #[test]
 fn autocomplete_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(16.0).child(
         Autocomplete::<()>::new("ap", |_| (), |_| ())
             .width(220.0)
@@ -2499,7 +2519,7 @@ fn autocomplete_matches_golden() {
 /// active segment tinted `primary` between them. Reproduces its golden.
 #[test]
 fn range_slider_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new()
         .padding(24.0)
         .child(RangeSlider::<()>::new(0.3, 0.7).width(240.0));
@@ -2521,7 +2541,7 @@ fn range_slider_matches_golden() {
 fn range_slider_labels_matches_golden() {
     use frus_widgets::{build_ui, Runtime, Size};
 
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(24.0).child(
         RangeSlider::<()>::new(0.3, 0.7)
             .width(240.0)
@@ -2561,7 +2581,7 @@ fn range_slider_labels_matches_golden() {
 /// suggestions in all. Reproduces its golden.
 #[test]
 fn autocomplete_scroll_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(16.0).child(
         Autocomplete::<()>::new("a", |_| (), |_| ())
             .width(220.0)
@@ -2590,7 +2610,7 @@ fn autocomplete_scroll_matches_golden() {
 fn password_field_matches_golden() {
     use frus_widgets::Icons;
 
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(20.0).child(
         TextField::<()>::new("hunter2")
             .width(280.0)
@@ -2648,7 +2668,7 @@ fn validated_signup_form_matches_golden() {
         password_field = password_field.error(e);
     }
 
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(20.0).child(
         Flex::column()
             .gap(14.0)
@@ -2672,7 +2692,7 @@ fn validated_signup_form_matches_golden() {
 /// content, with explicit breaks, in a box `rows` lines tall. Reproduces its golden.
 #[test]
 fn multiline_field_matches_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(20.0).child(
         TextField::<()>::new(
             "Roses are red, violets are blue, and this long line wraps softly to the field width.",
@@ -2699,7 +2719,7 @@ fn inspector_overlay_matches_golden() {
     use frus_core::Size;
     use frus_widgets::{build_ui_inspected, paint_inspector_overlay, Runtime};
 
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(10.0).child(
         Flex::column()
             .gap(6.0)
@@ -2751,8 +2771,10 @@ fn rtl_mirrors_the_row() {
             .child(Container::new().width(50.0).height(40.0).color(blue))
     };
     // LTR: red on the left, blue on the right.
-    let ltr_theme = Theme::dark();
-    let rtl_theme = Theme::dark().rtl();
+    let ltr_theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
+    let rtl_theme = Theme::dark()
+        .with_platform(frus_core::TargetPlatform::Linux)
+        .rtl();
     let (Some(ltr), Some(rtl)) = (
         render_widget(&make(), 150, 40, &ltr_theme),
         render_widget(&make(), 150, 40, &rtl_theme),
@@ -2810,7 +2832,12 @@ fn rtl_turns_a_directional_icon_round() {
         left - right
     };
 
-    let (ltr_theme, rtl_theme) = (Theme::dark(), Theme::dark().rtl());
+    let (ltr_theme, rtl_theme) = (
+        Theme::dark().with_platform(frus_core::TargetPlatform::Linux),
+        Theme::dark()
+            .with_platform(frus_core::TargetPlatform::Linux)
+            .rtl(),
+    );
     let (Some(arrow_ltr), Some(arrow_rtl), Some(tick_ltr), Some(tick_rtl)) = (
         render(Icons::ARROW_BACK, &ltr_theme),
         render(Icons::ARROW_BACK, &rtl_theme),
@@ -2878,8 +2905,20 @@ fn rtl_flips_the_drawer_side() {
     };
     let is_drawer = |px: [u8; 4]| px[0] > 180 && px[1] < 120 && px[2] < 120;
     let (Some(ltr), Some(rtl)) = (
-        render_widget(make().as_ref(), W, 120, &Theme::dark()),
-        render_widget(make().as_ref(), W, 120, &Theme::dark().rtl()),
+        render_widget(
+            make().as_ref(),
+            W,
+            120,
+            &Theme::dark().with_platform(frus_core::TargetPlatform::Linux),
+        ),
+        render_widget(
+            make().as_ref(),
+            W,
+            120,
+            &Theme::dark()
+                .with_platform(frus_core::TargetPlatform::Linux)
+                .rtl(),
+        ),
     ) else {
         eprintln!("no GPU adapter available: test skipped");
         return;
@@ -2919,8 +2958,18 @@ fn group_opacity_fades_the_box() {
             .opacity(o)
     };
     let (Some(opaque), Some(faded)) = (
-        render_widget(&make(1.0), 40, 40, &Theme::dark()),
-        render_widget(&make(0.5), 40, 40, &Theme::dark()),
+        render_widget(
+            &make(1.0),
+            40,
+            40,
+            &Theme::dark().with_platform(frus_core::TargetPlatform::Linux),
+        ),
+        render_widget(
+            &make(0.5),
+            40,
+            40,
+            &Theme::dark().with_platform(frus_core::TargetPlatform::Linux),
+        ),
     ) else {
         eprintln!("no GPU adapter available: test skipped");
         return;
@@ -2963,7 +3012,7 @@ fn diff_count_is_exact() {
 /// spread the way a blur does.
 #[test]
 fn the_three_filters_match_their_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let block = || Container::<()>::new().width(48.0).height(48.0).color(RED);
     let root: Container<()> = Container::new().padding(12.0).child(
         Flex::row()
@@ -2996,7 +3045,7 @@ const RED: Color = Color::rgb(1.0, 0.0, 0.0);
 /// Every colour-space slip this framework has had looked plausible in the picture.
 #[test]
 fn a_greyscale_filter_keeps_its_colour_space() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().child(
         ColorFiltered::grayscale().child(Container::new().width(64.0).height(64.0).color(RED)),
     );
@@ -3021,7 +3070,7 @@ fn a_greyscale_filter_keeps_its_colour_space() {
 /// edges of the surface.
 #[test]
 fn a_backdrop_matches_its_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let stripe = |i: usize| {
         Container::<()>::new()
             .width(180.0)
@@ -3068,7 +3117,7 @@ fn a_backdrop_matches_its_golden() {
 /// the row and does not get to say where that line is.
 #[test]
 fn a_baseline_row_matches_its_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let root: Container<()> = Container::new().padding(12.0).child(
         Flex::row()
             .align(Align::Baseline)
@@ -3090,7 +3139,7 @@ fn a_baseline_row_matches_its_golden() {
 /// the row inside it, not as wide as its own widest label.
 #[test]
 fn a_row_and_column_match_their_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let chip = |label: &str, height: f32| {
         Container::new()
             .width(52.0)
@@ -3127,7 +3176,7 @@ fn a_row_and_column_match_their_golden() {
 /// out at the edge it ran past.
 #[test]
 fn text_alignment_and_overflow_match_their_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let long = "one two three four five six seven eight nine ten eleven twelve thirteen";
     let body = TextStyle::new(12.0);
     // 122, not 120: the four blocks and their gaps need 106 inside 8 px of padding, and
@@ -3181,7 +3230,7 @@ fn text_alignment_and_overflow_match_their_golden() {
 /// can go wrong.
 #[test]
 fn an_overflow_band_matches_its_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let tile = |w: f32, h: f32| {
         Container::new()
             .width(w)
@@ -3233,7 +3282,7 @@ fn an_overflow_band_matches_its_golden() {
 /// which is the half a plain-text cut never has to get right.
 #[test]
 fn rich_text_alignment_and_limit_match_their_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let body = TextStyle::new(12.0);
     let span = || {
         TextSpan::new("one two ")
@@ -3289,7 +3338,7 @@ fn rich_text_alignment_and_limit_match_their_golden() {
 /// itself, which is what a fraction of a size the caller was never told buys.
 #[test]
 fn the_constraint_boxes_match_their_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let tile = |w: f32, h: f32, alpha: f32| {
         Container::new()
             .width(w)
@@ -3348,7 +3397,7 @@ fn the_constraint_boxes_match_their_golden() {
 /// will grow to fill.
 #[test]
 fn the_explicit_transitions_match_their_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let progress = 0.35_f32;
     let box_of = |alpha: f32| {
         Container::new()
@@ -3410,7 +3459,7 @@ fn the_explicit_transitions_match_their_golden() {
 /// the day the row's own trailing button ended up beneath it.
 #[test]
 fn the_reorderable_list_matches_its_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let row = |label: &str, alpha: f32| {
         Container::new()
             .height(34.0)
@@ -3447,7 +3496,7 @@ fn the_reorderable_list_matches_its_golden() {
 /// a count beside each rather than four hundred licences at once.
 #[test]
 fn the_licence_page_matches_its_golden() {
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let notices = vec![
         LicenseNotice {
             packages: vec![Package::new("cosmic-text", "0.12.1"), Package::new("wgpu", "22.1.0")],
@@ -3496,7 +3545,7 @@ fn the_collapsing_header_matches_its_golden() {
     use frus_widgets::{text, CollapsingHeader, Expanded, HeaderState, ListView};
 
     const EXPANDED: f32 = 120.0;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let page = |offset: f32| {
         let t = theme.clone();
         let rows = t.clone();
@@ -3593,7 +3642,7 @@ fn the_animated_layout_values_match_their_golden() {
     use frus_widgets::{text, AnimatedFractionallySizedBox, AnimatedPositioned, Stack};
 
     const DURATION: f32 = 0.20;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     // `top` at 170 is a panel resting near the bottom of the stack; at 40 it is open.
     // Both ends pin the same edge, which is what makes this a movement at all.
     let page = |open: bool| {
@@ -3672,7 +3721,7 @@ fn the_picker_wheel_matches_its_golden() {
     use frus_test::Stage;
     use frus_widgets::{text, ListWheel};
 
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let t = theme.clone();
     let wheel = ListWheel::<()>::new(60, 34.0, move |i| {
         Flex::<()>::column()
@@ -3740,7 +3789,7 @@ fn a_moving_text_style_matches_its_golden() {
     use frus_widgets::{text, AnimatedDefaultTextStyle};
 
     const DURATION: f32 = 0.20;
-    let theme = Theme::dark();
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
     let row = |label: &'static str, done: bool, t: Theme| {
         Container::new()
             .width(240.0)

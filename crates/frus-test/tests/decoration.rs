@@ -33,7 +33,12 @@ fn a_fill_fading_out_over_white_is_pink_not_dark() {
             0.5,
             Container::new().width(60.0).height(60.0),
         ));
-    let Some(shot) = render_widget(&tree, 60, 60, &Theme::dark()) else {
+    let Some(shot) = render_widget(
+        &tree,
+        60,
+        60,
+        &Theme::dark().with_platform(frus_core::TargetPlatform::Linux),
+    ) else {
         eprintln!("no GPU adapter available: test skipped");
         return;
     };
@@ -94,7 +99,12 @@ fn the_explicit_decoration_and_text_transitions_match_their_golden() {
         .padding(20.0)
         .child(Flex::column().gap(24.0).child(tiles).child(words));
 
-    let Some(shot) = render_widget(&tree, 340, 180, &Theme::dark()) else {
+    let Some(shot) = render_widget(
+        &tree,
+        340,
+        180,
+        &Theme::dark().with_platform(frus_core::TargetPlatform::Linux),
+    ) else {
         eprintln!("no GPU adapter available: test skipped");
         return;
     };
