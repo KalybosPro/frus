@@ -1857,6 +1857,16 @@ impl Fills {
     /// to be, and a request to fill cannot reach past that answer.
     fn bounded_by(self, style: &frus_layout::Style) -> Self {
         let auto = |d| matches!(d, frus_layout::Dimension::Auto);
+        // A box with an aspect ratio decides its children's size from its own, as the
+        // reference's `AspectRatio` hands its child tight constraints: nothing inside it
+        // reaches past it (milestone 633).
+        if style.aspect_ratio.is_some() {
+            return Fills {
+                horizontal: false,
+                vertical: false,
+                ..self
+            };
+        }
         Fills {
             horizontal: self.horizontal && auto(style.width),
             vertical: self.vertical && auto(style.height),
@@ -2417,7 +2427,14 @@ fn build_layout_scoped<'a, Msg>(
         // container divides the room up and the request stops. A container with a single
         // child divides nothing, and passes the whole request on.
         let mut fills = Fills::own(widget, theme);
+        // A grid divides its room on both axes and sizes its cells itself — the
+        // reference's grid hands its tiles tight constraints — so a cell's request stops at
+        // it (milestone 633).
+        let divides_both = style.grid_columns.is_some();
         for (_, child) in &built {
+            if divides_both {
+                continue;
+            }
             fills = fills.merge(if alone {
                 *child
             } else {

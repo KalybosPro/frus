@@ -69,10 +69,102 @@ pub struct Container<Msg = crate::callback::Callback> {
     /// RTL at render time). `None` = the default flex behaviour, in which the child
     /// stretches to fill.
     alignment: Option<AlignmentGeometry>,
+    /// Whether it sizes itself by the reference's rules (`true`), or always by its content —
+    /// what a widget built on a container that answers the question itself asks for
+    /// ([`Container::hugging`]).
+    reference_sizing: bool,
+    /// The reference's `constraints`: `(min_width, max_width, min_height, max_height)`,
+    /// each unset where nothing was said.
+    limits: [Option<f32>; 4],
+    /// The reference's `transform`, as this framework's three: a shift, a scale and a turn.
+    shift: Option<(f32, f32)>,
+    scale: Option<(f32, f32)>,
+    turn: Option<f32>,
+    /// The point the scale and the turn are about — the reference's `transformAlignment`.
+    pivot: frus_core::Alignment,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg> Container<Msg> {
+    /// The axes the reference's container takes the room on: every axis it was given no
+    /// size on, when it has no child or aligns its child.
+    fn reference_fill(&self) -> crate::widget::FillAxes {
+        let fills = self.reference_sizing && (self.children.is_empty() || self.alignment.is_some());
+        crate::widget::FillAxes {
+            horizontal: fills && matches!(self.width, Dimension::Auto),
+            vertical: fills && matches!(self.height, Dimension::Auto),
+        }
+    }
+
+    /// A container sized by its content whatever the reference's rules say: for a widget
+    /// built on one that decides for itself how much room to take, as [`crate::Aligned`]
+    /// does with its factors.
+    pub(crate) fn hugging(mut self) -> Self {
+        self.reference_sizing = false;
+        self
+    }
+
+    /// **At least `width` wide** — part of the reference's `constraints`. A width given
+    /// with [`width`](Self::width) is held within the constraints, as the reference
+    /// tightens them.
+    #[must_use]
+    pub fn min_width(mut self, width: f32) -> Self {
+        self.limits[0] = Some(width);
+        self
+    }
+
+    /// **At most `width` wide.**
+    #[must_use]
+    pub fn max_width(mut self, width: f32) -> Self {
+        self.limits[1] = Some(width);
+        self
+    }
+
+    /// **At least `height` tall.**
+    #[must_use]
+    pub fn min_height(mut self, height: f32) -> Self {
+        self.limits[2] = Some(height);
+        self
+    }
+
+    /// **At most `height` tall.**
+    #[must_use]
+    pub fn max_height(mut self, height: f32) -> Self {
+        self.limits[3] = Some(height);
+        self
+    }
+
+    /// **Shifted by `(dx, dy)`** when painted, as the reference's `transform` does: the
+    /// layout keeps its place and the box and its child are drawn moved.
+    #[must_use]
+    pub fn translated(mut self, dx: f32, dy: f32) -> Self {
+        self.shift = Some((dx, dy));
+        self
+    }
+
+    /// **Scaled by `(sx, sy)`** when painted, about the
+    /// [`transform_alignment`](Self::transform_alignment).
+    #[must_use]
+    pub fn scaled(mut self, sx: f32, sy: f32) -> Self {
+        self.scale = Some((sx, sy));
+        self
+    }
+
+    /// **Turned by `radians`** when painted, about the
+    /// [`transform_alignment`](Self::transform_alignment).
+    #[must_use]
+    pub fn rotated(mut self, radians: f32) -> Self {
+        self.turn = Some(radians);
+        self
+    }
+
+    /// **The point a scale and a turn are about**, within the box. Unset, its centre.
+    #[must_use]
+    pub fn transform_alignment(mut self, pivot: frus_core::Alignment) -> Self {
+        self.pivot = pivot;
+        self
+    }
+
     /// Creates an empty container (automatic size, no decoration).
     pub fn new() -> Self {
         Self {
@@ -103,6 +195,12 @@ impl<Msg> Container<Msg> {
             padding_anim: None,
             alignment_anim: None,
             alignment: None,
+            reference_sizing: true,
+            limits: [None; 4],
+            shift: None,
+            scale: None,
+            turn: None,
+            pivot: frus_core::Alignment::CENTER,
             children: Vec::new(),
         }
     }
@@ -470,6 +568,11 @@ impl<Msg> Container<Msg> {
             margin: self.margin.laid_out(direction),
             ..Default::default()
         };
+        let limit = |v: Option<f32>| v.map_or(Dimension::Auto, Dimension::Length);
+        style.min_width = limit(self.limits[0]);
+        style.max_width = limit(self.limits[1]);
+        style.min_height = limit(self.limits[2]);
+        style.max_height = limit(self.limits[3]);
         // Anchoring the child: taffy is left to place it at the **top left** of the
         // content box, at its natural size (Start / Start, no stretching), and the
         // walk then offsets it within the free space according to the `Alignment`'s
@@ -602,6 +705,28 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
 
     fn alignment_geometry(&self) -> Option<AlignmentGeometry> {
         self.alignment
+    }
+
+    fn transform_translate(&self) -> Option<(f32, f32)> {
+        self.shift
+    }
+
+    fn transform_scale(&self) -> Option<(f32, f32, frus_core::Alignment)> {
+        self.scale.map(|(sx, sy)| (sx, sy, self.pivot))
+    }
+
+    fn transform_rotate(&self) -> Option<(f32, frus_core::Alignment)> {
+        self.turn.map(|r| (r, self.pivot))
+    }
+
+    /// **The room on offer**, on each axis it was given no size on, when it has no child
+    /// or when it aligns its child — the reference's two rules (`container.dart:390`,
+    /// `:396`). Empty, a container expands to what its parent allows; aligning, it fills
+    /// its parent and places its child inside. Along a row or a column shared with other
+    /// children the request is not granted, so it is nothing there, as the reference's
+    /// `LimitedBox(0)` is in unbounded room. Otherwise it is its child's size.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        self.reference_fill()
     }
 
     fn anim_offset(&self) -> Option<(f32, f32)> {
@@ -1343,6 +1468,119 @@ mod foreground_tests {
                 .unwrap()
                 .radius,
             BorderRadius::uniform(4.0)
+        );
+    }
+}
+
+/// The reference's container rules (milestone 633): `container.dart:387`.
+#[cfg(test)]
+mod reference_tests {
+    use super::*;
+    use crate::{build_ui_inspected, Center, Flex, Runtime, Text};
+
+    fn rect_of(root: &dyn Widget<()>, size: Size, nth: usize) -> Rect {
+        let (_, nodes) = build_ui_inspected(root, size, &Runtime::default(), &Theme::dark());
+        nodes
+            .iter()
+            .filter(|n| n.name == "Container")
+            .nth(nth)
+            .map(|n| n.rect)
+            .expect("a container")
+    }
+
+    /// **Empty, a container takes the room its parent allows** — inside a centre, all of
+    /// it — and **along a row shared with others it is nothing**, the reference's
+    /// `LimitedBox(0)` in unbounded room.
+    #[test]
+    fn an_empty_container_takes_the_room_allowed() {
+        let size = Size::new(300.0, 200.0);
+        let alone = Center::new(Container::<()>::new().color(Color::rgb8(1, 2, 3)));
+        assert_eq!(rect_of(&alone, size, 0), Rect::new(0.0, 0.0, 300.0, 200.0));
+        let row = Flex::<()>::row()
+            .width(300.0)
+            .height(50.0)
+            .child(Container::new().color(Color::rgb8(1, 2, 3)))
+            .child(Container::new().width(10.0).height(10.0));
+        let empty = rect_of(&row, size, 0);
+        assert_eq!(
+            (empty.width, empty.height),
+            (0.0, 50.0),
+            "nothing along, the row across"
+        );
+    }
+
+    /// **Aligning, it fills its parent and places its child inside**; otherwise it is its
+    /// child's size.
+    #[test]
+    fn an_aligning_container_fills_its_parent() {
+        let size = Size::new(300.0, 200.0);
+        let aligned = Center::new(
+            Container::<()>::new()
+                .alignment(frus_core::Alignment::BOTTOM_RIGHT)
+                .child(Container::new().width(20.0).height(10.0)),
+        );
+        assert_eq!(
+            rect_of(&aligned, size, 0),
+            Rect::new(0.0, 0.0, 300.0, 200.0)
+        );
+        assert_eq!(
+            rect_of(&aligned, size, 1),
+            Rect::new(280.0, 190.0, 20.0, 10.0)
+        );
+        let hugging = Center::new(Container::<()>::new().child(Text::new("Hi")));
+        let hug = rect_of(&hugging, size, 0);
+        assert!(hug.width < 40.0 && hug.height < 30.0, "{hug:?}");
+    }
+
+    /// **Constraints**, which hold a width given with them (the reference's `tighten`).
+    #[test]
+    fn constraints_hold_the_box() {
+        let size = Size::new(300.0, 200.0);
+        let floored = Center::new(
+            Container::<()>::new()
+                .min_width(80.0)
+                .min_height(30.0)
+                .child(Text::new("Hi")),
+        );
+        let r = rect_of(&floored, size, 0);
+        assert_eq!((r.width, r.height), (80.0, 30.0));
+        let capped = Center::new(
+            Container::<()>::new()
+                .width(500.0)
+                .max_width(120.0)
+                .height(10.0),
+        );
+        assert_eq!(rect_of(&capped, size, 0).width, 120.0);
+        // Empty, a ceiling caps the room it takes.
+        let ceiling = Center::new(Container::<()>::new().max_width(50.0).max_height(40.0));
+        let r = rect_of(&ceiling, size, 0);
+        assert_eq!((r.width, r.height), (50.0, 40.0));
+    }
+
+    /// **A transform is painted, not laid out**, about the transform alignment.
+    #[test]
+    fn a_transform_is_about_its_alignment() {
+        let c = Container::<()>::new()
+            .width(40.0)
+            .height(20.0)
+            .translated(5.0, 6.0)
+            .scaled(2.0, 3.0)
+            .rotated(0.5)
+            .transform_alignment(frus_core::Alignment::TOP_LEFT);
+        assert_eq!(Widget::<()>::transform_translate(&c), Some((5.0, 6.0)));
+        assert_eq!(
+            Widget::<()>::transform_scale(&c),
+            Some((2.0, 3.0, frus_core::Alignment::TOP_LEFT))
+        );
+        assert_eq!(
+            Widget::<()>::transform_rotate(&c),
+            Some((0.5, frus_core::Alignment::TOP_LEFT))
+        );
+        let plain = Container::<()>::new().scaled(2.0, 2.0);
+        assert_eq!(
+            Widget::<()>::transform_scale(&plain).map(|t| t.2),
+            Some(frus_core::Alignment::CENTER),
+            "about the centre unless told"
         );
     }
 }

@@ -8,11 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 632 so far, each documenting the objective, the alternatives
+> record — one per step, 633 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The container, as the reference's** (J633). An empty `Container`, and one with an
+  `alignment`, take the room their parent allows, as the reference's do (nothing along a
+  shared row or column); `min_width`/`max_width`/`min_height`/`max_height` are the
+  reference's `constraints`; `translated`/`scaled`/`rotated` about `transform_alignment`
+  are its `transform`. A fill request stops at an aspect ratio and at a grid. **Changed**:
+  empty and aligning containers are no longer the size of their content.
 - **The buttons, as the reference's** (J632). `Button` takes any widget
   (`with_child`) and an icon beside it (`icon`); it resolves a per-state `ButtonStyle`
   (button → `ButtonTheme`'s style for its kind → the reference's defaults); its padding
