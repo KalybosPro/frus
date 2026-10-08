@@ -1,15 +1,23 @@
 //! [`RadioGroup`]: a group of radio buttons, with one option selected.
 
 use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};
+
+use crate::widgetstate::{WidgetState, WidgetStates};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::disabled::disabled_content;
-use crate::interaction::{Interaction, Status};
+use crate::interaction::Status;
 use crate::theme::{TapTarget, Theme};
 use crate::widget::Widget;
 
-const DOT: f32 = 20.0;
-const GAP: f32 = 10.0;
+/// The ring's radius, to the middle of its stroke (`radio.dart:31`).
+const OUTER: f32 = 8.0;
+/// The dot's radius once chosen (`radio.dart:32`).
+const INNER: f32 = 4.5;
+/// The ring's stroke.
+const STROKE: f32 = 2.0;
+/// How long the dot takes to grow (the reference's toggle animation).
+const TOGGLE_SECONDS: f32 = 0.2;
 /// The label's size beside a radio, where nothing says otherwise.
 const LABEL_SIZE: f32 = 18.0;
 
@@ -42,6 +50,10 @@ pub struct Radio<Msg = crate::callback::Callback> {
     enabled: bool,
     /// The group's answer on how much room to reserve for a finger, handed down.
     tap_target: Option<TapTarget>,
+    /// How compact it is; the theme's radio density, then the theme's.
+    visual_density: Option<crate::VisualDensity>,
+    /// The halo's radius.
+    splash_radius: Option<f32>,
     on_click: Option<Msg>,
 }
 
@@ -56,6 +68,8 @@ impl<Msg> Radio<Msg> {
             colors: RadioColors::default(),
             enabled: true,
             tap_target: None,
+            visual_density: None,
+            splash_radius: None,
             on_click: None,
         }
     }
@@ -117,6 +131,22 @@ impl<Msg> Radio<Msg> {
         self
     }
 
+    /// **How compact it is.** Unset, the theme's radio density, then the theme's own: a
+    /// radio follows the theme's density, as the reference's does (`radio.dart:1008`).
+    #[must_use]
+    pub fn visual_density(mut self, density: crate::VisualDensity) -> Self {
+        self.visual_density = Some(density);
+        self
+    }
+
+    /// **The halo's radius** under a pointer, the keyboard or a finger. Unset, the
+    /// theme's, then 20.
+    #[must_use]
+    pub fn splash_radius(mut self, radius: f32) -> Self {
+        self.splash_radius = Some(radius);
+        self
+    }
+
     /// How much room it reserves for the finger that works it.
     #[must_use]
     pub fn tap_target(mut self, target: TapTarget) -> Self {
@@ -131,13 +161,60 @@ impl<Msg> Radio<Msg> {
         TextStyle::new(self.size).resolved()
     }
 
-    /// The room this option reserves, resolved as `group ?? theme ?? framework`
-    /// (`radio.dart:734`).
-    fn reserved(&self, theme: &Theme) -> f32 {
-        self.tap_target
+    /// The square the ring sits in: 48 px padded or 40 shrink-wrapped, moved by the
+    /// density (`radio.dart:738`).
+    fn square(&self, theme: &Theme) -> f32 {
+        let target = self
+            .tap_target
             .or(theme.widgets.radio.tap_target)
-            .unwrap_or(theme.tap_target)
-            .min_side()
+            .unwrap_or(theme.tap_target);
+        let side = match target {
+            TapTarget::Padded => crate::MIN_TAP_TARGET,
+            TapTarget::ShrinkWrap => crate::MIN_TAP_TARGET - 8.0,
+        };
+        let density = self
+            .visual_density
+            .or(theme.widgets.radio.visual_density)
+            .unwrap_or_else(|| theme.visual_density());
+        (side + density.base_size_adjustment().1).max(2.0 * (OUTER + STROKE * 0.5))
+    }
+
+    /// The ring's and the dot's colour for these states (`radio.dart:943`): the chosen
+    /// colour once chosen, `on_surface` under a pointer, the keyboard or a finger and
+    /// `on_surface_variant` at rest otherwise, `on_surface` at 38 % disabled.
+    fn fill(&self, theme: &Theme, states: WidgetStates) -> Color {
+        let c = self.colors;
+        if states.contains(WidgetState::Disabled) {
+            return disabled_content(theme);
+        }
+        if states.contains(WidgetState::Selected) {
+            return c
+                .selected
+                .or(theme.widgets.radio.selected_color)
+                .unwrap_or(theme.scheme.primary);
+        }
+        let resting = c.border.or(theme.widgets.radio.border_color);
+        let active = states.contains(WidgetState::Pressed)
+            || states.contains(WidgetState::Hovered)
+            || states.contains(WidgetState::Focused);
+        if active {
+            c.active_border
+                .or(theme.widgets.radio.active_border_color)
+                .or(resting)
+                .unwrap_or(theme.scheme.on_surface)
+        } else {
+            resting.unwrap_or(theme.scheme.on_surface_variant)
+        }
+    }
+
+    /// The states it is in.
+    fn states(&self, status: &Status) -> WidgetStates {
+        let states = if self.enabled {
+            status.states()
+        } else {
+            WidgetStates::of(WidgetState::Disabled)
+        };
+        states.set(WidgetState::Selected, self.selected)
     }
 }
 
@@ -146,18 +223,19 @@ impl<Msg: Clone> Widget<Msg> for Radio<Msg> {
         Widget::<Msg>::style_themed(self, &Theme::default())
     }
 
-    /// **A 20-pixel ring is not something a finger can be asked to hit** — the reference
-    /// lays a radio out inside a 48-pixel square whatever it paints in the middle
-    /// (`radio.dart:734`). As with a checkbox, the target is the whole control: an option
-    /// with words beside it is already wider than the minimum.
+    /// **A square a finger can hit**, 48 px at the standard density with the ring in its
+    /// middle (`radio.dart:738`), and the label after it.
     fn style_themed(&self, theme: &Theme) -> Style {
-        let least = self.reserved(theme);
+        let square = self.square(theme);
         let style = self.label_style();
-        let line = style.line_height().max(DOT);
-        let label_w = frus_text::measure_resolved(&self.label, &style).width;
+        let label_w = if self.label.is_empty() {
+            0.0
+        } else {
+            frus_text::measure_resolved(&self.label, &style).width
+        };
         Style {
-            width: Dimension::Length((DOT + GAP + label_w).max(least).ceil()),
-            height: Dimension::Length(line.max(least).ceil()),
+            width: Dimension::Length((square + label_w).ceil()),
+            height: Dimension::Length(style.line_height().max(square).ceil()),
             ..Default::default()
         }
     }
@@ -168,70 +246,87 @@ impl<Msg: Clone> Widget<Msg> for Radio<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let c = self.colors;
-        let cy = bounds.y + (bounds.height - DOT) * 0.5;
-        let outer = Rect::new(bounds.x, cy, DOT, DOT);
-        let label_style = self.label_style();
-        // A radio has no container: the ring and the dot *are* the control, so both take
-        // the content opacity — the reference disables its fill at 38 % whether the option
-        // is the chosen one or not.
-        //
-        // An **unselected** ring is not `outline` either, for the same reason a checkbox's
-        // box is not: it is the mark itself, so it takes an *on* colour. The reference
-        // resolves it `on_surface_variant` at rest and the full `on_surface` under a
-        // finger, a pointer or focus. Milestone 332.
-        //
-        // A caller who names one ring colour means the ring, so the pointer state falls
-        // back to the resting override before it falls back to the scheme.
-        let resting = c.border.or(theme.widgets.radio.border_color);
-        let chosen = c
-            .selected
-            .or(theme.widgets.radio.selected_color)
-            .unwrap_or(theme.primary);
-        let (ring, dot, label) = if self.enabled {
-            (
-                if self.selected {
-                    chosen
-                } else if status.interaction != Interaction::None || status.focused {
-                    c.active_border
-                        .or(theme.widgets.radio.active_border_color)
-                        .or(resting)
-                        .unwrap_or(theme.scheme.on_surface)
-                } else {
-                    resting.unwrap_or(theme.scheme.on_surface_variant)
-                },
-                chosen,
-                c.label
-                    .or(theme.widgets.radio.label_color)
-                    .unwrap_or(theme.on_surface),
-            )
+        let square = self.square(theme);
+        let centre = Point::new(bounds.x + square * 0.5, bounds.y + bounds.height * 0.5);
+        let states = self.states(&status);
+
+        if self.enabled {
+            let radius = self
+                .splash_radius
+                .or(theme.widgets.radio.splash_radius)
+                .unwrap_or(crate::toggleable::SPLASH);
+            let overlay = theme.widgets.radio.overlay_color.as_ref();
+            crate::toggleable::paint_halos(scene, centre, radius, &status, |state| {
+                let s = states.set(state, true);
+                overlay
+                    .and_then(|p| p.resolve(s).copied())
+                    .unwrap_or_else(|| crate::toggleable::overlay(theme, s))
+            });
+        }
+
+        // The ring, its colour moving from the unchosen to the chosen one, and the dot
+        // growing from nothing to 4.5 px as the radio is chosen (`radio.dart:849`).
+        let t = status.value.clamp(0.0, 1.0);
+        let off = self.fill(theme, states.set(WidgetState::Selected, false));
+        let on = self.fill(theme, states.set(WidgetState::Selected, true));
+        // At either end, the colour itself: a lerp to 1 is not exactly its target.
+        let ring = if t >= 1.0 {
+            on
+        } else if t <= 0.0 {
+            off
         } else {
-            let dead = disabled_content(theme);
-            (dead, dead, dead)
+            off.lerp(on, t)
         };
-        scene.draw_rect(outer, theme.surface.fade(o), DOT * 0.5, 2.0, ring.fade(o));
-        if self.selected {
-            let inner = DOT * 0.5;
-            let pad = (DOT - inner) * 0.5;
+        // A stroke centred on the 8 px circle: the box is the circle's outer edge, and the
+        // stroke is drawn inside it.
+        let edge = OUTER + STROKE * 0.5;
+        scene.draw_rect(
+            Rect::new(centre.x - edge, centre.y - edge, 2.0 * edge, 2.0 * edge),
+            Color::TRANSPARENT,
+            edge,
+            STROKE,
+            ring.fade(o),
+        );
+        if t > 0.0 {
+            let r = INNER * t;
             scene.draw_rect(
-                Rect::new(outer.x + pad, outer.y + pad, inner, inner),
-                dot.fade(o),
-                inner * 0.5,
+                Rect::new(centre.x - r, centre.y - r, 2.0 * r, 2.0 * r),
+                ring.fade(o),
+                r,
                 0.0,
                 Color::TRANSPARENT,
             );
         }
-        // Centred down the ring's own height. It used to be drawn at the top of the
-        // bounds, which was the same sentence while the bounds *were* the line.
-        scene.text(
-            Point::new(
-                bounds.x + DOT + GAP,
-                bounds.y + (bounds.height - label_style.line_height()) * 0.5,
-            ),
-            self.label.clone(),
-            &label_style,
-            label.fade(o),
-        );
+
+        if !self.label.is_empty() {
+            let colour = if self.enabled {
+                self.colors
+                    .label
+                    .or(theme.widgets.radio.label_color)
+                    .unwrap_or(theme.on_surface)
+            } else {
+                disabled_content(theme)
+            };
+            let style = self.label_style();
+            scene.text(
+                Point::new(
+                    bounds.x + square,
+                    bounds.y + (bounds.height - style.line_height()) * 0.5,
+                ),
+                self.label.clone(),
+                &style,
+                colour.fade(o),
+            );
+        }
+    }
+
+    /// Chosen or not: choosing grows the dot over a fifth of a second.
+    fn anim_target(&self) -> Option<f32> {
+        Some(if self.selected { 1.0 } else { 0.0 })
+    }
+
+    fn anim_duration(&self) -> f32 {
+        TOGGLE_SECONDS
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -381,6 +476,8 @@ impl<Msg: Clone + 'static> RadioGroup<Msg> {
                     colors: self.colors,
                     enabled: self.enabled,
                     tap_target: self.tap_target,
+                    visual_density: None,
+                    splash_radius: None,
                     on_click: Some((self.on_select)(index)),
                 }) as Box<dyn Widget<Msg>>
             })
@@ -411,6 +508,7 @@ impl<Msg: Clone> Widget<Msg> for RadioGroup<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::interaction::Interaction;
     use crate::theme::{MIN_TAP_TARGET, SHRUNK_TAP_TARGET};
 
     #[derive(Clone, Debug, PartialEq)]
@@ -425,7 +523,8 @@ mod tests {
     /// because a `Radio` carries its label where the reference's radio does not.
     #[test]
     fn an_option_reserves_room_for_a_finger() {
-        let theme = Theme::dark();
+        // A phone's theme: a radio follows the theme's density, compact on a desktop.
+        let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Android);
         let option = |target: Option<TapTarget>| Radio::<Msg> {
             label: "Daily".into(),
             selected: false,
@@ -433,6 +532,8 @@ mod tests {
             colors: RadioColors::default(),
             enabled: true,
             tap_target: target,
+            visual_density: None,
+            splash_radius: None,
             on_click: None,
         };
         let height =
@@ -475,6 +576,8 @@ mod tests {
             colors: RadioColors::default(),
             enabled: true,
             tap_target: None,
+            visual_density: None,
+            splash_radius: None,
             on_click: None,
         };
         let mut scene = Scene::new();
@@ -516,6 +619,8 @@ mod tests {
                     colors: RadioColors::default(),
                     enabled: true,
                     tap_target: None,
+                    visual_density: None,
+                    splash_radius: None,
                     on_click: Some(Msg::Pick(0)),
                 },
                 Rect::new(0.0, 0.0, 120.0, 20.0),
@@ -523,6 +628,8 @@ mod tests {
                     opacity: 1.0,
                     interaction,
                     focused,
+                    // Settled: the dot grown or gone.
+                    value: if selected { 1.0 } else { 0.0 },
                     ..Default::default()
                 },
                 &theme,
@@ -532,7 +639,12 @@ mod tests {
                 .primitives()
                 .iter()
                 .find_map(|p| match p {
-                    frus_core::Primitive::Rect { border_color, .. } => Some(*border_color),
+                    // The ring is the stroked circle; a halo has no stroke.
+                    frus_core::Primitive::Rect {
+                        border_color,
+                        border_width,
+                        ..
+                    } if *border_width > 0.0 => Some(*border_color),
                     _ => None,
                 })
                 .expect("the ring")
@@ -565,6 +677,52 @@ mod tests {
             theme.scheme.outline,
             "a ring is a mark, not a container's edge"
         );
+    }
+
+    /// **The reference's ring and dot** (`radio.dart:849`): a ring of radius 8 drawn with
+    /// a 2 px stroke centred on it, in the middle of the square, and a dot of 4.5 grown
+    /// with the animation.
+    #[test]
+    fn the_ring_and_the_dot_are_the_reference_s() {
+        let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Android);
+        let painted = |value: f32| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                &Radio::<Msg>::new(true),
+                Rect::new(0.0, 0.0, 48.0, 48.0),
+                Status {
+                    opacity: 1.0,
+                    value,
+                    ..Default::default()
+                },
+                &theme,
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Rect {
+                        rect, border_width, ..
+                    } => Some((*rect, *border_width)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let settled = painted(1.0);
+        assert_eq!(
+            settled[0],
+            (Rect::new(15.0, 15.0, 18.0, 18.0), 2.0),
+            "the ring"
+        );
+        assert_eq!(
+            settled[1].0,
+            Rect::new(19.5, 19.5, 9.0, 9.0),
+            "the dot, 4.5 round"
+        );
+        let half = painted(0.5);
+        assert_eq!(half[1].0, Rect::new(21.75, 21.75, 4.5, 4.5), "half grown");
+        assert_eq!(painted(0.0).len(), 1, "no dot before it is chosen");
     }
 
     fn group(enabled_first: bool) -> RadioGroup<Msg> {
@@ -636,6 +794,7 @@ mod tests {
 #[cfg(test)]
 mod color_tests {
     use super::*;
+    use crate::interaction::Interaction;
     use crate::widget::Widget;
     use frus_core::Primitive;
 
@@ -651,7 +810,12 @@ mod color_tests {
     ) -> Vec<Color> {
         let option = &Widget::<usize>::children(group)[index];
         let mut scene = Scene::new();
-        option.paint(Rect::new(0.0, 0.0, 200.0, DOT), status, theme, &mut scene);
+        // Settled: these groups choose their first option.
+        let status = Status {
+            value: if index == 0 { 1.0 } else { 0.0 },
+            ..status
+        };
+        option.paint(Rect::new(0.0, 0.0, 200.0, 48.0), status, theme, &mut scene);
         scene
             .primitives()
             .iter()

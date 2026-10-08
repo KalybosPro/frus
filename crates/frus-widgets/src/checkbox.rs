@@ -18,8 +18,6 @@ const EDGE: f32 = 18.0;
 const STROKE: f32 = 2.0;
 /// The box's corner (`checkbox.dart:1047`).
 const RADIUS: f32 = 2.0;
-/// The halo's radius under a pointer, the keyboard or a finger (`checkbox.dart:1037`).
-const SPLASH: f32 = 20.0;
 /// How long a tick takes to draw itself (the reference's toggle animation).
 const TOGGLE_SECONDS: f32 = 0.2;
 
@@ -382,29 +380,20 @@ impl<Msg> Checkbox<Msg> {
         {
             return *c;
         }
-        let c = &theme.scheme;
-        let pressed = states.contains(WidgetState::Pressed);
-        let hovered = states.contains(WidgetState::Hovered);
-        let focused = states.contains(WidgetState::Focused);
-        let pick = |press: Color, hover: Color, focus: Color| {
-            if pressed {
-                press.with_alpha(0.1)
-            } else if hovered {
-                hover.with_alpha(0.08)
-            } else if focused {
-                focus.with_alpha(0.1)
-            } else {
-                Color::TRANSPARENT
+        if states.contains(WidgetState::Error) {
+            let c = theme.scheme.error;
+            // Pressed, then hovered, then focused, as the reference tries them.
+            if states.contains(WidgetState::Pressed) {
+                return c.with_alpha(0.1);
             }
-        };
-        if states.contains(WidgetState::Error) && (pressed || hovered || focused) {
-            return pick(c.error, c.error, c.error);
+            if states.contains(WidgetState::Hovered) {
+                return c.with_alpha(0.08);
+            }
+            if states.contains(WidgetState::Focused) {
+                return c.with_alpha(0.1);
+            }
         }
-        if states.contains(WidgetState::Selected) {
-            pick(c.on_surface, c.primary, c.primary)
-        } else {
-            pick(c.primary, c.on_surface, c.on_surface)
-        }
+        crate::toggleable::overlay(theme, states)
     }
 }
 
@@ -478,26 +467,10 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
             let radius = self
                 .splash_radius
                 .or(theme.widgets.checkbox.splash_radius)
-                .unwrap_or(SPLASH);
-            let halo = |scene: &mut Scene, state: WidgetState, amount: f32, r: f32| {
-                if amount <= 0.0 || r <= 0.0 {
-                    return;
-                }
-                let c = self.overlay(theme, states.set(state, true));
-                if c.a > 0.0 {
-                    scene.draw_rect(
-                        Rect::new(centre.x - r, centre.y - r, 2.0 * r, 2.0 * r),
-                        c.with_alpha(c.a * amount.clamp(0.0, 1.0)).fade(o),
-                        r,
-                        0.0,
-                        Color::TRANSPARENT,
-                    );
-                }
-            };
-            halo(scene, WidgetState::Hovered, status.hover_progress, radius);
-            halo(scene, WidgetState::Focused, status.focus_progress, radius);
-            let press = status.press_progress.clamp(0.0, 1.0);
-            halo(scene, WidgetState::Pressed, 1.0, radius * press);
+                .unwrap_or(crate::toggleable::SPLASH);
+            crate::toggleable::paint_halos(scene, centre, radius, &status, |state| {
+                self.overlay(theme, states.set(state, true))
+            });
         }
 
         // The box at `t` of its animation (`checkbox.dart:786`): 0 unticked, 1 filled.

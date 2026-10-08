@@ -249,7 +249,7 @@ pub struct CheckboxTheme {
 }
 
 /// Defaults for [`RadioGroup`](crate::RadioGroup).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct RadioTheme {
     /// The ring and the dot of the chosen option.
     pub selected_color: Option<Color>,
@@ -262,6 +262,13 @@ pub struct RadioTheme {
     /// **How much room it reserves for a finger** — the reference's per-widget say over
     /// the theme's (`radio.dart:734`). Unset, the theme's own answer.
     pub tap_target: Option<crate::theme::TapTarget>,
+    /// The halo under a pointer, the keyboard or a finger, state by state. Unset, the
+    /// reference's (milestone 635).
+    pub overlay_color: Option<crate::WidgetStateProperty<Color>>,
+    /// That halo's radius. Unset, 20.
+    pub splash_radius: Option<f32>,
+    /// How compact a radio is. Unset, the theme's density.
+    pub visual_density: Option<crate::VisualDensity>,
 }
 
 /// Defaults for [`Slider`](crate::Slider) and [`RangeSlider`](crate::RangeSlider).
