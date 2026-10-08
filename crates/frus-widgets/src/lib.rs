@@ -490,9 +490,9 @@ pub use widgettheme::resolve_shape;
 pub use widgettheme::{
     AppBarTheme, BadgeTheme, ButtonTheme, CardTheme, CheckboxTheme, ChipTheme, DefaultTextStyle,
     DividerTheme, DrawerTheme, DropdownTheme, ExpansionPanelListTheme, GridTileBarTheme,
-    IconButtonTheme, IconTheme, InkTheme, MenuTheme, PageSelectorTheme, RadioTheme, SegmentedTheme,
-    SliderTheme, SwitchTheme, TabBarTheme, TextFieldTheme, TextSelectionTheme, ToggleButtonsTheme,
-    WidgetThemes,
+    IconButtonTheme, IconTheme, InkTheme, MenuBarTheme, MenuTheme, PageSelectorTheme, RadioTheme,
+    SegmentedTheme, SliderTheme, SwitchTheme, TabBarTheme, TextFieldTheme, TextSelectionTheme,
+    ToggleButtonsTheme, WidgetThemes,
 };
 
 // Convenience re-exports for callers.

@@ -60,9 +60,33 @@ const SHORTCUT_GAP: f32 = 24.0;
 /// The panel's surface: the caller's word, then the theme's, then the reference's
 /// — `surface_container`, a menu being a **distinct area within** the surface rather
 /// than something floating above it in a colour of its own (`popup_menu.dart:1858`).
-fn panel_background(own: Option<Color>, theme: &Theme) -> Color {
-    own.or(theme.widgets.menu.background)
+fn panel_background(own: Option<Color>, theme: &Theme, kind: PanelKind) -> Color {
+    own.or(menu_theme(theme, kind).background)
         .unwrap_or(theme.scheme.surface_container)
+}
+
+/// **The menu theme a panel of `kind` answers to**: the application's [`MenuTheme`] for a
+/// popup menu; for a menu bar's menus, the bar's own, then — on a desktop theme — a
+/// desktop's menus, then the application's (milestone 636).
+///
+/// [`MenuTheme`]: crate::MenuTheme
+pub(crate) fn menu_theme(theme: &Theme, kind: PanelKind) -> crate::MenuTheme {
+    match kind {
+        PanelKind::Bar => {
+            let desktop = if theme.platform.is_desktop() {
+                crate::MenuTheme::desktop(theme)
+            } else {
+                crate::MenuTheme::default()
+            };
+            theme
+                .widgets
+                .menu_bar
+                .menus
+                .or(desktop)
+                .or(theme.widgets.menu)
+        }
+        _ => theme.widgets.menu,
+    }
 }
 
 /// **Which theme a panel answers to** once its caller has said nothing.
@@ -79,6 +103,9 @@ pub(crate) enum PanelKind {
     /// [`DropdownButton`](crate::DropdownButton): the `menu_*` fields of
     /// [`DropdownTheme`](crate::DropdownTheme), then eight.
     Dropdown,
+    /// A [`MenuBar`](crate::MenuBar)'s menus: the bar's menus, then a desktop's on a desktop
+    /// theme, then [`MenuTheme`](crate::MenuTheme) — see [`menu_theme`].
+    Bar,
 }
 
 /// **What a caller said about a menu's panel**, every word optional. The theme's, then
@@ -90,13 +117,15 @@ pub(crate) struct PanelStyle {
     pub(crate) elevation: Option<f32>,
     pub(crate) shadow_color: Option<Color>,
     pub(crate) padding: Option<Insets>,
+    /// The panel's outline (milestone 636).
+    pub(crate) border: Option<frus_core::BorderSide>,
 }
 
 impl PanelStyle {
     /// The surface: the caller's, the theme's, then `surface_container` for every kind.
     pub(crate) fn background(&self, kind: PanelKind, theme: &Theme) -> Color {
         match kind {
-            PanelKind::Menu => panel_background(self.background, theme),
+            PanelKind::Menu | PanelKind::Bar => panel_background(self.background, theme, kind),
             PanelKind::Dropdown => self
                 .background
                 .or(theme.widgets.dropdown.menu_background)
@@ -108,7 +137,10 @@ impl PanelStyle {
     /// framework's one corner — see [`Panel::shape_of`] for why not the reference's.
     fn shape(&self, kind: PanelKind, theme: &Theme) -> ShapeBorder {
         let (shape, radius) = match kind {
-            PanelKind::Menu => (theme.widgets.menu.shape, theme.widgets.menu.radius),
+            PanelKind::Menu | PanelKind::Bar => {
+                let m = menu_theme(theme, kind);
+                (m.shape, m.radius)
+            }
             PanelKind::Dropdown => (
                 theme.widgets.dropdown.menu_shape,
                 theme.widgets.dropdown.menu_radius,
@@ -126,9 +158,9 @@ impl PanelStyle {
     /// dropdown button.
     fn elevation(&self, kind: PanelKind, theme: &Theme) -> f32 {
         match kind {
-            PanelKind::Menu => self
+            PanelKind::Menu | PanelKind::Bar => self
                 .elevation
-                .or(theme.widgets.menu.elevation)
+                .or(menu_theme(theme, kind).elevation)
                 .unwrap_or(ELEVATION),
             PanelKind::Dropdown => self
                 .elevation
@@ -142,7 +174,7 @@ impl PanelStyle {
     /// transparent one casts nothing (milestone 529).
     fn shadow_color(&self, kind: PanelKind, theme: &Theme) -> Color {
         let themed = match kind {
-            PanelKind::Menu => theme.widgets.menu.shadow_color,
+            PanelKind::Menu | PanelKind::Bar => menu_theme(theme, kind).shadow_color,
             PanelKind::Dropdown => theme.widgets.dropdown.menu_shadow_color,
         };
         self.shadow_color.or(themed).unwrap_or(theme.scheme.shadow)
@@ -152,7 +184,7 @@ impl PanelStyle {
     /// reference's for a menu and for a dropdown button's list alike.
     fn padding(&self, kind: PanelKind, theme: Option<&Theme>) -> Insets {
         let themed = theme.and_then(|t| match kind {
-            PanelKind::Menu => t.widgets.menu.padding,
+            PanelKind::Menu | PanelKind::Bar => menu_theme(t, kind).padding,
             PanelKind::Dropdown => t.widgets.dropdown.menu_padding,
         });
         self.padding
@@ -167,8 +199,12 @@ impl PanelStyle {
 /// **Resolved once**, so that the number the box is measured with is the number the glyphs
 /// are drawn at. Resolving is the single place the reader's font setting is applied
 /// (milestone 403); a size that never passes through it is a size the reader cannot change.
-fn label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
-    over.or(theme.and_then(|t| t.widgets.menu.text_style))
+fn label_style(
+    over: Option<TextStyle>,
+    theme: Option<&Theme>,
+    kind: PanelKind,
+) -> ResolvedTextStyle {
+    over.or(theme.and_then(|t| menu_theme(t, kind).text_style))
         .unwrap_or_else(|| crate::theme::type_scale(theme).label_large)
         .resolved()
 }
@@ -244,6 +280,9 @@ struct Item<Msg> {
     shortcut: Option<String>,
     /// Whether this row opens a submenu: a chevron at the end (milestone 603).
     submenu: bool,
+    /// Whether that submenu is open: the row keeps its highlight while the pointer is in
+    /// the submenu, so the eye can find what the submenu belongs to (milestone 636).
+    expanded: bool,
     /// What the left and right arrows send while this row has the focus, and whether it
     /// takes the focus when its menu opens (milestone 605).
     keys: RowKeys<Msg>,
@@ -257,6 +296,8 @@ struct Item<Msg> {
     /// The caller's row padding and row height, if either was named.
     padding: Option<Insets>,
     height: Option<f32>,
+    /// Whose theme the row answers to.
+    kind: PanelKind,
     message: Msg,
 }
 
@@ -265,7 +306,7 @@ impl<Msg> Item<Msg> {
     /// reference's twelve.
     fn padding(&self, theme: Option<&Theme>) -> Insets {
         self.padding
-            .or(theme.and_then(|t| t.widgets.menu.item_padding))
+            .or(theme.and_then(|t| menu_theme(t, self.kind).item_padding))
             .unwrap_or(Insets::new(0.0, PAD_X, 0.0, PAD_X))
     }
 
@@ -282,7 +323,8 @@ impl<Msg> Item<Msg> {
     fn shortcut_room(&self, theme: Option<&Theme>) -> f32 {
         let keys = self.shortcut.as_deref().map_or(0.0, |keys| {
             SHORTCUT_GAP
-                + frus_text::measure_resolved(keys, &label_style(self.text_style, theme)).width
+                + frus_text::measure_resolved(keys, &label_style(self.text_style, theme, self.kind))
+                    .width
         });
         keys + if self.submenu {
             SHORTCUT_GAP + LEAD
@@ -294,11 +336,12 @@ impl<Msg> Item<Msg> {
     fn sizing(&self, theme: Option<&Theme>) -> Style {
         let height = self
             .height
-            .or(theme.and_then(|t| t.widgets.menu.item_height))
+            .or(theme.and_then(|t| menu_theme(t, self.kind).item_height))
             .unwrap_or(ROW_H);
         // The row grows if the reader's type does not fit in it — the height is a
         // floor, not a promise.
-        let line = frus_text::line_box(height, &label_style(self.text_style, theme), 0.0);
+        let line =
+            frus_text::line_box(height, &label_style(self.text_style, theme, self.kind), 0.0);
         // **Across, a row says nothing.** The panel decides how wide the menu is and
         // stretches every row to it; a row that named its own width would leave the
         // highlights ragged the moment one label was longer than the others.
@@ -353,8 +396,12 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
         // It used to draw a filled, outlined, rounded rectangle per row — which made a
         // menu a stack of buttons with two-pixel gutters showing the page through, where
         // the reference has one panel with rows inside it.
-        let base = panel_background(self.background, theme);
+        let base = panel_background(self.background, theme, self.kind);
         if self.enabled {
+            let mut status = status;
+            if self.expanded {
+                status.hover_progress = 1.0;
+            }
             let tinted = theme.state_layer(base, theme.on_surface, &status);
             if tinted != base {
                 scene.fill_rect(bounds, tinted.fade(o));
@@ -365,7 +412,7 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
         } else {
             disabled_content(theme)
         };
-        let style = label_style(self.text_style, Some(theme));
+        let style = label_style(self.text_style, Some(theme), self.kind);
         let pad = self.padding(Some(theme));
         // The mark, centred in its column. A tick that is off draws nothing and still
         // holds its place.
@@ -482,6 +529,50 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
     }
 }
 
+/// A rule between a menu's rows: the application's divider, as tall as the menu's theme
+/// says (milestone 636). Its own widget, not a divider built from the theme, because a
+/// built child sits in a box of its own and a rule's width is the column's stretch.
+struct Rule {
+    kind: PanelKind,
+    /// The caller's height, before the theme's.
+    height: Option<f32>,
+}
+
+impl Rule {
+    fn divider(&self, theme: &Theme) -> Divider {
+        match self.height.or(menu_theme(theme, self.kind).divider_height) {
+            Some(h) => Divider::new().height(h),
+            None => Divider::new(),
+        }
+    }
+}
+
+impl<Msg> Widget<Msg> for Rule {
+    fn style(&self) -> Style {
+        Widget::<Msg>::style(&Divider::new())
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        Widget::<Msg>::style_themed(&self.divider(theme), theme)
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &[]
+    }
+
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        Widget::<Msg>::paint(&self.divider(theme), bounds, status, theme, scene);
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+
+    fn debug_name(&self) -> &'static str {
+        "MenuRule"
+    }
+}
+
 /// **The thing a menu actually is**: one surface, off the page, with the rows inside it.
 ///
 /// This did not exist. `rebuild` handed the overlay a bare column of rows, so a menu was
@@ -581,10 +672,10 @@ impl<Msg> Panel<Msg> {
     /// `None` for a panel that measures no rows — it is as wide as what is inside it.
     fn row_width(&self, theme: Option<&Theme>) -> Option<f32> {
         let measure = self.measure.as_ref()?;
-        let style = label_style(measure.text_style, theme);
+        let style = label_style(measure.text_style, theme, self.kind);
         let pad = measure
             .item_padding
-            .or(theme.and_then(|t| t.widgets.menu.item_padding))
+            .or(theme.and_then(|t| menu_theme(t, self.kind).item_padding))
             .unwrap_or(Insets::new(0.0, PAD_X, 0.0, PAD_X));
         let lead = if measure.lead_column {
             LEAD + LEAD_GAP
@@ -639,9 +730,21 @@ impl<Msg: Clone> Widget<Msg> for Panel<Msg> {
             // The reference's shadows for this height (milestone 606).
             frus_core::paint_elevation(scene, bounds, radius, depth, shadow.fade(o));
         }
-        // Opaque, and **no outline**: a panel that is off the page says so with its
-        // shadow. A shadow and a hairline together is the mash-up milestone 279 took out
-        // of the card.
+        // Opaque, and no outline unless the theme names one: a panel that is off the page
+        // says so with its shadow. A desktop's menus draw a hairline as well
+        // (milestone 636).
+        let border = match self.kind {
+            PanelKind::Menu | PanelKind::Bar => {
+                self.look.border.or(menu_theme(theme, self.kind).border)
+            }
+            PanelKind::Dropdown => None,
+        };
+        let shape = match border {
+            Some(side) => {
+                shape.with_side(frus_core::BorderSide::new(side.color.fade(o), side.width))
+            }
+            None => shape,
+        };
         scene.draw_shape(
             bounds,
             shape,
@@ -709,6 +812,8 @@ pub struct MenuItem<Msg = crate::callback::Callback> {
     message: Option<Msg>,
     /// Whether the row opens a submenu (milestone 603).
     pub(crate) submenu: bool,
+    /// Whether that submenu is open (milestone 636).
+    pub(crate) expanded: bool,
     /// The row's keyboard, in a menu bar (milestone 605).
     pub(crate) keys: RowKeys<Msg>,
 }
@@ -724,6 +829,7 @@ impl<Msg> MenuItem<Msg> {
             enabled: true,
             message: Some(message),
             submenu: false,
+            expanded: false,
             keys: RowKeys::default(),
         }
     }
@@ -780,6 +886,7 @@ impl<Msg> MenuItem<Msg> {
             enabled: false,
             message: None,
             submenu: false,
+            expanded: false,
             keys: RowKeys::default(),
         }
     }
@@ -813,6 +920,7 @@ impl<Msg> MenuItem<Msg> {
             enabled: self.enabled,
             message: self.message.clone(),
             submenu: self.submenu,
+            expanded: self.expanded,
             keys: self.keys.clone(),
         }
     }
@@ -1012,7 +1120,9 @@ impl<Msg: Clone + 'static> PopupMenuButton<Msg> {
                 text_style: self.text_style,
                 item_padding: self.item_padding,
                 item_height: self.item_height,
+                divider_height: None,
                 enabled: self.enabled,
+                kind: PanelKind::Menu,
             },
             &|_, row| row,
         );
@@ -1067,7 +1177,11 @@ pub(crate) struct RowLook {
     pub(crate) text_style: Option<TextStyle>,
     pub(crate) item_padding: Option<Insets>,
     pub(crate) item_height: Option<f32>,
+    /// The caller's height for the rules between groups (milestone 636).
+    pub(crate) divider_height: Option<f32>,
     pub(crate) enabled: bool,
+    /// Whose theme the panel and its rows answer to.
+    pub(crate) kind: PanelKind,
 }
 
 /// The panel of a floating menu: its rows on one surface, as wide as its widest row.
@@ -1095,8 +1209,11 @@ pub(crate) fn menu_panel<Msg: Clone + 'static>(
         });
         let Some(message) = &item.message else {
             // A rule, and not a row: it is not a tap target tall, it takes no focus
-            // and it answers nothing.
-            list = list.child(Divider::new());
+            // and it answers nothing. As tall as the theme says (milestone 636).
+            list = list.child(Rule {
+                kind: row.kind,
+                height: row.divider_height,
+            });
             continue;
         };
         let built: Box<dyn Widget<Msg>> = Box::new(Item {
@@ -1111,12 +1228,14 @@ pub(crate) fn menu_panel<Msg: Clone + 'static>(
             lead_column,
             shortcut: item.shortcut.clone(),
             submenu: item.submenu,
+            expanded: item.expanded,
             keys: item.keys.clone(),
             enabled: row.enabled && item.enabled,
             text_style: row.text_style,
             background: row.look.background,
             padding: row.item_padding,
             height: row.item_height,
+            kind: row.kind,
             message: message.clone(),
         });
         list = list.child(decorate(index, built));
@@ -1128,7 +1247,7 @@ pub(crate) fn menu_panel<Msg: Clone + 'static>(
             text_style: row.text_style,
             item_padding: row.item_padding,
         }),
-        ..Panel::new(PanelKind::Menu, row.look, vec![Box::new(list)])
+        ..Panel::new(row.kind, row.look, vec![Box::new(list)])
     })
 }
 
@@ -1623,12 +1742,14 @@ mod tests {
             lead_column: false,
             shortcut: Some("Ctrl+V".into()),
             submenu: false,
+            expanded: false,
             keys: RowKeys::default(),
             enabled: true,
             text_style: None,
             background: None,
             padding: None,
             height: None,
+            kind: PanelKind::Menu,
             message: Msg::A,
         };
         assert_eq!(
@@ -1652,12 +1773,14 @@ mod tests {
             lead_column: true,
             shortcut: None,
             submenu: false,
+            expanded: false,
             keys: RowKeys::default(),
             enabled: true,
             text_style: None,
             background: None,
             padding: None,
             height: None,
+            kind: PanelKind::Menu,
             message: Msg::A,
         };
         let on = Widget::<Msg>::semantics(&row(true)).expect("announced");

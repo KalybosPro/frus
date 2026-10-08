@@ -149,6 +149,8 @@ pub struct WidgetThemes {
     pub table: TableTheme,
     /// The text style that text takes when it names none of its own.
     pub text: DefaultTextStyle,
+    /// Defaults for [`MenuBar`](crate::MenuBar) and its menus.
+    pub menu_bar: MenuBarTheme,
     /// How a selection in text that is not a field looks: a
     /// [`selectable`](crate::Text::selectable) text's, and a
     /// [`SelectionArea`](crate::SelectionArea)'s.
@@ -1039,6 +1041,85 @@ pub struct MenuTheme {
     pub item_padding: Option<Insets>,
     /// How tall one row is. Unset, the smallest box a finger can be asked to hit.
     pub item_height: Option<f32>,
+    /// **An outline round the panel.** Unset, none: the panel's shadow says it is off the
+    /// page. A desktop's menus draw a hairline as well (milestone 636).
+    pub border: Option<frus_core::BorderSide>,
+    /// **How much room a separator takes**, its line in the middle. Unset, the divider's own.
+    pub divider_height: Option<f32>,
+}
+
+impl MenuTheme {
+    /// This theme, with `other`'s answer wherever this one says nothing.
+    pub fn or(self, other: MenuTheme) -> MenuTheme {
+        MenuTheme {
+            text_style: self.text_style.or(other.text_style),
+            background: self.background.or(other.background),
+            shape: self.shape.or(other.shape),
+            radius: self.radius.or(other.radius),
+            elevation: self.elevation.or(other.elevation),
+            shadow_color: self.shadow_color.or(other.shadow_color),
+            padding: self.padding.or(other.padding),
+            item_padding: self.item_padding.or(other.item_padding),
+            item_height: self.item_height.or(other.item_height),
+            border: self.border.or(other.border),
+            divider_height: self.divider_height.or(other.divider_height),
+        }
+    }
+
+    /// **A desktop's menus** (milestone 636): 13 px words on 26 px rows, 12 px either side,
+    /// 4 px above and below the rows, a 6 px corner, a hairline in `outline_variant`, a low
+    /// shadow, and 9 px separators — what an application's menus on Linux, macOS and Windows
+    /// look like, rather than a phone's 48 px rows.
+    pub fn desktop(theme: &crate::Theme) -> MenuTheme {
+        MenuTheme {
+            text_style: Some(TextStyle::new(13.0)),
+            background: None,
+            shape: None,
+            radius: Some(6.0),
+            elevation: Some(2.0),
+            shadow_color: None,
+            padding: Some(Insets::new(4.0, 0.0, 4.0, 0.0)),
+            item_padding: Some(Insets::new(0.0, 12.0, 0.0, 12.0)),
+            item_height: Some(26.0),
+            border: Some(frus_core::BorderSide::new(
+                theme.scheme.outline_variant,
+                1.0,
+            )),
+            divider_height: Some(9.0),
+        }
+    }
+}
+
+/// Defaults for [`MenuBar`](crate::MenuBar): the bar, the words on it, and the menus it opens
+/// (milestone 636).
+///
+/// Unset, a bar on a desktop theme (Linux, macOS, Windows) is a desktop's — 30 px tall,
+/// 13 px words 8 px either side, a rounded highlight on the word under the pointer and on
+/// the word whose menu is open — and on a phone's theme it keeps the 48 px a finger needs.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MenuBarTheme {
+    /// How tall the bar is.
+    pub height: Option<f32>,
+    /// The bar's surface. Unset, `surface_container`.
+    pub background: Option<Color>,
+    /// The room at the bar's ends, around the row of words.
+    pub padding: Option<Insets>,
+    /// The room either side of a word.
+    pub item_padding: Option<Insets>,
+    /// The words' type.
+    pub text_style: Option<TextStyle>,
+    /// The words' colour. Unset, `on_surface`.
+    pub foreground: Option<Color>,
+    /// The highlight behind the word under the pointer, and behind the word whose menu is
+    /// open. Unset, `on_surface` over the bar, at 8 % and 12 %.
+    pub highlight: Option<Color>,
+    /// The highlight's corners.
+    pub item_radius: Option<f32>,
+    /// The room the highlight keeps above and below it, inside the bar.
+    pub item_inset: Option<f32>,
+    /// **The menus the bar opens.** What this says outranks the desktop's menus and then the
+    /// application's [`MenuTheme`].
+    pub menus: MenuTheme,
 }
 
 /// Defaults for [`DropdownButton`](crate::DropdownButton) and its options.
