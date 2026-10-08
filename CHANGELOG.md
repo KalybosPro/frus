@@ -8,11 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 634 so far, each documenting the objective, the alternatives
+> record — one per step, 635 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The radio, as the reference's** (J635). A ring of radius 8 and a dot of 4.5 grown over
+  200 ms, in a 48 px square moved by the theme's density, and the halo the checkbox has,
+  both now from a shared `toggleable` module. `Radio::visual_density`/`splash_radius`;
+  `RadioTheme` gains `overlay_color`, `splash_radius`, `visual_density` (no longer `Copy`).
+  **Changed**: every radio looks different, compact on desktops.
 - **The checkbox, as the reference's** (J634). An 18 px box with a 2 px corner in a 48 px
   square (standard density unless told), a tick drawn as a stroke and a dash for partly
   ticked, the reference's 200 ms fill-and-tick animation, its halo under a pointer, the

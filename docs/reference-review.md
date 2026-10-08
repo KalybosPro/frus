@@ -37,7 +37,7 @@ Status: **done** (milestone), **to review**.
 | frus | reference | source | status |
 |---|---|---|---|
 | `Checkbox` | `Checkbox` | `material/checkbox.dart` | **done** (J634) |
-| `Radio` | `Radio` | `material/radio.dart` | to review |
+| `Radio` | `Radio` | `material/radio.dart` | **done** (J635) |
 | `RadioGroup` | `RadioGroup` | `widgets/radio_group.dart` | to review |
 | `Switch` | `Switch` | `material/switch.dart` | to review |
 | `Slider` | `Slider` | `material/slider.dart` | to review |

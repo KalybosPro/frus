@@ -191,6 +191,7 @@ mod timeline;
 mod timepicker;
 mod toast;
 mod toasthost;
+mod toggleable;
 mod togglebuttons;
 mod tooltip;
 mod transform;
