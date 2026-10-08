@@ -8,11 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 635 so far, each documenting the objective, the alternatives
+> record — one per step, 636 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **A desktop's menu bar** (J636). On Linux, macOS and Windows the `MenuBar` is a desktop
+  application's: a 30 px bar of 13 px words, a rounded highlight on the open word, menus of
+  26 px rows with a hairline outline and thin rules, and the row of an open submenu kept lit.
+  Phones keep 48 px. Every part is the caller's: `MenuBar::height`, `background`, `padding`,
+  `item_padding`, `text_style`, `foreground_color`, `highlight_color`, `item_radius`,
+  `item_inset` and `menu_style`, the new `MenuBarTheme` (`theme.widgets.menu_bar`), and
+  `MenuTheme::{border, divider_height, or, desktop}`. **Changed**: menu bars and their menus
+  look different on desktops.
 - **The radio, as the reference's** (J635). A ring of radius 8 and a dot of 4.5 grown over
   200 ms, in a 48 px square moved by the theme's density, and the halo the checkbox has,
   both now from a shared `toggleable` module. `Radio::visual_density`/`splash_radius`;

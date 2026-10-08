@@ -108,7 +108,7 @@ Status: **done** (milestone), **to review**.
 | `Tab` | `Tab` | `material/tabs.dart` | to review |
 | `TabPageSelector` | `TabPageSelector` | `material/tabs.dart` | to review |
 | `MenuAnchor` | `MenuAnchor` | `material/menu_anchor.dart` | to review |
-| `MenuBar` | `MenuBar` | `material/menu_anchor.dart` | to review |
+| `MenuBar` | `MenuBar` | `material/menu_anchor.dart` | **done** (J636) |
 | `PopupMenuButton` | `PopupMenuButton` | `material/popup_menu.dart` | to review |
 | `SearchBar` | `SearchBar` | `material/search_anchor.dart` | to review |
 | `SearchAnchor` | `SearchAnchor` | `material/search_anchor.dart` | to review |

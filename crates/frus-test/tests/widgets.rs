@@ -1526,3 +1526,46 @@ fn dialog_actions_fold_when_they_stop_fitting() {
         .with_text_scaler(2.0)
         .scope(|| check("dialog_actions_stacked", 520, 340, &dialog()));
 }
+
+/// **A desktop menu bar** like an editor's, closed and with *File* open on its *Open
+/// recent* submenu: shortcuts, separators, a disabled entry, a ticked one.
+fn menu_bar(path: &[usize]) -> Container<()> {
+    use frus_widgets::{MenuBar, MenuPath, SubmenuButton};
+    let path = MenuPath::from_indices(path.to_vec());
+    let file = SubmenuButton::new("File")
+        .item(MenuItem::new("New Text File", ()).shortcut("Ctrl+N"))
+        .item(MenuItem::new("New Window", ()).shortcut("Ctrl+Shift+N"))
+        .divider()
+        .item(MenuItem::new("Open File...", ()).shortcut("Ctrl+O"))
+        .submenu(
+            SubmenuButton::new("Open Recent")
+                .item(MenuItem::new("frus", ()))
+                .item(MenuItem::new("hellome", ())),
+        )
+        .divider()
+        .item(MenuItem::new("Save", ()).shortcut("Ctrl+S"))
+        .item(MenuItem::new("Revert File", ()).enabled(false))
+        .item(MenuItem::checked("Auto Save", true, ()))
+        .divider()
+        .item(MenuItem::new("Exit", ()));
+    let simple = |word: &str| SubmenuButton::new(word).item(MenuItem::new("Undo", ()));
+    let bar = MenuBar::new(&path, |_| ())
+        .menu(file)
+        .menu(simple("Edit"))
+        .menu(simple("Selection"))
+        .menu(simple("View"))
+        .menu(simple("Go"))
+        .menu(simple("Run"))
+        .menu(simple("Help"));
+    Container::new()
+        .width(720.0)
+        .height(420.0)
+        .color(Color::rgb8(20, 22, 28))
+        .child(Flex::column().align(Align::Start).child(bar))
+}
+
+#[test]
+fn a_desktop_menu_bar() {
+    check("menu_bar_closed", 720, 80, &menu_bar(&[]));
+    check("menu_bar_open", 720, 420, &menu_bar(&[0, 4]));
+}
