@@ -1,6 +1,6 @@
 //! [`Switch`]: a **controlled** toggle switch, shaped as a pill.
 
-use frus_core::{Color, Rect, Scene};
+use frus_core::{Color, Curve, Insets, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::disabled::DISABLED_CONTAINER_OPACITY;
@@ -9,6 +9,7 @@ use crate::icons::IconData;
 use crate::interaction::Status;
 use crate::theme::{TapTarget, Theme};
 use crate::widget::Widget;
+use crate::widgetstate::{WidgetState, WidgetStateProperty, WidgetStates};
 
 /// The track, at the reference's size (`switch.dart:2378`, `:2375`).
 const W: f32 = 52.0;
@@ -23,14 +24,33 @@ const THUMB_ON: f32 = 12.0;
 /// travel, which is the squish a finger expects back. It **grows** into it — the press is
 /// a progression since milestone 441, not a flag.
 const THUMB_PRESSED: f32 = 14.0;
-/// A thumb **carrying an icon** is the on-thumb's size at both ends (`switch.dart:2369`):
-/// 16 pixels of glyph do not fit in a 16-pixel dot, and a switch whose thumb changed size
-/// only when it had something to show would be two different switches.
+/// An end whose thumb **carries an icon** is the on-thumb's size (`switch.dart:2369`,
+/// `:1067`): 16 pixels of glyph do not fit in a 16-pixel dot.
 const THUMB_WITH_ICON: f32 = 12.0;
+/// The thumb half way along, a pill wider than it is tall (`switch.dart:2382`): the
+/// stretch of something being pulled across.
+const THUMB_MIDWAY: (f32, f32) = (34.0, 22.0);
 /// The glyph inside the thumb (`switch.dart:2314`).
 const ICON_SIZE: f32 = 16.0;
 /// The rule round an **off** track (`switch.dart:2298`).
 const TRACK_OUTLINE: f32 = 2.0;
+/// The halo's radius (`switch.dart:2301`).
+const SPLASH: f32 = 20.0;
+/// The room either side of the track (`switch.dart:2304`).
+const PADDING: Insets = Insets::new(0.0, 4.0, 0.0, 4.0);
+/// How long a flip takes (`switch.dart:2386`).
+const TOGGLE_SECONDS: f32 = 0.3;
+
+/// The reference's `easeOutBack` (`curves.dart:1727`): the thumb overshoots its end a
+/// little and settles back, which is the snap a switch has.
+fn ease_out_back() -> Curve {
+    Curve::Cubic {
+        x1: 0.175,
+        y1: 0.885,
+        x2: 0.32,
+        y2: 1.275,
+    }
+}
 
 /// An on/off switch.
 pub struct Switch<Msg = crate::callback::Callback> {
@@ -40,6 +60,13 @@ pub struct Switch<Msg = crate::callback::Callback> {
     inactive_track_color: Option<Color>,
     thumb_color: Option<Color>,
     inactive_thumb_color: Option<Color>,
+    thumb_colors: Option<WidgetStateProperty<Color>>,
+    track_colors: Option<WidgetStateProperty<Color>>,
+    track_outline_color: Option<WidgetStateProperty<Color>>,
+    track_outline_width: Option<f32>,
+    overlay_color: Option<WidgetStateProperty<Color>>,
+    splash_radius: Option<f32>,
+    padding: Option<Insets>,
     thumb_icon: Option<IconData>,
     inactive_thumb_icon: Option<IconData>,
     tap_target: Option<TapTarget>,
@@ -56,6 +83,13 @@ impl<Msg> Switch<Msg> {
             inactive_track_color: None,
             thumb_color: None,
             inactive_thumb_color: None,
+            thumb_colors: None,
+            track_colors: None,
+            track_outline_color: None,
+            track_outline_width: None,
+            overlay_color: None,
+            splash_radius: None,
+            padding: None,
             thumb_icon: None,
             inactive_thumb_icon: None,
             tap_target: None,
@@ -80,7 +114,15 @@ impl<Msg> Switch<Msg> {
             .min_side()
     }
 
-    /// The track's colour when the switch is **on**; the theme's `primary` otherwise.
+    /// The room either side of the track: the caller's, the theme's, then 4 pixels.
+    fn room(&self, theme: &Theme) -> Insets {
+        self.padding
+            .or(theme.widgets.switch.padding)
+            .unwrap_or(PADDING)
+    }
+
+    /// The track's colour when the switch is **on**, in every state; the theme's
+    /// `primary` otherwise.
     pub fn track_color(mut self, color: Color) -> Self {
         self.track_color = Some(color);
         self
@@ -98,40 +140,87 @@ impl<Msg> Switch<Msg> {
     /// Unset, as the reference's is: a switch is legible without one. It is there for the
     /// setting that needs saying in more than colour and position — the two things a
     /// reader may not be able to tell apart — and a tick inside the thumb says *on* in a
-    /// third way.
-    ///
-    /// Giving either end an icon makes **both** thumbs the on-thumb's size
-    /// (`switch.dart:2369`), because a switch whose thumb changed size only when it had
-    /// something to show would be two different switches.
+    /// third way. The on thumb is already large enough to carry it.
     pub fn thumb_icon(mut self, icon: IconData) -> Self {
         self.thumb_icon = Some(icon);
         self
     }
 
-    /// The same while the switch is **off** — a cross beside the tick. See
-    /// [`Self::thumb_icon`].
+    /// The same while the switch is **off** — a cross beside the tick. The off thumb
+    /// grows to the on thumb's size to carry it (`switch.dart:1067`).
     pub fn inactive_thumb_icon(mut self, icon: IconData) -> Self {
         self.inactive_thumb_icon = Some(icon);
         self
     }
 
-    /// The thumb's colour when the switch is **on**; the scheme's `on_primary`
-    /// otherwise (`switch.dart:2201`) — the content colour of the track it sits on.
+    /// The thumb's colour when the switch is **on**, in every state; the scheme's
+    /// `on_primary` at rest otherwise (`switch.dart:2201`), `primary_container` under a
+    /// pointer, the keyboard or a finger.
     pub fn thumb_color(mut self, color: Color) -> Self {
         self.thumb_color = Some(color);
         self
     }
 
-    /// The thumb's colour when the switch is **off**; the scheme's `outline` otherwise
-    /// (`switch.dart:2212`).
+    /// The thumb's colour when the switch is **off**, in every state; the scheme's
+    /// `outline` at rest otherwise (`switch.dart:2212`), `on_surface_variant` under a
+    /// pointer, the keyboard or a finger.
     ///
-    /// It used to follow the on colour, on the reasoning that a switch is one thumb
-    /// sliding rather than two swapping places. The reasoning was right and the
-    /// conclusion was not: the reference resolves both ends and **interpolates between
-    /// them**, so it is still one thumb — one that changes colour as it travels, the way
-    /// the track under it does.
+    /// The two ends are resolved apart and the thumb **travels between them**, so it is
+    /// still one thumb — one that changes colour as it travels, the way the track under
+    /// it does.
     pub fn inactive_thumb_color(mut self, color: Color) -> Self {
         self.inactive_thumb_color = Some(color);
+        self
+    }
+
+    /// **The thumb's colour in any state** — on or off ([`WidgetState::Selected`]),
+    /// hovered, focused, pressed, disabled — the reference's `thumbColor`. What it does
+    /// not answer falls to [`Self::thumb_color`] and [`Self::inactive_thumb_color`], then
+    /// the theme, then the reference's.
+    pub fn thumb_colors(mut self, colors: WidgetStateProperty<Color>) -> Self {
+        self.thumb_colors = Some(colors);
+        self
+    }
+
+    /// **The track's colour in any state** — the reference's `trackColor`. See
+    /// [`Self::thumb_colors`].
+    pub fn track_colors(mut self, colors: WidgetStateProperty<Color>) -> Self {
+        self.track_colors = Some(colors);
+        self
+    }
+
+    /// **The rule round the track in any state** (`switch.dart:2251`). Unset, `outline`
+    /// round an off track, none round an on one, and the disabled container colour round a
+    /// disabled off one.
+    pub fn track_outline_color(mut self, colors: WidgetStateProperty<Color>) -> Self {
+        self.track_outline_color = Some(colors);
+        self
+    }
+
+    /// **How wide that rule is.** Unset, the theme's, then 2 pixels.
+    pub fn track_outline_width(mut self, width: f32) -> Self {
+        self.track_outline_width = Some(width);
+        self
+    }
+
+    /// **The halo** round the thumb, state by state (`switch.dart:2264`). Unset, the
+    /// theme's, then `primary` round an on switch and `on_surface` round an off one, at
+    /// 8 % under a pointer and 10 % focused or pressed.
+    pub fn overlay_color(mut self, colors: WidgetStateProperty<Color>) -> Self {
+        self.overlay_color = Some(colors);
+        self
+    }
+
+    /// **The halo's radius.** Unset, the theme's, then 20.
+    pub fn splash_radius(mut self, radius: f32) -> Self {
+        self.splash_radius = Some(radius);
+        self
+    }
+
+    /// **The room either side of the track** (`switch.dart:604`). Unset, the theme's, then
+    /// 4 pixels left and right — which is what lets the halo spill past the track.
+    pub fn padding(mut self, padding: Insets) -> Self {
+        self.padding = Some(padding);
         self
     }
 
@@ -152,6 +241,245 @@ impl<Msg> Switch<Msg> {
         self.enabled = enabled;
         self
     }
+
+    /// The states this switch is in, at one end of its travel.
+    fn states_at(&self, status: &Status, selected: bool) -> WidgetStates {
+        let states = if self.enabled {
+            status.states()
+        } else {
+            WidgetStates::EMPTY
+        };
+        states
+            .set(WidgetState::Selected, selected)
+            .set(WidgetState::Disabled, !self.enabled)
+    }
+
+    /// The thumb at one end: the caller's per-state colours, their plain colour for that
+    /// end, the theme's in the same order, then the reference's (`switch.dart:961`).
+    fn thumb_at(&self, theme: &Theme, states: WidgetStates) -> Color {
+        let t = &theme.widgets.switch;
+        let selected = states.contains(WidgetState::Selected);
+        let plain = |mine: Option<Color>, inactive: Option<Color>| {
+            if selected && self.enabled {
+                mine
+            } else {
+                inactive
+            }
+        };
+        self.thumb_colors
+            .as_ref()
+            .and_then(|p| p.resolve(states).copied())
+            .or_else(|| plain(self.thumb_color, self.inactive_thumb_color))
+            .or_else(|| {
+                t.thumb_colors
+                    .as_ref()
+                    .and_then(|p| p.resolve(states).copied())
+            })
+            .or_else(|| plain(t.thumb_color, t.inactive_thumb_color))
+            .unwrap_or_else(|| default_thumb(theme, states))
+    }
+
+    /// The track at one end, in the same order (`switch.dart:973`).
+    fn track_at(&self, theme: &Theme, states: WidgetStates) -> Color {
+        let t = &theme.widgets.switch;
+        let selected = states.contains(WidgetState::Selected);
+        let plain = |mine: Option<Color>, inactive: Option<Color>| {
+            if selected {
+                mine
+            } else {
+                inactive
+            }
+        };
+        self.track_colors
+            .as_ref()
+            .and_then(|p| p.resolve(states).copied())
+            .or_else(|| plain(self.track_color, self.inactive_track_color))
+            .or_else(|| {
+                t.track_colors
+                    .as_ref()
+                    .and_then(|p| p.resolve(states).copied())
+            })
+            .or_else(|| plain(t.track_color, t.inactive_track_color))
+            .unwrap_or_else(|| default_track(theme, states))
+    }
+
+    /// The rule round the track at one end (`switch.dart:981`).
+    fn outline_at(&self, theme: &Theme, states: WidgetStates) -> Color {
+        self.track_outline_color
+            .as_ref()
+            .and_then(|p| p.resolve(states).copied())
+            .or_else(|| {
+                theme
+                    .widgets
+                    .switch
+                    .track_outline_color
+                    .as_ref()
+                    .and_then(|p| p.resolve(states).copied())
+            })
+            .unwrap_or_else(|| {
+                if states.contains(WidgetState::Selected) {
+                    Color::TRANSPARENT
+                } else if states.contains(WidgetState::Disabled) {
+                    disabled_container(theme)
+                } else {
+                    theme.scheme.outline
+                }
+            })
+    }
+
+    /// The halo's colour with `state` added (`switch.dart:1014`).
+    fn halo_at(&self, theme: &Theme, selected: bool, state: WidgetState) -> Color {
+        let states = WidgetStates::of(state).set(WidgetState::Selected, selected);
+        self.overlay_color
+            .as_ref()
+            .and_then(|p| p.resolve(states).copied())
+            .or_else(|| {
+                theme
+                    .widgets
+                    .switch
+                    .overlay_color
+                    .as_ref()
+                    .and_then(|p| p.resolve(states).copied())
+            })
+            .unwrap_or_else(|| default_overlay(theme, states))
+    }
+
+    /// The thumb's size at linear progress `t` of a flip towards the switch's state
+    /// (`switch.dart:1569`): off to the midway pill over the first 11 %, to the on size
+    /// over the next 72 %, held for the rest — the other way about when it is turned off.
+    fn thumb_size(&self, t: f32) -> (f32, f32) {
+        let off = if self.inactive_thumb_icon.is_some() {
+            THUMB_WITH_ICON
+        } else {
+            THUMB_OFF
+        };
+        let (off, on) = ((2.0 * off, 2.0 * off), (2.0 * THUMB_ON, 2.0 * THUMB_ON));
+        let lerp =
+            |a: (f32, f32), b: (f32, f32), k: f32| (a.0 + (b.0 - a.0) * k, a.1 + (b.1 - a.1) * k);
+        let early = Curve::Cubic {
+            x1: 0.31,
+            y1: 0.0,
+            x2: 0.56,
+            y2: 1.0,
+        };
+        let late = Curve::Cubic {
+            x1: 0.2,
+            y1: 0.0,
+            x2: 0.0,
+            y2: 1.0,
+        };
+        if t <= 0.0 {
+            return off;
+        }
+        if t >= 1.0 {
+            return on;
+        }
+        if self.on {
+            if t < 0.11 {
+                lerp(off, THUMB_MIDWAY, early.transform(t / 0.11))
+            } else if t < 0.83 {
+                lerp(THUMB_MIDWAY, on, late.transform((t - 0.11) / 0.72))
+            } else {
+                on
+            }
+        } else if t < 0.17 {
+            off
+        } else if t < 0.89 {
+            let k = Curve::Flipped(Box::new(late)).transform((t - 0.17) / 0.72);
+            lerp(off, THUMB_MIDWAY, k)
+        } else {
+            let k = Curve::Flipped(Box::new(early)).transform((t - 0.89) / 0.11);
+            lerp(THUMB_MIDWAY, on, k)
+        }
+    }
+}
+
+/// **The reference's thumb** (`switch.dart:2183`): `on_primary` on, `outline` off, and
+/// under a pointer, the keyboard or a finger `primary_container` on and
+/// `on_surface_variant` off. Disabled, opaque, for the reason [`crate::disabled`] gives.
+fn default_thumb(theme: &Theme, states: WidgetStates) -> Color {
+    let c = &theme.scheme;
+    let selected = states.contains(WidgetState::Selected);
+    if states.contains(WidgetState::Disabled) {
+        return if selected {
+            disabled_mark(theme)
+        } else {
+            disabled_content(theme)
+        };
+    }
+    let busy = states.contains(WidgetState::Pressed)
+        || states.contains(WidgetState::Hovered)
+        || states.contains(WidgetState::Focused);
+    match (selected, busy) {
+        (true, true) => c.primary_container,
+        (true, false) => c.on_primary,
+        (false, true) => c.on_surface_variant,
+        (false, false) => c.outline,
+    }
+}
+
+/// **The reference's track** (`switch.dart:2217`): `primary` on, `surface_container_highest`
+/// off, in every state. Disabled, the flattened container on, and off the reference's 12 %
+/// wash of `surface_container_highest`, which is nearly the page itself (`:2223`) —
+/// resolved in sRGB for the reason [`crate::disabled::over_surface`] gives.
+fn default_track(theme: &Theme, states: WidgetStates) -> Color {
+    let selected = states.contains(WidgetState::Selected);
+    if states.contains(WidgetState::Disabled) {
+        return if selected {
+            disabled_container(theme)
+        } else {
+            theme.scheme.surface.lerp(
+                theme.scheme.surface_container_highest,
+                DISABLED_CONTAINER_OPACITY,
+            )
+        };
+    }
+    if selected {
+        theme.primary
+    } else {
+        theme.scheme.surface_container_highest
+    }
+}
+
+/// **The reference's halo** (`switch.dart:2264`): `primary` round an on switch and
+/// `on_surface` round an off one, 10 % pressed, 8 % under a pointer, 10 % focused.
+fn default_overlay(theme: &Theme, states: WidgetStates) -> Color {
+    let ink = if states.contains(WidgetState::Selected) {
+        theme.primary
+    } else {
+        theme.scheme.on_surface
+    };
+    if states.contains(WidgetState::Pressed) {
+        ink.with_alpha(0.1)
+    } else if states.contains(WidgetState::Hovered) {
+        ink.with_alpha(0.08)
+    } else if states.contains(WidgetState::Focused) {
+        ink.with_alpha(0.1)
+    } else {
+        Color::TRANSPARENT
+    }
+}
+
+/// `a` to `b` by `k`, landing **exactly** on either end: a lerp's arithmetic leaves the
+/// last bit off the colour it arrives at.
+fn travel(a: Color, b: Color, k: f32) -> Color {
+    if k <= 0.0 {
+        a
+    } else if k >= 1.0 {
+        b
+    } else {
+        a.lerp(b, k)
+    }
+}
+
+/// A colour that is not opaque, laid on the page first (`switch.dart:1667`), so the thumb
+/// never shows the track through it.
+fn opaque_on(page: Color, c: Color) -> Color {
+    if c.a >= 1.0 {
+        c
+    } else {
+        page.lerp(c.with_alpha(1.0), c.a)
+    }
 }
 
 impl<Msg> Widget<Msg> for Switch<Msg> {
@@ -159,14 +487,13 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
         Widget::<Msg>::style_themed(self, &Theme::default())
     }
 
-    /// **The box is the tap target, not the track** (`switch.dart:605`). The track is 32
-    /// tall and a finger is not; the reference lays a switch out at 52 × 48 and paints
-    /// the track in the middle of it. Nothing about the switch moves — the room around it
-    /// appears, and with it the area a click may land in.
+    /// **The box is the tap target, not the track** (`switch.dart:605`): 52 wide and the
+    /// room either side, and as tall as a finger. The track is painted in the middle of it.
     fn style_themed(&self, theme: &Theme) -> Style {
+        let room = self.room(theme);
         Style {
-            width: Dimension::Length(W),
-            height: Dimension::Length(H.max(self.reserved(theme))),
+            width: Dimension::Length(W + room.left + room.right),
+            height: Dimension::Length(H.max(self.reserved(theme)) + room.top + room.bottom),
             ..Default::default()
         }
     }
@@ -177,155 +504,119 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // `t` is the switch's animated position: 0 is off, 1 is on.
+        // `t` is the flip's linear progress, 0 off and 1 on. The reference curves it two
+        // ways (`switch.dart:797`, `:1153`): the thumb's place overshoots and settles
+        // (`easeOutBack`, flipped on the way back), the colours ease out on the way on and
+        // in on the way off.
         let t = status.value;
-        // A switch is the control that takes **both** halves of the disabled rule: the
-        // track is a container (12 %), the thumb is content drawn on it (38 %), and when
-        // the thumb sits on that flattened track it punches through opaquely instead.
-        // Each end of the travel is resolved on its own -- the caller's word, then the
-        // theme's, then the scheme's -- and `t` interpolates between the two ends rather
-        // than between two already-resolved colours. An override therefore moves the
-        // whole animation with it instead of being a colour the switch passes through.
-        let (track, thumb, edge) = if self.enabled {
-            let on_track = self
-                .track_color
-                .or(theme.widgets.switch.track_color)
-                .unwrap_or(theme.primary);
-            let off_track = self
-                .inactive_track_color
-                .or(theme.widgets.switch.inactive_track_color)
-                .unwrap_or(theme.scheme.surface_container_highest);
-            let on_thumb = self
-                .thumb_color
-                .or(theme.widgets.switch.thumb_color)
-                .unwrap_or(theme.scheme.on_primary);
-            let off_thumb = self
-                .inactive_thumb_color
-                .or(theme.widgets.switch.inactive_thumb_color)
-                .unwrap_or(theme.scheme.outline);
-            (
-                off_track.lerp(on_track, t),
-                off_thumb.lerp(on_thumb, t),
-                theme.scheme.outline,
-            )
+        let curved = |curve: Curve| {
+            // The ends are the ends, as every curve's are in the reference
+            // (`Curve.transform`); a cubic's search stops a hair short of them.
+            if t <= 0.0 || t >= 1.0 {
+                t.clamp(0.0, 1.0)
+            } else {
+                curve.transform(t)
+            }
+        };
+        let (place, mix) = if self.on {
+            (curved(ease_out_back()), curved(Curve::ease_out()))
         } else {
             (
-                if self.on {
-                    // A disabled **on** track is the flattened container
-                    // (`switch.dart:2221`).
-                    disabled_container(theme)
-                } else {
-                    // A disabled **off** one is not: the reference washes
-                    // `surfaceContainerHighest` over the page at the same 12 %
-                    // (`switch.dart:2223`), which is nearly the page itself — a faint
-                    // ring with almost nothing inside. `disabled_container` is the
-                    // *ring's* colour, and filling the pill with it would draw the
-                    // opposite. Resolved in sRGB for the reason
-                    // [`crate::disabled::over_surface`] gives.
-                    theme.scheme.surface.lerp(
-                        theme.scheme.surface_container_highest,
-                        DISABLED_CONTAINER_OPACITY,
-                    )
-                },
-                if self.on {
-                    disabled_mark(theme)
-                } else {
-                    disabled_content(theme)
-                },
-                disabled_container(theme),
+                curved(Curve::Flipped(Box::new(ease_out_back()))),
+                curved(Curve::ease_in()),
             )
         };
-        // The rule belongs to the **off** end alone. A filled track needs no edge, and the
-        // reference returns a transparent one for a switch that is on whether it is
-        // available or not (`switch.dart:2254`) — so fading it out along the travel *is*
-        // that rule, written as the animation it already was.
-        // The box a switch is given is its **tap target**, which is taller than the
-        // track it paints. Everything below is measured from the track, centred in it.
+        // Each end of the travel is resolved on its own and the travel runs between them,
+        // so an override moves the whole animation with it.
+        let on_states = self.states_at(&status, true);
+        let off_states = self.states_at(&status, false);
+        let track = travel(
+            self.track_at(theme, off_states),
+            self.track_at(theme, on_states),
+            mix,
+        );
+        let thumb = opaque_on(
+            theme.scheme.surface,
+            travel(
+                self.thumb_at(theme, off_states),
+                self.thumb_at(theme, on_states),
+                mix,
+            ),
+        );
+        // The rule belongs to the **off** end: transparent round an on track
+        // (`switch.dart:2254`), so it fades out along the travel.
+        let (rule_off, rule_on) = (
+            self.outline_at(theme, off_states),
+            self.outline_at(theme, on_states),
+        );
+        let edge = if rule_on.a == 0.0 {
+            rule_off.fade(1.0 - mix)
+        } else if rule_off.a == 0.0 {
+            rule_on.fade(mix)
+        } else {
+            travel(rule_off, rule_on, mix)
+        };
+        let edge_width = self
+            .track_outline_width
+            .or(theme.widgets.switch.track_outline_width)
+            .unwrap_or(TRACK_OUTLINE);
+
+        // The track, centred in the box (`switch.dart:1706`).
         let track_rect = Rect::new(
-            bounds.x,
+            bounds.x + (bounds.width - W) * 0.5,
             bounds.y + (bounds.height - H) * 0.5,
-            bounds.width,
+            W,
             H,
         );
+        scene.draw_rect(track_rect, track.fade(o), H * 0.5, edge_width, edge.fade(o));
+
+        // The thumb's centre runs half a track-height in from either end, so it stays
+        // centred in the rounded cap; in right-to-left, from the right.
+        let along = if theme.direction == frus_core::TextDirection::Rtl {
+            1.0 - place
+        } else {
+            place
+        };
+        let cx = track_rect.x + H * 0.5 + (W - H) * along;
+        let cy = track_rect.y + H * 0.5;
+
+        // **The halo** (`switch.dart:1691`), over the track and under the thumb, round the
+        // thumb's centre and wider than the track: the room either side is what it spills
+        // into. Nothing round a switch that cannot be worked.
+        if self.enabled {
+            let radius = self
+                .splash_radius
+                .or(theme.widgets.switch.splash_radius)
+                .unwrap_or(SPLASH);
+            crate::toggleable::paint_halos(scene, Point::new(cx, cy), radius, &status, |s| {
+                self.halo_at(theme, self.on, s)
+            });
+        }
+
+        // The thumb: its size along the flip, swelling when held (`switch.dart:1627`) —
+        // grown into over the press's own 200 ms, from wherever it has got to.
+        let (mut w, mut h) = self.thumb_size(t);
+        if self.enabled {
+            let press = status.press_progress.clamp(0.0, 1.0);
+            w += (2.0 * THUMB_PRESSED - w) * press;
+            h += (2.0 * THUMB_PRESSED - h) * press;
+        }
         scene.draw_rect(
-            track_rect,
-            track.fade(o),
-            H * 0.5,
-            TRACK_OUTLINE,
-            edge.fade((1.0 - t) * o),
+            Rect::new(cx - w * 0.5, cy - h * 0.5, w, h),
+            thumb.fade(o),
+            h * 0.5,
+            0.0,
+            Color::TRANSPARENT,
         );
 
-        // Both ends of the travel put the thumb's centre half a track-height in from their
-        // own edge, so it stays centred in the rounded cap whichever size it is.
+        // And the glyph inside it, from the end the switch is **set** to. Its colour is
+        // the track's own at the off end (`switch.dart:2349`), so it reads as a hole
+        // punched through the thumb rather than as a mark drawn on it.
         let icon = if self.on {
             self.thumb_icon
         } else {
             self.inactive_thumb_icon
         };
-        // **A thumb that carries a glyph is the on-thumb's size at both ends**
-        // (`switch.dart:2369`): sixteen pixels of glyph do not fit in a sixteen-pixel dot.
-        // The rule is about the switch, not about this end of it — either icon sets both,
-        // or a switch would change size when it was flipped for a reason that has nothing
-        // to do with being flipped.
-        let carries_an_icon = self.thumb_icon.is_some() || self.inactive_thumb_icon.is_some();
-        let off_r = if carries_an_icon {
-            THUMB_WITH_ICON
-        } else {
-            THUMB_OFF
-        };
-        let mut r = off_r + (THUMB_ON - off_r) * t;
-        // Held, it swells past either end (`switch.dart:2357`) — the squish a finger
-        // expects back, **grown** into over the press's own 200 ms rather than jumped to.
-        // It is measured from wherever the thumb has got to, so a switch held mid-travel
-        // swells from where it is instead of snapping back to an end first.
-        if self.enabled {
-            r += (THUMB_PRESSED - r) * status.press_progress.clamp(0.0, 1.0);
-        }
-        let cx = track_rect.x + H * 0.5 + (W - H) * t;
-        let cy = track_rect.y + H * 0.5;
-
-        // **The state layer**, which this had none of. The reference paints the toggle's
-        // radial reaction over the track and under the thumb (`switch.dart:2264`); here it
-        // is the theme's one rule, resolved opaquely from the track it stands on — a
-        // translucent circle would blend in linear light and paint at something other than
-        // the number it names (milestones 329, 437).
-        //
-        // **The ink is the track's content colour, where the reference's is `primary`.**
-        // That is not a disagreement about the role: the reference's reaction circle is
-        // wider than its track and spills onto the page, so `primary` over the page is
-        // visible at either end. This one is bounded by the switch's own box, so its
-        // ground is the track — and `primary` lerped over a `primary` track is that track
-        // again. A state layer takes the content colour of what it stands on, which is
-        // what [`Theme::state_layer`] asks for and what makes it visible at both ends.
-        //
-        // Nothing at all on a disabled switch: a state layer is the promise of an
-        // interaction, and there is none.
-        if self.enabled {
-            let ink = theme.scheme.on_surface.lerp(theme.scheme.on_primary, t);
-            let layer = theme.state_layer(track, ink, &status);
-            if layer != track {
-                let reach = H * 0.5;
-                scene.draw_rect(
-                    Rect::new(cx - reach, cy - reach, reach * 2.0, reach * 2.0),
-                    layer.fade(o),
-                    reach,
-                    0.0,
-                    Color::TRANSPARENT,
-                );
-            }
-        }
-
-        scene.draw_rect(
-            Rect::new(cx - r, cy - r, r * 2.0, r * 2.0),
-            thumb.fade(o),
-            r,
-            0.0,
-            Color::TRANSPARENT,
-        );
-
-        // And the glyph inside it. Its colour is the track's own at the off end
-        // (`switch.dart:2349`), so it reads as a hole punched through the thumb rather
-        // than as a mark drawn on it.
         if let Some(icon) = icon {
             let t_widget = &theme.widgets.switch;
             let ink = if !self.enabled {
@@ -376,10 +667,16 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
         Some(if self.on { 1.0 } else { 0.0 })
     }
 
-    /// The thumb glides smoothly, accelerating then braking, rather than at a constant
-    /// speed — a switch's standard implicit animation.
+    /// The reference's 300 ms (`switch.dart:2386`).
+    fn anim_duration(&self) -> f32 {
+        TOGGLE_SECONDS
+    }
+
+    /// **Linear**: the value is the flip's progress, which the paint curves itself — one
+    /// way for the thumb's place, another for its colours and a third for its size, as the
+    /// reference curves one controller three ways.
     fn anim_curve(&self) -> frus_core::Curve {
-        frus_core::Curve::ease_in_out()
+        frus_core::Curve::Linear
     }
 }
 
@@ -447,76 +744,154 @@ mod tests {
         }
     }
 
-    /// **A switch answers the pointer** (milestone 440).
-    ///
-    /// It had no state layer at all: hovering one, focusing it, holding it — nothing
-    /// changed. The reference paints the toggle's radial reaction over the track and under
-    /// the thumb (`switch.dart:2264`); here it is the theme's one rule, resolved opaquely
-    /// from the track it stands on, because a translucent circle would blend in linear
-    /// light and paint at something other than the number it names.
+    /// **A switch answers the pointer with the reference's halo** (`switch.dart:1691`):
+    /// a circle of radius 20 round the thumb, wider than the track, over the track and
+    /// under the thumb — `on_surface` round an off switch, `primary` round an on one, 8 %
+    /// under a pointer and 10 % pressed or focused (`switch.dart:2264`).
     #[test]
-    fn a_switch_answers_the_pointer() {
+    fn a_switch_answers_the_pointer_with_a_halo() {
         let theme = Theme::default();
         let switch = Switch::<Msg>::new(false).on_toggle(Msg::Set);
-        let hovered = Status {
-            hover_progress: 1.0,
-            ..state(false)
+        let with = |on: bool, f: fn(&mut Status)| {
+            let mut status = state(on);
+            f(&mut status);
+            status
         };
+        let hover = |s: &mut Status| s.hover_progress = 1.0;
+        let press = |s: &mut Status| s.press_progress = 1.0;
+        let focus = |s: &mut Status| s.focus_progress = 1.0;
         assert_eq!(
             boxes(&switch, state(false), &theme).len(),
             2,
             "track, thumb"
         );
-        let lit = boxes(&switch, hovered, &theme);
-        assert_eq!(lit.len(), 3, "track, layer, thumb");
-
-        let (rect, color) = lit[1];
-        assert_eq!(color.a, 1.0, "resolved here, not handed over as an alpha");
+        let lit = boxes(&switch, with(false, hover), &theme);
+        assert_eq!(lit.len(), 3, "track, halo, thumb");
+        let (halo, colour) = lit[1];
+        assert_eq!(colour, theme.scheme.on_surface.with_alpha(0.08));
+        assert_eq!((halo.width, halo.height), (2.0 * SPLASH, 2.0 * SPLASH));
+        assert!(halo.height > H, "wider than the track");
+        let thumb = lit[2].0;
         assert_eq!(
-            color,
-            theme.state_layer(
-                theme.scheme.surface_container_highest,
-                theme.scheme.on_surface,
-                &hovered
-            ),
-            "the theme's rule, over the track it stands on"
+            (halo.x + SPLASH, halo.y + SPLASH),
+            (thumb.x + thumb.width * 0.5, thumb.y + thumb.height * 0.5),
+            "round the thumb"
         );
-        // Centred on the thumb, and inside the switch either way it is set.
-        assert!(
-            rect.x >= 0.0 && rect.x + rect.width <= W,
-            "the layer left the switch: {rect:?}"
+
+        let on = Switch::<Msg>::new(true).on_toggle(Msg::Set);
+        assert_eq!(
+            boxes(&on, with(true, hover), &theme)[1].1,
+            theme.primary.with_alpha(0.08)
         );
-        assert!(
-            (rect.height - H).abs() < 0.01,
-            "and it reaches the track's full height"
+        assert_eq!(
+            boxes(&on, with(true, press), &theme)[1].1,
+            theme.primary.with_alpha(0.1)
+        );
+        assert_eq!(
+            boxes(&switch, with(false, focus), &theme)[1].1,
+            theme.scheme.on_surface.with_alpha(0.1)
+        );
+
+        // The caller's halo, and its radius.
+        let mine = Switch::<Msg>::new(false)
+            .on_toggle(Msg::Set)
+            .overlay_color(WidgetStateProperty::all(Color::rgb(1.0, 0.0, 0.0)))
+            .splash_radius(12.0);
+        let (halo, colour) = boxes(&mine, with(false, hover), &theme)[1];
+        assert_eq!((colour, halo.width), (Color::rgb(1.0, 0.0, 0.0), 24.0));
+    }
+
+    /// **The thumb answers too** (`switch.dart:2183`): under a pointer, the keyboard or a
+    /// finger it is `primary_container` on and `on_surface_variant` off.
+    #[test]
+    fn the_thumb_answers_the_pointer() {
+        let theme = Theme::light();
+        let hovered = |on: bool| Status {
+            hover_progress: 1.0,
+            interaction: crate::interaction::Interaction::Hovered,
+            ..state(on)
+        };
+        let thumb = |on: bool, status: Status| {
+            boxes(&Switch::<Msg>::new(on).on_toggle(Msg::Set), status, &theme)
+                .last()
+                .expect("a thumb")
+                .1
+        };
+        assert_eq!(thumb(true, hovered(true)), theme.scheme.primary_container);
+        assert_eq!(
+            thumb(false, hovered(false)),
+            theme.scheme.on_surface_variant
+        );
+        assert_eq!(thumb(true, state(true)), theme.scheme.on_primary);
+        assert_eq!(thumb(false, state(false)), theme.scheme.outline);
+
+        // The caller's colours, state by state, before anything else.
+        let mine = WidgetStateProperty::new()
+            .when(WidgetState::Hovered, Color::rgb(0.0, 0.0, 1.0))
+            .when(WidgetState::Selected, Color::rgb(0.0, 1.0, 0.0));
+        let painted = |on: bool, status: Status| {
+            boxes(
+                &Switch::<Msg>::new(on)
+                    .on_toggle(Msg::Set)
+                    .thumb_colors(mine.clone()),
+                status,
+                &theme,
+            )
+            .last()
+            .expect("a thumb")
+            .1
+        };
+        assert_eq!(painted(false, hovered(false)), Color::rgb(0.0, 0.0, 1.0));
+        assert_eq!(painted(true, state(true)), Color::rgb(0.0, 1.0, 0.0));
+        assert_eq!(
+            painted(false, state(false)),
+            theme.scheme.outline,
+            "what it leaves unsaid is the reference's"
         );
     }
 
-    /// Its ink is **the track's content colour**, which the travel interpolates between
-    /// like everything else here.
-    ///
-    /// The reference names `primary` at the on end (`switch.dart:2266`), which works there
-    /// because its reaction circle is wider than its track and spills onto the page. This
-    /// one is bounded by the switch's box, so `primary` over a `primary` track would be
-    /// that track again — the layer would vanish exactly where a pointer is most likely to
-    /// be.
+    /// **The track answers in any state** the caller names, and the rule round it too.
     #[test]
-    fn the_layer_is_the_accent_at_one_end_and_the_ink_at_the_other() {
-        let theme = Theme::default();
-        let switch = Switch::<Msg>::new(true).on_toggle(Msg::Set);
-        let hovered = |on: bool| Status {
-            hover_progress: 1.0,
-            ..state(on)
-        };
-        let off = boxes(&switch, hovered(false), &theme)[1].1;
-        let on = boxes(&switch, hovered(true), &theme)[1].1;
-        assert_eq!(
-            on,
-            theme.state_layer(theme.primary, theme.scheme.on_primary, &hovered(true)),
-            "the accent track, tinted with what is legible on it"
+    fn the_track_and_its_rule_are_the_callers() {
+        let theme = Theme::light();
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let blue = Color::rgb(0.0, 0.0, 1.0);
+        let switch = Switch::<Msg>::new(false)
+            .on_toggle(Msg::Set)
+            .track_colors(WidgetStateProperty::all(red))
+            .track_outline_color(WidgetStateProperty::all(blue))
+            .track_outline_width(3.0);
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            &switch,
+            Rect::new(0.0, 0.0, W, H),
+            state(false),
+            &theme,
+            &mut scene,
         );
-        assert_ne!(off, on, "the two ends do not light the same way");
-        assert_ne!(on, theme.primary, "and it is visible against the track");
+        match scene.primitives()[0] {
+            frus_core::Primitive::Rect {
+                color,
+                border_color,
+                border_width,
+                ..
+            } => assert_eq!((color, border_color, border_width), (red, blue, 3.0)),
+            _ => panic!("the track is a rectangle"),
+        }
+        // Unsaid, the reference's 2 (`switch.dart:2298`).
+        let plain = Switch::<Msg>::new(false).on_toggle(Msg::Set);
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            &plain,
+            Rect::new(0.0, 0.0, W, H),
+            state(false),
+            &theme,
+            &mut scene,
+        );
+        match scene.primitives()[0] {
+            frus_core::Primitive::Rect { border_width, .. } => assert_eq!(border_width, 2.0),
+            _ => panic!("the track is a rectangle"),
+        }
     }
 
     /// And a switch that cannot be worked does not light, in any state: a state layer is
@@ -555,12 +930,9 @@ mod tests {
             .expect("a switch paints a thumb")
     }
 
-    /// **A thumb that carries a glyph is the larger one at both ends**
-    /// (`switch.dart:2369`): sixteen pixels of glyph do not fit in a sixteen-pixel dot.
-    ///
-    /// And the rule is about the *switch*, not about the end it is at — giving only the on
-    /// end an icon still grows the off thumb, or the switch would change size when flipped
-    /// for a reason that has nothing to do with being flipped.
+    /// **An end whose thumb carries a glyph is the larger one** (`switch.dart:1067`):
+    /// sixteen pixels of glyph do not fit in a sixteen-pixel dot. The on thumb is that
+    /// size already, so only an off glyph grows the off thumb.
     #[test]
     fn a_thumb_that_carries_a_glyph_is_the_larger_one() {
         let theme = Theme::default();
@@ -572,11 +944,18 @@ mod tests {
             .thumb_icon(Icons::CHECK);
         assert_eq!(
             thumb_radius(&ticked, state(false), &theme),
-            THUMB_WITH_ICON,
-            "the on end's icon grows the off thumb too"
+            THUMB_OFF,
+            "an on glyph leaves the off thumb alone"
+        );
+        let crossed = Switch::<Msg>::new(false)
+            .on_toggle(Msg::Set)
+            .inactive_thumb_icon(Icons::CLOSE);
+        assert_eq!(
+            thumb_radius(&crossed, state(false), &theme),
+            THUMB_WITH_ICON
         );
         assert_eq!(
-            thumb_radius(&ticked, state(true), &theme),
+            thumb_radius(&crossed, state(true), &theme),
             THUMB_ON,
             "and the on thumb was already that size"
         );
@@ -896,9 +1275,10 @@ mod color_tests {
         let alpha = |t: f32| at(&switch, t, &theme).2.a;
         assert_eq!(alpha(0.0), 1.0, "fully drawn off");
         assert_eq!(alpha(1.0), 0.0, "gone on");
+        // Turned off, the colours ease in (`switch.dart:1156`).
         assert!(
-            (alpha(0.5) - 0.5).abs() < 1e-6,
-            "and half drawn halfway, rather than snapping at one end"
+            (alpha(0.5) - (1.0 - Curve::ease_in().transform(0.5))).abs() < 1e-6,
+            "and part drawn halfway, rather than snapping at one end"
         );
     }
 
@@ -933,6 +1313,80 @@ mod color_tests {
         // Centred in the rounded cap at both ends, so it never breaks the pill.
         assert!((thumb(0.0).x - (H * 0.5 - THUMB_OFF)).abs() < 1e-4);
         assert!((thumb(1.0).x + thumb(1.0).width - (W - H * 0.5 + THUMB_ON)).abs() < 1e-4);
+        // Half way, it is pulled into a pill wider than it is tall (`switch.dart:2382`).
+        let mid = thumb(0.5);
+        assert!(mid.width > mid.height, "a pill: {mid:?}");
+        assert!(mid.width <= THUMB_MIDWAY.0 && mid.height <= THUMB_MIDWAY.1);
+    }
+
+    /// **The flip is the reference's**: 300 ms (`switch.dart:2386`), the thumb overshooting
+    /// its end and settling back (`easeOutBack`, `:800`), and through the midway pill.
+    #[test]
+    fn the_flip_overshoots_and_settles() {
+        let theme = Theme::default();
+        let on = Switch::<()>::new(true);
+        assert_eq!(Widget::<()>::anim_duration(&on), 0.3);
+        assert_eq!(
+            Widget::<()>::anim_curve(&on),
+            Curve::Linear,
+            "curved in the paint"
+        );
+        let centre = |switch: &Switch<()>, t: f32| {
+            let mut scene = Scene::new();
+            Widget::<()>::paint(
+                switch,
+                Rect::new(0.0, 0.0, W, H),
+                Status {
+                    opacity: 1.0,
+                    value: t,
+                    ..Default::default()
+                },
+                &theme,
+                &mut scene,
+            );
+            match scene.primitives()[1] {
+                frus_core::Primitive::Rect { rect, .. } => rect.x + rect.width * 0.5,
+                _ => panic!("the thumb is a rectangle"),
+            }
+        };
+        let end = W - H * 0.5;
+        assert!(centre(&on, 0.7) > end, "past the end on the way on");
+        assert!((centre(&on, 1.0) - end).abs() < 1e-4, "and back on it");
+        let off = Switch::<()>::new(false);
+        assert!(centre(&off, 0.3) < H * 0.5, "past the start on the way off");
+        // Thumb sizes along the way on: off, the pill at 11 %, on by 83 %.
+        let size = |t: f32| on.thumb_size(t);
+        let early = size(0.05);
+        assert!(
+            early.0 > early.1 && early.0 > 2.0 * THUMB_OFF,
+            "already stretching towards the pill: {early:?}"
+        );
+        assert_eq!(size(0.11), THUMB_MIDWAY);
+        assert_eq!(size(0.9), (2.0 * THUMB_ON, 2.0 * THUMB_ON));
+        assert_eq!(off.thumb_size(0.89), THUMB_MIDWAY, "and back the other way");
+        assert_eq!(off.thumb_size(0.1), (2.0 * THUMB_OFF, 2.0 * THUMB_OFF));
+    }
+
+    /// **The box is the reference's**: the track and 4 pixels either side
+    /// (`switch.dart:604`), as the caller or the theme may change.
+    #[test]
+    fn the_box_has_room_either_side() {
+        let theme = Theme::default();
+        let width =
+            |switch: &Switch<()>, theme: &Theme| match Widget::<()>::style_themed(switch, theme)
+                .width
+            {
+                Dimension::Length(w) => w,
+                other => panic!("a length, not {other:?}"),
+            };
+        assert_eq!(width(&Switch::<()>::new(false), &theme), 60.0);
+        assert_eq!(
+            width(&Switch::<()>::new(false).padding(Insets::ZERO), &theme),
+            W
+        );
+        let mut roomy = Theme::default();
+        roomy.widgets.switch.padding = Some(Insets::new(0.0, 10.0, 0.0, 10.0));
+        assert_eq!(width(&Switch::<()>::new(false), &roomy), 72.0);
     }
 
     /// Each end of the travel takes its own colour.
@@ -973,7 +1427,12 @@ mod color_tests {
             frus_core::Primitive::Rect { color, .. } => color,
             _ => panic!("the track is a rectangle"),
         };
-        assert_eq!(track, RAIL.lerp(BRAND, 0.5), "halfway between the two ends");
+        // Turned on, the colours ease out (`switch.dart:1155`).
+        assert_eq!(
+            track,
+            RAIL.lerp(BRAND, Curve::ease_out().transform(0.5)),
+            "between the two ends"
+        );
     }
 
     /// The two ends of the thumb are **two colours**, not one.

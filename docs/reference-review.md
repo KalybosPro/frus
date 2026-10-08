@@ -5,6 +5,10 @@ its behaviour, appearance, defaults, states and animations, against the referenc
 with file and line cited. Names of properties are not the point. Each review that finds
 differences fixes them in a milestone of its own; one that finds none says so here.
 
+The **painting types** the widgets are built on (decorations, borders, gradients, shadows,
+text styles…) are reviewed the same way, in section 11: a widget cannot paint what its
+decoration cannot say.
+
 Widgets without a counterpart (charts, `Kanban`, `Rating`, `Skeleton`, `Timeline`…) are
 frus's own and are not part of this review.
 
@@ -39,7 +43,7 @@ Status: **done** (milestone), **to review**.
 | `Checkbox` | `Checkbox` | `material/checkbox.dart` | **done** (J634) |
 | `Radio` | `Radio` | `material/radio.dart` | **done** (J635) |
 | `RadioGroup` | `RadioGroup` | `widgets/radio_group.dart` | to review |
-| `Switch` | `Switch` | `material/switch.dart` | to review |
+| `Switch` | `Switch` | `material/switch.dart` | **in progress** (J637; thumb drag next) |
 | `Slider` | `Slider` | `material/slider.dart` | to review |
 | `RangeSlider` | `RangeSlider` | `material/range_slider.dart` | to review |
 | `TextField` | `TextField` | `material/text_field.dart` | to review |
@@ -205,3 +209,25 @@ Status: **done** (milestone), **to review**.
 | `Semantics` | `Semantics` | `widgets/basic.dart` | to review |
 | `AnnotatedRegion` | `AnnotatedRegion` | `widgets/annotated_region.dart` | to review |
 | `KeyboardListener` | `KeyboardListener` | `widgets/keyboard_listener.dart` | to review |
+
+## 11. Painting types
+
+| frus | reference | source | status |
+|---|---|---|---|
+| `BoxDecoration` | `BoxDecoration` | `painting/box_decoration.dart` | to review: one shadow, no `shape`, a uniform border, a two-colour linear gradient, no `image`, no `backgroundBlendMode` |
+| `BoxShadow` | `BoxShadow` | `painting/box_shadow.dart` | to review: no `blurStyle` |
+| `Border` | `Border`, `BorderDirectional` | `painting/box_border.dart` | to review: uniform only |
+| `BorderSide` | `BorderSide` | `painting/borders.dart` | to review |
+| `BorderRadius`, `BorderRadiusDirectional` | `BorderRadius`, `BorderRadiusDirectional` | `painting/border_radius.dart` | to review |
+| `LinearGradient` | `LinearGradient`, `RadialGradient`, `SweepGradient` | `painting/gradient.dart` | to review: two colours, linear only |
+| — | `DecorationImage` | `painting/decoration_image.dart` | to review: missing |
+| `ShapeBorder` | `ShapeBorder` and its kinds, `ShapeDecoration` | `painting/*_border.dart`, `painting/shape_decoration.dart` | to review |
+| `TextStyle` | `TextStyle` | `painting/text_style.dart` | to review |
+| `Insets`, `InsetsDirectional` | `EdgeInsets`, `EdgeInsetsDirectional` | `painting/edge_insets.dart` | to review |
+| `Alignment` | `Alignment`, `AlignmentDirectional` | `painting/alignment.dart` | to review |
+| `Curve` | `Curves` | `animation/curves.dart` | to review |
+
+## Order
+
+After the switch: its thumb drag, `Stack`, `BoxDecoration` (and what it is made of),
+`CircleAvatar`; then the rest of the form controls and the sections above in order.
