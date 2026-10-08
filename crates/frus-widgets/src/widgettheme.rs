@@ -295,7 +295,7 @@ pub struct SliderTheme {
 }
 
 /// Defaults for [`Switch`](crate::Switch).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SwitchTheme {
     /// The track, on.
     pub track_color: Option<Color>,
@@ -303,9 +303,26 @@ pub struct SwitchTheme {
     pub inactive_track_color: Option<Color>,
     /// The thumb, on.
     pub thumb_color: Option<Color>,
-    /// The thumb, off. Unset it follows the on colour, which is what the reference does
-    /// and what a switch looks like: one thumb sliding, not two.
+    /// The thumb, off.
     pub inactive_thumb_color: Option<Color>,
+    /// The thumb in any state, on or off — before `thumb_color` and `inactive_thumb_color`
+    /// (milestone 637).
+    pub thumb_colors: Option<crate::WidgetStateProperty<Color>>,
+    /// The track in any state, on or off — before `track_color` and
+    /// `inactive_track_color`.
+    pub track_colors: Option<crate::WidgetStateProperty<Color>>,
+    /// The rule round the track in any state. Unset, `outline` round an off track and none
+    /// round an on one.
+    pub track_outline_color: Option<crate::WidgetStateProperty<Color>>,
+    /// How wide that rule is. Unset, 2.
+    pub track_outline_width: Option<f32>,
+    /// The halo round the thumb, state by state. Unset, `primary` round an on switch and
+    /// `on_surface` round an off one, 8 % under a pointer and 10 % focused or pressed.
+    pub overlay_color: Option<crate::WidgetStateProperty<Color>>,
+    /// The halo's radius. Unset, 20.
+    pub splash_radius: Option<f32>,
+    /// The room either side of the track. Unset, 4 left and right.
+    pub padding: Option<Insets>,
     /// The glyph inside the thumb, on. Unset, the scheme's `on_primary_container`
     /// (`switch.dart:2338`).
     pub icon_color: Option<Color>,

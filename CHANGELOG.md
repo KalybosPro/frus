@@ -8,11 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 636 so far, each documenting the objective, the alternatives
+> record — one per step, 637 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The switch, as the reference's** (J637). A 60 × 48 box (the track and 4 px either
+  side), the reference's 20 px halo round the thumb, `primary_container` and
+  `on_surface_variant` thumbs under a pointer, focus or a press, and the reference's 300 ms
+  flip: the thumb overshoots and settles and stretches into a pill half way. New on
+  `Switch` and `SwitchTheme`: `thumb_colors`, `track_colors`, `track_outline_color`
+  (per-state), `track_outline_width`, `overlay_color`, `splash_radius`, `padding`.
+  **Changed**: switches are 8 px wider; an on-thumb icon no longer grows the off thumb;
+  `SwitchTheme` is no longer `Copy`.
 - **A desktop's menu bar** (J636). On Linux, macOS and Windows the `MenuBar` is a desktop
   application's: a 30 px bar of 13 px words, a rounded highlight on the open word, menus of
   26 px rows with a hairline outline and thin rules, and the row of an open submenu kept lit.
