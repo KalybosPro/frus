@@ -65,6 +65,8 @@ pub(crate) mod runtime;
 mod selection;
 mod subscription;
 mod theming;
+#[cfg(windows)]
+mod title_bar;
 #[cfg(web)]
 mod web_clipboard;
 #[cfg(web)]

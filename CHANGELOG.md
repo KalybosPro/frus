@@ -8,11 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 638 so far, each documenting the objective, the alternatives
+> record — one per step, 640 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The menu bar on the title bar's line** (J640). `Scaffold::menu_bar(MenuBar)` puts the
+  menu bar at the top of the window, above the app bar. On Windows it goes on the title
+  bar's line, as a code editor's does: frus paints the application's icon and the three
+  window buttons where the system has them, and the system keeps acting on them — the icon
+  opens the window menu, the buttons minimize, maximize and close, the empty part of the line
+  moves the window. New: `MediaQuery::title_bar` (`TitleBar`, `CaptionButton`,
+  `TitleBarRole`), `CaptionButtonsTheme`, `Widget::wants_title_bar` and `title_bar_role`.
+  On macOS and Linux the menu bar is the first line under the system's bar.
 - **Dragging a switch's thumb** (J638). The thumb follows a horizontal drag; let go past
   half way it flips, short of it it goes back; a tap still flips it. Built on two new
   widget hooks, `pan_value` and `on_value_release`, with which a drag moves a widget's own

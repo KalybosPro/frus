@@ -1642,6 +1642,18 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// Whether this widget wants **the title bar's line** for itself (milestone 640): a
+    /// scaffold's menu-bar row. The shell gives it the line where the system allows it.
+    fn wants_title_bar(&self) -> bool {
+        false
+    }
+
+    /// What this widget is to the system on the title bar's line, which acts on it: the
+    /// window's icon or its three buttons (milestone 640).
+    fn title_bar_role(&self) -> Option<crate::TitleBarRole> {
+        None
+    }
+
     /// A drag that moves **this widget's own animated value** ([`anim_target`]) — a
     /// switch's thumb following the finger (milestone 638). Given a moment of the drag, the
     /// value now and whether the text runs right to left, the value to hold it at; `None`
@@ -2249,6 +2261,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_pan(&self, event: crate::PanEvent) -> Option<Msg> {
         (**self).on_pan(event)
+    }
+    fn wants_title_bar(&self) -> bool {
+        (**self).wants_title_bar()
+    }
+    fn title_bar_role(&self) -> Option<crate::TitleBarRole> {
+        (**self).title_bar_role()
     }
     fn pan_value(&self, event: crate::PanEvent, value: f32, rtl: bool) -> Option<f32> {
         (**self).pan_value(event, value, rtl)

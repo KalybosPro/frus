@@ -191,6 +191,7 @@ pub struct Scaffold<Msg = crate::callback::Callback> {
     primary: bool,
     drawer_scrim_color: Option<Color>,
     drawer_barrier_dismissible: bool,
+    menu_bar: Option<crate::MenuBar<Msg>>,
 }
 
 impl<Msg: Clone + 'static> Default for Scaffold<Msg> {
@@ -257,6 +258,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             primary: true,
             drawer_scrim_color: None,
             drawer_barrier_dismissible: true,
+            menu_bar: None,
         }
     }
 
@@ -330,6 +332,22 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// Background color, spread edge to edge, including under the system bars.
     pub fn background(mut self, color: Color) -> Self {
         self.background = Some(color);
+        self
+    }
+
+    /// **The menu bar**, at the very top of the window, above the app bar (milestone 640).
+    ///
+    /// On a desktop whose system allows it — Windows — it goes **on the title bar's line**,
+    /// as a code editor's does: the system keeps the window's icon, which opens the window
+    /// menu, and its three buttons, which minimize, maximize and close the window, and the
+    /// empty part of the line moves the window and maximizes it on a double click. frus
+    /// paints the line, the icon from the application's own, and the buttons where the
+    /// system has them. Elsewhere it is the first line under the system's title bar.
+    ///
+    /// On the title bar's line it is as tall as the system's line. Elsewhere it is as tall
+    /// as the bar's own [`height`](crate::MenuBar::height), or a desktop's 30.
+    pub fn menu_bar(mut self, bar: crate::MenuBar<Msg>) -> Self {
+        self.menu_bar = Some(bar);
         self
     }
 
@@ -687,7 +705,49 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             resize_to_avoid_bottom_inset,
             extend_body,
             extend_body_behind_app_bar,
+            menu_bar,
         } = self;
+
+        // The menu bar's row, on the title bar's line when the shell gives it one, and the
+        // height it takes off everything else (milestone 640).
+        let title_bar = MediaQuery::of().title_bar;
+        let menu_row: Option<(Box<dyn Widget<Msg>>, f32)> = menu_bar.map(|bar| {
+            let row_height = title_bar
+                .map(|line| line.height)
+                .or(bar.given_height())
+                .unwrap_or(MENU_BAR_HEIGHT);
+            let mut cells: Vec<Box<dyn Widget<Msg>>> = Vec::new();
+            if let Some(line) = title_bar {
+                if line.leading > 0.0 {
+                    cells.push(Box::new(
+                        Container::new().width(line.leading).height(row_height),
+                    ));
+                }
+                if let Some(png) = line.icon {
+                    cells.push(Box::new(
+                        Container::new()
+                            .padding_each(0.0, 6.0, 0.0, 10.0)
+                            .child(crate::titlebar::WindowIcon::new(png, WINDOW_ICON)),
+                    ));
+                }
+            }
+            cells.push(Box::new(bar.height(row_height)));
+            // The empty part of the line: nothing of the application's, so the system's to
+            // move the window by.
+            cells.push(Box::new(Container::new().flex(1.0).height(row_height)));
+            if let Some(line) = title_bar {
+                if let Some(buttons) = line.buttons {
+                    cells.push(Box::new(crate::titlebar::CaptionButtons::new(
+                        line,
+                        buttons.width,
+                    )));
+                }
+            }
+            let row: Box<dyn Widget<Msg>> =
+                Box::new(crate::titlebar::TitleBarRow::new(cells, width, row_height));
+            (row, row_height)
+        });
+        let height = height - menu_row.as_ref().map_or(0.0, |(_, h)| *h);
 
         // Where the navigation goes is what the caller asked for, and nothing else.
         // This used to be `SizeClass::from_width(width)`, which is how a phone
@@ -1206,13 +1266,23 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // whole shell rather than the app-bar slot alone, because the reference's
         // `Scaffold.of` is readable from anywhere below the scaffold and not only from the
         // bar (`scaffold.dart:3232`).
-        if info.has_drawer() || info.has_end_drawer() {
+        let shell = if info.has_drawer() || info.has_end_drawer() {
             Box::new(crate::ScaffoldScope::new(info, shell))
         } else {
             shell
+        };
+        match menu_row {
+            Some((row, _)) => Box::new(Flex::column().width(width).child(row).child(shell)),
+            None => shell,
         }
     }
 }
+
+/// A menu bar's height off the title bar's line, unless it says otherwise: a desktop's.
+const MENU_BAR_HEIGHT: f32 = 30.0;
+
+/// The window's icon on the title bar's line, a side.
+const WINDOW_ICON: f32 = 16.0;
 
 /// The floating action button the [`Scaffold`] examples show: **one character**, round,
 /// wired to a message.
