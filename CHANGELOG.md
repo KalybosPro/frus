@@ -8,11 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 639 so far, each documenting the objective, the alternatives
+> record — one per step, 641 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **BoxDecoration: shape, sides and shadows** (J641). `BoxShape::{Rectangle, Circle}`; a
+  list of shadows (`shadows`, painted in order, interpolated pair by pair); `Border` side by
+  side (`top`, `right`, `bottom`, `left`; `all`, `symmetric`) and `BorderDirectional`, sides
+  of one colour keeping round corners and circles, sides of several drawn one by one; the
+  room a border takes is each side's own. `Container::box_border`, `shape` and `shadows`, and
+  `Container::decoration` keeps everything the decoration says. **Changed**: `BoxDecoration`
+  is no longer `Copy`; its `shadow` field is `shadows`; `Border` has four `BorderSide`s.
 - **The stack, as the reference's** (J639). A `Stack` is as big as its largest unpinned
   layer (all the room with none, or under `Expand`); `StackFit::Loose` is the default;
   `Expand` forces every unpinned layer to the stack's size; new `StackFit::Passthrough`;

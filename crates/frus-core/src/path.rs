@@ -211,6 +211,14 @@ impl Path {
         self
     }
 
+    /// This path and then `other`, as one: under the even-odd rule a path inside another
+    /// is a hole in it, which is how a band is drawn.
+    #[must_use]
+    pub fn append(mut self, other: Path) -> Self {
+        self.verbs.extend(other.verbs);
+        self
+    }
+
     /// The path's commands, in order.
     pub fn verbs(&self) -> &[PathVerb] {
         &self.verbs
