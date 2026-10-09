@@ -229,6 +229,6 @@ Status: **done** (milestone), **to review**.
 
 ## Order
 
-Done since: the menu bar on the title bar's line (J640). Next: `BoxDecoration` (and what
+Done since: the menu bar on the title bar's line (J640), the window's and not a page's (J642). Next: `BoxDecoration` (and what
 it is made of),
 `CircleAvatar`; then the rest of the form controls and the sections above in order.

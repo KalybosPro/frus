@@ -1,21 +1,37 @@
-//! **The title bar's line**, shared with the system (milestone 640).
+//! **The title bar's line**, shared with the system (milestone 640), and **the window's menu
+//! bar** on it (milestone 642).
 //!
-//! On a desktop whose system allows it, a [`Scaffold`](crate::Scaffold) with a
-//! [`menu_bar`](crate::Scaffold::menu_bar) puts the menu bar on the window's title bar line,
-//! as a code editor does. The system keeps its own window: its icon still opens the window
-//! menu, its three buttons still minimize, maximize and close, and the empty part of the
-//! line still moves the window and maximizes it on a double click. frus paints the line and
-//! the menu bar on it.
+//! On a desktop whose system allows it, a [`WindowMenuBar`] puts the menu bar on the window's
+//! title bar line, as a code editor does. The system keeps its own window: its icon still
+//! opens the window menu, its three buttons still minimize, maximize and close, and the
+//! empty part of the line still moves the window and maximizes it on a double click. frus
+//! paints the line and the menu bar on it.
 //!
 //! The shell says when the line is shared, and what the system keeps on it, through
 //! [`MediaQuery::title_bar`](crate::MediaQuery::title_bar).
+//!
+//! ## The window's, not a page's
+//!
+//! A desktop application has one window, and its pages take turns inside it. The title bar
+//! and the menu bar on it belong to the window: they stay put while a page slides in, and
+//! they do not come and go with the pages. So the menu bar goes **above the pages** — around
+//! the router, with `frus_shell::FrusApp::builder` — and not in a page's scaffold, where it
+//! would leave with the page, slide with the page's transition, and hand the line back to
+//! the system on every page that has none.
 
-use frus_core::{Color, Path, Point, Rect, Scene};
+use frus_core::{Color, Insets, Path, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
+use crate::container::Container;
+use crate::expanded::Expanded;
 use crate::interaction::Status;
+use crate::media::{Edges, MediaQuery};
+use crate::mediascope::MediaScope;
+use crate::menubar::MenuBar;
 use crate::theme::Theme;
+use crate::themed::Themed;
 use crate::widget::Widget;
+use crate::widgettheme::TitleBarTheme;
 
 /// One of the window's three buttons.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,6 +67,11 @@ pub struct TitleBar {
     pub maximized: bool,
     /// Whether the window is the active one: an inactive window's glyphs are quieter.
     pub active: bool,
+    /// The system's surface for the line, as it would draw its own caption for the window
+    /// now — active or not; `None` where the shell cannot tell (milestone 642).
+    pub background: Option<Color>,
+    /// The system's words on that caption, likewise.
+    pub foreground: Option<Color>,
 }
 
 /// What a part of the title bar's line is to the system, which acts on it.
@@ -97,13 +118,22 @@ impl<Msg> Widget<Msg> for CaptionButtons {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         let t = &theme.widgets.caption_buttons;
-        let surface = theme.scheme.surface_container;
-        let glyph = t.glyph_color.unwrap_or(theme.scheme.on_surface);
+        // The line's surface and ink, as its scope resolved them (`WindowMenuBar`).
+        let surface = theme
+            .widgets
+            .menu_bar
+            .background
+            .unwrap_or(theme.scheme.surface_container);
+        let ink = theme
+            .widgets
+            .menu_bar
+            .foreground
+            .unwrap_or(theme.scheme.on_surface);
         let glyph = if self.bar.active {
-            glyph
+            t.glyph_color.unwrap_or(ink)
         } else {
             t.inactive_glyph_color
-                .unwrap_or_else(|| surface.lerp(glyph, 0.45))
+                .unwrap_or_else(|| surface.lerp(t.glyph_color.unwrap_or(ink), 0.45))
         };
         let cell = bounds.width / 3.0;
         for (i, button) in [
@@ -128,14 +158,12 @@ impl<Msg> Widget<Msg> for CaptionButtons {
                 (true, true, _) => {
                     Some(t.close_hover_color.unwrap_or(Color::rgb(0.77, 0.17, 0.11)))
                 }
-                (false, _, true) => Some(
-                    t.pressed_color
-                        .unwrap_or_else(|| surface.lerp(theme.scheme.on_surface, 0.04)),
-                ),
-                (false, true, _) => Some(
-                    t.hover_color
-                        .unwrap_or_else(|| surface.lerp(theme.scheme.on_surface, 0.08)),
-                ),
+                (false, _, true) => {
+                    Some(t.pressed_color.unwrap_or_else(|| surface.lerp(glyph, 0.04)))
+                }
+                (false, true, _) => {
+                    Some(t.hover_color.unwrap_or_else(|| surface.lerp(glyph, 0.08)))
+                }
                 _ => None,
             };
             if let Some(fill) = fill {
@@ -235,21 +263,14 @@ impl<Msg> Widget<Msg> for WindowIcon<Msg> {
     }
 }
 
-/// The row a scaffold puts its menu bar in, which says it wants the title bar's line.
-pub(crate) struct TitleBarRow<Msg> {
+/// The row a [`WindowMenuBar`] puts its menu bar in, which says it wants the title bar's
+/// line. Under a top intrusion — a tablet's status bar — it starts below it, and paints
+/// behind it.
+struct TitleBarRow<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
     width: f32,
     height: f32,
-}
-
-impl<Msg> TitleBarRow<Msg> {
-    pub(crate) fn new(children: Vec<Box<dyn Widget<Msg>>>, width: f32, height: f32) -> Self {
-        Self {
-            children,
-            width,
-            height,
-        }
-    }
+    top: f32,
 }
 
 impl<Msg> Widget<Msg> for TitleBarRow<Msg> {
@@ -258,7 +279,8 @@ impl<Msg> Widget<Msg> for TitleBarRow<Msg> {
             flex_direction: frus_layout::FlexDirection::Row,
             align: frus_layout::Align::Center,
             width: Dimension::Length(self.width),
-            height: Dimension::Length(self.height),
+            height: Dimension::Length(self.top + self.height),
+            padding: Insets::new(self.top, 0.0, 0.0, 0.0),
             ..Style::default()
         }
     }
@@ -289,48 +311,339 @@ impl<Msg> Widget<Msg> for TitleBarRow<Msg> {
     }
 }
 
+/// A menu bar's height off the title bar's line, unless it says otherwise: a desktop's.
+const MENU_BAR_HEIGHT: f32 = 30.0;
+
+/// The window's icon on the title bar's line, a side.
+const WINDOW_ICON: f32 = 16.0;
+
+/// **The window's menu bar**, above everything the window shows (milestone 642).
+///
+/// It goes around the application's pages, so that it stays put while they change — with
+/// `FrusApp::builder`, which hands it the pages:
+///
+/// ```ignore
+/// FrusApp::router(router).builder(|cx, pages| {
+///     let wide = MediaQuery::of().size_class() == SizeClass::Expanded;
+///     let bar = wide.then(|| menu_bar(cx)); // `None` on a narrow window
+///     Box::new(WindowMenuBar::new(bar, pages))
+/// })
+/// ```
+///
+/// On a desktop whose system allows it — Windows — the bar goes **on the title bar's line**,
+/// as a code editor's does: the system keeps the window's icon, which opens the window menu,
+/// and its three buttons, which minimize, maximize and close the window, and the empty part
+/// of the line moves the window and maximizes it on a double click. frus paints the line, the
+/// icon from the application's own, and the buttons where the system has them. Elsewhere it
+/// is the first line under the system's title bar. On the title bar's line it is as tall as
+/// the system's line; elsewhere as tall as the bar's own [`height`](MenuBar::height), or a
+/// desktop's 30.
+///
+/// **`child` gets the rest of the window**: below it, [`MediaQuery::of`] is the window less
+/// the bar's line — its size shorter by it, its top intrusion consumed — so a
+/// [`Scaffold`](crate::Scaffold) built there fits under the bar. That holds for what is built
+/// where it sits: the router's pages, a component. A scaffold made before, outside, has
+/// already read the whole window.
+///
+/// **With no bar** — `None`, a narrow window that folds its menus away — `child` gets the
+/// whole window and the system gets its title bar back. The tree keeps its shape either
+/// way, so the pages below keep their state when the bar comes and goes: keep the
+/// `WindowMenuBar` and pass it `None`, rather than leaving it out.
+///
+/// **Its colours are the system's** on the title bar's line: the caption the desktop would
+/// draw for the window — light or dark, the accent colour where the person asked for it,
+/// quieter when the window is not the active one. [`background`](Self::background),
+/// [`foreground`](Self::foreground) and [`style`](Self::style) say otherwise for this bar, and
+/// [`TitleBarTheme`] (`theme.widgets.title_bar`) for every bar; what this bar says outranks
+/// the theme, which outranks the system. Off the line, unset, the bar's own
+/// [`MenuBarTheme`](crate::MenuBarTheme).
+pub struct WindowMenuBar<Msg = crate::callback::Callback> {
+    /// The bar's row (an empty box with no bar), then `child`.
+    children: Vec<Box<dyn Widget<Msg>>>,
+    width: f32,
+    height: f32,
+    /// The colours this bar was given, read by the row's scope when the walk reaches it — a
+    /// setter called after `new` still reaches the row.
+    own: std::rc::Rc<std::cell::Cell<TitleBarTheme>>,
+}
+
+impl<Msg: Clone + 'static> WindowMenuBar<Msg> {
+    /// `bar` on the window's first line, or none, and `child` under it.
+    pub fn new(bar: impl Into<Option<MenuBar<Msg>>>, child: impl Widget<Msg> + 'static) -> Self {
+        let surface = MediaQuery::of();
+        let own = std::rc::Rc::new(std::cell::Cell::new(TitleBarTheme::default()));
+        let (row, taken): (Box<dyn Widget<Msg>>, f32) = match bar.into() {
+            Some(bar) => {
+                let line = surface.title_bar;
+                // On the title bar's line the system has the window's top: no intrusion
+                // there to start below.
+                let top = if line.is_some() {
+                    0.0
+                } else {
+                    surface.padding.top
+                };
+                let row = title_bar_row(bar, line, surface.size.width, top);
+                let taken = row.top + row.height;
+                // The line's colours, for everything on it: resolved under the theme the
+                // walk brings, so the theme's say is the one in force where the bar is.
+                let colours = own.clone();
+                let row = Themed::tweak(
+                    move |theme: &mut Theme| paint_line(theme, colours.get(), line),
+                    row,
+                );
+                (Box::new(row), taken)
+            }
+            None => (Box::new(Container::new().height(0.0)), 0.0),
+        };
+        let content = MediaScope::tweak(
+            move |media: &mut MediaQuery| {
+                if taken > 0.0 {
+                    *media = media.remove_padding(Edges {
+                        top: true,
+                        ..Edges::NONE
+                    });
+                    media.size.height = (media.size.height - taken).max(0.0);
+                    // The line is this bar's: nothing below is on it.
+                    media.title_bar = None;
+                }
+            },
+            child,
+        );
+        Self {
+            children: vec![row, Box::new(Expanded::new(content))],
+            width: surface.size.width,
+            height: surface.size.height,
+            own,
+        }
+    }
+
+    /// **The line's surface**, active or not, for this bar.
+    #[must_use]
+    pub fn background(self, color: Color) -> Self {
+        self.restyle(|t| t.background = Some(color))
+    }
+
+    /// **The words and glyphs on the line**, active or not, for this bar.
+    #[must_use]
+    pub fn foreground(self, color: Color) -> Self {
+        self.restyle(|t| t.foreground = Some(color))
+    }
+
+    /// **Every colour of the line** for this bar, the inactive window's included. What it
+    /// leaves unset is the theme's, then the system's.
+    #[must_use]
+    pub fn style(self, style: TitleBarTheme) -> Self {
+        self.restyle(|t| *t = style)
+    }
+
+    fn restyle(self, change: impl FnOnce(&mut TitleBarTheme)) -> Self {
+        let mut style = self.own.get();
+        change(&mut style);
+        self.own.set(style);
+        self
+    }
+}
+
+/// One of the line's colours for the window as it is: active, or what is said for an
+/// inactive window, else the active one's.
+fn for_window(active: bool, color: Option<Color>, inactive: Option<Color>) -> Option<Color> {
+    if active {
+        color
+    } else {
+        inactive.or(color)
+    }
+}
+
+/// **Says the line's colours to everything on it**: what the bar was given, then the theme's
+/// [`TitleBarTheme`], then the system's caption ([`TitleBar::background`]). The bar's words
+/// and highlight read them as the menu bar's surface and ink, and the window's buttons as
+/// their glyphs; what the menu bar itself was given still outranks them.
+fn paint_line(theme: &mut Theme, own: TitleBarTheme, line: Option<TitleBar>) {
+    let active = line.is_none_or(|line| line.active);
+    let said = theme.widgets.title_bar;
+    let background = for_window(active, own.background, own.inactive_background)
+        .or(for_window(
+            active,
+            said.background,
+            said.inactive_background,
+        ))
+        .or(line.and_then(|line| line.background));
+    let foreground = for_window(active, own.foreground, own.inactive_foreground)
+        .or(for_window(
+            active,
+            said.foreground,
+            said.inactive_foreground,
+        ))
+        .or(line.and_then(|line| line.foreground));
+    if let Some(color) = background {
+        theme.widgets.menu_bar.background = Some(color);
+    }
+    if let Some(color) = foreground {
+        theme.widgets.menu_bar.foreground = Some(color);
+        // Already the inactive window's when the window is not active: the glyphs take it
+        // as it is, rather than quietened a second time.
+        if !active {
+            let buttons = &mut theme.widgets.caption_buttons;
+            buttons.inactive_glyph_color = buttons.inactive_glyph_color.or(Some(color));
+        }
+    }
+}
+
+/// The bar's row: on the title bar's line, the system's height, with the window's icon at
+/// its start and its three buttons where the system has them; elsewhere, the bar alone.
+fn title_bar_row<Msg: Clone + 'static>(
+    bar: MenuBar<Msg>,
+    line: Option<TitleBar>,
+    width: f32,
+    top: f32,
+) -> TitleBarRow<Msg> {
+    let height = line
+        .map(|line| line.height)
+        .or(bar.given_height())
+        .unwrap_or(MENU_BAR_HEIGHT);
+    let mut cells: Vec<Box<dyn Widget<Msg>>> = Vec::new();
+    if let Some(line) = line {
+        if line.leading > 0.0 {
+            cells.push(Box::new(
+                Container::new().width(line.leading).height(height),
+            ));
+        }
+        if let Some(png) = line.icon {
+            cells.push(Box::new(
+                Container::new()
+                    .padding_each(0.0, 6.0, 0.0, 10.0)
+                    .child(WindowIcon::new(png, WINDOW_ICON)),
+            ));
+        }
+    }
+    cells.push(Box::new(bar.height(height)));
+    // The empty part of the line: nothing of the application's, so the system's to move the
+    // window by.
+    cells.push(Box::new(Container::new().flex(1.0).height(height)));
+    if let Some(line) = line {
+        if let Some(buttons) = line.buttons {
+            cells.push(Box::new(CaptionButtons::new(line, buttons.width)));
+        }
+    }
+    TitleBarRow {
+        children: cells,
+        width,
+        height,
+        top,
+    }
+}
+
+impl<Msg> Widget<Msg> for WindowMenuBar<Msg> {
+    fn style(&self) -> Style {
+        Style {
+            flex_direction: frus_layout::FlexDirection::Column,
+            width: Dimension::Length(self.width),
+            height: Dimension::Length(self.height),
+            ..Style::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &self.children
+    }
+
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+
+    fn debug_name(&self) -> &'static str {
+        "WindowMenuBar"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{build_ui, MediaQuery, MenuBar, MenuPath, Runtime, Scaffold, Size, SubmenuButton};
+    use crate::{
+        build_ui, BuildContext, Callback, Component, MenuBar, MenuPath, Runtime, Scaffold, Size,
+        SubmenuButton, UseState,
+    };
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
 
-    #[derive(Clone, Debug, PartialEq)]
-    enum Msg {
-        Menu(MenuPath),
-    }
+    type Msg = Callback;
 
     const SIZE: Size = Size::new(1000.0, 700.0);
     /// The frus logo, a real PNG.
     const ICON: &[u8] = include_bytes!("../../frus-shell/assets/icon.png");
 
     fn bar() -> MenuBar<Msg> {
-        MenuBar::new(&MenuPath::closed(), Msg::Menu).menu(SubmenuButton::new("File"))
+        MenuBar::new(&MenuPath::closed(), |_| Callback::new(|| {})).menu(SubmenuButton::new("File"))
     }
 
-    /// A scaffold with a title and a menu bar, built under `line`, and laid out.
-    fn scaffold(line: Option<TitleBar>) -> crate::Ui<Msg> {
-        let surface = MediaQuery::new(SIZE).with_title_bar(line);
-        let tree = surface.scope(|| {
-            Scaffold::<Msg>::new()
+    /// What a page read of the window when it was built.
+    type Seen = Rc<Cell<Option<MediaQuery>>>;
+
+    /// A page as the router makes one: a component, built where it sits, whose scaffold has
+    /// a title, a footer and a floating button.
+    fn page(seen: &Seen) -> Component {
+        let seen = seen.clone();
+        Component::stateless(move |_: &BuildContext| {
+            seen.set(Some(MediaQuery::of()));
+            Scaffold::new()
                 .app_bar(crate::Text::new("Title"))
                 .persistent_footer(crate::Text::new("Foot"))
                 .fab(crate::Text::new("Fab"))
-                .menu_bar(bar())
                 .build()
-        });
-        let theme = Theme::default().with_platform(frus_core::TargetPlatform::Windows);
-        surface.scope(|| build_ui(tree.as_ref(), SIZE, &Runtime::default(), &theme))
+        })
+    }
+
+    /// One frame of the shell's, less the drawing, on `surface`: `tree` is made under it, as
+    /// the shell calls `view`, then built and laid out.
+    fn frame(
+        surface: MediaQuery,
+        runtime: &Runtime,
+        tree: impl FnOnce() -> Box<dyn Widget<Msg>>,
+    ) -> crate::Ui<Msg> {
+        frame_themed(surface, runtime, &windows(), tree)
+    }
+
+    fn windows() -> Theme {
+        Theme::default().with_platform(frus_core::TargetPlatform::Windows)
+    }
+
+    /// [`frame`], under `theme`.
+    fn frame_themed(
+        surface: MediaQuery,
+        runtime: &Runtime,
+        theme: &Theme,
+        tree: impl FnOnce() -> Box<dyn Widget<Msg>>,
+    ) -> crate::Ui<Msg> {
+        let theme = theme.clone();
+        surface.scope(|| {
+            runtime.states.begin_build();
+            let tree = tree();
+            crate::build_deferred(tree.as_ref(), &theme, runtime);
+            let ui = build_ui(tree.as_ref(), SIZE, runtime, &theme);
+            runtime.states.end_frame();
+            ui
+        })
+    }
+
+    /// The window's menu bar around a page, on `surface`.
+    fn window(surface: MediaQuery, seen: &Seen) -> crate::Ui<Msg> {
+        let page = page(seen);
+        frame(surface, &Runtime::default(), || {
+            Box::new(WindowMenuBar::new(bar(), page))
+        })
     }
 
     fn text_at(ui: &crate::Ui<Msg>, label: &str) -> Rect {
-        ui.scene()
-            .primitives()
-            .iter()
-            .find_map(|p| match p {
-                frus_core::Primitive::Text { text, .. } if text == label => Some(p.bounds()),
-                _ => None,
-            })
-            .unwrap_or_else(|| panic!("{label:?} is painted"))
+        find_text(ui, label).unwrap_or_else(|| panic!("{label:?} is painted"))
+    }
+
+    fn find_text(ui: &crate::Ui<Msg>, label: &str) -> Option<Rect> {
+        ui.scene().primitives().iter().find_map(|p| match p {
+            frus_core::Primitive::Text { text, .. } if text == label => Some(p.bounds()),
+            _ => None,
+        })
     }
 
     fn line(buttons: Option<Rect>, icon: Option<&'static [u8]>) -> TitleBar {
@@ -343,26 +656,36 @@ mod tests {
             pressed: None,
             maximized: false,
             active: true,
+            background: None,
+            foreground: None,
         }
     }
 
-    /// **A scaffold's menu bar is its first line**, above the app bar, and asks for the
-    /// title bar's line; off it, a desktop's 30 px.
+    /// **The window's menu bar is its first line, and the page gets the rest**: off the
+    /// title bar's line a desktop's 30 px; the page is built for the window less them, so
+    /// its scaffold fits under the bar — its footer and floating button still at the
+    /// window's bottom — and nothing below is on the line.
     #[test]
-    fn a_scaffold_s_menu_bar_is_its_first_line() {
-        let ui = scaffold(None);
+    fn the_menu_bar_is_the_window_s_first_line_and_the_page_gets_the_rest() {
+        let seen = Seen::default();
+        let ui = window(MediaQuery::new(SIZE), &seen);
         let file = text_at(&ui, "File");
         let title = text_at(&ui, "Title");
         assert!(file.y + file.height <= 30.0, "in the first 30 px: {file:?}");
         assert!(title.y >= 30.0, "the app bar under it: {title:?}");
         assert!(ui.wants_title_bar(), "and it asks for the line");
-        // The rest of the scaffold is the window less the row: its footer still ends on
-        // the screen.
+        let page = seen.get().expect("the page was built");
+        assert_eq!(
+            page.size,
+            Size::new(SIZE.width, SIZE.height - 30.0),
+            "the page is built for the window less the bar"
+        );
+        assert_eq!(page.title_bar, None, "the line is the bar's");
         for part in ["Foot", "Fab"] {
             let r = text_at(&ui, part);
             assert!(
-                r.y + r.height <= SIZE.height,
-                "{part} is in the window: {r:?}"
+                r.y + r.height <= SIZE.height && r.y + r.height > SIZE.height - 80.0,
+                "{part} is at the window's bottom: {r:?}"
             );
         }
         assert!(
@@ -376,9 +699,14 @@ mod tests {
     #[test]
     fn on_the_title_bar_line_the_system_s_parts_are_painted_where_it_has_them() {
         let buttons = Rect::new(862.0, 0.0, 138.0, 40.0);
-        let ui = scaffold(Some(line(Some(buttons), Some(ICON))));
+        let seen = Seen::default();
+        let surface = MediaQuery::new(SIZE).with_title_bar(Some(line(Some(buttons), Some(ICON))));
+        let ui = window(surface, &seen);
         let title = text_at(&ui, "Title");
         assert!(title.y >= 40.0, "the app bar under the line: {title:?}");
+        let page = seen.get().expect("the page was built");
+        assert_eq!(page.size.height, SIZE.height - 40.0, "the line taken off");
+        assert_eq!(page.title_bar, None, "the line is the bar's");
         let regions = ui.title_bar_regions();
         let (button_box, _) = regions
             .iter()
@@ -398,6 +726,190 @@ mod tests {
             file.x > icon_box.x + icon_box.width,
             "the menu after the icon"
         );
+    }
+
+    /// **Under a top intrusion** — a tablet's status bar — the bar starts below it, and the
+    /// page is told the intrusion is dealt with.
+    #[test]
+    fn under_a_status_bar_the_menu_bar_starts_below_it() {
+        let seen = Seen::default();
+        let surface = MediaQuery::new(SIZE).with_insets(frus_core::WindowInsets {
+            padding: frus_core::Insets::new(24.0, 0.0, 0.0, 0.0),
+            ..Default::default()
+        });
+        let ui = window(surface, &seen);
+        let file = text_at(&ui, "File");
+        assert!(file.y >= 24.0, "below the status bar: {file:?}");
+        let page = seen.get().expect("the page was built");
+        assert_eq!(page.size.height, SIZE.height - 24.0 - 30.0);
+        assert_eq!(page.padding.top, 0.0, "the status bar is dealt with");
+        let title = text_at(&ui, "Title");
+        assert!(title.y >= 54.0, "the app bar under both: {title:?}");
+    }
+
+    /// **With no bar** — a narrow window — the page has the whole window, the system gets
+    /// its line back, and **the page keeps its state** while the bar comes and goes: the
+    /// tree keeps its shape.
+    #[test]
+    fn with_no_bar_the_page_has_the_window_and_keeps_its_state() {
+        let runtime = Runtime::default();
+        let count: Rc<RefCell<Option<UseState<i32>>>> = Rc::default();
+        let tree = |with_bar: bool| {
+            let count = count.clone();
+            move || -> Box<dyn Widget<Msg>> {
+                let page = Component::stateless(move |cx: &BuildContext| -> Box<dyn Widget> {
+                    let n = cx.use_state(|| 0);
+                    *count.borrow_mut() = Some(n.clone());
+                    Box::new(crate::Text::new(format!("count {}", n.get())))
+                });
+                Box::new(WindowMenuBar::new(with_bar.then(bar), page))
+            }
+        };
+        let ui = frame(MediaQuery::new(SIZE), &runtime, tree(true));
+        assert!(ui.wants_title_bar());
+        count.borrow().as_ref().expect("built").set(5);
+
+        let ui = frame(MediaQuery::new(SIZE), &runtime, tree(false));
+        assert!(find_text(&ui, "File").is_none(), "no bar");
+        assert!(!ui.wants_title_bar(), "the line is the system's again");
+        let text = text_at(&ui, "count 5");
+        assert!(text.y < 30.0, "the page from the window's top: {text:?}");
+
+        let ui = frame(MediaQuery::new(SIZE), &runtime, tree(true));
+        assert!(find_text(&ui, "count 5").is_some(), "kept, both ways");
+    }
+
+    /// The system's caption, as the shell reports it for an active dark window.
+    const CAPTION: Color = Color::rgb(0.13, 0.12, 0.16);
+    const CAPTION_INK: Color = Color::WHITE;
+
+    /// The line as the shell reports it: the system's buttons, and its caption's colours.
+    fn system_line(active: bool, background: Color, foreground: Color) -> TitleBar {
+        TitleBar {
+            active,
+            background: Some(background),
+            foreground: Some(foreground),
+            ..line(Some(Rect::new(862.0, 0.0, 138.0, 40.0)), None)
+        }
+    }
+
+    /// The window's menu bar around an empty page, on `surface`, under `theme`; `dress`
+    /// gives the bar its colours.
+    fn dressed(
+        surface: MediaQuery,
+        theme: &Theme,
+        dress: impl FnOnce(WindowMenuBar<Msg>) -> WindowMenuBar<Msg>,
+    ) -> crate::Ui<Msg> {
+        frame_themed(surface, &Runtime::default(), theme, || {
+            Box::new(dress(WindowMenuBar::new(bar(), crate::Text::new("page"))))
+        })
+    }
+
+    /// The line's surface, the bar's words and the window's glyphs, as painted.
+    fn colours(ui: &crate::Ui<Msg>) -> (Color, Color, Vec<Color>) {
+        let prims = ui.scene().primitives();
+        let surface = prims
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, color, .. }
+                    if rect.x == 0.0 && rect.y == 0.0 && rect.width == SIZE.width =>
+                {
+                    Some(*color)
+                }
+                _ => None,
+            })
+            .expect("the line's surface");
+        let words = prims
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Text { text, color, .. } if text == "File" => Some(*color),
+                _ => None,
+            })
+            .expect("the bar's words");
+        let glyphs = prims
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Path {
+                    stroke: Some(stroke),
+                    ..
+                } => Some(stroke.color),
+                _ => None,
+            })
+            .collect();
+        (surface, words, glyphs)
+    }
+
+    /// **The system's caption is the line's by default**: its surface, and its ink on the
+    /// words and the window's glyphs — for an inactive window the inactive caption's, taken
+    /// as it is and not quietened a second time.
+    #[test]
+    fn the_line_takes_the_system_s_caption_colours() {
+        let surface =
+            MediaQuery::new(SIZE).with_title_bar(Some(system_line(true, CAPTION, CAPTION_INK)));
+        let (fill, words, glyphs) = colours(&dressed(surface, &windows(), |w| w));
+        assert_eq!(fill, CAPTION, "the system's surface");
+        assert_eq!(words, CAPTION_INK, "its ink on the words");
+        assert_eq!(glyphs, vec![CAPTION_INK; 3], "and on the glyphs");
+
+        let (grey, quiet) = (
+            Color::rgb(0.125, 0.125, 0.125),
+            Color::rgb(0.47, 0.47, 0.47),
+        );
+        let surface = MediaQuery::new(SIZE).with_title_bar(Some(system_line(false, grey, quiet)));
+        let (fill, words, glyphs) = colours(&dressed(surface, &windows(), |w| w));
+        assert_eq!(fill, grey, "the inactive caption's surface");
+        assert_eq!(words, quiet, "its ink");
+        assert_eq!(glyphs, vec![quiet; 3], "the glyphs as the system has them");
+    }
+
+    /// **The theme outranks the system, and the bar outranks the theme** — for an active
+    /// window and, with what is said for one, an inactive window.
+    #[test]
+    fn the_bar_and_the_theme_say_otherwise() {
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let green = Color::rgb(0.0, 1.0, 0.0);
+        let blue = Color::rgb(0.0, 0.0, 1.0);
+        let yellow = Color::rgb(1.0, 1.0, 0.0);
+        let mut themed = windows();
+        themed.widgets.title_bar = TitleBarTheme {
+            background: Some(red),
+            foreground: Some(green),
+            inactive_background: None,
+            inactive_foreground: Some(blue),
+        };
+        let on = |active| {
+            MediaQuery::new(SIZE).with_title_bar(Some(system_line(active, CAPTION, CAPTION_INK)))
+        };
+
+        let (fill, words, glyphs) = colours(&dressed(on(true), &themed, |w| w));
+        assert_eq!(
+            (fill, words),
+            (red, green),
+            "the theme's, over the system's"
+        );
+        assert_eq!(glyphs, vec![green; 3]);
+
+        let (fill, words, glyphs) = colours(&dressed(on(false), &themed, |w| w));
+        assert_eq!(fill, red, "no inactive surface said: the active one's");
+        assert_eq!(words, blue, "the inactive window's ink");
+        assert_eq!(glyphs, vec![blue; 3]);
+
+        let (fill, words, glyphs) = colours(&dressed(on(true), &themed, |w| {
+            w.background(blue).foreground(yellow)
+        }));
+        assert_eq!((fill, words), (blue, yellow), "the bar's, over the theme's");
+        assert_eq!(glyphs, vec![yellow; 3]);
+    }
+
+    /// **Off the title bar's line, with nothing said**, the row is the menu bar's own:
+    /// `surface_container` and `on_surface`, as before.
+    #[test]
+    fn off_the_line_the_row_is_the_menu_bar_s_own() {
+        let theme = windows();
+        let (fill, words, glyphs) = colours(&dressed(MediaQuery::new(SIZE), &theme, |w| w));
+        assert_eq!(fill, theme.scheme.surface_container);
+        assert_eq!(words, theme.scheme.on_surface);
+        assert!(glyphs.is_empty(), "no buttons of the system's");
     }
 
     /// The three glyphs and the system's states, painted.

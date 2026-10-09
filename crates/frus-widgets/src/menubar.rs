@@ -611,7 +611,9 @@ impl<Msg: Clone> Widget<Msg> for BarButton<Msg> {
                 Some(c) => c.with_alpha(c.a * amount),
                 None => {
                     let strength = if self.open { 0.12 } else { 0.08 * amount };
-                    look.background.lerp(theme.scheme.on_surface, strength)
+                    // Toward the words: on a bar of the system's accent with white words,
+                    // a highlight toward `on_surface` would darken it (milestone 642).
+                    look.background.lerp(look.foreground, strength)
                 }
             };
             let inset = look.item_inset.min(bounds.height * 0.5);

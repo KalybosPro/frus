@@ -3103,6 +3103,11 @@ impl<A: Application> App<A> {
                     .png()
                     .map(|png| &*Box::leak(png.to_vec().into_boxed_slice()));
             }
+            // The caption the system would draw: dark as the window's own, which follows the
+            // system's apps (milestone 642).
+            let active = window.has_focus();
+            let dark = window.theme() == Some(winit::window::Theme::Dark);
+            let (background, foreground) = crate::title_bar::caption_colors(dark, active);
             Some(frus_widgets::TitleBar {
                 height: band,
                 leading: 0.0,
@@ -3111,7 +3116,9 @@ impl<A: Application> App<A> {
                 hovered: button(hovered),
                 pressed: button(pressed),
                 maximized: window.is_maximized(),
-                active: window.has_focus(),
+                active,
+                background: Some(background),
+                foreground: Some(foreground),
             })
         } else {
             None
@@ -3666,12 +3673,21 @@ impl<A: Application> App<A> {
             self.request_redraw();
         }
         // 0) The back gesture: a press on the **leading edge** — left under LTR,
-        // right under RTL — if the app allows it.
-        let on_back_edge = if self.is_rtl() {
-            self.cursor.x > self.logical_width() - BACK_EDGE
-        } else {
-            self.cursor.x < BACK_EDGE
-        };
+        // right under RTL — if the app allows it. It takes the pages back, so it starts on
+        // them and not on what is above them: the window's menu bar, whose first word sits
+        // in the edge, or an overlay — the menu it opens, a dialog (milestone 642).
+        let above_the_pages = self.ui.as_ref().is_some_and(|ui| {
+            ui.over_overlay(self.cursor)
+                || ui
+                    .title_bar_row()
+                    .is_some_and(|row| row.contains(self.cursor))
+        });
+        let on_back_edge = !above_the_pages
+            && if self.is_rtl() {
+                self.cursor.x > self.logical_width() - BACK_EDGE
+            } else {
+                self.cursor.x < BACK_EDGE
+            };
         if on_back_edge && self.app.can_go_back() {
             self.drag = Some(Drag::Back {
                 start_x: self.cursor.x,

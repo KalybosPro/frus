@@ -16,7 +16,8 @@
 //!
 //! The application **paints** the line: the compositor's buttons are under its content and
 //! would not be seen, so frus paints them where the compositor has them
-//! ([`buttons`]), in the state the compositor reports ([`buttons_state`]).
+//! ([`buttons`]), in the state the compositor reports ([`buttons_state`]), in the colours
+//! the system would draw its own caption in ([`caption_colors`], milestone 642).
 
 use std::cell::RefCell;
 
@@ -25,7 +26,12 @@ use windows_sys::Win32::Graphics::Dwm::{
     DwmDefWindowProc, DwmExtendFrameIntoClientArea, DwmGetWindowAttribute,
     DWMWA_CAPTION_BUTTON_BOUNDS,
 };
-use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, InvalidateRect, ScreenToClient};
+use windows_sys::Win32::Graphics::Gdi::{
+    ClientToScreen, GetSysColor, InvalidateRect, ScreenToClient, COLOR_ACTIVECAPTION,
+    COLOR_CAPTIONTEXT, COLOR_INACTIVECAPTION, COLOR_INACTIVECAPTIONTEXT,
+};
+use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+use windows_sys::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
 use windows_sys::Win32::UI::Controls::MARGINS;
 use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
@@ -33,11 +39,14 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetWindowRect, IsZoomed, SetWindowPos, HTCAPTION, HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON,
-    HTSYSMENU, HTTOP, NCCALCSIZE_PARAMS, SM_CXPADDEDBORDER, SM_CYCAPTION, SM_CYSIZEFRAME,
-    SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_LBUTTONUP, WM_NCCALCSIZE,
-    WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE,
+    GetWindowRect, IsZoomed, SetWindowPos, SystemParametersInfoW, HTCAPTION, HTCLIENT, HTCLOSE,
+    HTMAXBUTTON, HTMINBUTTON, HTSYSMENU, HTTOP, NCCALCSIZE_PARAMS, SM_CXPADDEDBORDER, SM_CYCAPTION,
+    SM_CYSIZEFRAME, SPI_GETHIGHCONTRAST, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    WM_DWMCOLORIZATIONCOLORCHANGED, WM_LBUTTONUP, WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDOWN,
+    WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_SETTINGCHANGE, WM_THEMECHANGED,
 };
+
+use frus_widgets::Color;
 
 /// The subclass's identity.
 const SUBCLASS: usize = 640;
@@ -56,6 +65,18 @@ struct Line {
     /// The compositor's button the pointer is over, and the one pressed (hit-test codes).
     hovered: u32,
     pressed: u32,
+    /// What the system says of its captions, read once and again when it says it changed.
+    caption: Option<Caption>,
+}
+
+/// What the system says of its captions: what [`caption_colors`] is made from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Caption {
+    /// High contrast's caption colours, when it is on: active and inactive, surface and ink.
+    high_contrast: Option<[Color; 4]>,
+    /// The accent colour, when the person asked for it on title bars, and the one for an
+    /// inactive window if the system keeps one.
+    accent: Option<(Color, Option<Color>)>,
 }
 
 thread_local! {
@@ -67,6 +88,159 @@ thread_local! {
 /// What to call when the line's state changes and a frame is owed.
 pub(crate) fn on_change(wake: impl Fn() + 'static) {
     WAKE.with(|slot| *slot.borrow_mut() = Some(Box::new(wake)));
+}
+
+/// **The colours the system would draw `hwnd`'s caption in now**: its surface and its words,
+/// for a light or a `dark` window, `active` or not (milestone 642).
+///
+/// - Under **high contrast**, the scheme's caption colours.
+/// - With the **accent colour on title bars** (Settings › Personalization › Colours), the
+///   accent behind an active window's caption, with white or black words, whichever reads;
+///   an inactive window's is the system's own inactive accent if it keeps one, else the
+///   plain caption's.
+/// - Otherwise the desktop's **plain caption**: `#F3F3F3` (Windows 11; `#FFFFFF` before)
+///   or `#202020` dark, black or white words, grey on an inactive window — measured on
+///   Windows 11's own captions. An active window's caption there is tinted by the wallpaper
+///   (Mica), which an opaque surface cannot follow: the untinted surface is the nearest.
+pub(crate) fn caption_colors(dark: bool, active: bool) -> (Color, Color) {
+    let caption = LINE.with(|line| *line.borrow_mut().caption.get_or_insert_with(read_caption));
+    if let Some([surface, ink, inactive_surface, inactive_ink]) = caption.high_contrast {
+        return if active {
+            (surface, ink)
+        } else {
+            (inactive_surface, inactive_ink)
+        };
+    }
+    match caption.accent {
+        Some((accent, _)) if active => {
+            let words = if accent.compute_luminance() > 0.179 {
+                Color::BLACK
+            } else {
+                Color::WHITE
+            };
+            return (accent, words);
+        }
+        Some((_, Some(inactive))) => {
+            let words = if inactive.compute_luminance() > 0.179 {
+                Color::rgb8(0x91, 0x91, 0x91)
+            } else {
+                Color::rgb8(0x79, 0x79, 0x79)
+            };
+            return (inactive, words);
+        }
+        _ => {}
+    }
+    match (dark, active) {
+        (false, true) => (light_caption(), Color::BLACK),
+        (false, false) => (light_caption(), Color::rgb8(0x91, 0x91, 0x91)),
+        (true, true) => (Color::rgb8(0x20, 0x20, 0x20), Color::WHITE),
+        (true, false) => (Color::rgb8(0x20, 0x20, 0x20), Color::rgb8(0x79, 0x79, 0x79)),
+    }
+}
+
+/// The plain light caption: Windows 11's grey, white before it.
+fn light_caption() -> Color {
+    // Windows 11 is build 22000 and later of "Windows 10".
+    let build = os_build();
+    if build >= 22000 || build == 0 {
+        Color::rgb8(0xF3, 0xF3, 0xF3)
+    } else {
+        Color::WHITE
+    }
+}
+
+/// The system's build number, `0` if it cannot be read.
+fn os_build() -> u32 {
+    type RtlGetVersion = unsafe extern "system" fn(
+        *mut windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW,
+    ) -> i32;
+    thread_local! {
+        static BUILD: u32 = unsafe {
+            use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
+            let ntdll = GetModuleHandleA(c"ntdll.dll".as_ptr() as *const u8);
+            match GetProcAddress(ntdll, c"RtlGetVersion".as_ptr() as *const u8) {
+                Some(f) => {
+                    let get: RtlGetVersion = std::mem::transmute(f);
+                    let mut info: windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW =
+                        std::mem::zeroed();
+                    info.dwOSVersionInfoSize = std::mem::size_of_val(&info) as u32;
+                    if get(&mut info) >= 0 {
+                        info.dwBuildNumber
+                    } else {
+                        0
+                    }
+                }
+                None => 0,
+            }
+        };
+    }
+    BUILD.with(|build| *build)
+}
+
+/// Reads what the system says of its captions.
+fn read_caption() -> Caption {
+    // SAFETY: plain queries into structures sized for them.
+    unsafe {
+        let mut contrast: HIGHCONTRASTW = std::mem::zeroed();
+        contrast.cbSize = std::mem::size_of::<HIGHCONTRASTW>() as u32;
+        let on = SystemParametersInfoW(
+            SPI_GETHIGHCONTRAST,
+            contrast.cbSize,
+            &mut contrast as *mut HIGHCONTRASTW as *mut core::ffi::c_void,
+            0,
+        ) != 0
+            && contrast.dwFlags & HCF_HIGHCONTRASTON != 0;
+        let high_contrast = on.then(|| {
+            [
+                COLOR_ACTIVECAPTION,
+                COLOR_CAPTIONTEXT,
+                COLOR_INACTIVECAPTION,
+                COLOR_INACTIVECAPTIONTEXT,
+            ]
+            .map(|index| colorref(GetSysColor(index)))
+        });
+        let accent = (dwm_dword("ColorPrevalence") == Some(1))
+            .then(|| dwm_dword("AccentColor").map(abgr))
+            .flatten()
+            .map(|accent| (accent, dwm_dword("AccentColorInactive").map(abgr)));
+        Caption {
+            high_contrast,
+            accent,
+        }
+    }
+}
+
+/// A `DWORD` of the desktop compositor's settings for the person.
+fn dwm_dword(name: &str) -> Option<u32> {
+    let key: Vec<u16> = "Software\\Microsoft\\Windows\\DWM\0"
+        .encode_utf16()
+        .collect();
+    let value: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut data: u32 = 0;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    // SAFETY: the strings end in a nul, and the buffer is a `DWORD` as asked for.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_DWORD,
+            std::ptr::null_mut(),
+            &mut data as *mut u32 as *mut core::ffi::c_void,
+            &mut size,
+        )
+    };
+    (status == 0).then_some(data)
+}
+
+/// A `COLORREF` (`0x00BBGGRR`).
+fn colorref(c: u32) -> Color {
+    Color::rgb8(c as u8, (c >> 8) as u8, (c >> 16) as u8)
+}
+
+/// The compositor's accent (`0xAABBGGRR`), opaque.
+fn abgr(c: u32) -> Color {
+    colorref(c & 0x00FF_FFFF)
 }
 
 /// The system's caption height for `hwnd`'s screen, in physical pixels.
@@ -235,6 +409,16 @@ unsafe extern "system" fn subclass(
         }
         WM_NCLBUTTONUP | WM_LBUTTONUP => set_state(hwnd, None, Some(0)),
         WM_NCMOUSELEAVE => set_state(hwnd, Some(0), Some(0)),
+        // The person changed the colours, the accent's place, the contrast or the theme:
+        // the caption is read again, and a frame asked for (milestone 642).
+        WM_SETTINGCHANGE | WM_DWMCOLORIZATIONCOLORCHANGED | WM_THEMECHANGED => {
+            LINE.with(|line| line.borrow_mut().caption = None);
+            WAKE.with(|slot| {
+                if let Some(wake) = slot.borrow().as_ref() {
+                    wake();
+                }
+            });
+        }
         _ => {}
     }
     // The compositor answers for its own buttons first.

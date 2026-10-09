@@ -289,4 +289,34 @@ mod tests {
         );
         assert_eq!(height(40.0), first, "and back again");
     }
+
+    /// **A component inside a scope is built for the scope** (milestone 642). A wrapper and
+    /// the component it holds are one node, and the component used to be built before the
+    /// node's scope was in force: a page in `MediaScope::tweak` read the whole window.
+    #[test]
+    fn a_component_inside_a_scope_is_built_for_it() {
+        let seen = std::rc::Rc::new(std::cell::Cell::new(None));
+        let page = {
+            let seen = seen.clone();
+            crate::Component::stateless(move |_: &crate::BuildContext| -> Box<dyn Widget> {
+                seen.set(Some(MediaQuery::of().padding));
+                Box::new(crate::container::Container::new().width(10.0).height(10.0))
+            })
+        };
+        let root = Flex::column()
+            .width(200.0)
+            .height(200.0)
+            .child(MediaScope::tweak(
+                |mq: &mut MediaQuery| mq.padding.top = 0.0,
+                page,
+            ));
+        surface().scope(|| {
+            crate::build_deferred(&root, &Theme::default(), &Runtime::default());
+        });
+        assert_eq!(
+            seen.get(),
+            Some(Insets::new(0.0, 0.0, 24.0, 0.0)),
+            "built under the scope's surface, not the frame's"
+        );
+    }
 }

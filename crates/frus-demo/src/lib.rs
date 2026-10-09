@@ -49,8 +49,12 @@ pub(crate) fn build() -> (FrusApp, GoRouter, Rc<Demo>) {
     let demo = Rc::new(Demo::default());
     let router = screens::router(demo.clone());
     let (save, restore, start) = (demo.clone(), demo.clone(), demo.clone());
+    let (window, pages) = (demo.clone(), router.clone());
     let app = FrusApp::router(router.clone())
         .title("frus — Todo")
+        // **The window's menu bar**, above every page, on a wide window: the window's, so it
+        // stays put while the pages change under it (milestone 642).
+        .builder(move |cx, child| screens::window(cx, child, &window, &pages))
         // **The languages this demonstration has**, best first — the three it embeds as
         // Fluent resources. The framework resolves the device's list against these.
         .supported_locales(LANGS.iter().map(|(_, tag)| Locale::new(*tag)).collect())

@@ -702,6 +702,9 @@ pub struct Ui<Msg = crate::callback::Callback> {
     /// The boxes selection bars were placed in this frame: a press inside one is a press
     /// **on the bar**, which must not put the selection it acts on away.
     toolbars: Vec<Rect>,
+    /// Where a press lands **on an overlay** rather than on the pages under it: an overlay's
+    /// box, and the whole window under one that a press outside dismisses (milestone 642).
+    overlay_cover: Vec<Rect>,
     focusables: Vec<Focusable>,
     /// **Focus scope**: index of the topmost modal overlay's first focusable —
     /// Tab/arrows/click-to-focus are trapped from there on (`None` = no modal, every
@@ -720,9 +723,9 @@ pub struct Ui<Msg = crate::callback::Callback> {
     inks: Vec<(WidgetId, Rect)>,
     /// The detectors that take a drag, in painted order, with the box a press can land in
     /// (clipped) and the whole box (milestone 582).
-    /// Whether something wants the title bar's line, and what the system acts on there
-    /// (milestone 640).
-    wants_title_bar: bool,
+    /// The row that wants the title bar's line, where it was laid out, and what the system
+    /// acts on there (milestones 640, 642).
+    title_bar_row: Option<Rect>,
     title_bar_regions: Vec<(Rect, crate::TitleBarRole)>,
     pans: Vec<(WidgetId, Rect, Rect)>,
     /// The widgets that hear the pointer's raw events, likewise (milestone 586).
@@ -827,7 +830,15 @@ impl<Msg: Clone> Ui<Msg> {
 
     /// Whether something in this frame wants the title bar's line (milestone 640).
     pub fn wants_title_bar(&self) -> bool {
-        self.wants_title_bar
+        self.title_bar_row.is_some()
+    }
+
+    /// Where the row that wants the title bar's line was laid out — a
+    /// [`WindowMenuBar`](crate::WindowMenuBar)'s, the window's and not a page's (milestone
+    /// 642). What the shell does to the pages, the back gesture at the window's edge, does
+    /// not start on it.
+    pub fn title_bar_row(&self) -> Option<Rect> {
+        self.title_bar_row
     }
 
     /// What the system acts on on the title bar's line: the window's icon and its buttons,
@@ -896,6 +907,15 @@ impl<Msg: Clone> Ui<Msg> {
     /// treat as a press elsewhere.
     pub fn toolbar_contains(&self, point: Point) -> bool {
         self.toolbars.iter().any(|bar| bar.contains(point))
+    }
+
+    /// Whether a press at `point` lands **on an overlay** — a menu, a dialog, a drawer, or
+    /// the window under one that a press outside dismisses — rather than on the pages under
+    /// it (milestone 642). What the shell does to the pages, the back gesture at the
+    /// window's edge, does not start there: in the reference that gesture is the page's, and
+    /// an overlay is above the page.
+    pub fn over_overlay(&self, point: Point) -> bool {
+        self.overlay_cover.iter().any(|r| r.contains(point))
     }
 
     /// Dismissal message of the **topmost** overlay (for Escape).
@@ -1946,8 +1966,9 @@ fn build_layout_scoped<'a, Msg>(
     baselines: bool,
 ) -> (NodeId, Fills) {
     // A component is built into what it stands for before anything is asked of the node,
-    // the scope it introduces included — see `Widget::expand`.
-    widget.expand(id, runtime, theme);
+    // the scope it introduces included — see `Widget::expand` — under the scope a wrapper
+    // around it introduces (milestone 642).
+    expand_scoped(widget, id, runtime, theme);
     // A themed subtree lays out under **its** theme, not the frame's: a theme reaches
     // sizes and spacing (milestone 309), so this has to happen here and not only at paint
     // time. `hash_node`, which fingerprints this same walk for the relayout cache, makes
@@ -2599,6 +2620,7 @@ struct Builder<'a, Msg> {
     dismisses: Vec<Msg>,
     edit_actions: Vec<(WidgetId, crate::EditAction)>,
     toolbars: Vec<Rect>,
+    overlay_cover: Vec<Rect>,
     focusables: Vec<Focusable>,
     /// Start of the topmost modal overlay's focus scope.
     focus_scope_start: Option<usize>,
@@ -2634,9 +2656,9 @@ struct Builder<'a, Msg> {
     inks: Vec<(WidgetId, Rect)>,
     /// The detectors that take a drag, in painted order, with the box a press can land in
     /// (clipped) and the whole box (milestone 582).
-    /// Whether something wants the title bar's line, and what the system acts on there
-    /// (milestone 640).
-    wants_title_bar: bool,
+    /// The row that wants the title bar's line, where it was laid out, and what the system
+    /// acts on there (milestones 640, 642).
+    title_bar_row: Option<Rect>,
     title_bar_regions: Vec<(Rect, crate::TitleBarRole)>,
     pans: Vec<(WidgetId, Rect, Rect)>,
     /// The widgets that hear the pointer's raw events, likewise (milestone 586).
@@ -3950,7 +3972,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
             // The title bar's line (milestone 640).
             if widget.wants_title_bar() {
-                self.wants_title_bar = true;
+                self.title_bar_row = Some(draw_rect);
             }
             if let Some(role) = widget.title_bar_role() {
                 self.title_bar_regions.push((draw_rect, role));
@@ -5916,6 +5938,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // window-wide barrier belonging to an overlay nobody can see would swallow the
             // next press anywhere on the screen that replaced it.
             if let Some(msg) = dismiss.filter(|_| anchor_on_screen) {
+                self.overlay_cover.push(window);
                 self.dismisses.push(msg.clone());
                 self.hits.push(Hit {
                     id: oid.barrier(),
@@ -5935,6 +5958,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             );
             if modal || traps {
                 self.focus_scope_start = Some(self.focusables.len());
+            }
+
+            // Where a press is the overlay's and not the pages' — a tooltip takes none.
+            if placement != Placement::Tooltip && anchor_on_screen {
+                self.overlay_cover
+                    .push(Rect::new(pos.0, pos.1, size.width, size.height));
             }
 
             // A bar over a selection: where it ended up, so that a press on it is known for
@@ -6272,6 +6301,7 @@ fn build_ui_walk<'a, Msg: Clone + 'static>(
         dismisses: Vec::new(),
         edit_actions: Vec::new(),
         toolbars: Vec::new(),
+        overlay_cover: Vec::new(),
         focusables: Vec::new(),
         focus_scope_start: None,
         scrollables: Vec::new(),
@@ -6281,7 +6311,7 @@ fn build_ui_walk<'a, Msg: Clone + 'static>(
         drop_zones: Vec::new(),
         inks: Vec::new(),
         pans: Vec::new(),
-        wants_title_bar: false,
+        title_bar_row: None,
         title_bar_regions: Vec::new(),
         pointer_listeners: Vec::new(),
         hover_regions: Vec::new(),
@@ -6362,6 +6392,7 @@ fn build_ui_walk<'a, Msg: Clone + 'static>(
         dismisses: builder.dismisses,
         edit_actions: builder.edit_actions,
         toolbars: builder.toolbars,
+        overlay_cover: builder.overlay_cover,
         focusables: builder.focusables,
         focus_scope_start: builder.focus_scope_start,
         scrollables: builder.scrollables,
@@ -6371,7 +6402,7 @@ fn build_ui_walk<'a, Msg: Clone + 'static>(
         drop_zones: builder.drop_zones,
         inks: builder.inks,
         pans: builder.pans,
-        wants_title_bar: builder.wants_title_bar,
+        title_bar_row: builder.title_bar_row,
         title_bar_regions: builder.title_bar_regions,
         pointer_listeners: builder.pointer_listeners,
         hover_regions: builder.hover_regions,
@@ -6614,6 +6645,32 @@ pub(crate) fn scoped_theme<Msg>(
     Some(Box::new(theme))
 }
 
+/// Builds what `widget` stands for ([`Widget::expand`]) **under the scopes the node says it
+/// introduces before it is built** — the surface, the theme, the shell and the scrolling a
+/// [`MediaScope`](crate::MediaScope) or a [`Themed`](crate::Themed) around a component
+/// imposes (milestone 642).
+///
+/// A wrapper and the component inside it are one node, and the walks ask a node for its
+/// scopes after building it, since what a component builds may introduce one. That left
+/// the wrapper's own scope out of the build: `MediaScope::tweak(.., page)` built `page` for
+/// the whole window, and a scaffold in it read a size it was not laid out in. An unbuilt
+/// component answers for no scope, so what is asked here is exactly the wrapper's; the walk
+/// asks again once the component is built, and gets the whole chain.
+///
+/// Out of line, so that the walks' recursive frames do not carry what is held here.
+#[inline(never)]
+fn expand_scoped<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, runtime: &Runtime, theme: &Theme) {
+    let _surface = widget
+        .media_override(crate::MediaQuery::of())
+        .map(crate::MediaQuery::install);
+    let _shell = widget.scaffold_override().map(crate::ScaffoldInfo::install);
+    let _scrolling = widget
+        .scroll_behavior_override()
+        .map(crate::ScrollConfiguration::install);
+    let scoped = scoped_theme(widget, id, runtime, theme);
+    widget.expand(id, runtime, scoped.as_deref().unwrap_or(theme));
+}
+
 /// Runs the **deferred builds** over a tree, the way the layout pass does on its way down.
 ///
 /// A [`ThemeBuilder`](crate::ThemeBuilder) — and everything built on one, an
@@ -6643,7 +6700,7 @@ pub(crate) fn scoped_theme<Msg>(
 /// with itself rather than a builder disagreeing with the layout around it.
 pub fn build_deferred<Msg>(root: &dyn Widget<Msg>, theme: &Theme, runtime: &Runtime) {
     fn walk<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, runtime: &Runtime, theme: &Theme) {
-        widget.expand(id, runtime, theme);
+        expand_scoped(widget, id, runtime, theme);
         let scoped = scoped_theme(widget, id, runtime, theme);
         let theme = scoped.as_deref().unwrap_or(theme);
         let _surface = widget
