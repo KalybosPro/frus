@@ -101,6 +101,7 @@ jobs:
       - name: Pin apt to the snapshot mesa 25.2.8-0ubuntu0.24.04.2 was published in
         run: |
           echo 'Acquire::Check-Valid-Until "false";' | sudo tee /etc/apt/apt.conf.d/99snapshot
+          echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/99retries
           cat <<'EOF' | sudo tee /etc/apt/sources.list.d/ubuntu.sources
           Types: deb
           URIs: https://snapshot.ubuntu.com/ubuntu/20260910T000000Z
@@ -109,9 +110,24 @@ jobs:
           Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
           EOF
 
+      # The snapshot is one server, and it is sometimes down (503 Service Unavailable).
+      # Falling back to the live archive would install a different mesa and move the
+      # goldens, which is what the pin is for, so the update is retried instead, and a
+      # failed fetch fails it: by default `apt-get update` only warns, and the job then
+      # died later on "has no installation candidate", which says nothing about why.
       - name: Install Vulkan (lavapipe) and windowing dependencies
         run: |
-          sudo apt-get update
+          for attempt in 1 2 3 4 5; do
+            if sudo apt-get update --error-on=any; then
+              break
+            fi
+            if [ "$attempt" = 5 ]; then
+              echo "::error::snapshot.ubuntu.com could not be read after 5 attempts. The GPU job pins mesa there on purpose; re-run the job once it answers again."
+              exit 1
+            fi
+            echo "apt-get update failed (attempt $attempt); retrying in 30 s"
+            sleep 30
+          done
           sudo apt-get install -y --no-install-recommends \
             mesa-vulkan-drivers vulkan-tools libvulkan-dev \
             libxkbcommon-dev libwayland-dev libx11-dev
