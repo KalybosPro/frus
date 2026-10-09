@@ -20,6 +20,14 @@ any release may break.
   room a border takes is each side's own. `Container::box_border`, `shape` and `shadows`, and
   `Container::decoration` keeps everything the decoration says. **Changed**: `BoxDecoration`
   is no longer `Copy`; its `shadow` field is `shadows`; `Border` has four `BorderSide`s.
+- **The menu bar on the title bar's line** (J640). `Scaffold::menu_bar(MenuBar)` puts the
+  menu bar at the top of the window, above the app bar. On Windows it goes on the title
+  bar's line, as a code editor's does: frus paints the application's icon and the three
+  window buttons where the system has them, and the system keeps acting on them — the icon
+  opens the window menu, the buttons minimize, maximize and close, the empty part of the line
+  moves the window. New: `MediaQuery::title_bar` (`TitleBar`, `CaptionButton`,
+  `TitleBarRole`), `CaptionButtonsTheme`, `Widget::wants_title_bar` and `title_bar_role`.
+  On macOS and Linux the menu bar is the first line under the system's bar.
 - **The stack, as the reference's** (J639). A `Stack` is as big as its largest unpinned
   layer (all the room with none, or under `Expand`); `StackFit::Loose` is the default;
   `Expand` forces every unpinned layer to the stack's size; new `StackFit::Passthrough`;

@@ -544,12 +544,6 @@ impl State for HomeState {
         // (milestone 393).
         let toggle_drawer = cx.callback(|s| s.drawer_open = !s.drawer_open);
         let toggle_sheet = cx.callback(|s| s.sheet_open = !s.sheet_open);
-        // On a wide window, the menu bar above the header (milestone 607).
-        let header: Box<dyn Widget> = if class == SizeClass::Expanded {
-            Box::new(column![self.menu_bar(cx, &demo), header])
-        } else {
-            header
-        };
         let scaffold = Scaffold::new()
             .background(theme.background)
             .app_bar(header)
@@ -601,8 +595,15 @@ impl State for HomeState {
                 quick_actions_sheet(&demo, cx, theme),
                 self.sheet_open,
                 toggle_sheet,
-            )
-            .build();
+            );
+        // On a wide window, the menu bar at the top (milestone 607) — on the title bar's line
+        // where the system allows it (milestone 640).
+        let scaffold = if class == SizeClass::Expanded {
+            scaffold.menu_bar(self.menu_bar(cx, &demo))
+        } else {
+            scaffold
+        }
+        .build();
 
         // The notification at the head of the queue floats above everything, anchored
         // bottom-centre by the `ScaffoldMessenger` layer (milestone 188): it fades **in**,

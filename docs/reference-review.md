@@ -229,8 +229,6 @@ Status: **done** (milestone), **to review**.
 
 ## Order
 
-Next: **`Scaffold::menu_bar`** — the menu bar on the title bar's line, between the system's
-own logo and buttons where the system allows it (macOS, Windows), under the system's bar
-where it does not (Linux); frus draws the menu bar only, and does not manage the window —
-then `BoxDecoration` (and what it is made of),
+Done since: the menu bar on the title bar's line (J640). Next: `BoxDecoration` (and what
+it is made of),
 `CircleAvatar`; then the rest of the form controls and the sections above in order.

@@ -382,6 +382,10 @@ pub struct MediaQuery {
     /// is a whole screen twitching because somebody tapped a field — see
     /// [`crate::SafeArea::maintain_bottom_view_padding`].
     pub view_padding: Insets,
+    /// **The window's title bar line, when the application's content shares it**
+    /// (milestone 640): set by the shell on a desktop whose system allows it, while a
+    /// [`Scaffold`](crate::Scaffold) has a [`menu_bar`](crate::Scaffold::menu_bar).
+    pub title_bar: Option<crate::TitleBar>,
 }
 
 impl MediaQuery {
@@ -397,6 +401,7 @@ impl MediaQuery {
         padding: Insets::ZERO,
         view_insets: Insets::ZERO,
         view_padding: Insets::ZERO,
+        title_bar: None,
         text_scaler: 1.0,
         platform_brightness: Brightness::Light,
         accessibility: Accessibility::NONE,
@@ -458,6 +463,12 @@ impl MediaQuery {
     /// can become non-linear without every caller changing.
     pub fn scaled(&self, size: f32) -> f32 {
         size * self.text_scaler
+    }
+
+    /// The title bar's line, shared with the application (milestone 640).
+    pub fn with_title_bar(mut self, title_bar: Option<crate::TitleBar>) -> Self {
+        self.title_bar = title_bar;
+        self
     }
 
     /// Sets both kinds of inset at once, from what the shell reports.

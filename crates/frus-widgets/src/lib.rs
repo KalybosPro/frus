@@ -189,6 +189,7 @@ mod themebuilder;
 mod themed;
 mod timeline;
 mod timepicker;
+mod titlebar;
 mod toast;
 mod toasthost;
 mod toggleable;
@@ -457,6 +458,7 @@ pub use themebuilder::ThemeBuilder;
 pub use themed::Themed;
 pub use timeline::Timeline;
 pub use timepicker::{Endpoint, TimeField, TimePicker, TimeRange};
+pub use titlebar::{CaptionButton, TitleBar, TitleBarRole};
 pub use toast::{SnackBar, SnackBarBehavior, SnackBarKind, SnackBarQueue};
 pub use toasthost::{ScaffoldMessenger, SnackBarPosition};
 pub use togglebuttons::{
@@ -488,11 +490,11 @@ pub use widgetstate::{StateFilter, WidgetState, WidgetStateProperty, WidgetState
 // that did not ship.
 pub use widgettheme::resolve_shape;
 pub use widgettheme::{
-    AppBarTheme, BadgeTheme, ButtonTheme, CardTheme, CheckboxTheme, ChipTheme, DefaultTextStyle,
-    DividerTheme, DrawerTheme, DropdownTheme, ExpansionPanelListTheme, GridTileBarTheme,
-    IconButtonTheme, IconTheme, InkTheme, MenuBarTheme, MenuTheme, PageSelectorTheme, RadioTheme,
-    SegmentedTheme, SliderTheme, SwitchTheme, TabBarTheme, TextFieldTheme, TextSelectionTheme,
-    ToggleButtonsTheme, WidgetThemes,
+    AppBarTheme, BadgeTheme, ButtonTheme, CaptionButtonsTheme, CardTheme, CheckboxTheme, ChipTheme,
+    DefaultTextStyle, DividerTheme, DrawerTheme, DropdownTheme, ExpansionPanelListTheme,
+    GridTileBarTheme, IconButtonTheme, IconTheme, InkTheme, MenuBarTheme, MenuTheme,
+    PageSelectorTheme, RadioTheme, SegmentedTheme, SliderTheme, SwitchTheme, TabBarTheme,
+    TextFieldTheme, TextSelectionTheme, ToggleButtonsTheme, WidgetThemes,
 };
 
 // Convenience re-exports for callers.

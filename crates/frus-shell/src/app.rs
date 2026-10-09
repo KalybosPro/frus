@@ -242,6 +242,8 @@ mod clip {
         /// One of its own, in memory: what a shell with no window holds (the test
         /// driver's). The system's is shared by everything on the machine and, on macOS,
         /// is not to be touched from several threads at once — and tests run on several.
+        /// Only there, so a build without it has no variant nothing makes.
+        #[cfg(any(test, feature = "testing"))]
         Memory(Option<String>),
     }
 
@@ -258,6 +260,7 @@ mod clip {
         pub fn get_text(&mut self) -> Option<String> {
             match self {
                 Self::System(system) => system.as_mut().and_then(|c| c.get_text().ok()),
+                #[cfg(any(test, feature = "testing"))]
                 Self::Memory(text) => text.clone(),
             }
         }
@@ -271,6 +274,7 @@ mod clip {
                         let _ = c.set_text(text);
                     }
                 }
+                #[cfg(any(test, feature = "testing"))]
                 Self::Memory(held) => *held = Some(text),
             }
         }
@@ -1072,6 +1076,14 @@ pub struct App<A: Application> {
     elapsed: f32,
     /// The last window insets handed to the app — padding plus keyboard — in logical px.
     last_insets: WindowInsets,
+    /// Whether the window's title bar line is shared with the content, and what the content
+    /// is told about it (milestone 640).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    title_bar_on: bool,
+    title_bar: Option<frus_widgets::TitleBar>,
+    /// The application's icon, kept for the life of the program, to paint on the line.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    window_icon: Option<&'static [u8]>,
     /// The soft keyboard has just grown, so the focused widget is brought back into view
     /// once the frame that lays out the shortened window is built: the keyboard covers
     /// the bottom of the screen, and a field under it is a field the reader cannot see
@@ -1219,6 +1231,9 @@ impl<A: Application> App<A> {
             occluded: false,
             elapsed: 0.0,
             last_insets: WindowInsets::ZERO,
+            title_bar_on: false,
+            title_bar: None,
+            window_icon: None,
             reveal_after_keyboard: false,
             platform: PlatformSettings::default(),
             inset_baseline: None,
@@ -2962,6 +2977,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         .fold(Why::NONE, |all, (_, why)| all | why);
                     self.frame_stats.frame(start, self.frame_costs);
                 }
+                // The title bar's line, shared with the content when it asks (milestone 640).
+                #[cfg(windows)]
+                self.sync_title_bar();
             }
 
             _ => {}
@@ -3002,6 +3020,107 @@ impl<A: Application> App<A> {
                     .with_overrides(self.app.accessibility()),
             )
             .with_insets(self.last_insets)
+            .with_title_bar(self.title_bar)
+    }
+
+    /// **Shares the window's title bar line with the content** when the frame asks for it,
+    /// gives it back when it no longer does, and tells the content what the system keeps on
+    /// it (milestone 640). See `title_bar.rs`.
+    #[cfg(windows)]
+    fn sync_title_bar(&mut self) {
+        use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let Some(window) = self.window.clone() else {
+            return;
+        };
+        let hwnd = match window.window_handle().map(|h| h.as_raw()) {
+            Ok(RawWindowHandle::Win32(win)) => {
+                win.hwnd.get() as windows_sys::Win32::Foundation::HWND
+            }
+            _ => return,
+        };
+        let wants = self.ui.as_ref().is_some_and(|ui| ui.wants_title_bar());
+        if wants != self.title_bar_on {
+            // SAFETY: the window is alive and was made on this thread.
+            unsafe {
+                if wants {
+                    crate::title_bar::enable(hwnd);
+                    let wake = window.clone();
+                    crate::title_bar::on_change(move || wake.request_redraw());
+                } else {
+                    crate::title_bar::disable(hwnd);
+                }
+            }
+            self.title_bar_on = wants;
+        }
+        let next = if self.title_bar_on {
+            let scale = self.total_scale();
+            let band = crate::title_bar::height() as f32 / scale;
+            // What the content has on the line is its own; the rest moves the window.
+            if let Some(ui) = &self.ui {
+                let to_px = |r: frus_widgets::Rect| windows_sys::Win32::Foundation::RECT {
+                    left: (r.x * scale).floor() as i32,
+                    top: (r.y * scale).floor() as i32,
+                    right: ((r.x + r.width) * scale).ceil() as i32,
+                    bottom: ((r.y + r.height) * scale).ceil() as i32,
+                };
+                let interactive = ui
+                    .hit_rects()
+                    .filter(|r| r.y < band && r.width < self.logical_width())
+                    .map(to_px)
+                    .collect();
+                let icon = ui
+                    .title_bar_regions()
+                    .iter()
+                    .find(|(_, role)| *role == frus_widgets::TitleBarRole::Icon)
+                    .map(|(r, _)| to_px(*r));
+                crate::title_bar::publish(interactive, icon);
+            }
+            // SAFETY: as above.
+            let buttons = unsafe { crate::title_bar::buttons(hwnd) }.map(|r| {
+                frus_widgets::Rect::new(
+                    r.left as f32 / scale,
+                    r.top as f32 / scale,
+                    (r.right - r.left) as f32 / scale,
+                    (r.bottom - r.top) as f32 / scale,
+                )
+            });
+            let button = |code: u32| {
+                use windows_sys::Win32::UI::WindowsAndMessaging::{
+                    HTCLOSE, HTMAXBUTTON, HTMINBUTTON,
+                };
+                match code {
+                    HTMINBUTTON => Some(frus_widgets::CaptionButton::Minimize),
+                    HTMAXBUTTON => Some(frus_widgets::CaptionButton::Maximize),
+                    HTCLOSE => Some(frus_widgets::CaptionButton::Close),
+                    _ => None,
+                }
+            };
+            let (hovered, pressed) = crate::title_bar::buttons_state();
+            if self.window_icon.is_none() {
+                self.window_icon = self
+                    .app
+                    .icon()
+                    .png()
+                    .map(|png| &*Box::leak(png.to_vec().into_boxed_slice()));
+            }
+            Some(frus_widgets::TitleBar {
+                height: band,
+                leading: 0.0,
+                buttons,
+                icon: self.window_icon,
+                hovered: button(hovered),
+                pressed: button(pressed),
+                maximized: window.is_maximized(),
+                active: window.has_focus(),
+            })
+        } else {
+            None
+        };
+        if next != self.title_bar {
+            self.title_bar = next;
+            self.build_dirty = true;
+            self.request_redraw();
+        }
     }
 
     /// The current layout direction; RTL flips both the layout and the gestures.
