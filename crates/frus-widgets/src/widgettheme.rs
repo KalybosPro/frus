@@ -151,6 +151,9 @@ pub struct WidgetThemes {
     pub text: DefaultTextStyle,
     /// Defaults for [`MenuBar`](crate::MenuBar) and its menus.
     pub menu_bar: MenuBarTheme,
+    /// The window's three buttons, when the application paints them on the title bar's line
+    /// (milestone 640).
+    pub caption_buttons: CaptionButtonsTheme,
     /// How a selection in text that is not a field looks: a
     /// [`selectable`](crate::Text::selectable) text's, and a
     /// [`SelectionArea`](crate::SelectionArea)'s.
@@ -1105,6 +1108,27 @@ impl MenuTheme {
             divider_height: Some(9.0),
         }
     }
+}
+
+/// **The window's three buttons**, as the application paints them on the title bar's line
+/// (milestone 640). Every colour optional: unset, the desktop's.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CaptionButtonsTheme {
+    /// The glyphs. Unset, `on_surface`.
+    pub glyph_color: Option<Color>,
+    /// The glyphs of a window that is not the active one. Unset, the glyph half way to the
+    /// bar.
+    pub inactive_glyph_color: Option<Color>,
+    /// Under the pointer. Unset, `on_surface` at 8 % over the bar.
+    pub hover_color: Option<Color>,
+    /// Pressed. Unset, `on_surface` at 4 % over the bar.
+    pub pressed_color: Option<Color>,
+    /// The close button under the pointer. Unset, the desktop's red.
+    pub close_hover_color: Option<Color>,
+    /// The close button pressed. Unset, a darker red.
+    pub close_pressed_color: Option<Color>,
+    /// The close glyph on red. Unset, white.
+    pub close_glyph_hover_color: Option<Color>,
 }
 
 /// Defaults for [`MenuBar`](crate::MenuBar): the bar, the words on it, and the menus it opens

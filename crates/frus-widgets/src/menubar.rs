@@ -282,6 +282,11 @@ impl<Msg: Clone + 'static> MenuBar<Msg> {
         self
     }
 
+    /// The height the caller gave the bar, if any.
+    pub(crate) fn given_height(&self) -> Option<f32> {
+        self.style.height
+    }
+
     /// **How tall the bar is.** Unset, the theme's, then 30 on a desktop and 48 on a phone.
     #[must_use]
     pub fn height(mut self, height: f32) -> Self {

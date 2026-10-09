@@ -848,6 +848,14 @@ macro_rules! forward_gesture_hooks {
             self.inner.on_pan(event)
         }
 
+        fn wants_title_bar(&self) -> bool {
+            self.inner.wants_title_bar()
+        }
+
+        fn title_bar_role(&self) -> Option<$crate::TitleBarRole> {
+            self.inner.title_bar_role()
+        }
+
         fn pan_value(&self, event: $crate::PanEvent, value: f32, rtl: bool) -> Option<f32> {
             self.inner.pan_value(event, value, rtl)
         }

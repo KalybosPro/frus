@@ -98,6 +98,20 @@ accesskit = "0.25"
 accesskit_winit = "0.34"
 
 # Web (wasm32 + WebGPU): the browser entry point, JS futures, console logs.
+# The application's content on the title bar's line (milestone 640): the frame and the
+# window procedure, which winit does not reach. Already in the tree.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Controls",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"

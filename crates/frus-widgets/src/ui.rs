@@ -557,6 +557,9 @@ fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
         // A reorderable (a Kanban card, a draggable header): its bounds feed the reorderables
         // registry, which is not cached — so its subtree is not put in the paint cache.
         || widget.reorder_index().is_some()
+        // Read by the shell every frame, from the walk (milestone 640).
+        || widget.wants_title_bar()
+        || widget.title_bar_role().is_some()
     {
         return None;
     }
@@ -717,6 +720,10 @@ pub struct Ui<Msg = crate::callback::Callback> {
     inks: Vec<(WidgetId, Rect)>,
     /// The detectors that take a drag, in painted order, with the box a press can land in
     /// (clipped) and the whole box (milestone 582).
+    /// Whether something wants the title bar's line, and what the system acts on there
+    /// (milestone 640).
+    wants_title_bar: bool,
+    title_bar_regions: Vec<(Rect, crate::TitleBarRole)>,
     pans: Vec<(WidgetId, Rect, Rect)>,
     /// The widgets that hear the pointer's raw events, likewise (milestone 586).
     pointer_listeners: Vec<(WidgetId, Rect, Rect)>,
@@ -816,6 +823,23 @@ impl<Msg: Clone> Ui<Msg> {
     /// (milestone 411).
     pub fn wants_animation(&self) -> bool {
         self.wants_animation
+    }
+
+    /// Whether something in this frame wants the title bar's line (milestone 640).
+    pub fn wants_title_bar(&self) -> bool {
+        self.wants_title_bar
+    }
+
+    /// What the system acts on on the title bar's line: the window's icon and its buttons,
+    /// where they were painted (milestone 640).
+    pub fn title_bar_regions(&self) -> &[(Rect, crate::TitleBarRole)] {
+        &self.title_bar_regions
+    }
+
+    /// Every box a press can land on, in painted order: what on the title bar's line is the
+    /// application's, rather than the system's to move the window by (milestone 640).
+    pub fn hit_rects(&self) -> impl Iterator<Item = Rect> + '_ {
+        self.hits.iter().map(|hit| hit.rect)
     }
 
     /// Identity of the topmost clickable widget containing `point`.
@@ -2610,6 +2634,10 @@ struct Builder<'a, Msg> {
     inks: Vec<(WidgetId, Rect)>,
     /// The detectors that take a drag, in painted order, with the box a press can land in
     /// (clipped) and the whole box (milestone 582).
+    /// Whether something wants the title bar's line, and what the system acts on there
+    /// (milestone 640).
+    wants_title_bar: bool,
+    title_bar_regions: Vec<(Rect, crate::TitleBarRole)>,
     pans: Vec<(WidgetId, Rect, Rect)>,
     /// The widgets that hear the pointer's raw events, likewise (milestone 586).
     pointer_listeners: Vec<(WidgetId, Rect, Rect)>,
@@ -3919,6 +3947,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // A detector that takes a drag (milestone 582).
             if widget.pan_axis().is_some() {
                 self.pans.push((id, touch, draw_rect));
+            }
+            // The title bar's line (milestone 640).
+            if widget.wants_title_bar() {
+                self.wants_title_bar = true;
+            }
+            if let Some(role) = widget.title_bar_role() {
+                self.title_bar_regions.push((draw_rect, role));
             }
             // A widget that hears the pointer's raw events (milestone 586).
             if widget.pointer_listener() {
@@ -6246,6 +6281,8 @@ fn build_ui_walk<'a, Msg: Clone + 'static>(
         drop_zones: Vec::new(),
         inks: Vec::new(),
         pans: Vec::new(),
+        wants_title_bar: false,
+        title_bar_regions: Vec::new(),
         pointer_listeners: Vec::new(),
         hover_regions: Vec::new(),
         hover_parent: None,
@@ -6334,6 +6371,8 @@ fn build_ui_walk<'a, Msg: Clone + 'static>(
         drop_zones: builder.drop_zones,
         inks: builder.inks,
         pans: builder.pans,
+        wants_title_bar: builder.wants_title_bar,
+        title_bar_regions: builder.title_bar_regions,
         pointer_listeners: builder.pointer_listeners,
         hover_regions: builder.hover_regions,
         text_stops: builder.text_stops,
