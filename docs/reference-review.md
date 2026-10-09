@@ -158,8 +158,8 @@ Status: **done** (milestone), **to review**.
 | `Row` | `Row` | `widgets/basic.dart` | to review |
 | `Column` | `Column` | `widgets/basic.dart` | to review |
 | `Flex` | `Flex` | `widgets/basic.dart` | to review |
-| `Stack` | `Stack` | `widgets/basic.dart` | to review |
-| `IndexedStack` | `IndexedStack` | `widgets/indexed_stack.dart` | to review |
+| `Stack` | `Stack` | `widgets/basic.dart` | **done** (J639) |
+| `IndexedStack` | `IndexedStack` | `widgets/indexed_stack.dart` | **done** (J639) |
 | `Spacer` | `Spacer` | `widgets/spacer.dart` | to review |
 | `OverflowBar` | `OverflowBar` | `widgets/overflow_bar.dart` | to review |
 | `Table` | `Table` | `widgets/table.dart` | to review |
@@ -229,5 +229,8 @@ Status: **done** (milestone), **to review**.
 
 ## Order
 
-Next: `Stack`, `BoxDecoration` (and what it is made of),
+Next: **`Scaffold::menu_bar`** — the menu bar on the title bar's line, between the system's
+own logo and buttons where the system allows it (macOS, Windows), under the system's bar
+where it does not (Linux); frus draws the menu bar only, and does not manage the window —
+then `BoxDecoration` (and what it is made of),
 `CircleAvatar`; then the rest of the form controls and the sections above in order.
