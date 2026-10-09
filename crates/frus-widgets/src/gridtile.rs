@@ -165,8 +165,8 @@ impl<Msg: Clone + 'static> Widget<Msg> for GridTile<Msg> {
 
     /// Loose: a layer that was not told where to go keeps its own size. The child is that
     /// layer, and it is the one that sized the tile.
-    fn stack_loose(&self) -> bool {
-        true
+    fn stack_fit(&self) -> crate::StackFit {
+        crate::StackFit::Loose
     }
 }
 

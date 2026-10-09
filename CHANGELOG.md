@@ -8,11 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 638 so far, each documenting the objective, the alternatives
+> record — one per step, 639 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The stack, as the reference's** (J639). A `Stack` is as big as its largest unpinned
+  layer (all the room with none, or under `Expand`); `StackFit::Loose` is the default;
+  `Expand` forces every unpinned layer to the stack's size; new `StackFit::Passthrough`;
+  `Stack::clip_behavior(Clip)` lets layers hang over the edges, and they are only touched
+  inside the stack; `Stack::text_direction`; `Positioned::fill`, `from_rect`,
+  `from_relative_rect`. `IndexedStack` sizes itself the same way. `PageView` takes the room
+  even with a flex factor. **Changed**: stacks without a size now hug their layers;
+  `Widget::stack_loose` is replaced by `stack_fit`.
 - **Dragging a switch's thumb** (J638). The thumb follows a horizontal drag; let go past
   half way it flips, short of it it goes back; a tap still flips it. Built on two new
   widget hooks, `pan_value` and `on_value_release`, with which a drag moves a widget's own

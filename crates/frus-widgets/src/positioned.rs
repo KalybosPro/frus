@@ -180,6 +180,33 @@ impl<Msg> Positioned<Msg> {
         self.left(px).top(px).right(px).bottom(px)
     }
 
+    /// **A layer the size of the stack** — the reference's `Positioned.fill`: every edge
+    /// pinned at nought.
+    pub fn fill(inner: impl Widget<Msg> + 'static) -> Self {
+        Self::new(inner).inset(0.0)
+    }
+
+    /// **A layer at `rect`**, in the stack's own coordinates — the reference's
+    /// `Positioned.fromRect`: pinned left and top, with that width and height.
+    pub fn from_rect(inner: impl Widget<Msg> + 'static, rect: frus_core::Rect) -> Self {
+        Self::new(inner)
+            .left(rect.x)
+            .top(rect.y)
+            .width(rect.width)
+            .height(rect.height)
+    }
+
+    /// **A layer inset from each edge of the stack by its own amount** — the reference's
+    /// `Positioned.fromRelativeRect`: `edges` are the distances from the left, top, right
+    /// and bottom edges.
+    pub fn from_relative_rect(inner: impl Widget<Msg> + 'static, edges: frus_core::Insets) -> Self {
+        Self::new(inner)
+            .left(edges.left)
+            .top(edges.top)
+            .right(edges.right)
+            .bottom(edges.bottom)
+    }
+
     /// It does not touch the box — the stack reads the pins and lays the layer out
     /// against them, which a style cannot express.
     fn restyle(&self, base: Style) -> Style {
