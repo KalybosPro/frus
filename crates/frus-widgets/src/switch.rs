@@ -518,7 +518,11 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
                 curve.transform(t)
             }
         };
-        let (place, mix) = if self.on {
+        let (place, mix) = if status.value_placed {
+            // Under a finger, or settling from where one let go, the thumb is where the
+            // finger put it: no curve (`switch.dart:873`).
+            (t.clamp(0.0, 1.0), curved(Curve::ease_out()))
+        } else if self.on {
             (curved(ease_out_back()), curved(Curve::ease_out()))
         } else {
             (
@@ -642,6 +646,35 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         if !self.enabled {
+            return None;
+        }
+        self.on_toggle.as_ref().map(|make| make(!self.on))
+    }
+
+    /// **The thumb follows a horizontal drag** (`switch.dart:1078`), when there is
+    /// something to tell.
+    fn pan_axis(&self) -> Option<crate::PanAxis> {
+        (self.enabled && self.on_toggle.is_some()).then_some(crate::PanAxis::Horizontal)
+    }
+
+    /// Where the drag puts the thumb: moved by the finger's travel over the track's inner
+    /// length (`switch.dart:870`), the other way in right-to-left.
+    fn pan_value(&self, event: crate::PanEvent, value: f32, rtl: bool) -> Option<f32> {
+        match event {
+            crate::PanEvent::Start { .. } => Some(value.clamp(0.0, 1.0)),
+            crate::PanEvent::Update { delta, .. } => {
+                let along = delta.x / (W - H);
+                let along = if rtl { -along } else { along };
+                Some((value + along).clamp(0.0, 1.0))
+            }
+            crate::PanEvent::End { .. } => None,
+        }
+    }
+
+    /// **Let go past half way, it flips** (`switch.dart:885`); short of it, the thumb goes
+    /// back and nothing is said.
+    fn on_value_release(&self, value: f32) -> Option<Msg> {
+        if !self.enabled || (value >= 0.5) == self.on {
             return None;
         }
         self.on_toggle.as_ref().map(|make| make(!self.on))
@@ -1129,6 +1162,98 @@ mod tests {
         assert!(
             (thumb.y + thumb.height * 0.5 - MIN_TAP_TARGET * 0.5).abs() < 0.01,
             "the thumb is centred on the track: {thumb:?}"
+        );
+    }
+
+    /// **A switch that can be flipped takes a horizontal drag** (`switch.dart:1078`); one
+    /// that cannot, or has no one to tell, takes none, so a drag there is the page's.
+    #[test]
+    fn a_live_switch_takes_a_horizontal_drag() {
+        let live = Switch::<Msg>::new(false).on_toggle(Msg::Set);
+        assert_eq!(
+            Widget::<Msg>::pan_axis(&live),
+            Some(crate::PanAxis::Horizontal)
+        );
+        assert_eq!(Widget::<Msg>::pan_axis(&live.enabled(false)), None);
+        assert_eq!(Widget::<Msg>::pan_axis(&Switch::<Msg>::new(false)), None);
+    }
+
+    /// **The thumb moves by the finger's travel over the track's inner length**
+    /// (`switch.dart:875`) — 20 pixels end to end — the other way in right-to-left, and
+    /// never past an end.
+    #[test]
+    fn the_drag_moves_the_thumb_by_the_finger() {
+        let switch = Switch::<Msg>::new(false).on_toggle(Msg::Set);
+        let update = |dx: f32| crate::PanEvent::Update {
+            local: frus_core::Point::new(0.0, 0.0),
+            delta: frus_core::Point::new(dx, 0.0),
+        };
+        let start = crate::PanEvent::Start {
+            local: frus_core::Point::new(0.0, 0.0),
+        };
+        let value = |e, v, rtl| Widget::<Msg>::pan_value(&switch, e, v, rtl);
+        assert_eq!(value(start, 0.0, false), Some(0.0), "held where it is");
+        assert_eq!(value(update(5.0), 0.0, false), Some(0.25));
+        assert_eq!(value(update(5.0), 0.5, true), Some(0.25), "mirrored");
+        assert_eq!(
+            value(update(50.0), 0.5, false),
+            Some(1.0),
+            "not past the end"
+        );
+        assert_eq!(value(update(-50.0), 0.5, false), Some(0.0), "nor the start");
+        let end = crate::PanEvent::End {
+            velocity: frus_core::Point::new(0.0, 0.0),
+        };
+        assert_eq!(value(end, 0.7, false), None, "the release is not a move");
+    }
+
+    /// **Let go past half way it flips, short of it nothing is said** (`switch.dart:885`).
+    #[test]
+    fn let_go_past_half_way_it_flips() {
+        let off = Switch::<Msg>::new(false).on_toggle(Msg::Set);
+        assert_eq!(
+            Widget::<Msg>::on_value_release(&off, 0.5),
+            Some(Msg::Set(true))
+        );
+        assert_eq!(Widget::<Msg>::on_value_release(&off, 0.49), None);
+        let on = Switch::<Msg>::new(true).on_toggle(Msg::Set);
+        assert_eq!(
+            Widget::<Msg>::on_value_release(&on, 0.3),
+            Some(Msg::Set(false))
+        );
+        assert_eq!(Widget::<Msg>::on_value_release(&on, 0.5), None);
+        assert_eq!(
+            Widget::<Msg>::on_value_release(&off.enabled(false), 1.0),
+            None,
+            "a disabled switch never flips"
+        );
+    }
+
+    /// **A placed value is painted straight** (`switch.dart:873`): the thumb is where the
+    /// finger put it, not where the overshooting curve would take that value.
+    #[test]
+    fn a_placed_thumb_is_where_the_finger_put_it() {
+        let theme = Theme::default();
+        let switch = Switch::<Msg>::new(true).on_toggle(Msg::Set);
+        let centre = |placed: bool| {
+            let thumb = boxes(
+                &switch,
+                Status {
+                    value: 0.7,
+                    value_placed: placed,
+                    ..state(true)
+                },
+                &theme,
+            )
+            .last()
+            .expect("a thumb")
+            .0;
+            thumb.x + thumb.width * 0.5
+        };
+        assert!((centre(true) - (H * 0.5 + (W - H) * 0.7)).abs() < 1e-4);
+        assert!(
+            centre(false) > centre(true),
+            "the curve would have overshot"
         );
     }
 

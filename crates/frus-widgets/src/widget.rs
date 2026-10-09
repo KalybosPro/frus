@@ -1642,6 +1642,24 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// A drag that moves **this widget's own animated value** ([`anim_target`]) — a
+    /// switch's thumb following the finger (milestone 638). Given a moment of the drag, the
+    /// value now and whether the text runs right to left, the value to hold it at; `None`
+    /// leaves it alone. The shell holds the value there while the finger is down, and when
+    /// it lifts lets it settle from there, asking [`on_value_release`] what that means.
+    ///
+    /// [`anim_target`]: Self::anim_target
+    /// [`on_value_release`]: Self::on_value_release
+    fn pan_value(&self, _event: crate::PanEvent, _value: f32, _rtl: bool) -> Option<f32> {
+        None
+    }
+
+    /// Message for a drag that moved this widget's value letting go at `value` — a switch
+    /// flips when its thumb was let go past half way (milestone 638).
+    fn on_value_release(&self, _value: f32) -> Option<Msg> {
+        None
+    }
+
     /// Key received while **bubbling leaf→root**: the focused widget gets it first,
     /// then each ancestor as long as the response is `Ignored`. (E.g. an `OverlayPortal`
     /// consumes `Escape` to close itself.)
@@ -2231,6 +2249,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_pan(&self, event: crate::PanEvent) -> Option<Msg> {
         (**self).on_pan(event)
+    }
+    fn pan_value(&self, event: crate::PanEvent, value: f32, rtl: bool) -> Option<f32> {
+        (**self).pan_value(event, value, rtl)
+    }
+    fn on_value_release(&self, value: f32) -> Option<Msg> {
+        (**self).on_value_release(value)
     }
     fn on_key(&self, key: &crate::interaction::Key) -> crate::interaction::KeyResponse<Msg> {
         (**self).on_key(key)

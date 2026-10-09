@@ -8,11 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 637 so far, each documenting the objective, the alternatives
+> record — one per step, 638 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Dragging a switch's thumb** (J638). The thumb follows a horizontal drag; let go past
+  half way it flips, short of it it goes back; a tap still flips it. Built on two new
+  widget hooks, `pan_value` and `on_value_release`, with which a drag moves a widget's own
+  animated value, held by the runtime (`hold_value`, `release_value`, `value_placed`,
+  `Status::value_placed`). The shell's test driver now steps animated values as the window
+  does.
 - **The switch, as the reference's** (J637). A 60 × 48 box (the track and 4 px either
   side), the reference's 20 px halo round the thumb, `primary_container` and
   `on_surface_variant` thumbs under a pointer, focus or a press, and the reference's 300 ms

@@ -5276,6 +5276,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             Some(target) => self.runtime.value_or(id, target),
             None => self.runtime.value(id),
         };
+        status.value_placed = self.runtime.value_placed(id);
         status.anim_color = self.runtime.anim_color(id);
         status.anim_radius = self.runtime.anim_radius(id);
         status.time = self.runtime.time;

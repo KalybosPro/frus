@@ -1739,7 +1739,10 @@ fn the_application_runs_through_the_shell() {
     let mut driver = Driver::new(app, 500.0, 800.0);
     driver.run(0.3);
     demo.add("write the milestone");
-    driver.run(0.1);
+    // The row arrives with its animation, about 0.2 s, as in the window: the driver steps
+    // the widgets' animated values since milestone 638, where before it showed every value
+    // at its target at once.
+    driver.run(0.3);
     assert!(driver
         .texts()
         .iter()

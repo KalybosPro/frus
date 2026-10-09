@@ -43,7 +43,7 @@ Status: **done** (milestone), **to review**.
 | `Checkbox` | `Checkbox` | `material/checkbox.dart` | **done** (J634) |
 | `Radio` | `Radio` | `material/radio.dart` | **done** (J635) |
 | `RadioGroup` | `RadioGroup` | `widgets/radio_group.dart` | to review |
-| `Switch` | `Switch` | `material/switch.dart` | **in progress** (J637; thumb drag next) |
+| `Switch` | `Switch` | `material/switch.dart` | **done** (J637, J638); the adaptive switch later |
 | `Slider` | `Slider` | `material/slider.dart` | to review |
 | `RangeSlider` | `RangeSlider` | `material/range_slider.dart` | to review |
 | `TextField` | `TextField` | `material/text_field.dart` | to review |
@@ -229,5 +229,5 @@ Status: **done** (milestone), **to review**.
 
 ## Order
 
-After the switch: its thumb drag, `Stack`, `BoxDecoration` (and what it is made of),
+Next: `Stack`, `BoxDecoration` (and what it is made of),
 `CircleAvatar`; then the rest of the form controls and the sections above in order.

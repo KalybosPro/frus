@@ -750,6 +750,12 @@ pub struct Runtime {
     /// The widgets' own animated values (`Widget::anim_target`), per widget — each
     /// one a curved **timeline** (see [`ValueAnim`]).
     pub values: HashMap<WidgetId, ValueAnim>,
+    /// Values a drag is **holding** where the finger put them (milestone 638): not advanced
+    /// towards their target while the finger is down.
+    held_values: std::collections::HashSet<WidgetId>,
+    /// Values a drag **placed**: held, or settling from where the finger left them. They
+    /// travel linearly, in the time the distance left takes, and the paint is told so.
+    placed_values: std::collections::HashSet<WidgetId>,
     /// Animated background colours (`Container::animated_color`), per widget.
     colors: HashMap<WidgetId, ColorAnim>,
     /// Animated inherited text styles (`AnimatedDefaultTextStyle`), per widget — read by
@@ -849,6 +855,26 @@ impl Runtime {
         self.values.insert(id, ValueAnim::settled(v));
     }
 
+    /// **Holds** a widget's value at `v` under a finger (milestone 638): it stays there,
+    /// whatever its target, until [`release_value`](Self::release_value).
+    pub fn hold_value(&mut self, id: WidgetId, v: f32) {
+        self.values.insert(id, ValueAnim::settled(v));
+        self.held_values.insert(id);
+        self.placed_values.insert(id);
+    }
+
+    /// Lets go of a held value: it settles from where it was left to its target, linearly
+    /// and in the share of the widget's duration the distance left is — as a controller
+    /// let go part way finishes the way it was going.
+    pub fn release_value(&mut self, id: WidgetId) {
+        self.held_values.remove(&id);
+    }
+
+    /// Whether a drag placed this value and it has not settled yet.
+    pub fn value_placed(&self, id: WidgetId) -> bool {
+        self.placed_values.contains(&id)
+    }
+
     /// Drives every animated value towards the target its widget declares
     /// (`Widget::anim_target`). A widget seen for the **first** time adopts its
     /// target with no transition (no animation on mount). Returns `true` if a value
@@ -888,12 +914,30 @@ impl Runtime {
         let present: std::collections::HashSet<WidgetId> =
             targets.iter().map(|(id, ..)| *id).collect();
         self.values.retain(|id, _| present.contains(id));
+        self.held_values.retain(|id| present.contains(id));
+        self.placed_values.retain(|id| present.contains(id));
 
         let mut animating = false;
         for (id, target, duration, curve) in targets {
+            // A finger holds it: nothing moves it until it lets go.
+            if self.held_values.contains(&id) {
+                continue;
+            }
+            let placed = self.placed_values.contains(&id);
             match self.values.entry(id) {
                 std::collections::hash_map::Entry::Occupied(mut e) => {
                     let v = e.get_mut();
+                    // Placed by a finger: straight there, in the time the distance takes.
+                    let (duration, curve) = if placed {
+                        let distance = if v.to != target {
+                            (target - v.current).abs()
+                        } else {
+                            (v.to - v.from).abs()
+                        };
+                        (duration * distance.min(1.0), Curve::Linear)
+                    } else {
+                        (duration, curve)
+                    };
                     // New target: rebase the timeline from the current value.
                     if v.to != target {
                         v.from = v.current;
@@ -913,6 +957,9 @@ impl Runtime {
                         if t < 1.0 {
                             animating = true;
                         }
+                    }
+                    if placed && v.current == v.to {
+                        self.placed_values.remove(&id);
                     }
                 }
                 std::collections::hash_map::Entry::Vacant(e) => {
@@ -2859,6 +2906,34 @@ mod tests {
             stopped.value(WidgetId::ROOT),
             1.0,
             "and the value the widget asked for has actually arrived"
+        );
+    }
+
+    /// **A value a finger holds stays where it was put** (milestone 638), whatever its
+    /// target; let go, it travels straight to the target in the share of the duration the
+    /// distance left is, and is no longer *placed* once it arrives.
+    #[test]
+    fn a_held_value_stays_and_settles_from_where_it_was_left() {
+        let off: crate::Switch<()> = crate::Switch::new(false);
+        let mut rt = Runtime::default();
+        rt.advance_values(&off, 1.0);
+        rt.hold_value(WidgetId::ROOT, 0.25);
+        assert!(rt.value_placed(WidgetId::ROOT));
+        assert!(!rt.advance_values(&off, 1.0), "held: nothing moves");
+        assert_eq!(rt.value(WidgetId::ROOT), 0.25);
+
+        rt.release_value(WidgetId::ROOT);
+        // A quarter of the way to go is a quarter of the 300 ms: half of it is 37.5 ms.
+        assert!(rt.advance_values(&off, 0.0375));
+        let half = rt.value(WidgetId::ROOT);
+        assert!((half - 0.125).abs() < 1e-4, "linear, half way: {half}");
+        assert!(rt.value_placed(WidgetId::ROOT), "still settling");
+        rt.advance_values(&off, 0.0375);
+        assert_eq!(rt.value(WidgetId::ROOT), 0.0);
+        rt.advance_values(&off, 0.0);
+        assert!(
+            !rt.value_placed(WidgetId::ROOT),
+            "arrived: no longer placed"
         );
     }
 
