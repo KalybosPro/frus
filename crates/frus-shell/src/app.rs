@@ -3135,6 +3135,10 @@ impl<A: Application> App<A> {
                         f32::INFINITY,
                     );
                 }
+                // A value a cancelled drag held settles back, and says nothing.
+                if let Some(Drag::Gesture { id, .. }) = self.drag {
+                    self.runtime.release_value(id);
+                }
                 if let Some(Drag::Scroll { id, .. }) = self.drag {
                     self.runtime.release_scroll(id);
                     self.runtime.glow_scroll_end(id);
@@ -5879,11 +5883,37 @@ impl<A: Application> App<A> {
 
     /// Hands one moment of a drag to the detector `id`, and its message to the application.
     fn send_pan(&mut self, id: WidgetId, event: frus_widgets::PanEvent) {
-        let message = self
+        let rtl = self.is_rtl();
+        let value = self.runtime.value(id);
+        let (message, moved, released) = match self
             .tree
             .as_ref()
             .and_then(|tree| find_widget(tree.as_ref(), id))
-            .and_then(|widget| widget.on_pan(event));
+        {
+            Some(widget) => {
+                // A widget whose own value the drag moves — a switch's thumb (milestone
+                // 638): held where the finger puts it, and asked what letting go there
+                // means.
+                let moved = widget.pan_value(event, value, rtl);
+                let released = match event {
+                    frus_widgets::PanEvent::End { .. } if self.runtime.value_placed(id) => {
+                        Some(widget.on_value_release(value))
+                    }
+                    _ => None,
+                };
+                (widget.on_pan(event), moved, released)
+            }
+            None => (None, None, None),
+        };
+        if let Some(v) = moved {
+            self.runtime.hold_value(id, v);
+        }
+        if let Some(release) = released {
+            self.runtime.release_value(id);
+            if let Some(message) = release {
+                self.dispatch(message);
+            }
+        }
         if let Some(message) = message {
             self.dispatch(message);
         }
@@ -9704,6 +9734,9 @@ pub mod testing {
             s.runtime.advance(dt);
             s.runtime.advance_scroll(&regions, dt);
             let tree = s.tree.as_deref().expect("the view was built");
+            // The widgets' own values, as the window's frame steps them: without it a value
+            // a drag held would be held for ever here (milestone 638).
+            s.runtime.advance_values(tree, dt);
             let ui = build_ui(tree, Size::new(width, height), &s.runtime, &theme);
             s.runtime.states.end_frame();
             let mut scene = ui.scene().clone();
@@ -12517,5 +12550,152 @@ mod scroll_behavior_tests {
             VelocityStrategy::RecentAverage(frus_widgets::BOUNCING_FLING_WEIGHTS)
         );
         d.release(Point::new(150.0, 200.0));
+    }
+}
+
+/// A switch's thumb dragged through the shell (milestone 638): it follows the finger, flips
+/// when let go past half way and goes back when not, and a tap still flips it.
+#[cfg(test)]
+mod switch_drag_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{Container, Point, Rect, Switch, Theme, Widget};
+
+    const W: f32 = 300.0;
+    const H: f32 = 200.0;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Set(bool),
+    }
+
+    #[derive(Default)]
+    struct Page {
+        on: bool,
+        heard: Vec<Msg>,
+    }
+
+    impl Application for Page {
+        type Message = Msg;
+
+        fn update(&mut self, message: Msg) -> Command<Msg> {
+            let Msg::Set(on) = message;
+            self.on = on;
+            self.heard.push(message);
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            Box::new(
+                Container::new()
+                    .width(W)
+                    .height(H)
+                    .child(Switch::new(self.on).on_toggle(Msg::Set)),
+            )
+        }
+    }
+
+    fn driver() -> Driver<Page> {
+        let mut d = Driver::new(Page::default(), W, H);
+        d.run(0.2);
+        d
+    }
+
+    /// The track and the thumb the last frame drew: the 52 × 32 rectangle, and the last one.
+    fn track_and_thumb(d: &Driver<Page>) -> (Rect, Rect) {
+        let (ui, _) = d.frame_parts().expect("a frame");
+        let rects: Vec<Rect> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_widgets::Primitive::Rect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect();
+        let track = *rects
+            .iter()
+            .find(|r| r.width == 52.0 && r.height == 32.0)
+            .expect("the track");
+        (track, *rects.last().expect("the thumb"))
+    }
+
+    /// How far along its travel the thumb's centre is, 0 at the start and 1 at the end.
+    fn along(d: &Driver<Page>) -> f32 {
+        let (track, thumb) = track_and_thumb(d);
+        (thumb.x + thumb.width * 0.5 - track.x - 16.0) / 20.0
+    }
+
+    /// A finger on the thumb, moved by `dx` in eight steps; lifted when `lift`.
+    fn drag(d: &mut Driver<Page>, dx: f32, lift: bool) {
+        let (track, _) = track_and_thumb(d);
+        let from = Point::new(track.x + 16.0, track.y + 16.0);
+        d.press(from);
+        d.run(0.02);
+        for step in 1..=8 {
+            d.move_to(Point::new(from.x + dx * step as f32 / 8.0, from.y));
+            d.run(0.02);
+        }
+        if lift {
+            d.release(Point::new(from.x + dx, from.y));
+            d.run(0.02);
+        }
+    }
+
+    /// **The thumb is where the finger is** while it is down, past the slop: placed, not
+    /// animated, and the switch has said nothing yet.
+    #[test]
+    fn the_thumb_follows_the_finger() {
+        let mut d = driver();
+        assert!(along(&d).abs() < 1e-3, "off at rest");
+        drag(&mut d, 40.0, false);
+        let now = along(&d);
+        assert!(now > 0.3 && now <= 1.0, "moved with the finger: {now}");
+        assert!(d.app().heard.is_empty(), "nothing said while held");
+        // Held, it stays: frames pass and the thumb does not go back.
+        d.run(0.5);
+        assert!((along(&d) - now).abs() < 1e-3, "held where it was put");
+    }
+
+    /// **Let go past half way, it flips** — and the release is not also a tap, which would
+    /// flip it straight back.
+    #[test]
+    fn let_go_past_half_way_it_flips() {
+        let mut d = driver();
+        drag(&mut d, 60.0, true);
+        assert_eq!(d.app().heard, vec![Msg::Set(true)]);
+        d.run(0.5);
+        assert!((along(&d) - 1.0).abs() < 1e-3, "settled on");
+    }
+
+    /// **Short of half way, it goes back**, and says nothing.
+    #[test]
+    fn let_go_short_of_half_way_it_goes_back() {
+        let mut d = driver();
+        // Out past the slop, then most of the way back: a finger that thought better of it.
+        drag(&mut d, 30.0, false);
+        let (track, _) = track_and_thumb(&d);
+        let back = Point::new(track.x + 16.0 + 15.0, track.y + 16.0);
+        d.move_to(back);
+        d.run(0.02);
+        assert!(along(&d) > 0.0, "it had moved");
+        assert!(along(&d) < 0.5, "but is short of half way: {}", along(&d));
+        d.release(back);
+        d.run(0.5);
+        assert!(d.app().heard.is_empty(), "nothing said");
+        assert!(along(&d).abs() < 1e-3, "back off: {}", along(&d));
+    }
+
+    /// **A tap still flips it**: a drag begins only past the slop.
+    #[test]
+    fn a_tap_still_flips_it() {
+        let mut d = driver();
+        let (track, _) = track_and_thumb(&d);
+        let at = Point::new(track.x + 16.0, track.y + 16.0);
+        d.press(at);
+        d.release(at);
+        d.run(0.5);
+        assert_eq!(d.app().heard, vec![Msg::Set(true)]);
+        assert!((along(&d) - 1.0).abs() < 1e-3);
     }
 }

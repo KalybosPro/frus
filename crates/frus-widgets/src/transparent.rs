@@ -835,6 +835,14 @@ macro_rules! forward_gesture_hooks {
         fn on_pan(&self, event: $crate::PanEvent) -> Option<Msg> {
             self.inner.on_pan(event)
         }
+
+        fn pan_value(&self, event: $crate::PanEvent, value: f32, rtl: bool) -> Option<f32> {
+            self.inner.pan_value(event, value, rtl)
+        }
+
+        fn on_value_release(&self, value: f32) -> Option<Msg> {
+            self.inner.on_value_release(value)
+        }
     };
 }
 

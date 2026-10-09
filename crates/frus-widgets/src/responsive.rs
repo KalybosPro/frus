@@ -661,6 +661,16 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_pan(event))
     }
 
+    fn pan_value(&self, event: crate::PanEvent, value: f32, rtl: bool) -> Option<f32> {
+        self.inner
+            .as_ref()
+            .and_then(|w| w.pan_value(event, value, rtl))
+    }
+
+    fn on_value_release(&self, value: f32) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_value_release(value))
+    }
+
     fn on_key(&self, key: &crate::Key) -> crate::KeyResponse<Msg> {
         self.inner
             .as_ref()

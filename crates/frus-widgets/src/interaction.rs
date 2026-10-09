@@ -264,6 +264,10 @@ pub struct Status {
     /// coordinates through its `bounds` to highlight the targeted zone (a suffix icon…).
     /// Set by the shell from `cursor_icon`.
     pub hover_cursor: Option<frus_core::Point>,
+    /// Was `value` **placed by a finger** — held by a drag, or settling from where one let
+    /// go (milestone 638)? A widget that curves its value paints it straight while it is:
+    /// the thumb under a finger is where the finger is.
+    pub value_placed: bool,
 }
 
 impl Status {
@@ -319,6 +323,7 @@ impl Default for Status {
             anim_radius: None,
             scroll_y: 0.0,
             hover_cursor: None,
+            value_placed: false,
         }
     }
 }
@@ -376,6 +381,7 @@ impl InputState {
             } else {
                 None
             },
+            value_placed: false,
         }
     }
 }
