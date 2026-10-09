@@ -1401,11 +1401,29 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
-    /// Whether this stack sizes its unpinned layers **loosely** — asking each what it
-    /// would like to be — rather than handing each of them the whole box.
-    /// See [`crate::StackFit`]. Meaningless unless [`Widget::stack`] is true.
-    fn stack_loose(&self) -> bool {
+    /// How this stack sizes its unpinned layers ([`crate::StackFit`]). Unset,
+    /// [`Passthrough`](crate::StackFit::Passthrough): each is handed the stack's box, and
+    /// one with a size of its own keeps it. Meaningless unless [`Widget::stack`] is true.
+    fn stack_fit(&self) -> crate::StackFit {
+        crate::StackFit::Passthrough
+    }
+
+    /// Whether this stack is **as big as its largest unpinned layer** (milestone 639), as
+    /// [`crate::Stack`] is, rather than the size its own style says. Meaningless unless
+    /// [`Widget::stack`] is true.
+    fn stack_measured(&self) -> bool {
         false
+    }
+
+    /// Whether this stack cuts its layers at its edges. Unset, it does.
+    fn stack_clips(&self) -> bool {
+        true
+    }
+
+    /// The reading direction this stack resolves its alignment and its layers' start and
+    /// end pins in, when it names one. Unset, the theme's.
+    fn stack_direction(&self) -> Option<frus_core::TextDirection> {
+        None
     }
 
     /// Which layer of this stack is **shown**: the one at that index paints and takes
@@ -2162,8 +2180,17 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn positioned(&self) -> Option<crate::positioned::Positioning> {
         (**self).positioned()
     }
-    fn stack_loose(&self) -> bool {
-        (**self).stack_loose()
+    fn stack_fit(&self) -> crate::StackFit {
+        (**self).stack_fit()
+    }
+    fn stack_measured(&self) -> bool {
+        (**self).stack_measured()
+    }
+    fn stack_clips(&self) -> bool {
+        (**self).stack_clips()
+    }
+    fn stack_direction(&self) -> Option<frus_core::TextDirection> {
+        (**self).stack_direction()
     }
     fn stack_visible(&self) -> Option<usize> {
         (**self).stack_visible()

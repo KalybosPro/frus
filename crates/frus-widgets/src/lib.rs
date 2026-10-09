@@ -428,7 +428,7 @@ pub use skeleton::Skeleton;
 pub use slider::{RangeSlider, Slider};
 pub use spacer::Spacer;
 pub use spinner::CircularProgressIndicator;
-pub use stack::{IndexedStack, Stack, StackFit};
+pub use stack::{Clip, IndexedStack, Stack, StackFit};
 pub use stepper::Stepper;
 pub use steps::Steps;
 pub use sticky::StickyHeader;

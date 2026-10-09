@@ -2267,6 +2267,61 @@ fn build_layout_scoped<'a, Msg>(
         }
     }
 
+    // **A stack that is as big as its largest unpinned layer** (`stack.dart:625`): each such
+    // layer is laid out in a tree of its own under the stack's fit, and the stack is the
+    // largest of them, held to the room it is offered. With none, or under `Expand`, it is
+    // the room itself — which its fill request asks for.
+    if widget.stack() && widget.stack_measured() {
+        let style = effective_style(widget, id, runtime, theme);
+        let owned = owned_theme(theme);
+        let fit = widget.stack_fit();
+        let layers = widget.children();
+        let measure: frus_layout::MeasureFn<'a> = Box::new(move |w, h| {
+            let mut size = Size::new(0.0, 0.0);
+            // Under `Expand` the stack is the room; otherwise its largest unpinned layer.
+            // With none, it is nothing here, and its fill request asks for the room.
+            let sized_by_layers = fit != crate::StackFit::Expand;
+            for (i, layer) in layers.iter().enumerate() {
+                if layer.positioned().is_some() {
+                    continue;
+                }
+                let mut inner: Layout<BaselineData> = Layout::new();
+                let node = build_layout(
+                    layer.as_ref(),
+                    child_id(id, i, layer.as_ref()),
+                    runtime,
+                    &owned,
+                    &mut inner,
+                );
+                // Forced or handed the room, a layer fills it; allowed it, it is asked —
+                // and one that asks for the room takes it on its own, as a root.
+                let fill = fit != crate::StackFit::Loose;
+                let (fill_x, fill_y) = (fill, fill);
+                inner.compute_axes(
+                    node,
+                    w.unwrap_or(0.0),
+                    h.unwrap_or(0.0),
+                    [w.is_none(), h.is_none()],
+                    [fill_x && w.is_some(), fill_y && h.is_some()],
+                );
+                let own = inner.size_of(node);
+                size = Size::new(size.width.max(own.width), size.height.max(own.height));
+            }
+            // The room, on each axis that was offered one, when the layers do not decide.
+            if !sized_by_layers {
+                size = Size::new(w.unwrap_or(size.width), h.unwrap_or(size.height));
+            }
+            Size::new(
+                frus_core::fits(size.width).min(w.unwrap_or(f32::INFINITY)),
+                frus_core::fits(size.height).min(h.unwrap_or(f32::INFINITY)),
+            )
+        });
+        return (
+            layout.measured_leaf(style, own_baseline, measure),
+            Fills::own(widget, theme),
+        );
+    }
+
     // Scrollables, interactive viewports, fitters (`FittedBox`), navigators, virtualised
     // lists and stacks: their content is laid out separately (independent layers / screens /
     // items, or a child laid out at its natural size).
@@ -2549,6 +2604,9 @@ struct Builder<'a, Msg> {
     focus_scope_start: Option<usize>,
     /// Set while inside an `ExcludeFocus`: nothing in here registers a focus stop.
     focus_excluded: bool,
+    /// Where a press or a drag can land, when that is less than what is drawn: inside a
+    /// stack that lets its layers hang over its edges, its own box (milestone 639).
+    touch_clip: Option<Rect>,
     /// The identity of the nearest enclosing backdrop group — the key a backdrop
     /// asking to be shared takes. Pushed and popped by the walk, like the focus flags.
     backdrop_group: Option<u64>,
@@ -3859,13 +3917,15 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             });
         }
         if visible.width > 0.0 && visible.height > 0.0 {
+            // What a press or a drag can reach: the visible box, cut at a hanging stack's.
+            let touch = self.touch_clip.map_or(visible, |t| visible.intersect(t));
             // A press that lands on a **surface** and on nothing inside it stops there.
             // Registered before the children, so anything inside still wins on the way
             // back out — see [`Widget::opaque`].
             if widget.opaque() {
                 self.hits.push(Hit {
                     id,
-                    rect: visible,
+                    rect: touch,
                     msg: None,
                     xform: None,
                 });
@@ -3879,14 +3939,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             {
                 self.hits.push(Hit {
                     id,
-                    rect: visible,
+                    rect: touch,
                     msg: tap,
                     xform: None,
                 });
             }
             // A detector that takes a drag (milestone 582).
             if widget.pan_axis().is_some() {
-                self.pans.push((id, visible, draw_rect));
+                self.pans.push((id, touch, draw_rect));
             }
             // The title bar's line (milestone 640).
             if widget.wants_title_bar() {
@@ -3897,12 +3957,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
             // A widget that hears the pointer's raw events (milestone 586).
             if widget.pointer_listener() {
-                self.pointer_listeners.push((id, visible, draw_rect));
+                self.pointer_listeners.push((id, touch, draw_rect));
             }
             if let Some(msg) = widget.on_long_press() {
                 self.long_presses.push(Hit {
                     id,
-                    rect: visible,
+                    rect: touch,
                     msg: Some(msg),
                     xform: None,
                 });
@@ -3911,20 +3971,20 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 self.edit_actions.push((id, action));
             }
             if widget.draggable() {
-                self.draggables.push((id, visible));
+                self.draggables.push((id, touch));
             }
             if let Some(payload) = widget.drag_payload() {
                 self.drag_sources.push(DragSource {
                     id,
-                    rect: visible,
+                    rect: touch,
                     payload,
                 });
             }
             if widget.drop_zone() {
-                self.drop_zones.push(DropZone { id, rect: visible });
+                self.drop_zones.push(DropZone { id, rect: touch });
             }
             if widget.reorder_index().is_some() {
-                self.reorderables.push((id, visible));
+                self.reorderables.push((id, touch));
             }
             // The accessibility tree: nodes that carry meaning (a role or a label).
             if let Some(sem) = widget.semantics().filter(|s| s.is_meaningful()) {
@@ -4932,8 +4992,23 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         } else if widget.stack() {
             // A stack: the layers are rendered in order, bottom first.
             let bounds = draw_rect;
-            let layer_clip = clip.intersect(bounds);
-            let loose = widget.stack_loose();
+            // Cut at the stack's edges unless it says otherwise (`stack.dart:718`).
+            let layer_clip = if widget.stack_clips() {
+                clip.intersect(bounds)
+            } else {
+                clip
+            };
+            // Drawn past its edges or not, a stack is only touched inside them: the
+            // reference asks a box whether a point is in it before its children.
+            let outer_touch = self.touch_clip;
+            if !widget.stack_clips() {
+                self.touch_clip = Some(outer_touch.map_or(bounds, |t| t.intersect(bounds)));
+            }
+            let fit = widget.stack_fit();
+            // The stack's own reading direction, or the theme's.
+            let rtl = widget
+                .stack_direction()
+                .map_or(self.rtl(), |d| d == frus_core::TextDirection::Rtl);
             // An **indexed** stack shows one layer and lays out the rest. Which is a
             // question for here rather than for the widget: a layer that wrapped itself in
             // something to keep quiet would no longer be laid out the way a bare layer is,
@@ -4946,7 +5021,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 .unwrap_or(frus_core::AlignmentGeometry::Physical(
                     frus_core::Alignment::TOP_LEFT,
                 ))
-                .resolve(if self.rtl() {
+                .resolve(if rtl {
                     frus_core::TextDirection::Rtl
                 } else {
                     frus_core::TextDirection::Ltr
@@ -4970,17 +5045,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 // A start or an end pin is a left or a right once the direction is known
                 // (milestone 589). The stack's layers are placed on the screen as they are,
                 // not mirrored, so this is the one place it is decided.
-                let pins = pins.map(|p| p.for_direction(self.rtl()));
+                let pins = pins.map(|p| p.for_direction(rtl));
                 let (want_w, want_h) = match pins {
                     Some(p) => (
                         p.resolved_width(bounds.width),
                         p.resolved_height(bounds.height),
                     ),
-                    None if loose => (None, None),
-                    // The historical behaviour, and still the default: a layer is
-                    // **given** the box rather than asked what size it would like. An
-                    // unsized layer that hugged its content would collapse to nothing —
-                    // invisibly, since a stack draws no box of its own.
                     None => (Some(bounds.width), Some(bounds.height)),
                 };
                 // A pinned layer is **forced** into what its edges say: two opposite
@@ -4996,18 +5066,27 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                         Constraints::pinned(want_w, want_h, Size::new(bounds.width, bounds.height)),
                     )
                 } else {
-                    match (want_w, want_h) {
-                        (Some(w), Some(h)) => self.cached_rects(
-                            cid,
-                            layer.as_ref(),
-                            Constraints::filled(Size::new(w, h)),
+                    let room = Size::new(
+                        want_w.unwrap_or(bounds.width),
+                        want_h.unwrap_or(bounds.height),
+                    );
+                    // The stack's fit (`stack.dart:634`): allowed up to the room, forced
+                    // into it, or handed it.
+                    let c = match fit {
+                        // A layer that asks for the room takes it here unasked: laid out on
+                        // its own, its fill request is the root's.
+                        crate::StackFit::Loose => Constraints::axes(
+                            room.width,
+                            room.height,
+                            [false, false],
+                            [false, false],
                         ),
-                        _ => self.cached_rects(
-                            cid,
-                            layer.as_ref(),
-                            Constraints::scroll(bounds.width, bounds.height, true, true),
-                        ),
-                    }
+                        crate::StackFit::Expand => {
+                            Constraints::pinned(Some(room.width), Some(room.height), room)
+                        }
+                        crate::StackFit::Passthrough => Constraints::filled(room),
+                    };
+                    self.cached_rects(cid, layer.as_ref(), c)
                 };
                 let own = layer_rects
                     .first()
@@ -5054,6 +5133,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     self.apply_barrier(HIDDEN_LAYER, &base, cid, Rect::new(0.0, 0.0, 0.0, 0.0));
                 }
             }
+            self.touch_clip = outer_touch;
         } else if let Some((content, placement)) = widget.overlay() {
             // The anchor (child 0) is rendered inline; the overlay (child 1) is deferred.
             self.walk(
@@ -6229,6 +6309,7 @@ fn build_ui_walk<'a, Msg: Clone + 'static>(
         semantics: Vec::new(),
         system_ui: Vec::new(),
         focus_excluded: false,
+        touch_clip: None,
         backdrop_group: None,
         focus_skipped: false,
         focus_order: None,

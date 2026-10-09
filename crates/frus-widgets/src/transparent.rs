@@ -705,8 +705,20 @@ macro_rules! forward_transparent {
                 self.inner.main_axis_floor(theme)
             }
 
-            fn stack_loose(&self) -> bool {
-                self.inner.stack_loose()
+            fn stack_fit(&self) -> $crate::StackFit {
+                self.inner.stack_fit()
+            }
+
+            fn stack_measured(&self) -> bool {
+                self.inner.stack_measured()
+            }
+
+            fn stack_clips(&self) -> bool {
+                self.inner.stack_clips()
+            }
+
+            fn stack_direction(&self) -> Option<frus_core::TextDirection> {
+                self.inner.stack_direction()
             }
 
             fn stack_visible(&self) -> Option<usize> {

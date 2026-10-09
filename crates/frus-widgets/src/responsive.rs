@@ -321,6 +321,28 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().is_some_and(|w| w.stack())
     }
 
+    fn stack_fit(&self) -> crate::StackFit {
+        self.inner
+            .as_ref()
+            .map_or(crate::StackFit::Passthrough, |w| w.stack_fit())
+    }
+
+    fn stack_measured(&self) -> bool {
+        self.inner.as_ref().is_some_and(|w| w.stack_measured())
+    }
+
+    fn stack_clips(&self) -> bool {
+        self.inner.as_ref().is_none_or(|w| w.stack_clips())
+    }
+
+    fn stack_direction(&self) -> Option<frus_core::TextDirection> {
+        self.inner.as_ref().and_then(|w| w.stack_direction())
+    }
+
+    fn stack_visible(&self) -> Option<usize> {
+        self.inner.as_ref().and_then(|w| w.stack_visible())
+    }
+
     fn continuous(&self) -> bool {
         self.inner.as_ref().is_some_and(|w| w.continuous())
     }

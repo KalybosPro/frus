@@ -321,11 +321,10 @@ impl<Msg> Widget<Msg> for PageView<Msg> {
     }
 
     /// **All the room on offer** on an axis nobody sized, as the reference's takes
-    /// (milestone 590) — unless it was told to grow, which says the same thing already.
+    /// (milestone 590) — told to grow or not: a flex factor is only heard by a row or a
+    /// column, and a page view in a stack's layer still takes the stack's room
+    /// (milestone 639).
     fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
-        if self.flex_grow > 0.0 {
-            return crate::widget::FillAxes::NONE;
-        }
         crate::widget::FillAxes {
             horizontal: !self.width_explicit,
             vertical: !self.height_explicit,

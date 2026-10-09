@@ -158,8 +158,8 @@ Status: **done** (milestone), **to review**.
 | `Row` | `Row` | `widgets/basic.dart` | to review |
 | `Column` | `Column` | `widgets/basic.dart` | to review |
 | `Flex` | `Flex` | `widgets/basic.dart` | to review |
-| `Stack` | `Stack` | `widgets/basic.dart` | to review |
-| `IndexedStack` | `IndexedStack` | `widgets/indexed_stack.dart` | to review |
+| `Stack` | `Stack` | `widgets/basic.dart` | **done** (J639) |
+| `IndexedStack` | `IndexedStack` | `widgets/indexed_stack.dart` | **done** (J639) |
 | `Spacer` | `Spacer` | `widgets/spacer.dart` | to review |
 | `OverflowBar` | `OverflowBar` | `widgets/overflow_bar.dart` | to review |
 | `Table` | `Table` | `widgets/table.dart` | to review |

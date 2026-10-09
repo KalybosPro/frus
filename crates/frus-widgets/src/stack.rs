@@ -1,40 +1,75 @@
 //! [`Stack`]: overlays its children in the **same box**, z-layering them. The last layer
-//! sits on top. It underpins the internal overlays: a scrim over content, a badge in a
-//! corner, a floating button.
+//! sits on top. A badge on an avatar, a caption over a picture, a button floating over
+//! content.
 //!
-//! Two things decide where a layer lands:
+//! Two things decide where a layer lands, as in the reference (`rendering/stack.dart`):
 //!
 //! - a layer wrapped in [`crate::Positioned`] is pinned against the stack's own edges,
 //!   and what is pinned decides its size as well as its place;
 //! - every other layer is sized by the stack's [`StackFit`] and placed by its
 //!   [`Stack::alignment`].
 //!
-//! **The default fit is [`StackFit::Expand`], and the reference's is loose.** That is a
-//! deliberate difference, not an oversight. In the reference a loosely-constrained child
-//! with no size of its own still fills, because a childless box there takes the biggest
-//! size it is allowed; under this framework's layout engine it would hug and come out at
-//! nothing — invisibly, since a stack draws no box of its own. A scrim, a barrier and
-//! every internal overlay here are exactly that widget. `fit(StackFit::Loose)` asks for
-//! the other behaviour, and is what a badge or a caption wants.
+//! **The stack is as big as its largest unpinned layer** (`stack.dart:625`), held to the
+//! room it is given; with none, or under [`StackFit::Expand`], it takes all the room it is
+//! given. Pinned layers never size it. A layer that goes past its edges is clipped there,
+//! unless [`Stack::clip_behavior`] says [`Clip::None`].
 
-use frus_core::{AlignmentDirectional, AlignmentGeometry, Rect, Scene};
+use frus_core::{AlignmentDirectional, AlignmentGeometry, Rect, Scene, TextDirection};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
 use crate::theme::Theme;
-use crate::widget::Widget;
+use crate::widget::{FillAxes, Widget};
 
 /// How a stack sizes the layers that are not [`crate::Positioned`] — the reference's
-/// `StackFit`.
+/// `StackFit` (`stack.dart:301`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum StackFit {
-    /// **Given** the stack's box: every layer is as big as the stack. The default here,
-    /// for the reason the module documentation gives.
+    /// **Allowed** up to the stack's room: each layer is as big as it wants to be, at most
+    /// the stack. The default, as in the reference.
     #[default]
-    Expand,
-    /// **Asked** what size it would like, and then placed by the stack's alignment. The
-    /// reference's default, and what a badge, a caption or a floating button wants.
     Loose,
+    /// **Forced** to the room the stack is given: every unpinned layer is exactly that big,
+    /// whatever size it has of its own, and so is the stack.
+    Expand,
+    /// **Handed** the room the stack is given: a layer with no size of its own fills it,
+    /// and one with a size keeps it — the stack's own constraints, passed through, for a
+    /// stack that is allowed its room rather than forced into it.
+    Passthrough,
+}
+
+/// What happens to a layer that goes past its stack's edges — the reference's `Clip`, as a
+/// stack uses it (`stack.dart:476`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Clip {
+    /// Nothing is cut: a badge may hang off the corner of the avatar it sits on.
+    None,
+    /// Cut at the stack's edges. The default.
+    #[default]
+    HardEdge,
+    /// Cut at the stack's edges, smoothed. The edges of a stack are straight, so this cuts
+    /// as [`Clip::HardEdge`] does.
+    AntiAlias,
+    /// Cut at the stack's edges, smoothed, in a layer of its own. As [`Clip::AntiAlias`]
+    /// here.
+    AntiAliasWithSaveLayer,
+}
+
+impl Clip {
+    /// Whether anything is cut.
+    pub fn clips(self) -> bool {
+        self != Clip::None
+    }
+}
+
+/// Whether a stack with these layers takes all the room it is given: under
+/// [`StackFit::Expand`], or with no layer that is not pinned (`stack.dart:657`).
+fn takes_the_room<Msg>(fit: StackFit, layers: &[Box<dyn Widget<Msg>>]) -> FillAxes {
+    if fit == StackFit::Expand || layers.iter().all(|layer| layer.positioned().is_some()) {
+        FillAxes::BOTH
+    } else {
+        FillAxes::NONE
+    }
 }
 
 /// A container of overlaid layers.
@@ -44,6 +79,8 @@ pub struct Stack<Msg = crate::callback::Callback> {
     flex_grow: f32,
     fit: StackFit,
     alignment: AlignmentGeometry,
+    clip: Clip,
+    direction: Option<TextDirection>,
     layers: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -54,29 +91,43 @@ impl<Msg> Stack<Msg> {
             width: Dimension::Auto,
             height: Dimension::Auto,
             flex_grow: 0.0,
-            fit: StackFit::Expand,
+            fit: StackFit::Loose,
             // The reference's default anchor, and it follows the reading direction: the
             // start corner is the left in a left-to-right script and the right in a
             // right-to-left one.
             alignment: AlignmentGeometry::Directional(AlignmentDirectional::TOP_START),
+            clip: Clip::HardEdge,
+            direction: None,
             layers: Vec::new(),
         }
     }
 
-    /// How the layers that are not [`crate::Positioned`] are sized.
+    /// How the layers that are not [`crate::Positioned`] are sized. Unset,
+    /// [`StackFit::Loose`].
     pub fn fit(mut self, fit: StackFit) -> Self {
         self.fit = fit;
         self
     }
 
-    /// Where a layer smaller than the stack sits in it.
-    ///
-    /// It reaches the layers the stack had to place itself: those under
-    /// [`StackFit::Loose`], and the axes of a [`crate::Positioned`] that pinned neither
-    /// edge. Under [`StackFit::Expand`] an unpinned layer is already the size of the
-    /// stack and there is nothing left to align.
+    /// Where a layer smaller than the stack sits in it: the layers that are not
+    /// [`crate::Positioned`], and the axes of one that pinned neither edge. Unset, the top
+    /// start corner.
     pub fn alignment(mut self, alignment: impl Into<AlignmentGeometry>) -> Self {
         self.alignment = alignment.into();
+        self
+    }
+
+    /// **What happens to a layer that goes past the stack's edges.** Unset,
+    /// [`Clip::HardEdge`]: it is cut there. [`Clip::None`] lets it hang over.
+    pub fn clip_behavior(mut self, clip: Clip) -> Self {
+        self.clip = clip;
+        self
+    }
+
+    /// **The reading direction** the alignment and the start and end pins are resolved
+    /// in. Unset, the theme's.
+    pub fn text_direction(mut self, direction: TextDirection) -> Self {
+        self.direction = Some(direction);
         self
     }
 
@@ -135,8 +186,25 @@ impl<Msg: Clone> Widget<Msg> for Stack<Msg> {
         true
     }
 
-    fn stack_loose(&self) -> bool {
-        self.fit == StackFit::Loose
+    fn stack_fit(&self) -> StackFit {
+        self.fit
+    }
+
+    fn stack_measured(&self) -> bool {
+        true
+    }
+
+    fn stack_clips(&self) -> bool {
+        self.clip.clips()
+    }
+
+    fn stack_direction(&self) -> Option<TextDirection> {
+        self.direction
+    }
+
+    /// All the room it is given under [`StackFit::Expand`] or with every layer pinned.
+    fn fill_axes(&self, _theme: &Theme) -> FillAxes {
+        takes_the_room(self.fit, &self.layers)
     }
 
     fn alignment_geometry(&self) -> Option<AlignmentGeometry> {
@@ -175,6 +243,8 @@ pub struct IndexedStack<Msg = crate::callback::Callback> {
     flex_grow: f32,
     fit: StackFit,
     alignment: AlignmentGeometry,
+    clip: Clip,
+    direction: Option<TextDirection>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -186,12 +256,10 @@ impl<Msg> IndexedStack<Msg> {
             width: Dimension::Auto,
             height: Dimension::Auto,
             flex_grow: 0.0,
-            // The reference's sizing for an indexed stack is loose, and here the argument
-            // that makes `Stack`'s default `Expand` does not apply: these children are
-            // pages, each with a size of its own, not the scrims and barriers that would
-            // collapse to nothing if merely asked.
             fit: StackFit::Loose,
             alignment: AlignmentGeometry::Directional(frus_core::AlignmentDirectional::TOP_START),
+            clip: Clip::HardEdge,
+            direction: None,
             children: Vec::new(),
         }
     }
@@ -208,7 +276,7 @@ impl<Msg> IndexedStack<Msg> {
         self
     }
 
-    /// How the children are sized — [`StackFit::Loose`] here, unlike [`Stack`].
+    /// How the children are sized. Unset, [`StackFit::Loose`].
     pub fn fit(mut self, fit: StackFit) -> Self {
         self.fit = fit;
         self
@@ -217,6 +285,18 @@ impl<Msg> IndexedStack<Msg> {
     /// Where a child smaller than the stack sits in it.
     pub fn alignment(mut self, alignment: impl Into<AlignmentGeometry>) -> Self {
         self.alignment = alignment.into();
+        self
+    }
+
+    /// What happens to a child that goes past the stack's edges. Unset, it is cut there.
+    pub fn clip_behavior(mut self, clip: Clip) -> Self {
+        self.clip = clip;
+        self
+    }
+
+    /// The reading direction the alignment is resolved in. Unset, the theme's.
+    pub fn text_direction(mut self, direction: TextDirection) -> Self {
+        self.direction = Some(direction);
         self
     }
 
@@ -263,8 +343,26 @@ impl<Msg: Clone> Widget<Msg> for IndexedStack<Msg> {
         true
     }
 
-    fn stack_loose(&self) -> bool {
-        self.fit == StackFit::Loose
+    fn stack_fit(&self) -> StackFit {
+        self.fit
+    }
+
+    /// As big as its largest child, shown or not (`stack.dart:768` lays every child out
+    /// and sizes as a stack does): switching pages does not resize it.
+    fn stack_measured(&self) -> bool {
+        true
+    }
+
+    fn stack_clips(&self) -> bool {
+        self.clip.clips()
+    }
+
+    fn stack_direction(&self) -> Option<TextDirection> {
+        self.direction
+    }
+
+    fn fill_axes(&self, _theme: &Theme) -> FillAxes {
+        takes_the_room(self.fit, &self.children)
     }
 
     fn stack_visible(&self) -> Option<usize> {
@@ -393,33 +491,325 @@ mod tests {
         assert_eq!(r.y, 80.0, "and pinned down: {r:?}");
     }
 
-    /// The default fit hands every layer the box; the loose fit asks it, and then the
-    /// alignment says where it goes.
+    /// **The reference's three fits** (`stack.dart:634`): loose, the default, asks a layer
+    /// and lets the alignment place it; expand forces every layer to the stack's box,
+    /// whatever size it has of its own; passthrough hands it the box, which fills a layer
+    /// with no size and leaves a sized one alone.
     #[test]
-    fn a_loose_layer_keeps_its_size_and_is_aligned() {
+    fn the_three_fits_are_the_reference_s() {
         let unsized_layer = || {
             Container::<()>::new()
                 .color(BADGE)
                 .child(crate::Text::new("x"))
         };
+        let sized_layer = || Container::<()>::new().width(40.0).height(40.0).color(BADGE);
+        let in_box = |fit: StackFit, layer: Container<()>| {
+            let stack = Stack::<()>::new()
+                .width(100.0)
+                .height(100.0)
+                .fit(fit)
+                .alignment(frus_core::Alignment::BOTTOM_RIGHT)
+                .layer(layer);
+            rects(stack, BADGE)[0]
+        };
 
-        let expanded = Stack::<()>::new()
-            .width(100.0)
-            .height(100.0)
-            .layer(unsized_layer());
-        let r = rects(expanded, BADGE)[0];
-        assert_eq!((r.width, r.height), (100.0, 100.0), "given the box: {r:?}");
-
-        let loose = Stack::<()>::new()
-            .width(100.0)
-            .height(100.0)
-            .fit(StackFit::Loose)
-            .alignment(frus_core::Alignment::BOTTOM_RIGHT)
-            .layer(unsized_layer());
-        let r = rects(loose, BADGE)[0];
+        let r = in_box(StackFit::Loose, unsized_layer());
         assert!(r.width < 60.0, "asked, and it hugged its text: {r:?}");
         assert_eq!(r.x + r.width, 100.0, "against the right edge: {r:?}");
         assert_eq!(r.y + r.height, 100.0, "and the bottom: {r:?}");
+        assert_eq!(
+            Stack::<()>::new().stack_fit(),
+            StackFit::Loose,
+            "the default, as in the reference"
+        );
+
+        let r = in_box(StackFit::Expand, sized_layer());
+        assert_eq!((r.width, r.height), (100.0, 100.0), "forced: {r:?}");
+        let r = in_box(StackFit::Expand, unsized_layer());
+        assert_eq!((r.width, r.height), (100.0, 100.0), "forced: {r:?}");
+
+        let r = in_box(StackFit::Passthrough, unsized_layer());
+        assert_eq!((r.width, r.height), (100.0, 100.0), "handed the box: {r:?}");
+        let r = in_box(StackFit::Passthrough, sized_layer());
+        assert_eq!(
+            (r.width, r.height),
+            (40.0, 40.0),
+            "and a size of its own kept: {r:?}"
+        );
+        let r = in_box(StackFit::Loose, sized_layer());
+        assert_eq!((r.width, r.height), (40.0, 40.0));
+        // A layer that asks for the room takes it, loose: an empty container is as big as
+        // the stack, as a childless box is in the reference.
+        let r = in_box(StackFit::Loose, Container::<()>::new().color(BADGE));
+        assert_eq!((r.width, r.height), (100.0, 100.0), "it asked: {r:?}");
+    }
+
+    /// Every rectangle painted in `colour`, in a column of a stack and a 10 px square under
+    /// it, in a 200 px square.
+    fn in_a_column(stack: Stack<()>, colour: Color) -> (Vec<Rect>, Rect) {
+        let under = Color::rgb(0.1, 0.7, 0.3);
+        let col = crate::Flex::<()>::column()
+            .child(stack)
+            .child(Container::new().width(10.0).height(10.0).color(under));
+        let ui = build_ui(
+            &col,
+            Size::new(200.0, 200.0),
+            &Runtime::default(),
+            &crate::Theme::default(),
+        );
+        let painted = |c: Color| -> Vec<Rect> {
+            ui.scene()
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    Primitive::Rect { rect, color, .. } if *color == c => Some(*rect),
+                    _ => None,
+                })
+                .collect()
+        };
+        let next = painted(under)[0];
+        (painted(colour), next)
+    }
+
+    /// **A stack is as big as its largest unpinned layer** (`stack.dart:625`), and a
+    /// pinned layer does not count: the next child of the column starts under the biggest
+    /// one, not at the top.
+    #[test]
+    fn a_stack_is_as_big_as_its_largest_unpinned_layer() {
+        // The tallest is not the last: the stack takes each axis's largest.
+        let stack = Stack::<()>::new()
+            .layer(Container::new().width(20.0).height(50.0).color(BADGE))
+            .layer(Container::new().width(40.0).height(30.0).color(BADGE))
+            .layer(
+                crate::Positioned::new(Container::new().width(90.0).height(90.0).color(BADGE))
+                    .top(0.0)
+                    .left(0.0),
+            );
+        let (_, next) = in_a_column(stack, BADGE);
+        assert_eq!(
+            next.y, 50.0,
+            "under the tallest unpinned layer, not the pinned one"
+        );
+    }
+
+    /// **With every layer pinned, or under `Expand`, it takes the room it is given**
+    /// (`stack.dart:657`, `:636`).
+    #[test]
+    fn with_only_pinned_layers_it_takes_the_room() {
+        let pinned = Stack::<()>::new().height(60.0).layer(
+            crate::Positioned::new(Container::new().width(10.0).height(10.0).color(BADGE))
+                .top(0.0)
+                .left(0.0),
+        );
+        assert_eq!(
+            Widget::<()>::fill_axes(&pinned, &crate::Theme::default()),
+            FillAxes::BOTH
+        );
+        let expanded = Stack::<()>::new()
+            .fit(StackFit::Expand)
+            .layer(Container::new().width(10.0).height(10.0).color(BADGE));
+        assert_eq!(
+            Widget::<()>::fill_axes(&expanded, &crate::Theme::default()),
+            FillAxes::BOTH
+        );
+        let loose = Stack::<()>::new().layer(Container::new().width(10.0).height(10.0));
+        assert_eq!(
+            Widget::<()>::fill_axes(&loose, &crate::Theme::default()),
+            FillAxes::NONE,
+            "a layer that is not pinned sizes it"
+        );
+        // Laid out: a stack of pinned layers inside a sized box is that box.
+        let boxed = Container::<()>::new().width(120.0).height(70.0).child(
+            Stack::new().layer(
+                crate::Positioned::new(Container::new().color(BADGE))
+                    .right(0.0)
+                    .bottom(0.0)
+                    .width(10.0)
+                    .height(10.0),
+            ),
+        );
+        let ui = build_ui(
+            &boxed,
+            Size::new(200.0, 200.0),
+            &Runtime::default(),
+            &crate::Theme::default(),
+        );
+        let badge = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if *color == BADGE => Some(*rect),
+                _ => None,
+            })
+            .expect("the badge");
+        assert_eq!((badge.x, badge.y), (110.0, 60.0), "in the box's corner");
+    }
+
+    /// **`Clip::None` lets a layer hang over the edges**; the default cuts it there
+    /// (`stack.dart:718`).
+    #[test]
+    fn a_layer_hangs_over_only_when_told() {
+        let hanging = |clip: Clip| {
+            Stack::<()>::new()
+                .width(40.0)
+                .height(40.0)
+                .clip_behavior(clip)
+                .layer(
+                    crate::Positioned::new(Container::new().width(20.0).height(20.0).color(BADGE))
+                        .top(-10.0)
+                        .right(-10.0),
+                )
+        };
+        assert!(Widget::<()>::stack_clips(&hanging(Clip::HardEdge)));
+        assert!(!Widget::<()>::stack_clips(&hanging(Clip::None)));
+        assert!(Clip::AntiAlias.clips() && Clip::AntiAliasWithSaveLayer.clips());
+        assert_eq!(Clip::default(), Clip::HardEdge);
+        let r = rects(hanging(Clip::None), BADGE)[0];
+        assert_eq!(
+            (r.x, r.y),
+            (30.0, -10.0),
+            "past the top right corner: {r:?}"
+        );
+        // What is cut: at the stack's edges by default, not at all with `Clip::None`.
+        let clip_of = |clip: Clip| {
+            let stack = hanging(clip);
+            let ui = build_ui(
+                &stack,
+                Size::new(100.0, 100.0),
+                &Runtime::default(),
+                &crate::Theme::default(),
+            );
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect { color, clip, .. } if *color == BADGE => Some(*clip),
+                    _ => None,
+                })
+                .expect("the badge")
+        };
+        assert_eq!(clip_of(Clip::HardEdge), Rect::new(0.0, 0.0, 40.0, 40.0));
+        assert!(
+            clip_of(Clip::None).contains(frus_core::Point::new(45.0, 5.0)),
+            "nothing cut past the edge"
+        );
+    }
+
+    /// **A layer hanging over the edge is drawn there but not touched there**: the stack
+    /// hit-tests inside its own box only, as the reference's does (`box.dart`'s `hitTest`
+    /// asks the box first).
+    #[test]
+    fn a_hanging_layer_is_only_touched_inside_the_stack() {
+        #[derive(Clone, Debug, PartialEq)]
+        struct Tap;
+        let page = Container::<Tap>::new().padding(50.0).child(
+            Stack::<Tap>::new()
+                .width(40.0)
+                .height(40.0)
+                .clip_behavior(Clip::None)
+                .layer(
+                    crate::Positioned::new(Container::new().width(20.0).height(20.0).on_click(Tap))
+                        .top(-10.0)
+                        .right(-10.0),
+                ),
+        );
+        let ui = build_ui(
+            &page,
+            Size::new(200.0, 200.0),
+            &Runtime::default(),
+            &crate::Theme::default(),
+        );
+        let tap = |x: f32, y: f32| {
+            ui.hit(frus_core::Point::new(x, y))
+                .and_then(|id| ui.msg_for(id))
+        };
+        assert_eq!(tap(85.0, 55.0), Some(Tap), "inside the stack");
+        assert_eq!(
+            tap(95.0, 45.0),
+            None,
+            "outside it, where only the drawing is"
+        );
+    }
+
+    /// **The stack's own reading direction** places a start-anchored layer.
+    #[test]
+    fn the_stack_s_own_direction_is_read() {
+        let stack = Stack::<()>::new()
+            .width(100.0)
+            .height(100.0)
+            .text_direction(TextDirection::Rtl)
+            .layer(Container::new().width(20.0).height(20.0).color(BADGE));
+        let r = rects(stack, BADGE)[0];
+        assert_eq!(r.x, 80.0, "the start is the right: {r:?}");
+    }
+
+    /// **`Positioned::fill`, `from_rect` and `from_relative_rect`** are the reference's
+    /// three shorthands.
+    #[test]
+    fn the_positioned_shorthands() {
+        let at = |layer: crate::Positioned<()>| {
+            rects(
+                Stack::<()>::new().width(100.0).height(100.0).layer(layer),
+                BADGE,
+            )[0]
+        };
+        let square = || Container::<()>::new().color(BADGE);
+        assert_eq!(
+            at(crate::Positioned::fill(square())),
+            Rect::new(0.0, 0.0, 100.0, 100.0)
+        );
+        assert_eq!(
+            at(crate::Positioned::from_rect(
+                square(),
+                Rect::new(10.0, 20.0, 30.0, 40.0)
+            )),
+            Rect::new(10.0, 20.0, 30.0, 40.0)
+        );
+        assert_eq!(
+            at(crate::Positioned::from_relative_rect(
+                square(),
+                frus_core::Insets::new(5.0, 10.0, 15.0, 20.0)
+            )),
+            Rect::new(20.0, 5.0, 70.0, 80.0)
+        );
+    }
+
+    /// **An indexed stack is as big as its largest child, shown or not**, so switching
+    /// pages does not resize it.
+    #[test]
+    fn an_indexed_stack_is_as_big_as_its_largest_child() {
+        let pages = |index: usize| {
+            IndexedStack::<()>::new(index)
+                .child(Container::new().width(30.0).height(20.0).color(BADGE))
+                .child(Container::new().width(30.0).height(60.0).color(BADGE))
+        };
+        for index in [0, 1] {
+            let col = crate::Flex::<()>::column().child(pages(index)).child(
+                Container::new()
+                    .width(10.0)
+                    .height(10.0)
+                    .color(Color::rgb(0.1, 0.7, 0.3)),
+            );
+            let ui = build_ui(
+                &col,
+                Size::new(200.0, 200.0),
+                &Runtime::default(),
+                &crate::Theme::default(),
+            );
+            let next = ui
+                .scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect { rect, color, .. } if *color == Color::rgb(0.1, 0.7, 0.3) => {
+                        Some(*rect)
+                    }
+                    _ => None,
+                })
+                .expect("the square under it");
+            assert_eq!(next.y, 60.0, "page {index}: the tallest page's height");
+        }
     }
 
     /// A wrapper must not eat the pins: `Keyed(Positioned(…))` keeps its place, which is
