@@ -3791,7 +3791,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 self.scene.set_clip(clip);
                 self.scene.set_owner(id.as_u64());
                 self.scene.set_bounds(bounds);
-                decoration.paint_into(&mut self.scene, bounds, status.opacity);
+                decoration.paint_into_in(
+                    &mut self.scene,
+                    bounds,
+                    status.opacity,
+                    self.theme.direction,
+                );
                 self.scene.set_clip(clip);
             }
         }

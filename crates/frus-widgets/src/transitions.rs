@@ -403,15 +403,16 @@ impl<Msg: Clone> Widget<Msg> for DecoratedBoxTransition<Msg> {
         &self.children
     }
 
-    fn paint(&self, bounds: Rect, status: Status, _theme: &Theme, scene: &mut Scene) {
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         if self.position == DecorationPosition::Background {
-            self.decoration.paint_into(scene, bounds, status.opacity);
+            self.decoration
+                .paint_into_in(scene, bounds, status.opacity, theme.direction);
         }
     }
 
     /// In front of the child, through the walk's one place for painting after a subtree.
     fn foreground(&self, _theme: &Theme) -> Option<BoxDecoration> {
-        (self.position == DecorationPosition::Foreground).then_some(self.decoration)
+        (self.position == DecorationPosition::Foreground).then_some(self.decoration.clone())
     }
 
     fn on_click(&self) -> Option<Msg> {

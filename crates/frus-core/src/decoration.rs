@@ -9,7 +9,7 @@
 //! [`BoxDecoration::content_padding`] reserves room for the border on taffy's
 //! behalf.
 
-use crate::{Color, Insets, Rect, Scene, TextDirection};
+use crate::{BorderSide, Color, Insets, Path, Point, Rect, Scene, ShapeBorder, TextDirection};
 
 /// Corner radii, **per corner** (logical px). `From<f32>` covers the uniform case:
 /// anywhere a radius is expected, a plain `10.0` still works.
@@ -262,24 +262,173 @@ impl From<f32> for BorderRadius {
     }
 }
 
-/// A uniform border — the same width and colour on all four sides.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// **The shape a box decoration paints** — the reference's `BoxShape`
+/// (`box_border.dart:26`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BoxShape {
+    /// A rectangle, its corners rounded by the decoration's radius.
+    #[default]
+    Rectangle,
+    /// A circle, centred in the box, as wide as the box's shorter side. The decoration's
+    /// radius means nothing to it.
+    Circle,
+}
+
+/// One side of a [`BorderSide`] pair, the same on both sides of a lerp.
+fn lerp_side(a: BorderSide, b: BorderSide, t: f32) -> BorderSide {
+    // A side on one end only arrives by thickening, in its own colour.
+    match (a.width > 0.0, b.width > 0.0) {
+        (true, true) => {
+            BorderSide::new(a.color.lerp(b.color, t), a.width + (b.width - a.width) * t)
+        }
+        (true, false) => BorderSide::new(a.color, a.width * (1.0 - t)),
+        (false, true) => BorderSide::new(b.color, b.width * t),
+        (false, false) => BorderSide::NONE,
+    }
+}
+
+/// **A box's border, side by side** — the reference's `Border` (`box_border.dart:431`):
+/// each of the four sides its own colour and width.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Border {
-    /// Width, in logical pixels.
-    pub width: f32,
-    /// The line's colour.
-    pub color: Color,
+    /// The top side.
+    pub top: BorderSide,
+    /// The right side.
+    pub right: BorderSide,
+    /// The bottom side.
+    pub bottom: BorderSide,
+    /// The left side.
+    pub left: BorderSide,
 }
 
 impl Border {
-    /// A uniform border.
+    /// No border on any side.
+    pub const NONE: Self = Self {
+        top: BorderSide::NONE,
+        right: BorderSide::NONE,
+        bottom: BorderSide::NONE,
+        left: BorderSide::NONE,
+    };
+
+    /// The same width and colour on all four sides.
     pub const fn new(width: f32, color: Color) -> Self {
-        Self { width, color }
+        Self::all(BorderSide::new(color, width))
     }
 
-    /// `true` when the border is visible — non-zero width and non-zero alpha.
+    /// `side` on all four sides — the reference's `Border.all` and `fromBorderSide`.
+    pub const fn all(side: BorderSide) -> Self {
+        Self {
+            top: side,
+            right: side,
+            bottom: side,
+            left: side,
+        }
+    }
+
+    /// `vertical` on the left and the right, `horizontal` on the top and the bottom — the
+    /// reference's `Border.symmetric`.
+    pub const fn symmetric(vertical: BorderSide, horizontal: BorderSide) -> Self {
+        Self {
+            top: horizontal,
+            right: vertical,
+            bottom: horizontal,
+            left: vertical,
+        }
+    }
+
+    /// The four sides, top, right, bottom, left.
+    fn sides(&self) -> [BorderSide; 4] {
+        [self.top, self.right, self.bottom, self.left]
+    }
+
+    /// Whether the four sides are the same.
+    pub fn is_uniform(&self) -> bool {
+        let [t, r, b, l] = self.sides();
+        t == r && r == b && b == l
+    }
+
+    /// `true` when some side is visible — non-zero width and non-zero alpha.
     pub fn is_visible(&self) -> bool {
-        self.width > 0.0 && self.color.a > 0.0
+        self.sides().iter().any(BorderSide::is_drawn)
+    }
+
+    /// The room the border takes inside the box, side by side.
+    pub fn dimensions(&self) -> Insets {
+        let w = |s: BorderSide| if s.is_drawn() { s.width } else { 0.0 };
+        Insets::new(w(self.top), w(self.right), w(self.bottom), w(self.left))
+    }
+
+    /// The border `t` of the way to `other`, side by side.
+    #[must_use]
+    pub fn lerp(self, other: Border, t: f32) -> Border {
+        Border {
+            top: lerp_side(self.top, other.top, t),
+            right: lerp_side(self.right, other.right, t),
+            bottom: lerp_side(self.bottom, other.bottom, t),
+            left: lerp_side(self.left, other.left, t),
+        }
+    }
+}
+
+/// **A box's border, by the line's start and end** — the reference's `BorderDirectional`
+/// (`box_border.dart:799`): the start side is the left in a left-to-right script and the
+/// right in a right-to-left one.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BorderDirectional {
+    /// The top side.
+    pub top: BorderSide,
+    /// The side where a line of text starts.
+    pub start: BorderSide,
+    /// The side where a line of text ends.
+    pub end: BorderSide,
+    /// The bottom side.
+    pub bottom: BorderSide,
+}
+
+impl BorderDirectional {
+    /// The sides on the screen, for `direction`.
+    pub fn resolve(&self, direction: TextDirection) -> Border {
+        let (left, right) = match direction {
+            TextDirection::Ltr => (self.start, self.end),
+            TextDirection::Rtl => (self.end, self.start),
+        };
+        Border {
+            top: self.top,
+            right,
+            bottom: self.bottom,
+            left,
+        }
+    }
+}
+
+/// A box's border, by its physical sides or by the line's start and end.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BoxBorder {
+    /// Left, right, top, bottom.
+    Physical(Border),
+    /// Start, end, top, bottom.
+    Directional(BorderDirectional),
+}
+
+impl BoxBorder {
+    /// The sides on the screen, for `direction`.
+    pub fn resolve(&self, direction: TextDirection) -> Border {
+        match self {
+            BoxBorder::Physical(border) => *border,
+            BoxBorder::Directional(border) => border.resolve(direction),
+        }
+    }
+}
+
+impl From<Border> for BoxBorder {
+    fn from(border: Border) -> Self {
+        BoxBorder::Physical(border)
+    }
+}
+
+impl From<BorderDirectional> for BoxBorder {
+    fn from(border: BorderDirectional) -> Self {
+        BoxBorder::Directional(border)
     }
 }
 
@@ -434,24 +583,27 @@ pub fn paint_elevation(
     }
 }
 
-/// The complete decoration of a rectangular box.
+/// The complete decoration of a box — the reference's `BoxDecoration`
+/// (`box_decoration.dart:81`).
 ///
-/// The paint order is **fixed**: shadow → background → border. The background is
-/// either flat (`color`) or a gradient (`color` → `gradient.end`). A border with no
-/// background paints an outline over transparency; a wholly empty decoration paints
-/// nothing at all.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+/// The paint order is **fixed**, the reference's (`box_decoration.dart:571`): the shadows,
+/// in order, then the background, then the border. The background is either flat (`color`)
+/// or a gradient (`color` → `gradient.end`). A border with no background paints an outline
+/// over transparency; a wholly empty decoration paints nothing at all.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct BoxDecoration {
     /// Background colour, which doubles as the start colour of any gradient.
     pub color: Option<Color>,
     /// A linear gradient for the background.
     pub gradient: Option<LinearGradient>,
-    /// A uniform border.
-    pub border: Option<Border>,
-    /// Corner radii, per corner.
+    /// The border, side by side.
+    pub border: Option<BoxBorder>,
+    /// Corner radii, per corner. A [`BoxShape::Circle`] has none.
     pub radius: BorderRadius,
-    /// Drop shadow.
-    pub shadow: Option<BoxShadow>,
+    /// The shadows, painted in order, behind the box (`box_decoration.dart:448`).
+    pub shadows: Vec<BoxShadow>,
+    /// A rectangle or a circle.
+    pub shape: BoxShape,
 }
 
 /// A colour that may be absent on either side, `t` of the way across.
@@ -501,6 +653,9 @@ impl BoxDecoration {
         if t >= 1.0 {
             return other;
         }
+        // A rectangle and a circle do not blend: the shape changes half way, as the
+        // reference's does (`box_decoration.dart:301`).
+        let shape = if t < 0.5 { self.shape } else { other.shape };
         let mix = |a: f32, b: f32| a + (b - a) * t;
         let gradient = match (self.gradient, other.gradient) {
             (Some(a), Some(b)) => Some(LinearGradient {
@@ -523,19 +678,27 @@ impl BoxDecoration {
             }),
             (None, None) => None,
         };
+        // Side by side, each arriving or leaving by thickening in its own colour. A
+        // directional border is read left to right here; two directional ones stay so.
         let border = match (self.border, other.border) {
-            (Some(a), Some(b)) => Some(Border {
-                width: mix(a.width, b.width),
-                color: a.color.lerp(b.color, t),
-            }),
-            (Some(a), None) => Some(Border {
-                width: a.width * (1.0 - t),
-                ..a
-            }),
-            (None, Some(b)) => Some(Border {
-                width: b.width * t,
-                ..b
-            }),
+            (Some(BoxBorder::Directional(a)), Some(BoxBorder::Directional(b))) => {
+                Some(BoxBorder::Directional(BorderDirectional {
+                    top: lerp_side(a.top, b.top, t),
+                    start: lerp_side(a.start, b.start, t),
+                    end: lerp_side(a.end, b.end, t),
+                    bottom: lerp_side(a.bottom, b.bottom, t),
+                }))
+            }
+            (Some(a), Some(b)) => Some(BoxBorder::Physical(
+                a.resolve(TextDirection::Ltr)
+                    .lerp(b.resolve(TextDirection::Ltr), t),
+            )),
+            (Some(a), None) => Some(BoxBorder::Physical(
+                a.resolve(TextDirection::Ltr).lerp(Border::NONE, t),
+            )),
+            (None, Some(b)) => Some(BoxBorder::Physical(
+                Border::NONE.lerp(b.resolve(TextDirection::Ltr), t),
+            )),
             (None, None) => None,
         };
         // A shadow on one side only, scaled: it grows out from under the box as it fades
@@ -547,23 +710,29 @@ impl BoxDecoration {
             blur: s.blur * f,
             spread: s.spread * f,
         };
-        let shadow = match (self.shadow, other.shadow) {
-            (Some(a), Some(b)) => Some(BoxShadow {
-                color: a.color.lerp(b.color, t),
-                offset: (mix(a.offset.0, b.offset.0), mix(a.offset.1, b.offset.1)),
-                blur: mix(a.blur, b.blur),
-                spread: mix(a.spread, b.spread),
-            }),
-            (Some(a), None) => Some(grown(a, 1.0 - t)),
-            (None, Some(b)) => Some(grown(b, t)),
-            (None, None) => None,
-        };
+        // The shadows pair by pair, and those one list has more of grow or shrink — the
+        // reference's `BoxShadow.lerpList` (`box_shadow.dart`).
+        let longest = self.shadows.len().max(other.shadows.len());
+        let shadows = (0..longest)
+            .map(|i| match (self.shadows.get(i), other.shadows.get(i)) {
+                (Some(a), Some(b)) => BoxShadow {
+                    color: a.color.lerp(b.color, t),
+                    offset: (mix(a.offset.0, b.offset.0), mix(a.offset.1, b.offset.1)),
+                    blur: mix(a.blur, b.blur),
+                    spread: mix(a.spread, b.spread),
+                },
+                (Some(a), None) => grown(*a, 1.0 - t),
+                (None, Some(b)) => grown(*b, t),
+                (None, None) => unreachable!("within the longer list"),
+            })
+            .collect();
         BoxDecoration {
             color: fade_between(self.color, other.color, t),
             gradient,
             border,
             radius: self.radius.lerp(other.radius, t),
-            shadow,
+            shadows,
+            shape,
         }
     }
 }
@@ -584,15 +753,27 @@ impl BoxDecoration {
         self
     }
 
-    /// Adds a uniform border.
-    pub fn border(mut self, border: Border) -> Self {
-        self.border = Some(border);
+    /// Sets the border, side by side or by the line's start and end.
+    pub fn border(mut self, border: impl Into<BoxBorder>) -> Self {
+        self.border = Some(border.into());
         self
     }
 
-    /// Adds a shadow.
+    /// Adds a shadow, after (so over) those already there.
     pub fn shadow(mut self, shadow: BoxShadow) -> Self {
-        self.shadow = Some(shadow);
+        self.shadows.push(shadow);
+        self
+    }
+
+    /// Sets the shadows, painted in order.
+    pub fn shadows(mut self, shadows: impl IntoIterator<Item = BoxShadow>) -> Self {
+        self.shadows = shadows.into_iter().collect();
+        self
+    }
+
+    /// Paints a rectangle or a circle.
+    pub fn shape(mut self, shape: BoxShape) -> Self {
+        self.shape = shape;
         self
     }
 
@@ -603,63 +784,179 @@ impl BoxDecoration {
     }
 
     /// The inner margin the border needs — add it to the padding so the content is
-    /// not eaten by the line. This is what feeds taffy.
+    /// not eaten by the line. This is what feeds taffy. A directional border is read
+    /// left to right; see [`Self::content_padding_in`].
     pub fn content_padding(&self) -> Insets {
-        match self.border {
-            Some(b) if b.is_visible() => Insets::uniform(b.width),
-            _ => Insets::ZERO,
+        self.content_padding_in(TextDirection::Ltr)
+    }
+
+    /// The inner margin the border needs, for a box in `direction`.
+    pub fn content_padding_in(&self, direction: TextDirection) -> Insets {
+        self.border
+            .map(|b| b.resolve(direction).dimensions())
+            .unwrap_or(Insets::ZERO)
+    }
+
+    /// The box the decoration paints in `rect`: `rect` itself, or the square a circle is
+    /// inscribed in (`box_decoration.dart:436`).
+    fn painted(&self, rect: Rect) -> (Rect, BorderRadius) {
+        match self.shape {
+            BoxShape::Rectangle => (rect, self.radius),
+            BoxShape::Circle => {
+                let side = rect.width.min(rect.height);
+                let square = Rect::new(
+                    rect.x + (rect.width - side) * 0.5,
+                    rect.y + (rect.height - side) * 0.5,
+                    side,
+                    side,
+                );
+                (square, BorderRadius::uniform(side * 0.5))
+            }
         }
     }
 
     /// Lowers the decoration into `scene` primitives, in the fixed order
-    /// shadow → background → border. `opacity` (`0..=1`) modulates **every** colour,
-    /// which is how a fade-in works. `rect` is the box in absolute coordinates.
+    /// shadows → background → border, for a box read left to right. See
+    /// [`Self::paint_into_in`].
     pub fn paint_into(&self, scene: &mut Scene, rect: Rect, opacity: f32) {
-        // 1) The shadow, behind everything else.
-        if let Some(shadow) = self.shadow {
+        self.paint_into_in(scene, rect, opacity, TextDirection::Ltr);
+    }
+
+    /// Lowers the decoration into `scene` primitives, in the fixed order
+    /// shadows → background → border. `opacity` (`0..=1`) modulates **every** colour,
+    /// which is how a fade-in works. `rect` is the box in absolute coordinates;
+    /// `direction` places a directional border's start and end.
+    pub fn paint_into_in(
+        &self,
+        scene: &mut Scene,
+        rect: Rect,
+        opacity: f32,
+        direction: TextDirection,
+    ) {
+        let (shape_rect, radius) = self.painted(rect);
+
+        // 1) The shadows, in order, behind everything else.
+        for shadow in &self.shadows {
             scene.shadow(
-                shadow.bounds(rect),
+                shadow.bounds(shape_rect),
                 shadow.color.fade(opacity),
-                self.radius.inflate(shadow.blur + shadow.spread),
+                radius.inflate(shadow.blur + shadow.spread),
                 shadow.blur,
             );
         }
 
-        // 2/3) Background (flat or gradient) plus border, in a single primitive.
-        let (border_width, border_color) = match self.border {
-            Some(b) => (b.width, b.color.fade(opacity)),
-            None => (0.0, Color::TRANSPARENT),
+        // 2/3) Background (flat or gradient), and a uniform border in the same primitive.
+        let border = self.border.map(|b| b.resolve(direction));
+        let uniform = border.filter(|b| b.is_uniform());
+        let (border_width, border_color) = match uniform {
+            Some(b) if b.top.width > 0.0 => (b.top.width, b.top.color.fade(opacity)),
+            _ => (0.0, Color::TRANSPARENT),
         };
-        let has_border = self.border.map(|b| b.is_visible()).unwrap_or(false);
+        let has_border = uniform.is_some_and(|b| b.is_visible());
 
         match (self.color, self.gradient) {
             (Some(color), Some(gradient)) => scene.gradient_rect(
-                rect,
+                shape_rect,
                 color.fade(opacity),
                 gradient.end.fade(opacity),
                 gradient.direction,
-                self.radius,
+                radius,
                 border_width,
                 border_color,
             ),
             (Some(color), None) => scene.draw_rect(
-                rect,
+                shape_rect,
                 color.fade(opacity),
-                self.radius,
+                radius,
                 border_width,
                 border_color,
             ),
             // Border only, with no background: an outline over transparency.
             (None, _) if has_border => scene.draw_rect(
-                rect,
+                shape_rect,
                 Color::TRANSPARENT,
-                self.radius,
+                radius,
                 border_width,
                 border_color,
             ),
             // Nothing to paint.
             (None, _) => {}
         }
+
+        // 3) A border whose sides differ.
+        if let Some(border) = border.filter(|b| !b.is_uniform() && b.is_visible()) {
+            paint_sides(scene, shape_rect, radius, self.shape, &border, opacity);
+        }
+    }
+}
+
+/// **A border whose sides differ** (`box_border.dart:681`). In one colour, the band between
+/// the box and the box inset by each side, which keeps its corners and its circle; in
+/// several, on a rectangle, each side as its own trapezoid, mitred at the corners.
+fn paint_sides(
+    scene: &mut Scene,
+    rect: Rect,
+    radius: BorderRadius,
+    shape: BoxShape,
+    border: &Border,
+    opacity: f32,
+) {
+    let drawn: Vec<BorderSide> = border
+        .sides()
+        .into_iter()
+        .filter(BorderSide::is_drawn)
+        .collect();
+    let one_colour = drawn.windows(2).all(|w| w[0].color == w[1].color);
+    let rounded = shape == BoxShape::Circle || radius != BorderRadius::ZERO;
+    let w = border.dimensions();
+    let inner = Rect::new(
+        rect.x + w.left,
+        rect.y + w.top,
+        (rect.width - w.left - w.right).max(0.0),
+        (rect.height - w.top - w.bottom).max(0.0),
+    );
+    if one_colour && rounded {
+        let color = drawn.first().map_or(Color::TRANSPARENT, |s| s.color);
+        // The inner corners are the outer ones less the thicker of the two sides that meet
+        // there.
+        let less = |r: f32, a: f32, b: f32| (r - a.max(b)).max(0.0);
+        let inner_radius = BorderRadius {
+            top_left: less(radius.top_left, w.top, w.left),
+            top_right: less(radius.top_right, w.top, w.right),
+            bottom_right: less(radius.bottom_right, w.bottom, w.right),
+            bottom_left: less(radius.bottom_left, w.bottom, w.left),
+        };
+        let band = ShapeBorder::rounded(radius)
+            .outline(rect)
+            .append(ShapeBorder::rounded(inner_radius).outline(inner));
+        scene.fill_path(&band, color.fade(opacity));
+        return;
+    }
+    // Each side as a trapezoid from the outer edge to the inner one.
+    let (l, t, r, b) = (rect.x, rect.y, rect.x + rect.width, rect.y + rect.height);
+    let (il, it, ir, ib) = (
+        inner.x,
+        inner.y,
+        inner.x + inner.width,
+        inner.y + inner.height,
+    );
+    let quads = [
+        (border.top, [(l, t), (r, t), (ir, it), (il, it)]),
+        (border.right, [(r, t), (r, b), (ir, ib), (ir, it)]),
+        (border.bottom, [(r, b), (l, b), (il, ib), (ir, ib)]),
+        (border.left, [(l, b), (l, t), (il, it), (il, ib)]),
+    ];
+    for (side, [a, b2, c, d]) in quads {
+        if !side.is_drawn() {
+            continue;
+        }
+        let path = Path::new()
+            .move_to(Point::new(a.0, a.1))
+            .line_to(Point::new(b2.0, b2.1))
+            .line_to(Point::new(c.0, c.1))
+            .line_to(Point::new(d.0, d.1))
+            .close();
+        scene.fill_path(&path, side.color.fade(opacity));
     }
 }
 
@@ -842,11 +1139,12 @@ mod lerp_tests {
     fn the_ends_are_the_ends_exactly() {
         let a = BoxDecoration::filled(RED).radius(4.0);
         let b = BoxDecoration::filled(BLUE).border(Border::new(2.0, RED));
-        assert_eq!(a.lerp(b, 0.0), a);
-        assert_eq!(a.lerp(b, 1.0), b);
-        assert_eq!(a.lerp(b, -0.5), a, "an undershoot stops at the start");
-        assert_eq!(a.lerp(b, 1.5), b, "an overshoot stops at the end");
-        assert_eq!(a.lerp(b, f32::NAN), a, "and no progress is no progress");
+        let lerp = |t: f32| a.clone().lerp(b.clone(), t);
+        assert_eq!(lerp(0.0), a);
+        assert_eq!(lerp(1.0), b);
+        assert_eq!(lerp(-0.5), a, "an undershoot stops at the start");
+        assert_eq!(lerp(1.5), b, "an overshoot stops at the end");
+        assert_eq!(lerp(f32::NAN), a, "and no progress is no progress");
     }
 
     /// **A fill fading out keeps its hue.** The obvious interpolation — towards
@@ -894,9 +1192,10 @@ mod lerp_tests {
         let quarter = BoxDecoration::filled(RED)
             .lerp(lined, 0.25)
             .border
-            .expect("a line already");
-        assert_eq!(quarter.width, 1.0);
-        assert_eq!(quarter.color, BLUE);
+            .expect("a line already")
+            .resolve(TextDirection::Ltr);
+        assert_eq!(quarter.top.width, 1.0);
+        assert_eq!(quarter.top.color, BLUE);
     }
 
     /// **A shadow arrives by growing out from under the box as it fades in.**
@@ -908,10 +1207,7 @@ mod lerp_tests {
             16.0,
             Color::rgba(0.0, 0.0, 0.0, 0.4),
         ));
-        let half = BoxDecoration::filled(RED)
-            .lerp(raised, 0.5)
-            .shadow
-            .expect("a shadow already");
+        let half = BoxDecoration::filled(RED).lerp(raised, 0.5).shadows[0];
         assert_eq!(half.offset, (0.0, 4.0));
         assert_eq!(half.blur, 8.0);
         assert!((half.color.a - 0.2).abs() < 1e-6, "{:?}", half.color);
@@ -1012,5 +1308,238 @@ mod lerp_tests {
             paint_elevation(&mut none, rect, BorderRadius::ZERO, height, colour);
             assert!(none.primitives().is_empty(), "{height} {colour:?}");
         }
+    }
+}
+
+/// The decoration's shape, its borders side by side, and its list of shadows
+/// (milestone 641).
+#[cfg(test)]
+mod box_decoration_tests {
+    use super::*;
+    use crate::{PathVerb, Primitive};
+
+    const RED: Color = Color::rgb(1.0, 0.0, 0.0);
+    const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
+    const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+
+    fn painted(deco: &BoxDecoration, rect: Rect, direction: TextDirection) -> Vec<Primitive> {
+        let mut scene = Scene::new();
+        deco.paint_into_in(&mut scene, rect, 1.0, direction);
+        scene.primitives().to_vec()
+    }
+
+    /// **A circle is centred in the box, as wide as its shorter side**, and its shadow is a
+    /// circle too (`box_decoration.dart:436`). The radius it was given is not read.
+    #[test]
+    fn a_circle_is_centred_on_the_shorter_side() {
+        let deco = BoxDecoration::filled(RED)
+            .radius(3.0)
+            .shape(BoxShape::Circle)
+            .shadow(BoxShadow::new(0.0, 0.0, 4.0, BLUE));
+        let prims = painted(&deco, Rect::new(0.0, 0.0, 100.0, 40.0), TextDirection::Ltr);
+        match &prims[1] {
+            Primitive::Rect {
+                rect,
+                radius,
+                color,
+                ..
+            } => {
+                assert_eq!(*color, RED);
+                assert_eq!(*rect, Rect::new(30.0, 0.0, 40.0, 40.0));
+                assert_eq!(*radius, BorderRadius::uniform(20.0), "round, not 3");
+            }
+            other => panic!("the fill, not {other:?}"),
+        }
+        match &prims[0] {
+            Primitive::Rect { radius, .. } => {
+                assert_eq!(*radius, BorderRadius::uniform(24.0), "a round shadow")
+            }
+            other => panic!("the shadow, not {other:?}"),
+        }
+    }
+
+    /// **The shadows are painted in order, behind the box** (`box_decoration.dart:452`).
+    #[test]
+    fn the_shadows_are_painted_in_order_behind_the_box() {
+        let deco = BoxDecoration::filled(RED).shadows([
+            BoxShadow::new(0.0, 1.0, 2.0, GREEN),
+            BoxShadow::new(0.0, 4.0, 8.0, BLUE),
+        ]);
+        let prims = painted(&deco, Rect::new(0.0, 0.0, 50.0, 50.0), TextDirection::Ltr);
+        let colours: Vec<Color> = prims
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { color, .. } => Some(*color),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(colours, vec![GREEN, BLUE, RED]);
+    }
+
+    /// **Sides of different colours are four trapezoids**, each its own colour, mitred at
+    /// the corners; a side with no width is not drawn.
+    #[test]
+    fn sides_of_different_colours_are_drawn_one_by_one() {
+        let border = Border {
+            top: BorderSide::new(RED, 2.0),
+            right: BorderSide::new(GREEN, 4.0),
+            bottom: BorderSide::new(BLUE, 2.0),
+            left: BorderSide::NONE,
+        };
+        let deco = BoxDecoration::default().border(border);
+        let prims = painted(&deco, Rect::new(0.0, 0.0, 50.0, 30.0), TextDirection::Ltr);
+        let fills: Vec<Color> = prims
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Path { fill, .. } => *fill,
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            fills,
+            vec![RED, GREEN, BLUE],
+            "three sides, the fourth has none"
+        );
+        assert_eq!(deco.content_padding(), Insets::new(2.0, 4.0, 2.0, 0.0));
+        // With round corners as well, still side by side: one band would be one colour.
+        // (The reference refuses several colours with round corners, `box_border.dart:711`.)
+        let rounded = BoxDecoration::default().border(border).radius(8.0);
+        let fills: Vec<Color> = painted(
+            &rounded,
+            Rect::new(0.0, 0.0, 50.0, 30.0),
+            TextDirection::Ltr,
+        )
+        .iter()
+        .filter_map(|p| match p {
+            Primitive::Path { fill, .. } => *fill,
+            _ => None,
+        })
+        .collect();
+        assert_eq!(fills, vec![RED, GREEN, BLUE]);
+    }
+
+    /// **One colour, uneven widths, round corners: one band** between the box and the box
+    /// inset by each side (`box_border.dart:686`).
+    #[test]
+    fn one_colour_with_corners_is_one_band() {
+        let border = Border {
+            top: BorderSide::new(RED, 6.0),
+            ..Border::new(2.0, RED)
+        };
+        let deco = BoxDecoration::default().border(border).radius(8.0);
+        let prims = painted(&deco, Rect::new(0.0, 0.0, 50.0, 30.0), TextDirection::Ltr);
+        let bands: Vec<&Primitive> = prims
+            .iter()
+            .filter(|p| matches!(p, Primitive::Path { .. }))
+            .collect();
+        assert_eq!(bands.len(), 1, "one band");
+        match bands[0] {
+            Primitive::Path { path, fill, .. } => {
+                assert_eq!(*fill, Some(RED));
+                let moves = path
+                    .verbs()
+                    .iter()
+                    .filter(|v| matches!(v, PathVerb::MoveTo(_)))
+                    .count();
+                assert_eq!(moves, 2, "the outline and the hole in it");
+                // The hole's corners are the box's less the thicker side meeting there:
+                // 8 less 6 at the top left, so the hole starts 2 in from its own left.
+                let hole = path
+                    .verbs()
+                    .iter()
+                    .filter_map(|v| match v {
+                        PathVerb::MoveTo(p) => Some(*p),
+                        _ => None,
+                    })
+                    .nth(1)
+                    .expect("the hole");
+                assert_eq!((hole.x, hole.y), (4.0, 6.0));
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// **A uniform border stays one primitive with the fill**, as before.
+    #[test]
+    fn a_uniform_border_is_drawn_with_the_fill() {
+        let deco = BoxDecoration::filled(RED).border(Border::new(3.0, BLUE));
+        let prims = painted(&deco, Rect::new(0.0, 0.0, 50.0, 30.0), TextDirection::Ltr);
+        assert_eq!(prims.len(), 1);
+        match &prims[0] {
+            Primitive::Rect {
+                border_width,
+                border_color,
+                ..
+            } => assert_eq!((*border_width, *border_color), (3.0, BLUE)),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// **A directional border's start is the left in a left-to-right script and the right
+    /// in a right-to-left one**, for the paint and for the room it takes.
+    #[test]
+    fn a_directional_border_follows_the_script() {
+        let border = BorderDirectional {
+            start: BorderSide::new(RED, 5.0),
+            ..Default::default()
+        };
+        let deco = BoxDecoration::default().border(border);
+        assert_eq!(deco.content_padding_in(TextDirection::Ltr).left, 5.0);
+        assert_eq!(deco.content_padding_in(TextDirection::Rtl).right, 5.0);
+        let first_x =
+            |direction| match &painted(&deco, Rect::new(0.0, 0.0, 50.0, 30.0), direction)[0] {
+                Primitive::Path { path, .. } => match path.verbs()[0] {
+                    PathVerb::MoveTo(p) => p.x,
+                    _ => unreachable!(),
+                },
+                other => panic!("{other:?}"),
+            };
+        // The left side's trapezoid starts at the bottom left; the right side's at the top
+        // right.
+        assert_eq!(first_x(TextDirection::Ltr), 0.0);
+        assert_eq!(first_x(TextDirection::Rtl), 50.0);
+    }
+
+    /// **Two lists of shadows pair up; the longer one's extras grow or shrink**, and a
+    /// circle and a rectangle swap half way.
+    #[test]
+    fn shadow_lists_pair_up_and_shapes_swap_half_way() {
+        let one = BoxDecoration::default().shadow(BoxShadow::new(0.0, 2.0, 4.0, BLUE));
+        let two = BoxDecoration::default().shape(BoxShape::Circle).shadows([
+            BoxShadow::new(0.0, 6.0, 8.0, BLUE),
+            BoxShadow::new(0.0, 10.0, 20.0, RED),
+        ]);
+        let mid = one.clone().lerp(two.clone(), 0.5);
+        assert_eq!(mid.shadows.len(), 2);
+        assert_eq!(mid.shadows[0].offset, (0.0, 4.0));
+        assert_eq!(
+            mid.shadows[1].offset,
+            (0.0, 5.0),
+            "the extra grows from nothing"
+        );
+        assert!((mid.shadows[1].color.a - 0.5).abs() < 1e-6);
+        assert_eq!(mid.shape, BoxShape::Circle);
+        assert_eq!(one.lerp(two, 0.49).shape, BoxShape::Rectangle);
+    }
+
+    /// **The border's constructors** are the reference's.
+    #[test]
+    fn the_border_constructors() {
+        let side = BorderSide::new(RED, 1.0);
+        let other = BorderSide::new(BLUE, 2.0);
+        assert!(Border::all(side).is_uniform());
+        let sym = Border::symmetric(side, other);
+        assert_eq!(
+            (sym.left, sym.right, sym.top, sym.bottom),
+            (side, side, other, other)
+        );
+        assert!(!sym.is_uniform());
+        assert!(!Border::NONE.is_visible());
+        let half = Border::NONE.lerp(Border::all(other), 0.5);
+        assert_eq!(
+            half.top,
+            BorderSide::new(BLUE, 1.0),
+            "thickening in its own colour"
+        );
     }
 }

@@ -214,9 +214,9 @@ Status: **done** (milestone), **to review**.
 
 | frus | reference | source | status |
 |---|---|---|---|
-| `BoxDecoration` | `BoxDecoration` | `painting/box_decoration.dart` | to review: one shadow, no `shape`, a uniform border, a two-colour linear gradient, no `image`, no `backgroundBlendMode` |
+| `BoxDecoration` | `BoxDecoration` | `painting/box_decoration.dart` | **in progress**: shape, sides, shadows done (J641); gradients, `image`, `backgroundBlendMode` next |
 | `BoxShadow` | `BoxShadow` | `painting/box_shadow.dart` | to review: no `blurStyle` |
-| `Border` | `Border`, `BorderDirectional` | `painting/box_border.dart` | to review: uniform only |
+| `Border` | `Border`, `BorderDirectional` | `painting/box_border.dart` | **done** (J641); `BorderSide::style`, `strokeAlign` left |
 | `BorderSide` | `BorderSide` | `painting/borders.dart` | to review |
 | `BorderRadius`, `BorderRadiusDirectional` | `BorderRadius`, `BorderRadiusDirectional` | `painting/border_radius.dart` | to review |
 | `LinearGradient` | `LinearGradient`, `RadialGradient`, `SweepGradient` | `painting/gradient.dart` | to review: two colours, linear only |
