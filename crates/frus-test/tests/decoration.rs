@@ -6,8 +6,9 @@
 //! pixel it produces, not by the number handed to the renderer.
 
 use frus_core::{
-    Alignment, Border, BorderSide, BoxDecoration, BoxShadow, BoxShape, Color, FontWeight, Gradient,
-    LinearGradient, RadialGradient, SweepGradient, TextStyle, TileMode,
+    Alignment, BlurStyle, Border, BorderSide, BoxDecoration, BoxFit, BoxShadow, BoxShape, Color,
+    ColorFilter, DecorationImage, FontWeight, Gradient, ImageRepeat, LinearGradient,
+    RadialGradient, Rect, SweepGradient, TextStyle, TileMode,
 };
 use frus_test::render_widget;
 use frus_widgets::{
@@ -250,4 +251,125 @@ fn the_gradients_match_their_golden() {
     };
     assert!(shot.lit_pixels(48) > 40, "the frame is empty");
     shot.assert_golden(golden("decoration_gradients"));
+}
+
+/// A picture `side` pixels square in four quarters: red, gold, blue and green, from the
+/// top left, reading across — so a crop, a mirror or a repeat shows which way it went.
+fn quarters(side: u32) -> frus_core::ImageHandle {
+    let mut rgba = Vec::with_capacity((side * side * 4) as usize);
+    for y in 0..side {
+        for x in 0..side {
+            let (right, low) = (x >= side / 2, y >= side / 2);
+            let pixel = match (right, low) {
+                (false, false) => [230, 64, 64, 255],
+                (true, false) => [250, 204, 64, 255],
+                (false, true) => [64, 115, 242, 255],
+                (true, true) => [64, 190, 110, 255],
+            };
+            rgba.extend_from_slice(&pixel);
+        }
+    }
+    frus_core::ImageData::from_rgba(side, side, rgba).into_handle()
+}
+
+/// A frame twelve pixels square: a white border four wide round a blue middle, the
+/// centre slice's picture.
+fn frame() -> frus_core::ImageHandle {
+    let mut rgba = Vec::with_capacity(12 * 12 * 4);
+    for y in 0..12 {
+        for x in 0..12 {
+            let edge = !(4..8).contains(&x) || !(4..8).contains(&y);
+            let corner = !(4..8).contains(&x) && !(4..8).contains(&y);
+            let pixel = match (corner, edge) {
+                (true, _) => [250, 204, 64, 255],
+                (false, true) => [240, 240, 240, 255],
+                _ => [64, 115, 242, 255],
+            };
+            rgba.extend_from_slice(&pixel);
+        }
+    }
+    frus_core::ImageData::from_rgba(12, 12, rgba).into_handle()
+}
+
+/// **Pictures and blur styles, painted** (milestone 645). Top: a picture covering rounded
+/// corners and keeping its top, a small one repeated, a frame stretched round its centre
+/// slice, and a picture in a circle. Middle: a glow in each of the four blur styles —
+/// both sides, solid inside, outside only, inside only. Bottom: a picture turned grey,
+/// inverted, at half its opacity, and drawn at twice its size in the bottom right corner.
+#[test]
+fn the_pictures_and_blur_styles_match_their_golden() {
+    let tile = |decoration: BoxDecoration| {
+        Container::<()>::new()
+            .width(80.0)
+            .height(56.0)
+            .decoration(decoration)
+    };
+    let picture = |image: DecorationImage| tile(BoxDecoration::default().radius(10.0).image(image));
+    let gold = Color::rgb(0.98, 0.80, 0.25);
+    let glow = |style: BlurStyle| {
+        tile(
+            BoxDecoration::default()
+                .radius(10.0)
+                .shadow(BoxShadow::new(0.0, 0.0, 10.0, gold).blur_style(style)),
+        )
+    };
+    let top = Flex::<()>::row()
+        .gap(20.0)
+        .child(picture(
+            DecorationImage::new(quarters(16))
+                .fit(BoxFit::Cover)
+                .alignment(Alignment::TOP_CENTER),
+        ))
+        .child(picture(
+            DecorationImage::new(quarters(16)).repeat(ImageRepeat::Repeat),
+        ))
+        .child(picture(
+            DecorationImage::new(frame()).center_slice(Rect::new(4.0, 4.0, 4.0, 4.0)),
+        ))
+        .child(tile(
+            BoxDecoration::default()
+                .shape(BoxShape::Circle)
+                .border(Border::new(2.0, gold))
+                .image(DecorationImage::new(quarters(16)).fit(BoxFit::Cover)),
+        ));
+    let middle = Flex::<()>::row()
+        .gap(20.0)
+        .child(glow(BlurStyle::Normal))
+        .child(glow(BlurStyle::Solid))
+        .child(glow(BlurStyle::Outer))
+        .child(glow(BlurStyle::Inner));
+    let covered = || DecorationImage::new(quarters(16)).fit(BoxFit::Fill);
+    let bottom = Flex::<()>::row()
+        .gap(20.0)
+        .child(picture(covered().color_filter(ColorFilter::grayscale())))
+        .child(picture(covered().invert_colors(true)))
+        .child(picture(covered().opacity(0.5)))
+        .child(picture(
+            DecorationImage::new(quarters(16))
+                .scale(0.5)
+                .alignment(Alignment::BOTTOM_RIGHT),
+        ));
+    let tree = Container::<()>::new()
+        .width(420.0)
+        .height(256.0)
+        .padding(20.0)
+        .color(Color::rgb(0.12, 0.12, 0.14))
+        .child(
+            Flex::column()
+                .gap(24.0)
+                .child(top)
+                .child(middle)
+                .child(bottom),
+        );
+    let Some(shot) = render_widget(
+        &tree,
+        420,
+        256,
+        &Theme::dark().with_platform(frus_core::TargetPlatform::Linux),
+    ) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(shot.lit_pixels(48) > 40, "the frame is empty");
+    shot.assert_golden(golden("decoration_images"));
 }

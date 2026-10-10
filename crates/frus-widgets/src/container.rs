@@ -3,7 +3,7 @@
 
 use frus_core::{
     AlignmentGeometry, Border, BorderRadius, BoxBorder, BoxDecoration, BoxShadow, BoxShape, Color,
-    Curve, Gradient, Insets, InsetsGeometry, LinearGradient, Rect, Scene, Size,
+    Curve, DecorationImage, Gradient, Insets, InsetsGeometry, LinearGradient, Rect, Scene, Size,
 };
 use frus_layout::{Align, Dimension, Justify, Style};
 
@@ -46,6 +46,8 @@ pub struct Container<Msg = crate::callback::Callback> {
     shadows: Vec<BoxShadow>,
     /// A rectangle or a circle (milestone 641).
     shape: BoxShape,
+    /// A picture over the background, under the border (milestone 645).
+    image: Option<DecorationImage>,
     on_click: Option<Msg>,
     on_long_press: Option<Msg>,
     /// A repaint boundary: it caches the painted subtree (see
@@ -190,6 +192,7 @@ impl<Msg> Container<Msg> {
             gradient: None,
             shadows: Vec::new(),
             shape: BoxShape::Rectangle,
+            image: None,
             on_click: None,
             on_long_press: None,
             repaint_boundary: false,
@@ -400,6 +403,13 @@ impl<Msg> Container<Msg> {
         self
     }
 
+    /// A picture over the background, under the border, clipped to the corners or the
+    /// circle — fitted, aligned, repeated or sliced as the [`DecorationImage`] says.
+    pub fn image(mut self, image: DecorationImage) -> Self {
+        self.image = Some(image);
+        self
+    }
+
     /// A drop shadow: the `(dx, dy)` offset, the blur radius and the color. Each call adds
     /// one, over those already there.
     pub fn shadow(mut self, dx: f32, dy: f32, blur: f32, color: Color) -> Self {
@@ -520,11 +530,6 @@ impl<Msg> Container<Msg> {
         self
     }
 
-    /// Applies a **composite decoration** as one block: background, gradient, border,
-    /// radius and shadow gathered in a reusable [`BoxDecoration`]. Each part present
-    /// overrides the corresponding setting; the radius is always adopted. The
-    /// animations (color, radius…) still apply on top. (A shadow's `spread` is not
-    /// kept — the container's shadow model has none.)
     /// A decoration painted **over the child** rather than behind it — the reference's
     /// `foregroundDecoration`.
     ///
@@ -557,15 +562,18 @@ impl<Msg> Container<Msg> {
         self
     }
 
-    /// Sets the box's fill, gradient, border, shadows and shape from a
+    /// Sets the box's fill, gradient, picture, border, shadows and shape from a
     /// [`BoxDecoration`](frus_core::BoxDecoration) at once. What the decoration leaves unset
-    /// changes nothing.
+    /// changes nothing; the radius and the shape are always adopted.
     pub fn decoration(mut self, decoration: BoxDecoration) -> Self {
         if let Some(color) = decoration.color {
             self.color = Some(color);
         }
         if let Some(gradient) = decoration.gradient {
             self.gradient = Some(gradient);
+        }
+        if let Some(image) = decoration.image {
+            self.image = Some(image);
         }
         if let Some(border) = decoration.border {
             self.border = Some(border);
@@ -682,6 +690,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             radius,
             shadows: self.shadows.clone(),
             shape: self.shape,
+            image: self.image.clone(),
         };
         decoration.paint_into_in(scene, bounds, status.opacity, theme.direction);
     }

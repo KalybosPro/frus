@@ -172,6 +172,36 @@ impl PathGradient {
     }
 }
 
+/// **Which side of a shape a blur keeps** (milestone 645), the reference's `BlurStyle`.
+///
+/// A blurred shape fades across its edge, half in and half out. The other three styles
+/// keep one side of that fade and fill or empty the other: a solid shape with a glow, a
+/// glow with a hole where the shape was, a shape whose edge darkens inward.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum BlurStyle {
+    /// Fuzzy inside and outside: the shape blurred, what a shadow is.
+    #[default]
+    Normal,
+    /// Solid inside, fuzzy outside.
+    Solid,
+    /// Nothing inside, fuzzy outside.
+    Outer,
+    /// Fuzzy inside, nothing outside.
+    Inner,
+}
+
+impl BlurStyle {
+    /// The number the renderer reads.
+    pub const fn code(self) -> u32 {
+        match self {
+            BlurStyle::Normal => 0,
+            BlurStyle::Solid => 1,
+            BlurStyle::Outer => 2,
+            BlurStyle::Inner => 3,
+        }
+    }
+}
+
 /// The clip shape of a [`Primitive::Layer`], **inscribed** in its `clip` rectangle.
 /// Compositing multiplies the layer's alpha by the shape's coverage, with
 /// antialiased edges. This is the building block of the `ClipRRect`, `ClipOval`
@@ -238,6 +268,9 @@ pub enum Primitive {
         /// `color2` and `gradient_dir`, which hold its first and last colours for
         /// whatever reads a rectangle's colour.
         shader: Option<std::sync::Arc<crate::Gradient>>,
+        /// Where a blurred edge keeps its strength: either side of the shape, inside
+        /// only, outside only (milestone 645). Read only when `blur` is above nought.
+        blur_style: BlurStyle,
     },
     /// A line of text, anchored by its top-left corner.
     Text {
@@ -341,6 +374,11 @@ pub enum Primitive {
         uv: Rect,
         /// Multiplicative tint (white = unchanged; the alpha drives fading).
         tint: Color,
+        /// Whether sampling stays **strictly** inside `uv` (milestone 645): a filtered
+        /// sample never reaches the texels around it. The parts of a sliced picture
+        /// need it, or each would bleed its neighbours along its edges; a picture drawn
+        /// whole or cropped does without, as the reference's does.
+        strict: bool,
         /// Clip rectangle.
         clip: Rect,
         /// The emitting widget's identity.
@@ -414,6 +452,7 @@ impl Primitive {
                 clip,
                 owner,
                 shader,
+                blur_style,
             } => Primitive::Rect {
                 rect: rect.scale_xy(sx, sy),
                 color,
@@ -426,6 +465,7 @@ impl Primitive {
                 clip: clip.scale_xy(sx, sy),
                 owner,
                 shader,
+                blur_style,
             },
             Primitive::Text {
                 position,
@@ -508,6 +548,7 @@ impl Primitive {
                 rect,
                 uv,
                 tint,
+                strict,
                 clip,
                 owner,
             } => Primitive::Image {
@@ -516,6 +557,7 @@ impl Primitive {
                 // The UV is in 0..1, so it is independent of scale.
                 uv,
                 tint,
+                strict,
                 clip: clip.scale_xy(sx, sy),
                 owner,
             },
@@ -557,6 +599,7 @@ impl Primitive {
                 clip,
                 owner,
                 shader,
+                blur_style,
             } => Primitive::Rect {
                 rect: rect.translate(dx, dy),
                 color,
@@ -569,6 +612,7 @@ impl Primitive {
                 clip: clip.translate(dx, dy),
                 owner,
                 shader,
+                blur_style,
             },
             Primitive::Text {
                 position,
@@ -646,6 +690,7 @@ impl Primitive {
                 rect,
                 uv,
                 tint,
+                strict,
                 clip,
                 owner,
             } => Primitive::Image {
@@ -653,6 +698,7 @@ impl Primitive {
                 rect: rect.translate(dx, dy),
                 uv,
                 tint,
+                strict,
                 clip: clip.translate(dx, dy),
                 owner,
             },
@@ -761,6 +807,7 @@ impl Primitive {
                 clip,
                 owner,
                 shader: None,
+                blur_style: crate::BlurStyle::Normal,
             },
             Primitive::Text {
                 position,
@@ -838,6 +885,7 @@ impl Primitive {
                 rect,
                 uv,
                 tint,
+                strict,
                 owner,
                 ..
             } => Primitive::Image {
@@ -845,6 +893,7 @@ impl Primitive {
                 rect,
                 uv,
                 tint,
+                strict,
                 clip,
                 owner,
             },
@@ -946,6 +995,11 @@ impl Scene {
         self.current_owner = owner;
     }
 
+    /// The emitting widget's identity, as the next primitive will carry it.
+    pub fn current_owner(&self) -> u64 {
+        self.current_owner
+    }
+
     /// Declares the box the widget about to paint was laid out in. Text primitives
     /// record it, which is how the renderer knows what a line of text covers — a
     /// `Primitive::Text` otherwise says only where it begins. Set by the widget walk
@@ -990,6 +1044,7 @@ impl Scene {
                 clip,
                 owner,
                 shader,
+                blur_style,
             } => Primitive::Rect {
                 rect,
                 color: color.fade(opacity),
@@ -1002,6 +1057,7 @@ impl Scene {
                 clip,
                 owner,
                 shader: shader.map(|g| std::sync::Arc::new(g.scale(opacity))),
+                blur_style,
             },
             Primitive::Text {
                 position,
@@ -1085,6 +1141,7 @@ impl Scene {
                 rect,
                 uv,
                 tint,
+                strict,
                 clip,
                 owner,
             } => Primitive::Image {
@@ -1092,6 +1149,7 @@ impl Scene {
                 rect,
                 uv,
                 tint: tint.fade(opacity),
+                strict,
                 clip,
                 owner,
             },
@@ -1131,6 +1189,7 @@ impl Scene {
             clip: self.current_clip,
             owner: self.current_owner,
             shader: None,
+            blur_style: crate::BlurStyle::Normal,
         });
     }
 
@@ -1182,6 +1241,7 @@ impl Scene {
             clip: self.current_clip,
             owner: self.current_owner,
             shader: None,
+            blur_style: crate::BlurStyle::Normal,
         });
     }
 
@@ -1225,6 +1285,7 @@ impl Scene {
             clip: self.current_clip,
             owner: self.current_owner,
             shader: Some(std::sync::Arc::new(gradient)),
+            blur_style: crate::BlurStyle::Normal,
         });
     }
 
@@ -1254,11 +1315,26 @@ impl Scene {
             clip: self.current_clip,
             owner: self.current_owner,
             shader: None,
+            blur_style: crate::BlurStyle::Normal,
         });
     }
 
     /// Adds a soft shadow — a rounded rectangle with a blurred edge, no border.
     pub fn shadow(&mut self, rect: Rect, color: Color, radius: impl Into<BorderRadius>, blur: f32) {
+        self.styled_shadow(rect, color, radius, blur, BlurStyle::Normal);
+    }
+
+    /// Adds a soft shadow whose blur keeps one side of the shape's edge, or both
+    /// ([`BlurStyle`]). As [`Self::shadow`], `rect` already reaches `blur` beyond the
+    /// shape, which runs `blur` inside it.
+    pub fn styled_shadow(
+        &mut self,
+        rect: Rect,
+        color: Color,
+        radius: impl Into<BorderRadius>,
+        blur: f32,
+        blur_style: BlurStyle,
+    ) {
         self.primitives.push(Primitive::Rect {
             rect,
             color,
@@ -1271,6 +1347,7 @@ impl Scene {
             clip: self.current_clip,
             owner: self.current_owner,
             shader: None,
+            blur_style,
         });
     }
 
@@ -1369,11 +1446,23 @@ impl Scene {
     /// tinting it by `tint` (white = unchanged). Low level: see [`Scene::image`]
     /// for automatic fitting through [`crate::BoxFit`].
     pub fn draw_image(&mut self, image: &ImageHandle, rect: Rect, uv: Rect, tint: Color) {
+        self.push_image(image, rect, uv, tint, false);
+    }
+
+    /// [`Scene::draw_image`], sampled **strictly** inside `uv`: no filtered sample
+    /// reaches the texels around it. For one part of a picture stretched apart from the
+    /// rest, as a centre slice's are.
+    pub fn draw_image_strict(&mut self, image: &ImageHandle, rect: Rect, uv: Rect, tint: Color) {
+        self.push_image(image, rect, uv, tint, true);
+    }
+
+    fn push_image(&mut self, image: &ImageHandle, rect: Rect, uv: Rect, tint: Color, strict: bool) {
         self.primitives.push(Primitive::Image {
             image: image.clone(),
             rect,
             uv,
             tint,
+            strict,
             clip: self.current_clip,
             owner: self.current_owner,
         });
@@ -1667,6 +1756,7 @@ mod tests {
                 clip: Rect::UNBOUNDED,
                 owner: 0,
                 shader: None,
+                blur_style: crate::BlurStyle::Normal,
             }
         );
     }

@@ -23,6 +23,7 @@ struct InstanceInput {
     @location(2) uv: vec4<f32>,   // x, y, width, height (0..1)
     @location(3) tint: vec4<f32>, // sRGB, multiplied in
     @location(4) clip: vec4<f32>, // x, y, width, height (px)
+    @location(5) region: vec4<f32>, // low x, low y, high x, high y (0..1)
 };
 
 struct VertexOutput {
@@ -31,6 +32,7 @@ struct VertexOutput {
     @location(1) @interpolate(flat) tint: vec4<f32>,
     @location(2) frag_px: vec2<f32>,
     @location(3) @interpolate(flat) clip: vec4<f32>,
+    @location(4) @interpolate(flat) region: vec4<f32>,
 };
 
 @vertex
@@ -46,6 +48,7 @@ fn vs_main(vert: VertexInput, inst: InstanceInput) -> VertexOutput {
     out.tint = inst.tint;
     out.frag_px = pos_px;
     out.clip = inst.clip;
+    out.region = inst.region;
     return out;
 }
 
@@ -65,7 +68,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     );
     // The texture is in an sRGB format, so the sample is already linear. The tint,
     // an authored sRGB colour, is linearised before being multiplied in.
-    let sample = textureSample(tex, samp, in.uv);
+    //
+    // Never past the region's outer texel centres (milestone 645). For a strict draw
+    // the region is the part drawn, so a filtered sample does not reach the texels
+    // around it — a slice of a frame stretched would otherwise bleed its neighbours
+    // along its edges. Otherwise it is the whole texture: the edge clamp it always had.
+    let half = vec2<f32>(0.5) / vec2<f32>(textureDimensions(tex));
+    let lo = in.region.xy + half;
+    let hi = in.region.zw - half;
+    // A region narrower than a texel samples its middle.
+    let mid = (lo + hi) * 0.5;
+    let uv = clamp(in.uv, min(lo, mid), max(hi, mid));
+    let sample = textureSample(tex, samp, uv);
     let rgb = sample.rgb * srgb_to_linear(in.tint.rgb);
     let alpha = sample.a * in.tint.a * inside_clip;
     return vec4<f32>(rgb, alpha);

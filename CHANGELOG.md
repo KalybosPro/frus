@@ -8,11 +8,22 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 644 so far, each documenting the objective, the alternatives
+> record — one per step, 645 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Pictures as backgrounds, and blur styles** (J645). `DecorationImage` (fit, alignment,
+  centre slice, repeat, mirroring, scale, opacity, colour filter, inversion) on
+  `BoxDecoration::image` and `Container::image`, painted between the background and the
+  border and clipped to the corners or the circle; two pictures in a transition cross over.
+  `ImageRepeat`, `apply_box_fit` and `FittedSizes` are the reference's fitting, which crops
+  rather than overflows. `BoxShadow::blur_style` takes a `BlurStyle` (`Normal`, `Solid`,
+  `Outer`, `Inner`), drawn by the rectangle shader. New: `Scene::styled_shadow`,
+  `Scene::draw_image_strict` (sampling that never reaches past the drawn part, which a
+  slice's parts need) and `Scene::current_owner`.
+  **Changed**: `Primitive::Rect` has `blur_style`, `Primitive::Image` has `strict`,
+  `BoxShadow` has `blur_style` and `BoxDecoration` has `image`.
 - **Gradients, as the reference's** (J644). `LinearGradient` (begin, end, colours, stops,
   tile mode, rotation), `RadialGradient` (centre, radius, focal point and radius) and
   `SweepGradient` (centre, start and end angles), with `TileMode::{Clamp, Repeated, Mirror,

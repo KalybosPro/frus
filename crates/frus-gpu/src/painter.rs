@@ -386,6 +386,7 @@ impl Painter {
                 blur,
                 clip,
                 shader,
+                blur_style,
                 ..
             } => {
                 // A gradient, baked into the next row of the ramps; past the last row, its
@@ -399,6 +400,7 @@ impl Painter {
                         let (code, geometry, extra) = encode(gradient, rect);
                         (code, row, geometry, extra)
                     });
+                let shaded_row = shaded.is_some();
                 let (code, row, geometry, extra) = shaded.unwrap_or((
                     0.0,
                     0.0,
@@ -410,7 +412,17 @@ impl Painter {
                     color: color.to_array(),
                     color2: extra,
                     border_color: border_color.to_array(),
-                    params: [code, *border_width, *blur, row],
+                    // A flat rectangle has no ramp row: the slot carries its blur style.
+                    params: [
+                        code,
+                        *border_width,
+                        *blur,
+                        if shaded_row {
+                            row
+                        } else {
+                            blur_style.code() as f32
+                        },
+                    ],
                     gradient: geometry,
                     clip: clip.to_array(),
                     // Negative radii are clamped to zero before rendering.

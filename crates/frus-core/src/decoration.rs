@@ -5,11 +5,14 @@
 //! A [`BoxDecoration`] is a pure `Copy` value that a widget assembles at paint
 //! time, then **lowers** into [`Scene`] primitives through
 //! [`BoxDecoration::paint_into`], in a **fixed order**: shadow → background
-//! (colour or gradient) → border. It feeds layout too:
+//! (colour or gradient) → picture → border. It feeds layout too:
 //! [`BoxDecoration::content_padding`] reserves room for the border on taffy's
 //! behalf.
 
-use crate::{BorderSide, Color, Insets, Path, Point, Rect, Scene, ShapeBorder, TextDirection};
+use crate::{
+    BlurStyle, BorderSide, ClipShape, Color, DecorationImage, Insets, Path, Point, Primitive, Rect,
+    Scene, ShapeBorder, TextDirection,
+};
 
 /// Corner radii, **per corner** (logical px). `From<f32>` covers the uniform case:
 /// anywhere a radius is expected, a plain `10.0` still works.
@@ -443,6 +446,8 @@ pub struct BoxShadow {
     pub blur: f32,
     /// How far the shadow grows beyond the box, before blurring.
     pub spread: f32,
+    /// Which side of the shadow's edge the blur keeps (milestone 645): both, by default.
+    pub blur_style: BlurStyle,
 }
 
 impl BoxShadow {
@@ -453,12 +458,20 @@ impl BoxShadow {
             offset: (dx, dy),
             blur,
             spread: 0.0,
+            blur_style: BlurStyle::Normal,
         }
     }
 
     /// Sets the `spread`.
     pub const fn spread(mut self, spread: f32) -> Self {
         self.spread = spread;
+        self
+    }
+
+    /// Sets which side of the edge the blur keeps: a solid shadow with a soft edge, a
+    /// glow outside the box only, a shading inside it.
+    pub const fn blur_style(mut self, style: BlurStyle) -> Self {
+        self.blur_style = style;
         self
     }
 
@@ -494,6 +507,7 @@ impl BoxShadow {
                 offset: (0.0, lerp(ya, yb)),
                 blur: lerp(blur_a, blur_b),
                 spread: lerp(spread_a, spread_b),
+                blur_style: BlurStyle::Normal,
             }
         };
         [layer(0, 0.2), layer(1, 0.14), layer(2, 0.12)]
@@ -569,9 +583,10 @@ pub fn paint_elevation(
 /// (`box_decoration.dart:81`).
 ///
 /// The paint order is **fixed**, the reference's (`box_decoration.dart:571`): the shadows,
-/// in order, then the background, then the border. The background is either flat (`color`)
-/// or a gradient (`color` → `gradient.end`). A border with no background paints an outline
-/// over transparency; a wholly empty decoration paints nothing at all.
+/// in order, then the background, then the picture, then the border. The background is
+/// either flat (`color`) or a gradient, which replaces the colour. A border with no
+/// background paints an outline over transparency; a wholly empty decoration paints nothing
+/// at all.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BoxDecoration {
     /// Background colour.
@@ -587,6 +602,9 @@ pub struct BoxDecoration {
     pub shadows: Vec<BoxShadow>,
     /// A rectangle or a circle.
     pub shape: BoxShape,
+    /// A picture over the background, under the border, clipped to the shape
+    /// (milestone 645).
+    pub image: Option<DecorationImage>,
 }
 
 /// A colour that may be absent on either side, `t` of the way across.
@@ -673,6 +691,7 @@ impl BoxDecoration {
             offset: (s.offset.0 * f, s.offset.1 * f),
             blur: s.blur * f,
             spread: s.spread * f,
+            blur_style: s.blur_style,
         };
         // The shadows pair by pair, and those one list has more of grow or shrink — the
         // reference's `BoxShadow.lerpList` (`box_shadow.dart`).
@@ -684,6 +703,12 @@ impl BoxDecoration {
                     offset: (mix(a.offset.0, b.offset.0), mix(a.offset.1, b.offset.1)),
                     blur: mix(a.blur, b.blur),
                     spread: mix(a.spread, b.spread),
+                    // The reference's rule: a plain blur takes the other's style.
+                    blur_style: if a.blur_style == BlurStyle::Normal {
+                        b.blur_style
+                    } else {
+                        a.blur_style
+                    },
                 },
                 (Some(a), None) => grown(*a, 1.0 - t),
                 (None, Some(b)) => grown(*b, t),
@@ -697,6 +722,8 @@ impl BoxDecoration {
             radius: self.radius.lerp(other.radius, t),
             shadows,
             shape,
+            // Two pictures cross over; one alone fades.
+            image: DecorationImage::lerp(self.image.as_ref(), other.image.as_ref(), t),
         }
     }
 }
@@ -748,6 +775,12 @@ impl BoxDecoration {
         self
     }
 
+    /// Paints a picture over the background, under the border.
+    pub fn image(mut self, image: DecorationImage) -> Self {
+        self.image = Some(image);
+        self
+    }
+
     /// The inner margin the border needs — add it to the padding so the content is
     /// not eaten by the line. This is what feeds taffy. A directional border is read
     /// left to right; see [`Self::content_padding_in`].
@@ -781,14 +814,14 @@ impl BoxDecoration {
     }
 
     /// Lowers the decoration into `scene` primitives, in the fixed order
-    /// shadows → background → border, for a box read left to right. See
+    /// shadows → background → picture → border, for a box read left to right. See
     /// [`Self::paint_into_in`].
     pub fn paint_into(&self, scene: &mut Scene, rect: Rect, opacity: f32) {
         self.paint_into_in(scene, rect, opacity, TextDirection::Ltr);
     }
 
     /// Lowers the decoration into `scene` primitives, in the fixed order
-    /// shadows → background → border. `opacity` (`0..=1`) modulates **every** colour,
+    /// shadows → background → picture → border. `opacity` (`0..=1`) modulates **every** colour,
     /// which is how a fade-in works. `rect` is the box in absolute coordinates;
     /// `direction` places a directional border's start and end.
     pub fn paint_into_in(
@@ -802,15 +835,17 @@ impl BoxDecoration {
 
         // 1) The shadows, in order, behind everything else.
         for shadow in &self.shadows {
-            scene.shadow(
+            scene.styled_shadow(
                 shadow.bounds(shape_rect),
                 shadow.color.fade(opacity),
                 radius.inflate(shadow.blur + shadow.spread),
                 shadow.blur,
+                shadow.blur_style,
             );
         }
 
-        // 2/3) Background (flat or gradient), and a uniform border in the same primitive.
+        // 2/3) Background (flat or gradient), and a uniform border in the same primitive
+        // — unless a picture goes between them.
         let border = self.border.map(|b| b.resolve(direction));
         let uniform = border.filter(|b| b.is_uniform());
         let (border_width, border_color) = match uniform {
@@ -818,6 +853,11 @@ impl BoxDecoration {
             _ => (0.0, Color::TRANSPARENT),
         };
         let has_border = uniform.is_some_and(|b| b.is_visible());
+        let image = self.image.as_ref();
+        let (fill_border_width, fill_border_color) = match image {
+            Some(_) => (0.0, Color::TRANSPARENT),
+            None => (border_width, border_color),
+        };
 
         match (self.color, &self.gradient) {
             (_, Some(gradient)) => scene.shaded_rect(
@@ -825,18 +865,18 @@ impl BoxDecoration {
                 gradient.resolve(direction),
                 opacity,
                 radius,
-                border_width,
-                border_color,
+                fill_border_width,
+                fill_border_color,
             ),
             (Some(color), None) => scene.draw_rect(
                 shape_rect,
                 color.fade(opacity),
                 radius,
-                border_width,
-                border_color,
+                fill_border_width,
+                fill_border_color,
             ),
             // Border only, with no background: an outline over transparency.
-            (None, _) if has_border => scene.draw_rect(
+            (None, _) if has_border && image.is_none() => scene.draw_rect(
                 shape_rect,
                 Color::TRANSPARENT,
                 radius,
@@ -847,10 +887,74 @@ impl BoxDecoration {
             (None, _) => {}
         }
 
+        // The picture, over the background and clipped to the shape, then the uniform
+        // border over it (`box_decoration.dart:476`).
+        if let Some(image) = image {
+            self.paint_image(scene, image, rect, shape_rect, radius, direction, opacity);
+            if has_border {
+                scene.draw_rect(
+                    shape_rect,
+                    Color::TRANSPARENT,
+                    radius,
+                    border_width,
+                    border_color,
+                );
+            }
+        }
+
         // 3) A border whose sides differ.
         if let Some(border) = border.filter(|b| !b.is_uniform() && b.is_visible()) {
             paint_sides(scene, shape_rect, radius, self.shape, &border, opacity);
         }
+    }
+
+    /// The picture painted into the whole box, clipped to the circle or the rounded
+    /// corners when there are any — the reference's `_paintBackgroundImage`.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_image(
+        &self,
+        scene: &mut Scene,
+        image: &DecorationImage,
+        rect: Rect,
+        shape_rect: Rect,
+        radius: BorderRadius,
+        direction: TextDirection,
+        opacity: f32,
+    ) {
+        let start = scene.primitives().len();
+        image.paint(scene, rect, direction, opacity);
+        let shape = match self.shape {
+            BoxShape::Circle => ClipShape::Oval,
+            BoxShape::Rectangle if radius != BorderRadius::ZERO => {
+                ClipShape::RRect(radius.clamped())
+            }
+            BoxShape::Rectangle => return,
+        };
+        if scene.primitives().len() == start {
+            return;
+        }
+        // A layer's shape is inscribed in its clip, so it is exact only when the clip is
+        // the whole shape. A box partly clipped away is clipped by its outline instead.
+        let outer = scene.current_clip();
+        let (clip, clip_shape) = if outer.intersect(shape_rect) == shape_rect {
+            (shape_rect, shape)
+        } else {
+            (
+                outer.intersect(shape_rect),
+                ClipShape::Path(ShapeBorder::rounded(radius).outline(shape_rect)),
+            )
+        };
+        let primitives = scene.split_off(start);
+        let owner = scene.current_owner();
+        scene.push_primitive(Primitive::Layer {
+            primitives,
+            opacity: 1.0,
+            clip,
+            clip_shape,
+            transform: None,
+            filter: crate::LayerFilter::NONE,
+            owner,
+        });
     }
 }
 
@@ -1505,5 +1609,205 @@ mod box_decoration_tests {
             BorderSide::new(BLUE, 1.0),
             "thickening in its own colour"
         );
+    }
+
+    fn picture() -> crate::DecorationImage {
+        let pixels = crate::ImageData::from_rgba(4, 4, vec![255; 64]).into_handle();
+        crate::DecorationImage::new(pixels).fit(crate::BoxFit::Fill)
+    }
+
+    /// The kinds of primitive a decoration paints, in order, layers opened.
+    fn kinds(primitives: &[Primitive]) -> Vec<String> {
+        primitives
+            .iter()
+            .map(|p| match p {
+                Primitive::Rect {
+                    border_width,
+                    color,
+                    blur,
+                    ..
+                } if *blur > 0.0 => format!("shadow {color:?} {border_width}"),
+                Primitive::Rect {
+                    border_width,
+                    color,
+                    ..
+                } => format!("rect {color:?} {border_width}"),
+                Primitive::Image { .. } => "image".to_string(),
+                Primitive::Layer { primitives, .. } => {
+                    format!("layer [{}]", kinds(primitives).join(", "))
+                }
+                other => format!("{other:?}"),
+            })
+            .collect()
+    }
+
+    fn painted_clipped(decoration: &BoxDecoration, clip: Rect) -> Scene {
+        let mut scene = Scene::new();
+        scene.set_clip(clip);
+        decoration.paint_into(&mut scene, Rect::new(0.0, 0.0, 40.0, 20.0), 1.0);
+        scene
+    }
+
+    /// **The picture goes between the background and the border**
+    /// (`box_decoration.dart:476`): the fill loses its line, which is drawn over the
+    /// picture.
+    #[test]
+    fn a_picture_lies_between_the_fill_and_the_border() {
+        let decoration = BoxDecoration::filled(RED)
+            .border(Border::new(2.0, BLUE))
+            .image(picture());
+        let scene = painted_clipped(&decoration, Rect::UNBOUNDED);
+        assert_eq!(
+            kinds(scene.primitives()),
+            vec![
+                format!("rect {RED:?} 0"),
+                "image".to_string(),
+                format!("rect {:?} 2", Color::TRANSPARENT),
+            ]
+        );
+        // A border alone, over the picture.
+        let outline = BoxDecoration::default()
+            .border(Border::new(2.0, BLUE))
+            .image(picture());
+        assert_eq!(
+            kinds(painted_clipped(&outline, Rect::UNBOUNDED).primitives()),
+            vec![
+                "image".to_string(),
+                format!("rect {:?} 2", Color::TRANSPARENT)
+            ]
+        );
+        // With no picture, the fill carries its line.
+        let plain = BoxDecoration::filled(RED).border(Border::new(2.0, BLUE));
+        assert_eq!(
+            kinds(painted_clipped(&plain, Rect::UNBOUNDED).primitives()),
+            vec![format!("rect {RED:?} 2")]
+        );
+        // Without a background, a picture alone.
+        let alone = BoxDecoration::default().image(picture());
+        assert_eq!(
+            kinds(painted_clipped(&alone, Rect::UNBOUNDED).primitives()),
+            vec!["image"]
+        );
+    }
+
+    /// **The picture is clipped to the corners or the circle**, into the whole box.
+    #[test]
+    fn a_picture_takes_the_shape_of_its_box() {
+        let rounded = BoxDecoration::default().radius(6.0).image(picture());
+        let scene = painted_clipped(&rounded, Rect::UNBOUNDED);
+        let Primitive::Layer {
+            clip,
+            clip_shape,
+            primitives,
+            ..
+        } = &scene.primitives()[0]
+        else {
+            panic!("a clipped layer");
+        };
+        assert_eq!(*clip, Rect::new(0.0, 0.0, 40.0, 20.0));
+        assert_eq!(*clip_shape, ClipShape::RRect(BorderRadius::uniform(6.0)));
+        let Primitive::Image { rect, .. } = &primitives[0] else {
+            panic!("the picture");
+        };
+        assert_eq!(*rect, Rect::new(0.0, 0.0, 40.0, 20.0), "filling the box");
+
+        let circle = BoxDecoration::default()
+            .shape(BoxShape::Circle)
+            .image(picture());
+        let scene = painted_clipped(&circle, Rect::UNBOUNDED);
+        let Primitive::Layer {
+            clip,
+            clip_shape,
+            primitives,
+            ..
+        } = &scene.primitives()[0]
+        else {
+            panic!("a clipped layer");
+        };
+        assert_eq!(
+            *clip,
+            Rect::new(10.0, 0.0, 20.0, 20.0),
+            "the circle's square"
+        );
+        assert_eq!(*clip_shape, ClipShape::Oval);
+        let Primitive::Image { rect, .. } = &primitives[0] else {
+            panic!("the picture");
+        };
+        assert_eq!(*rect, Rect::new(0.0, 0.0, 40.0, 20.0), "into the whole box");
+
+        // Square corners clip nothing.
+        let square = BoxDecoration::default().image(picture());
+        assert!(matches!(
+            painted_clipped(&square, Rect::UNBOUNDED).primitives()[0],
+            Primitive::Image { .. }
+        ));
+    }
+
+    /// **A box partly clipped away clips its picture by the outline**: a shape inscribed
+    /// in what is left of the box would be the wrong shape.
+    #[test]
+    fn a_partly_hidden_box_clips_its_picture_by_its_outline() {
+        let rounded = BoxDecoration::default().radius(6.0).image(picture());
+        let scene = painted_clipped(&rounded, Rect::new(0.0, 0.0, 30.0, 100.0));
+        let Primitive::Layer {
+            clip, clip_shape, ..
+        } = &scene.primitives()[0]
+        else {
+            panic!("a clipped layer");
+        };
+        assert_eq!(*clip, Rect::new(0.0, 0.0, 30.0, 20.0));
+        let ClipShape::Path(path) = clip_shape else {
+            panic!("the outline, as a path");
+        };
+        assert_eq!(
+            *path,
+            ShapeBorder::rounded(6.0).outline(Rect::new(0.0, 0.0, 40.0, 20.0))
+        );
+    }
+
+    #[test]
+    fn a_picture_on_one_side_fades() {
+        let shown = BoxDecoration::default().image(picture());
+        let mid = BoxDecoration::default().lerp(shown.clone(), 0.25);
+        let scene = painted_clipped(&mid, Rect::UNBOUNDED);
+        let Primitive::Image { tint, .. } = &scene.primitives()[0] else {
+            panic!("the picture");
+        };
+        assert_eq!(tint.a, 0.25);
+        assert_eq!(
+            BoxDecoration::default().lerp(shown.clone(), 1.0).image,
+            shown.image
+        );
+    }
+
+    /// **A shadow paints with its blur style**, and the reference's lerp keeps a styled
+    /// blur over a plain one.
+    #[test]
+    fn a_shadow_keeps_its_blur_style() {
+        let glow = BoxShadow::new(0.0, 0.0, 8.0, BLUE).blur_style(BlurStyle::Outer);
+        let scene = painted_clipped(&BoxDecoration::default().shadow(glow), Rect::UNBOUNDED);
+        let Primitive::Rect { blur_style, .. } = &scene.primitives()[0] else {
+            panic!("the shadow");
+        };
+        assert_eq!(*blur_style, BlurStyle::Outer);
+        let plain = BoxShadow::new(0.0, 0.0, 8.0, BLUE);
+        let solid = plain.blur_style(BlurStyle::Solid);
+        let mix = |a: BoxShadow, b: BoxShadow| {
+            BoxDecoration::default()
+                .shadow(a)
+                .lerp(BoxDecoration::default().shadow(b), 0.5)
+                .shadows[0]
+                .blur_style
+        };
+        assert_eq!(mix(plain, solid), BlurStyle::Solid);
+        assert_eq!(mix(solid, plain), BlurStyle::Solid);
+        assert_eq!(mix(glow, solid), BlurStyle::Outer);
+        // One side only: the style travels with the shadow.
+        let arriving = BoxDecoration::default().lerp(BoxDecoration::default().shadow(glow), 0.5);
+        assert_eq!(arriving.shadows[0].blur_style, BlurStyle::Outer);
+        assert_eq!(plain.blur_style, BlurStyle::Normal, "plain by default");
+        assert!(BoxShadow::for_elevation(4.0, BLUE)
+            .iter()
+            .all(|s| s.blur_style == BlurStyle::Normal));
     }
 }

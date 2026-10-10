@@ -16,6 +16,7 @@ pub mod animation;
 mod color;
 mod colors;
 mod decoration;
+mod decoration_image;
 mod filter;
 mod geometry;
 mod gradient;
@@ -42,6 +43,9 @@ pub use decoration::{
     paint_elevation, Border, BorderDirectional, BorderRadius, BorderRadiusDirectional, BoxBorder,
     BoxDecoration, BoxShadow, BoxShape,
 };
+pub use decoration_image::{
+    apply_box_fit, DecorationImage, FittedSizes, ImagePiece, ImageRepeat, MAX_IMAGE_TILES,
+};
 pub use filter::{
     Backdrop, BlendMode, ColorFilter, FractionalMask, ImageFilter, LayerFilter, MaskShader,
     ShaderMask,
@@ -64,7 +68,7 @@ pub use platform::{
     IS_WEB,
 };
 pub use responsive::{Orientation, SizeClass};
-pub use scene::{ClipShape, LayerTransform, PathGradient, Primitive, Scene, TextBlock};
+pub use scene::{BlurStyle, ClipShape, LayerTransform, PathGradient, Primitive, Scene, TextBlock};
 pub use semantics::{Role, SemanticsProperties, Toggled};
 pub use shape::{BorderSide, ShapeBorder};
 pub use text_style::{
