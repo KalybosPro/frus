@@ -611,9 +611,17 @@ impl<Msg: Clone> Widget<Msg> for BarButton<Msg> {
                 Some(c) => c.with_alpha(c.a * amount),
                 None => {
                     let strength = if self.open { 0.12 } else { 0.08 * amount };
-                    // Toward the words: on a bar of the system's accent with white words,
-                    // a highlight toward `on_surface` would darken it (milestone 642).
-                    look.background.lerp(look.foreground, strength)
+                    if look.background.a < 1.0 {
+                        // A bar that lets what is behind it show — the system's own title
+                        // bar under it (milestone 643): a wash of the words over it, since
+                        // there is no surface of the bar's own to lean.
+                        look.foreground.with_alpha(look.foreground.a * strength)
+                    } else {
+                        // Toward the words: on a bar of the system's accent with white
+                        // words, a highlight toward `on_surface` would darken it
+                        // (milestone 642).
+                        look.background.lerp(look.foreground, strength)
+                    }
                 }
             };
             let inset = look.item_inset.min(bounds.height * 0.5);

@@ -1888,11 +1888,25 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         #[cfg(not(web))]
         {
             let size = window.inner_size();
-            let renderer = pollster::block_on(Renderer::new(
-                window.clone(),
-                size.width.max(1),
-                size.height.max(1),
-            ));
+            let (width, height) = (size.width.max(1), size.height.max(1));
+            // On Windows, a renderer whose frames let the system's own title bar show where
+            // the window's menu bar leaves the line transparent (milestone 643); the
+            // ordinary one where that cannot be had.
+            let see_through = if cfg!(windows) {
+                match pollster::block_on(Renderer::see_through(window.clone(), width, height)) {
+                    Ok(renderer) => Some(renderer),
+                    Err(err) => {
+                        log::info!("title bar painted by frus: {err:#}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            let renderer = match see_through {
+                Some(renderer) => Ok(renderer),
+                None => pollster::block_on(Renderer::new(window.clone(), width, height)),
+            };
 
             match renderer {
                 Ok(renderer) => {
@@ -2030,6 +2044,13 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     } else {
                         Lifecycle::Inactive
                     });
+                }
+                // The line the window shares with the system quietens with it, as the
+                // system's own caption does: a frame reads the window's state again
+                // (milestone 643).
+                #[cfg(windows)]
+                if self.title_bar_on {
+                    self.request_redraw();
                 }
             }
 
@@ -2775,6 +2796,13 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 if frus_widgets::rebuild_requested() {
                     self.request_redraw();
                 }
+                // A see-through frame starts transparent: the window's background under
+                // everything but the line the system paints (milestone 643).
+                let scene = if self.renderer.as_ref().is_some_and(Renderer::sees_through) {
+                    backdrop_under(scene, width * scale, height * scale, self.system_line())
+                } else {
+                    scene
+                };
                 if let Some(renderer) = self.renderer.as_mut() {
                     let render_start = measuring.then(Instant::now);
                     match renderer.render(&scene) {
@@ -2988,6 +3016,18 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 }
 
 impl<A: Application> App<A> {
+    /// How tall the title bar's line the system paints is, in physical pixels: `0` where
+    /// it paints none (milestone 643).
+    fn system_line(&self) -> f32 {
+        // The line the content was told: the one its row covers.
+        match self.title_bar {
+            Some(line) if self.title_bar_on && line.system_paints => {
+                line.height * self.total_scale()
+            }
+            _ => 0.0,
+        }
+    }
+
     /// The total scale: system DPI × app density (physical = logical × this).
     fn total_scale(&self) -> f32 {
         (self.scale * self.app.density()).max(0.1)
@@ -3109,7 +3149,10 @@ impl<A: Application> App<A> {
             let dark = window.theme() == Some(winit::window::Theme::Dark);
             let (background, foreground) = crate::title_bar::caption_colors(dark, active);
             Some(frus_widgets::TitleBar {
-                height: band,
+                // The line ends where the system's buttons do: maximized, the window's
+                // resizing border is off the screen and the buttons sit higher, and the words
+                // centred in the line stay level with them (milestone 643).
+                height: buttons.map_or(band, |b| (b.y + b.height).clamp(1.0, band)),
                 leading: 0.0,
                 buttons,
                 icon: self.window_icon,
@@ -3119,11 +3162,21 @@ impl<A: Application> App<A> {
                 active,
                 background: Some(background),
                 foreground: Some(foreground),
+                // The system shows its own caption through a see-through frame, where it
+                // paints a backdrop on the line (milestone 643).
+                system_paints: self.renderer.as_ref().is_some_and(Renderer::sees_through)
+                    // SAFETY: as above.
+                    && unsafe { crate::title_bar::system_backdrop(hwnd, dark) },
             })
         } else {
             None
         };
         if next != self.title_bar {
+            log::debug!(
+                target: "frus::title_bar",
+                "the line: {:?}",
+                next.map(|line| (line.height, line.buttons, line.active, line.system_paints))
+            );
             self.title_bar = next;
             self.build_dirty = true;
             self.request_redraw();
@@ -9439,6 +9492,60 @@ impl From<&winit::event::KeyEvent> for KeyDown {
             text: event.text.clone(),
             repeat: event.repeat,
         }
+    }
+}
+
+/// `scene` over the window's background, for a see-through renderer, whose frames start
+/// transparent (milestone 643): everywhere but the `line` pixels at the top the system paints,
+/// which are left clear for its title bar to show through. In physical pixels, as the scene
+/// is; the scene's own primitives follow, in their order.
+fn backdrop_under(mut scene: Scene, width: f32, height: f32, line: f32) -> Scene {
+    let mut framed = Scene::new();
+    framed.fill_rect(
+        frus_widgets::Rect::new(0.0, line, width, (height - line).max(0.0)),
+        frus_gpu::backdrop(),
+    );
+    for primitive in scene.split_off(0) {
+        framed.push_primitive(primitive);
+    }
+    framed
+}
+
+#[cfg(test)]
+mod backdrop_tests {
+    use super::*;
+
+    /// **A see-through frame is the window's background under everything but the line the
+    /// system paints**, and the scene over it, unchanged.
+    #[test]
+    fn the_background_leaves_the_system_s_line_clear() {
+        let mut scene = Scene::new();
+        scene.fill_rect(
+            frus_widgets::Rect::new(10.0, 5.0, 20.0, 20.0),
+            frus_widgets::Color::WHITE,
+        );
+        let framed = backdrop_under(scene.clone(), 800.0, 600.0, 48.0);
+        let prims = framed.primitives();
+        assert_eq!(prims.len(), 2);
+        match &prims[0] {
+            frus_widgets::Primitive::Rect { rect, color, .. } => {
+                assert_eq!(*rect, frus_widgets::Rect::new(0.0, 48.0, 800.0, 552.0));
+                assert_eq!(*color, frus_gpu::backdrop());
+                assert_eq!(
+                    color.a, 1.0,
+                    "opaque: nothing behind the window shows there"
+                );
+            }
+            other => panic!("the background first: {other:?}"),
+        }
+        assert_eq!(prims[1], scene.primitives()[0], "then the scene");
+
+        let whole = backdrop_under(Scene::new(), 800.0, 600.0, 0.0);
+        assert!(
+            matches!(&whole.primitives()[0],
+            frus_widgets::Primitive::Rect { rect, .. } if *rect == frus_widgets::Rect::new(0.0, 0.0, 800.0, 600.0)),
+            "no line: the whole window"
+        );
     }
 }
 

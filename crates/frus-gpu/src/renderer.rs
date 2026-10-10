@@ -13,6 +13,19 @@ const CLEAR_COLOR: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 
+/// **The window's background** where nothing is drawn — [`CLEAR_COLOR`], as a scene colour —
+/// for a [`see-through`](Renderer::see_through) renderer, whose frames start transparent and
+/// whose owner paints it where the window is not meant to be seen through (milestone 643).
+pub fn backdrop() -> frus_core::Color {
+    // The clear colour is linear; a scene colour is sRGB.
+    frus_core::Color::rgb(
+        CLEAR_COLOR.r as f32,
+        CLEAR_COLOR.g as f32,
+        CLEAR_COLOR.b as f32,
+    )
+    .to_srgb()
+}
+
 /// Holds the GPU state bound to a surface and presents the frames.
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
@@ -24,6 +37,8 @@ pub struct Renderer {
     timings: RenderTimings,
     /// The GPU's own timing of each frame, where the device has a clock (milestone 612).
     gpu_timer: Option<crate::gpu_timer::GpuTimer>,
+    /// Whether the frames are composed with what is behind the window (milestone 643).
+    see_through: bool,
 }
 
 impl Renderer {
@@ -36,10 +51,55 @@ impl Renderer {
         width: u32,
         height: u32,
     ) -> anyhow::Result<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        Self::make(target, width, height, false).await
+    }
+
+    /// **A renderer whose frames let what is behind the window show** where they are
+    /// transparent (milestone 643): its frames start transparent, are composed with the
+    /// window's surroundings by the system's compositor, and are made of premultiplied
+    /// colours — which is what this renderer's blending produces over a transparent start.
+    ///
+    /// On Windows it presents through DirectComposition (Direct3D 12): where a frame is
+    /// transparent on the title bar's line, the system's own caption shows — its backdrop
+    /// and its three buttons. Fails where that is not available — another system, no
+    /// Direct3D 12 adapter, no premultiplied composition — and the caller then makes an
+    /// ordinary [`new`](Self::new) one. Its owner paints [`backdrop`] wherever the window is
+    /// not meant to be seen through.
+    pub async fn see_through(
+        target: impl Into<wgpu::SurfaceTarget<'static>>,
+        width: u32,
+        height: u32,
+    ) -> anyhow::Result<Self> {
+        Self::make(target, width, height, true).await
+    }
+
+    /// Whether this renderer's frames let what is behind the window show where they are
+    /// transparent: made by [`see_through`](Self::see_through).
+    pub fn sees_through(&self) -> bool {
+        self.see_through
+    }
+
+    async fn make(
+        target: impl Into<wgpu::SurfaceTarget<'static>>,
+        width: u32,
+        height: u32,
+        see_through: bool,
+    ) -> anyhow::Result<Self> {
+        if see_through && !cfg!(windows) {
+            anyhow::bail!("a see-through window is composed by DirectComposition, on Windows");
+        }
+        let mut descriptor = wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
-        });
+        };
+        if see_through {
+            // Presented through a DirectComposition visual made from the window: the one
+            // way a Direct3D swap chain is composed with what is behind it.
+            descriptor.backends = wgpu::Backends::DX12;
+            descriptor.backend_options.dx12.presentation_system =
+                wgpu::Dx12SwapchainKind::DxgiFromVisual;
+        }
+        let instance = wgpu::Instance::new(descriptor);
 
         let surface = instance.create_surface(target)?;
 
@@ -79,6 +139,20 @@ impl Renderer {
             .await?;
 
         let caps = surface.get_capabilities(&adapter);
+        let alpha_mode = if see_through {
+            if !caps
+                .alpha_modes
+                .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
+            {
+                anyhow::bail!(
+                    "no premultiplied composition on this surface: {:?}",
+                    caps.alpha_modes
+                );
+            }
+            wgpu::CompositeAlphaMode::PreMultiplied
+        } else {
+            caps.alpha_modes[0]
+        };
         let format = caps
             .formats
             .iter()
@@ -100,7 +174,7 @@ impl Renderer {
             // never seen, and a motion that is not paced by the display. Fifo is the one
             // mode every surface supports.
             present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: caps.alpha_modes[0],
+            alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -136,6 +210,7 @@ impl Renderer {
             gpu_timer,
             painters,
             timings: RenderTimings::default(),
+            see_through,
         })
     }
 
@@ -196,7 +271,12 @@ impl Renderer {
             self.config.width,
             self.config.height,
             scene,
-            Some(CLEAR_COLOR),
+            // A see-through frame starts transparent: what its owner paints is all there is.
+            Some(if self.see_through {
+                wgpu::Color::TRANSPARENT
+            } else {
+                CLEAR_COLOR
+            }),
         );
 
         if let (Some(timer), Some(at)) = (self.gpu_timer.as_mut(), timed) {
