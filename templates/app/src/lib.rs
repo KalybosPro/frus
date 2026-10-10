@@ -1,7 +1,12 @@
 //! `{{project-name}}` — a frus application: a counter, built from a component.
 //!
+//! The same code runs on every platform; README.md says how to start it on each one.
+//!
 //! - Desktop: `cargo run`
-//! - Android: `cargo apk run`   (see https://… the getting-started guide)
+//! - Android: `cargo apk run --lib`
+//! - Web: see "Web" in README.md
+
+use std::time::Duration;
 
 // A **single** dependency: the `frus` facade provides everything (framework layer +
 // widgets + DSL).
@@ -18,6 +23,10 @@ struct Counter;
 #[derive(Default)]
 struct CounterState {
     count: i32,
+    /// Automatic counting: while it is on, a one-second timer increments the counter. The
+    /// same timer runs on the desktop, on Android and on the Web — the widget only asks
+    /// for it.
+    auto: bool,
 }
 
 impl CounterState {
@@ -28,9 +37,11 @@ impl CounterState {
     fn decrement(&mut self) {
         if self.count > 0 {
             self.count -= 1;
-        } else {
-            self.count = 0;
         }
+    }
+
+    fn toggle_auto(&mut self) {
+        self.auto = !self.auto;
     }
 }
 
@@ -52,12 +63,26 @@ impl State for CounterState {
     /// around the build, and `MediaQuery::of()` is how anything here asks about it: a
     /// `Scaffold`, an `AppBar` or a `SafeArea` reads it without being told.
     fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> {
+        // A timer is asked for by the build that wants it, and stops as soon as a build stops
+        // asking: automatic mode off, no timer left.
+        if self.auto {
+            cx.use_interval(Duration::from_secs(1), cx.callback(CounterState::increment));
+        }
+
         let Size { width, height } = MediaQuery::of().size;
         let content = column![
             text(format!("{}", self.count)).size(48.0),
-            row![
-                button("+", cx.callback(CounterState::increment)).variant(Variant::Filled),
-                button("−", cx.callback(CounterState::decrement)).variant(Variant::Outlined),
+            column![
+                row![
+                    button("+", cx.callback(CounterState::increment)).variant(Variant::Filled),
+                    button("−", cx.callback(CounterState::decrement)).variant(Variant::Outlined),
+                ]
+                .gap(20.0),
+                button(
+                    if self.auto { "Stop auto" } else { "Start auto" },
+                    cx.callback(CounterState::toggle_auto),
+                )
+                .variant(Variant::Outlined),
             ]
             .gap(8.0)
             .align(Align::Center),
@@ -99,5 +124,10 @@ mod tests {
         state.increment();
         state.decrement();
         assert_eq!(state.count, 1);
+        state.decrement();
+        state.decrement();
+        assert_eq!(state.count, 0, "it does not go below zero");
+        state.toggle_auto();
+        assert!(state.auto);
     }
 }

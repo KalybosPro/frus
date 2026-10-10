@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{{project-name}}</title>
+    <style>
+      /* The background is the application's first frame's, as on Android: #121418 is the
+         default dark theme's. */
+      html, body { margin: 0; height: 100%; background: #121418; overflow: hidden; }
+      /* winit appends its canvas to <body>; it fills the window. */
+      canvas { display: block; width: 100vw; height: 100vh; }
+
+      #status {
+        position: fixed; inset: 0;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 0.9rem; padding: 24px; text-align: center;
+        color: #e6e6ef; font: 15px/1.5 system-ui, sans-serif;
+      }
+      #status[hidden] { display: none; }
+      #spinner {
+        width: 28px; height: 28px; border-radius: 50%;
+        border: 3px solid #33334a; border-top-color: #9fd3ff;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div id="status" role="status" aria-live="polite">
+      <div id="spinner" aria-hidden="true"></div>
+      <p id="message">Loading…</p>
+    </div>
+
+    <script type="module">
+      const status = document.getElementById('status');
+      const message = document.getElementById('message');
+      const fail = (text) => {
+        document.getElementById('spinner').hidden = true;
+        message.textContent = text;
+      };
+
+      if (!('gpu' in navigator)) {
+        fail('This application draws through WebGPU. Open it in a recent browser ' +
+             '(Chrome or Edge 113+, Safari 26+, Firefox 141+ on Windows) over https or localhost.');
+      } else {
+        // The module wasm-bindgen wrote; its `start()` runs the application on init.
+        import('./pkg/{{crate_name}}.js')
+          .then((module) => module.default())
+          .then(() => { status.hidden = true; })
+          .catch((err) => fail('The application could not start: ' + err));
+      }
+    </script>
+  </body>
+</html>

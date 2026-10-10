@@ -1,0 +1,197 @@
+# A release: push a tag named after the version in Cargo.toml,
+#
+#     git tag v0.1.0 && git push origin v0.1.0
+#
+# and this builds every platform in release and publishes a GitHub release with
+#
+#   - the desktop program for Windows (x64), Linux (x64) and macOS (Apple silicon, Intel);
+#   - the Android APK, signed with your key (see "Signing" below);
+#   - the web build, a folder to put on any static host.
+#
+# Run it by hand ("Run workflow" in the Actions tab) to get the same files as build
+# artifacts without publishing anything.
+#
+# Signing — two repository secrets (Settings → Secrets and variables → Actions):
+#
+#   ANDROID_KEYSTORE           the keystore, as base64: `base64 -w0 release.keystore`
+#   ANDROID_KEYSTORE_PASSWORD  its password
+#
+# Without them the release is made without an APK, and the run says so.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The application's name and version, read from Cargo.toml once for every job. A tag
+  # that disagrees with the version stops the release: Android derives the APK's version
+  # code from it, and a store refuses two uploads with the same one.
+  meta:
+    name: Version
+    runs-on: ubuntu-24.04
+    outputs:
+      name: ${{ steps.meta.outputs.name }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: meta
+        run: |
+          meta=$(cargo metadata --no-deps --format-version 1)
+          name=$(echo "$meta" | jq -r '.packages[0].name')
+          version=$(echo "$meta" | jq -r '.packages[0].version')
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::the tag is $GITHUB_REF_NAME but Cargo.toml says $version: tag v$version, or change the version"
+            exit 1
+          fi
+
+  desktop:
+    name: Desktop (${{ matrix.target }})
+    needs: meta
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: macos-latest, target: x86_64-apple-darwin }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      # The program needs the C library it was linked against or a newer one: built here, it
+      # runs on Ubuntu 24.04 and the distributions of its age or later.
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libxkbcommon-x11-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+      - run: cargo build --release --bin "${{ needs.meta.outputs.name }}" --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          name="${{ needs.meta.outputs.name }}"
+          dir="$name-${{ needs.meta.outputs.version }}-${{ matrix.target }}"
+          mkdir -p "dist/$dir"
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp "target/${{ matrix.target }}/release/$name.exe" "dist/$dir/"
+            (cd dist && 7z a "$dir.zip" "$dir" > /dev/null)
+          else
+            cp "target/${{ matrix.target }}/release/$name" "dist/$dir/"
+            tar -C dist -czf "dist/$dir.tar.gz" "$dir"
+          fi
+          rm -r "dist/$dir"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.target }}
+          path: dist/*
+
+  android:
+    name: Android
+    needs: meta
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Signing key
+        id: key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::warning::no ANDROID_KEYSTORE secret: this release has no APK (see the top of release.yml)"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.key.outputs.present == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Every target listed in `build_targets` in Cargo.toml.
+          targets: aarch64-linux-android
+      - if: steps.key.outputs.present == 'true'
+        uses: Swatinem/rust-cache@v2
+      - if: steps.key.outputs.present == 'true'
+        uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r26d
+      - if: steps.key.outputs.present == 'true'
+        name: Build the APK
+        env:
+          ANDROID_NDK_ROOT: ${{ steps.ndk.outputs.ndk-path }}
+          CARGO_APK_RELEASE_KEYSTORE: ${{ runner.temp }}/release.keystore
+          CARGO_APK_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          cargo install cargo-apk --locked
+          cargo apk build --lib --release
+          mkdir dist
+          cp "target/release/apk/${{ needs.meta.outputs.name }}.apk" \
+             "dist/${{ needs.meta.outputs.name }}-${{ needs.meta.outputs.version }}.apk"
+      - if: steps.key.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/*
+
+  web:
+    name: Web
+    needs: meta
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --lib --target wasm32-unknown-unknown --profile web-release
+      # The command-line tool must be the very version of the `wasm-bindgen` crate the build
+      # resolved, or it refuses the module.
+      - name: Generate the JavaScript glue
+        run: |
+          name="${{ needs.meta.outputs.name }}"
+          bindgen=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
+          cargo install wasm-bindgen-cli --version "$bindgen" --locked
+          wasm-bindgen --target web --no-typescript --out-dir web/pkg \
+            "target/wasm32-unknown-unknown/web-release/${name//-/_}.wasm"
+          dir="$name-${{ needs.meta.outputs.version }}-web"
+          mkdir -p dist
+          cp -r web "dist/$dir"
+          (cd dist && zip -qr "$dir.zip" "$dir" && rm -r "$dir")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: dist/*
+
+  publish:
+    name: Publish
+    if: github.ref_type == 'tag'
+    needs: [meta, desktop, android, web]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
