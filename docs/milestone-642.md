@@ -134,3 +134,25 @@ That is milestone 643.
   in the same place, nothing is drawn over it, and the line is asked for.
   `the_window_s_menu_works_from_any_page` covers "Go → Stats" and "Clear completed…" from
   Settings, including the click on "File" in the back gesture's edge.
+
+## Mutation testing
+
+Eighteen mutants, eighteen killed. The first run left four alive, and each one pointed to a
+missing test:
+
+- the highlight leaning toward the words → `the_highlight_leans_toward_the_words`;
+- the overlay's barrier and the overlay's box as places the back gesture does not start →
+  `an_overlay_says_where_presses_are_its_own`. The demo's test covered both at once, and
+  the File menu has both, so neither mutant alone changed anything;
+- the router provided before the app's builder runs →
+  `the_builder_reaches_the_router_from_the_first_frame`.
+
+The others were the scopes in force while a component builds (the surface, the theme), the
+page's surface (its height, its line, its top intrusion), every step of the colours'
+precedence, the glyphs' ink, the back gesture's two conditions, and the builder itself.
+
+## Checked on Windows 11
+
+Run on the maintainer's machine with real clicks: the bar on the title bar's line on the
+home screen and on the screens pushed over it, the menus opening, and the line in the
+dark caption's colours.

@@ -462,6 +462,31 @@ mod tests {
         Box::new(Container::new().width(SIDE).height(SIDE).on_click(on_tap))
     }
 
+    /// **What goes around the pages reaches the router from the first frame** (milestone
+    /// 642): the router provides itself when it builds the pages, which is after the
+    /// builder has run.
+    #[test]
+    fn the_builder_reaches_the_router_from_the_first_frame() {
+        let router = GoRouter::new(vec![frus_widgets::GoRoute::new("/", |_, _| {
+            frus_widgets::text("home")
+        })]);
+        let seen: Rc<RefCell<Option<String>>> = Rc::default();
+        let app = {
+            let seen = seen.clone();
+            FrusApp::router(router).builder(move |cx, pages| {
+                *seen.borrow_mut() = Some(cx.router().location());
+                pages
+            })
+        };
+        let mut driver = Driver::new(app, SIDE, SIDE);
+        driver.frame(0.016);
+        assert_eq!(seen.borrow().as_deref(), Some("/"));
+        assert!(
+            driver.texts().iter().any(|(text, _)| text == "home"),
+            "and the pages are there"
+        );
+    }
+
     fn tap(driver: &mut Driver<FrusApp>) {
         let at = Point::new(SIDE / 2.0, SIDE / 2.0);
         driver.press(at);

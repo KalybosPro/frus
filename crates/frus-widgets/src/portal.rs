@@ -165,6 +165,41 @@ mod tests {
         assert!(full_screen, "the full-screen scrim must be present");
     }
 
+    /// **A press on an overlay is the overlay's** (milestone 642): on its box, and — under
+    /// one that a press outside dismisses — anywhere in the window. What the shell does to
+    /// the pages under it, the back gesture, does not start there.
+    #[test]
+    fn an_overlay_says_where_presses_are_its_own() {
+        let anchored = |dismiss: bool| {
+            let portal = OverlayPortal::<()>::new(Container::<()>::new().width(20.0).height(20.0))
+                .overlay(
+                    Container::<()>::new().width(100.0).height(60.0),
+                    Placement::Below,
+                );
+            let portal = if dismiss { portal.dismiss(()) } else { portal };
+            crate::build_ui(
+                &portal,
+                Size::new(400.0, 300.0),
+                &Runtime::default(),
+                &crate::Theme::default(),
+            )
+        };
+        let open = anchored(false);
+        assert!(
+            open.over_overlay(frus_core::Point::new(10.0, 40.0)),
+            "on the overlay's box"
+        );
+        assert!(
+            !open.over_overlay(frus_core::Point::new(300.0, 250.0)),
+            "elsewhere, the pages'"
+        );
+        let barred = anchored(true);
+        assert!(
+            barred.over_overlay(frus_core::Point::new(300.0, 250.0)),
+            "anywhere, under a barrier"
+        );
+    }
+
     /// An anchored overlay is nudged back inside the window when it overflows an edge —
     /// that is for a menu opened near the right margin, and it assumes the window is
     /// showing the anchor. When the anchor has **left** the window the nudge does the

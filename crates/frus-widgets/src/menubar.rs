@@ -1265,6 +1265,26 @@ mod tests {
         );
     }
 
+    /// **The highlight leans toward the bar's words** (milestone 642): white words on a dark
+    /// accent bar — a title bar in the system's accent colour — get a lighter highlight, not
+    /// one toward `on_surface`, which would darken it.
+    #[test]
+    fn the_highlight_leans_toward_the_words() {
+        let theme = on(frus_core::TargetPlatform::Linux);
+        let accent = Color::rgb(0.0, 0.2, 0.5);
+        let open = scene_in(
+            &bar(&path(&[0]))
+                .background(accent)
+                .foreground_color(Color::WHITE),
+            &theme,
+        );
+        let (file, _, _) = word(&open, "File");
+        let (_, colour, _) = *rects_at(&open, file.x + 2.0, 15.0)
+            .last()
+            .expect("a highlight");
+        assert_eq!(colour, accent.lerp(Color::WHITE, 0.12));
+    }
+
     /// **Every part of the bar is the caller's to say**: its height, surface, room,
     /// type, ink, highlight and the menus it opens.
     #[test]
