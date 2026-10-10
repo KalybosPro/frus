@@ -8,11 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 642 so far, each documenting the objective, the alternatives
+> record — one per step, 643 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The system paints the title bar's line** (J643). On Windows 11, the line a
+  `WindowMenuBar` shares is the system's own: its caption backdrop (Mica, tinted by the
+  wallpaper) and its three buttons, with their own hover and press. frus draws the window's
+  icon and the menu bar over it. New: `Renderer::see_through` (Direct3D 12 through
+  DirectComposition, premultiplied) and `frus_gpu::backdrop()`; `TitleBar::system_paints`.
+  Where that cannot be had (Windows 10, no Direct3D 12), the line is frus-painted as before.
+  **Fixed**: maximized, the content started off the screen by the window's frame, and the
+  line was taller than the caption on the screen; an inactive window's words stayed bright.
 - **The menu bar is the window's, not a page's** (J642). `WindowMenuBar::new(bar, pages)`
   replaces J640's `Scaffold::menu_bar`, which was never released: a menu bar in a page's
   scaffold left with the page, slid with its transition, and handed the title bar back to

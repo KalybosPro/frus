@@ -23,12 +23,14 @@ use std::cell::RefCell;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{
-    DwmDefWindowProc, DwmExtendFrameIntoClientArea, DwmGetWindowAttribute,
-    DWMWA_CAPTION_BUTTON_BOUNDS,
+    DwmDefWindowProc, DwmExtendFrameIntoClientArea, DwmGetWindowAttribute, DwmSetWindowAttribute,
+    DWMSBT_AUTO, DWMSBT_MAINWINDOW, DWMWA_CAPTION_BUTTON_BOUNDS, DWMWA_SYSTEMBACKDROP_TYPE,
+    DWMWA_USE_IMMERSIVE_DARK_MODE,
 };
 use windows_sys::Win32::Graphics::Gdi::{
-    ClientToScreen, GetSysColor, InvalidateRect, ScreenToClient, COLOR_ACTIVECAPTION,
-    COLOR_CAPTIONTEXT, COLOR_INACTIVECAPTION, COLOR_INACTIVECAPTIONTEXT,
+    ClientToScreen, FillRect, GetStockObject, GetSysColor, InvalidateRect, ScreenToClient,
+    BLACK_BRUSH, COLOR_ACTIVECAPTION, COLOR_CAPTIONTEXT, COLOR_INACTIVECAPTION,
+    COLOR_INACTIVECAPTIONTEXT, HDC,
 };
 use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
 use windows_sys::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
@@ -39,11 +41,12 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetWindowRect, IsZoomed, SetWindowPos, SystemParametersInfoW, HTCAPTION, HTCLIENT, HTCLOSE,
-    HTMAXBUTTON, HTMINBUTTON, HTSYSMENU, HTTOP, NCCALCSIZE_PARAMS, SM_CXPADDEDBORDER, SM_CYCAPTION,
-    SM_CYSIZEFRAME, SPI_GETHIGHCONTRAST, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-    WM_DWMCOLORIZATIONCOLORCHANGED, WM_LBUTTONUP, WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDOWN,
-    WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_SETTINGCHANGE, WM_THEMECHANGED,
+    GetClientRect, GetWindowRect, IsZoomed, SetWindowPos, SystemParametersInfoW, HTCAPTION,
+    HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON, HTSYSMENU, HTTOP, NCCALCSIZE_PARAMS,
+    SM_CXPADDEDBORDER, SM_CYCAPTION, SM_CYSIZEFRAME, SPI_GETHIGHCONTRAST, SWP_FRAMECHANGED,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_DWMCOLORIZATIONCOLORCHANGED, WM_ERASEBKGND,
+    WM_LBUTTONUP, WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE,
+    WM_SETTINGCHANGE, WM_SIZE, WM_THEMECHANGED,
 };
 
 use frus_widgets::Color;
@@ -67,6 +70,9 @@ struct Line {
     pressed: u32,
     /// What the system says of its captions, read once and again when it says it changed.
     caption: Option<Caption>,
+    /// The backdrop asked of the system for a light or a dark window, and whether it took
+    /// it (milestone 643).
+    backdrop: Option<(bool, bool)>,
 }
 
 /// What the system says of its captions: what [`caption_colors`] is made from.
@@ -243,20 +249,25 @@ fn abgr(c: u32) -> Color {
     colorref(c & 0x00FF_FFFF)
 }
 
-/// The system's caption height for `hwnd`'s screen, in physical pixels.
+/// The system's caption height for `hwnd`'s screen, in physical pixels: the caption and
+/// the resizing border above it — less that border when the window is maximized, since it
+/// is off the screen then and the system's buttons sit in the caption alone.
 unsafe fn caption_height(hwnd: HWND) -> i32 {
     let dpi = GetDpiForWindow(hwnd);
-    GetSystemMetricsForDpi(SM_CYCAPTION, dpi)
-        + GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi)
-        + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi)
+    let border = if IsZoomed(hwnd) != 0 {
+        0
+    } else {
+        GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi)
+    };
+    GetSystemMetricsForDpi(SM_CYCAPTION, dpi) + border
 }
 
-/// Shares `hwnd`'s title bar line with its content.
+/// Extends the frame into `hwnd` by the caption's height, as it is now, and records it.
 ///
-/// # Safety
-///
-/// `hwnd` must be a live top-level window owned by this thread.
-pub(crate) unsafe fn enable(hwnd: HWND) {
+/// Maximized, the line is the caption alone: extended by the border too, the system centred
+/// its buttons in a line taller than the one on the screen, and they sat lower than the
+/// words beside them (milestone 643).
+unsafe fn extend_frame(hwnd: HWND) {
     let height = caption_height(hwnd);
     LINE.with(|line| line.borrow_mut().height = height);
     let margins = MARGINS {
@@ -266,8 +277,56 @@ pub(crate) unsafe fn enable(hwnd: HWND) {
         cyBottomHeight: 0,
     };
     DwmExtendFrameIntoClientArea(hwnd, &margins);
+}
+
+/// Shares `hwnd`'s title bar line with its content.
+///
+/// # Safety
+///
+/// `hwnd` must be a live top-level window owned by this thread.
+pub(crate) unsafe fn enable(hwnd: HWND) {
+    extend_frame(hwnd);
     SetWindowSubclass(hwnd, Some(subclass), SUBCLASS, 0);
     frame_changed(hwnd);
+    // The window's own surface, under a see-through frame, is painted black: see
+    // `WM_ERASEBKGND`.
+    InvalidateRect(hwnd, std::ptr::null(), 1);
+}
+
+/// **Asks the system to paint its caption's backdrop over the frame extended into `hwnd`**,
+/// for a light or a `dark` window — on Windows 11 the wallpaper-tinted one (Mica) — and
+/// says whether it took it (milestone 643). Where the application leaves the title bar's
+/// line transparent, that backdrop shows, and the system's own buttons over it.
+///
+/// Without it the extended frame is black. Windows 11 22H2 and later take it as the main
+/// window's backdrop; the first Windows 11 by an attribute of its own; Windows 10 not at
+/// all, and the application then paints the line itself.
+///
+/// # Safety
+///
+/// As [`enable`].
+pub(crate) unsafe fn system_backdrop(hwnd: HWND, dark: bool) -> bool {
+    if let Some((was, took)) = LINE.with(|line| line.borrow().backdrop) {
+        if was == dark {
+            return took;
+        }
+    }
+    let set = |attribute: i32, value: i32| {
+        DwmSetWindowAttribute(
+            hwnd,
+            attribute as u32,
+            &value as *const i32 as *const core::ffi::c_void,
+            std::mem::size_of::<i32>() as u32,
+        ) == 0
+    };
+    // Light or dark as the window is, which the backdrop and the buttons follow — what the
+    // reference's runner asks of the system too.
+    set(DWMWA_USE_IMMERSIVE_DARK_MODE, i32::from(dark));
+    /// The first Windows 11's own attribute for the same backdrop, before it had a name.
+    const DWMWA_MICA_EFFECT: i32 = 1029;
+    let took = set(DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_MAINWINDOW) || set(DWMWA_MICA_EFFECT, 1);
+    LINE.with(|line| line.borrow_mut().backdrop = Some((dark, took)));
+    took
 }
 
 /// Gives `hwnd`'s title bar line back to the system.
@@ -277,6 +336,16 @@ pub(crate) unsafe fn enable(hwnd: HWND) {
 /// As [`enable`].
 pub(crate) unsafe fn disable(hwnd: HWND) {
     RemoveWindowSubclass(hwnd, Some(subclass), SUBCLASS);
+    // The backdrop asked for the line goes with it.
+    if LINE.with(|line| line.borrow().backdrop.is_some_and(|(_, took)| took)) {
+        let auto = DWMSBT_AUTO;
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_SYSTEMBACKDROP_TYPE as u32,
+            &auto as *const i32 as *const core::ffi::c_void,
+            std::mem::size_of::<i32>() as u32,
+        );
+    }
     let margins = MARGINS {
         cxLeftWidth: 0,
         cxRightWidth: 0,
@@ -409,6 +478,8 @@ unsafe extern "system" fn subclass(
         }
         WM_NCLBUTTONUP | WM_LBUTTONUP => set_state(hwnd, None, Some(0)),
         WM_NCMOUSELEAVE => set_state(hwnd, Some(0), Some(0)),
+        // Maximized or restored: the line is as tall as the caption on the screen.
+        WM_SIZE => extend_frame(hwnd),
         // The person changed the colours, the accent's place, the contrast or the theme:
         // the caption is read again, and a frame asked for (milestone 642).
         WM_SETTINGCHANGE | WM_DWMCOLORIZATIONCOLORCHANGED | WM_THEMECHANGED => {
@@ -441,23 +512,38 @@ unsafe extern "system" fn subclass(
         return answered;
     }
     match msg {
+        // **The window's own surface is black** (milestone 643). It is the surface the
+        // system keeps for what is drawn with its older drawing calls, and it lies under a
+        // see-through frame: where the frame leaves the title bar's line transparent, it
+        // shows — white where the window last was, black where it grew. Over the frame the
+        // system extended into the window, black is what lets the frame show: its
+        // backdrop and its buttons ("Custom Window Frame Using DWM"). Elsewhere the frame
+        // covers it.
+        WM_ERASEBKGND => {
+            let mut client = RECT {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            };
+            GetClientRect(hwnd, &mut client);
+            FillRect(wparam as HDC, &client, GetStockObject(BLACK_BRUSH) as _);
+            1
+        }
         WM_NCCALCSIZE if wparam != 0 => {
             let params = &mut *(lparam as *mut NCCALCSIZE_PARAMS);
-            let top = params.rgrc[0].top;
+            // The window's new rectangle, as proposed: what the client is cut from.
+            let proposed = params.rgrc[0];
             let result = DefSubclassProc(hwnd, msg, wparam, lparam);
             // The caption goes to the client; the sides and the bottom keep their borders.
             // Maximized, the window hangs past the screen by its frame, so the client starts
-            // that far down.
-            params.rgrc[0].top = top;
+            // that far down — the frame being how far the client's left edge is from the
+            // proposed window's. Measured from the window's rectangle instead, which is still
+            // the restored one while this message is handled, it came out negative, the
+            // client started off the screen, and the top of the line with it (milestone 643).
+            params.rgrc[0].top = proposed.top;
             if IsZoomed(hwnd) != 0 {
-                let mut frame = RECT {
-                    left: 0,
-                    top: 0,
-                    right: 0,
-                    bottom: 0,
-                };
-                GetWindowRect(hwnd, &mut frame);
-                params.rgrc[0].top += (params.rgrc[0].left - frame.left).max(0);
+                params.rgrc[0].top += (params.rgrc[0].left - proposed.left).max(0);
             }
             result
         }

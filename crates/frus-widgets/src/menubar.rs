@@ -611,9 +611,17 @@ impl<Msg: Clone> Widget<Msg> for BarButton<Msg> {
                 Some(c) => c.with_alpha(c.a * amount),
                 None => {
                     let strength = if self.open { 0.12 } else { 0.08 * amount };
-                    // Toward the words: on a bar of the system's accent with white words,
-                    // a highlight toward `on_surface` would darken it (milestone 642).
-                    look.background.lerp(look.foreground, strength)
+                    if look.background.a < 1.0 {
+                        // A bar that lets what is behind it show — the system's own title
+                        // bar under it (milestone 643): a wash of the words over it, since
+                        // there is no surface of the bar's own to lean.
+                        look.foreground.with_alpha(look.foreground.a * strength)
+                    } else {
+                        // Toward the words: on a bar of the system's accent with white
+                        // words, a highlight toward `on_surface` would darken it
+                        // (milestone 642).
+                        look.background.lerp(look.foreground, strength)
+                    }
                 }
             };
             let inset = look.item_inset.min(bounds.height * 0.5);
@@ -1283,6 +1291,27 @@ mod tests {
             .last()
             .expect("a highlight");
         assert_eq!(colour, accent.lerp(Color::WHITE, 0.12));
+    }
+
+    /// **A bar that lets what is behind it show** (milestone 643) — the system's own title
+    /// bar under it — has no surface to lean its highlight on: the highlight is a wash of its
+    /// words.
+    #[test]
+    fn a_see_through_bar_s_highlight_is_a_wash_of_its_words() {
+        let theme = on(frus_core::TargetPlatform::Linux);
+        let open = scene_in(
+            &bar(&path(&[0]))
+                .background(Color::TRANSPARENT)
+                .foreground_color(Color::WHITE),
+            &theme,
+        );
+        let (file, _, _) = word(&open, "File");
+        let (_, colour, _) = *rects_at(&open, file.x + 2.0, 15.0)
+            .iter()
+            .rev()
+            .find(|(_, colour, _)| colour.a > 0.0)
+            .expect("a highlight");
+        assert_eq!(colour, Color::WHITE.with_alpha(0.12));
     }
 
     /// **Every part of the bar is the caller's to say**: its height, surface, room,
