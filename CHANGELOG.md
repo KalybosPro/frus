@@ -21,6 +21,11 @@ any release may break.
   **Changed**: `LinearGradient` is the reference's, no longer `{ end, direction }`;
   `BoxDecoration::gradient` is an `Option<Gradient>` and replaces the colour; a gradient on one
   side of a transition fades by its opacity.
+- **Fixed: a maximized window's title bar buttons did nothing** (Windows). Maximized, the
+  desktop compositor reports where its minimize, restore and close buttons are but does not
+  answer the hit test for them, so a press there was taken for the caption. The shell now
+  answers for them from the compositor's own bounds, and the release is the system's command
+  (`WM_SYSCOMMAND`), as the compositor sends it for a restored window.
 - **The system paints the title bar's line** (J643). On Windows 11, the line a
   `WindowMenuBar` shares is the system's own: its caption backdrop (Mica, tinted by the
   wallpaper) and its three buttons, with their own hover and press. frus draws the window's
