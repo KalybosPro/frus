@@ -4,8 +4,10 @@
 //! On a desktop whose system allows it, a [`WindowMenuBar`] puts the menu bar on the window's
 //! title bar line, as a code editor does. The system keeps its own window: its icon still
 //! opens the window menu, its three buttons still minimize, maximize and close, and the
-//! empty part of the line still moves the window and maximizes it on a double click. frus
-//! paints the line and the menu bar on it.
+//! empty part of the line still moves the window and maximizes it on a double click. Where
+//! it can, the system also paints the line — its caption backdrop and its own buttons — and
+//! frus draws the window's icon and the menu bar over it (milestone 643); elsewhere frus
+//! paints the line, in the caption's colours.
 //!
 //! The shell says when the line is shared, and what the system keeps on it, through
 //! [`MediaQuery::title_bar`](crate::MediaQuery::title_bar).
@@ -72,6 +74,12 @@ pub struct TitleBar {
     pub background: Option<Color>,
     /// The system's words on that caption, likewise.
     pub foreground: Option<Color>,
+    /// **The system paints the line** (milestone 643): its backdrop — on Windows 11 the
+    /// wallpaper-tinted one — and its three buttons, with their own hover and press, show
+    /// through wherever the application leaves the line transparent. The application then
+    /// paints neither, unless it was told a background; it paints the window's icon and
+    /// its menu bar.
+    pub system_paints: bool,
 }
 
 /// What a part of the title bar's line is to the system, which acts on it.
@@ -333,9 +341,11 @@ const WINDOW_ICON: f32 = 16.0;
 /// On a desktop whose system allows it — Windows — the bar goes **on the title bar's line**,
 /// as a code editor's does: the system keeps the window's icon, which opens the window menu,
 /// and its three buttons, which minimize, maximize and close the window, and the empty part
-/// of the line moves the window and maximizes it on a double click. frus paints the line, the
-/// icon from the application's own, and the buttons where the system has them. Elsewhere it
-/// is the first line under the system's title bar. On the title bar's line it is as tall as
+/// of the line moves the window and maximizes it on a double click. On Windows 11 the system
+/// paints the line — its backdrop and its buttons — and frus the icon, from the
+/// application's own, and the bar; where the system cannot, frus paints the line too, and the
+/// buttons where the system has them. Elsewhere the bar is the first line under the system's
+/// title bar. On the title bar's line it is as tall as
 /// the system's line; elsewhere as tall as the bar's own [`height`](MenuBar::height), or a
 /// desktop's 30.
 ///
@@ -444,6 +454,41 @@ impl<Msg: Clone + 'static> WindowMenuBar<Msg> {
     }
 }
 
+/// How far the bar's highlight moves its surface toward its words, on the system's line: a
+/// menu bar's open word's.
+const HIGHLIGHT: f32 = 0.12;
+
+/// **`ink` at the opacity that reads, over `base`, as `base` moved `strength` of the way
+/// to `ink`** (milestone 643).
+///
+/// Over its own surface the bar's highlight is that colour, opaque. Over the system's
+/// backdrop it has to be a wash, and frus blends a wash in linear light, where 12 % of white
+/// over a dark caption reads as 40 %: measured on the system's line, the open word's box was
+/// `#7C7E7D` on `#1E2120`. So the opacity is the one that, blended in linear light over the
+/// system's caption colour, gives the colour the opaque highlight would have.
+fn wash(base: Color, ink: Color, strength: f32) -> Color {
+    let target = base.lerp(ink, strength).to_linear();
+    let (base, linear_ink) = (base.to_linear(), ink.to_linear());
+    let mut sum = 0.0;
+    let mut channels = 0.0;
+    for (target, base, ink) in [
+        (target.r, base.r, linear_ink.r),
+        (target.g, base.g, linear_ink.g),
+        (target.b, base.b, linear_ink.b),
+    ] {
+        if (ink - base).abs() > 1e-3 {
+            sum += (target - base) / (ink - base);
+            channels += 1.0;
+        }
+    }
+    let alpha = if channels > 0.0 {
+        (sum / channels).clamp(0.0, 1.0)
+    } else {
+        strength
+    };
+    ink.with_alpha(ink.a * alpha)
+}
+
 /// One of the line's colours for the window as it is: active, or what is said for an
 /// inactive window, else the active one's.
 fn for_window(active: bool, color: Option<Color>, inactive: Option<Color>) -> Option<Color> {
@@ -467,7 +512,11 @@ fn paint_line(theme: &mut Theme, own: TitleBarTheme, line: Option<TitleBar>) {
             said.background,
             said.inactive_background,
         ))
-        .or(line.and_then(|line| line.background));
+        .or(line.and_then(|line| line.background.filter(|_| !line.system_paints)))
+        // Where the system paints the line, nothing of the application's is in its way.
+        .or(line
+            .filter(|line| line.system_paints)
+            .map(|_| Color::TRANSPARENT));
     let foreground = for_window(active, own.foreground, own.inactive_foreground)
         .or(for_window(
             active,
@@ -477,6 +526,14 @@ fn paint_line(theme: &mut Theme, own: TitleBarTheme, line: Option<TitleBar>) {
         .or(line.and_then(|line| line.foreground));
     if let Some(color) = background {
         theme.widgets.menu_bar.background = Some(color);
+    }
+    // Over the system's own backdrop, the bar's highlight is a wash of its words that reads
+    // as it would over the system's caption (milestone 643).
+    if let Some(line) = line.filter(|line| line.system_paints) {
+        let bar = &mut theme.widgets.menu_bar;
+        if let (None, Some(base), Some(ink)) = (bar.highlight, line.background, foreground) {
+            bar.highlight = Some(wash(base, ink, HIGHLIGHT));
+        }
     }
     if let Some(color) = foreground {
         theme.widgets.menu_bar.foreground = Some(color);
@@ -522,7 +579,14 @@ fn title_bar_row<Msg: Clone + 'static>(
     cells.push(Box::new(Container::new().flex(1.0).height(height)));
     if let Some(line) = line {
         if let Some(buttons) = line.buttons {
-            cells.push(Box::new(CaptionButtons::new(line, buttons.width)));
+            if line.system_paints {
+                // The system's own buttons show there: the room is kept, and left clear.
+                cells.push(Box::new(
+                    Container::new().width(buttons.width).height(height),
+                ));
+            } else {
+                cells.push(Box::new(CaptionButtons::new(line, buttons.width)));
+            }
         }
     }
     TitleBarRow {
@@ -658,6 +722,7 @@ mod tests {
             active: true,
             background: None,
             foreground: None,
+            system_paints: false,
         }
     }
 
@@ -899,6 +964,114 @@ mod tests {
         }));
         assert_eq!((fill, words), (blue, yellow), "the bar's, over the theme's");
         assert_eq!(glyphs, vec![yellow; 3]);
+    }
+
+    /// **Where the system paints the line**, the application paints neither its surface nor
+    /// the window's buttons — the system's show through — and the room the buttons need is
+    /// kept; the words take the system's ink, and their highlight is a wash that reads as it
+    /// would over the system's caption.
+    #[test]
+    fn where_the_system_paints_the_line_the_application_leaves_it_clear() {
+        let painted = |system_paints| {
+            let line = TitleBar {
+                system_paints,
+                ..system_line(true, CAPTION, CAPTION_INK)
+            };
+            dressed(
+                MediaQuery::new(SIZE).with_title_bar(Some(line)),
+                &windows(),
+                |w| w,
+            )
+        };
+        let ui = painted(true);
+        let opaque_line = ui.scene().primitives().iter().any(|p| {
+            matches!(p, frus_core::Primitive::Rect { rect, color, .. }
+                if rect.y < 40.0 && rect.width >= 100.0 && color.a > 0.0)
+        });
+        assert!(!opaque_line, "nothing of the application's under the line");
+        let ink = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Text { text, color, .. } if text == "File" => Some(*color),
+                _ => None,
+            })
+            .expect("the bar's words");
+        assert_eq!(ink, CAPTION_INK, "the system's ink on the words");
+        let strokes = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p,
+                    frus_core::Primitive::Path {
+                        stroke: Some(_),
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert_eq!(strokes, 0, "the system's own buttons, not painted ones");
+        let file = text_at(&ui, "File");
+        let painted_file = text_at(&painted(false), "File");
+        assert_eq!(file, painted_file, "the bar where it was");
+
+        // The open word's highlight is the wash that reads as on the system's caption.
+        let line = TitleBar {
+            system_paints: true,
+            ..system_line(true, CAPTION, CAPTION_INK)
+        };
+        let open = frame_themed(
+            MediaQuery::new(SIZE).with_title_bar(Some(line)),
+            &Runtime::default(),
+            &windows(),
+            || {
+                let bar = MenuBar::new(&MenuPath::from_indices([0]), |_| Callback::new(|| {}))
+                    .menu(SubmenuButton::new("File"));
+                Box::new(WindowMenuBar::new(bar, crate::Text::new("page")))
+            },
+        );
+        let file = text_at(&open, "File");
+        let lit = open
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, color, .. }
+                    if rect.contains(frus_core::Point::new(file.x + 1.0, file.y + 4.0))
+                        && color.a > 0.0 =>
+                {
+                    Some(*color)
+                }
+                _ => None,
+            })
+            .expect("the open word's highlight");
+        assert_eq!(lit, wash(CAPTION, CAPTION_INK, HIGHLIGHT));
+    }
+
+    /// **The wash reads as the opaque highlight would**: blended in linear light over the
+    /// system's caption, it gives the caption moved 12 % toward the words — on a dark
+    /// caption, where white at 12 % would read far stronger, and on a light one, where black
+    /// needs more than 12 % to read as much.
+    #[test]
+    fn the_highlight_on_the_system_s_line_reads_as_on_its_caption() {
+        for (base, ink, lighter) in [
+            (Color::rgb8(0x20, 0x20, 0x20), Color::WHITE, true),
+            (Color::rgb8(0xF3, 0xF3, 0xF3), Color::BLACK, false),
+        ] {
+            let washed = wash(base, ink, HIGHLIGHT);
+            assert!(washed.a > 0.0 && washed.a < 1.0, "a wash: {washed:?}");
+            assert_eq!(washed.a < HIGHLIGHT, lighter, "{base:?}: {washed:?}");
+            let (b, i) = (base.to_linear(), ink.to_linear());
+            let blended = b.r + (i.r - b.r) * washed.a;
+            let wanted = base.lerp(ink, HIGHLIGHT).to_linear().r;
+            assert!(
+                (blended - wanted).abs() < 1e-4,
+                "{base:?}: {blended} for {wanted}"
+            );
+        }
     }
 
     /// **Off the title bar's line, with nothing said**, the row is the menu bar's own:
