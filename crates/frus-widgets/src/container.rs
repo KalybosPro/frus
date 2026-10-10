@@ -2,8 +2,8 @@
 //! click) with an optional child.
 
 use frus_core::{
-    AlignmentGeometry, Border, BorderRadius, BoxDecoration, BoxShadow, Color, Curve, Insets,
-    InsetsGeometry, LinearGradient, Rect, Scene, Size,
+    AlignmentGeometry, Border, BorderRadius, BoxBorder, BoxDecoration, BoxShadow, BoxShape, Color,
+    Curve, Insets, InsetsGeometry, LinearGradient, Rect, Scene, Size,
 };
 use frus_layout::{Align, Dimension, Justify, Style};
 
@@ -32,15 +32,16 @@ pub struct Container<Msg = crate::callback::Callback> {
     /// A decoration painted **over** the child rather than behind it; see
     /// [`Container::foreground`].
     foreground: Option<BoxDecoration>,
-    border_width: f32,
-    border_color: Color,
+    /// The border, side by side (milestone 641).
+    border: Option<BoxBorder>,
     color: Option<Color>,
     hover_color: Option<Color>,
     pressed_color: Option<Color>,
-    /// The gradient: (end color, direction in `[0,1]²` space).
-    gradient: Option<(Color, [f32; 2])>,
-    /// The shadow: (dx, dy, blur, color).
-    shadow: Option<(f32, f32, f32, Color)>,
+    gradient: Option<LinearGradient>,
+    /// The shadows, painted in order (milestone 641).
+    shadows: Vec<BoxShadow>,
+    /// A rectangle or a circle (milestone 641).
+    shape: BoxShape,
     on_click: Option<Msg>,
     on_long_press: Option<Msg>,
     /// A repaint boundary: it caches the painted subtree (see
@@ -177,13 +178,13 @@ impl<Msg> Container<Msg> {
             radius: BorderRadius::ZERO,
             clip: false,
             foreground: None,
-            border_width: 0.0,
-            border_color: Color::TRANSPARENT,
+            border: None,
             color: None,
             hover_color: None,
             pressed_color: None,
             gradient: None,
-            shadow: None,
+            shadows: Vec::new(),
+            shape: BoxShape::Rectangle,
             on_click: None,
             on_long_press: None,
             repaint_boundary: false,
@@ -217,11 +218,13 @@ impl<Msg> Container<Msg> {
     /// `direction` (milestone 588: see [`InsetsGeometry::laid_out`]).
     fn effective_padding_in(&self, direction: frus_core::TextDirection) -> Insets {
         let mut padding = self.padding.laid_out(direction);
-        if Border::new(self.border_width, self.border_color).is_visible() {
-            padding.top += self.border_width;
-            padding.right += self.border_width;
-            padding.bottom += self.border_width;
-            padding.left += self.border_width;
+        // Each side's own width, in the reading direction (milestone 641).
+        if let Some(border) = self.border {
+            let w = border.resolve(direction).dimensions();
+            padding.top += w.top;
+            padding.right += w.right;
+            padding.bottom += w.bottom;
+            padding.left += w.left;
         }
         padding
     }
@@ -340,10 +343,30 @@ impl<Msg> Container<Msg> {
         self
     }
 
-    /// The border: width (in px) and color.
+    /// The border: width (in px) and color, the same on all four sides.
     pub fn border(mut self, width: f32, color: Color) -> Self {
-        self.border_width = width;
-        self.border_color = color;
+        self.border = (width > 0.0).then(|| Border::new(width, color).into());
+        self
+    }
+
+    /// **The border, side by side** — a [`Border`] or a
+    /// [`BorderDirectional`](frus_core::BorderDirectional), each side its own width and colour
+    /// (milestone 641).
+    pub fn box_border(mut self, border: impl Into<BoxBorder>) -> Self {
+        self.border = Some(border.into());
+        self
+    }
+
+    /// **A rectangle or a circle** (milestone 641). A circle is centred in the box, as wide
+    /// as its shorter side, and its radius is not read.
+    pub fn shape(mut self, shape: BoxShape) -> Self {
+        self.shape = shape;
+        self
+    }
+
+    /// **The shadows**, painted in order behind the box (milestone 641).
+    pub fn shadows(mut self, shadows: impl IntoIterator<Item = BoxShadow>) -> Self {
+        self.shadows = shadows.into_iter().collect();
         self
     }
 
@@ -368,13 +391,14 @@ impl<Msg> Container<Msg> {
     /// A linear background gradient (`color` → `end`), with `dir` in `[0,1]²` space
     /// (`[0.0, 1.0]` = top→bottom, for instance).
     pub fn gradient(mut self, end: Color, dir: [f32; 2]) -> Self {
-        self.gradient = Some((end, dir));
+        self.gradient = Some(LinearGradient::new(end, dir));
         self
     }
 
-    /// A drop shadow: the `(dx, dy)` offset, the blur radius and the color.
+    /// A drop shadow: the `(dx, dy)` offset, the blur radius and the color. Each call adds
+    /// one, over those already there.
     pub fn shadow(mut self, dx: f32, dy: f32, blur: f32, color: Color) -> Self {
-        self.shadow = Some((dx, dy, blur, color));
+        self.shadows.push(BoxShadow::new(dx, dy, blur, color));
         self
     }
 
@@ -528,7 +552,7 @@ impl<Msg> Container<Msg> {
         self
     }
 
-    /// Sets the box's fill, gradient, border and shadow from a
+    /// Sets the box's fill, gradient, border, shadows and shape from a
     /// [`BoxDecoration`](frus_core::BoxDecoration) at once. What the decoration leaves unset
     /// changes nothing.
     pub fn decoration(mut self, decoration: BoxDecoration) -> Self {
@@ -536,16 +560,16 @@ impl<Msg> Container<Msg> {
             self.color = Some(color);
         }
         if let Some(gradient) = decoration.gradient {
-            self.gradient = Some((gradient.end, gradient.direction));
+            self.gradient = Some(gradient);
         }
         if let Some(border) = decoration.border {
-            self.border_width = border.width;
-            self.border_color = border.color;
+            self.border = Some(border);
         }
         self.radius = decoration.radius;
-        if let Some(shadow) = decoration.shadow {
-            self.shadow = Some((shadow.offset.0, shadow.offset.1, shadow.blur, shadow.color));
+        if !decoration.shadows.is_empty() {
+            self.shadows = decoration.shadows;
         }
+        self.shape = decoration.shape;
         self
     }
 }
@@ -600,7 +624,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         &self.children
     }
 
-    fn paint(&self, bounds: Rect, status: Status, _theme: &Theme, scene: &mut Scene) {
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         // A background with an **animated color**: the color the runtime interpolates
         // wins (the hover/press interpolation does not apply to an animated background).
         // Otherwise two progressions in a row — rest → hover, then that → held. The press
@@ -636,26 +660,25 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
 
         let decoration = BoxDecoration {
             color,
-            gradient: self
-                .gradient
-                .map(|(end, dir)| LinearGradient::new(end, dir)),
-            border: (self.border_width > 0.0)
-                .then(|| Border::new(self.border_width, self.border_color)),
+            gradient: self.gradient,
+            border: self.border,
             radius,
-            shadow: self
-                .shadow
-                .map(|(dx, dy, blur, c)| BoxShadow::new(dx, dy, blur, c)),
+            shadows: self.shadows.clone(),
+            shape: self.shape,
         };
-        decoration.paint_into(scene, bounds, status.opacity);
+        decoration.paint_into_in(scene, bounds, status.opacity, theme.direction);
     }
 
     fn clip_shape(&self) -> Option<frus_core::ClipShape> {
-        self.clip
-            .then(|| frus_core::ClipShape::RRect(self.radius.clamped()))
+        self.clip.then(|| match self.shape {
+            BoxShape::Rectangle => frus_core::ClipShape::RRect(self.radius.clamped()),
+            // The ellipse inscribed in the box: the circle, in a square one.
+            BoxShape::Circle => frus_core::ClipShape::Oval,
+        })
     }
 
     fn foreground(&self, _theme: &Theme) -> Option<BoxDecoration> {
-        self.foreground.map(|decoration| {
+        self.foreground.clone().map(|decoration| {
             if decoration.radius == frus_core::BorderRadius::ZERO {
                 decoration.radius(self.radius)
             } else {
@@ -1211,6 +1234,38 @@ mod tests {
     /// `decoration(...)` applies background, radius and border as one block: the
     /// background paints the given color and radius, and the border reserves its
     /// width at layout time.
+    /// **A border side by side takes its own room on each side**, a directional one by the
+    /// reading direction; a circle clips as one; and each shadow said is kept (milestone
+    /// 641).
+    #[test]
+    fn sides_shape_and_shadows_reach_the_box() {
+        use frus_core::{BorderDirectional, BorderSide, BoxShape, ClipShape, TextDirection};
+        let sided: Container<()> = Container::new().box_border(BorderDirectional {
+            start: BorderSide::new(Color::WHITE, 6.0),
+            top: BorderSide::new(Color::WHITE, 2.0),
+            ..Default::default()
+        });
+        assert_eq!(
+            sided.effective_padding_in(TextDirection::Ltr),
+            Insets::new(2.0, 0.0, 0.0, 6.0)
+        );
+        assert_eq!(
+            sided.effective_padding_in(TextDirection::Rtl),
+            Insets::new(2.0, 6.0, 0.0, 0.0)
+        );
+        let round: Container<()> = Container::new().shape(BoxShape::Circle).clip();
+        assert_eq!(Widget::<()>::clip_shape(&round), Some(ClipShape::Oval));
+        let two: Container<()> = Container::new().shadow(0.0, 1.0, 2.0, Color::BLACK).shadow(
+            0.0,
+            4.0,
+            8.0,
+            Color::BLACK,
+        );
+        assert_eq!(two.shadows.len(), 2, "each call adds one");
+        let none: Container<()> = Container::new().border(0.0, Color::WHITE);
+        assert_eq!(none.border, None, "no width, no border");
+    }
+
     #[test]
     fn decoration_applies_composite_fields() {
         use frus_core::{BorderRadius, BoxDecoration, Primitive, Size};
@@ -1218,7 +1273,7 @@ mod tests {
         let deco = BoxDecoration {
             color: Some(green),
             radius: BorderRadius::uniform(8.0),
-            border: Some(Border::new(2.0, Color::WHITE)),
+            border: Some(Border::new(2.0, Color::WHITE).into()),
             ..Default::default()
         };
         let root: Container<()> = Container::new().width(40.0).height(40.0).decoration(deco);

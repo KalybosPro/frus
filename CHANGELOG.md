@@ -31,6 +31,13 @@ any release may break.
   accent colour on title bars, high contrast; active or not), and `TitleBarTheme`
   (`theme.widgets.title_bar`), `WindowMenuBar::background` / `foreground` / `style` say
   otherwise. The menu bar's hover highlight leans toward its words.
+- **BoxDecoration: shape, sides and shadows** (J641). `BoxShape::{Rectangle, Circle}`; a
+  list of shadows (`shadows`, painted in order, interpolated pair by pair); `Border` side by
+  side (`top`, `right`, `bottom`, `left`; `all`, `symmetric`) and `BorderDirectional`, sides
+  of one colour keeping round corners and circles, sides of several drawn one by one; the
+  room a border takes is each side's own. `Container::box_border`, `shape` and `shadows`, and
+  `Container::decoration` keeps everything the decoration says. **Changed**: `BoxDecoration`
+  is no longer `Copy`; its `shadow` field is `shadows`; `Border` has four `BorderSide`s.
 - **The menu bar on the title bar's line** (J640). A `WindowMenuBar` (J642) puts the
   menu bar at the top of the window, above the pages. On Windows it goes on the title
   bar's line, as a code editor's does: frus paints the application's icon and the three

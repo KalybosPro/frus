@@ -5,7 +5,9 @@
 //! keeps its hue, rather than going dark on the way — and a colour slip is caught by the
 //! pixel it produces, not by the number handed to the renderer.
 
-use frus_core::{Border, BoxDecoration, BoxShadow, Color, FontWeight, TextStyle};
+use frus_core::{
+    Border, BorderSide, BoxDecoration, BoxShadow, BoxShape, Color, FontWeight, TextStyle,
+};
 use frus_test::render_widget;
 use frus_widgets::{
     text, Container, DecoratedBoxTransition, DefaultTextStyleTransition, Flex, Theme,
@@ -73,8 +75,8 @@ fn the_explicit_decoration_and_text_transitions_match_their_golden() {
     let mut words = Flex::<()>::row().gap(28.0);
     for t in moments {
         tiles = tiles.child(DecoratedBoxTransition::between(
-            flat,
-            card,
+            flat.clone(),
+            card.clone(),
             t,
             Container::new().width(80.0).height(56.0),
         ));
@@ -110,4 +112,74 @@ fn the_explicit_decoration_and_text_transitions_match_their_golden() {
     };
     assert!(shot.lit_pixels(48) > 40, "the frame is empty");
     shot.assert_golden(golden("explicit_decoration_and_text"));
+}
+
+/// **What a box decoration can say, painted** (milestone 641): a card with two shadows, a
+/// circle with a ring and a shadow of its own, a box whose sides are four colours, and one
+/// whose sides are one colour, uneven, with round corners.
+#[test]
+fn the_decoration_s_shapes_sides_and_shadows_match_their_golden() {
+    let card = Container::<()>::new().width(80.0).height(56.0).decoration(
+        BoxDecoration::filled(Color::rgb(0.95, 0.95, 0.97))
+            .radius(12.0)
+            .shadows([
+                BoxShadow::new(0.0, 2.0, 3.0, Color::rgba(0.0, 0.0, 0.0, 0.35)),
+                BoxShadow::new(0.0, 8.0, 16.0, Color::rgba(0.0, 0.0, 0.0, 0.25)),
+            ]),
+    );
+    let circle = Container::<()>::new().width(80.0).height(56.0).decoration(
+        BoxDecoration::filled(Color::rgb(0.20, 0.42, 0.90))
+            .shape(BoxShape::Circle)
+            .border(Border::new(3.0, Color::rgb(1.0, 0.85, 0.30)))
+            .shadow(BoxShadow::new(
+                0.0,
+                4.0,
+                8.0,
+                Color::rgba(0.0, 0.0, 0.0, 0.5),
+            )),
+    );
+    let four = Container::<()>::new()
+        .width(80.0)
+        .height(56.0)
+        .color(Color::rgb(0.18, 0.19, 0.22))
+        .box_border(Border {
+            top: BorderSide::new(Color::rgb(0.95, 0.30, 0.30), 4.0),
+            right: BorderSide::new(Color::rgb(0.30, 0.85, 0.40), 8.0),
+            bottom: BorderSide::new(Color::rgb(0.35, 0.55, 1.0), 4.0),
+            left: BorderSide::new(Color::rgb(0.95, 0.85, 0.30), 12.0),
+        });
+    let band = Container::<()>::new()
+        .width(80.0)
+        .height(56.0)
+        .color(Color::rgb(0.18, 0.19, 0.22))
+        .radius(14.0)
+        .box_border(Border {
+            left: BorderSide::new(Color::rgb(0.40, 0.80, 1.0), 10.0),
+            ..Border::new(2.0, Color::rgb(0.40, 0.80, 1.0))
+        });
+    // On a light page, where a black shadow shows.
+    let tree = Container::<()>::new()
+        .width(460.0)
+        .height(120.0)
+        .padding(24.0)
+        .color(Color::rgb(0.86, 0.87, 0.90))
+        .child(
+            Flex::row()
+                .gap(28.0)
+                .child(card)
+                .child(circle)
+                .child(four)
+                .child(band),
+        );
+    let Some(shot) = render_widget(
+        &tree,
+        460,
+        120,
+        &Theme::dark().with_platform(frus_core::TargetPlatform::Linux),
+    ) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(shot.lit_pixels(48) > 40, "the frame is empty");
+    shot.assert_golden(golden("decoration_shapes_sides_shadows"));
 }
