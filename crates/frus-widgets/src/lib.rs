@@ -458,7 +458,7 @@ pub use themebuilder::ThemeBuilder;
 pub use themed::Themed;
 pub use timeline::Timeline;
 pub use timepicker::{Endpoint, TimeField, TimePicker, TimeRange};
-pub use titlebar::{CaptionButton, TitleBar, TitleBarRole};
+pub use titlebar::{CaptionButton, TitleBar, TitleBarRole, WindowMenuBar};
 pub use toast::{SnackBar, SnackBarBehavior, SnackBarKind, SnackBarQueue};
 pub use toasthost::{ScaffoldMessenger, SnackBarPosition};
 pub use togglebuttons::{
@@ -494,7 +494,7 @@ pub use widgettheme::{
     DefaultTextStyle, DividerTheme, DrawerTheme, DropdownTheme, ExpansionPanelListTheme,
     GridTileBarTheme, IconButtonTheme, IconTheme, InkTheme, MenuBarTheme, MenuTheme,
     PageSelectorTheme, RadioTheme, SegmentedTheme, SliderTheme, SwitchTheme, TabBarTheme,
-    TextFieldTheme, TextSelectionTheme, ToggleButtonsTheme, WidgetThemes,
+    TextFieldTheme, TextSelectionTheme, TitleBarTheme, ToggleButtonsTheme, WidgetThemes,
 };
 
 // Convenience re-exports for callers.

@@ -611,7 +611,9 @@ impl<Msg: Clone> Widget<Msg> for BarButton<Msg> {
                 Some(c) => c.with_alpha(c.a * amount),
                 None => {
                     let strength = if self.open { 0.12 } else { 0.08 * amount };
-                    look.background.lerp(theme.scheme.on_surface, strength)
+                    // Toward the words: on a bar of the system's accent with white words,
+                    // a highlight toward `on_surface` would darken it (milestone 642).
+                    look.background.lerp(look.foreground, strength)
                 }
             };
             let inset = look.item_inset.min(bounds.height * 0.5);
@@ -1261,6 +1263,26 @@ mod tests {
             plain.len() + 1,
             "the open row is lit, the others are not"
         );
+    }
+
+    /// **The highlight leans toward the bar's words** (milestone 642): white words on a dark
+    /// accent bar — a title bar in the system's accent colour — get a lighter highlight, not
+    /// one toward `on_surface`, which would darken it.
+    #[test]
+    fn the_highlight_leans_toward_the_words() {
+        let theme = on(frus_core::TargetPlatform::Linux);
+        let accent = Color::rgb(0.0, 0.2, 0.5);
+        let open = scene_in(
+            &bar(&path(&[0]))
+                .background(accent)
+                .foreground_color(Color::WHITE),
+            &theme,
+        );
+        let (file, _, _) = word(&open, "File");
+        let (_, colour, _) = *rects_at(&open, file.x + 2.0, 15.0)
+            .last()
+            .expect("a highlight");
+        assert_eq!(colour, accent.lerp(Color::WHITE, 0.12));
     }
 
     /// **Every part of the bar is the caller's to say**: its height, surface, room,

@@ -1893,3 +1893,96 @@ fn a_wide_window_has_a_menu_bar_that_works() {
     driver.run(0.3);
     assert_eq!(demo.prefs().lang, Some(1));
 }
+
+/// **The menu bar is the window's, not a page's** (milestone 642). A page pushed over the
+/// home screen slides in under it, and slides out again, while the bar stays where it is:
+/// once in every frame, never moving, and the line asked for all along — so the system is
+/// never handed its title bar back between two pages. The pages under it are built for what
+/// the bar leaves them.
+#[test]
+fn the_menu_bar_stays_put_while_the_pages_change_under_it() {
+    let (app, router, _) = crate::build();
+    let mut driver = Driver::new(app, 1000.0, 700.0);
+    driver.run(0.3);
+    let bars = |driver: &Driver<FrusApp>| -> Vec<Rect> {
+        driver
+            .texts()
+            .into_iter()
+            .filter(|(t, _)| t == "File")
+            .map(|(_, r)| r)
+            .collect()
+    };
+    let home = bars(&driver);
+    assert_eq!(home.len(), 1, "one bar");
+    let wants =
+        |driver: &Driver<FrusApp>| driver.frame_parts().expect("a frame").0.wants_title_bar();
+    assert!(wants(&driver));
+
+    // Every frame of a push and of the pop back, in steps of a sixtieth of a second.
+    let check = |driver: &mut Driver<FrusApp>, what: &str| {
+        for step in 0..60 {
+            driver.frame(1.0 / 60.0);
+            assert_eq!(
+                bars(driver),
+                home,
+                "{what}, frame {step}: the bar, once, in its place"
+            );
+            assert!(
+                wants(driver),
+                "{what}, frame {step}: the line is still asked for"
+            );
+            for (text, r) in driver.texts() {
+                assert!(
+                    r.y >= home[0].y + home[0].height - 1.0 || r.y + r.height <= 31.0,
+                    "{what}, frame {step}: {text:?} at {r:?} is drawn over the bar"
+                );
+            }
+        }
+    };
+    router.push("/settings");
+    check(&mut driver, "push");
+    assert_eq!(router.location(), "/settings");
+    assert!(router.pop());
+    check(&mut driver, "pop");
+    assert_eq!(router.location(), "/");
+}
+
+/// **From any page, the window's menu reaches the home screen**: "Go → Stats" and "Clear
+/// completed…" are the home screen's, so the window goes home and does them there.
+#[test]
+fn the_window_s_menu_works_from_any_page() {
+    let (app, router, demo) = crate::build();
+    let mut driver = Driver::new(app, 1000.0, 700.0);
+    driver.run(0.3);
+    router.push("/settings");
+    driver.run(1.0);
+
+    assert!(driver.tap_text("Go"));
+    driver.run(0.2);
+    assert!(driver.tap_text("Stats"));
+    driver.run(1.0);
+    assert_eq!(router.location(), "/", "home");
+    assert_eq!(demo.section(), 1, "on the Stats section");
+
+    // "File" sits in the edge that arms the back gesture, on a page that can go back: the
+    // gesture takes the pages back, and does not start on the window's bar.
+    router.push("/settings");
+    driver.run(1.0);
+    assert!(driver.tap_text("File"));
+    driver.run(0.2);
+    assert!(driver.tap_text("Clear completed…"));
+    driver.run(1.0);
+    assert_eq!(router.location(), "/", "home");
+    assert_eq!(
+        demo.section(),
+        0,
+        "on the task list, from the Stats section"
+    );
+    assert!(
+        driver
+            .texts()
+            .iter()
+            .any(|(t, _)| t == "Clear completed tasks?"),
+        "and the confirmation is up"
+    );
+}

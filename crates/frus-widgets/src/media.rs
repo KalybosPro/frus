@@ -384,7 +384,8 @@ pub struct MediaQuery {
     pub view_padding: Insets,
     /// **The window's title bar line, when the application's content shares it**
     /// (milestone 640): set by the shell on a desktop whose system allows it, while a
-    /// [`Scaffold`](crate::Scaffold) has a [`menu_bar`](crate::Scaffold::menu_bar).
+    /// [`WindowMenuBar`](crate::WindowMenuBar) has a bar. Below the bar it is `None` again:
+    /// the line is the bar's.
     pub title_bar: Option<crate::TitleBar>,
 }
 

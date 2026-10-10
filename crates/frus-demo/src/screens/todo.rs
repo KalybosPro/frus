@@ -1,12 +1,12 @@
 //! The main screen: the task list itself, its rows, and what they open.
 //!
 //! It is a `StatefulWidget`. What it keeps is what only it cares about — the filter, which
-//! overlay is open, which section is on show — and the tasks it draws come from the shared
-//! [`Demo`], handed in as its configuration.
+//! overlay is open — and the tasks it draws come from the shared [`Demo`], handed in as its
+//! configuration. So does the section on show and whether the "clear completed" confirmation
+//! is up, because the window's menu bar asks for those too (milestone 642).
 
-use crate::l10n::LANGS;
 use crate::prelude::*;
-use frus_widgets::{column, row, MenuBar, MenuItem, MenuPath, Semantics, SubmenuButton};
+use frus_widgets::{column, row, Semantics};
 
 /// The main screen: its configuration is the shared state it draws from.
 pub(crate) struct HomePage {
@@ -18,22 +18,16 @@ pub(crate) struct HomePage {
 pub(crate) struct HomeState {
     /// The current filter.
     pub(crate) filter: Filter,
-    /// Is the "clear completed" confirmation modal open?
-    pub(crate) confirm_clear: bool,
     /// Is the side navigation drawer open?
     pub(crate) drawer_open: bool,
     /// Is the quick-actions modal sheet open?
     pub(crate) sheet_open: bool,
     /// Is the (header) actions menu open?
     pub(crate) actions_open: bool,
-    /// The active section (0 = Tasks, 1 = Stats, 2 = About).
-    pub(crate) section: usize,
     /// The metric selected in the Stats section (a master-detail TwoPane).
     pub(crate) stat_sel: usize,
     /// In single-pane (narrow) mode, is the Stats detail open?
     pub(crate) stat_detail_open: bool,
-    /// Which menu of the menu bar is open, on a wide window (milestone 607).
-    pub(crate) menu: MenuPath,
 }
 
 impl StatefulWidget for HomePage {
@@ -55,122 +49,9 @@ impl HomeState {
             handle.set_state(|s| {
                 s.drawer_open = false;
                 s.actions_open = false;
-                s.menu = MenuPath::closed();
             });
             router.push(location);
         })
-    }
-
-    /// **The menu bar of a wide window** (milestone 607): the header's actions, in the order
-    /// a desktop application lists them, with the sections to go to. A phone does not get
-    /// one: its header folds the same actions into a "⋯" menu.
-    ///
-    /// A row does its work and closes the menus, as a popup menu's row does: a press is one
-    /// message, and it is the row's.
-    fn menu_bar(&self, cx: &StateContext<Self>, demo: &Rc<Demo>) -> MenuBar {
-        let handle = cx.handle();
-        let pick = |work: Rc<dyn Fn()>| {
-            let handle = handle.clone();
-            on(move || {
-                work();
-                handle.set_state(|s| s.menu = MenuPath::closed());
-            })
-        };
-        let with = |change: fn(&Demo)| -> Rc<dyn Fn()> {
-            let demo = demo.clone();
-            Rc::new(move || change(&demo))
-        };
-        let prefs = demo.prefs();
-
-        let file = SubmenuButton::new("File")
-            .item(MenuItem::new(
-                "Save",
-                pick(Rc::new({
-                    let demo = demo.clone();
-                    move || demo.save()
-                })),
-            ))
-            .item(MenuItem::new(
-                "Load",
-                pick(Rc::new({
-                    let demo = demo.clone();
-                    move || demo.load()
-                })),
-            ))
-            .divider()
-            .item(MenuItem::new("Clear completed…", {
-                let handle = handle.clone();
-                on(move || {
-                    handle.set_state(|s| {
-                        s.menu = MenuPath::closed();
-                        s.confirm_clear = true;
-                    })
-                })
-            }));
-
-        let size = |step: f32| -> Rc<dyn Fn()> {
-            let demo = demo.clone();
-            Rc::new(move || demo.set_density(demo.prefs().density + step))
-        };
-        let mut language = SubmenuButton::new("Language").item(MenuItem::checked(
-            "System",
-            prefs.lang.is_none(),
-            pick(Rc::new({
-                let demo = demo.clone();
-                move || demo.set_lang(None)
-            })),
-        ));
-        for (index, (name, _)) in LANGS.iter().enumerate() {
-            let demo = demo.clone();
-            language = language.item(MenuItem::checked(
-                *name,
-                prefs.lang == Some(index),
-                pick(Rc::new(move || demo.set_lang(Some(index)))),
-            ));
-        }
-        let view = SubmenuButton::new("View")
-            .item(MenuItem::checked(
-                "Dark theme",
-                !prefs.light,
-                pick(with(Demo::toggle_theme)),
-            ))
-            .item(MenuItem::checked(
-                "Right to left",
-                prefs.rtl,
-                pick(with(Demo::toggle_rtl)),
-            ))
-            .item(MenuItem::new("Next colour", pick(with(Demo::cycle_seed))))
-            .divider()
-            .submenu(
-                SubmenuButton::new("Text size")
-                    .item(MenuItem::new("Larger", pick(size(0.1))))
-                    .item(MenuItem::new("Smaller", pick(size(-0.1)))),
-            )
-            .submenu(language);
-
-        let mut go = SubmenuButton::new("Go");
-        for (index, name) in ["Tasks", "Stats", "About"].into_iter().enumerate() {
-            let handle = handle.clone();
-            go = go.item(MenuItem::checked(
-                name,
-                self.section == index,
-                on(move || {
-                    handle.set_state(|s| {
-                        s.section = index;
-                        s.menu = MenuPath::closed();
-                    })
-                }),
-            ));
-        }
-        let go = go
-            .divider()
-            .item(MenuItem::new("Log", self.go(cx, "/journal")))
-            .item(MenuItem::new("Settings", self.go(cx, "/settings")));
-
-        MenuBar::new(&self.menu, cx.handler(|s, path: MenuPath| s.menu = path))
-            .menu(file)
-            .menu(view)
-            .menu(go)
     }
 }
 
@@ -209,7 +90,7 @@ impl State for HomeState {
         let theme_label = if prefs.light { "Dark" } else { "Light" };
         // The title follows the active section (as a real app would) — the Tasks section is
         // localized (Fluent) for the i18n demo.
-        let section_title = match self.section {
+        let section_title = match demo.section() {
             1 => "Stats".to_string(),
             2 => "About".to_string(),
             _ => tr(lang, "app-title"),
@@ -258,13 +139,13 @@ impl State for HomeState {
                 let demo = demo.clone();
                 on(move || demo.save())
             })
-            .foldable_action(
-                "Clear completed",
-                cx.callback(|s| {
-                    s.sheet_open = false;
-                    s.confirm_clear = true;
-                }),
-            )
+            .foldable_action("Clear completed", {
+                let (demo, handle) = (demo.clone(), cx.handle());
+                on(move || {
+                    handle.set_state(|s| s.sheet_open = false);
+                    demo.ask_clear(true);
+                })
+            })
             .build();
 
         // Input: a field (Enter submits) + an add button. A non-empty field carries a
@@ -381,17 +262,21 @@ impl State for HomeState {
         let short = SizeClass::from_height(surface.size.height) == SizeClass::Compact;
 
         // The footer: the counters + clear completed (with a modal confirmation).
-        let ask_clear = cx.callback(|s| {
-            s.sheet_open = false;
-            s.confirm_clear = true;
-        });
+        let ask_clear = {
+            let (demo, handle) = (demo.clone(), cx.handle());
+            on(move || {
+                handle.set_state(|s| s.sheet_open = false);
+                demo.ask_clear(true);
+            })
+        };
         let clear_button = button("Clear completed", ask_clear)
             .variant(Variant::Danger)
             .size(15.0);
-        let clear = if self.confirm_clear {
+        let clear = if demo.asking_clear() {
+            let dismiss = demo.clone();
             OverlayPortal::new(clear_button)
-                .overlay(confirm_content(&demo, cx, done), Placement::Center)
-                .dismiss(cx.callback(|s| s.confirm_clear = false))
+                .overlay(confirm_content(&demo, done), Placement::Center)
+                .dismiss(on(move || dismiss.ask_clear(false)))
         } else {
             OverlayPortal::new(clear_button)
         };
@@ -527,7 +412,7 @@ impl State for HomeState {
         // grows with the list and About is a long read, so both go in a
         // `SingleChildScrollView`; Stats is a master-detail pane sized to the size class, and
         // wrapping it would give the screen a scrollable with nothing to scroll.
-        let section: Box<dyn Widget> = match self.section {
+        let section: Box<dyn Widget> = match demo.section() {
             1 => Box::new(self.stats_section(cx, theme, class, &todos)),
             2 => Box::new(
                 SingleChildScrollView::new()
@@ -554,14 +439,17 @@ impl State for HomeState {
             // past a threshold, which meant turning the phone to landscape relocated it.
             // `.nav_placement(NavPlacement::Rail)` pins a rail instead; navigation that
             // follows the size class is `NavScaffold`, which is a different widget.
-            .nav(
-                self.section,
-                cx.handler(|s, i: usize| {
-                    s.section = i;
-                    // Choosing a section from the drawer closes it.
-                    s.drawer_open = false;
-                }),
-            )
+            .nav(demo.section(), {
+                let (demo, handle) = (demo.clone(), cx.handle());
+                move |i: usize| {
+                    let (demo, handle) = (demo.clone(), handle.clone());
+                    on(move || {
+                        demo.set_section(i);
+                        // Choosing a section from the drawer closes it.
+                        handle.set_state(|s| s.drawer_open = false);
+                    })
+                }
+            })
             // **One list.** The bar here, the drawer below and — in an application that used
             // `NavScaffold` — the rail at a wider size all read the same declaration, so
             // there is nowhere for the three to drift apart. Milestone 473.
@@ -596,14 +484,9 @@ impl State for HomeState {
                 self.sheet_open,
                 toggle_sheet,
             );
-        // On a wide window, the menu bar at the top (milestone 607) — on the title bar's line
-        // where the system allows it (milestone 640).
-        let scaffold = if class == SizeClass::Expanded {
-            scaffold.menu_bar(self.menu_bar(cx, &demo))
-        } else {
-            scaffold
-        }
-        .build();
+        // On a wide window the menu bar is above this screen: the window's, not the screen's
+        // (milestone 642, `screens::menu`).
+        let scaffold = scaffold.build();
 
         // The notification at the head of the queue floats above everything, anchored
         // bottom-centre by the `ScaffoldMessenger` layer (milestone 188): it fades **in**,
@@ -712,8 +595,9 @@ impl HomeState {
     /// same shape of answer: its drawer runs the full height and the header adds the status
     /// bar's own height to its padding.
     fn drawer_menu(&self, cx: &StateContext<Self>, theme: &Theme, active: usize) -> SafeArea {
+        let demo = cx.widget().demo.clone();
         let entry = |label: &str, index: usize| {
-            let here = self.section == index;
+            let here = demo.section() == index;
             let variant = if here {
                 Variant::Filled
             } else {
@@ -727,13 +611,13 @@ impl HomeState {
                 if here { 6.0 } else { 0.0 },
                 0.18,
                 Curve::ease_out(),
-                button(
-                    label.to_string(),
-                    cx.callback(move |s| {
-                        s.section = index;
-                        s.drawer_open = false;
-                    }),
-                )
+                button(label.to_string(), {
+                    let (demo, handle) = (demo.clone(), cx.handle());
+                    on(move || {
+                        demo.set_section(index);
+                        handle.set_state(|s| s.drawer_open = false);
+                    })
+                })
                 .variant(variant)
                 .size(16.0),
             )
@@ -926,13 +810,17 @@ pub(crate) fn todo_row(
 }
 
 /// Content of the "clear completed" confirmation modal.
-fn confirm_content(demo: &Rc<Demo>, cx: &StateContext<HomeState>, done: usize) -> Card {
+fn confirm_content(demo: &Rc<Demo>, done: usize) -> Card {
     let confirm = {
-        let (demo, handle) = (demo.clone(), cx.handle());
+        let demo = demo.clone();
         on(move || {
             demo.clear_done();
-            handle.set_state(|s| s.confirm_clear = false);
+            demo.ask_clear(false);
         })
+    };
+    let cancel = {
+        let demo = demo.clone();
+        on(move || demo.ask_clear(false))
     };
     Card::new().padding(24.0).child(
         column![
@@ -941,8 +829,7 @@ fn confirm_content(demo: &Rc<Demo>, cx: &StateContext<HomeState>, done: usize) -
                 .weight(FontWeight::Medium),
             text(format!("{done} task(s) will be removed.")).size(16.0),
             row![
-                button("Cancel", cx.callback(|s| s.confirm_clear = false))
-                    .variant(Variant::Outlined),
+                button("Cancel", cancel).variant(Variant::Outlined),
                 button("Delete", confirm).variant(Variant::Danger),
             ]
             .justify(Justify::Center)
@@ -967,13 +854,13 @@ fn quick_actions_sheet(demo: &Rc<Demo>, cx: &StateContext<HomeState>, theme: &Th
             .child(text("Quick actions").size(20.0).color(theme.on_surface))
             .child(button("💾  Save", save).variant(Variant::Filled).size(16.0))
             .child(
-                button(
-                    "🗑  Clear completed",
-                    cx.callback(|s| {
-                        s.sheet_open = false;
-                        s.confirm_clear = true;
-                    }),
-                )
+                button("🗑  Clear completed", {
+                    let (demo, handle) = (demo.clone(), cx.handle());
+                    on(move || {
+                        handle.set_state(|s| s.sheet_open = false);
+                        demo.ask_clear(true);
+                    })
+                })
                 .variant(Variant::Outlined)
                 .size(16.0),
             )

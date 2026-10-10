@@ -1661,7 +1661,8 @@ pub trait Widget<Msg = crate::callback::Callback> {
     }
 
     /// Whether this widget wants **the title bar's line** for itself (milestone 640): a
-    /// scaffold's menu-bar row. The shell gives it the line where the system allows it.
+    /// [`WindowMenuBar`](crate::WindowMenuBar)'s row. The shell gives it the line where the
+    /// system allows it.
     fn wants_title_bar(&self) -> bool {
         false
     }

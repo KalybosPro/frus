@@ -39,6 +39,9 @@ type Restore = Box<dyn Fn(&[u8])>;
 /// What builds the root: called on every rebuild.
 type Root = Rc<dyn Fn(&BuildContext) -> Box<dyn Widget>>;
 
+/// What goes around the root: called on every rebuild, with the root to put inside.
+type Wrap = Rc<dyn Fn(&BuildContext, Box<dyn Widget>) -> Box<dyn Widget>>;
+
 /// An application: a root component, and how it is dressed.
 ///
 /// ```
@@ -58,6 +61,7 @@ type Root = Rc<dyn Fn(&BuildContext) -> Box<dyn Widget>>;
 /// names (`host::app().set_theme_mode(..)`), and the shell reads it every frame.
 pub struct FrusApp {
     root: Root,
+    builder: Option<Wrap>,
     router: Option<GoRouter>,
     window_size: Option<(f32, f32)>,
     icon: crate::AppIcon,
@@ -122,6 +126,7 @@ impl FrusApp {
         app.set_localizations(None);
         Self {
             root,
+            builder: None,
             router: None,
             window_size: None,
             icon: crate::AppIcon::Frus,
@@ -131,6 +136,49 @@ impl FrusApp {
             strategy: LocationStrategy::Hash,
             instance: None,
         }
+    }
+
+    /// **What goes around the application's pages**: `builder` is handed them, as `child`, and
+    /// returns what the window shows. The place for what belongs to the window rather than to
+    /// a page — what must stay put while the pages change under it, and stay there whichever
+    /// page is on show: a [`WindowMenuBar`](frus_widgets::WindowMenuBar), a banner across every
+    /// page.
+    ///
+    /// ```
+    /// use frus_shell::FrusApp;
+    /// use frus_widgets::{
+    ///     text, Callback, GoRoute, GoRouter, MenuBar, MenuPath, SubmenuButton, WindowMenuBar,
+    /// };
+    ///
+    /// let router = GoRouter::new(vec![GoRoute::new("/", |_, _| text("home"))]);
+    /// let app = FrusApp::router(router).builder(|cx, pages| {
+    ///     // Which menu is open: the window's to keep, as the bar is.
+    ///     let menus = cx.use_state(MenuPath::closed);
+    ///     let set = menus.clone();
+    ///     let bar = MenuBar::new(&menus.get(), move |path: MenuPath| {
+    ///         let set = set.clone();
+    ///         Callback::new(move || set.set(path.clone()))
+    ///     })
+    ///     .menu(SubmenuButton::new("File"));
+    ///     Box::new(WindowMenuBar::new(bar, pages))
+    /// });
+    /// # let _ = app;
+    /// ```
+    ///
+    /// `child` is built where `builder` puts it, so what it reads of the window there — a
+    /// [`MediaQuery`](frus_widgets::MediaQuery) a wrapper narrowed — is what its pages are built
+    /// for. `builder` may call hooks, and reach the router with
+    /// [`BuildContext::router`](frus_widgets::BuildContext::router).
+    ///
+    /// Keep the shape of what it returns: the pages are kept under their place in the tree,
+    /// and a `child` that moves loses their state. A wrapper that is sometimes not needed is
+    /// told so — `WindowMenuBar::new(None, child)` — rather than left out.
+    pub fn builder(
+        mut self,
+        builder: impl Fn(&BuildContext, Box<dyn Widget>) -> Box<dyn Widget> + 'static,
+    ) -> Self {
+        self.builder = Some(Rc::new(builder));
+        self
     }
 
     /// Makes the application **one window** on a desktop, named `id` — a reverse domain such as
@@ -267,7 +315,23 @@ impl Application for FrusApp {
 
     fn view(&self, _theme: &Theme) -> Box<dyn Widget<Callback>> {
         let root = self.root.clone();
-        Box::new(Component::stateless(move |cx: &BuildContext| root(cx)))
+        let Some(builder) = self.builder.clone() else {
+            return Box::new(Component::stateless(move |cx: &BuildContext| root(cx)));
+        };
+        let router = self.router.clone();
+        Box::new(Component::stateless(move |cx: &BuildContext| {
+            // The router provides itself when it builds the pages, which is after this; the
+            // builder reaches it from the first frame.
+            if let Some(router) = &router {
+                cx.runtime().states.provide(Rc::new(router.clone()));
+            }
+            // The pages are a component of their own, built where the builder puts them —
+            // under what it says of the window there.
+            let root = root.clone();
+            let pages: Box<dyn Widget> =
+                Box::new(Component::stateless(move |cx: &BuildContext| root(cx)));
+            builder(cx, pages)
+        }))
     }
 
     fn subscription(&self) -> Subscription<Callback> {
@@ -396,6 +460,31 @@ mod tests {
     /// A window-sized target: a tap anywhere lands on it.
     fn target(on_tap: impl Into<Callback>) -> Box<dyn Widget> {
         Box::new(Container::new().width(SIDE).height(SIDE).on_click(on_tap))
+    }
+
+    /// **What goes around the pages reaches the router from the first frame** (milestone
+    /// 642): the router provides itself when it builds the pages, which is after the
+    /// builder has run.
+    #[test]
+    fn the_builder_reaches_the_router_from_the_first_frame() {
+        let router = GoRouter::new(vec![frus_widgets::GoRoute::new("/", |_, _| {
+            frus_widgets::text("home")
+        })]);
+        let seen: Rc<RefCell<Option<String>>> = Rc::default();
+        let app = {
+            let seen = seen.clone();
+            FrusApp::router(router).builder(move |cx, pages| {
+                *seen.borrow_mut() = Some(cx.router().location());
+                pages
+            })
+        };
+        let mut driver = Driver::new(app, SIDE, SIDE);
+        driver.frame(0.016);
+        assert_eq!(seen.borrow().as_deref(), Some("/"));
+        assert!(
+            driver.texts().iter().any(|(text, _)| text == "home"),
+            "and the pages are there"
+        );
     }
 
     fn tap(driver: &mut Driver<FrusApp>) {

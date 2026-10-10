@@ -8,11 +8,29 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 641 so far, each documenting the objective, the alternatives
+> record — one per step, 642 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The menu bar is the window's, not a page's** (J642). `WindowMenuBar::new(bar, pages)`
+  replaces J640's `Scaffold::menu_bar`, which was never released: a menu bar in a page's
+  scaffold left with the page, slid with its transition, and handed the title bar back to
+  the system on every page without one. It goes around the router's pages with the new
+  `FrusApp::builder(|cx, pages| ..)` — what the window shows around its pages — and stays
+  put while they change. The pages below it are built for the window less its line. With
+  `None` (a narrow window) the pages get the whole window and keep their state.
+  **Fixed**: a component directly inside a scope-making wrapper was built under the scopes
+  *around* that wrapper, not the wrapper's own — a page in `MediaScope::tweak` read the whole
+  window, and `cx.theme()` under `Themed` read the outer theme. The surface, theme, shell and
+  scrolling a wrapper introduces are now in force while the component inside it builds.
+  **Fixed**: the back gesture's edge took presses that were not on the pages. On any page
+  but the first, the menu bar's first word, a menu's rows and a dialog's buttons within the
+  window's leading 24 px started a back swipe. It now starts only on the pages.
+  New: the line's colours are the system's caption by default (Windows: light or dark, the
+  accent colour on title bars, high contrast; active or not), and `TitleBarTheme`
+  (`theme.widgets.title_bar`), `WindowMenuBar::background` / `foreground` / `style` say
+  otherwise. The menu bar's hover highlight leans toward its words.
 - **BoxDecoration: shape, sides and shadows** (J641). `BoxShape::{Rectangle, Circle}`; a
   list of shadows (`shadows`, painted in order, interpolated pair by pair); `Border` side by
   side (`top`, `right`, `bottom`, `left`; `all`, `symmetric`) and `BorderDirectional`, sides
@@ -20,8 +38,8 @@ any release may break.
   room a border takes is each side's own. `Container::box_border`, `shape` and `shadows`, and
   `Container::decoration` keeps everything the decoration says. **Changed**: `BoxDecoration`
   is no longer `Copy`; its `shadow` field is `shadows`; `Border` has four `BorderSide`s.
-- **The menu bar on the title bar's line** (J640). `Scaffold::menu_bar(MenuBar)` puts the
-  menu bar at the top of the window, above the app bar. On Windows it goes on the title
+- **The menu bar on the title bar's line** (J640). A `WindowMenuBar` (J642) puts the
+  menu bar at the top of the window, above the pages. On Windows it goes on the title
   bar's line, as a code editor's does: frus paints the application's icon and the three
   window buttons where the system has them, and the system keeps acting on them — the icon
   opens the window menu, the buttons minimize, maximize and close, the empty part of the line

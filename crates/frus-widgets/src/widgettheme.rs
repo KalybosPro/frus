@@ -154,6 +154,8 @@ pub struct WidgetThemes {
     /// The window's three buttons, when the application paints them on the title bar's line
     /// (milestone 640).
     pub caption_buttons: CaptionButtonsTheme,
+    /// The colours of a [`WindowMenuBar`](crate::WindowMenuBar)'s line (milestone 642).
+    pub title_bar: TitleBarTheme,
     /// How a selection in text that is not a field looks: a
     /// [`selectable`](crate::Text::selectable) text's, and a
     /// [`SelectionArea`](crate::SelectionArea)'s.
@@ -1114,14 +1116,15 @@ impl MenuTheme {
 /// (milestone 640). Every colour optional: unset, the desktop's.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CaptionButtonsTheme {
-    /// The glyphs. Unset, `on_surface`.
+    /// The glyphs. Unset, the line's foreground ([`TitleBarTheme`], the system's), then
+    /// `on_surface`.
     pub glyph_color: Option<Color>,
-    /// The glyphs of a window that is not the active one. Unset, the glyph half way to the
-    /// bar.
+    /// The glyphs of a window that is not the active one. Unset, the line's inactive
+    /// foreground, then the glyph half way to the line.
     pub inactive_glyph_color: Option<Color>,
-    /// Under the pointer. Unset, `on_surface` at 8 % over the bar.
+    /// Under the pointer. Unset, the glyph at 8 % over the line.
     pub hover_color: Option<Color>,
-    /// Pressed. Unset, `on_surface` at 4 % over the bar.
+    /// Pressed. Unset, the glyph at 4 % over the line.
     pub pressed_color: Option<Color>,
     /// The close button under the pointer. Unset, the desktop's red.
     pub close_hover_color: Option<Color>,
@@ -1129,6 +1132,31 @@ pub struct CaptionButtonsTheme {
     pub close_pressed_color: Option<Color>,
     /// The close glyph on red. Unset, white.
     pub close_glyph_hover_color: Option<Color>,
+}
+
+/// **The colours of a [`WindowMenuBar`](crate::WindowMenuBar)'s line** (milestone 642), on the
+/// title bar's line or under the system's.
+///
+/// Every colour optional. Unset, **the system's**: on the title bar's line, the window's
+/// caption as the desktop draws it — light or dark as the system's apps are, the accent
+/// colour where the person asked for it on title bars, quieter on a window that is not the
+/// active one. Where the system says nothing — off the line — the
+/// [`MenuBarTheme`]'s, then `surface_container` and `on_surface`.
+///
+/// What it says reaches everything on the line: the bar's words and their highlight, and the
+/// window's three buttons' glyphs and washes, unless their own themes say otherwise.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TitleBarTheme {
+    /// The line's surface.
+    pub background: Option<Color>,
+    /// The words and glyphs on it.
+    pub foreground: Option<Color>,
+    /// The line's surface on a window that is not the active one. Unset, `background`'s
+    /// answer for an inactive window.
+    pub inactive_background: Option<Color>,
+    /// The words and glyphs on a window that is not the active one. Unset, `foreground`'s
+    /// answer for an inactive window.
+    pub inactive_foreground: Option<Color>,
 }
 
 /// Defaults for [`MenuBar`](crate::MenuBar): the bar, the words on it, and the menus it opens

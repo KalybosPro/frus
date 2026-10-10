@@ -69,6 +69,12 @@ pub(crate) struct Demo {
     /// The state came from a live-reload snapshot: the tasks are not reloaded from disk (the
     /// snapshot is the authority).
     restored: Cell<bool>,
+    /// The home screen's section on show (0 = Tasks, 1 = Stats, 2 = About): its own
+    /// navigation and the window's menu bar both choose it (milestone 642).
+    section: Cell<usize>,
+    /// Whether the "clear completed" confirmation is up: the home screen's footer and sheet
+    /// ask for it, and so does the window's menu bar.
+    asking_clear: Cell<bool>,
 }
 
 impl Default for Demo {
@@ -80,6 +86,8 @@ impl Default for Demo {
             mirrored: Cell::new(false),
             toasts: RefCell::default(),
             restored: Cell::new(false),
+            section: Cell::new(0),
+            asking_clear: Cell::new(false),
         }
     }
 }
@@ -233,6 +241,30 @@ impl Demo {
         if !self.restored.get() {
             self.load();
         }
+    }
+
+    // --- The home screen ---
+
+    /// The home screen's section on show.
+    pub(crate) fn section(&self) -> usize {
+        self.section.get()
+    }
+
+    /// Shows the home screen's section `index`.
+    pub(crate) fn set_section(&self, index: usize) {
+        self.section.set(index);
+        request_rebuild();
+    }
+
+    /// Whether the "clear completed" confirmation is up.
+    pub(crate) fn asking_clear(&self) -> bool {
+        self.asking_clear.get()
+    }
+
+    /// Puts the "clear completed" confirmation up, or takes it down.
+    pub(crate) fn ask_clear(&self, asking: bool) {
+        self.asking_clear.set(asking);
+        request_rebuild();
     }
 
     // --- Notifications ---

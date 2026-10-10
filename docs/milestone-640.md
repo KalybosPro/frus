@@ -1,5 +1,8 @@
 # Milestone 640 — The menu bar on the title bar's line
 
+> **Superseded in part by [milestone 642](milestone-642.md):** the menu bar is no longer a
+> scaffold's (`Scaffold::menu_bar`) but the window's (`WindowMenuBar`, above the pages).
+
 ## Objective
 
 A desktop application's menu bar shares the window's title bar line, as a code editor's

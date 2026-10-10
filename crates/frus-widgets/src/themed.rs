@@ -305,4 +305,22 @@ mod tests {
         assert_eq!(plain[0].0.x, CARD_MARGIN);
         assert_eq!(plain[0].0, wrapped[0].0, "same box, wrapped or not");
     }
+
+    /// **A component inside a themed subtree is built with its theme** (milestone 642): what
+    /// it reads from `cx.theme()` is the subtree's, as what it lays out and paints with is.
+    #[test]
+    fn a_component_inside_a_themed_subtree_is_built_with_its_theme() {
+        let ink = Color::rgb8(255, 0, 128);
+        let seen = std::rc::Rc::new(std::cell::Cell::new(None));
+        let probe = {
+            let seen = seen.clone();
+            crate::Component::stateless(move |cx: &crate::BuildContext| -> Box<dyn Widget> {
+                seen.set(Some(cx.theme().widgets.divider.color));
+                Box::new(Divider::new())
+            })
+        };
+        let root = Themed::tweak(move |t| t.widgets.divider.color = Some(ink), probe);
+        crate::build_deferred(&root, &Theme::default(), &Runtime::default());
+        assert_eq!(seen.get(), Some(Some(ink)), "the subtree's theme");
+    }
 }
