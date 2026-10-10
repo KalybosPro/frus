@@ -214,12 +214,12 @@ Status: **done** (milestone), **to review**.
 
 | frus | reference | source | status |
 |---|---|---|---|
-| `BoxDecoration` | `BoxDecoration` | `painting/box_decoration.dart` | **in progress**: shape, sides, shadows done (J641); gradients, `image`, `backgroundBlendMode` next |
+| `BoxDecoration` | `BoxDecoration` | `painting/box_decoration.dart` | **in progress**: shape, sides, shadows (J641) and gradients (J644) done; `image`, `backgroundBlendMode` next |
 | `BoxShadow` | `BoxShadow` | `painting/box_shadow.dart` | to review: no `blurStyle` |
 | `Border` | `Border`, `BorderDirectional` | `painting/box_border.dart` | **done** (J641); `BorderSide::style`, `strokeAlign` left |
 | `BorderSide` | `BorderSide` | `painting/borders.dart` | to review |
 | `BorderRadius`, `BorderRadiusDirectional` | `BorderRadius`, `BorderRadiusDirectional` | `painting/border_radius.dart` | to review |
-| `LinearGradient` | `LinearGradient`, `RadialGradient`, `SweepGradient` | `painting/gradient.dart` | to review: two colours, linear only |
+| `LinearGradient`, `RadialGradient`, `SweepGradient` | `LinearGradient`, `RadialGradient`, `SweepGradient` | `painting/gradient.dart` | **done** (J644); `transform` beyond a rotation left |
 | — | `DecorationImage` | `painting/decoration_image.dart` | to review: missing |
 | `ShapeBorder` | `ShapeBorder` and its kinds, `ShapeDecoration` | `painting/*_border.dart`, `painting/shape_decoration.dart` | to review |
 | `TextStyle` | `TextStyle` | `painting/text_style.dart` | to review |

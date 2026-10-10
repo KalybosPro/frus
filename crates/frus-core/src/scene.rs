@@ -233,6 +233,11 @@ pub enum Primitive {
         clip: Rect,
         /// The emitting widget's identity, used for exit animation.
         owner: u64,
+        /// **A gradient filling the shape** (milestone 644), as the reference describes it:
+        /// relative to `rect`, so it scales with it. When set it replaces `color`,
+        /// `color2` and `gradient_dir`, which hold its first and last colours for
+        /// whatever reads a rectangle's colour.
+        shader: Option<std::sync::Arc<crate::Gradient>>,
     },
     /// A line of text, anchored by its top-left corner.
     Text {
@@ -408,6 +413,7 @@ impl Primitive {
                 blur,
                 clip,
                 owner,
+                shader,
             } => Primitive::Rect {
                 rect: rect.scale_xy(sx, sy),
                 color,
@@ -419,6 +425,7 @@ impl Primitive {
                 blur: blur * avg,
                 clip: clip.scale_xy(sx, sy),
                 owner,
+                shader,
             },
             Primitive::Text {
                 position,
@@ -549,6 +556,7 @@ impl Primitive {
                 blur,
                 clip,
                 owner,
+                shader,
             } => Primitive::Rect {
                 rect: rect.translate(dx, dy),
                 color,
@@ -560,6 +568,7 @@ impl Primitive {
                 blur,
                 clip: clip.translate(dx, dy),
                 owner,
+                shader,
             },
             Primitive::Text {
                 position,
@@ -751,6 +760,7 @@ impl Primitive {
                 blur,
                 clip,
                 owner,
+                shader: None,
             },
             Primitive::Text {
                 position,
@@ -979,6 +989,7 @@ impl Scene {
                 blur,
                 clip,
                 owner,
+                shader,
             } => Primitive::Rect {
                 rect,
                 color: color.fade(opacity),
@@ -990,6 +1001,7 @@ impl Scene {
                 blur,
                 clip,
                 owner,
+                shader: shader.map(|g| std::sync::Arc::new(g.scale(opacity))),
             },
             Primitive::Text {
                 position,
@@ -1118,6 +1130,7 @@ impl Scene {
             blur: 0.0,
             clip: self.current_clip,
             owner: self.current_owner,
+            shader: None,
         });
     }
 
@@ -1168,6 +1181,50 @@ impl Scene {
             blur: 0.0,
             clip: self.current_clip,
             owner: self.current_owner,
+            shader: None,
+        });
+    }
+
+    /// **A rectangle filled with a gradient** (milestone 644): any of the reference's
+    /// three, relative to `rect`, with corners and a border as [`Scene::draw_rect`] has
+    /// them.
+    #[allow(clippy::too_many_arguments)]
+    pub fn shaded_rect(
+        &mut self,
+        rect: Rect,
+        gradient: crate::Gradient,
+        opacity: f32,
+        radius: impl Into<BorderRadius>,
+        border_width: f32,
+        border_color: Color,
+    ) {
+        let gradient = if opacity < 1.0 {
+            gradient.scale(opacity)
+        } else {
+            gradient
+        };
+        let first = gradient
+            .colors()
+            .first()
+            .copied()
+            .unwrap_or(Color::TRANSPARENT);
+        let last = gradient
+            .colors()
+            .last()
+            .copied()
+            .unwrap_or(Color::TRANSPARENT);
+        self.primitives.push(Primitive::Rect {
+            rect,
+            color: first,
+            color2: last,
+            gradient_dir: [0.0, 0.0],
+            radius: radius.into(),
+            border_width,
+            border_color,
+            blur: 0.0,
+            clip: self.current_clip,
+            owner: self.current_owner,
+            shader: Some(std::sync::Arc::new(gradient)),
         });
     }
 
@@ -1196,6 +1253,7 @@ impl Scene {
             blur: 0.0,
             clip: self.current_clip,
             owner: self.current_owner,
+            shader: None,
         });
     }
 
@@ -1212,6 +1270,7 @@ impl Scene {
             blur,
             clip: self.current_clip,
             owner: self.current_owner,
+            shader: None,
         });
     }
 
@@ -1607,6 +1666,7 @@ mod tests {
                 blur: 0.0,
                 clip: Rect::UNBOUNDED,
                 owner: 0,
+                shader: None,
             }
         );
     }
