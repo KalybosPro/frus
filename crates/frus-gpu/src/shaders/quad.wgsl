@@ -189,15 +189,26 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // quad's edge, at nothing. Ramping across the quad's edge instead left the outer half
     // of every shadow unrasterised, and cut it off at half its strength (milestone 606).
     var alpha = 1.0 - smoothstep(-0.5, 0.5, d);
+    let code = i32(round(in.shade.x));
     if (in.blur > 0.0) {
         alpha = 1.0 - smoothstep(-2.0 * in.blur, 0.0, d);
+        // The blur style (milestone 645), read where a flat fill leaves the ramp row
+        // free. The shape's own edge runs `blur` inside the quad's.
+        let style = i32(round(in.shade.y));
+        let inside = 1.0 - smoothstep(-0.5, 0.5, d + in.blur);
+        if (code == 0 && style == 1) {
+            alpha = max(alpha, inside);
+        } else if (code == 0 && style == 2) {
+            alpha = alpha * (1.0 - inside);
+        } else if (code == 0 && style == 3) {
+            alpha = alpha * inside;
+        }
     }
     alpha = alpha * inside_clip;
 
     // The fill: a gradient from the ramps, or the legacy two-colour fade (solid when
     // dir = 0 and color2 = color).
     var fill: vec4<f32>;
-    let code = i32(round(in.shade.x));
     if (code == 0) {
         let t = clamp(dot(in.uv - vec2<f32>(0.5, 0.5), in.gradient.xy) + 0.5, 0.0, 1.0);
         fill = mix(in.color, in.color2, t);

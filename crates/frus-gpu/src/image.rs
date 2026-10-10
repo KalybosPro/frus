@@ -12,7 +12,7 @@ use crate::batch::{Batch, Kind};
 use std::collections::HashMap;
 
 use bytemuck::{Pod, Zeroable};
-use frus_core::{Primitive, Scene};
+use frus_core::{Primitive, Rect, Scene};
 use wgpu::util::DeviceExt;
 
 /// A vertex of the unit quad.
@@ -43,7 +43,7 @@ const QUAD_VERTICES: &[QuadVertex] = &[
 ];
 const QUAD_VERTEX_COUNT: u32 = 6;
 
-/// An instance: destination rectangle, UV, tint, clip.
+/// An instance: destination rectangle, UV, tint, clip, and the region sampling stays in.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Instance {
@@ -51,15 +51,30 @@ struct Instance {
     uv: [f32; 4],
     tint: [f32; 4],
     clip: [f32; 4],
+    /// Low and high corners, in `0..1`, of what sampling may reach: the `uv` region
+    /// itself for a strict draw, the whole texture otherwise (milestone 645).
+    region: [f32; 4],
+}
+
+/// The corners sampling may reach for a draw of `uv`.
+fn region(uv: Rect, strict: bool) -> [f32; 4] {
+    if !strict {
+        return [0.0, 0.0, 1.0, 1.0];
+    }
+    // A mirrored region has a negative width.
+    let (x0, x1) = (uv.x.min(uv.x + uv.width), uv.x.max(uv.x + uv.width));
+    let (y0, y1) = (uv.y.min(uv.y + uv.height), uv.y.max(uv.y + uv.height));
+    [x0, y0, x1, y1]
 }
 
 impl Instance {
     fn layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRS: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+        const ATTRS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
             1 => Float32x4,
             2 => Float32x4,
             3 => Float32x4,
             4 => Float32x4,
+            5 => Float32x4,
         ];
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
@@ -287,6 +302,7 @@ impl ImagePainter {
                     uv,
                     tint,
                     clip,
+                    strict,
                     ..
                 } = &scene.primitives()[member]
                 {
@@ -300,6 +316,7 @@ impl ImagePainter {
                         uv: uv.to_array(),
                         tint: tint.to_array(),
                         clip: clip.to_array(),
+                        region: region(*uv, *strict),
                     });
                     self.frame_ids.push(id);
                 }

@@ -95,7 +95,7 @@ Status: **done** (milestone), **to review**.
 | `DataTable` | `DataTable` | `material/data_table.dart` | to review |
 | `CarouselView` | `CarouselView` | `material/carousel.dart` | to review |
 | `Icon` | `Icon` | `widgets/icon.dart` | to review |
-| `Image` | `Image` | `widgets/image.dart` | to review |
+| `Image` | `Image` | `widgets/image.dart` | to review: no `repeat`, `centerSlice`, `colorBlendMode`, `filterQuality`; J645's `DecorationImage::pieces` already lays out the first two |
 | `ImageIcon` | `ImageIcon` | `widgets/image_icon.dart` | to review |
 | `Text` | `Text` | `widgets/text.dart` | to review |
 | `RichText` | `RichText` | `widgets/basic.dart` | to review |
@@ -209,18 +209,19 @@ Status: **done** (milestone), **to review**.
 | `Semantics` | `Semantics` | `widgets/basic.dart` | to review |
 | `AnnotatedRegion` | `AnnotatedRegion` | `widgets/annotated_region.dart` | to review |
 | `KeyboardListener` | `KeyboardListener` | `widgets/keyboard_listener.dart` | to review |
+| — | `Directionality` | `widgets/basic.dart` | to review: missing; a subtree takes its reading direction from the theme only |
 
 ## 11. Painting types
 
 | frus | reference | source | status |
 |---|---|---|---|
-| `BoxDecoration` | `BoxDecoration` | `painting/box_decoration.dart` | **in progress**: shape, sides, shadows (J641) and gradients (J644) done; `image`, `backgroundBlendMode` next |
-| `BoxShadow` | `BoxShadow` | `painting/box_shadow.dart` | to review: no `blurStyle` |
+| `BoxDecoration` | `BoxDecoration` | `painting/box_decoration.dart` | **in progress**: shape, sides, shadows (J641), gradients (J644) and `image` (J645) done; `backgroundBlendMode` next |
+| `BoxShadow`, `BlurStyle` | `BoxShadow`, `BlurStyle` | `painting/box_shadow.dart` | **done** (J645): `blurStyle` |
 | `Border` | `Border`, `BorderDirectional` | `painting/box_border.dart` | **done** (J641); `BorderSide::style`, `strokeAlign` left |
 | `BorderSide` | `BorderSide` | `painting/borders.dart` | to review |
 | `BorderRadius`, `BorderRadiusDirectional` | `BorderRadius`, `BorderRadiusDirectional` | `painting/border_radius.dart` | to review |
 | `LinearGradient`, `RadialGradient`, `SweepGradient` | `LinearGradient`, `RadialGradient`, `SweepGradient` | `painting/gradient.dart` | **done** (J644); `transform` beyond a rotation left |
-| — | `DecorationImage` | `painting/decoration_image.dart` | to review: missing |
+| `DecorationImage`, `ImageRepeat`, `apply_box_fit` | `DecorationImage`, `ImageRepeat`, `paintImage`, `applyBoxFit` | `painting/decoration_image.dart`, `painting/box_fit.dart` | **done** (J645); `filterQuality`, `isAntiAlias`, `onError` left, and a cross-over is the reference's sum only where the arriving picture is opaque (it needs J646's blending) |
 | `ShapeBorder` | `ShapeBorder` and its kinds, `ShapeDecoration` | `painting/*_border.dart`, `painting/shape_decoration.dart` | to review |
 | `TextStyle` | `TextStyle` | `painting/text_style.dart` | to review |
 | `Insets`, `InsetsDirectional` | `EdgeInsets`, `EdgeInsetsDirectional` | `painting/edge_insets.dart` | to review |
