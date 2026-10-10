@@ -7,6 +7,12 @@ struct Viewport {
 @group(0) @binding(0)
 var<uniform> viewport: Viewport;
 
+// The gradients' colour ramps: one row per gradient, sRGB values (milestone 644).
+@group(1) @binding(0)
+var ramp: texture_2d<f32>;
+@group(1) @binding(1)
+var ramp_sampler: sampler;
+
 struct VertexInput {
     @location(0) unit_pos: vec2<f32>,
 };
@@ -16,8 +22,8 @@ struct InstanceInput {
     @location(2) color: vec4<f32>,    // the fill, or the gradient's start
     @location(3) color2: vec4<f32>,   // the gradient's end
     @location(4) border: vec4<f32>,   // the border colour
-    @location(5) params: vec4<f32>,   // _, border_width, blur, _
-    @location(6) gradient: vec4<f32>, // dir.x, dir.y, _, _
+    @location(5) params: vec4<f32>,   // code (kind + 4 tile), border_width, blur, ramp row
+    @location(6) gradient: vec4<f32>, // the legacy direction, or a gradient's geometry
     @location(7) clip: vec4<f32>,     // x, y, width, height
     @location(8) radii: vec4<f32>,    // per-corner radii: tl, tr, br, bl
 };
@@ -33,9 +39,10 @@ struct VertexOutput {
     @location(6) @interpolate(flat) color: vec4<f32>,
     @location(7) @interpolate(flat) color2: vec4<f32>,
     @location(8) @interpolate(flat) border: vec4<f32>,
-    @location(9) @interpolate(flat) gradient: vec2<f32>,
+    @location(9) @interpolate(flat) gradient: vec4<f32>,
     @location(10) frag_px: vec2<f32>,
     @location(11) @interpolate(flat) clip: vec4<f32>,
+    @location(12) @interpolate(flat) shade: vec2<f32>,
 };
 
 @vertex
@@ -58,7 +65,8 @@ fn vs_main(vert: VertexInput, inst: InstanceInput) -> VertexOutput {
     out.color = inst.color;
     out.color2 = inst.color2;
     out.border = inst.border;
-    out.gradient = inst.gradient.xy;
+    out.gradient = inst.gradient;
+    out.shade = vec2<f32>(inst.params.x, inst.params.w);
     out.frag_px = pos_px;
     out.clip = inst.clip;
     return out;
@@ -88,6 +96,80 @@ fn corner_radius(p: vec2<f32>, radii: vec4<f32>) -> f32 {
     return select(radii.z, radii.y, p.y < 0.0);     // right: top → tr, bottom → br
 }
 
+// **A gradient's colour at `p`** (pixels from the rectangle's centre), milestone 644:
+// `t` along a line, between two circles, or round a centre, tiled, then read from the
+// gradient's row of the ramps. `extra` is the focal point, the turn and whether there is a
+// focal circle.
+fn gradient_fill(code: i32, local: vec2<f32>, g: vec4<f32>, extra: vec4<f32>, row: f32) -> vec4<f32> {
+    let kind = code % 4;
+    let tile = code / 4;
+    // The gradient turned about the centre: the point turned back.
+    var p = local;
+    let turn = extra.z;
+    if (turn != 0.0) {
+        let c = cos(turn);
+        let s = sin(turn);
+        p = vec2<f32>(c * p.x + s * p.y, -s * p.x + c * p.y);
+    }
+    var t = 0.0;
+    var seen = 1.0;
+    if (kind == 1) {
+        let d = g.zw - g.xy;
+        t = dot(p - g.xy, d) / max(dot(d, d), 1e-6);
+    } else if (kind == 2) {
+        if (extra.w < 0.5) {
+            t = length(p - g.xy) / max(g.z, 1e-6);
+        } else {
+            // Between the focal circle (centre extra.xy, radius g.w) and the outer one
+            // (centre g.xy, radius g.z): the largest t whose circle passes through p.
+            let c0 = extra.xy;
+            let r0 = g.w;
+            let cd = g.xy - c0;
+            let dr = g.z - r0;
+            let pd = p - c0;
+            let a = dot(cd, cd) - dr * dr;
+            let b = dot(pd, cd) + r0 * dr;
+            let c = dot(pd, pd) - r0 * r0;
+            if (abs(a) < 1e-4) {
+                t = c / max(2.0 * b, 1e-6);
+            } else {
+                let disc = b * b - a * c;
+                if (disc < 0.0) {
+                    seen = 0.0;
+                } else {
+                    let root = sqrt(disc);
+                    t = (b + root) / a;
+                    if (r0 + t * dr < 0.0) {
+                        t = (b - root) / a;
+                    }
+                }
+            }
+        }
+    } else {
+        let v = p - g.xy;
+        var angle = atan2(v.y, v.x);
+        if (angle < 0.0) {
+            angle = angle + 6.28318530718;
+        }
+        t = (angle - g.z) / max(g.w - g.z, 1e-6);
+    }
+    // Past the ends: clamped, repeated, mirrored, or nothing.
+    if (tile == 0) {
+        t = clamp(t, 0.0, 1.0);
+    } else if (tile == 1) {
+        t = fract(t);
+    } else if (tile == 2) {
+        let m = t - 2.0 * floor(t * 0.5);
+        t = select(2.0 - m, m, m <= 1.0);
+    } else if (t < 0.0 || t > 1.0) {
+        seen = 0.0;
+    }
+    let size = vec2<f32>(textureDimensions(ramp));
+    let uv = vec2<f32>((t * (size.x - 1.0) + 0.5) / size.x, (row + 0.5) / size.y);
+    let color = textureSampleLevel(ramp, ramp_sampler, uv, 0.0);
+    return vec4<f32>(color.rgb, color.a * seen);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Clipping.
@@ -112,9 +194,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     alpha = alpha * inside_clip;
 
-    // The fill: a linear gradient, solid when dir = 0 and color2 = color.
-    let t = clamp(dot(in.uv - vec2<f32>(0.5, 0.5), in.gradient) + 0.5, 0.0, 1.0);
-    var fill = mix(in.color, in.color2, t);
+    // The fill: a gradient from the ramps, or the legacy two-colour fade (solid when
+    // dir = 0 and color2 = color).
+    var fill: vec4<f32>;
+    let code = i32(round(in.shade.x));
+    if (code == 0) {
+        let t = clamp(dot(in.uv - vec2<f32>(0.5, 0.5), in.gradient.xy) + 0.5, 0.0, 1.0);
+        fill = mix(in.color, in.color2, t);
+    } else {
+        fill = gradient_fill(code, in.local_px, in.gradient, in.color2, in.shade.y);
+    }
 
     // The border: a ring along the edge.
     if (in.border_width > 0.0) {

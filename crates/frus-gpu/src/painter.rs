@@ -37,9 +37,12 @@ struct Instance {
     color: [f32; 4],
     color2: [f32; 4],
     border_color: [f32; 4],
-    /// (reserved), border_width, blur, (reserved).
+    /// The gradient's kind and tile mode (`kind + 4 × tile`, `0` for none), border_width,
+    /// blur, and the gradient's row in the ramp texture.
     params: [f32; 4],
-    /// The gradient direction (x, y), then (reserved, reserved).
+    /// The legacy gradient's direction (x, y); or a gradient's geometry, in pixels from the
+    /// rectangle's centre (milestone 644): a line's two ends, a circle's centre, radius and
+    /// focal radius, a sweep's centre and two angles.
     gradient: [f32; 4],
     /// The clip rectangle: x, y, width, height.
     clip: [f32; 4],
@@ -101,6 +104,119 @@ pub(crate) struct Painter {
     viewport_bind_group: wgpu::BindGroup,
     /// A reused CPU buffer for building the instances out of the scene.
     instances: Vec<Instance>,
+    /// **The gradients' colour ramps** (milestone 644): one row of [`RAMP_WIDTH`] texels
+    /// per gradient in the frame, baked on the CPU from its colours and stops.
+    ramp_layout: wgpu::BindGroupLayout,
+    ramp_sampler: wgpu::Sampler,
+    ramp_texture: wgpu::Texture,
+    ramp_bind_group: wgpu::BindGroup,
+    ramp_rows: Vec<[u8; RAMP_WIDTH as usize * 4]>,
+}
+
+/// How many colours a gradient is baked into.
+const RAMP_WIDTH: u32 = 256;
+/// The most gradients one frame bakes; past it, a gradient paints its first colour.
+const RAMP_MAX_ROWS: u32 = 2048;
+
+/// A ramp texture `rows` tall, its view bound with `sampler`.
+fn ramp_texture(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    rows: u32,
+) -> (wgpu::Texture, wgpu::BindGroup) {
+    // Unorm, not sRGB: the texels are sRGB values, filtered as such — the reference's
+    // gradients mix their colours as written — and turned linear in the shader.
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("frus.gradient_ramps"),
+        size: wgpu::Extent3d {
+            width: RAMP_WIDTH,
+            height: rows,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("frus.gradient_ramps.bind_group"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    });
+    (texture, bind_group)
+}
+
+/// A gradient's colours at [`RAMP_WIDTH`] even points from its start to its end, as sRGB
+/// bytes.
+fn bake(gradient: &frus_core::Gradient) -> [u8; RAMP_WIDTH as usize * 4] {
+    let mut row = [0u8; RAMP_WIDTH as usize * 4];
+    for i in 0..RAMP_WIDTH as usize {
+        let c = gradient.sample(i as f32 / (RAMP_WIDTH - 1) as f32);
+        let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+        row[i * 4..i * 4 + 4].copy_from_slice(&[byte(c.r), byte(c.g), byte(c.b), byte(c.a)]);
+    }
+    row
+}
+
+/// A gradient's kind and geometry in `rect`'s pixels: `(code, gradient, extra)`, where
+/// `code` is `kind + 4 × tile`, `gradient` the main geometry and `extra` the focal point,
+/// the turn and whether there is a focal circle.
+fn encode(gradient: &frus_core::Gradient, rect: &crate::Rect) -> (f32, [f32; 4], [f32; 4]) {
+    use frus_core::{Gradient, TextDirection, TileMode};
+    let half = (rect.width * 0.5, rect.height * 0.5);
+    let shorter = rect.width.min(rect.height);
+    let at = |a: frus_core::AlignmentGeometry| {
+        let a = a.resolve(TextDirection::Ltr);
+        (a.x * half.0, a.y * half.1)
+    };
+    let tile = match gradient.tile_mode() {
+        TileMode::Clamp => 0.0,
+        TileMode::Repeated => 1.0,
+        TileMode::Mirror => 2.0,
+        TileMode::Decal => 3.0,
+    };
+    let turn = gradient.rotation();
+    match gradient {
+        Gradient::Linear(g) => {
+            let (b, e) = (at(g.begin), at(g.end));
+            (
+                1.0 + 4.0 * tile,
+                [b.0, b.1, e.0, e.1],
+                [0.0, 0.0, turn, 0.0],
+            )
+        }
+        Gradient::Radial(g) => {
+            let c = at(g.center);
+            let f = g.focal.map(at);
+            let (fx, fy) = f.unwrap_or(c);
+            (
+                2.0 + 4.0 * tile,
+                [c.0, c.1, g.radius * shorter, g.focal_radius * shorter],
+                [fx, fy, turn, if f.is_some() { 1.0 } else { 0.0 }],
+            )
+        }
+        Gradient::Sweep(g) => {
+            let c = at(g.center);
+            (
+                3.0 + 4.0 * tile,
+                [c.0, c.1, g.start_angle, g.end_angle],
+                [0.0, 0.0, turn, 0.0],
+            )
+        }
+    }
 }
 
 impl Painter {
@@ -146,9 +262,40 @@ impl Painter {
             }],
         });
 
+        let ramp_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("frus.gradient_ramps.bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let ramp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("frus.gradient_ramps.sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let (ramp_texture, ramp_bind_group) = ramp_texture(device, &ramp_layout, &ramp_sampler, 1);
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("frus.pipeline_layout"),
-            bind_group_layouts: &[Some(&bind_group_layout)],
+            bind_group_layouts: &[Some(&bind_group_layout), Some(&ramp_layout)],
             immediate_size: 0,
         });
 
@@ -207,6 +354,11 @@ impl Painter {
             viewport_buffer,
             viewport_bind_group,
             instances: Vec::new(),
+            ramp_layout,
+            ramp_sampler,
+            ramp_texture,
+            ramp_bind_group,
+            ramp_rows: Vec::new(),
         }
     }
 
@@ -233,18 +385,38 @@ impl Painter {
                 border_color,
                 blur,
                 clip,
+                shader,
                 ..
-            } => self.instances.push(Instance {
-                rect: rect.to_array(),
-                color: color.to_array(),
-                color2: color2.to_array(),
-                border_color: border_color.to_array(),
-                params: [0.0, *border_width, *blur, 0.0],
-                gradient: [gradient_dir[0], gradient_dir[1], 0.0, 0.0],
-                clip: clip.to_array(),
-                // Negative radii are clamped to zero before rendering.
-                radii: radius.clamped().to_array(),
-            }),
+            } => {
+                // A gradient, baked into the next row of the ramps; past the last row, its
+                // first colour, flat.
+                let shaded = shader
+                    .as_ref()
+                    .filter(|_| (self.ramp_rows.len() as u32) < RAMP_MAX_ROWS)
+                    .map(|gradient| {
+                        let row = self.ramp_rows.len() as f32;
+                        self.ramp_rows.push(bake(gradient));
+                        let (code, geometry, extra) = encode(gradient, rect);
+                        (code, row, geometry, extra)
+                    });
+                let (code, row, geometry, extra) = shaded.unwrap_or((
+                    0.0,
+                    0.0,
+                    [gradient_dir[0], gradient_dir[1], 0.0, 0.0],
+                    color2.to_array(),
+                ));
+                self.instances.push(Instance {
+                    rect: rect.to_array(),
+                    color: color.to_array(),
+                    color2: extra,
+                    border_color: border_color.to_array(),
+                    params: [code, *border_width, *blur, row],
+                    gradient: geometry,
+                    clip: clip.to_array(),
+                    // Negative radii are clamped to zero before rendering.
+                    radii: radius.clamped().to_array(),
+                })
+            }
             // Text, vector paths and images are rendered by their own painters
             // (TextPainter, PathPainter, ImagePainter).
             Primitive::Text { .. }
@@ -271,6 +443,7 @@ impl Painter {
         batches: &[Batch],
     ) -> (Vec<Range<u32>>, Range<u32>) {
         self.instances.clear();
+        self.ramp_rows.clear();
         let mut ranges = Vec::with_capacity(batches.len());
         for batch in batches {
             let start = self.instances.len() as u32;
@@ -299,6 +472,40 @@ impl Painter {
             });
         }
         let decoration_range = decoration_start..self.instances.len() as u32;
+
+        // The frame's ramps, uploaded in one go; the texture grows to hold them.
+        if !self.ramp_rows.is_empty() {
+            let rows = self.ramp_rows.len() as u32;
+            if rows > self.ramp_texture.height() {
+                let (texture, bind_group) = ramp_texture(
+                    device,
+                    &self.ramp_layout,
+                    &self.ramp_sampler,
+                    rows.next_power_of_two(),
+                );
+                self.ramp_texture = texture;
+                self.ramp_bind_group = bind_group;
+            }
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.ramp_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                bytemuck::cast_slice(&self.ramp_rows),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(RAMP_WIDTH * 4),
+                    rows_per_image: Some(rows),
+                },
+                wgpu::Extent3d {
+                    width: RAMP_WIDTH,
+                    height: rows,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
 
         let count = self.instances.len();
         if count == 0 {
@@ -344,6 +551,7 @@ impl Painter {
         }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.viewport_bind_group, &[]);
+        pass.set_bind_group(1, &self.ramp_bind_group, &[]);
         pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         pass.draw(0..QUAD_VERTEX_COUNT, range);

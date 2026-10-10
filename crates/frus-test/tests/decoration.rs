@@ -6,7 +6,8 @@
 //! pixel it produces, not by the number handed to the renderer.
 
 use frus_core::{
-    Border, BorderSide, BoxDecoration, BoxShadow, BoxShape, Color, FontWeight, TextStyle,
+    Alignment, Border, BorderSide, BoxDecoration, BoxShadow, BoxShape, Color, FontWeight, Gradient,
+    LinearGradient, RadialGradient, SweepGradient, TextStyle, TileMode,
 };
 use frus_test::render_widget;
 use frus_widgets::{
@@ -182,4 +183,71 @@ fn the_decoration_s_shapes_sides_and_shadows_match_their_golden() {
     };
     assert!(shot.lit_pixels(48) > 40, "the frame is empty");
     shot.assert_golden(golden("decoration_shapes_sides_shadows"));
+}
+
+/// **The reference's three gradients, painted** (milestone 644). Top: three colours along a
+/// line with stops, round a centre, round a centre with a focal point, and a sweep. Bottom:
+/// a line repeated, a line mirrored, a line turned an eighth, and a circle filled round its
+/// centre.
+#[test]
+fn the_gradients_match_their_golden() {
+    let (red, gold, blue) = (
+        Color::rgb(0.90, 0.25, 0.25),
+        Color::rgb(0.98, 0.80, 0.25),
+        Color::rgb(0.25, 0.45, 0.95),
+    );
+    let tile = |g: Gradient| {
+        Container::<()>::new()
+            .width(80.0)
+            .height(56.0)
+            .decoration(BoxDecoration::default().radius(10.0).gradient(g))
+    };
+    let mut stopped = LinearGradient::new(vec![red, gold, blue]);
+    stopped.stops = Some(vec![0.0, 0.3, 1.0]);
+    let mut focal = RadialGradient::new(vec![gold, blue]);
+    focal.focal = Some(Alignment::new(-0.5, -0.5).into());
+    focal.focal_radius = 0.05;
+    let mut repeated =
+        LinearGradient::new(vec![red, blue]).between(Alignment::CENTER_LEFT, Alignment::CENTER);
+    repeated.end = Alignment::new(-0.5, 0.0).into();
+    repeated.tile_mode = TileMode::Repeated;
+    let mut mirrored = repeated.clone();
+    mirrored.tile_mode = TileMode::Mirror;
+    let mut turned = LinearGradient::new(vec![red, blue]);
+    turned.rotation = std::f32::consts::FRAC_PI_4;
+    let top = Flex::<()>::row()
+        .gap(20.0)
+        .child(tile(stopped.into()))
+        .child(tile(RadialGradient::new(vec![gold, blue]).into()))
+        .child(tile(focal.into()))
+        .child(tile(SweepGradient::new(vec![red, gold, blue, red]).into()));
+    let bottom = Flex::<()>::row()
+        .gap(20.0)
+        .child(tile(repeated.into()))
+        .child(tile(mirrored.into()))
+        .child(tile(turned.into()))
+        .child(
+            Container::new().width(80.0).height(56.0).decoration(
+                BoxDecoration::default()
+                    .shape(BoxShape::Circle)
+                    .gradient(RadialGradient::new(vec![gold, red])),
+            ),
+        );
+    let tree = Container::<()>::new()
+        .width(420.0)
+        .height(176.0)
+        .padding(20.0)
+        .color(Color::rgb(0.12, 0.12, 0.14))
+        .child(Flex::column().gap(24.0).child(top).child(bottom));
+    let Some(shot) = render_widget(
+        &tree,
+        420,
+        176,
+        &Theme::dark().with_platform(frus_core::TargetPlatform::Linux),
+    ) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(shot.lit_pixels(48) > 40, "the frame is empty");
+    shot.assert_golden(golden("decoration_gradients"));
 }

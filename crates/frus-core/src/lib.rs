@@ -18,6 +18,7 @@ mod colors;
 mod decoration;
 mod filter;
 mod geometry;
+mod gradient;
 mod hct;
 mod image;
 mod path;
@@ -39,7 +40,7 @@ pub use color::{surface_tint_opacity, Color};
 pub use colors::{Colors, MaterialColor};
 pub use decoration::{
     paint_elevation, Border, BorderDirectional, BorderRadius, BorderRadiusDirectional, BoxBorder,
-    BoxDecoration, BoxShadow, BoxShape, LinearGradient,
+    BoxDecoration, BoxShadow, BoxShape,
 };
 pub use filter::{
     Backdrop, BlendMode, ColorFilter, FractionalMask, ImageFilter, LayerFilter, MaskShader,
@@ -49,6 +50,7 @@ pub use geometry::{
     fits, Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Insets, InsetsDirectional,
     InsetsGeometry, Point, Rect, Size, TextDirection, WindowInsets,
 };
+pub use gradient::{tile, Gradient, LinearGradient, RadialGradient, SweepGradient, TileMode};
 pub use hct::{Hct, TonalPalette};
 pub use image::{
     cached, fetched, forget_cached_images, forget_fetched_images, image_cache_budget,

@@ -3,7 +3,7 @@
 
 use frus_core::{
     AlignmentGeometry, Border, BorderRadius, BoxBorder, BoxDecoration, BoxShadow, BoxShape, Color,
-    Curve, Insets, InsetsGeometry, LinearGradient, Rect, Scene, Size,
+    Curve, Gradient, Insets, InsetsGeometry, LinearGradient, Rect, Scene, Size,
 };
 use frus_layout::{Align, Dimension, Justify, Style};
 
@@ -37,7 +37,11 @@ pub struct Container<Msg = crate::callback::Callback> {
     color: Option<Color>,
     hover_color: Option<Color>,
     pressed_color: Option<Color>,
-    gradient: Option<LinearGradient>,
+    /// A gradient from the colour towards an end colour, along a direction: kept apart,
+    /// because its first colour is the container's colour, which may animate.
+    towards: Option<(Color, [f32; 2])>,
+    /// A gradient said in full (milestone 644).
+    gradient: Option<Gradient>,
     /// The shadows, painted in order (milestone 641).
     shadows: Vec<BoxShadow>,
     /// A rectangle or a circle (milestone 641).
@@ -182,6 +186,7 @@ impl<Msg> Container<Msg> {
             color: None,
             hover_color: None,
             pressed_color: None,
+            towards: None,
             gradient: None,
             shadows: Vec::new(),
             shape: BoxShape::Rectangle,
@@ -391,7 +396,7 @@ impl<Msg> Container<Msg> {
     /// A linear background gradient (`color` → `end`), with `dir` in `[0,1]²` space
     /// (`[0.0, 1.0]` = top→bottom, for instance).
     pub fn gradient(mut self, end: Color, dir: [f32; 2]) -> Self {
-        self.gradient = Some(LinearGradient::new(end, dir));
+        self.towards = Some((end, dir));
         self
     }
 
@@ -658,9 +663,21 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             self.radius
         };
 
+        // A gradient towards an end colour starts at this frame's colour, along its
+        // direction: the reference's `begin` and `end`, opposite each other about the centre.
+        let gradient = self.gradient.clone().or_else(|| {
+            let (end, dir) = self.towards?;
+            let start = color?;
+            Some(Gradient::from(
+                LinearGradient::new(vec![start, end]).between(
+                    frus_core::Alignment::new(-dir[0], -dir[1]),
+                    frus_core::Alignment::new(dir[0], dir[1]),
+                ),
+            ))
+        });
         let decoration = BoxDecoration {
             color,
-            gradient: self.gradient,
+            gradient,
             border: self.border,
             radius,
             shadows: self.shadows.clone(),

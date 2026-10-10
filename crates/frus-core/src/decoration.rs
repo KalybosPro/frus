@@ -432,24 +432,6 @@ impl From<BorderDirectional> for BoxBorder {
     }
 }
 
-/// A **linear** gradient: from the background (`BoxDecoration::color`) to `end`,
-/// along `direction`, expressed in `[0,1]²` space (`[0,1]` = top→bottom, `[1,0]` =
-/// left→right).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct LinearGradient {
-    /// The end colour; the start colour is the decoration's background.
-    pub end: Color,
-    /// The gradient's direction, in `[0,1]²` space.
-    pub direction: [f32; 2],
-}
-
-impl LinearGradient {
-    /// A linear gradient towards `end`, in the given direction.
-    pub const fn new(end: Color, direction: [f32; 2]) -> Self {
-        Self { end, direction }
-    }
-}
-
 /// A soft drop shadow.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BoxShadow {
@@ -592,10 +574,11 @@ pub fn paint_elevation(
 /// over transparency; a wholly empty decoration paints nothing at all.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BoxDecoration {
-    /// Background colour, which doubles as the start colour of any gradient.
+    /// Background colour.
     pub color: Option<Color>,
-    /// A linear gradient for the background.
-    pub gradient: Option<LinearGradient>,
+    /// A gradient filling the background, in place of `color` — linear, radial or sweep
+    /// (milestone 644).
+    pub gradient: Option<crate::Gradient>,
     /// The border, side by side.
     pub border: Option<BoxBorder>,
     /// Corner radii, per corner. A [`BoxShape::Circle`] has none.
@@ -657,27 +640,8 @@ impl BoxDecoration {
         // reference's does (`box_decoration.dart:301`).
         let shape = if t < 0.5 { self.shape } else { other.shape };
         let mix = |a: f32, b: f32| a + (b - a) * t;
-        let gradient = match (self.gradient, other.gradient) {
-            (Some(a), Some(b)) => Some(LinearGradient {
-                end: a.end.lerp(b.end, t),
-                direction: [
-                    mix(a.direction[0], b.direction[0]),
-                    mix(a.direction[1], b.direction[1]),
-                ],
-            }),
-            // The side without a gradient is a flat fill: its far end is its own colour.
-            (Some(a), None) => {
-                fade_between(Some(a.end), other.color, t).map(|end| LinearGradient {
-                    end,
-                    direction: a.direction,
-                })
-            }
-            (None, Some(b)) => fade_between(self.color, Some(b.end), t).map(|end| LinearGradient {
-                end,
-                direction: b.direction,
-            }),
-            (None, None) => None,
-        };
+        // The reference's `Gradient.lerp` (`box_decoration.dart:309`).
+        let gradient = crate::Gradient::lerp(self.gradient.as_ref(), other.gradient.as_ref(), t);
         // Side by side, each arriving or leaving by thickening in its own colour. A
         // directional border is read left to right here; two directional ones stay so.
         let border = match (self.border, other.border) {
@@ -777,9 +741,10 @@ impl BoxDecoration {
         self
     }
 
-    /// Adds a linear gradient to the background.
-    pub fn gradient(mut self, gradient: LinearGradient) -> Self {
-        self.gradient = Some(gradient);
+    /// Fills the background with a gradient — linear, radial or sweep — in place of the
+    /// colour.
+    pub fn gradient(mut self, gradient: impl Into<crate::Gradient>) -> Self {
+        self.gradient = Some(gradient.into());
         self
     }
 
@@ -854,12 +819,11 @@ impl BoxDecoration {
         };
         let has_border = uniform.is_some_and(|b| b.is_visible());
 
-        match (self.color, self.gradient) {
-            (Some(color), Some(gradient)) => scene.gradient_rect(
+        match (self.color, &self.gradient) {
+            (_, Some(gradient)) => scene.shaded_rect(
                 shape_rect,
-                color.fade(opacity),
-                gradient.end.fade(opacity),
-                gradient.direction,
+                gradient.resolve(direction),
+                opacity,
                 radius,
                 border_width,
                 border_color,
@@ -1171,17 +1135,17 @@ mod lerp_tests {
         assert!((c.a - 0.25).abs() < 1e-6, "{c:?}");
     }
 
-    /// **A flat fill is a gradient whose two ends agree**, so flat to graded spreads the
-    /// far end out of the fill: the start does not move and the end travels.
+    /// **A gradient on one side only fades in by its opacity** over the fill, the
+    /// reference's `Gradient.scale` (`box_decoration.dart:309`): its colours keep their hue.
     #[test]
-    fn a_flat_fill_spreads_into_a_gradient() {
+    fn a_gradient_on_one_side_fades_in() {
         let flat = BoxDecoration::filled(RED);
-        let graded = BoxDecoration::filled(RED).gradient(LinearGradient::new(BLUE, [0.0, 1.0]));
-        let mid = flat.lerp(graded, 0.5);
-        assert_eq!(mid.color, Some(RED), "the start does not move");
-        let g = mid.gradient.expect("a gradient half-way to its far colour");
-        assert_eq!(g.end, RED.lerp(BLUE, 0.5));
-        assert_eq!(g.direction, [0.0, 1.0]);
+        let graded =
+            BoxDecoration::filled(RED).gradient(crate::LinearGradient::new(vec![RED, BLUE]));
+        let mid = flat.lerp(graded, 0.25);
+        assert_eq!(mid.color, Some(RED), "the fill does not move");
+        let g = mid.gradient.expect("a gradient fading in");
+        assert_eq!(g.colors()[1], BLUE.fade(0.25));
     }
 
     /// **A border arrives by thickening, in its own colour** — not as a colour on its way
