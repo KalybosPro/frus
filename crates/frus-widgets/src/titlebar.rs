@@ -1017,22 +1017,53 @@ mod tests {
         let file = text_at(&ui, "File");
         let painted_file = text_at(&painted(false), "File");
         assert_eq!(file, painted_file, "the bar where it was");
+
+        // The open word's highlight is the wash that reads as on the system's caption.
+        let line = TitleBar {
+            system_paints: true,
+            ..system_line(true, CAPTION, CAPTION_INK)
+        };
+        let open = frame_themed(
+            MediaQuery::new(SIZE).with_title_bar(Some(line)),
+            &Runtime::default(),
+            &windows(),
+            || {
+                let bar = MenuBar::new(&MenuPath::from_indices([0]), |_| Callback::new(|| {}))
+                    .menu(SubmenuButton::new("File"));
+                Box::new(WindowMenuBar::new(bar, crate::Text::new("page")))
+            },
+        );
+        let file = text_at(&open, "File");
+        let lit = open
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, color, .. }
+                    if rect.contains(frus_core::Point::new(file.x + 1.0, file.y + 4.0))
+                        && color.a > 0.0 =>
+                {
+                    Some(*color)
+                }
+                _ => None,
+            })
+            .expect("the open word's highlight");
+        assert_eq!(lit, wash(CAPTION, CAPTION_INK, HIGHLIGHT));
     }
 
     /// **The wash reads as the opaque highlight would**: blended in linear light over the
     /// system's caption, it gives the caption moved 12 % toward the words — on a dark
-    /// caption and on a light one.
+    /// caption, where white at 12 % would read far stronger, and on a light one, where black
+    /// needs more than 12 % to read as much.
     #[test]
     fn the_highlight_on_the_system_s_line_reads_as_on_its_caption() {
-        for (base, ink) in [
-            (Color::rgb8(0x20, 0x20, 0x20), Color::WHITE),
-            (Color::rgb8(0xF3, 0xF3, 0xF3), Color::BLACK),
+        for (base, ink, lighter) in [
+            (Color::rgb8(0x20, 0x20, 0x20), Color::WHITE, true),
+            (Color::rgb8(0xF3, 0xF3, 0xF3), Color::BLACK, false),
         ] {
             let washed = wash(base, ink, HIGHLIGHT);
-            assert!(
-                washed.a > 0.0 && washed.a < HIGHLIGHT,
-                "lighter than 12 %: {washed:?}"
-            );
+            assert!(washed.a > 0.0 && washed.a < 1.0, "a wash: {washed:?}");
+            assert_eq!(washed.a < HIGHLIGHT, lighter, "{base:?}: {washed:?}");
             let (b, i) = (base.to_linear(), ink.to_linear());
             let blended = b.r + (i.r - b.r) * washed.a;
             let wanted = base.lerp(ink, HIGHLIGHT).to_linear().r;

@@ -93,3 +93,13 @@ On the maintainer's machine (Intel Iris Xe, Direct3D 12), driven by real clicks:
 - The DirectComposition path itself runs only on Windows with Direct3D 12, and CI is
   Linux. It was exercised on the maintainer's machine as above, and linted there with
   clippy.
+- `a_see_through_bar_s_highlight_is_a_wash_of_its_words` (`menubar.rs`): a bar with a
+  transparent surface lights its open word with a wash of its words.
+
+## Mutation testing
+
+Seven mutants, seven killed: the buttons' room left clear, the system's caption kept off a
+line the system paints, the transparent surface, the highlight set to the wash, the wash's
+opacity, the menu bar's wash over a transparent surface, and the background leaving the
+line clear. The first full run also caught a wrong expectation in a test of its own: black
+over a light caption needs *more* than 12 % to read as 12 %, not less.

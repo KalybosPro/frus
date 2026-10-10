@@ -13,7 +13,7 @@ const CLEAR_COLOR: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 
-/// **The window's background** where nothing is drawn — [`CLEAR_COLOR`], as a scene colour —
+/// **The window's background** where nothing is drawn — the clear colour, as a scene colour —
 /// for a [`see-through`](Renderer::see_through) renderer, whose frames start transparent and
 /// whose owner paints it where the window is not meant to be seen through (milestone 643).
 pub fn backdrop() -> frus_core::Color {

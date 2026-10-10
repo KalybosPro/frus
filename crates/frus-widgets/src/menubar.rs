@@ -1293,6 +1293,27 @@ mod tests {
         assert_eq!(colour, accent.lerp(Color::WHITE, 0.12));
     }
 
+    /// **A bar that lets what is behind it show** (milestone 643) — the system's own title
+    /// bar under it — has no surface to lean its highlight on: the highlight is a wash of its
+    /// words.
+    #[test]
+    fn a_see_through_bar_s_highlight_is_a_wash_of_its_words() {
+        let theme = on(frus_core::TargetPlatform::Linux);
+        let open = scene_in(
+            &bar(&path(&[0]))
+                .background(Color::TRANSPARENT)
+                .foreground_color(Color::WHITE),
+            &theme,
+        );
+        let (file, _, _) = word(&open, "File");
+        let (_, colour, _) = *rects_at(&open, file.x + 2.0, 15.0)
+            .iter()
+            .rev()
+            .find(|(_, colour, _)| colour.a > 0.0)
+            .expect("a highlight");
+        assert_eq!(colour, Color::WHITE.with_alpha(0.12));
+    }
+
     /// **Every part of the bar is the caller's to say**: its height, surface, room,
     /// type, ink, highlight and the menus it opens.
     #[test]
