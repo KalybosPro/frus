@@ -153,7 +153,7 @@ above, and it shows where things are kept:
 ## Generating a new project (`cargo generate`)
 
 The [`templates/app`](../templates/app) template produces a frus project that
-runs as-is (desktop + Android).
+runs as-is on the desktops, Android and the web, and makes its own releases.
 
 ```sh
 cargo install cargo-generate          # once
@@ -163,7 +163,16 @@ cargo run
 ```
 
 The generated `Cargo.toml` has one dependency, the published `frus = "0.2"`, and asks
-nothing.
+nothing. The project also has:
+
+- a `README.md` with each platform's commands, for running and for shipping;
+- `web/index.html`, the page the web build runs in;
+- `.github/workflows/ci.yml`, which checks every push (formatting, clippy, tests, and a build
+  for the desktops, the web and Android);
+- `.github/workflows/release.yml`: push a tag named after the version (`v0.1.0`) and it
+  publishes a GitHub release with the Windows, Linux and macOS programs, the signed APK and
+  the web site. The APK needs two repository secrets, `ANDROID_KEYSTORE` (base64) and
+  `ANDROID_KEYSTORE_PASSWORD`; without them the release has no APK.
 
 ### Building against a checkout
 
@@ -192,7 +201,7 @@ metadata. From the generated project:
 
 ```sh
 cargo install cargo-apk              # once
-cargo apk run                        # build + install + launch on the device
+cargo apk run --lib                  # build + install + launch on the device
 ```
 
 Android prerequisites: SDK + NDK installed, `ANDROID_HOME`/`ANDROID_NDK_ROOT`

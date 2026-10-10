@@ -5,7 +5,11 @@
 #
 # (From a remote repository: `cargo generate --git <url> templates/app`.)
 [template]
-description = "A minimal frus application (counter)"
-# The launcher icons are binary: their bytes are not template syntax, and a PNG that happens to hold
-# something that looks like it makes `cargo generate` fail. Not processed, copied as they are.
-exclude = ["*.png"]
+description = "A frus application (counter) for desktop, Android and the web, with CI and releases"
+# Copied as they are, not read as template syntax:
+#
+# - the launcher icons are binary, and a PNG that happens to hold something that looks like
+#   template syntax makes `cargo generate` fail;
+# - the GitHub workflows are full of `${{ … }}`, which is GitHub's syntax and not ours. They
+#   read the application's name from Cargo.toml when they run instead.
+exclude = ["*.png", ".github/workflows/*.yml"]

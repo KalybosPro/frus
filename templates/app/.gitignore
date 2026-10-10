@@ -1,0 +1,6 @@
+/target
+# wasm-bindgen's output: rebuilt from the sources (see README.md, "Web").
+/web/pkg
+# Signing keys never go in the repository.
+*.keystore
+*.jks
