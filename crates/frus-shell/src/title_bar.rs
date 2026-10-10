@@ -41,12 +41,13 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetClientRect, GetWindowRect, IsZoomed, SetWindowPos, SystemParametersInfoW, HTCAPTION,
-    HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON, HTSYSMENU, HTTOP, NCCALCSIZE_PARAMS,
-    SM_CXPADDEDBORDER, SM_CYCAPTION, SM_CYSIZEFRAME, SPI_GETHIGHCONTRAST, SWP_FRAMECHANGED,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_DWMCOLORIZATIONCOLORCHANGED, WM_ERASEBKGND,
-    WM_LBUTTONUP, WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE,
-    WM_SETTINGCHANGE, WM_SIZE, WM_THEMECHANGED,
+    GetClientRect, GetWindowRect, IsZoomed, PostMessageW, SetWindowPos, SystemParametersInfoW,
+    HTCAPTION, HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON, HTSYSMENU, HTTOP, NCCALCSIZE_PARAMS,
+    SC_CLOSE, SC_MAXIMIZE, SC_MINIMIZE, SC_RESTORE, SM_CXPADDEDBORDER, SM_CYCAPTION,
+    SM_CYSIZEFRAME, SPI_GETHIGHCONTRAST, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    WM_DWMCOLORIZATIONCOLORCHANGED, WM_ERASEBKGND, WM_LBUTTONUP, WM_NCCALCSIZE, WM_NCHITTEST,
+    WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOMMAND,
+    WM_THEMECHANGED,
 };
 
 use frus_widgets::Color;
@@ -456,6 +457,36 @@ unsafe fn set_state(hwnd: HWND, hovered: Option<u32>, pressed: Option<u32>) {
     }
 }
 
+/// **The compositor's button under `at`** (client pixels), by the bounds it reports for
+/// them: minimize, maximize and close, a third each.
+///
+/// The compositor answers the hit test for its buttons itself (`DwmDefWindowProc`) — except
+/// when the window is maximized: then it reports the buttons where they are and answers
+/// nothing there, and a press on one was taken for the caption, which moves the window and
+/// does nothing else. This answers in its place, from the same bounds.
+unsafe fn button_at(hwnd: HWND, at: &POINT) -> Option<u32> {
+    let bounds = buttons(hwnd)?;
+    if !contains(&bounds, at) {
+        return None;
+    }
+    let third = (bounds.right - bounds.left).max(1) as f32 / 3.0;
+    Some(match ((at.x - bounds.left) as f32 / third) as i32 {
+        0 => HTMINBUTTON,
+        1 => HTMAXBUTTON,
+        _ => HTCLOSE,
+    })
+}
+
+/// What the system does for a release on button `code`.
+unsafe fn command_for(hwnd: HWND, code: u32) -> u32 {
+    match code {
+        HTMINBUTTON => SC_MINIMIZE,
+        HTMAXBUTTON if IsZoomed(hwnd) != 0 => SC_RESTORE,
+        HTMAXBUTTON => SC_MAXIMIZE,
+        _ => SC_CLOSE,
+    }
+}
+
 fn is_button(code: u32) -> bool {
     matches!(code, HTMINBUTTON | HTMAXBUTTON | HTCLOSE)
 }
@@ -472,6 +503,8 @@ unsafe extern "system" fn subclass(
     _id: usize,
     _data: usize,
 ) -> LRESULT {
+    // The button a press began on, before the release below clears it.
+    let pressed_before = LINE.with(|line| line.borrow().pressed);
     match msg {
         WM_NCLBUTTONDOWN if is_button(wparam as u32) => {
             set_state(hwnd, None, Some(wparam as u32));
@@ -512,6 +545,22 @@ unsafe extern "system" fn subclass(
         return answered;
     }
     match msg {
+        // A button the compositor did not answer for (a maximized window): the press is
+        // shown, and the release on the same button is the system's command, as the
+        // compositor would have sent it. Left to the default, a press would draw the old
+        // caption's button over the content.
+        WM_NCLBUTTONDOWN if is_button(wparam as u32) => 0,
+        WM_NCLBUTTONUP if is_button(wparam as u32) => {
+            if pressed_before == wparam as u32 {
+                PostMessageW(
+                    hwnd,
+                    WM_SYSCOMMAND,
+                    command_for(hwnd, wparam as u32) as WPARAM,
+                    lparam,
+                );
+            }
+            0
+        }
         // **The window's own surface is black** (milestone 643). It is the surface the
         // system keeps for what is drawn with its older drawing calls, and it lies under a
         // see-through frame: where the frame leaves the title bar's line transparent, it
@@ -560,6 +609,18 @@ unsafe extern "system" fn subclass(
             ScreenToClient(hwnd, &mut at);
             if at.y < RESIZE_EDGE && IsZoomed(hwnd) == 0 {
                 return HTTOP as LRESULT;
+            }
+            // The compositor's buttons, where it did not answer for them itself.
+            if let Some(code) = button_at(hwnd, &at) {
+                set_state(hwnd, Some(code), None);
+                let mut track = TRACKMOUSEEVENT {
+                    cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                    dwFlags: TME_LEAVE | TME_NONCLIENT,
+                    hwndTrack: hwnd,
+                    dwHoverTime: 0,
+                };
+                TrackMouseEvent(&mut track);
+                return code as LRESULT;
             }
             LINE.with(|line| {
                 let line = line.borrow();

@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 643 so far, each documenting the objective, the alternatives
+> record — one per step, 644 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -20,6 +20,19 @@ any release may break.
   signed with the repository's key and the web site, and publishes them as a GitHub release.
   The counter has the hello app's automatic mode again, a Windows release build opens no
   console, and the Android commands say `--lib`, without which cargo-apk panics.
+- **Gradients, as the reference's** (J644). `LinearGradient` (begin, end, colours, stops,
+  tile mode, rotation), `RadialGradient` (centre, radius, focal point and radius) and
+  `SweepGradient` (centre, start and end angles), with `TileMode::{Clamp, Repeated, Mirror,
+  Decal}`; `BoxDecoration::gradient` paints any of them in place of the colour. The renderer
+  bakes each gradient into a colour ramp and the rectangle shader draws all three.
+  **Changed**: `LinearGradient` is the reference's, no longer `{ end, direction }`;
+  `BoxDecoration::gradient` is an `Option<Gradient>` and replaces the colour; a gradient on one
+  side of a transition fades by its opacity.
+- **Fixed: a maximized window's title bar buttons did nothing** (Windows). Maximized, the
+  desktop compositor reports where its minimize, restore and close buttons are but does not
+  answer the hit test for them, so a press there was taken for the caption. The shell now
+  answers for them from the compositor's own bounds, and the release is the system's command
+  (`WM_SYSCOMMAND`), as the compositor sends it for a restored window.
 - **The system paints the title bar's line** (J643). On Windows 11, the line a
   `WindowMenuBar` shares is the system's own: its caption backdrop (Mica, tinted by the
   wallpaper) and its three buttons, with their own hover and press. frus draws the window's
