@@ -13,6 +13,13 @@ any release may break.
 
 ## [Unreleased]
 
+- **The application template ships to every platform.** A project made with
+  `cargo generate --path templates/app` now has a web page (`web/index.html`) and the
+  `web-release` profile, a README with each platform's run and ship commands, a CI workflow,
+  and a release workflow: a `v*` tag builds the Windows, Linux and macOS programs, the APK
+  signed with the repository's key and the web site, and publishes them as a GitHub release.
+  The counter has the hello app's automatic mode again, a Windows release build opens no
+  console, and the Android commands say `--lib`, without which cargo-apk panics.
 - **Gradients, as the reference's** (J644). `LinearGradient` (begin, end, colours, stops,
   tile mode, rotation), `RadialGradient` (centre, radius, focal point and radius) and
   `SweepGradient` (centre, start and end angles), with `TileMode::{Clamp, Repeated, Mirror,
