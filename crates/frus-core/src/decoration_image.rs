@@ -7,8 +7,8 @@
 //! whether it repeats, which part of it stretches, and whether it is mirrored.
 
 use crate::{
-    AlignmentGeometry, BoxFit, Color, ColorFilter, ImageHandle, LayerFilter, Primitive, Rect,
-    Scene, Size, TextDirection,
+    AlignmentGeometry, BlendMode, BoxFit, Color, ColorFilter, ImageHandle, LayerFilter, Primitive,
+    Rect, Scene, Size, TextDirection,
 };
 
 /// How a picture fills the room its fit leaves: once, or repeated across, down, or both
@@ -237,8 +237,8 @@ impl DecorationImage {
 
     /// The picture `t` of the way from `a` to `b` — the reference's
     /// `DecorationImage.lerp`. Two different pictures are not blended into a third: both
-    /// are painted, the second over the first, fading in. A picture on one side only
-    /// fades in or out. At `0` and `1` the answer is the end itself.
+    /// are painted, the first at `1 - t` and the second added to it at `t`. A picture on
+    /// one side only fades in or out. At `0` and `1` the answer is the end itself.
     pub fn lerp(
         a: Option<&DecorationImage>,
         b: Option<&DecorationImage>,
@@ -428,15 +428,15 @@ impl Crossfade {
     fn paint(&self, scene: &mut Scene, rect: Rect, direction: TextDirection, blend: f32) {
         match (&self.from, &self.to) {
             (Some(from), Some(to)) => {
-                // The leaving picture whole, the arriving one over it at `t`: where the
-                // arriving one is opaque, that is the reference's sum of the two at
-                // `1 - t` and `t`. As a group, so the blend fades the pair as one.
+                // The reference's sum (milestone 646): the leaving picture at `1 - t`,
+                // the arriving one **added** to it at `t`, in a group of their own so
+                // the sum is of the two pictures and not of what lies under them.
                 let start = scene.primitives().len();
-                from.paint(scene, rect, direction, 1.0);
-                to.paint(scene, rect, direction, self.t);
-                if blend < 1.0 {
-                    group(scene, start, blend, None);
-                }
+                from.paint(scene, rect, direction, blend * (1.0 - self.t));
+                scene.blended(BlendMode::Plus, |scene| {
+                    to.paint(scene, rect, direction, blend * self.t);
+                });
+                group(scene, start, 1.0, None);
             }
             (Some(from), None) => from.paint(scene, rect, direction, blend * (1.0 - self.t)),
             (None, Some(to)) => to.paint(scene, rect, direction, blend * self.t),
@@ -980,11 +980,20 @@ mod tests {
         );
         let mid = DecorationImage::lerp(Some(&a), Some(&b), 0.25).unwrap();
         assert_eq!(mid.opacity, 0.8, "the arriving picture's settings");
-        assert_eq!(tints(painted(&mid, 1.0).primitives()), vec![1.0, 0.2]);
-        // Faded as a pair, in one group.
-        let scene = painted(&mid, 0.5);
+        assert_eq!(tints(painted(&mid, 1.0).primitives()), vec![0.75, 0.2]);
+        assert_eq!(tints(painted(&mid, 0.5).primitives()), vec![0.375, 0.1]);
+        // The arriving picture added to the leaving one, the pair in a group of its own.
+        let scene = painted(&mid, 1.0);
+        let [Primitive::Layer { primitives, .. }] = scene.primitives() else {
+            panic!("one group");
+        };
         assert!(
-            matches!(scene.primitives(), [Primitive::Layer { opacity, .. }] if *opacity == 0.5)
+            matches!(primitives[0], Primitive::Image { .. }),
+            "the leaving picture"
+        );
+        assert!(
+            matches!(&primitives[1], Primitive::Layer { filter, .. } if filter.blend == Some(BlendMode::Plus)),
+            "the arriving one, added"
         );
         let leaving = DecorationImage::lerp(Some(&a), None, 0.25).unwrap();
         assert_eq!(tints(painted(&leaving, 1.0).primitives()), vec![0.75]);

@@ -215,13 +215,14 @@ Status: **done** (milestone), **to review**.
 
 | frus | reference | source | status |
 |---|---|---|---|
-| `BoxDecoration` | `BoxDecoration` | `painting/box_decoration.dart` | **in progress**: shape, sides, shadows (J641), gradients (J644) and `image` (J645) done; `backgroundBlendMode` next |
+| `BoxDecoration` | `BoxDecoration` | `painting/box_decoration.dart` | **done**: shape, sides, shadows (J641), gradients (J644), `image` (J645) and `backgroundBlendMode` (J646) |
+| `BlendMode` | `BlendMode` | `dart:ui` | **done** (J646): all 29 modes, and a layer can blend with what is under it (`LayerFilter::blend`), at the top of the frame or inside a group |
 | `BoxShadow`, `BlurStyle` | `BoxShadow`, `BlurStyle` | `painting/box_shadow.dart` | **done** (J645): `blurStyle` |
 | `Border` | `Border`, `BorderDirectional` | `painting/box_border.dart` | **done** (J641); `BorderSide::style`, `strokeAlign` left |
 | `BorderSide` | `BorderSide` | `painting/borders.dart` | to review |
 | `BorderRadius`, `BorderRadiusDirectional` | `BorderRadius`, `BorderRadiusDirectional` | `painting/border_radius.dart` | to review |
 | `LinearGradient`, `RadialGradient`, `SweepGradient` | `LinearGradient`, `RadialGradient`, `SweepGradient` | `painting/gradient.dart` | **done** (J644); `transform` beyond a rotation left |
-| `DecorationImage`, `ImageRepeat`, `apply_box_fit` | `DecorationImage`, `ImageRepeat`, `paintImage`, `applyBoxFit` | `painting/decoration_image.dart`, `painting/box_fit.dart` | **done** (J645); `filterQuality`, `isAntiAlias`, `onError` left, and a cross-over is the reference's sum only where the arriving picture is opaque (it needs J646's blending) |
+| `DecorationImage`, `ImageRepeat`, `apply_box_fit` | `DecorationImage`, `ImageRepeat`, `paintImage`, `applyBoxFit` | `painting/decoration_image.dart`, `painting/box_fit.dart` | **done** (J645; the cross-over is the reference's sum since J646); `filterQuality`, `isAntiAlias`, `onError` left |
 | `ShapeBorder` | `ShapeBorder` and its kinds, `ShapeDecoration` | `painting/*_border.dart`, `painting/shape_decoration.dart` | to review |
 | `TextStyle` | `TextStyle` | `painting/text_style.dart` | to review |
 | `Insets`, `InsetsDirectional` | `EdgeInsets`, `EdgeInsetsDirectional` | `painting/edge_insets.dart` | to review |

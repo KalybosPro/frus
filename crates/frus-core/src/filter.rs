@@ -81,6 +81,30 @@ pub enum BlendMode {
     Darken,
     /// The lighter of the two, per channel.
     Lighten,
+    /// Nothing at all: both are dropped (milestone 646, as the rest below).
+    Clear,
+    /// The destination brightened by the inverse of the source.
+    ColorDodge,
+    /// The destination darkened by the source.
+    ColorBurn,
+    /// `Multiply` where the source is dark, `Screen` where it is light: `Overlay` with
+    /// the roles swapped.
+    HardLight,
+    /// A gentler `HardLight`: darkens or lightens the destination by the source.
+    SoftLight,
+    /// The difference of the two, per channel: black where they match.
+    Difference,
+    /// Like `Difference`, with less contrast.
+    Exclusion,
+    /// The source's hue, with the destination's saturation and luminosity.
+    Hue,
+    /// The source's saturation, with the destination's hue and luminosity.
+    Saturation,
+    /// The source's hue and saturation, with the destination's luminosity: a tint that
+    /// keeps the light and shade.
+    Color,
+    /// The source's luminosity, with the destination's hue and saturation.
+    Luminosity,
 }
 
 impl BlendMode {
@@ -107,6 +131,17 @@ impl BlendMode {
             BlendMode::Overlay => 15,
             BlendMode::Darken => 16,
             BlendMode::Lighten => 17,
+            BlendMode::Clear => 18,
+            BlendMode::ColorDodge => 19,
+            BlendMode::ColorBurn => 20,
+            BlendMode::HardLight => 21,
+            BlendMode::SoftLight => 22,
+            BlendMode::Difference => 23,
+            BlendMode::Exclusion => 24,
+            BlendMode::Hue => 25,
+            BlendMode::Saturation => 26,
+            BlendMode::Color => 27,
+            BlendMode::Luminosity => 28,
         }
     }
 }
@@ -564,6 +599,12 @@ pub struct LayerFilter {
     /// A filter over what is painted **underneath**, drawn before the layer's own
     /// content. Not one of the three above: it never touches the layer's pixels.
     pub backdrop: Option<Backdrop>,
+    /// How the layer **meets what is underneath** (milestone 646): `None` paints it
+    /// over, as every layer has always been. Any other mode reads the frame painted so
+    /// far under the layer and combines the two by it, in the space colours are
+    /// written in, the way a paint's blend mode does in the reference. The layer's clip
+    /// shape is its coverage: outside it, what was there stays.
+    pub blend: Option<BlendMode>,
 }
 
 impl LayerFilter {
@@ -574,6 +615,7 @@ impl LayerFilter {
         color: None,
         mask: None,
         backdrop: None,
+        blend: None,
     };
 
     /// `true` when this layer asks for no effect, so compositing can take its
@@ -583,6 +625,7 @@ impl LayerFilter {
             && self.color.is_none()
             && self.mask.is_none()
             && self.backdrop.is_none()
+            && self.blend.is_none()
     }
 
     /// Folds `other` into this filter, keeping what is already set.
@@ -597,7 +640,15 @@ impl LayerFilter {
     /// backdrop, and the picture would quietly differ from what the two widgets read
     /// as. It shares happily with nothing at all, which is what a clip is, and that
     /// case matters: a clip around a backdrop is the shape the backdrop should take.
+    ///
+    /// A blend mode shares with nothing but nothing either. It is how the whole layer
+    /// meets what is under it, so a filter folded in beside it would be applied before
+    /// or after the blend depending on which widget it came from.
     pub fn merge(self, other: LayerFilter) -> Option<LayerFilter> {
+        let blended = |f: &LayerFilter| f.blend.is_some();
+        if (blended(&self) && !other.is_none()) || (blended(&other) && !self.is_none()) {
+            return None;
+        }
         let clash = (self.image.is_some() && other.image.is_some())
             || (self.color.is_some() && other.color.is_some())
             || (self.mask.is_some() && other.mask.is_some())
@@ -614,6 +665,7 @@ impl LayerFilter {
             color: self.color.or(other.color),
             mask: self.mask.or(other.mask),
             backdrop: self.backdrop.or(other.backdrop),
+            blend: self.blend.or(other.blend),
         })
     }
 
@@ -631,6 +683,7 @@ impl LayerFilter {
                 filter: b.filter.scaled_xy(sx, sy),
                 ..b
             }),
+            blend: self.blend,
         }
     }
 
@@ -791,6 +844,30 @@ mod tests {
         assert!(grey.merge(backdrop).is_none());
     }
 
+    /// A blend mode folds with nothing — a clip gives it its shape — and with nothing
+    /// else, in either direction.
+    #[test]
+    fn a_blend_folds_only_with_nothing() {
+        let multiply = LayerFilter {
+            blend: Some(BlendMode::Multiply),
+            ..LayerFilter::NONE
+        };
+        let grey = LayerFilter {
+            color: Some(ColorFilter::grayscale()),
+            ..LayerFilter::NONE
+        };
+        assert!(multiply.merge(grey).is_none());
+        assert!(grey.merge(multiply).is_none());
+        assert!(multiply.merge(multiply).is_none());
+        assert_eq!(LayerFilter::NONE.merge(multiply), Some(multiply));
+        assert_eq!(multiply.merge(LayerFilter::NONE), Some(multiply));
+        assert!(!multiply.is_none());
+        assert_eq!(
+            multiply.scaled_xy(2.0, 2.0).blend,
+            Some(BlendMode::Multiply)
+        );
+    }
+
     /// But it folds happily with **nothing**, and that case is the one that matters:
     /// a clip carries no filter of its own, and a clip around a backdrop is exactly
     /// how the reference tells callers to give a backdrop its shape.
@@ -825,6 +902,17 @@ mod tests {
             BlendMode::Overlay,
             BlendMode::Darken,
             BlendMode::Lighten,
+            BlendMode::Clear,
+            BlendMode::ColorDodge,
+            BlendMode::ColorBurn,
+            BlendMode::HardLight,
+            BlendMode::SoftLight,
+            BlendMode::Difference,
+            BlendMode::Exclusion,
+            BlendMode::Hue,
+            BlendMode::Saturation,
+            BlendMode::Color,
+            BlendMode::Luminosity,
         ];
         let mut codes: Vec<u32> = modes.iter().map(|m| m.code()).collect();
         codes.sort_unstable();

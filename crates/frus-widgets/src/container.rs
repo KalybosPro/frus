@@ -48,6 +48,8 @@ pub struct Container<Msg = crate::callback::Callback> {
     shape: BoxShape,
     /// A picture over the background, under the border (milestone 645).
     image: Option<DecorationImage>,
+    /// How the background meets what is under the box (milestone 646).
+    background_blend_mode: Option<frus_core::BlendMode>,
     on_click: Option<Msg>,
     on_long_press: Option<Msg>,
     /// A repaint boundary: it caches the painted subtree (see
@@ -193,6 +195,7 @@ impl<Msg> Container<Msg> {
             shadows: Vec::new(),
             shape: BoxShape::Rectangle,
             image: None,
+            background_blend_mode: None,
             on_click: None,
             on_long_press: None,
             repaint_boundary: false,
@@ -410,6 +413,14 @@ impl<Msg> Container<Msg> {
         self
     }
 
+    /// Blends the background — the colour or the gradient — with what is under the box
+    /// by `mode` rather than painting it over: a multiply that darkens the picture
+    /// behind, a colour that tints it, a difference that inverts it.
+    pub fn background_blend_mode(mut self, mode: frus_core::BlendMode) -> Self {
+        self.background_blend_mode = Some(mode);
+        self
+    }
+
     /// A drop shadow: the `(dx, dy)` offset, the blur radius and the color. Each call adds
     /// one, over those already there.
     pub fn shadow(mut self, dx: f32, dy: f32, blur: f32, color: Color) -> Self {
@@ -562,7 +573,7 @@ impl<Msg> Container<Msg> {
         self
     }
 
-    /// Sets the box's fill, gradient, picture, border, shadows and shape from a
+    /// Sets the box's fill, gradient, picture, blend mode, border, shadows and shape from a
     /// [`BoxDecoration`](frus_core::BoxDecoration) at once. What the decoration leaves unset
     /// changes nothing; the radius and the shape are always adopted.
     pub fn decoration(mut self, decoration: BoxDecoration) -> Self {
@@ -574,6 +585,9 @@ impl<Msg> Container<Msg> {
         }
         if let Some(image) = decoration.image {
             self.image = Some(image);
+        }
+        if let Some(mode) = decoration.background_blend_mode {
+            self.background_blend_mode = Some(mode);
         }
         if let Some(border) = decoration.border {
             self.border = Some(border);
@@ -691,6 +705,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             shadows: self.shadows.clone(),
             shape: self.shape,
             image: self.image.clone(),
+            background_blend_mode: self.background_blend_mode,
         };
         decoration.paint_into_in(scene, bounds, status.opacity, theme.direction);
     }

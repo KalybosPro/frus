@@ -6,13 +6,13 @@
 //! pixel it produces, not by the number handed to the renderer.
 
 use frus_core::{
-    Alignment, BlurStyle, Border, BorderSide, BoxDecoration, BoxFit, BoxShadow, BoxShape, Color,
-    ColorFilter, DecorationImage, FontWeight, Gradient, ImageRepeat, LinearGradient,
-    RadialGradient, Rect, SweepGradient, TextStyle, TileMode,
+    Alignment, BlendMode, BlurStyle, Border, BorderSide, BoxDecoration, BoxFit, BoxShadow,
+    BoxShape, Color, ColorFilter, DecorationImage, FontWeight, Gradient, ImageRepeat,
+    LinearGradient, RadialGradient, Rect, SweepGradient, TextStyle, TileMode,
 };
 use frus_test::render_widget;
 use frus_widgets::{
-    text, Container, DecoratedBoxTransition, DefaultTextStyleTransition, Flex, Theme,
+    text, Container, DecoratedBoxTransition, DefaultTextStyleTransition, Flex, Opacity, Theme,
 };
 
 fn golden(name: &str) -> String {
@@ -372,4 +372,121 @@ fn the_pictures_and_blur_styles_match_their_golden() {
     };
     assert!(shot.lit_pixels(48) > 40, "the frame is empty");
     shot.assert_golden(golden("decoration_images"));
+}
+
+/// **Backgrounds blended with what is under them** (milestone 646). Each tile is a
+/// picture in four colours with a smaller box over it whose gold background is blended
+/// into the picture. Top: multiply, screen, overlay and difference, rounded. Middle:
+/// colour, luminosity, hue and saturation, in circles. Bottom: a multiply inside a group
+/// at 70 % opacity, an exclusion and a colour burn over a gradient, and two pictures
+/// half-way through crossing over.
+#[test]
+fn the_blended_backgrounds_match_their_golden() {
+    let gold = Color::rgb(0.98, 0.80, 0.25);
+    let under = || DecorationImage::new(quarters(16)).fit(BoxFit::Fill);
+    let tile = |inner: Container<()>| {
+        Container::<()>::new()
+            .width(80.0)
+            .height(56.0)
+            .padding(10.0)
+            .decoration(BoxDecoration::default().radius(10.0).image(under()))
+            .child(inner)
+    };
+    let over = |mode: BlendMode, shape: BoxShape| {
+        let decoration = BoxDecoration::filled(gold)
+            .shape(shape)
+            .background_blend_mode(mode);
+        let decoration = if shape == BoxShape::Rectangle {
+            decoration.radius(8.0)
+        } else {
+            decoration
+        };
+        Container::<()>::new()
+            .width(60.0)
+            .height(36.0)
+            .decoration(decoration)
+    };
+    let row = |modes: [BlendMode; 4], shape: BoxShape| {
+        let mut row = Flex::<()>::row().gap(20.0);
+        for mode in modes {
+            row = row.child(tile(over(mode, shape)));
+        }
+        row
+    };
+    let top = row(
+        [
+            BlendMode::Multiply,
+            BlendMode::Screen,
+            BlendMode::Overlay,
+            BlendMode::Difference,
+        ],
+        BoxShape::Rectangle,
+    );
+    let middle = row(
+        [
+            BlendMode::Color,
+            BlendMode::Luminosity,
+            BlendMode::Hue,
+            BlendMode::Saturation,
+        ],
+        BoxShape::Circle,
+    );
+    let graded = |mode: BlendMode| {
+        Container::<()>::new()
+            .width(80.0)
+            .height(56.0)
+            .padding(10.0)
+            .decoration(
+                BoxDecoration::default()
+                    .radius(10.0)
+                    .gradient(LinearGradient::new(vec![
+                        Color::rgb(0.25, 0.45, 0.95),
+                        Color::rgb(0.95, 0.95, 0.95),
+                    ])),
+            )
+            .child(over(mode, BoxShape::Rectangle))
+    };
+    let pictures = |a: DecorationImage, b: DecorationImage| {
+        DecoratedBoxTransition::between(
+            BoxDecoration::default().radius(10.0).image(a),
+            BoxDecoration::default().radius(10.0).image(b),
+            0.5,
+            Container::<()>::new().width(80.0).height(56.0),
+        )
+    };
+    let bottom = Flex::<()>::row()
+        .gap(20.0)
+        .child(Opacity::new(
+            0.7,
+            tile(over(BlendMode::Multiply, BoxShape::Rectangle)),
+        ))
+        .child(graded(BlendMode::Exclusion))
+        .child(graded(BlendMode::ColorBurn))
+        .child(pictures(
+            under(),
+            DecorationImage::new(frame()).center_slice(Rect::new(4.0, 4.0, 4.0, 4.0)),
+        ));
+    let tree = Container::<()>::new()
+        .width(420.0)
+        .height(256.0)
+        .padding(20.0)
+        .color(Color::rgb(0.12, 0.12, 0.14))
+        .child(
+            Flex::column()
+                .gap(24.0)
+                .child(top)
+                .child(middle)
+                .child(bottom),
+        );
+    let Some(shot) = render_widget(
+        &tree,
+        420,
+        256,
+        &Theme::dark().with_platform(frus_core::TargetPlatform::Linux),
+    ) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(shot.lit_pixels(48) > 40, "the frame is empty");
+    shot.assert_golden(golden("decoration_blend_modes"));
 }
