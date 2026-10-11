@@ -520,19 +520,19 @@ fn the_drawer_account_header() {
                 .account_name("Ada Lovelace")
                 .account_email("ada@example.com")
                 .current_picture(
-                    CircleAvatar::new("Ada Lovelace")
+                    CircleAvatar::initials("Ada Lovelace")
                         .size(72.0)
-                        .color(Color::rgb8(24, 60, 40)),
+                        .background_color(Color::rgb8(24, 60, 40)),
                 )
                 .other_picture(
-                    CircleAvatar::new("Charles Babbage")
+                    CircleAvatar::initials("Charles Babbage")
                         .size(40.0)
-                        .color(Color::rgb8(24, 60, 40)),
+                        .background_color(Color::rgb8(24, 60, 40)),
                 )
                 .other_picture(
-                    CircleAvatar::new("Grace Hopper")
+                    CircleAvatar::initials("Grace Hopper")
                         .size(40.0)
-                        .color(Color::rgb8(24, 60, 40)),
+                        .background_color(Color::rgb8(24, 60, 40)),
                 )
                 .on_details_pressed(()),
         )

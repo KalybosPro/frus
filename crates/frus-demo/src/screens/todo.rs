@@ -780,7 +780,7 @@ pub(crate) fn todo_row(
             .on_click(on(move || router.push(format!("/task/{id}"))))
             .child(Hero::new(
                 id,
-                CircleAvatar::new(todo.text.clone()).size(30.0)
+                CircleAvatar::initials(todo.text.clone()).size(30.0)
             )),
         // No `spacer()` is needed — the expanding pair is what pushes the button to the
         // right edge (milestone 334).

@@ -264,6 +264,17 @@ impl Image {
         }
     }
 
+    /// The decoded pixels, once they are here: `None` while they are on their way or when
+    /// they will never come. This is how a picture loaded by `Image::memory` or
+    /// `Image::network` is painted by something other than an `Image` — a decoration, an
+    /// avatar — with the same loading and the same cache (milestone 647).
+    pub fn handle(&self) -> Option<frus_core::ImageHandle> {
+        match &self.source {
+            Source::Ready(handle) => Some(handle.clone()),
+            _ => None,
+        }
+    }
+
     fn from_source(source: Source) -> Self {
         Self {
             source,
@@ -1127,6 +1138,19 @@ mod tests {
             Primitive::Image { uv, .. } => uv,
             _ => panic!("expected an image"),
         }
+    }
+
+    /// **The pixels, once they are here**, for painting them elsewhere; none while there
+    /// are none (milestone 647).
+    #[test]
+    fn the_handle_is_the_pixels_once_here() {
+        let pixels = handle(4, 2);
+        assert_eq!(Image::new(pixels.clone()).handle(), Some(pixels));
+        assert_eq!(Image::from_source(Source::Loading).handle(), None);
+        assert_eq!(
+            Image::from_source(Source::Failed("gone".into())).handle(),
+            None
+        );
     }
 
     /// A picture that **points** is mirrored in a right-to-left reading direction, which
