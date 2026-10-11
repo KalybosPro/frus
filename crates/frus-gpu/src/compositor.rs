@@ -100,6 +100,9 @@ struct FilterParams {
     mask_geom: [f32; 4],
     mask_c0: [f32; 4],
     mask_c1: [f32; 4],
+    /// `[mode + 1, _, _, _]`: how the layer meets what is under it, `0` painting it over
+    /// (milestone 646).
+    blend: [f32; 4],
 }
 
 impl FilterParams {
@@ -146,6 +149,9 @@ impl FilterParams {
             p.mask_geom = geom;
             p.mask_c0 = c0.to_array();
             p.mask_c1 = c1.to_array();
+        }
+        if let Some(mode) = filter.blend {
+            p.blend[0] = mode.code() as f32 + 1.0;
         }
         p
     }
@@ -272,20 +278,63 @@ fn into_region(
     }
 }
 
-/// A backdrop waiting for the frame underneath it to exist: where in the draw list
-/// it sits, what to do to the pixels, and whether it shares its filtered copy.
-struct BackdropDraw {
-    /// Its index in the composite draw list. Everything before it is what it filters.
+/// A draw waiting for the frame underneath it to exist: a backdrop, or a layer that
+/// blends with what is under it. The frame is drawn up to it, read, and the draw pointed
+/// at what was read.
+struct Cut {
+    /// Its index in the composite draw list. Everything before it is what it reads.
     at: usize,
     /// The scene index of the layer it belongs to, which is how the frame is cut: the
     /// copy is taken just before the **batch** that draws that layer.
     scene: usize,
-    filter: ImageFilter,
-    /// `true` for [`frus_core::BlendMode::Src`]: the filtered copy **replaces** what
-    /// it was copied from rather than being painted over it.
-    replace: bool,
-    /// The sharing key, when several backdrops are filtered once between them.
-    key: Option<u64>,
+    kind: CutKind,
+}
+
+/// What a [`Cut`] does with the frame it reads.
+enum CutKind {
+    /// Filters it, and draws the result.
+    Backdrop {
+        filter: ImageFilter,
+        /// `true` for [`frus_core::BlendMode::Src`]: the filtered copy **replaces** what
+        /// it was copied from rather than being painted over it.
+        replace: bool,
+        /// The sharing key, when several backdrops are filtered once between them.
+        key: Option<u64>,
+    },
+    /// Copies it as it is, for the layer to blend with (milestone 646).
+    Blend,
+}
+
+/// A copy of `source`, `w × h`, to read while `source` is drawn on.
+fn copy_of(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    format: wgpu::TextureFormat,
+    source: &wgpu::Texture,
+    w: u32,
+    h: u32,
+) -> wgpu::Texture {
+    let size = wgpu::Extent3d {
+        width: w.max(1),
+        height: h.max(1),
+        depth_or_array_layers: 1,
+    };
+    let copy = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("frus.under"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("frus.encoder.under"),
+    });
+    encoder.copy_texture_to_texture(source.as_image_copy(), copy.as_image_copy(), size);
+    queue.submit(std::iter::once(encoder.finish()));
+    copy
 }
 
 /// This frame's draws, prepared once and replayed by whichever pass draws them.
@@ -450,6 +499,17 @@ impl CompositePainter {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // What is under a layer that blends with it (milestone 646).
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
                     },
                     count: None,
                 },
@@ -664,46 +724,25 @@ impl CompositePainter {
             );
         }
 
+        let white = self.white_mask_view();
         for (i, layer) in layers.iter().enumerate() {
-            self.bind_groups
-                .push(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("frus.composite.texture.bind_group"),
-                    layout: &self.texture_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&layer.view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(&self.sampler),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::TextureView(&layer.mask),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                buffer: &self.filter_buffer,
-                                offset: i as wgpu::BufferAddress * FilterParams::STRIDE,
-                                size: wgpu::BufferSize::new(
-                                    std::mem::size_of::<FilterParams>() as u64
-                                ),
-                            }),
-                        },
-                    ],
-                }));
+            let group = self.bind_group(device, i, &layer.view, &layer.mask, &white);
+            self.bind_groups.push(group);
         }
     }
 
-    /// Points draw `index` at a texture that did not exist when the frame was
-    /// prepared — which is every backdrop, since what a backdrop filters is the frame
-    /// itself and the frame is drawn after this.
-    fn rebind(&mut self, device: &wgpu::Device, index: usize, view: &wgpu::TextureView) {
-        let white = self.white_mask_view();
-        self.bind_groups[index] = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("frus.composite.texture.bind_group.backdrop"),
+    /// The bind group of draw `index`: its texture, its clip mask, its slot of the filter
+    /// buffer, and what is under it — read only by a layer that blends with it.
+    fn bind_group(
+        &self,
+        device: &wgpu::Device,
+        index: usize,
+        view: &wgpu::TextureView,
+        mask: &wgpu::TextureView,
+        under: &wgpu::TextureView,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("frus.composite.texture.bind_group"),
             layout: &self.texture_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -716,7 +755,7 @@ impl CompositePainter {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&white),
+                    resource: wgpu::BindingResource::TextureView(mask),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
@@ -726,8 +765,32 @@ impl CompositePainter {
                         size: wgpu::BufferSize::new(std::mem::size_of::<FilterParams>() as u64),
                     }),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(under),
+                },
             ],
-        });
+        })
+    }
+
+    /// Points draw `index` at a texture that did not exist when the frame was
+    /// prepared — which is every backdrop, since what a backdrop filters is the frame
+    /// itself and the frame is drawn after this.
+    fn rebind(&mut self, device: &wgpu::Device, index: usize, view: &wgpu::TextureView) {
+        let white = self.white_mask_view();
+        self.bind_groups[index] = self.bind_group(device, index, view, &white, &white);
+    }
+
+    /// Gives draw `index` — a layer that blends with what is under it — the copy of
+    /// what is under it, which exists only once the frame has been drawn that far.
+    fn rebind_under(
+        &mut self,
+        device: &wgpu::Device,
+        index: usize,
+        layer: &LayerComposite,
+        under: &wgpu::TextureView,
+    ) {
+        self.bind_groups[index] = self.bind_group(device, index, &layer.view, &layer.mask, under);
     }
 
     /// Draws a **range** of the composite list. `replace_at` names the one draw that
@@ -926,7 +989,7 @@ impl Painters {
         // layer that asks for a backdrop contributes **two** entries: the filtered
         // copy of what is underneath, and then the layer itself over it.
         let mut draws: Vec<LayerComposite> = Vec::new();
-        let mut backdrops: Vec<BackdropDraw> = Vec::new();
+        let mut cuts: Vec<Cut> = Vec::new();
         // Which composite draws each layer issues, by its index in the scene. The batch
         // planner orders layers among the content, and this is how a layer batch finds
         // the draws that belong to it.
@@ -966,12 +1029,14 @@ impl Painters {
                 // there, and the layer is painted over it. It borrows the layer's clip
                 // and shape, which is the region it applies to.
                 if let Some(backdrop) = filter.backdrop {
-                    backdrops.push(BackdropDraw {
+                    cuts.push(Cut {
                         at: draws.len(),
                         scene: scene_index,
-                        filter: backdrop.filter,
-                        replace: backdrop.blend == frus_core::BlendMode::Src,
-                        key: backdrop.key,
+                        kind: CutKind::Backdrop {
+                            filter: backdrop.filter,
+                            replace: backdrop.blend == frus_core::BlendMode::Src,
+                            key: backdrop.key,
+                        },
                     });
                     draws.push(LayerComposite {
                         // Filled in once the frame so far has actually been drawn;
@@ -986,6 +1051,14 @@ impl Painters {
                         inverse: frus_core::Affine::IDENTITY.m,
                         filter: LayerFilter::NONE,
                         region: None,
+                    });
+                } else if filter.blend.is_some() {
+                    // A layer that blends reads what is under it: the frame is cut at it
+                    // too, and the layer itself is the draw that reads.
+                    cuts.push(Cut {
+                        at: draws.len(),
+                        scene: scene_index,
+                        kind: CutKind::Blend,
                     });
                 }
                 draws.push(entry);
@@ -1041,7 +1114,7 @@ impl Painters {
             None => wgpu::LoadOp::Load,
         };
 
-        if backdrops.is_empty() {
+        if cuts.is_empty() {
             // The ordinary frame: one pass, straight into the target, exactly as it
             // was before backdrops existed.
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -1060,21 +1133,63 @@ impl Painters {
             return;
         }
 
-        // A backdrop is a filter of **what is already painted**, so the frame has to
-        // be readable half-way through. It cannot be read out of `target`: a surface
-        // texture is a render attachment and nothing else. So the frame is built in a
-        // staging texture we own, cut into segments at each backdrop, and blitted to
-        // the target at the end.
-        let stage = self
-            .stage(device, format, w, h)
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        // A backdrop is a filter of **what is already painted**, and a blended layer
+        // meets it, so the frame has to be readable half-way through. It cannot be read
+        // out of `target`: a surface texture is a render attachment and nothing else. So
+        // the frame is built in a staging texture we own, cut into segments at each
+        // backdrop and blend, and blitted to the target at the end.
+        let stage = self.stage(device, format, w, h).clone();
+        self.draw_segmented(
+            device,
+            queue,
+            format,
+            msaa_view.as_ref(),
+            &stage,
+            load,
+            &content,
+            &cuts,
+            &draws,
+        );
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("frus.encoder.blit"),
+        });
+        // And the staged frame onto the target it was always meant for.
+        let stage_view = stage.create_view(&wgpu::TextureViewDescriptor::default());
+        self.filter
+            .blit(device, queue, &mut encoder, &stage_view, target);
+        queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    /// Draws `content` into `target`, stopping at each **cut** to read what has been
+    /// drawn so far: filtered for a backdrop, copied as it is for a layer that blends
+    /// with it. The cut's draw is then pointed at what was read, and replaces what is
+    /// under it rather than painting over it. With no cuts, one pass.
+    ///
+    /// The top of the frame does this in its staging texture; a group does it in its
+    /// own, so a layer blending inside a group meets the group's own drawing.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_segmented(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+        msaa_view: Option<&wgpu::TextureView>,
+        target: &wgpu::Texture,
+        load: wgpu::LoadOp<wgpu::Color>,
+        content: &ContentPlan,
+        cuts: &[Cut],
+        draws: &[LayerComposite],
+    ) {
+        let (w, h) = (target.width(), target.height());
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
         // Backdrops sharing a key are filtered **once**: the copy is taken before the
         // first of them and every other one reads the same texture. That is what
         // turns a list of frosted rows from one full-surface blur per row into one.
         let mut shared: HashMap<u64, wgpu::Texture> = HashMap::new();
-        // The frame is cut at the **batch** that draws the backdrop's layer, because
-        // that is where "what is already painted" ends now that layers are ordered
-        // among the content rather than after it.
+        // The frame is cut at the **batch** that draws the cut's layer, because that is
+        // where "what is already painted" ends now that layers are ordered among the
+        // content rather than after it.
+        let batches = content.batches;
         let cut_at = |scene: usize| {
             batches
                 .iter()
@@ -1083,63 +1198,64 @@ impl Painters {
         };
         let mut cursor = 0usize;
         let mut first = true;
-        // Every segment after the first **starts** with a backdrop — that is what ends
-        // the segment before it — so a segment has at most one, and this is it.
+        // Every segment after the first **starts** with a cut — that is what ends the
+        // segment before it — so a segment has at most one draw that replaces, and this
+        // is it.
         let mut replace_at: Option<usize> = None;
-        for backdrop in &backdrops {
+        for cut in cuts {
             {
                 let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("frus.encoder.segment"),
                 });
                 self.pass(
                     &mut encoder,
-                    msaa_view.as_ref(),
-                    &stage,
+                    msaa_view,
+                    &view,
                     if first { load } else { wgpu::LoadOp::Load },
-                    &content,
-                    cursor..cut_at(backdrop.scene),
+                    content,
+                    cursor..cut_at(cut.scene),
                     replace_at,
                 );
-                // Submitted here and not at the end: the filter below reads the stage,
-                // and a command buffer still being recorded has not written it yet.
+                // Submitted here and not at the end: what follows reads the target, and
+                // a command buffer still being recorded has not written it yet.
                 queue.submit(std::iter::once(encoder.finish()));
             }
             first = false;
-
-            let reuse = backdrop
-                .key
-                .and_then(|k| shared.get(&k))
-                .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
-            let view = match reuse {
-                Some(view) => view,
-                None => {
-                    // Two disjoint fields of `self`: the stage is read, the filter
-                    // painter is driven. Naming them separately is what lets the
-                    // borrow checker see that.
-                    let stage_texture = &self
-                        .stage
-                        .as_ref()
-                        .expect("the stage exists whenever a backdrop is drawn")
-                        .texture;
-                    let filtered = self.filter.apply(
-                        device,
-                        queue,
-                        format,
-                        stage_texture,
-                        backdrop.filter,
-                        w,
-                        h,
-                    );
-                    let view = filtered.create_view(&wgpu::TextureViewDescriptor::default());
-                    if let Some(k) = backdrop.key {
-                        shared.insert(k, filtered);
-                    }
-                    view
+            match cut.kind {
+                CutKind::Backdrop {
+                    filter,
+                    replace,
+                    key,
+                } => {
+                    let reuse = key
+                        .and_then(|k| shared.get(&k))
+                        .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
+                    let filtered = match reuse {
+                        Some(view) => view,
+                        None => {
+                            let filtered = self
+                                .filter
+                                .apply(device, queue, format, target, filter, w, h);
+                            let view =
+                                filtered.create_view(&wgpu::TextureViewDescriptor::default());
+                            if let Some(k) = key {
+                                shared.insert(k, filtered);
+                            }
+                            view
+                        }
+                    };
+                    self.composite.rebind(device, cut.at, &filtered);
+                    replace_at = replace.then_some(cut.at);
                 }
-            };
-            self.composite.rebind(device, backdrop.at, &view);
-            cursor = cut_at(backdrop.scene);
-            replace_at = backdrop.replace.then_some(backdrop.at);
+                CutKind::Blend => {
+                    let under = copy_of(device, queue, format, target, w, h)
+                        .create_view(&wgpu::TextureViewDescriptor::default());
+                    self.composite
+                        .rebind_under(device, cut.at, &draws[cut.at], &under);
+                    replace_at = Some(cut.at);
+                }
+            }
+            cursor = cut_at(cut.scene);
         }
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -1147,16 +1263,13 @@ impl Painters {
         });
         self.pass(
             &mut encoder,
-            msaa_view.as_ref(),
-            &stage,
-            wgpu::LoadOp::Load,
-            &content,
+            msaa_view,
+            &view,
+            if first { load } else { wgpu::LoadOp::Load },
+            content,
             cursor..batches.len(),
             replace_at,
         );
-        // And the staged frame onto the target it was always meant for.
-        self.filter
-            .blit(device, queue, &mut encoder, &stage, target);
         queue.submit(std::iter::once(encoder.finish()));
     }
 
@@ -1205,10 +1318,12 @@ impl Painters {
             radii,
             inverse,
             // The image filter has already been spent, in the pre-pass; the backdrop
-            // is a draw of its own.
+            // is a draw of its own. A layer over a backdrop is painted over it: the
+            // frame is cut once at a layer, for its backdrop.
             filter: LayerFilter {
                 image: None,
                 backdrop: None,
+                blend: filter.blend.filter(|_| filter.backdrop.is_none()),
                 ..*filter
             },
             region: None,
@@ -1328,8 +1443,10 @@ impl Painters {
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
                     format,
+                    // Copied from, for a layer that blends with it.
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_SRC,
                     view_formats: &[],
                 }),
             });
@@ -1436,6 +1553,8 @@ impl Painters {
         // it back in scene order among this group's own drawing rather than after all
         // of it — the same ordering the top-level frame does.
         let mut nested_of: HashMap<usize, usize> = HashMap::new();
+        // The nested layers that blend with this group's drawing under them.
+        let mut cuts: Vec<Cut> = Vec::new();
         for (scene_index, primitive) in primitives.iter().enumerate() {
             if let Primitive::Layer {
                 primitives: inner,
@@ -1465,6 +1584,13 @@ impl Painters {
                 );
                 entry.region = region.map(|r| r.to_array());
                 nested_of.insert(scene_index, nested.len());
+                if filter.blend.is_some() && filter.backdrop.is_none() {
+                    cuts.push(Cut {
+                        at: nested.len(),
+                        scene: scene_index,
+                        kind: CutKind::Blend,
+                    });
+                }
                 nested.push(entry);
             }
         }
@@ -1485,10 +1611,12 @@ impl Painters {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            // Copied from, for a nested layer that blends with it.
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Its own size for the painters: a nested layer set them to its own.
         self.set_viewport(queue, w as f32, h as f32);
@@ -1509,54 +1637,40 @@ impl Painters {
         // single-sample texture, the one the compositor samples afterwards.
         let msaa_view = self.ensure_msaa(device, format, w, h);
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("frus.layer.encoder"),
-        });
-        {
-            let (attachment, resolve_target) = match &msaa_view {
-                Some(msaa) => (msaa, Some(&view)),
-                None => (&view, None),
-            };
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("frus.layer.pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: attachment,
-                    depth_slice: None,
-                    resolve_target,
-                    ops: wgpu::Operations {
-                        // Transparent background: a layer covers only its primitives.
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            let mut slot = 0;
-            for (i, batch) in batches.iter().enumerate() {
-                match batch.kind {
-                    batch::Kind::Rect => self.rect.draw(&mut pass, rect_ranges[i].clone()),
-                    batch::Kind::Image => self.image.draw(&mut pass, image_ranges[i].clone()),
-                    batch::Kind::Path => self.path.draw(&mut pass, path_ranges[i].clone()),
-                    batch::Kind::Text => {
-                        let base = decoration_base.start;
-                        let d = &decoration_ranges[i];
-                        self.rect.draw(&mut pass, base + d.start..base + d.end);
-                        self.text.draw(&mut pass, slot);
-                        slot += 1;
-                    }
-                    // A nested layer, in its place among this group's own drawing.
-                    batch::Kind::Layer => {
-                        if let Some(&n) = batch.members.first().and_then(|s| nested_of.get(s)) {
-                            self.composite.draw_range(&mut pass, n..n + 1, None);
-                        }
-                    }
-                }
+        // The same plan the top of the frame draws from: a nested layer in its place
+        // among this group's own drawing.
+        let mut text_slots = Vec::with_capacity(batches.len());
+        let mut slots = 0usize;
+        for batch in &batches {
+            text_slots.push(slots);
+            if batch.kind == batch::Kind::Text {
+                slots += 1;
             }
         }
-        queue.submit(std::iter::once(encoder.finish()));
+        let layer_draws: HashMap<usize, std::ops::Range<usize>> =
+            nested_of.iter().map(|(&s, &n)| (s, n..n + 1)).collect();
+        let content = ContentPlan {
+            batches: &batches,
+            rect_ranges: &rect_ranges,
+            image_ranges: &image_ranges,
+            path_ranges: &path_ranges,
+            decoration_ranges: &decoration_ranges,
+            decoration_base: decoration_base.start,
+            layer_draws: &layer_draws,
+            text_slots: &text_slots,
+        };
+        // Transparent background: a layer covers only its primitives.
+        self.draw_segmented(
+            device,
+            queue,
+            format,
+            msaa_view.as_ref(),
+            &texture,
+            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+            &content,
+            &cuts,
+            &nested,
+        );
         texture
     }
 

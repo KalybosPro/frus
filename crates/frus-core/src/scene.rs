@@ -1550,6 +1550,41 @@ impl Scene {
         });
     }
 
+    /// Adds a **blended group** (milestone 646): everything `build` emits is composited
+    /// as one, meeting what is already painted underneath by `mode` rather than being
+    /// painted over it. The group's clip is where it applies; outside it, what was
+    /// there stays.
+    pub fn blended(&mut self, mode: crate::BlendMode, build: impl FnOnce(&mut Scene)) {
+        self.blended_in(mode, ClipShape::Rect, build);
+    }
+
+    /// [`Scene::blended`] in a `shape` inscribed in the current clip: rounded corners or
+    /// an ellipse, or a path in absolute coordinates.
+    pub fn blended_in(
+        &mut self,
+        mode: crate::BlendMode,
+        shape: ClipShape,
+        build: impl FnOnce(&mut Scene),
+    ) {
+        let mut inner = Scene::new();
+        inner.current_clip = self.current_clip;
+        inner.current_owner = self.current_owner;
+        inner.current_bounds = self.current_bounds;
+        build(&mut inner);
+        self.primitives.push(Primitive::Layer {
+            primitives: inner.primitives,
+            opacity: 1.0,
+            clip: self.current_clip,
+            clip_shape: shape,
+            transform: None,
+            filter: LayerFilter {
+                blend: Some(mode),
+                ..LayerFilter::NONE
+            },
+            owner: self.current_owner,
+        });
+    }
+
     /// Adds **rich** text: resolved runs, mixing styles and colours, laid out as one
     /// piece, anchored by its top-left corner.
     pub fn rich_text(&mut self, position: Point, runs: Vec<TextRun>) {

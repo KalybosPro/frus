@@ -8,11 +8,22 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 645 so far, each documenting the objective, the alternatives
+> record — one per step, 646 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Blend modes, and backgrounds blended with what is under them** (J646).
+  `BoxDecoration::background_blend_mode` and `Container::background_blend_mode` blend the
+  colour or gradient with what is painted under the box, in its shape. `BlendMode` has the
+  reference's whole set: `Clear`, `ColorDodge`, `ColorBurn`, `HardLight`, `SoftLight`,
+  `Difference`, `Exclusion`, `Hue`, `Saturation`, `Color` and `Luminosity` are new, for
+  colour filters and masks too. A layer can blend with what is under it
+  (`LayerFilter::blend`, `Scene::blended`, `Scene::blended_in`), at the top of the frame or
+  inside a group: the renderer copies what has been drawn so far and composites the layer
+  against it, in sRGB as colours are written. Two pictures crossing over are now the
+  reference's exact sum.
+  **Changed**: `LayerFilter` has `blend`, `BoxDecoration` has `background_blend_mode`.
 - **Pictures as backgrounds, and blur styles** (J645). `DecorationImage` (fit, alignment,
   centre slice, repeat, mirroring, scale, opacity, colour filter, inversion) on
   `BoxDecoration::image` and `Container::image`, painted between the background and the

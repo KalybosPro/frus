@@ -605,6 +605,10 @@ pub struct BoxDecoration {
     /// A picture over the background, under the border, clipped to the shape
     /// (milestone 645).
     pub image: Option<DecorationImage>,
+    /// How the background — the colour or the gradient — meets what is painted under
+    /// the box (milestone 646): `None` paints it over. Nothing else of the decoration
+    /// is blended, and with no colour or gradient it has nothing to do.
+    pub background_blend_mode: Option<crate::BlendMode>,
 }
 
 /// A colour that may be absent on either side, `t` of the way across.
@@ -724,6 +728,14 @@ impl BoxDecoration {
             shape,
             // Two pictures cross over; one alone fades.
             image: DecorationImage::lerp(self.image.as_ref(), other.image.as_ref(), t),
+            // A mode does not blend into another: it changes half way, as the shape
+            // does. The reference's lerp drops it, so a blended box painted plainly
+            // through every transition.
+            background_blend_mode: if t < 0.5 {
+                self.background_blend_mode
+            } else {
+                other.background_blend_mode
+            },
         }
     }
 }
@@ -778,6 +790,13 @@ impl BoxDecoration {
     /// Paints a picture over the background, under the border.
     pub fn image(mut self, image: DecorationImage) -> Self {
         self.image = Some(image);
+        self
+    }
+
+    /// Blends the background — the colour or the gradient — with what is under the
+    /// box by `mode`, rather than painting it over.
+    pub fn background_blend_mode(mut self, mode: crate::BlendMode) -> Self {
+        self.background_blend_mode = Some(mode);
         self
     }
 
@@ -854,12 +873,19 @@ impl BoxDecoration {
         };
         let has_border = uniform.is_some_and(|b| b.is_visible());
         let image = self.image.as_ref();
-        let (fill_border_width, fill_border_color) = match image {
-            Some(_) => (0.0, Color::TRANSPARENT),
-            None => (border_width, border_color),
+        let has_background = self.color.is_some() || self.gradient.is_some();
+        // A blend other than painting over: the background goes in a group of its own.
+        let blend = self
+            .background_blend_mode
+            .filter(|m| *m != crate::BlendMode::SrcOver && has_background);
+        // Anything between the fill and the border takes the line off the fill.
+        let apart = image.is_some() || blend.is_some();
+        let (fill_border_width, fill_border_color) = if apart {
+            (0.0, Color::TRANSPARENT)
+        } else {
+            (border_width, border_color)
         };
-
-        match (self.color, &self.gradient) {
+        let fill = |scene: &mut Scene, radius: BorderRadius| match (self.color, &self.gradient) {
             (_, Some(gradient)) => scene.shaded_rect(
                 shape_rect,
                 gradient.resolve(direction),
@@ -876,7 +902,7 @@ impl BoxDecoration {
                 fill_border_color,
             ),
             // Border only, with no background: an outline over transparency.
-            (None, _) if has_border && image.is_none() => scene.draw_rect(
+            (None, _) if has_border && !apart => scene.draw_rect(
                 shape_rect,
                 Color::TRANSPARENT,
                 radius,
@@ -885,21 +911,38 @@ impl BoxDecoration {
             ),
             // Nothing to paint.
             (None, _) => {}
+        };
+
+        match blend {
+            // The background blended with what is under the box (`box_decoration.dart:413`),
+            // square, in a group whose shape is the box's: its edge is the group's
+            // coverage, so what the shape leaves out keeps what was there.
+            Some(mode) => {
+                let outer = scene.current_clip();
+                let (clip, shape) = self
+                    .shape_clip(outer, shape_rect, radius)
+                    .unwrap_or((outer.intersect(shape_rect), ClipShape::Rect));
+                scene.set_clip(clip);
+                scene.blended_in(mode, shape, |scene| fill(scene, BorderRadius::ZERO));
+                scene.set_clip(outer);
+            }
+            None => fill(scene, radius),
         }
 
-        // The picture, over the background and clipped to the shape, then the uniform
-        // border over it (`box_decoration.dart:476`).
+        // The picture, over the background and clipped to the shape
+        // (`box_decoration.dart:476`).
         if let Some(image) = image {
             self.paint_image(scene, image, rect, shape_rect, radius, direction, opacity);
-            if has_border {
-                scene.draw_rect(
-                    shape_rect,
-                    Color::TRANSPARENT,
-                    radius,
-                    border_width,
-                    border_color,
-                );
-            }
+        }
+        // Then the uniform border, when something came between it and the fill.
+        if apart && has_border {
+            scene.draw_rect(
+                shape_rect,
+                Color::TRANSPARENT,
+                radius,
+                border_width,
+                border_color,
+            );
         }
 
         // 3) A border whose sides differ.
@@ -923,27 +966,13 @@ impl BoxDecoration {
     ) {
         let start = scene.primitives().len();
         image.paint(scene, rect, direction, opacity);
-        let shape = match self.shape {
-            BoxShape::Circle => ClipShape::Oval,
-            BoxShape::Rectangle if radius != BorderRadius::ZERO => {
-                ClipShape::RRect(radius.clamped())
-            }
-            BoxShape::Rectangle => return,
+        let Some((clip, clip_shape)) = self.shape_clip(scene.current_clip(), shape_rect, radius)
+        else {
+            return;
         };
         if scene.primitives().len() == start {
             return;
         }
-        // A layer's shape is inscribed in its clip, so it is exact only when the clip is
-        // the whole shape. A box partly clipped away is clipped by its outline instead.
-        let outer = scene.current_clip();
-        let (clip, clip_shape) = if outer.intersect(shape_rect) == shape_rect {
-            (shape_rect, shape)
-        } else {
-            (
-                outer.intersect(shape_rect),
-                ClipShape::Path(ShapeBorder::rounded(radius).outline(shape_rect)),
-            )
-        };
         let primitives = scene.split_off(start);
         let owner = scene.current_owner();
         scene.push_primitive(Primitive::Layer {
@@ -955,6 +984,34 @@ impl BoxDecoration {
             filter: crate::LayerFilter::NONE,
             owner,
         });
+    }
+
+    /// The clip a layer takes to be the box's circle or rounded corners, within the
+    /// `outer` clip; `None` for square corners, which clip nothing.
+    ///
+    /// A layer's shape is inscribed in its clip, so it is exact only when the clip is
+    /// the whole shape. A box partly clipped away is clipped by its outline instead.
+    fn shape_clip(
+        &self,
+        outer: Rect,
+        shape_rect: Rect,
+        radius: BorderRadius,
+    ) -> Option<(Rect, ClipShape)> {
+        let shape = match self.shape {
+            BoxShape::Circle => ClipShape::Oval,
+            BoxShape::Rectangle if radius != BorderRadius::ZERO => {
+                ClipShape::RRect(radius.clamped())
+            }
+            BoxShape::Rectangle => return None,
+        };
+        Some(if outer.intersect(shape_rect) == shape_rect {
+            (shape_rect, shape)
+        } else {
+            (
+                outer.intersect(shape_rect),
+                ClipShape::Path(ShapeBorder::rounded(radius).outline(shape_rect)),
+            )
+        })
     }
 }
 
@@ -1809,5 +1866,137 @@ mod box_decoration_tests {
         assert!(BoxShadow::for_elevation(4.0, BLUE)
             .iter()
             .all(|s| s.blur_style == BlurStyle::Normal));
+    }
+
+    fn blended(mode: crate::BlendMode) -> BoxDecoration {
+        BoxDecoration::filled(RED).background_blend_mode(mode)
+    }
+
+    /// The background's group, and what is in it.
+    fn group(scene: &Scene) -> (Rect, ClipShape, Option<crate::BlendMode>, Vec<Primitive>) {
+        match &scene.primitives()[0] {
+            Primitive::Layer {
+                clip,
+                clip_shape,
+                filter,
+                primitives,
+                ..
+            } => (*clip, clip_shape.clone(), filter.blend, primitives.clone()),
+            other => panic!("a group, not {other:?}"),
+        }
+    }
+
+    /// **A blended background is a group in the box's shape** (`box_decoration.dart:413`),
+    /// the fill square inside it: the shape's edge is the blend's coverage.
+    #[test]
+    fn a_blended_background_is_a_group_in_the_box_shape() {
+        let multiply = crate::BlendMode::Multiply;
+        let rounded = blended(multiply).radius(6.0);
+        let (clip, shape, mode, inside) = group(&painted_clipped(&rounded, Rect::UNBOUNDED));
+        assert_eq!(clip, Rect::new(0.0, 0.0, 40.0, 20.0));
+        assert_eq!(shape, ClipShape::RRect(BorderRadius::uniform(6.0)));
+        assert_eq!(mode, Some(multiply));
+        let [Primitive::Rect {
+            radius,
+            color,
+            border_width,
+            ..
+        }] = inside.as_slice()
+        else {
+            panic!("the fill alone");
+        };
+        assert_eq!(
+            *radius,
+            BorderRadius::ZERO,
+            "square: the group gives the shape"
+        );
+        assert_eq!(*color, RED);
+        assert_eq!(*border_width, 0.0);
+
+        let circle = blended(multiply).shape(BoxShape::Circle);
+        let (clip, shape, ..) = group(&painted_clipped(&circle, Rect::UNBOUNDED));
+        assert_eq!(clip, Rect::new(10.0, 0.0, 20.0, 20.0));
+        assert_eq!(shape, ClipShape::Oval);
+
+        // Square corners: the box, held to the clip.
+        let square = blended(multiply);
+        let (clip, shape, ..) = group(&painted_clipped(&square, Rect::new(0.0, 0.0, 30.0, 50.0)));
+        assert_eq!(clip, Rect::new(0.0, 0.0, 30.0, 20.0));
+        assert_eq!(shape, ClipShape::Rect);
+
+        // Partly clipped away: by its outline.
+        let (_, shape, ..) = group(&painted_clipped(&rounded, Rect::new(0.0, 0.0, 30.0, 50.0)));
+        assert!(matches!(shape, ClipShape::Path(_)), "the outline");
+    }
+
+    /// **Only the background is blended**: the border is drawn after, over it, and the
+    /// scene's clip is given back.
+    #[test]
+    fn a_blended_background_leaves_the_border_plain() {
+        let lined = blended(crate::BlendMode::Screen).border(Border::new(2.0, BLUE));
+        let scene = painted_clipped(&lined, Rect::new(0.0, 0.0, 100.0, 100.0));
+        assert_eq!(
+            kinds(scene.primitives()),
+            vec![
+                format!("layer [rect {RED:?} 0]"),
+                format!("rect {:?} 2", Color::TRANSPARENT),
+            ]
+        );
+        assert_eq!(scene.current_clip(), Rect::new(0.0, 0.0, 100.0, 100.0));
+    }
+
+    /// **Painting over is no blend at all, and no background has nothing to blend.**
+    #[test]
+    fn an_ordinary_or_empty_background_is_not_grouped() {
+        let over = blended(crate::BlendMode::SrcOver);
+        assert_eq!(
+            kinds(painted_clipped(&over, Rect::UNBOUNDED).primitives()),
+            vec![format!("rect {RED:?} 0")]
+        );
+        let empty = BoxDecoration::default()
+            .border(Border::new(2.0, BLUE))
+            .background_blend_mode(crate::BlendMode::Multiply);
+        assert_eq!(
+            kinds(painted_clipped(&empty, Rect::UNBOUNDED).primitives()),
+            vec![format!("rect {:?} 2", Color::TRANSPARENT)]
+        );
+        let graded = BoxDecoration::default()
+            .gradient(crate::LinearGradient::new(vec![RED, BLUE]))
+            .background_blend_mode(crate::BlendMode::Multiply);
+        let (.., inside) = group(&painted_clipped(&graded, Rect::UNBOUNDED));
+        assert!(
+            matches!(
+                &inside[0],
+                Primitive::Rect {
+                    shader: Some(_),
+                    ..
+                }
+            ),
+            "a gradient is a background too"
+        );
+    }
+
+    /// **A blend mode changes half way**, as the shape does.
+    #[test]
+    fn a_blend_mode_changes_half_way() {
+        let plain = BoxDecoration::filled(RED);
+        let multiplied = blended(crate::BlendMode::Multiply);
+        assert_eq!(
+            plain
+                .clone()
+                .lerp(multiplied.clone(), 0.4)
+                .background_blend_mode,
+            None
+        );
+        assert_eq!(
+            plain.lerp(multiplied.clone(), 0.5).background_blend_mode,
+            Some(crate::BlendMode::Multiply)
+        );
+        assert_eq!(
+            multiplied
+                .lerp(BoxDecoration::filled(RED), 0.4)
+                .background_blend_mode,
+            Some(crate::BlendMode::Multiply)
+        );
     }
 }

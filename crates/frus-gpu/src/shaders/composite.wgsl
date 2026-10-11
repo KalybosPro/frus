@@ -47,10 +47,17 @@ struct FilterParams {
     mask_geom: vec4<f32>,
     mask_c0: vec4<f32>,
     mask_c1: vec4<f32>,
+    // (blend mode + 1, _, _, _): how the layer meets what is under it; 0 paints it over
+    // (milestone 646).
+    blend: vec4<f32>,
 };
 
 @group(1) @binding(3)
 var<uniform> fx: FilterParams;
+// What is painted under the layer, for a layer that blends with it: a copy of the
+// target so far. Opaque white for every other layer, and never read by them.
+@group(1) @binding(4)
+var under_tex: texture_2d<f32>;
 
 struct VertexInput {
     @location(0) unit_pos: vec2<f32>,
@@ -132,6 +139,11 @@ fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     return select(higher, lower, c <= vec3<f32>(0.04045));
 }
 
+// The ends of a channel, give or take far less than one 8-bit step: a value read back
+// from an sRGB target is decoded and encoded again, and 1.0 comes back as 0.99999. The
+// dodge and the burn turn on those ends exactly (milestone 646).
+const EDGE: f32 = 1e-4;
+
 // One channel of a separable blend, on **straight** values.
 fn separable(sc: f32, dc: f32, mode: u32) -> f32 {
     if (mode == 13u) {                      // Multiply
@@ -145,8 +157,91 @@ fn separable(sc: f32, dc: f32, mode: u32) -> f32 {
         return 1.0 - 2.0 * (1.0 - sc) * (1.0 - dc);
     } else if (mode == 16u) {               // Darken
         return min(sc, dc);
+    } else if (mode == 17u) {               // Lighten
+        return max(sc, dc);
+    } else if (mode == 19u) {               // ColorDodge
+        if (dc <= EDGE) {
+            return 0.0;
+        }
+        if (sc >= 1.0 - EDGE) {
+            return 1.0;
+        }
+        return min(1.0, dc / (1.0 - sc));
+    } else if (mode == 20u) {               // ColorBurn
+        if (dc >= 1.0 - EDGE) {
+            return 1.0;
+        }
+        if (sc <= EDGE) {
+            return 0.0;
+        }
+        return 1.0 - min(1.0, (1.0 - dc) / sc);
+    } else if (mode == 21u) {               // HardLight: Overlay with the roles swapped
+        if (sc <= 0.5) {
+            return 2.0 * sc * dc;
+        }
+        return 1.0 - 2.0 * (1.0 - sc) * (1.0 - dc);
+    } else if (mode == 22u) {               // SoftLight
+        if (sc <= 0.5) {
+            return dc - (1.0 - 2.0 * sc) * dc * (1.0 - dc);
+        }
+        var d = sqrt(dc);
+        if (dc <= 0.25) {
+            d = ((16.0 * dc - 12.0) * dc + 4.0) * dc;
+        }
+        return dc + (2.0 * sc - 1.0) * (d - dc);
+    } else if (mode == 23u) {               // Difference
+        return abs(sc - dc);
     }
-    return max(sc, dc);                     // 17 Lighten
+    return sc + dc - 2.0 * sc * dc;         // 24 Exclusion
+}
+
+// The non-separable modes' helpers: luminosity, saturation, and setting each while
+// keeping the colour in gamut.
+fn lum(c: vec3<f32>) -> f32 {
+    return dot(c, vec3<f32>(0.3, 0.59, 0.11));
+}
+
+fn clip_color(c: vec3<f32>) -> vec3<f32> {
+    let l = lum(c);
+    let n = min(min(c.r, c.g), c.b);
+    let x = max(max(c.r, c.g), c.b);
+    var o = c;
+    if (n < 0.0) {
+        o = vec3<f32>(l) + (o - vec3<f32>(l)) * l / max(l - n, 1e-6);
+    }
+    if (x > 1.0) {
+        o = vec3<f32>(l) + (o - vec3<f32>(l)) * (1.0 - l) / max(x - l, 1e-6);
+    }
+    return o;
+}
+
+fn set_lum(c: vec3<f32>, l: f32) -> vec3<f32> {
+    return clip_color(c + vec3<f32>(l - lum(c)));
+}
+
+fn sat(c: vec3<f32>) -> f32 {
+    return max(max(c.r, c.g), c.b) - min(min(c.r, c.g), c.b);
+}
+
+fn set_sat(c: vec3<f32>, s: f32) -> vec3<f32> {
+    let lo = min(min(c.r, c.g), c.b);
+    let hi = max(max(c.r, c.g), c.b);
+    if (hi > lo) {
+        return (c - vec3<f32>(lo)) * s / (hi - lo);
+    }
+    return vec3<f32>(0.0);
+}
+
+// One of the four non-separable modes, on **straight** colours.
+fn non_separable(sc: vec3<f32>, dc: vec3<f32>, mode: u32) -> vec3<f32> {
+    if (mode == 25u) {                      // Hue
+        return set_lum(set_sat(sc, sat(dc)), lum(dc));
+    } else if (mode == 26u) {               // Saturation
+        return set_lum(set_sat(dc, sat(sc)), lum(dc));
+    } else if (mode == 27u) {               // Color
+        return set_lum(sc, lum(dc));
+    }
+    return set_lum(dc, lum(sc));            // 28 Luminosity
 }
 
 // `src` over `dst` under `mode`, both **premultiplied**. The Porter-Duff modes are
@@ -175,14 +270,22 @@ fn blend(src: vec4<f32>, dst: vec4<f32>, mode: u32) -> vec4<f32> {
     if (mode == 12u) {                                               // Modulate
         return src * dst;
     }
-    // The separable set: unpremultiply, blend per channel, recompose.
+    if (mode == 18u) {                                               // Clear
+        return vec4<f32>(0.0);
+    }
+    // The separable set and the four that are not: unpremultiply, blend, recompose.
     let sc = select(src.rgb / sa, vec3<f32>(0.0), sa <= 0.0);
     let dc = select(dst.rgb / da, vec3<f32>(0.0), da <= 0.0);
-    let b = vec3<f32>(
-        separable(sc.r, dc.r, mode),
-        separable(sc.g, dc.g, mode),
-        separable(sc.b, dc.b, mode),
-    );
+    var b: vec3<f32>;
+    if (mode >= 25u) {
+        b = non_separable(sc, dc, mode);
+    } else {
+        b = vec3<f32>(
+            separable(sc.r, dc.r, mode),
+            separable(sc.g, dc.g, mode),
+            separable(sc.b, dc.b, mode),
+        );
+    }
     let rgb = (1.0 - da) * src.rgb + (1.0 - sa) * dst.rgb + sa * da * b;
     return vec4<f32>(rgb, sa + da - sa * da);
 }
@@ -261,11 +364,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let mask_a = textureSample(mask, samp, in.uv).a;
     let inside_clip = clip_cov * mask_a;
     let sample = textureSample(tex, samp, src_uv);
+    // What is under the layer, read here, ahead of any branch: a blend needs it.
+    let under = textureSample(under_tex, samp, in.uv);
     // The group opacity and every coverage term, as one factor.
     let cover = in.opacity * inside_clip * in_bounds;
     let color_kind = fx.flags.x;
     let mask_kind = fx.flags.y;
-    if (color_kind < 0.5 && mask_kind < 0.5) {
+    let blending = fx.blend.x > 0.5;
+    if (!blending && color_kind < 0.5 && mask_kind < 0.5) {
         // The overwhelmingly common case: no filter at all.
         //
         // The layer texture is **premultiplied** — it was painted over a transparent
@@ -306,6 +412,23 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let dst = vec4<f32>(c.rgb * c.a, c.a);
         let out = blend(src, dst, u32(fx.flags.w));
         c = vec4<f32>(select(out.rgb / out.a, vec3<f32>(0.0), out.a <= 0.0), out.a);
+    }
+
+    if (blending) {
+        // The layer meets what is under it by its mode (milestone 646), both
+        // premultiplied and sRGB-encoded, as colours are written. The opacity belongs
+        // to the layer's colour; the clip's edge is coverage, so what the clip leaves
+        // out keeps what was there. This draw replaces the target, so the result is the
+        // whole of the pixel.
+        let s = vec4<f32>(c.rgb * c.a, c.a) * in.opacity;
+        let ua = under.a;
+        let us = select(under.rgb / ua, vec3<f32>(0.0), ua <= 0.0);
+        let d = vec4<f32>(linear_to_srgb(us) * ua, ua);
+        let r = blend(s, d, u32(round(fx.blend.x)) - 1u);
+        let o = mix(d, r, inside_clip * in_bounds);
+        let os = select(o.rgb / o.a, vec3<f32>(0.0), o.a <= 0.0);
+        let ol = srgb_to_linear(clamp(os, vec3<f32>(0.0), vec3<f32>(1.0)));
+        return vec4<f32>(ol * o.a, o.a);
     }
 
     // Back to premultiplied linear, in the same convention as the fast path above.
