@@ -637,11 +637,11 @@ fn table_widget_cells_matches_golden() {
         .column_widths(&[70.0])
         .header(&["User", "Role"])
         .widget_row(vec![
-            Box::new(|| Box::new(CircleAvatar::new("Ada").size(26.0))),
+            Box::new(|| Box::new(CircleAvatar::initials("Ada").size(26.0))),
             Box::new(|| Box::new(Chip::<()>::new("admin"))),
         ])
         .widget_row(vec![
-            Box::new(|| Box::new(CircleAvatar::new("Bo").size(26.0))),
+            Box::new(|| Box::new(CircleAvatar::initials("Bo").size(26.0))),
             Box::new(|| Box::new(Chip::<()>::new("editor"))),
         ]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
@@ -667,7 +667,7 @@ fn table_adaptive_rows_matches_golden() {
         .column_widths(&[70.0])
         .header(&["User", "Role"])
         .widget_row(vec![
-            Box::new(|| Box::new(CircleAvatar::new("Ada").size(48.0))),
+            Box::new(|| Box::new(CircleAvatar::initials("Ada").size(48.0))),
             Box::new(|| Box::new(Chip::<()>::new("admin"))),
         ])
         .row(&["Bo", "editor"]);
@@ -860,7 +860,7 @@ fn table_virtual_widgets_matches_golden() {
         .header(&["User", "Tag"])
         .virtual_widget_rows(500, 130.0, |i| {
             vec![
-                Box::new(CircleAvatar::new(format!("U{i}")).size(26.0))
+                Box::new(CircleAvatar::initials(format!("U{i}")).size(26.0))
                     as Box<dyn frus_widgets::Widget<()>>,
                 Box::new(Chip::<()>::new(format!("tag {}", i + 1))),
             ]

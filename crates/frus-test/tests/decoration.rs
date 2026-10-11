@@ -12,7 +12,8 @@ use frus_core::{
 };
 use frus_test::render_widget;
 use frus_widgets::{
-    text, Container, DecoratedBoxTransition, DefaultTextStyleTransition, Flex, Opacity, Theme,
+    text, CircleAvatar, Container, DecoratedBoxTransition, DefaultTextStyleTransition, Flex, Icon,
+    Icons, Opacity, Theme,
 };
 
 fn golden(name: &str) -> String {
@@ -489,4 +490,63 @@ fn the_blended_backgrounds_match_their_golden() {
     };
     assert!(shot.lit_pixels(48) > 40, "the frame is empty");
     shot.assert_golden(golden("decoration_blend_modes"));
+}
+
+/// **Avatars, as the reference's** (milestone 647). Top: initials at the default radius;
+/// an icon, its colour from the avatar; initials on a colour given; and two letters in a
+/// large circle, still in the title's type. Bottom: a background picture; a foreground
+/// picture over initials; a foreground picture still on its way, which leaves the
+/// background picture showing; and an avatar between a minimum and a maximum radius,
+/// as big as its child: 52 across.
+#[test]
+fn the_avatars_match_their_golden() {
+    let row = |avatars: Vec<Box<dyn frus_widgets::Widget<()>>>| {
+        let mut row = Flex::<()>::row().gap(28.0);
+        for avatar in avatars {
+            row = row.child(avatar);
+        }
+        row
+    };
+    let top = row(vec![
+        Box::new(CircleAvatar::initials("Ada Lovelace")),
+        Box::new(CircleAvatar::new().child(Icon::new(Icons::PERSON))),
+        Box::new(
+            CircleAvatar::initials("Grace Hopper")
+                .background_color(Color::rgb(0.55, 0.20, 0.25))
+                .foreground_color(Color::WHITE),
+        ),
+        Box::new(CircleAvatar::initials("Charles Babbage").radius(32.0)),
+    ]);
+    let bottom = row(vec![
+        Box::new(CircleAvatar::new().background_image(quarters(16))),
+        Box::new(CircleAvatar::initials("Ada").foreground_image(frame())),
+        Box::new(
+            CircleAvatar::initials("Bo")
+                .background_image(quarters(16))
+                .foreground_image(None),
+        ),
+        Box::new(
+            CircleAvatar::new()
+                .min_radius(12.0)
+                .max_radius(40.0)
+                .child(Container::new().width(52.0).height(52.0)),
+        ),
+    ]);
+    let tree = Container::<()>::new()
+        .width(340.0)
+        .height(200.0)
+        .padding(20.0)
+        .color(Color::rgb(0.12, 0.12, 0.14))
+        .child(Flex::column().gap(24.0).child(top).child(bottom));
+    let Some(shot) = render_widget(
+        &tree,
+        340,
+        200,
+        &Theme::dark().with_platform(frus_core::TargetPlatform::Linux),
+    ) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(shot.lit_pixels(48) > 40, "the frame is empty");
+    shot.assert_golden(golden("avatars"));
 }

@@ -28,7 +28,7 @@ impl StatelessWidget for TaskPage {
             // Deleted while its screen was open: say so rather than show an empty page.
             None => ("This task no longer exists.".to_string(), false),
         };
-        let avatar = Hero::new(id, CircleAvatar::new(label.clone()).size(96.0));
+        let avatar = Hero::new(id, CircleAvatar::initials(label.clone()).size(96.0));
         let state = if done { "Done" } else { "Still to do" };
         // **The words follow the picture in.** `entering` is the route's own progress, handed
         // to the page at the same time as it is handed to the navigator — an explicit

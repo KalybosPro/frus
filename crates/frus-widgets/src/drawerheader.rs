@@ -13,7 +13,7 @@
 //!         UserAccountsDrawerHeader::new()
 //!             .account_name("Ada Lovelace")
 //!             .account_email("ada@example.com")
-//!             .current_picture(CircleAvatar::new("AL")),
+//!             .current_picture(CircleAvatar::initials("AL")),
 //!     )
 //!     .item("in", "Inbox")
 //! ```
@@ -782,10 +782,10 @@ mod tests {
         let theme = Theme::default();
         let header = UserAccountsDrawerHeader::<Msg>::new()
             .account_name("Ada")
-            .other_picture(crate::CircleAvatar::new("A"))
-            .other_picture(crate::CircleAvatar::new("B"))
-            .other_picture(crate::CircleAvatar::new("C"))
-            .other_picture(crate::CircleAvatar::new("D"));
+            .other_picture(crate::CircleAvatar::initials("A"))
+            .other_picture(crate::CircleAvatar::initials("B"))
+            .other_picture(crate::CircleAvatar::initials("C"))
+            .other_picture(crate::CircleAvatar::initials("D"));
         header.build_themed(&theme);
         let mut found = Vec::new();
         find(&header, "CircleAvatar", &mut found);

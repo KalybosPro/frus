@@ -8,11 +8,24 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 646 so far, each documenting the objective, the alternatives
+> record — one per step, 647 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **`CircleAvatar`, as the reference's** (J647). Any child, centred, its text in the
+  theme's `title_medium` and its icons in the avatar's foreground colour, unscaled by the
+  reader's font size; the scheme's `primary_container` and `on_primary_container` by
+  default; a background and a foreground picture, each covering the circle, the
+  foreground falling back to the background while it is on its way; `radius`,
+  `min_radius` and `max_radius`, a radius of 20 by default; a colour or a radius given
+  changes over 200 ms. New: `Image::handle`, the decoded pixels of an `Image::memory` or
+  `Image::network`, for painting them elsewhere.
+  **Changed**: `CircleAvatar::new(name)` is `CircleAvatar::initials(name)`, and `new()`
+  makes an empty avatar to give a `child`; `color` is `background_color`; the default
+  size is 40 (was 36), the colours are the container pair (were `primary` and
+  `on_primary`), and the initials are the title's size (were two fifths of the diameter).
+  `CircleAvatar` takes the message type of its child.
 - **Blend modes, and backgrounds blended with what is under them** (J646).
   `BoxDecoration::background_blend_mode` and `Container::background_blend_mode` blend the
   colour or gradient with what is painted under the box, in its shape. `BlendMode` has the

@@ -226,7 +226,7 @@ pub use asyncbuild::{
 };
 pub use autocomplete::Autocomplete;
 pub use autofill::{AutofillGroup, AutofillHint};
-pub use avatar::CircleAvatar;
+pub use avatar::{CircleAvatar, AVATAR_RADIUS};
 pub use badge::Badge;
 pub use banner::{MaterialBanner, BANNER_ELEVATION, BANNER_MIN_ACTION_BAR_HEIGHT};
 pub use barrier::{

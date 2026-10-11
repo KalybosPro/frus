@@ -79,7 +79,7 @@ Status: **done** (milestone), **to review**.
 | `VerticalDivider` | `VerticalDivider` | `material/divider.dart` | to review |
 | `ListTile` | `ListTile` | `material/list_tile.dart` | to review |
 | `Chip` | `Chip` | `material/chip.dart` | to review |
-| `CircleAvatar` | `CircleAvatar` | `material/circle_avatar.dart` | to review |
+| `CircleAvatar` | `CircleAvatar` | `material/circle_avatar.dart` | **done** (J647): any child, the container colours, background and foreground pictures, radius bounds, animated colour and radius; `onBackgroundImageError` and `onForegroundImageError` left (`Image::error` answers) |
 | `Dialog` | `Dialog` | `material/dialog.dart` | to review |
 | `Alert` | `AlertDialog` | `material/dialog.dart` | to review |
 | `BottomSheet` | `BottomSheet` | `material/bottom_sheet.dart` | to review |
@@ -231,6 +231,6 @@ Status: **done** (milestone), **to review**.
 
 ## Order
 
-Done since: the menu bar on the title bar's line (J640), the window's and not a page's (J642). Next: `BoxDecoration` (and what
-it is made of),
-`CircleAvatar`; then the rest of the form controls and the sections above in order.
+Done since: the menu bar on the title bar's line (J640), the window's and not a page's (J642),
+`BoxDecoration` and what it is made of (J641, J644-J646), `CircleAvatar` (J647). Next: the
+rest of the form controls, then the sections above in order.
