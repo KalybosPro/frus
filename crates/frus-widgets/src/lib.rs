@@ -528,6 +528,38 @@ pub use frus_core::{
 // `frus_core::Status`, an animation's progress, is renamed so it does not shadow the
 // interaction `Status`, which is paint state: hover, press, focus and so on.
 pub use frus_core::Status as AnimationStatus;
+/// A picture painted as a background, and the reference's fitting.
+pub use frus_core::{
+    apply_box_fit, DecorationImage, FittedSizes, ImagePiece, ImageRepeat, MAX_IMAGE_TILES,
+};
+/// The image stores, for an application that loads its own pictures or sizes the cache.
+pub use frus_core::{
+    cached, fetched, forget_cached_images, forget_fetched_images, image_cache_budget,
+    image_cache_bytes, set_image_cache_budget, Fetched, DEFAULT_IMAGE_CACHE_BYTES,
+};
+/// What a decoration is made of — its shape, its sides, its border's two forms, its
+/// shadows' blur — and the shapes a border can take.
+pub use frus_core::{
+    paint_elevation, BlurStyle, BorderDirectional, BorderRadiusDirectional, BorderSide, BoxBorder,
+    BoxShape, ShapeBorder,
+};
+/// The rest of the animation layer: tweens chained and curved, the scroll simulations and
+/// their constants.
+pub use frus_core::{
+    Animatable, Animation, BouncingScrollSimulation, ClampingScrollSimulation, Curved,
+    PolynomialFit, TweenSequence, BOUNCING_DRAG, CLAMPING_FRICTION, MAX_SPRING_TRANSFER_VELOCITY,
+};
+/// The three gradients and how they tile.
+pub use frus_core::{Gradient, RadialGradient, SweepGradient, TileMode};
+/// What a layer does at compositing, for painting a scene by hand.
+pub use frus_core::{LayerFilter, LayerTransform, MaskShader, PathGradient, Stroke, TextBlock};
+// `frus_core::ShaderMask`, a layer's mask, is renamed so it does not shadow the
+// `ShaderMask` widget.
+pub use frus_core::ShaderMask as LayerShaderMask;
+/// Colour science: the tone-based space the schemes are made in, and the surface tint.
+pub use frus_core::{surface_tint_opacity, Hct, TonalPalette};
+/// Type as the renderer receives it, and the framework's defaults.
+pub use frus_core::{ResolvedTextStyle, TextRun, DEFAULT_LINE_HEIGHT, DEFAULT_TEXT_SIZE};
 
 /// The image stores and the two things a host has to name: a decoder is chosen by the
 /// `images` feature, and the **fetcher** is registered by whoever has a network. See

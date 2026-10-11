@@ -13,6 +13,16 @@ any release may break.
 
 ## [Unreleased]
 
+- **Fixed: the painting types could not be named from `frus`.** `BoxShape`, `BoxBorder`,
+  `BorderSide`, `BorderDirectional`, `BorderRadiusDirectional`, `ShapeBorder`, `BlurStyle`,
+  the three gradients and `TileMode`, `DecorationImage` and `ImageRepeat`, `LayerFilter`
+  and the rest of what a scene painted by hand needs, the image cache's controls, the
+  remaining animation types and `Hct` were public in `frus-core` and re-exported nowhere,
+  so an application depending on `frus` alone could not build a circular decoration. They
+  are re-exported now; the core's layer mask is `LayerShaderMask`, beside the
+  `ShaderMask` widget. A test reads the two crates' export lists and fails on any public
+  item of the core that `frus` cannot reach, other than a short list kept internal with
+  its reasons.
 - **`CircleAvatar`, as the reference's** (J647). Any child, centred, its text in the
   theme's `title_medium` and its icons in the avatar's foreground colour, unscaled by the
   reader's font size; the scheme's `primary_container` and `on_primary_container` by
