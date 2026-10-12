@@ -6114,14 +6114,17 @@ impl<A: Application> App<A> {
     /// `on_drag` about where the pointer finished would be a slider that settles
     /// somewhere its own final message never mentioned.
     fn dispatch_drag_edge(&mut self, id: WidgetId, rect: frus_widgets::Rect, edge: Edge) {
-        let fraction = drag_fraction(rect, self.cursor.x);
+        let (x, rtl) = (self.cursor.x, self.is_rtl());
         let message = self
             .tree
             .as_ref()
             .and_then(|tree| find_widget(tree.as_ref(), id))
-            .and_then(|widget| match edge {
-                Edge::Start => widget.on_drag_start(fraction),
-                Edge::End => widget.on_drag_end(fraction),
+            .and_then(|widget| {
+                let fraction = widget.drag_track().fraction(rect, x, rtl);
+                match edge {
+                    Edge::Start => widget.on_drag_start(fraction),
+                    Edge::End => widget.on_drag_end(fraction),
+                }
             });
         if let Some(message) = message {
             self.dispatch(message);
@@ -6129,9 +6132,9 @@ impl<A: Application> App<A> {
     }
 
     fn apply_widget_drag(&mut self, id: WidgetId, rect: frus_widgets::Rect, dx: f32) {
-        let fraction = drag_fraction(rect, self.cursor.x);
+        let (x, rtl) = (self.cursor.x, self.is_rtl());
         // An accumulating handle, taking a delta, first; otherwise a slider's absolute
-        // fraction.
+        // fraction, along the travel the widget names (milestone 648).
         let message = self
             .tree
             .as_ref()
@@ -6139,7 +6142,7 @@ impl<A: Application> App<A> {
             .and_then(|widget| {
                 widget
                     .on_drag_delta(dx)
-                    .or_else(|| widget.on_drag(fraction))
+                    .or_else(|| widget.on_drag(widget.drag_track().fraction(rect, x, rtl)))
             });
         if let Some(message) = message {
             self.dispatch(message);
@@ -7481,18 +7484,6 @@ fn collapsed_to_end(edit: Edit) -> Edit {
 enum Edge {
     Start,
     End,
-}
-
-/// Where along `rect` the pointer sits, as a 0..=1 fraction.
-///
-/// One function, used by the start, every move and the end alike: three copies of this
-/// arithmetic would agree on every slider until one of them did not.
-fn drag_fraction(rect: frus_widgets::Rect, x: f32) -> f32 {
-    if rect.width > 0.0 {
-        ((x - rect.x) / rect.width).clamp(0.0, 1.0)
-    } else {
-        0.0
-    }
 }
 
 /// Was the gesture that just ended **still a tap**?

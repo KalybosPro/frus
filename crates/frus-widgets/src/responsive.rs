@@ -420,6 +420,11 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
     fn draggable(&self) -> bool {
         self.inner.as_ref().is_some_and(|w| w.draggable())
     }
+    fn drag_track(&self) -> crate::widget::DragTrack {
+        self.inner
+            .as_ref()
+            .map_or(crate::widget::DragTrack::WHOLE, |w| w.drag_track())
+    }
 
     fn on_drag(&self, fraction: f32) -> Option<Msg> {
         self.inner.as_ref().and_then(|w| w.on_drag(fraction))

@@ -401,6 +401,9 @@ macro_rules! forward_transparent {
             fn draggable(&self) -> bool {
                 self.inner.draggable()
             }
+            fn drag_track(&self) -> crate::widget::DragTrack {
+                self.inner.drag_track()
+            }
 
             fn on_drag(&self, fraction: f32) -> Option<Msg> {
                 self.inner.on_drag(fraction)

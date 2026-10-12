@@ -10,6 +10,7 @@ use crate::flex::Flex;
 use crate::interaction::{Key, KeyResponse, Status};
 use crate::theme::Theme;
 use crate::widget::Widget;
+use crate::widgetstate::{WidgetState, WidgetStateProperty};
 
 /// The height of the value tooltip (above the thumbs) and its gap from the track.
 const TIP_H: f32 = 20.0;
@@ -76,23 +77,70 @@ fn paint_thumb_shadow(
     );
 }
 
-/// A linear slider over `min..=max`, **controlled** and draggable.
+/// The reference's 2023 slider (milestone 648): a 4-pixel track, 2 more for the travelled
+/// part, a 20-pixel thumb, a 48-pixel halo, all inset by the halo's radius at each end.
+const TRACK_HEIGHT: f32 = 4.0;
+const ACTIVE_EXTRA: f32 = 2.0;
+const THUMB_RADIUS: f32 = 10.0;
+const OVERLAY_RADIUS: f32 = 24.0;
+/// The reference's shortest track: three touch targets.
+const MIN_TRACK: f32 = 144.0;
+/// The default width, where the room cannot be given: what the slider has always been.
+const DEFAULT_WIDTH: f32 = 220.0;
+
+/// When a slider shows its **value indicator** — the reference's `ShowValueIndicator`.
+///
+/// The indicator is the label a [`Slider::value_label`] formats, in a drop over the thumb.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ShowValueIndicator {
+    /// While it is dragged or focused, on a slider with divisions only — the default.
+    #[default]
+    OnlyForDiscrete,
+    /// While it is dragged or focused, on a slider without divisions only.
+    OnlyForContinuous,
+    /// While it is dragged or focused, whatever the slider.
+    OnDrag,
+    /// All the time.
+    AlwaysVisible,
+    /// Never.
+    Never,
+}
+
+/// A linear slider over `min..=max`, **controlled** and draggable — the reference's
+/// `Slider`.
+///
+/// It takes the width it is offered, as the reference's does, and is as tall as its halo:
+/// 48. The track is inset by the halo's radius at each end, so the thumb reaches both ends
+/// without leaving the box. In a right-to-left reading direction it runs from the right.
+///
+/// The defaults are the reference's 2023 design: the scheme's `primary` for the
+/// travelled part and the thumb, `surface_container_highest` for the rest; tick marks on
+/// a slider with [`divisions`](Self::divisions); a halo on hover, focus and drag; and the
+/// value, when [`value_label`](Self::value_label) formats one, in a drop above the thumb
+/// while it is moved — on a slider with divisions, unless
+/// [`show_value_indicator`](Self::show_value_indicator) says otherwise.
 pub struct Slider<Msg = crate::callback::Callback> {
     value: f32,
+    secondary: Option<f32>,
     min: f32,
     max: f32,
     width: f32,
+    sized: bool,
     divisions: Option<usize>,
-    /// The **value tooltip** formatter: a bubble above the thumb, on hover or focus.
+    /// Formats the value for the indicator over the thumb.
     label: Option<Rc<dyn Fn(f32) -> String>>,
+    /// Formats the value for a screen reader, when it should hear it otherwise.
+    semantic_label: Option<Rc<dyn Fn(f32) -> String>>,
+    show_value_indicator: Option<ShowValueIndicator>,
     enabled: bool,
     colors: SliderColors,
+    overlay_color: Option<WidgetStateProperty<Color>>,
     thumb_elevation: Option<f32>,
     pressed_thumb_elevation: Option<f32>,
     on_change: Option<Box<dyn Fn(f32) -> Msg>>,
-    /// Sent once when a drag begins, before the first `on_change`.
+    /// Sent once, when a drag begins.
     on_change_start: Option<Box<dyn Fn(f32) -> Msg>>,
-    /// Sent once when it ends, after the last one.
+    /// Sent once, when it ends.
     on_change_end: Option<Box<dyn Fn(f32) -> Msg>>,
 }
 
@@ -102,37 +150,78 @@ pub struct Slider<Msg = crate::callback::Callback> {
 pub(crate) struct SliderColors {
     pub active_track: Option<Color>,
     pub inactive_track: Option<Color>,
+    pub secondary_track: Option<Color>,
     pub thumb: Option<Color>,
     pub thumb_border: Option<Color>,
 }
 
+/// Everything a slider paints with, resolved.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Palette {
+    active: Color,
+    inactive: Color,
+    secondary: Color,
+    thumb: Color,
+    ring: Option<Color>,
+    active_tick: Color,
+    inactive_tick: Color,
+}
+
 impl SliderColors {
-    /// The four colours a live slider paints with: rail, travelled, thumb, ring.
-    fn resolve(&self, theme: &Theme) -> (Color, Color, Color, Color) {
-        // The rail is a filled track, not an edge, so its default is a **container**
-        // rather than an outline -- and the reference names which one: the secondary
-        // container, the role that carries a live-but-quiet fill and stays clear of the
-        // 12 % a disabled rail lands on.
-        let rail = self
-            .inactive_track
-            .or(theme.widgets.slider.inactive_track_color)
-            .unwrap_or(theme.scheme.secondary_container);
-        let filled = self
+    /// The reference's resolution, each colour the widget's, then the theme's, then the
+    /// 2023 default; disabled, the theme's disabled colours or the framework's disabled rule.
+    fn resolve(&self, theme: &Theme, enabled: bool) -> Palette {
+        let t = &theme.widgets.slider;
+        let s = &theme.scheme;
+        if !enabled {
+            // The travelled part and the thumb are content (38 %), the rest a container
+            // (12 %), as the reference's disabled tokens are; the thumb flattened onto the
+            // surface, so the track does not show through it.
+            let content = disabled_content(theme);
+            let container = disabled_container(theme);
+            return Palette {
+                active: t.disabled_active_track_color.unwrap_or(content),
+                inactive: t.disabled_inactive_track_color.unwrap_or(container),
+                secondary: t.disabled_inactive_track_color.unwrap_or(container),
+                thumb: t.disabled_thumb_color.unwrap_or(content),
+                ring: None,
+                active_tick: content,
+                inactive_tick: content,
+            };
+        }
+        let active = self
             .active_track
-            .or(theme.widgets.slider.active_track_color)
-            .unwrap_or(theme.primary);
-        let thumb = self
-            .thumb
-            .or(theme.widgets.slider.thumb_color)
-            .unwrap_or(Color::WHITE);
-        // The ring follows the travelled track unless it is named: they are the same
-        // colour in the default scheme, and a caller who recolours the track and not the
-        // ring means the accent, not a hairline left behind in the old one.
-        let ring = self
-            .thumb_border
-            .or(theme.widgets.slider.thumb_border_color)
-            .unwrap_or(filled);
-        (rail, filled, thumb, ring)
+            .or(t.active_track_color)
+            .unwrap_or(s.primary);
+        Palette {
+            active,
+            inactive: self
+                .inactive_track
+                .or(t.inactive_track_color)
+                .unwrap_or(s.surface_container_highest),
+            secondary: self
+                .secondary_track
+                .or(t.secondary_active_track_color)
+                .unwrap_or(s.primary.fade(0.54)),
+            // The thumb is the travelled part's colour unless it is named: the reference's
+            // `thumbColor ?? activeColor`.
+            thumb: self
+                .thumb
+                .or(self.active_track)
+                .or(t.thumb_color)
+                .unwrap_or(s.primary),
+            ring: self.thumb_border.or(t.thumb_border_color),
+            // The reference swaps them when a colour is given: ticks on the travelled part
+            // take the inactive colour, and the others the active one.
+            active_tick: self
+                .inactive_track
+                .or(t.active_tick_mark_color)
+                .unwrap_or(s.on_primary.fade(0.38)),
+            inactive_tick: self
+                .active_track
+                .or(t.inactive_tick_mark_color)
+                .unwrap_or(s.on_surface_variant.fade(0.38)),
+        }
     }
 }
 
@@ -142,13 +231,18 @@ impl<Msg> Slider<Msg> {
     pub fn new(value: f32) -> Self {
         Self {
             value,
+            secondary: None,
             min: 0.0,
             max: 1.0,
-            width: 220.0,
+            width: DEFAULT_WIDTH,
+            sized: false,
             divisions: None,
             label: None,
+            semantic_label: None,
+            show_value_indicator: None,
             enabled: true,
             colors: SliderColors::default(),
+            overlay_color: None,
             thumb_elevation: None,
             pressed_thumb_elevation: None,
             on_change: None,
@@ -157,29 +251,45 @@ impl<Msg> Slider<Msg> {
         }
     }
 
-    /// The travelled part of the track; the theme's `primary` otherwise. The thumb's
-    /// ring follows it unless [`thumb_border_color`](Slider::thumb_border_color) says
-    /// otherwise.
+    /// The travelled part of the track, and the thumb unless
+    /// [`thumb_color`](Slider::thumb_color) names it; the scheme's `primary` otherwise.
     pub fn active_color(mut self, color: Color) -> Self {
         self.colors.active_track = Some(color);
         self
     }
 
-    /// The part of the track still to travel.
+    /// The part of the track still to travel; the scheme's `surface_container_highest`
+    /// otherwise.
     pub fn inactive_color(mut self, color: Color) -> Self {
         self.colors.inactive_track = Some(color);
         self
     }
 
-    /// The thumb's fill; white otherwise.
+    /// The part between the value and the [secondary value](Self::secondary_track_value);
+    /// the scheme's `primary` at 54 % otherwise.
+    pub fn secondary_active_color(mut self, color: Color) -> Self {
+        self.colors.secondary_track = Some(color);
+        self
+    }
+
+    /// The thumb's fill; the active colour otherwise.
     pub fn thumb_color(mut self, color: Color) -> Self {
         self.colors.thumb = Some(color);
         self
     }
 
-    /// The ring around the thumb; the travelled track's colour otherwise.
+    /// A ring around the thumb, two pixels wide. The reference's thumb has none, and
+    /// neither has this one unless it is asked for.
     pub fn thumb_border_color(mut self, color: Color) -> Self {
         self.colors.thumb_border = Some(color);
+        self
+    }
+
+    /// The halo around the thumb, per state: hovered, focused, dragged. Unset, the
+    /// theme's, then the active colour at 12 % when one is given, then the scheme's
+    /// `primary` at 8 % hovered and 10 % focused or dragged.
+    pub fn overlay_color(mut self, color: WidgetStateProperty<Color>) -> Self {
+        self.overlay_color = Some(color);
         self
     }
 
@@ -211,29 +321,53 @@ impl<Msg> Slider<Msg> {
         self
     }
 
+    /// A **second value**, shown as a lighter part of the track beyond the value: how
+    /// much of a video is buffered behind where it is playing. It is not dragged.
+    pub fn secondary_track_value(mut self, value: f32) -> Self {
+        self.secondary = Some(value);
+        self
+    }
+
     /// Splits the travel into `n` **steps**: the value snaps to `min + k·(max−min)/n`,
-    /// and an arrow key moves by one of them. Without this call the travel is continuous
-    /// and an arrow moves by 5 %.
+    /// a tick marks each, and an arrow key moves by one of them. Without this call the
+    /// travel is continuous and an arrow moves by 5 %.
     pub fn divisions(mut self, n: usize) -> Self {
         self.divisions = Some(n.max(1));
         self
     }
 
-    /// Shows a **value tooltip** above the thumb, formatted by `label(value)` — a
-    /// percentage, a price, a duration. It appears on hover or focus and reserves the
-    /// room above the track, so a slider that has one is taller than one that does not.
+    /// Formats the value for the **value indicator**, the drop over the thumb — a
+    /// percentage, a price, a duration. When it shows is
+    /// [`show_value_indicator`](Self::show_value_indicator)'s to say. A screen reader
+    /// hears it too, unless [`semantic_formatter`](Self::semantic_formatter) says
+    /// otherwise.
     pub fn value_label(mut self, label: impl Fn(f32) -> String + 'static) -> Self {
         self.label = Some(Rc::new(label));
         self
     }
 
-    /// Width, in logical pixels.
-    pub fn width(mut self, width: f32) -> Self {
-        self.width = width;
+    /// When the value indicator shows. Unset, the theme's, then
+    /// [`ShowValueIndicator::OnlyForDiscrete`], the reference's.
+    pub fn show_value_indicator(mut self, when: ShowValueIndicator) -> Self {
+        self.show_value_indicator = Some(when);
         self
     }
 
-    /// A closure producing a message from the new value (`0..=1`).
+    /// How a screen reader is told the value — the reference's `semanticFormatterCallback`.
+    pub fn semantic_formatter(mut self, format: impl Fn(f32) -> String + 'static) -> Self {
+        self.semantic_label = Some(Rc::new(format));
+        self
+    }
+
+    /// The width, in logical pixels. Unset, the slider takes the width it is offered,
+    /// and 220 where none can be offered.
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = width;
+        self.sized = true;
+        self
+    }
+
+    /// A closure producing a message from the new value, in the slider's units.
     pub fn on_change<R: crate::callback::IntoMsg<Msg>>(
         mut self,
         on_change: impl Fn(f32) -> R + 'static,
@@ -287,15 +421,20 @@ impl<Msg> Slider<Msg> {
         self.value.clamp(self.min, self.max)
     }
 
-    /// Where the thumb sits along the track, `0..=1`. An empty range pins it at the
-    /// start rather than dividing by nothing.
-    fn fraction(&self) -> f32 {
+    /// Where `value` sits along the travel, `0..=1`. An empty range pins it at the start
+    /// rather than dividing by nothing.
+    fn fraction_of(&self, value: f32) -> f32 {
         let span = self.max - self.min;
         if span <= 0.0 {
             0.0
         } else {
-            ((self.held() - self.min) / span).clamp(0.0, 1.0)
+            ((value.clamp(self.min, self.max) - self.min) / span).clamp(0.0, 1.0)
         }
+    }
+
+    /// Where the thumb sits along the track, `0..=1`.
+    fn fraction(&self) -> f32 {
+        self.fraction_of(self.held())
     }
 
     /// Snaps a fraction to the nearest step, if there are steps.
@@ -320,23 +459,112 @@ impl<Msg> Slider<Msg> {
         }
     }
 
-    /// The height the control asks for: the track, plus the tooltip's zone above it
-    /// when there is a tooltip to show.
-    fn content_h(&self) -> f32 {
-        if self.label.is_some() {
-            H + TIP_H + TIP_GAP
-        } else {
-            H
+    fn discrete(&self) -> bool {
+        self.divisions.is_some_and(|n| n > 0)
+    }
+
+    /// Whether the indicator shows in this state, and how far it has come out.
+    fn indicator_reveal(&self, status: &Status, theme: &Theme) -> f32 {
+        if !self.enabled || self.label.is_none() {
+            return 0.0;
+        }
+        let when = self
+            .show_value_indicator
+            .or(theme.widgets.slider.show_value_indicator)
+            .unwrap_or_default();
+        let moved = status
+            .press_progress
+            .max(status.focus_progress)
+            .clamp(0.0, 1.0);
+        match when {
+            ShowValueIndicator::AlwaysVisible => 1.0,
+            ShowValueIndicator::Never => 0.0,
+            ShowValueIndicator::OnlyForDiscrete if !self.discrete() => 0.0,
+            ShowValueIndicator::OnlyForContinuous if self.discrete() => 0.0,
+            _ => moved,
         }
     }
+
+    /// The halo's colour in this state: the widget's, the active colour at 12 %, the
+    /// theme's, then the reference's.
+    fn overlay(&self, status: &Status, theme: &Theme) -> Color {
+        let mut states = status.states();
+        if status.interaction == crate::interaction::Interaction::Pressed {
+            states = states.with(WidgetState::Dragged);
+        }
+        let scheme = &theme.scheme;
+        self.overlay_color
+            .as_ref()
+            .and_then(|p| p.resolve(states).copied())
+            .or(self.colors.active_track.map(|c| c.fade(0.12)))
+            .or_else(|| {
+                theme
+                    .widgets
+                    .slider
+                    .overlay_color
+                    .as_ref()
+                    .and_then(|p| p.resolve(states).copied())
+            })
+            .unwrap_or_else(|| {
+                if states.contains(WidgetState::Dragged) {
+                    scheme.primary.fade(0.1)
+                } else if states.contains(WidgetState::Hovered) {
+                    scheme.primary.fade(0.08)
+                } else if states.contains(WidgetState::Focused) {
+                    scheme.primary.fade(0.1)
+                } else {
+                    Color::TRANSPARENT
+                }
+            })
+    }
+
+    fn track_height(&self, theme: &Theme) -> f32 {
+        theme.widgets.slider.track_height.unwrap_or(TRACK_HEIGHT)
+    }
+}
+
+/// Where the thumb's centre falls along a track running from `left` over `width`, for a
+/// value `t` of the travel: the reference's `_calcThumbCenter`. A slider with divisions
+/// keeps its thumb half a track's height inside each end, so the first and last ticks are
+/// under it.
+fn thumb_x(left: f32, width: f32, t: f32, discrete: bool, track_height: f32) -> f32 {
+    let padding = if discrete { track_height } else { 0.0 };
+    let x = left + t * (width - padding) + padding / 2.0;
+    let inner = if padding > THUMB_RADIUS {
+        padding / 2.0
+    } else {
+        0.0
+    };
+    x.clamp(left + inner, left + width - inner)
 }
 
 impl<Msg> Widget<Msg> for Slider<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Length(self.width),
-            height: Dimension::Length(self.content_h()),
+            min_width: Dimension::Length(if self.sized {
+                0.0
+            } else {
+                MIN_TRACK + 2.0 * OVERLAY_RADIUS
+            }),
+            height: Dimension::Length(2.0 * OVERLAY_RADIUS),
             ..Default::default()
+        }
+    }
+
+    /// **All the room on offer** across, as the reference's takes, unless a width was
+    /// given.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes {
+            horizontal: !self.sized,
+            vertical: false,
+        }
+    }
+
+    fn soft_extent(&self) -> crate::widget::FillAxes {
+        crate::widget::FillAxes {
+            horizontal: !self.sized,
+            vertical: false,
         }
     }
 
@@ -344,45 +572,143 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
         &[]
     }
 
+    fn debug_name(&self) -> &'static str {
+        "Slider"
+    }
+
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // The track lives in the **lower** `H` band: anything above it is the tooltip's
-        // reserved zone, which is empty unless there is a tooltip.
-        let track_top = bounds.y + bounds.height - H;
-        let track_y = track_top + (H - TRACK_H) * 0.5;
-        // A slider splits cleanly along the framework's one disabled rule: the part of the
-        // track still to travel is a **container** (12 %), the part already travelled and
-        // the thumb are **content** on it (38 %). That is the reference's own split too.
-        let (rail, filled_color, thumb, ring) = if self.enabled {
-            self.colors.resolve(theme)
-        } else {
-            let dead = disabled_content(theme);
-            (disabled_container(theme), dead, dead, dead)
-        };
-        // The rail, its whole length.
-        scene.draw_rect(
-            Rect::new(bounds.x, track_y, bounds.width, TRACK_H),
-            rail.fade(o),
-            TRACK_H * 0.5,
-            0.0,
-            Color::TRANSPARENT,
-        );
-        // The travelled part.
-        let filled = bounds.width * self.fraction();
-        scene.draw_rect(
-            Rect::new(bounds.x, track_y, filled, TRACK_H),
-            filled_color.fade(o),
-            TRACK_H * 0.5,
-            0.0,
-            Color::TRANSPARENT,
-        );
+        let rtl = theme.direction.is_rtl();
+        let palette = self.colors.resolve(theme, self.enabled);
+        let track_h = self.track_height(theme);
+        // The track, inset by the halo's radius at each end, centred in the box.
+        let left = bounds.x + OVERLAY_RADIUS;
+        let width = (bounds.width - 2.0 * OVERLAY_RADIUS).max(0.0);
+        let cy = bounds.y + bounds.height * 0.5;
+        let along = |t: f32| if rtl { 1.0 - t } else { t };
+        let discrete = self.discrete();
+        let thumb = thumb_x(left, width, along(self.fraction()), discrete, track_h);
+
+        if track_h > 0.0 {
+            let half = track_h * 0.5;
+            let active_half = (track_h + ACTIVE_EXTRA) * 0.5;
+            let right = left + width;
+            // The travelled part runs from the start, a little thicker; the rest from the
+            // thumb to the end. Each reaches half a track past the thumb, under it.
+            let (a0, a1) = if rtl {
+                (thumb - half, right)
+            } else {
+                (left, thumb + half)
+            };
+            let (i0, i1) = if rtl {
+                (left, thumb + half)
+            } else {
+                (thumb - half, right)
+            };
+            if i1 - i0 > track_h {
+                scene.draw_rect(
+                    Rect::new(i0, cy - half, i1 - i0, track_h),
+                    palette.inactive.fade(o),
+                    half,
+                    0.0,
+                    Color::TRANSPARENT,
+                );
+            }
+            if a1 - a0 > track_h {
+                scene.draw_rect(
+                    Rect::new(a0, cy - active_half, a1 - a0, 2.0 * active_half),
+                    palette.active.fade(o),
+                    active_half,
+                    0.0,
+                    Color::TRANSPARENT,
+                );
+            }
+            // The secondary value: from the thumb towards it, when it lies beyond.
+            if let Some(secondary) = self.secondary {
+                let sx = thumb_x(
+                    left,
+                    width,
+                    along(self.fraction_of(secondary)),
+                    discrete,
+                    track_h,
+                );
+                let beyond = if rtl { sx < thumb } else { sx > thumb };
+                if beyond {
+                    let (s0, s1) = if rtl { (sx, thumb) } else { (thumb, sx) };
+                    let radius = if rtl {
+                        frus_core::BorderRadius {
+                            top_left: half,
+                            bottom_left: half,
+                            ..frus_core::BorderRadius::ZERO
+                        }
+                    } else {
+                        frus_core::BorderRadius {
+                            top_right: half,
+                            bottom_right: half,
+                            ..frus_core::BorderRadius::ZERO
+                        }
+                    };
+                    scene.draw_rect(
+                        Rect::new(s0, cy - half, s1 - s0, track_h),
+                        palette.secondary.fade(o),
+                        radius,
+                        0.0,
+                        Color::TRANSPARENT,
+                    );
+                }
+            }
+        }
+
+        // The halo, grown by hover, focus or a press.
+        let activation = status
+            .hover_progress
+            .max(status.focus_progress)
+            .max(status.press_progress)
+            .clamp(0.0, 1.0);
+        if self.enabled && activation > 0.0 {
+            let r = OVERLAY_RADIUS * activation;
+            let halo = self.overlay(&status, theme);
+            if halo.a > 0.0 {
+                scene.draw_rect(
+                    Rect::new(thumb - r, cy - r, 2.0 * r, 2.0 * r),
+                    halo.fade(o),
+                    r,
+                    0.0,
+                    Color::TRANSPARENT,
+                );
+            }
+        }
+
+        // The ticks, one per division, unless they would crowd each other.
+        if let Some(n) = self.divisions.filter(|n| *n > 0) {
+            let tick_r = track_h / 4.0;
+            let adjusted = width - track_h;
+            if tick_r > 0.0 && adjusted / n as f32 >= 3.0 * 2.0 * tick_r {
+                for i in 0..=n {
+                    let x = left + i as f32 / n as f32 * adjusted + track_h / 2.0;
+                    let travelled = if rtl { x >= thumb } else { x <= thumb };
+                    let color = if travelled {
+                        palette.active_tick
+                    } else {
+                        palette.inactive_tick
+                    };
+                    scene.draw_rect(
+                        Rect::new(x - tick_r, cy - tick_r, 2.0 * tick_r, 2.0 * tick_r),
+                        color.fade(o),
+                        tick_r,
+                        0.0,
+                        Color::TRANSPARENT,
+                    );
+                }
+            }
+        }
+
         // The thumb, over its shadow.
-        let cx = bounds.x + filled;
         let thumb_box = Rect::new(
-            cx - THUMB * 0.5,
-            track_top + (H - THUMB) * 0.5,
-            THUMB,
-            THUMB,
+            thumb - THUMB_RADIUS,
+            cy - THUMB_RADIUS,
+            2.0 * THUMB_RADIUS,
+            2.0 * THUMB_RADIUS,
         );
         paint_thumb_shadow(
             thumb_box,
@@ -391,19 +717,29 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
             theme,
             scene,
         );
-        scene.draw_rect(thumb_box, thumb.fade(o), THUMB * 0.5, 2.0, ring.fade(o));
+        let (ring_width, ring) = match palette.ring {
+            Some(ring) => (2.0, ring.fade(o)),
+            None => (0.0, Color::TRANSPARENT),
+        };
+        scene.draw_rect(
+            thumb_box,
+            palette.thumb.fade(o),
+            THUMB_RADIUS,
+            ring_width,
+            ring,
+        );
 
-        // The tooltip, in the zone reserved above the track. A disabled slider shows
-        // none: it is a hint about a value being changed, and this one is not.
-        if let Some(label) = self.label.as_ref().filter(|_| self.enabled) {
-            let reveal = if status.focused {
-                o
-            } else {
-                status.hover_progress * o
-            };
-            if reveal > 0.01 {
-                paint_tip(cx, bounds.y, label(self.held()), theme, reveal, scene);
-            }
+        // The value, in a drop over the thumb, while the slider is moved.
+        let reveal = self.indicator_reveal(&status, theme);
+        if let (Some(label), true) = (self.label.as_ref(), reveal > 0.0) {
+            paint_drop(
+                Point::new(thumb, cy),
+                label(self.held()),
+                theme,
+                reveal,
+                o,
+                scene,
+            );
         }
     }
 
@@ -418,7 +754,7 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
         // "42 €" is what is on screen, and a percentage of an unstated range is not an
         // answer to "where is this set".
         let held = self.held();
-        let spoken = match self.label.as_ref() {
+        let spoken = match self.semantic_label.as_ref().or(self.label.as_ref()) {
             Some(label) => label(held),
             None if self.min == 0.0 && self.max == 1.0 => {
                 format!("{}%", (held * 100.0).round())
@@ -437,6 +773,15 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
 
     fn draggable(&self) -> bool {
         self.enabled
+    }
+
+    /// A drag lands on the track, inset by the halo's radius, and runs from the right in a
+    /// right-to-left reading direction.
+    fn drag_track(&self) -> crate::widget::DragTrack {
+        crate::widget::DragTrack {
+            inset: OVERLAY_RADIUS,
+            mirrored: true,
+        }
     }
 
     fn focusable(&self) -> bool {
@@ -491,6 +836,66 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
             .as_ref()
             .map(|make| make(self.at(fraction)))
     }
+}
+
+/// The reference's **drop value indicator** (`DropSliderValueIndicatorShape`): a pill
+/// 28 high, as wide as the text and a margin, over a small triangle pointing at the
+/// thumb's centre `at`, grown from the triangle's tip by `scale`.
+fn paint_drop(at: Point, text: String, theme: &Theme, scale: f32, o: f32, scene: &mut Scene) {
+    const TRIANGLE: f32 = 10.0;
+    const PADDING: f32 = 8.0;
+    const MIN_LABEL: f32 = 20.0;
+    const RECT_H: f32 = 28.0;
+    const RECT_Y: f32 = 6.0;
+    const TIP_Y: f32 = 16.0;
+    let style = drop_style(theme);
+    let text_w = frus_text::measure_resolved(&text, &style).width;
+    let rect_w = MIN_LABEL.max(text_w) + PADDING;
+    // Everything is drawn about the tip, scaled from it.
+    let tip = Point::new(at.x, at.y - TIP_Y);
+    let s = |dx: f32, dy: f32| Point::new(tip.x + dx * scale, tip.y + dy * scale);
+    let color = theme
+        .widgets
+        .slider
+        .value_indicator_color
+        .unwrap_or(theme.scheme.primary)
+        .fade(o);
+    let top_left = s(-rect_w / 2.0, -RECT_Y - RECT_H);
+    let pill = Rect::new(top_left.x, top_left.y, rect_w * scale, RECT_H * scale);
+    let path = frus_core::Path::new()
+        .move_to(s(0.0, 0.0))
+        .line_to(s(-TRIANGLE, -TRIANGLE))
+        .line_to(s(TRIANGLE, -TRIANGLE))
+        .close();
+    scene.fill_path(&path, color);
+    scene.draw_rect(pill, color, pill.height * 0.5, 0.0, Color::TRANSPARENT);
+    // The text at full size once the drop is, centred in the pill.
+    if scale >= 0.999 {
+        let text_color = style.color.unwrap_or(theme.scheme.on_primary);
+        scene.text(
+            Point::new(
+                pill.x + (pill.width - text_w) * 0.5,
+                pill.y + (pill.height - style.line_height()) * 0.5,
+            ),
+            text,
+            &style,
+            text_color.fade(o),
+        );
+    }
+}
+
+/// The drop's type: the theme's, else the reference's 2023 `labelMedium` in `on_primary`.
+fn drop_style(theme: &Theme) -> ResolvedTextStyle {
+    theme
+        .widgets
+        .slider
+        .value_indicator_text_style
+        .unwrap_or_else(|| {
+            crate::theme::type_scale(Some(theme))
+                .label_medium
+                .color(theme.scheme.on_primary)
+        })
+        .resolved()
 }
 
 /// A transparent, inert shim that positions the thumbs along the track.
@@ -1601,20 +2006,21 @@ mod range_tests {
         );
     }
 
-    /// The bubble's type is the reference's, and comes from the theme rather than from a
-    /// private constant — milestone 414. The reference calls it the *value indicator* and
-    /// sets it in `labelLarge`, which is 14 px **medium**: the weight is half the step, and
-    /// the `TIP_SIZE: f32 = 12.0` this replaces could not have carried it at any value.
+    /// The drop's type is the reference's 2023 one, `labelMedium` in `on_primary`, and
+    /// comes from the theme when it names one (milestones 414 and 648).
     #[test]
-    fn the_value_bubble_wears_the_reference_s_step() {
-        let slider = Slider::<Msg>::new(0.3).value_label(|v| format!("{v}"));
+    fn the_value_drop_wears_the_reference_s_type() {
+        let slider = Slider::<Msg>::new(0.3)
+            .divisions(10)
+            .value_label(|v| format!("{v}"));
         let styles = |theme: &Theme| {
             let mut scene = Scene::new();
             Widget::<Msg>::paint(
                 &slider,
-                Rect::new(0.0, 0.0, 220.0, 50.0),
+                Rect::new(0.0, 0.0, 220.0, 48.0),
                 Status {
                     focused: true,
+                    focus_progress: 1.0,
                     ..Status::default()
                 },
                 theme,
@@ -1624,9 +2030,12 @@ mod range_tests {
                 .primitives()
                 .iter()
                 .filter_map(|p| match p {
-                    frus_core::Primitive::Text { size, weight, .. } => {
-                        Some((*size, weight.to_u16()))
-                    }
+                    frus_core::Primitive::Text {
+                        size,
+                        weight,
+                        color,
+                        ..
+                    } => Some((*size, weight.to_u16(), *color)),
                     _ => None,
                 })
                 .collect::<Vec<_>>()
@@ -1635,28 +2044,26 @@ mod range_tests {
         assert_eq!(
             styles(&plain),
             vec![(
-                plain.text.label_large.size.unwrap(),
-                frus_core::FontWeight::Medium.to_u16()
+                plain.text.label_medium.size.unwrap(),
+                frus_core::FontWeight::Medium.to_u16(),
+                plain.scheme.on_primary
             )]
         );
-        // And a theme can move it, which nothing could before.
+        // And a theme can move it.
         let mut themed = Theme::default();
         themed.widgets.slider.value_indicator_text_style = Some(frus_core::TextStyle::new(25.0));
         assert_eq!(styles(&themed).first().map(|s| s.0), Some(25.0));
     }
 
-    /// A tooltip reserves the room above the track rather than sitting on it.
+    /// **As tall as its halo**, label or not: the drop is drawn over what is above, as
+    /// the reference's is, and takes no room.
     #[test]
-    fn a_tooltip_makes_the_control_taller() {
+    fn the_slider_is_as_tall_as_its_halo() {
         let bare = Widget::<Msg>::style(&Slider::<Msg>::new(0.5)).height;
-        let tipped =
+        let labelled =
             Widget::<Msg>::style(&Slider::<Msg>::new(0.5).value_label(|v| format!("{v}"))).height;
-        assert_eq!(bare, frus_layout::Dimension::Length(H));
-        assert_eq!(
-            tipped,
-            frus_layout::Dimension::Length(H + TIP_H + TIP_GAP),
-            "the tooltip's zone is above the track, not over it"
-        );
+        assert_eq!(bare, frus_layout::Dimension::Length(48.0));
+        assert_eq!(labelled, bare);
     }
 }
 
@@ -1698,24 +2105,25 @@ mod color_tests {
         (rects[0].0, rects[1].0, rects[2].0, rects[2].1)
     }
 
-    /// Nothing said: what it always painted.
+    /// Nothing said: the reference's 2023 colours — `primary` travelled and for the
+    /// thumb, `surface_container_highest` for the rest, and no ring.
     #[test]
-    fn the_defaults_are_what_they_were() {
+    fn the_defaults_are_the_reference_s() {
         let theme = Theme::default();
         let (rail, filled, thumb, ring) = painted(&Slider::<()>::new(0.5), &theme);
-        assert_eq!(rail, theme.scheme.secondary_container);
-        assert_eq!(filled, theme.primary);
-        assert_eq!(thumb, Color::WHITE);
-        assert_eq!(ring, theme.primary);
+        assert_eq!(rail, theme.scheme.surface_container_highest);
+        assert_eq!(filled, theme.scheme.primary);
+        assert_eq!(thumb, theme.scheme.primary);
+        assert_eq!(ring, Color::TRANSPARENT);
     }
 
-    /// The ring follows the travelled track unless it is named: they are one colour in
-    /// the default scheme, and a caller who recolours the track means the accent.
+    /// The thumb follows the travelled track unless it is named — the reference's
+    /// `thumbColor ?? activeColor` — and there is a ring only when one is asked for.
     #[test]
-    fn the_ring_follows_the_track_it_was_not_told_about() {
+    fn the_thumb_follows_the_track_it_was_not_told_about() {
         let theme = Theme::default();
-        let (_, filled, _, ring) = painted(&Slider::<()>::new(0.5).active_color(BRAND), &theme);
-        assert_eq!((filled, ring), (BRAND, BRAND));
+        let (_, filled, thumb, ring) = painted(&Slider::<()>::new(0.5).active_color(BRAND), &theme);
+        assert_eq!((filled, thumb, ring), (BRAND, BRAND, Color::TRANSPARENT));
         let (_, _, _, named) = painted(
             &Slider::<()>::new(0.5)
                 .active_color(BRAND)
@@ -1749,5 +2157,340 @@ mod color_tests {
             painted(&Slider::<()>::new(0.5).active_color(BRAND), &theme).1,
             BRAND
         );
+    }
+}
+
+/// The reference's 2023 slider, painted and measured (milestone 648).
+#[cfg(test)]
+mod reference_tests {
+    use super::*;
+    use frus_core::Primitive;
+
+    /// A box 248 wide: a track of 200 from 24, the halo's radius in.
+    const BOX: Rect = Rect::new(0.0, 0.0, 248.0, 48.0);
+
+    fn rtl() -> Theme {
+        Theme {
+            direction: frus_core::TextDirection::Rtl,
+            ..Theme::default()
+        }
+    }
+
+    fn scene_of(slider: &Slider<()>, status: Status, theme: &Theme) -> Vec<Primitive> {
+        let mut scene = Scene::new();
+        Widget::<()>::paint(slider, BOX, status, theme, &mut scene);
+        scene.primitives().to_vec()
+    }
+
+    fn rects(primitives: &[Primitive]) -> Vec<(Rect, Color)> {
+        primitives
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect {
+                    rect, color, blur, ..
+                } if *blur == 0.0 => Some((*rect, *color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The thumb: the crisp 20-pixel square.
+    fn thumb(primitives: &[Primitive]) -> Rect {
+        rects(primitives)
+            .into_iter()
+            .map(|(r, _)| r)
+            .rfind(|r| r.width == 20.0 && r.height == 20.0)
+            .expect("a thumb")
+    }
+
+    fn texts(primitives: &[Primitive]) -> usize {
+        primitives
+            .iter()
+            .filter(|p| matches!(p, Primitive::Text { .. }))
+            .count()
+    }
+
+    fn rest() -> Status {
+        Status::default()
+    }
+
+    /// **The track is inset by the halo's radius**, so the thumb reaches both ends inside
+    /// the box; the travelled part is two pixels thicker than the rest.
+    #[test]
+    fn the_track_is_inset_and_the_travelled_part_thicker() {
+        let theme = Theme::default();
+        let painted = scene_of(&Slider::new(0.5), rest(), &theme);
+        assert_eq!(thumb(&painted), Rect::new(114.0, 14.0, 20.0, 20.0));
+        let at = |v: f32| thumb(&scene_of(&Slider::new(v), rest(), &theme)).x + 10.0;
+        assert_eq!((at(0.0), at(1.0)), (24.0, 224.0), "the ends, a radius in");
+        let track = rects(&painted);
+        let (inactive, active) = (track[0].0, track[1].0);
+        assert_eq!(inactive.height, 4.0);
+        assert_eq!(active.height, 6.0);
+        assert_eq!(active.x, 24.0, "from the start");
+        assert_eq!(inactive.x + inactive.width, 224.0, "to the end");
+    }
+
+    /// **Right to left, it runs from the right**: a quarter is near the right end, and the
+    /// travelled part is on the right.
+    #[test]
+    fn right_to_left_it_runs_from_the_right() {
+        let painted = scene_of(&Slider::new(0.25), rest(), &rtl());
+        assert_eq!(thumb(&painted).x + 10.0, 174.0);
+        let track = rects(&painted);
+        let (inactive, active) = (track[0].0, track[1].0);
+        assert_eq!(
+            active.x + active.width,
+            224.0,
+            "the travelled part ends at the right"
+        );
+        assert_eq!(inactive.x, 24.0, "the rest starts at the left");
+    }
+
+    /// **A tick per division**, the first and last under the thumb at the ends, and none
+    /// when they would crowd.
+    #[test]
+    fn a_tick_marks_each_division() {
+        let theme = Theme::default();
+        let ticks = |slider: Slider<()>| {
+            rects(&scene_of(&slider, rest(), &theme))
+                .into_iter()
+                .filter(|(r, _)| r.width == 2.0 && r.height == 2.0)
+                .collect::<Vec<_>>()
+        };
+        let four = ticks(Slider::new(0.5).divisions(4));
+        assert_eq!(four.len(), 5);
+        assert_eq!(four[0].0.x + 1.0, 26.0, "half a track in");
+        assert_eq!(four[4].0.x + 1.0, 222.0);
+        // The travelled ticks and the rest differ.
+        assert_eq!(four[0].1, theme.scheme.on_primary.fade(0.38));
+        assert_eq!(four[4].1, theme.scheme.on_surface_variant.fade(0.38));
+        assert!(
+            ticks(Slider::new(0.5).divisions(100)).is_empty(),
+            "too dense"
+        );
+        assert!(ticks(Slider::new(0.5)).is_empty(), "continuous");
+        // The discrete thumb sits over the first and last ticks.
+        let end = thumb(&scene_of(&Slider::new(1.0).divisions(4), rest(), &theme));
+        assert_eq!(end.x + 10.0, 222.0);
+    }
+
+    /// **The secondary value** lightens the track from the thumb to it, when it is ahead.
+    #[test]
+    fn the_secondary_value_lightens_the_track_ahead() {
+        let theme = Theme::default();
+        let secondary = |slider: Slider<()>| {
+            rects(&scene_of(&slider, rest(), &theme))
+                .into_iter()
+                .find(|(_, c)| *c == theme.scheme.primary.fade(0.54))
+        };
+        let (rect, _) =
+            secondary(Slider::new(0.25).secondary_track_value(0.75)).expect("a secondary part");
+        assert_eq!((rect.x, rect.x + rect.width), (74.0, 174.0));
+        assert!(
+            secondary(Slider::new(0.75).secondary_track_value(0.25)).is_none(),
+            "behind"
+        );
+        let given = Color::rgb(0.2, 0.4, 0.6);
+        let painted = scene_of(
+            &Slider::new(0.25)
+                .secondary_track_value(0.75)
+                .secondary_active_color(given),
+            rest(),
+            &theme,
+        );
+        assert!(rects(&painted).iter().any(|(_, c)| *c == given));
+    }
+
+    /// **When the drop shows**: on a slider with divisions while it is moved or focused,
+    /// by default; the other policies as they say; never on a disabled one.
+    #[test]
+    fn the_drop_shows_as_its_policy_says() {
+        let theme = Theme::default();
+        let focused = Status {
+            focused: true,
+            focus_progress: 1.0,
+            ..Status::default()
+        };
+        let pressed = Status {
+            press_progress: 1.0,
+            ..Status::default()
+        };
+        let labelled = || Slider::<()>::new(0.5).value_label(|v| format!("{v}"));
+        let shows = |s: Slider<()>, status: Status| texts(&scene_of(&s, status, &theme)) == 1;
+        assert!(shows(labelled().divisions(4), focused));
+        assert!(shows(labelled().divisions(4), pressed));
+        assert!(!shows(labelled().divisions(4), rest()), "at rest, hidden");
+        assert!(
+            !shows(labelled(), focused),
+            "continuous: only for discrete by default"
+        );
+        assert!(shows(
+            labelled().show_value_indicator(ShowValueIndicator::OnlyForContinuous),
+            focused
+        ));
+        assert!(!shows(
+            labelled()
+                .divisions(4)
+                .show_value_indicator(ShowValueIndicator::OnlyForContinuous),
+            focused
+        ));
+        assert!(shows(
+            labelled().show_value_indicator(ShowValueIndicator::OnDrag),
+            pressed
+        ));
+        assert!(shows(
+            labelled().show_value_indicator(ShowValueIndicator::AlwaysVisible),
+            rest()
+        ));
+        assert!(!shows(
+            labelled()
+                .divisions(4)
+                .show_value_indicator(ShowValueIndicator::Never),
+            focused
+        ));
+        assert!(
+            !shows(labelled().divisions(4).enabled(false), focused),
+            "disabled"
+        );
+        let mut themed = Theme::default();
+        themed.widgets.slider.show_value_indicator = Some(ShowValueIndicator::AlwaysVisible);
+        assert_eq!(
+            texts(&scene_of(&labelled(), rest(), &themed)),
+            1,
+            "from the theme"
+        );
+    }
+
+    /// **The drop**: a pill 28 high whose bottom is 22 above the thumb's centre, over a
+    /// triangle pointing at it, in `primary`.
+    #[test]
+    fn the_drop_sits_over_the_thumb() {
+        let theme = Theme::default();
+        let slider = Slider::<()>::new(0.5)
+            .show_value_indicator(ShowValueIndicator::AlwaysVisible)
+            .value_label(|_| "50".to_string());
+        let painted = scene_of(&slider, rest(), &theme);
+        let pill = rects(&painted)
+            .into_iter()
+            .find(|(r, _)| r.height == 28.0)
+            .expect("the pill");
+        assert_eq!(pill.0.y + pill.0.height, 24.0 - 22.0);
+        assert!(
+            (pill.0.x + pill.0.width / 2.0 - 124.0).abs() < 0.01,
+            "centred on the thumb"
+        );
+        assert_eq!(pill.1, theme.scheme.primary);
+        assert!(
+            painted.iter().any(|p| matches!(p, Primitive::Path { .. })),
+            "the point"
+        );
+    }
+
+    /// **The halo**: on hover, focus and press, in `primary` at 8 % hovered and 10 %
+    /// pressed; none at rest, none disabled; a colour given at 12 %.
+    #[test]
+    fn the_halo_follows_the_state() {
+        let theme = Theme::default();
+        let halo = |slider: Slider<()>, status: Status| {
+            rects(&scene_of(&slider, status, &theme))
+                .into_iter()
+                .find(|(r, _)| r.width == 48.0)
+                .map(|(_, c)| c)
+        };
+        let hovered = Status {
+            interaction: crate::interaction::Interaction::Hovered,
+            hover_progress: 1.0,
+            ..Status::default()
+        };
+        let pressed = Status {
+            interaction: crate::interaction::Interaction::Pressed,
+            press_progress: 1.0,
+            ..Status::default()
+        };
+        assert_eq!(halo(Slider::new(0.5), rest()), None);
+        assert_eq!(
+            halo(Slider::new(0.5), hovered),
+            Some(theme.scheme.primary.fade(0.08))
+        );
+        assert_eq!(
+            halo(Slider::new(0.5), pressed),
+            Some(theme.scheme.primary.fade(0.1))
+        );
+        assert_eq!(halo(Slider::new(0.5).enabled(false), hovered), None);
+        let given = Color::rgb(0.0, 0.6, 0.3);
+        assert_eq!(
+            halo(Slider::new(0.5).active_color(given), hovered),
+            Some(given.fade(0.12))
+        );
+        let property = WidgetStateProperty::new().otherwise(Color::rgb(1.0, 0.0, 0.0));
+        assert_eq!(
+            halo(Slider::new(0.5).overlay_color(property), hovered),
+            Some(Color::rgb(1.0, 0.0, 0.0))
+        );
+    }
+
+    /// **Disabled**: the travelled part and the thumb as content, the rest as a
+    /// container, the framework's disabled rule.
+    #[test]
+    fn a_disabled_slider_wears_the_disabled_rule() {
+        let theme = Theme::default();
+        let painted = scene_of(&Slider::new(0.5).enabled(false), rest(), &theme);
+        let r = rects(&painted);
+        assert_eq!(r[0].1, disabled_container(&theme));
+        assert_eq!(r[1].1, disabled_content(&theme));
+        assert_eq!(r.last().map(|x| x.1), Some(disabled_content(&theme)));
+    }
+
+    /// **It takes the width it is offered**, at least three touch targets of track, unless
+    /// a width is given.
+    #[test]
+    fn it_takes_the_width_it_is_offered() {
+        let theme = Theme::default();
+        let open = Slider::<()>::new(0.5);
+        assert!(Widget::<()>::fill_axes(&open, &theme).horizontal);
+        assert!(Widget::<()>::soft_extent(&open).horizontal);
+        assert_eq!(
+            Widget::<()>::style(&open).min_width,
+            frus_layout::Dimension::Length(192.0)
+        );
+        let fixed = Slider::<()>::new(0.5).width(120.0);
+        assert!(!Widget::<()>::fill_axes(&fixed, &theme).horizontal);
+        assert_eq!(
+            Widget::<()>::style(&fixed).width,
+            frus_layout::Dimension::Length(120.0)
+        );
+    }
+
+    /// **A drag lands on the track**: inset by the halo's radius, mirrored right to left.
+    #[test]
+    fn a_drag_lands_on_the_inset_track() {
+        let track = Widget::<()>::drag_track(&Slider::<()>::new(0.5));
+        assert_eq!(track.inset, 24.0);
+        assert!(track.mirrored);
+        assert_eq!(track.fraction(BOX, 24.0, false), 0.0);
+        assert_eq!(track.fraction(BOX, 124.0, false), 0.5);
+        assert_eq!(track.fraction(BOX, 224.0, false), 1.0);
+        assert_eq!(track.fraction(BOX, 74.0, true), 0.75, "from the right");
+        assert_eq!(track.fraction(BOX, 0.0, false), 0.0, "held at the ends");
+        assert_eq!(track.fraction(BOX, 248.0, false), 1.0);
+        let whole = crate::widget::DragTrack::WHOLE;
+        assert_eq!(
+            whole.fraction(BOX, 62.0, true),
+            0.25,
+            "no opinion: left to right"
+        );
+        let empty = Rect::new(0.0, 0.0, 40.0, 48.0);
+        assert_eq!(track.fraction(empty, 20.0, false), 0.0, "no travel");
+    }
+
+    /// **A screen reader hears the semantic formatter** over the indicator's label.
+    #[test]
+    fn a_reader_hears_the_semantic_formatter() {
+        let slider = Slider::<()>::new(0.5)
+            .value_label(|v| format!("{v}"))
+            .semantic_formatter(|v| format!("{} percent", (v * 100.0).round()));
+        let said = Widget::<()>::semantics(&slider).and_then(|s| s.value);
+        assert_eq!(said.as_deref(), Some("50 percent"));
     }
 }

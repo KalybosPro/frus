@@ -1569,3 +1569,52 @@ fn a_desktop_menu_bar() {
     check("menu_bar_closed", 720, 80, &menu_bar(&[]));
     check("menu_bar_open", 720, 420, &menu_bar(&[0, 4]));
 }
+
+/// **The reference's 2023 slider** (milestone 648), each taking the width it is offered:
+/// a continuous one; one with divisions, its ticks, and its value in a drop above the
+/// thumb; one with a secondary value, a buffer ahead of the playhead; a disabled one with
+/// divisions; one in colours of its own. The last is the same slider in a right-to-left
+/// column, running from the right.
+#[test]
+fn the_reference_sliders() {
+    let column = Flex::<()>::column()
+        .gap(4.0)
+        .child(frus_widgets::Slider::new(0.3))
+        .child(
+            frus_widgets::Slider::new(0.6)
+                .divisions(5)
+                .value_label(|v| format!("{}", (v * 100.0).round()))
+                .show_value_indicator(frus_widgets::ShowValueIndicator::AlwaysVisible),
+        )
+        .child(frus_widgets::Slider::new(0.25).secondary_track_value(0.7))
+        .child(frus_widgets::Slider::new(0.4).divisions(5).enabled(false))
+        .child(
+            frus_widgets::Slider::new(0.75)
+                .active_color(Color::rgb(0.95, 0.55, 0.25))
+                .inactive_color(Color::rgb(0.35, 0.25, 0.2)),
+        );
+    let root = Container::<()>::new()
+        .width(300.0)
+        .padding_insets(frus_core::Insets::new(44.0, 16.0, 8.0, 16.0))
+        .child(column);
+    check("sliders_reference", 300, 300, &root);
+}
+
+/// The same continuous slider and slider with divisions, in a right-to-left reading
+/// direction: the travelled part and the thumb from the right.
+#[test]
+fn the_reference_sliders_right_to_left() {
+    let mut theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
+    theme.direction = frus_core::TextDirection::Rtl;
+    let root = Container::<()>::new().width(300.0).padding(16.0).child(
+        Flex::<()>::column()
+            .child(frus_widgets::Slider::new(0.3))
+            .child(frus_widgets::Slider::new(0.6).divisions(5)),
+    );
+    let Some(shot) = render_widget(&root, 300, 128, &theme) else {
+        eprintln!("no GPU adapter available: sliders_right_to_left skipped");
+        return;
+    };
+    assert!(shot.lit_pixels(48) > 40, "the frame is empty");
+    shot.assert_golden(golden("sliders_right_to_left"));
+}
