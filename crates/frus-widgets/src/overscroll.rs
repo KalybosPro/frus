@@ -8,7 +8,7 @@
 //! reads as a frozen app rather than as the end of a list.
 //!
 //! The glow is that something else. It is the counterpart of the bounce, and the
-//! reason [`ScrollPhysics::Clamping`](crate::physics::ScrollPhysics) was only half a
+//! reason [`ScrollPhysics::CLAMPING`](crate::physics::ScrollPhysics) was only half a
 //! behaviour until now.
 //!
 //! It answers two different events, and they look different on purpose:

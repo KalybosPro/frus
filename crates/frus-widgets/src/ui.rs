@@ -103,6 +103,15 @@ pub struct Scrollbar {
     pub interactive: bool,
 }
 
+/// The physics an area scrolls with: its own laid over its scroll behaviour's, as the
+/// reference applies a widget's physics to the scroll configuration's (milestone 649).
+fn region_physics<Msg>(widget: &dyn Widget<Msg>, theme: &Theme) -> ScrollPhysics {
+    let platform = crate::ScrollConfiguration::of().scroll_physics(theme);
+    widget
+        .scroll_physics()
+        .map_or(platform, |own| own.apply_to(platform))
+}
+
 /// A scrollable area of the frame: where it is, how far it may scroll, and how it
 /// is meant to behave at its edges.
 ///
@@ -120,6 +129,9 @@ pub struct Scrollable {
     pub max_x: f32,
     /// Largest vertical offset the content may rest at.
     pub max_y: f32,
+    /// The axis the area scrolls along (milestone 649): what an area that is always
+    /// scrollable takes a drag along when nothing overflows.
+    pub axis: crate::scroll::Axis,
     /// How the area moves at its edges and after a fling: its own, when it asked for
     /// some, else its scroll behaviour's.
     pub physics: ScrollPhysics,
@@ -180,12 +192,42 @@ impl Scrollable {
     ///
     /// A [`crate::RefreshIndicator`] listening above is the exception, and the same one the
     /// reference makes: a list of two items must still pull down to reload.
+    ///
+    /// The physics have the last word (milestone 649): an area the user may never scroll
+    /// takes nothing, and one the user may always scroll takes everything.
     pub fn accepts_user_offset(&self, offset: (f32, f32)) -> bool {
-        self.max_x > 0.0
-            || self.max_y > 0.0
-            || offset.0 != 0.0
-            || offset.1 != 0.0
-            || self.refresh.is_some()
+        match self.physics.user() {
+            crate::physics::UserScroll::Never => false,
+            crate::physics::UserScroll::Always => true,
+            crate::physics::UserScroll::WhenOverflowing => {
+                self.max_x > 0.0
+                    || self.max_y > 0.0
+                    || offset.0 != 0.0
+                    || offset.1 != 0.0
+                    || self.refresh.is_some()
+            }
+        }
+    }
+
+    /// Whether a movement of the user's along the vertical (`down`) or across is this
+    /// area's to take: there is content that way to reveal, or a pull to refresh above
+    /// for a movement down — unless the physics say never, or always along its axis.
+    pub fn takes_user_scroll(&self, down: bool) -> bool {
+        let overflowing = if down {
+            self.max_y > 0.0 || self.refresh.is_some()
+        } else {
+            self.max_x > 0.0
+        };
+        let along = match self.axis {
+            crate::scroll::Axis::Vertical => down,
+            crate::scroll::Axis::Horizontal => !down,
+            crate::scroll::Axis::Both => true,
+        };
+        match self.physics.user() {
+            crate::physics::UserScroll::Never => false,
+            crate::physics::UserScroll::Always => overflowing || along,
+            crate::physics::UserScroll::WhenOverflowing => overflowing,
+        }
     }
 
     /// The horizontal axis as the physics sees it, at `offset`.
@@ -4030,9 +4072,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                             viewport: vp,
                             max_x: 0.0,
                             max_y,
-                            physics: widget.scroll_physics().unwrap_or_else(|| {
-                                crate::ScrollConfiguration::of().scroll_physics(&self.theme)
-                            }),
+                            axis: crate::scroll::Axis::Vertical,
+                            physics: region_physics(widget, &self.theme),
                             overscroll: crate::ScrollConfiguration::of()
                                 .overscroll_indicator(&self.theme),
                             fling: crate::ScrollConfiguration::of()
@@ -4315,7 +4356,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 viewport,
                 max_x,
                 max_y,
-                physics: crate::ScrollPhysics::Clamping,
+                axis,
+                physics: crate::ScrollPhysics::CLAMPING,
                 overscroll: None,
                 fling: frus_core::VelocityStrategy::Regression,
                 refresh: None,
@@ -4369,9 +4411,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 viewport,
                 max_x,
                 max_y,
-                physics: widget.scroll_physics().unwrap_or_else(|| {
-                    crate::ScrollConfiguration::of().scroll_physics(&self.theme)
-                }),
+                axis,
+                physics: region_physics(widget, &self.theme),
                 overscroll: crate::ScrollConfiguration::of().overscroll_indicator(&self.theme),
                 fling: crate::ScrollConfiguration::of()
                     .velocity_tracker(&self.theme)
@@ -4472,9 +4513,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 viewport,
                 max_x: if across { max } else { 0.0 },
                 max_y: if across { 0.0 } else { max },
-                physics: widget.scroll_physics().unwrap_or_else(|| {
-                    crate::ScrollConfiguration::of().scroll_physics(&self.theme)
-                }),
+                axis: if across {
+                    crate::scroll::Axis::Horizontal
+                } else {
+                    crate::scroll::Axis::Vertical
+                },
+                physics: region_physics(widget, &self.theme),
                 overscroll: crate::ScrollConfiguration::of().overscroll_indicator(&self.theme),
                 fling: crate::ScrollConfiguration::of()
                     .velocity_tracker(&self.theme)
@@ -4611,9 +4655,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 viewport,
                 max_x: if snap.horizontal { max } else { 0.0 },
                 max_y: if snap.horizontal { 0.0 } else { max },
-                physics: widget.scroll_physics().unwrap_or_else(|| {
-                    crate::ScrollConfiguration::of().scroll_physics(&self.theme)
-                }),
+                axis: if snap.horizontal {
+                    crate::scroll::Axis::Horizontal
+                } else {
+                    crate::scroll::Axis::Vertical
+                },
+                physics: region_physics(widget, &self.theme),
                 overscroll: crate::ScrollConfiguration::of().overscroll_indicator(&self.theme),
                 fling: crate::ScrollConfiguration::of()
                     .velocity_tracker(&self.theme)
@@ -7973,7 +8020,8 @@ mod tests {
             viewport: Rect::new(0.0, 0.0, 100.0, 100.0),
             max_x: 0.0,
             max_y: 400.0,
-            physics: crate::ScrollPhysics::Clamping,
+            axis: crate::scroll::Axis::Vertical,
+            physics: crate::ScrollPhysics::CLAMPING,
             overscroll: Some(crate::OverscrollIndicator::Glow),
             fling: frus_core::VelocityStrategy::Regression,
             refresh: None,
@@ -8022,7 +8070,8 @@ mod tests {
             viewport: Rect::new(0.0, 0.0, 100.0, 100.0),
             max_x: 0.0,
             max_y: 400.0,
-            physics: crate::ScrollPhysics::Clamping,
+            axis: crate::scroll::Axis::Vertical,
+            physics: crate::ScrollPhysics::CLAMPING,
             overscroll: Some(crate::OverscrollIndicator::Glow),
             fling: frus_core::VelocityStrategy::Regression,
             refresh: None,
@@ -8050,7 +8099,8 @@ mod tests {
             viewport: Rect::new(0.0, 0.0, 300.0, 50.0),
             max_x: 700.0,
             max_y: 0.0,
-            physics: crate::ScrollPhysics::Clamping,
+            axis: crate::scroll::Axis::Vertical,
+            physics: crate::ScrollPhysics::CLAMPING,
             overscroll: Some(crate::OverscrollIndicator::Glow),
             fling: frus_core::VelocityStrategy::Regression,
             refresh: None,
@@ -9243,6 +9293,51 @@ mod tests {
         assert!(m.apply(Point::new(0.0, 0.0)).y < -0.5);
     }
 
+    /// **An area's own physics lie over its behaviour's** (milestone 649): never or always
+    /// scrollable keeps the platform's feel, and a feel given keeps the platform's rule.
+    #[test]
+    fn an_area_s_physics_lie_over_its_behaviour_s() {
+        use crate::physics::{ScrollFeel, UserScroll};
+        use frus_core::TargetPlatform as P;
+        let scroll = |physics: ScrollPhysics, height: f32| {
+            SingleChildScrollView::new()
+                .width(200.0)
+                .height(100.0)
+                .physics(physics)
+                .child(Container::<Msg>::new().width(100.0).height(height))
+        };
+        let rt = Runtime::default();
+        let _root = crate::ScrollConfiguration::install(crate::ScrollBehavior::material());
+        let region = |tree: &dyn Widget<Msg>, platform: P| {
+            let theme = Theme::default().with_platform(platform);
+            build_ui(tree, Size::new(200.0, 100.0), &rt, &theme).scroll_regions()[0]
+        };
+        let never = region(&scroll(ScrollPhysics::NEVER, 400.0), P::Ios);
+        assert_eq!(never.physics.user(), UserScroll::Never);
+        assert_eq!(
+            never.physics.feel(),
+            ScrollFeel::Bouncing(crate::physics::ScrollDecelerationRate::Normal),
+            "the platform's feel"
+        );
+        assert!(
+            !never.accepts_user_offset((0.0, 0.0)),
+            "content to reveal, and no finger"
+        );
+        let always = region(&scroll(ScrollPhysics::ALWAYS, 50.0), P::Android);
+        assert_eq!(always.physics.feel(), ScrollFeel::Clamping);
+        assert!(
+            always.accepts_user_offset((0.0, 0.0)),
+            "nothing to reveal, and a finger"
+        );
+        assert_eq!(always.axis, crate::scroll::Axis::Vertical);
+        let bouncing = region(&scroll(ScrollPhysics::BOUNCING, 400.0), P::Android);
+        assert_eq!(
+            bouncing.physics,
+            ScrollPhysics::BOUNCING,
+            "a feel given, the default rule"
+        );
+    }
+
     /// **What an area does is its scroll behaviour's, settled when it is registered**
     /// (milestone 616): under the application's behaviour it follows the theme's
     /// platform, a `ScrollConfiguration` changes it for its subtree, and the area's own
@@ -9273,7 +9368,7 @@ mod tests {
             frus_core::VelocityStrategy::RecentAverage(frus_core::BOUNCING_FLING_WEIGHTS)
         );
         let android = region(&plain(), P::Android);
-        assert_eq!(android.physics, ScrollPhysics::Clamping);
+        assert_eq!(android.physics, ScrollPhysics::CLAMPING);
         assert_eq!(
             android.overscroll,
             Some(crate::OverscrollIndicator::Stretch)

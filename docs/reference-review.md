@@ -126,6 +126,7 @@ Status: **done** (milestone), **to review**.
 | frus | reference | source | status |
 |---|---|---|---|
 | `ListView` | `ListView` | `widgets/scroll_view.dart` | to review |
+| `ScrollPhysics` | `ScrollPhysics`, `NeverScrollableScrollPhysics`, `AlwaysScrollableScrollPhysics`, `BouncingScrollPhysics`, `ClampingScrollPhysics` | `widgets/scroll_physics.dart` | **in progress**: never and always scrollable, laid over the platform's as `applyTo` does (J649); not followed: a vertical scroll view with no controller is always scrollable by default in the reference |
 | `GridView` | `GridView` | `widgets/scroll_view.dart` | to review |
 | `PageView` | `PageView` | `widgets/page_view.dart` | to review |
 | `SingleChildScrollView` | `SingleChildScrollView` | `widgets/single_child_scroll_view.dart` | to review |

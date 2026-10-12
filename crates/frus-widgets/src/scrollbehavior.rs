@@ -139,12 +139,12 @@ impl ScrollBehavior {
     /// own. A scrollable's own physics take precedence over these.
     pub fn scroll_physics(&self, theme: &Theme) -> ScrollPhysics {
         self.physics.unwrap_or(match self.platform(theme) {
-            TargetPlatform::Ios => ScrollPhysics::Bouncing(ScrollDecelerationRate::Normal),
-            TargetPlatform::MacOs => ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast),
+            TargetPlatform::Ios => ScrollPhysics::bouncing(ScrollDecelerationRate::Normal),
+            TargetPlatform::MacOs => ScrollPhysics::bouncing(ScrollDecelerationRate::Fast),
             TargetPlatform::Android
             | TargetPlatform::Fuchsia
             | TargetPlatform::Linux
-            | TargetPlatform::Windows => ScrollPhysics::Clamping,
+            | TargetPlatform::Windows => ScrollPhysics::CLAMPING,
         })
     }
 
@@ -317,9 +317,9 @@ mod tests {
             let theme = under(platform);
             assert_eq!(behavior.platform(&theme), platform);
             let physics = match platform {
-                P::Ios => ScrollPhysics::Bouncing(ScrollDecelerationRate::Normal),
-                P::MacOs => ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast),
-                _ => ScrollPhysics::Clamping,
+                P::Ios => ScrollPhysics::bouncing(ScrollDecelerationRate::Normal),
+                P::MacOs => ScrollPhysics::bouncing(ScrollDecelerationRate::Fast),
+                _ => ScrollPhysics::CLAMPING,
             };
             assert_eq!(behavior.scroll_physics(&theme), physics, "{platform}");
             let bars = if platform.is_desktop() {
@@ -379,7 +379,7 @@ mod tests {
             .with_overscroll(false);
         assert_eq!(quiet.scrollbars(&desktop), Scrollbars::Never);
         assert_eq!(quiet.overscroll_indicator(&android), None);
-        assert_eq!(quiet.scroll_physics(&android), ScrollPhysics::Clamping);
+        assert_eq!(quiet.scroll_physics(&android), ScrollPhysics::CLAMPING);
         let bouncy = ScrollBehavior::material().with_physics(ScrollPhysics::BOUNCING);
         assert_eq!(bouncy.scroll_physics(&android), ScrollPhysics::BOUNCING);
         assert_eq!(bouncy.scrollbars(&desktop), Scrollbars::Always);

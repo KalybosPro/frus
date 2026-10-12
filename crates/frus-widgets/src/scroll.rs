@@ -527,7 +527,8 @@ mod tests {
             viewport: R::new(0.0, 0.0, 100.0, 100.0),
             max_x: 0.0,
             max_y: 300.0,
-            physics: crate::ScrollPhysics::Clamping,
+            axis: crate::scroll::Axis::Vertical,
+            physics: crate::ScrollPhysics::CLAMPING,
             overscroll: Some(crate::OverscrollIndicator::Glow),
             fling: frus_core::VelocityStrategy::Regression,
             refresh: None,
@@ -878,7 +879,7 @@ mod shrunk_content_tests {
         runtime.release_scroll(id);
         let area = frame(&narrower, &runtime).scroll_regions()[0];
         assert!(
-            runtime.fling_scroll(area, ScrollPhysics::Clamping, (0.0, 0.0)),
+            runtime.fling_scroll(area, ScrollPhysics::CLAMPING, (0.0, 0.0)),
             "a release out of range springs"
         );
         for _ in 0..600 {
