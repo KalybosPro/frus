@@ -574,7 +574,7 @@ mod tests {
     #[test]
     fn a_view_that_does_not_snap_is_released_like_a_scroll() {
         let id = crate::interaction::WidgetId::ROOT;
-        let physics = ScrollPhysics::Clamping;
+        let physics = ScrollPhysics::CLAMPING;
         let mut runtime = Runtime::default();
 
         let free = {
@@ -637,7 +637,7 @@ mod tests {
     fn a_short_flick_turns_the_page_and_says_so() {
         let mut runtime = Runtime::default();
         let id = crate::interaction::WidgetId::ROOT;
-        let physics = ScrollPhysics::Clamping;
+        let physics = ScrollPhysics::CLAMPING;
 
         let area = crate::Scrollable {
             physics,

@@ -8,11 +8,23 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 648 so far, each documenting the objective, the alternatives
+> record — one per step, 649 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Never and always scrollable** (J649). `ScrollPhysics::NEVER` — the reference's
+  `NeverScrollableScrollPhysics` — keeps the user's drag, fling and wheel off an area,
+  which the area around it then takes, while the application can still move it;
+  `ScrollPhysics::ALWAYS` — `AlwaysScrollableScrollPhysics` — lets the user scroll an area
+  even with everything in sight, so a short list still bounces and still keeps the drag
+  from the page around it. `always_scrollable()` and `never_scrollable()` combine either
+  with a feel, `ScrollPhysics::BOUNCING.always_scrollable()`, and an area's physics are laid
+  over its scroll behaviour's (`apply_to`), so what they leave open is the platform's.
+  `ScrollFeel` and `UserScroll` are the two halves; `Scrollable` records its `axis`.
+  **Changed**: `ScrollPhysics` is a struct: `ScrollPhysics::Clamping` is
+  `ScrollPhysics::CLAMPING`, `ScrollPhysics::Bouncing(rate)` is
+  `ScrollPhysics::bouncing(rate)`, and a match on its kind is a match on `feel()`.
 - **`Slider`, the reference's 2023 design** (J648). A 4-pixel track, the travelled part 6,
   inset by the halo's radius at each end; a 20-pixel thumb in the travelled colour; a
   48-pixel halo on hover, focus and drag, per state (`overlay_color`); a tick per

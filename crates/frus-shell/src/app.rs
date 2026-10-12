@@ -5051,13 +5051,7 @@ impl<A: Application> App<A> {
                                     .unwrap_or_default();
                                 // Nothing under the finger scrolls that way (`claim_area`
                                 // without its fallback to the area pressed on).
-                                !chain.iter().any(|a| {
-                                    if down {
-                                        a.max_y > 0.0 || a.refresh.is_some()
-                                    } else {
-                                        a.max_x > 0.0
-                                    }
-                                })
+                                !chain.iter().any(|a| a.takes_user_scroll(down))
                             }
                         };
                         if wins {
@@ -5119,7 +5113,12 @@ impl<A: Application> App<A> {
                             self.runtime.hold_scroll(area.id);
                             *id = area.id;
                         }
-                        *axis = Some(claim_axis(dx, dy, area.max_x > 0.0, area.max_y > 0.0));
+                        *axis = Some(claim_axis(
+                            dx,
+                            dy,
+                            area.takes_user_scroll(false),
+                            area.takes_user_scroll(true),
+                        ));
                     } else {
                         *axis = Some(down);
                     }
@@ -7911,16 +7910,15 @@ fn claim_area(
 ) -> Option<frus_widgets::Scrollable> {
     chain
         .iter()
-        .find(|a| {
-            if down {
-                // A refresh area listening above takes a pull downwards even with nothing
-                // to scroll, which is the reference's one exception to the same rule.
-                a.max_y > 0.0 || a.refresh.is_some()
-            } else {
-                a.max_x > 0.0
-            }
+        // A refresh area listening above takes a pull downwards even with nothing to
+        // scroll, which is the reference's one exception to the same rule; the physics
+        // may say never, or always (milestone 649).
+        .find(|a| a.takes_user_scroll(down))
+        .or_else(|| {
+            chain
+                .iter()
+                .find(|a| a.id == under && a.physics.user() != frus_widgets::UserScroll::Never)
         })
-        .or_else(|| chain.iter().find(|a| a.id == under))
         .copied()
 }
 
@@ -8596,7 +8594,8 @@ mod tests {
             viewport: Rect::new(0.0, 0.0, 100.0, 100.0),
             max_x,
             max_y,
-            physics: frus_widgets::ScrollPhysics::Clamping,
+            axis: frus_widgets::Axis::Vertical,
+            physics: frus_widgets::ScrollPhysics::CLAMPING,
             overscroll: Some(frus_widgets::OverscrollIndicator::Glow),
             fling: frus_widgets::VelocityStrategy::Regression,
             refresh: None,
@@ -8638,6 +8637,50 @@ mod tests {
             claim_area(&[inner, strip, page], inner.id, true).map(|a| a.id),
             Some(inner.id)
         );
+    }
+
+    /// **The physics have the last word on a finger** (milestone 649): never scrollable
+    /// takes none, even with content to reveal, and the area around it gets the drag;
+    /// always scrollable takes one along its axis with nothing to reveal.
+    #[test]
+    fn the_physics_have_the_last_word_on_a_finger() {
+        let mut inner = area(1, 0.0, 300.0);
+        inner.physics = frus_widgets::ScrollPhysics::NEVER;
+        assert!(!inner.accepts_user_offset((0.0, 0.0)));
+        assert!(!inner.takes_user_scroll(true));
+        let outer = area(2, 0.0, 600.0);
+        let chain = [inner, outer];
+        assert_eq!(
+            claim_area(&chain, WidgetId::from_u64(1), true).map(|a| a.id),
+            Some(WidgetId::from_u64(2)),
+            "the page around it scrolls"
+        );
+        assert_eq!(
+            claim_area(&[inner], WidgetId::from_u64(1), true).map(|a| a.id),
+            None,
+            "and alone it keeps nothing"
+        );
+
+        let mut short = area(3, 0.0, 0.0);
+        short.physics = frus_widgets::ScrollPhysics::ALWAYS;
+        assert!(short.accepts_user_offset((0.0, 0.0)));
+        assert!(short.takes_user_scroll(true), "along its axis");
+        assert!(!short.takes_user_scroll(false), "and not across it");
+        assert_eq!(
+            claim_area(&[short, outer], WidgetId::from_u64(3), true).map(|a| a.id),
+            Some(WidgetId::from_u64(3)),
+            "a short list that always scrolls keeps the drag from the page"
+        );
+        let mut strip = short;
+        strip.axis = frus_widgets::Axis::Horizontal;
+        assert_eq!(
+            claim_area(&[strip, outer], WidgetId::from_u64(3), true).map(|a| a.id),
+            Some(WidgetId::from_u64(2)),
+            "a strip that always scrolls across leaves a drag down to the page"
+        );
+        let mut both = short;
+        both.axis = frus_widgets::Axis::Both;
+        assert!(both.takes_user_scroll(false) && both.takes_user_scroll(true));
     }
 
     /// An end-of-content glow on a page with nothing to scroll says something about the
@@ -9001,7 +9044,8 @@ mod scroll_request_tests {
             },
             max_x: 0.0,
             max_y: 1000.0,
-            physics: frus_widgets::ScrollPhysics::Clamping,
+            axis: frus_widgets::Axis::Vertical,
+            physics: frus_widgets::ScrollPhysics::CLAMPING,
             overscroll: Some(frus_widgets::OverscrollIndicator::Glow),
             fling: frus_widgets::VelocityStrategy::Regression,
             refresh: None,

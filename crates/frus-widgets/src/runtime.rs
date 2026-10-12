@@ -2626,7 +2626,8 @@ mod tests {
             viewport: Rect::new(0.0, 0.0, 300.0, 400.0),
             max_x: 0.0,
             max_y: max,
-            physics: crate::ScrollPhysics::Clamping,
+            axis: crate::scroll::Axis::Vertical,
+            physics: crate::ScrollPhysics::CLAMPING,
             overscroll: Some(crate::OverscrollIndicator::Glow),
             fling: frus_core::VelocityStrategy::Regression,
             refresh: None,
@@ -2653,7 +2654,8 @@ mod tests {
             viewport: Rect::new(0.0, 0.0, 300.0, 400.0),
             max_x: 600.0,
             max_y: 0.0,
-            physics: crate::ScrollPhysics::Clamping,
+            axis: crate::scroll::Axis::Vertical,
+            physics: crate::ScrollPhysics::CLAMPING,
             overscroll: Some(crate::OverscrollIndicator::Glow),
             fling: frus_core::VelocityStrategy::Regression,
             refresh: None,
@@ -2678,7 +2680,7 @@ mod tests {
         let area = paged_region(id, 0);
         rt.scroll.insert(id, (40.0, 0.0));
         // A flick far too slow to fling an ordinary list still turns the page.
-        assert!(rt.fling_scroll(area, ScrollPhysics::Clamping, (60.0, 0.0)));
+        assert!(rt.fling_scroll(area, ScrollPhysics::CLAMPING, (60.0, 0.0)));
         for _ in 0..200 {
             rt.advance_scroll(&[area], 1.0 / 60.0);
         }
@@ -2692,7 +2694,7 @@ mod tests {
         let mut rt = Runtime::default();
         let area = paged_region(id, 0);
         rt.scroll.insert(id, (10.0, 0.0));
-        rt.fling_scroll(area, ScrollPhysics::Clamping, (7000.0, 0.0));
+        rt.fling_scroll(area, ScrollPhysics::CLAMPING, (7000.0, 0.0));
         for _ in 0..300 {
             rt.advance_scroll(&[area], 1.0 / 60.0);
         }
@@ -3386,17 +3388,17 @@ mod tests {
     fn a_clamping_fling_stops_at_the_edge() {
         // Far more momentum than there is content: it must stop exactly at the end,
         // with no overshoot to spring back from.
-        let rest = settle(ScrollPhysics::Clamping, 400.0, 0.0, 6000.0);
+        let rest = settle(ScrollPhysics::CLAMPING, 400.0, 0.0, 6000.0);
         assert_eq!(rest, 400.0, "stopped dead at the end, at {rest}");
         // And symmetrically at the start.
-        let rest = settle(ScrollPhysics::Clamping, 400.0, 400.0, -6000.0);
+        let rest = settle(ScrollPhysics::CLAMPING, 400.0, 400.0, -6000.0);
         assert_eq!(rest, 0.0, "stopped dead at the start, at {rest}");
     }
 
     #[test]
     fn a_clamping_fling_that_fits_lands_where_the_platform_says() {
         // 1000 px/s covers about 194 px under the platform's spline.
-        let rest = settle(ScrollPhysics::Clamping, 4000.0, 0.0, 1000.0);
+        let rest = settle(ScrollPhysics::CLAMPING, 4000.0, 0.0, 1000.0);
         assert!((rest - 194.0).abs() < 3.0, "landed at {rest}");
     }
 
@@ -3430,7 +3432,7 @@ mod tests {
     #[test]
     fn an_overscrolled_offset_comes_home_even_without_a_fling() {
         // A release too slow to fling still owes the content its edge back.
-        for physics in [ScrollPhysics::BOUNCING, ScrollPhysics::Clamping] {
+        for physics in [ScrollPhysics::BOUNCING, ScrollPhysics::CLAMPING] {
             let rest = settle(physics, 400.0, 460.0, 5.0);
             assert!(
                 (rest - 400.0).abs() < 1.0,
@@ -3444,7 +3446,7 @@ mod tests {
         let id = WidgetId::ROOT;
         let mut rt = Runtime::default();
         rt.scroll.insert(id, (0.0, 100.0));
-        assert!(!rt.fling_scroll(region(id, 400.0), ScrollPhysics::Clamping, (0.0, 5.0)));
+        assert!(!rt.fling_scroll(region(id, 400.0), ScrollPhysics::CLAMPING, (0.0, 5.0)));
         assert!(rt.scroll_ballistic.is_empty());
     }
 
@@ -3575,7 +3577,7 @@ mod tests {
     #[test]
     fn a_clamping_fling_lights_the_edge_it_slams_into() {
         let id = WidgetId::ROOT;
-        let physics = ScrollPhysics::Clamping;
+        let physics = ScrollPhysics::CLAMPING;
         let mut rt = Runtime::default();
         let area = region_with(physics, id, 400.0);
         // Far more momentum than there is content: it will reach the end.
@@ -3673,13 +3675,13 @@ mod tests {
             overscroll: None,
             ..region(id, 400.0)
         };
-        rt.fling_scroll(quiet, ScrollPhysics::Clamping, (0.0, 6000.0));
+        rt.fling_scroll(quiet, ScrollPhysics::CLAMPING, (0.0, 6000.0));
         while rt.advance_scroll(&[quiet], 1.0 / 60.0) {}
         assert!(rt.scroll_glow.is_empty() && rt.scroll_stretch.is_empty());
         // Where the area glows, the same fling does light the edge: the instrument works.
         let lit = region(id, 400.0);
         rt.scroll.clear();
-        rt.fling_scroll(lit, ScrollPhysics::Clamping, (0.0, 6000.0));
+        rt.fling_scroll(lit, ScrollPhysics::CLAMPING, (0.0, 6000.0));
         while rt.advance_scroll(&[lit], 1.0 / 60.0) {}
         assert!(!rt.scroll_glow.is_empty());
     }
@@ -3688,7 +3690,7 @@ mod tests {
     fn a_fling_on_a_region_that_vanished_is_dropped() {
         let id = WidgetId::ROOT;
         let mut rt = Runtime::default();
-        rt.fling_scroll(region(id, 400.0), ScrollPhysics::Clamping, (0.0, 2000.0));
+        rt.fling_scroll(region(id, 400.0), ScrollPhysics::CLAMPING, (0.0, 2000.0));
         assert!(!rt.scroll_ballistic.is_empty());
         // The route changed: the scrollable is no longer part of the frame.
         assert!(!rt.advance_scroll(&[], 1.0 / 60.0));

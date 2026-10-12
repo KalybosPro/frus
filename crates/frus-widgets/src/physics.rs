@@ -6,7 +6,7 @@
 //! - [`ScrollPhysics::BOUNCING`] — dragging past the end is allowed but grows
 //!   progressively harder, and letting go springs the content back. A fling rolls
 //!   on friction and hands over to that spring at the edge.
-//! - [`ScrollPhysics::Clamping`] — the offset never leaves the content at all. A
+//! - [`ScrollPhysics::CLAMPING`] — the offset never leaves the content at all. A
 //!   fling follows the platform's spline deceleration and stops dead at the edge.
 //!
 //! The [`ScrollBehavior`](crate::ScrollBehavior) in force picks one from the platform it
@@ -124,25 +124,137 @@ pub enum ScrollDecelerationRate {
     Fast,
 }
 
-/// The behaviour of a scrollable at its edges and after a fling.
+/// **How a scrollable behaves at its edges and after a fling** — what the reference's
+/// bouncing and clamping physics differ by.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ScrollPhysics {
+pub enum ScrollFeel {
     /// Overscroll is allowed, resisted, and springs back — at the given rate.
     Bouncing(ScrollDecelerationRate),
     /// Overscroll is refused; a fling stops at the edge.
     Clamping,
 }
 
+/// **Whether the user may scroll an area** (milestone 649): the reference's
+/// `AlwaysScrollableScrollPhysics` and `NeverScrollableScrollPhysics`, and the rule they
+/// both override.
+///
+/// Whatever it says, the application still moves the area: a controller's jump, a
+/// "bring this into view", a page turned in code. This is about the user's drag, fling and
+/// wheel only.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum UserScroll {
+    /// When there is content outside the viewport to reveal, or a pull to refresh above —
+    /// the reference's default rule.
+    #[default]
+    WhenOverflowing,
+    /// Always, even with everything in sight: a short list still bounces, and still takes
+    /// the drag from the area around it.
+    Always,
+    /// Never: the drag, the fling and the wheel go to the area around it, as if it were not
+    /// a scrollable at all.
+    Never,
+}
+
+/// The behaviour of a scrollable: its feel at the edges and after a fling, and whether the
+/// user may scroll it.
+///
+/// The reference builds these as a chain, each physics a parent to the next —
+/// `AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics())`. Here the same chain
+/// is two settings, written the same way round:
+///
+/// ```ignore
+/// ScrollPhysics::BOUNCING.always_scrollable()   // bounces, and always takes the drag
+/// ScrollPhysics::NEVER                          // never takes it, whatever the platform
+/// ScrollPhysics::ALWAYS                         // always takes it, the platform's feel
+/// ```
+///
+/// A setting left open is the platform's: an area's physics are laid over its
+/// [`ScrollBehavior`](crate::ScrollBehavior)'s with [`apply_to`](Self::apply_to), as the
+/// reference applies a widget's physics to the scroll configuration's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ScrollPhysics {
+    /// The feel; `None` takes the platform's.
+    feel: Option<ScrollFeel>,
+    /// Whether the user may scroll; [`UserScroll::WhenOverflowing`] takes the platform's.
+    user: UserScroll,
+}
+
 impl ScrollPhysics {
     /// Bouncing physics at a finger's deceleration — the common case, and what
     /// `ScrollPhysics::BOUNCING` meant before there were two.
-    pub const BOUNCING: Self = Self::Bouncing(ScrollDecelerationRate::Normal);
+    pub const BOUNCING: Self = Self::bouncing(ScrollDecelerationRate::Normal);
+
+    /// Clamping physics: overscroll refused, a fling stopping at the edge.
+    pub const CLAMPING: Self = Self {
+        feel: Some(ScrollFeel::Clamping),
+        user: UserScroll::WhenOverflowing,
+    };
+
+    /// The user may never scroll it — the reference's `NeverScrollableScrollPhysics` — and
+    /// the platform's feel for anything else.
+    pub const NEVER: Self = Self {
+        feel: None,
+        user: UserScroll::Never,
+    };
+
+    /// The user may always scroll it, even with everything in sight — the reference's
+    /// `AlwaysScrollableScrollPhysics` — with the platform's feel.
+    pub const ALWAYS: Self = Self {
+        feel: None,
+        user: UserScroll::Always,
+    };
+
+    /// Bouncing physics at `rate`.
+    pub const fn bouncing(rate: ScrollDecelerationRate) -> Self {
+        Self {
+            feel: Some(ScrollFeel::Bouncing(rate)),
+            user: UserScroll::WhenOverflowing,
+        }
+    }
+
+    /// These physics, and the user may always scroll.
+    pub const fn always_scrollable(self) -> Self {
+        Self {
+            user: UserScroll::Always,
+            ..self
+        }
+    }
+
+    /// These physics, and the user may never scroll.
+    pub const fn never_scrollable(self) -> Self {
+        Self {
+            user: UserScroll::Never,
+            ..self
+        }
+    }
+
+    /// These physics laid over `ancestor`'s — the reference's `applyTo`: what these
+    /// settle, they keep; what they leave open, `ancestor` decides.
+    pub fn apply_to(self, ancestor: ScrollPhysics) -> ScrollPhysics {
+        ScrollPhysics {
+            feel: self.feel.or(ancestor.feel),
+            user: match self.user {
+                UserScroll::WhenOverflowing => ancestor.user,
+                user => user,
+            },
+        }
+    }
+
+    /// The feel in force: clamping when nothing settled one.
+    pub fn feel(self) -> ScrollFeel {
+        self.feel.unwrap_or(ScrollFeel::Clamping)
+    }
+
+    /// Whether the user may scroll.
+    pub fn user(self) -> UserScroll {
+        self.user
+    }
 
     /// The deceleration profile in force, or `None` for a family that has none.
     pub fn deceleration_rate(self) -> Option<ScrollDecelerationRate> {
-        match self {
-            ScrollPhysics::Bouncing(rate) => Some(rate),
-            ScrollPhysics::Clamping => None,
+        match self.feel() {
+            ScrollFeel::Bouncing(rate) => Some(rate),
+            ScrollFeel::Clamping => None,
         }
     }
 }
@@ -163,9 +275,9 @@ impl ScrollPhysics {
     /// Bouncing physics decelerates far more gently, so it asks for a more
     /// deliberate gesture before it commits to a fling.
     pub fn min_fling_velocity(self) -> f32 {
-        match self {
-            ScrollPhysics::Bouncing(_) => MIN_FLING_VELOCITY * 2.0,
-            ScrollPhysics::Clamping => MIN_FLING_VELOCITY,
+        match self.feel() {
+            ScrollFeel::Bouncing(_) => MIN_FLING_VELOCITY * 2.0,
+            ScrollFeel::Clamping => MIN_FLING_VELOCITY,
         }
     }
 
@@ -176,8 +288,8 @@ impl ScrollPhysics {
     /// reaches — so the fast profile lifts the ceiling eightfold rather than
     /// clipping what the hardware actually said.
     pub fn max_fling_velocity(self) -> f32 {
-        match self {
-            ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast) => MAX_FLING_VELOCITY * 8.0,
+        match self.feel() {
+            ScrollFeel::Bouncing(ScrollDecelerationRate::Fast) => MAX_FLING_VELOCITY * 8.0,
             _ => MAX_FLING_VELOCITY,
         }
     }
@@ -187,9 +299,9 @@ impl ScrollPhysics {
     /// Bouncing physics asks for a little more, to swallow the small unintended
     /// motion of a finger lifting off.
     pub fn drag_start_distance_threshold(self) -> f32 {
-        match self {
-            ScrollPhysics::Bouncing(_) => 3.5,
-            ScrollPhysics::Clamping => 0.0,
+        match self.feel() {
+            ScrollFeel::Bouncing(_) => 3.5,
+            ScrollFeel::Clamping => 0.0,
         }
     }
 
@@ -199,12 +311,12 @@ impl ScrollPhysics {
     /// Only the bouncing family builds momentum this way; clamping starts each
     /// fling from the gesture alone.
     pub fn carried_momentum(self, existing_velocity: f32) -> f32 {
-        match self {
-            ScrollPhysics::Bouncing(_) => {
+        match self.feel() {
+            ScrollFeel::Bouncing(_) => {
                 existing_velocity.signum()
                     * (0.000_816 * existing_velocity.abs().powf(1.967)).min(40_000.0)
             }
-            ScrollPhysics::Clamping => 0.0,
+            ScrollFeel::Clamping => 0.0,
         }
     }
 
@@ -251,7 +363,7 @@ impl ScrollPhysics {
     /// Clamping physics refuses everything that would leave the content; bouncing
     /// physics refuses nothing, and lets the spring deal with it.
     pub fn apply_boundary_conditions(self, metrics: ScrollMetrics, value: f32) -> f32 {
-        if self != ScrollPhysics::Clamping {
+        if self.feel() != ScrollFeel::Clamping {
             return 0.0;
         }
         let p = metrics.pixels;
@@ -272,7 +384,7 @@ impl ScrollPhysics {
 
     /// May the content be dragged past its edges at all?
     pub fn allows_overscroll(self) -> bool {
-        matches!(self, ScrollPhysics::Bouncing(_))
+        matches!(self.feel(), ScrollFeel::Bouncing(_))
     }
 
     /// The motion that follows the finger lifting off at `velocity` (px/s, positive
@@ -280,8 +392,8 @@ impl ScrollPhysics {
     pub fn ballistic(self, metrics: ScrollMetrics, velocity: f32) -> Option<Ballistic> {
         let tolerance = self.tolerance();
         let velocity = velocity.clamp(-self.max_fling_velocity(), self.max_fling_velocity());
-        match self {
-            ScrollPhysics::Bouncing(rate) => {
+        match self.feel() {
+            ScrollFeel::Bouncing(rate) => {
                 if velocity.abs() >= tolerance.velocity || metrics.out_of_range() {
                     Some(Ballistic::Bouncing(
                         BouncingScrollSimulation::with_constant_deceleration(
@@ -301,7 +413,7 @@ impl ScrollPhysics {
                     None
                 }
             }
-            ScrollPhysics::Clamping => {
+            ScrollFeel::Clamping => {
                 // Out of range at all — after a resize, say — is a return to the
                 // edge, never a fling. The velocity may only help it home.
                 if metrics.out_of_range() {
@@ -563,7 +675,7 @@ mod tests {
     #[test]
     fn inside_the_content_every_pixel_of_finger_reaches_the_offset() {
         let metrics = ScrollMetrics::new(120.0, 400.0, 600.0);
-        for physics in [ScrollPhysics::BOUNCING, ScrollPhysics::Clamping] {
+        for physics in [ScrollPhysics::BOUNCING, ScrollPhysics::CLAMPING] {
             assert_eq!(physics.apply_user_offset(metrics, 25.0), 25.0);
             assert_eq!(physics.apply_user_offset(metrics, -25.0), -25.0);
         }
@@ -582,7 +694,7 @@ mod tests {
         assert!(a.abs() < 20.0, "the band already resists: {a}");
         assert!(b.abs() < a.abs(), "further out must be harder: {b} vs {a}");
         // Clamping physics has no band at all.
-        assert_eq!(ScrollPhysics::Clamping.apply_user_offset(far, -20.0), -20.0);
+        assert_eq!(ScrollPhysics::CLAMPING.apply_user_offset(far, -20.0), -20.0);
     }
 
     #[test]
@@ -598,7 +710,7 @@ mod tests {
 
     #[test]
     fn clamping_refuses_exactly_what_would_leave_the_content() {
-        let physics = ScrollPhysics::Clamping;
+        let physics = ScrollPhysics::CLAMPING;
         let metrics = ScrollMetrics::new(390.0, 400.0, 600.0);
         // A move that stays inside is untouched.
         assert_eq!(physics.apply_boundary_conditions(metrics, 395.0), 0.0);
@@ -620,14 +732,14 @@ mod tests {
     #[test]
     fn a_slow_release_flings_nothing() {
         let metrics = ScrollMetrics::new(100.0, 400.0, 600.0);
-        assert!(ScrollPhysics::Clamping.ballistic(metrics, 1.0).is_none());
+        assert!(ScrollPhysics::CLAMPING.ballistic(metrics, 1.0).is_none());
         assert!(ScrollPhysics::BOUNCING.ballistic(metrics, 1.0).is_none());
     }
 
     #[test]
     fn clamping_fling_stops_dead_inside_the_content() {
         let metrics = ScrollMetrics::new(100.0, 400.0, 600.0);
-        let sim = ScrollPhysics::Clamping.ballistic(metrics, 800.0).unwrap();
+        let sim = ScrollPhysics::CLAMPING.ballistic(metrics, 800.0).unwrap();
         assert!(matches!(sim, Ballistic::Clamping(_)));
         // It travels, then finishes; the runtime clamps the tail into the content.
         assert!(sim.x(0.1) > 100.0);
@@ -638,9 +750,9 @@ mod tests {
     #[test]
     fn clamping_at_the_edge_pushing_outwards_does_nothing() {
         let at_end = ScrollMetrics::new(400.0, 400.0, 600.0);
-        assert!(ScrollPhysics::Clamping.ballistic(at_end, 900.0).is_none());
+        assert!(ScrollPhysics::CLAMPING.ballistic(at_end, 900.0).is_none());
         let at_start = ScrollMetrics::new(0.0, 400.0, 600.0);
-        assert!(ScrollPhysics::Clamping
+        assert!(ScrollPhysics::CLAMPING
             .ballistic(at_start, -900.0)
             .is_none());
     }
@@ -650,7 +762,7 @@ mod tests {
         // Overscroll can still happen without a drag — the content shrank under a
         // resting offset. Clamping physics springs it home rather than flinging.
         let past = ScrollMetrics::new(460.0, 400.0, 600.0);
-        let sim = ScrollPhysics::Clamping.ballistic(past, 0.0).unwrap();
+        let sim = ScrollPhysics::CLAMPING.ballistic(past, 0.0).unwrap();
         assert!(matches!(sim, Ballistic::Spring(_)));
         assert!(
             (sim.x(2.0) - 400.0).abs() < 0.5,
@@ -670,7 +782,7 @@ mod tests {
     #[test]
     fn a_fling_never_exceeds_the_velocity_cap() {
         let metrics = ScrollMetrics::new(0.0, 100_000.0, 600.0);
-        let sim = ScrollPhysics::Clamping
+        let sim = ScrollPhysics::CLAMPING
             .ballistic(metrics, 50_000.0)
             .unwrap();
         assert!(
@@ -684,11 +796,11 @@ mod tests {
     fn bouncing_asks_for_a_more_deliberate_gesture() {
         assert!(
             ScrollPhysics::BOUNCING.min_fling_velocity()
-                > ScrollPhysics::Clamping.min_fling_velocity()
+                > ScrollPhysics::CLAMPING.min_fling_velocity()
         );
         // Repeated swipes build speed only where the platform does.
         assert!(ScrollPhysics::BOUNCING.carried_momentum(1000.0) > 0.0);
-        assert_eq!(ScrollPhysics::Clamping.carried_momentum(1000.0), 0.0);
+        assert_eq!(ScrollPhysics::CLAMPING.carried_momentum(1000.0), 0.0);
         // …and the carry is signed like the motion it continues, and capped.
         assert!(ScrollPhysics::BOUNCING.carried_momentum(-1000.0) < 0.0);
         assert!(ScrollPhysics::BOUNCING.carried_momentum(100_000.0) <= 40_000.0);
@@ -741,7 +853,7 @@ mod tests {
 
     #[test]
     fn a_paged_release_always_settles_on_a_page() {
-        for physics in [ScrollPhysics::BOUNCING, ScrollPhysics::Clamping] {
+        for physics in [ScrollPhysics::BOUNCING, ScrollPhysics::CLAMPING] {
             // Released mid-page with no speed at all: it still has to go somewhere.
             let sim = physics.page_ballistic(paged(190.0), 0.0, 300.0).unwrap();
             assert!(
@@ -761,7 +873,7 @@ mod tests {
 
     #[test]
     fn resting_on_a_page_starts_nothing() {
-        assert!(ScrollPhysics::Clamping
+        assert!(ScrollPhysics::CLAMPING
             .page_ballistic(paged(300.0), 0.0, 300.0)
             .is_none());
     }
@@ -774,7 +886,7 @@ mod tests {
             .page_ballistic(out, -50.0, 300.0)
             .unwrap();
         assert!((sim.x(3.0) - 0.0).abs() < 1.0, "settled at {}", sim.x(3.0));
-        assert!(ScrollPhysics::Clamping
+        assert!(ScrollPhysics::CLAMPING
             .page_ballistic(ScrollMetrics::new(0.0, 600.0, 300.0), -900.0, 300.0)
             .is_none());
     }
@@ -813,7 +925,7 @@ mod tests {
             );
             assert!(
                 !still_moving(
-                    ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast),
+                    ScrollPhysics::bouncing(ScrollDecelerationRate::Fast),
                     velocity
                 ),
                 "and a trackpad stops, at {velocity} as at any other speed"
@@ -832,7 +944,7 @@ mod tests {
             sim.x(30.0) - 200.0
         };
         let finger = travel(ScrollPhysics::BOUNCING);
-        let trackpad = travel(ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast));
+        let trackpad = travel(ScrollPhysics::bouncing(ScrollDecelerationRate::Fast));
         assert!(finger > 0.0 && trackpad > 0.0, "both travel forwards");
         assert!(
             trackpad < finger,
@@ -848,7 +960,7 @@ mod tests {
         let metrics = ScrollMetrics::new(-10.0, 400.0, 600.0);
         let finger = ScrollPhysics::BOUNCING.apply_user_offset(metrics, -20.0);
         let trackpad =
-            ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast).apply_user_offset(metrics, -20.0);
+            ScrollPhysics::bouncing(ScrollDecelerationRate::Fast).apply_user_offset(metrics, -20.0);
         assert!(finger < 0.0 && trackpad < 0.0, "both pull further out");
         assert!(
             (trackpad / finger - 0.5).abs() < 0.05,
@@ -868,7 +980,7 @@ mod tests {
         // Past the start, a positive delta walks back towards the content.
         let finger = ScrollPhysics::BOUNCING.apply_user_offset(metrics, 20.0);
         let trackpad =
-            ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast).apply_user_offset(metrics, 20.0);
+            ScrollPhysics::bouncing(ScrollDecelerationRate::Fast).apply_user_offset(metrics, 20.0);
         assert_eq!(trackpad, 20.0, "every pixel of the gesture comes back");
         assert!(
             finger < 20.0,
@@ -877,7 +989,7 @@ mod tests {
         // And tensioning is still resisted on both — it is the direction that
         // differs, not the family.
         assert!(
-            ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast)
+            ScrollPhysics::bouncing(ScrollDecelerationRate::Fast)
                 .apply_user_offset(metrics, -20.0)
                 .abs()
                 < 20.0,
@@ -890,11 +1002,11 @@ mod tests {
     #[test]
     fn a_trackpad_may_be_flung_eight_times_as_hard() {
         assert_eq!(
-            ScrollPhysics::Bouncing(ScrollDecelerationRate::Fast).max_fling_velocity(),
+            ScrollPhysics::bouncing(ScrollDecelerationRate::Fast).max_fling_velocity(),
             ScrollPhysics::BOUNCING.max_fling_velocity() * 8.0
         );
         assert_eq!(
-            ScrollPhysics::Clamping.max_fling_velocity(),
+            ScrollPhysics::CLAMPING.max_fling_velocity(),
             ScrollPhysics::BOUNCING.max_fling_velocity(),
             "and the clamping family is untouched"
         );
@@ -919,6 +1031,57 @@ mod tests {
         assert!(
             sim.dx(5.0).abs() > 0.0,
             "still creeping at five seconds, as before"
+        );
+    }
+
+    /// **Never and always lie over the platform's physics** (milestone 649), as the
+    /// reference's `applyTo` does: what a physics settles it keeps, what it leaves open the
+    /// platform decides.
+    #[test]
+    fn never_and_always_lie_over_the_platform() {
+        let ios = ScrollPhysics::BOUNCING;
+        let android = ScrollPhysics::CLAMPING;
+        assert_eq!(ScrollPhysics::NEVER.user(), UserScroll::Never);
+        assert_eq!(ScrollPhysics::ALWAYS.user(), UserScroll::Always);
+        assert_eq!(ios.user(), UserScroll::WhenOverflowing, "the default rule");
+
+        let never = ScrollPhysics::NEVER.apply_to(ios);
+        assert_eq!(never.user(), UserScroll::Never);
+        assert_eq!(
+            never.feel(),
+            ScrollFeel::Bouncing(ScrollDecelerationRate::Normal)
+        );
+        assert!(
+            never.allows_overscroll(),
+            "a programmatic overshoot still bounces"
+        );
+        let always = ScrollPhysics::ALWAYS.apply_to(android);
+        assert_eq!(
+            (always.user(), always.feel()),
+            (UserScroll::Always, ScrollFeel::Clamping)
+        );
+
+        // A feel given keeps itself, and takes the platform's rule.
+        let given = ScrollPhysics::BOUNCING.apply_to(android.always_scrollable());
+        assert_eq!(
+            given.feel(),
+            ScrollFeel::Bouncing(ScrollDecelerationRate::Normal)
+        );
+        assert_eq!(given.user(), UserScroll::Always);
+        // A rule given keeps itself over the platform's.
+        let kept = ScrollPhysics::CLAMPING
+            .never_scrollable()
+            .apply_to(ios.always_scrollable());
+        assert_eq!(
+            (kept.user(), kept.feel()),
+            (UserScroll::Never, ScrollFeel::Clamping)
+        );
+        // Nothing settled at all is clamping, and the default rule.
+        let open = ScrollPhysics::NEVER;
+        assert_eq!(open.feel(), ScrollFeel::Clamping);
+        assert_eq!(
+            ScrollPhysics::bouncing(ScrollDecelerationRate::Fast).deceleration_rate(),
+            Some(ScrollDecelerationRate::Fast)
         );
     }
 }
