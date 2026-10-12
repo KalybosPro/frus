@@ -425,7 +425,7 @@ pub use shortcuts::{
     KeyboardListener, ShortcutKey, Shortcuts,
 };
 pub use skeleton::Skeleton;
-pub use slider::{RangeSlider, Slider};
+pub use slider::{RangeSlider, ShowValueIndicator, Slider};
 pub use spacer::Spacer;
 pub use spinner::CircularProgressIndicator;
 pub use stack::{Clip, IndexedStack, Stack, StackFit};
@@ -480,7 +480,7 @@ pub use ui::{
 pub use undo::{EditKind, EditSnapshot, UndoHistory, RUN_PAUSE};
 pub use visualdensity::VisualDensity;
 pub use wheel::{ListWheel, RowOnWheel, WheelGeometry};
-pub use widget::{CellFn, FillAxes, FilterContext, ReorderAxis, Widget};
+pub use widget::{CellFn, DragTrack, FillAxes, FilterContext, ReorderAxis, Widget};
 pub use widgetstate::{StateFilter, WidgetState, WidgetStateProperty, WidgetStates};
 // **Every** one of them, and not only the ones a doc link happened to need. A theme
 // struct that is `pub` inside a private module is public and unreachable: callers can

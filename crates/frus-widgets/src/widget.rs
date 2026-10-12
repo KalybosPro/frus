@@ -94,6 +94,42 @@ pub struct FillAxes {
     pub vertical: bool,
 }
 
+/// Where a drag lands along a widget that takes one: see [`Widget::drag_track`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DragTrack {
+    /// How far in from each end the travel starts, in logical pixels.
+    pub inset: f32,
+    /// Whether the travel runs from the right in a right-to-left reading direction.
+    pub mirrored: bool,
+}
+
+impl DragTrack {
+    /// The whole width, left to right: what a widget with no opinion answers.
+    pub const WHOLE: Self = Self {
+        inset: 0.0,
+        mirrored: false,
+    };
+
+    /// Where `x` falls along `rect`'s travel, as a fraction `0..=1`, for a reading
+    /// direction that is right to left when `rtl`.
+    ///
+    /// One function, used by a drag's start, every move and its end alike: three copies
+    /// of this arithmetic would agree on every slider until one of them did not.
+    pub fn fraction(self, rect: crate::Rect, x: f32, rtl: bool) -> f32 {
+        let width = rect.width - 2.0 * self.inset;
+        let t = if width > 0.0 {
+            ((x - rect.x - self.inset) / width).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        if self.mirrored && rtl {
+            1.0 - t
+        } else {
+            t
+        }
+    }
+}
+
 impl FillAxes {
     /// Shrink-wrap on both axes — what a widget with no opinion answers.
     pub const NONE: Self = Self {
@@ -537,6 +573,15 @@ pub trait Widget<Msg = crate::callback::Callback> {
     /// If `true`, the widget responds to pointer dragging (sliders, handles).
     fn draggable(&self) -> bool {
         false
+    }
+
+    /// **Where along a [`draggable`](Self::draggable) widget its drag lands** (milestone
+    /// 648): how far in from each end the travel starts, and whether it runs from the
+    /// right in a right-to-left reading direction. The fraction [`on_drag`](Self::on_drag)
+    /// and its edges are given is measured along that travel. The default is the whole
+    /// width, left to right.
+    fn drag_track(&self) -> DragTrack {
+        DragTrack::WHOLE
     }
 
     /// Message produced while dragging, `fraction` being the relative horizontal
@@ -1951,6 +1996,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn draggable(&self) -> bool {
         (**self).draggable()
+    }
+    fn drag_track(&self) -> DragTrack {
+        (**self).drag_track()
     }
     fn on_drag(&self, fraction: f32) -> Option<Msg> {
         (**self).on_drag(fraction)

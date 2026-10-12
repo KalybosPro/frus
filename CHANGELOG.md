@@ -8,11 +8,25 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 647 so far, each documenting the objective, the alternatives
+> record — one per step, 648 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **`Slider`, the reference's 2023 design** (J648). A 4-pixel track, the travelled part 6,
+  inset by the halo's radius at each end; a 20-pixel thumb in the travelled colour; a
+  48-pixel halo on hover, focus and drag, per state (`overlay_color`); a tick per
+  division; the value in a drop over the thumb (`value_label`), shown while the slider is
+  moved or focused as `show_value_indicator` says, `ShowValueIndicator::OnlyForDiscrete`
+  by default; `secondary_track_value` and `secondary_active_color`; right to left, from
+  the right; `semantic_formatter`. The slider takes the width it is offered, at least 144
+  of track, and is 48 tall. `SliderTheme` gains the track height, the tick, secondary,
+  disabled and indicator colours, the halo and the policy. New: `Widget::drag_track` and
+  `DragTrack`, where a drag lands along a widget, which the shell now measures with.
+  **Changed**: the colours are the reference's 2023 ones (`surface_container_highest`
+  behind, a `primary` thumb with no ring unless `thumb_border_color` asks for one); the
+  label shows only on a slider with divisions unless told otherwise; the slider no longer
+  grows to make room for it; `SliderTheme` is no longer `Copy`.
 - **Fixed: the painting types could not be named from `frus`.** `BoxShape`, `BoxBorder`,
   `BorderSide`, `BorderDirectional`, `BorderRadiusDirectional`, `ShapeBorder`, `BlurStyle`,
   the three gradients and `TileMode`, `DecorationImage` and `ImageRepeat`, `LayerFilter`

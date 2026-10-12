@@ -279,7 +279,7 @@ pub struct RadioTheme {
 }
 
 /// Defaults for [`Slider`](crate::Slider) and [`RangeSlider`](crate::RangeSlider).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SliderTheme {
     /// The value bubble's type. The reference calls it the *value indicator* and sets it in
     /// `labelLarge`.
@@ -297,6 +297,27 @@ pub struct SliderTheme {
     pub thumb_elevation: Option<f32>,
     /// And while it is held. Unset, the reference's 6.
     pub pressed_thumb_elevation: Option<f32>,
+    /// The track's height (milestone 648, as the rest below). Unset, the reference's 4; the
+    /// travelled part is 2 more.
+    pub track_height: Option<f32>,
+    /// The part between a slider's value and its secondary value.
+    pub secondary_active_track_color: Option<Color>,
+    /// The ticks on the travelled part. Unset, `on_primary` at 38 %.
+    pub active_tick_mark_color: Option<Color>,
+    /// The ticks on the rest. Unset, `on_surface_variant` at 38 %.
+    pub inactive_tick_mark_color: Option<Color>,
+    /// A disabled slider's travelled part.
+    pub disabled_active_track_color: Option<Color>,
+    /// A disabled slider's rest of the track.
+    pub disabled_inactive_track_color: Option<Color>,
+    /// A disabled slider's thumb.
+    pub disabled_thumb_color: Option<Color>,
+    /// The halo around the thumb, per state.
+    pub overlay_color: Option<crate::WidgetStateProperty<Color>>,
+    /// The value indicator's fill. Unset, `primary`.
+    pub value_indicator_color: Option<Color>,
+    /// When the value indicator shows. Unset, only on a slider with divisions.
+    pub show_value_indicator: Option<crate::ShowValueIndicator>,
 }
 
 /// Defaults for [`Switch`](crate::Switch).
