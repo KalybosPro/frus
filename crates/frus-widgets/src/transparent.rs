@@ -180,6 +180,20 @@ macro_rules! forward_transparent {
                 self.inner.foreground(theme)
             }
 
+            fn paints_over(&self) -> bool {
+                self.inner.paints_over()
+            }
+
+            fn paint_over(
+                &self,
+                bounds: frus_core::Rect,
+                status: $crate::interaction::Status,
+                theme: &$crate::theme::Theme,
+                scene: &mut frus_core::Scene,
+            ) {
+                self.inner.paint_over(bounds, status, theme, scene)
+            }
+
             fn opaque(&self) -> bool {
                 self.inner.opaque()
             }

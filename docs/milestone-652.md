@@ -1,89 +1,47 @@
-# Milestone 652 — `frus create`
+# Milestone 652 — Painting over one's own children
 
 ## Objective
 
-Starting an application took two tools and a path into this repository:
+Close the first gap milestone 651 left in `RangeSlider`: a hovered or focused thumb's halo
+was painted **over** its thumb. The reference paints the overlay first and the thumb on it.
 
-```sh
-cargo install cargo-generate
-cargo generate --path templates/app --name my-app
-```
-
-`--path` meant a clone of frus; `--git` meant knowing where the template lives. The reference
-starts a project with one command, its own, and nothing to know beforehand. Now:
-
-```sh
-cargo install frus-cli
-frus create my_app
-```
+The cause was structural. Each thumb's focus stop is a child of the slider, so it paints
+after the slider. The slider drew the thumbs in its own `paint`, before its children, so
+the stop's halo landed on top. Milestone 651 worked around it with a ring around the thumb
+instead of a disc under it.
 
 ## What was done
 
-- **`frus-cli`**, a new crate whose binary is `frus`. No dependencies: it is compiled on the
-  developer's machine by `cargo install`, and the standard library does everything it needs.
-  The binary is `doc = false`, since its name is the facade's and both would write
-  `target/doc/frus/`.
-- **`frus create <directory>`**, with `--name`, `--org`, `--frus-path` and `--no-git`. Three
-  steps, each testable alone: the names are checked, the files are rendered in memory, and only
-  then is anything written. A directory the command made is removed again if a write fails;
-  one that was there before is never touched unless it is empty.
-- **The name** must work as a package, a crate, a program, a `.wasm` file and the last part of
-  an Android package: lowercase ASCII letters, digits, `_` and `-`, starting with a letter, at
-  most 64 characters. Refused, each with its reason: Rust keywords (the binary calls
-  `my_app::run()`), the standard library's crates, cargo's own directory names, the frus
-  crates and `wasm-bindgen` (with `-` and `_` treated alike, as cargo does), and Windows'
-  device names. A name with capitals gets its lowercase form suggested.
-- **`--org`**: the Android package becomes `<org>.<name>`, where the template used to write
-  `com.example.<name>` and leave changing it to the README. Lowercase parts, none a Java
-  keyword; the name itself is held to the same rule, as the package's last part.
-- **`--frus-path`** replaces `frus = "0.3"` with a path to the checkout's `frus` crate. The
-  facade reaches every other frus crate through its own path dependencies, so one line moves
-  the whole framework, where the patch the README describes needs ten. The published
-  requirement stays in a comment above it.
-- **git**: `git init` unless `--no-git`, and not inside an existing repository, as `cargo new`.
-  No git on the machine is a note, not a failure.
-- **The template moved** into the crate, to `crates/frus-cli/template`. `cargo publish` only
-  ships what is inside the crate, and a directory with a `Cargo.toml` in it is a separate
-  package that it leaves out, so the manifest is now `Cargo.toml.liquid`; `frus create` and
-  `cargo generate` both drop the suffix. The files are built in with `include_bytes!` from a
-  list (`template.rs`) rather than a build script, which is one less program to compile and
-  run on install.
-- **Line endings**: a checkout on Windows has CRLF files, and `frus` built from it would have
-  written them into every application. Text files are written with LF wherever the tool was
-  built.
+- **`Widget::paint_over`**, with `Widget::paints_over` to opt in: a widget paints after its
+  own subtree, in the same box and with the same status as `paint`. This is the reference's
+  `foregroundPainter`, beside the `foreground` decoration that already took that place in the
+  walk. The walk computes the status only for a widget that opts in. The hook is forwarded by
+  `Box<dyn Widget>`, the transparent wrappers and `Responsive`.
+- **The range slider paints in two passes.** The track, the ticks and the held thumb's halo
+  go under the stops. The thumbs, their shadows, the overlap ring and the dragged values go
+  over them. A stop's halo is a full disc again.
 
-## What was found
+## Alternatives weighed
 
-- **cargo leaves dotfiles out of a package below its root.** With the default file list,
-  `cargo package --list` had no `template/.gitignore` and no `template/.github/`: the published
-  crate would not have compiled, since `include_bytes!` names them. The manifest now says
-  `include = [...]` explicitly, and CI builds the tool from its tarball.
-- **The template was built by nothing.** CI built `frus-hello`, the template's source, but no
-  generated project: a template that stopped compiling would have been found by the first
-  person to use it after a release. The new `frus create` job makes an application against the
-  checkout and runs what its own CI runs — fmt, clippy with `-D warnings`, the tests, and the
-  wasm build.
+- **The stop repaints its thumb over its halo.** That breaks the order between the two
+  thumbs: a hovered bottom thumb would come out on top of its neighbour.
+- **The slider paints every halo itself**, learning which stop is hovered. It would need the
+  child's hover in the parent's status, which nothing carries. The general hook is smaller,
+  and other widgets need it too.
 
 ## Tests
 
-`frus-cli`, 24 tests:
+- `frus-widgets`: built through `build_ui` with the start thumb's stop hovered, the scene
+  holds the track, then the stop's halo round the start, then the thumbs. The slider's own
+  tests paint both passes and check that it asks for the second.
+- `frus-widgets`: a range slider behind a selector and behind a key still asks to paint
+  over its children, and paints the same thing there.
+- Goldens unchanged except `range_slider_labels`, where the focused thumb now sits on a
+  full halo disc.
 
-- names accepted and refused, each with its reason; organisations; the crate's name;
-- rendering: every value filled in, no template syntax left in a path or a file, no `.liquid`
-  suffix, LF only, `cargo-generate.toml` left out, the icons byte for byte, GitHub's `${{ }}`
-  kept;
-- `--frus-path`: the dependency replaced once, the published one kept in a comment, the path a
-  valid TOML string on Windows (`\\?\` dropped, backslashes escaped);
-- writing: a new directory, an empty one, a refused non-empty one with nothing touched, a file
-  in the way, nothing on disk after a refused name or checkout;
-- the command line: commands, defaults, both option spellings in any order, mistakes;
-- the template in step with the crate: every file in `template/` built in and nothing else;
-  the verbatim files the same as `cargo-generate.toml`'s excludes; the template's
-  `frus = "x.y"` and `rust-version` those of this release.
+Mutation testing: 7 mutants, all killed. One was killed only after its test was sharpened:
+the held halo's thumb before a drag has taken one. They cover:
 
-By hand, on Linux (WSL) and Windows: `frus create` against the checkout; the generated
-application's tests pass; a second `create` into it, a capitalised name and an unknown command
-exit 1, 1 and 2 with their messages; on Windows the generated manifest's path is read by cargo.
-
-**Not verified here** (the network was down during the milestone): the generated application's
-wasm build and `cargo generate` on the moved template. The CI job covers the first.
+- the walk asking for and calling the second pass;
+- `Responsive` and the transparent wrappers forwarding both hooks;
+- the held halo's thumb.

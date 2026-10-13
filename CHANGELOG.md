@@ -8,12 +8,12 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 652 so far, each documenting the objective, the alternatives
+> record — one per step, 653 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
-- **`frus create`** (J652). A new crate, `frus-cli`, installs a program called `frus`:
+- **`frus create`** (J653). A new crate, `frus-cli`, installs a program called `frus`:
   `cargo install frus-cli`, then `frus create my_app` writes an application for the desktops,
   Android and the web, with its CI and release workflows, ready for `cargo run`. Options:
   `--name`, `--org` (the Android package is `<org>.<name>`), `--frus-path` (build against a
@@ -25,6 +25,11 @@ any release may break.
   **Moved**: the template, from `templates/app` to `crates/frus-cli/template`. It is still a
   `cargo generate` template, whose manifest is now `Cargo.toml.liquid` and which asks for the
   organisation (default `com.example`).
+- **Painting over one's own children** (J652). `Widget::paint_over`, opted into with
+  `Widget::paints_over`, paints after the widget's subtree in the same box and status as
+  `paint`. The range slider uses it to paint its thumbs over their focus stops, so a hovered
+  or focused thumb's halo is a disc under the thumb, as the reference's is, rather than a
+  ring around it.
 - **The range slider, against the reference** (J651). `RangeSlider` takes the width it is
   offered and covers `range(min, max)`; its track is the reference's, the span between the
   thumbs in `primary` and the rest `primary` at 24 %, with a tick per division. A press takes
