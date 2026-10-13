@@ -1,0 +1,28 @@
+[package]
+name = "frus-cli"
+description = "frus — the command-line tool: `frus create` starts an application for desktop, Android and the web"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["gui", "ui", "cli", "template", "cross-platform"]
+categories = ["command-line-utilities", "development-tools", "gui"]
+# Named, not left to cargo's default, which skips files whose name starts with a dot below the
+# package's root: the template's `.gitignore` and `.github/` would be missing from the published
+# crate, and `include_bytes!` would not compile.
+include = ["/Cargo.toml", "/README.md", "/src/**", "/template/**"]
+
+# `cargo install frus-cli` installs a program called `frus`.
+#
+# Not documented: the facade crate is called `frus` too, and two targets of one name write the
+# same `target/doc/frus/`, the binary's over the library's.
+[[bin]]
+name = "frus"
+path = "src/main.rs"
+doc = false
+
+# No dependencies, on purpose: a tool installed with `cargo install` is compiled on the
+# developer's machine, and everything it does fits in the standard library.
+[dependencies]

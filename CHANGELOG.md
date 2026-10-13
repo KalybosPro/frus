@@ -8,11 +8,23 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 652 so far, each documenting the objective, the alternatives
+> record — one per step, 653 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **`frus create`** (J653). A new crate, `frus-cli`, installs a program called `frus`:
+  `cargo install frus-cli`, then `frus create my_app` writes an application for the desktops,
+  Android and the web, with its CI and release workflows, ready for `cargo run`. Options:
+  `--name`, `--org` (the Android package is `<org>.<name>`), `--frus-path` (build against a
+  checkout) and `--no-git`. The name is checked before anything is written: one that would not
+  build as a package, a crate, a `.wasm` file or an Android package is refused with the
+  reason, and the command never writes into a directory that is not empty. The template is
+  built into the program, so it needs no network. CI makes an application with it on every
+  push and runs that application's own checks, and builds the tool from its packaged tarball.
+  **Moved**: the template, from `templates/app` to `crates/frus-cli/template`. It is still a
+  `cargo generate` template, whose manifest is now `Cargo.toml.liquid` and which asks for the
+  organisation (default `com.example`).
 - **Painting over one's own children** (J652). `Widget::paint_over`, opted into with
   `Widget::paints_over`, paints after the widget's subtree in the same box and status as
   `paint`. The range slider uses it to paint its thumbs over their focus stops, so a hovered

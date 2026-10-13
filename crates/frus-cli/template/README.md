@@ -51,7 +51,7 @@ one is about 5 MB. A release APK has to be signed with your key: the comment on 
 - **The icon** is the five `res/mipmap-*/ic_launcher.png` files.
 - **The colour shown while the application opens** is `launch_background` in
   `res/values/styles.xml`. Make it your first frame's background colour.
-- **The package name**, `com.example.{{crate_name}}`, is `package` in `Cargo.toml`. Change it
+- **The package name**, `{{org}}.{{crate_name}}`, is `package` in `Cargo.toml`. Settle it
   before your first release: a store knows the application by it.
 - **The version code** comes from `version` in `Cargo.toml` (each part at most 255).
 

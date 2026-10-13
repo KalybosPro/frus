@@ -1,0 +1,384 @@
+//! `frus`, the command-line tool. One command for now:
+//!
+//! ```text
+//! frus create my_app
+//! ```
+//!
+//! writes a new application, ready for `cargo run`, `cargo apk run --lib` and the web, with
+//! its CI and its release workflow. Everything else is cargo's: the tool starts a project and
+//! steps aside.
+
+mod create;
+mod template;
+
+use std::ffi::OsString;
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+use create::{Created, Git, Options, DEFAULT_ORG};
+
+const USAGE: &str = "\
+frus — the frus command-line tool
+
+Usage:
+  frus create <directory> [options]   start a new application
+  frus help [create]                  print this, or the options of create
+  frus --version                      print the version
+";
+
+const CREATE_USAGE: &str = "\
+frus create — start a new application for desktop, Android and the web
+
+Usage:
+  frus create <directory> [options]
+
+The directory is made, or must be empty. The application's name is the directory's
+own unless --name gives one: lowercase letters, digits, `_` and `-`.
+
+Options:
+      --name <name>        the package's name (default: the directory's name)
+      --org <org>          the reverse domain the Android package starts with
+                           (default: com.example; the package is <org>.<name>)
+      --frus-path <dir>    build against a checkout of frus, not the published crates
+      --no-git             do not make the directory a git repository
+  -h, --help               print this
+
+Example:
+  frus create my_app --org com.acme
+";
+
+/// What the command line asked for.
+#[derive(Debug, PartialEq, Eq)]
+enum Command {
+    Help,
+    CreateHelp,
+    Version,
+    Create(Options),
+}
+
+fn main() -> ExitCode {
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    match parse(args) {
+        Ok(Command::Help) => {
+            print!("{USAGE}");
+            ExitCode::SUCCESS
+        }
+        Ok(Command::CreateHelp) => {
+            print!("{CREATE_USAGE}");
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Version) => {
+            println!("frus {}", env!("CARGO_PKG_VERSION"));
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Create(options)) => match create::create(&options) {
+            Ok(created) => {
+                print!("{}", report(&created));
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::FAILURE
+            }
+        },
+        Err(error) => {
+            eprintln!("error: {error}\n\nRun `frus help` for the usage.");
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn parse(args: Vec<OsString>) -> Result<Command, String> {
+    let mut args = args.into_iter();
+    let Some(command) = args.next() else {
+        return Ok(Command::Help);
+    };
+    match command.to_str() {
+        Some("-h" | "--help") => Ok(Command::Help),
+        Some("help") => match args.next().as_ref().and_then(|a| a.to_str()) {
+            None => Ok(Command::Help),
+            Some("create") => Ok(Command::CreateHelp),
+            Some(other) => Err(format!("no command `{other}`")),
+        },
+        Some("-V" | "--version" | "version") => Ok(Command::Version),
+        Some("create") => parse_create(args),
+        _ => Err(format!("no command `{}`", command.to_string_lossy())),
+    }
+}
+
+fn parse_create(args: impl Iterator<Item = OsString>) -> Result<Command, String> {
+    let mut args = args.peekable();
+    let mut dir = None;
+    let mut name = None;
+    let mut org = None;
+    let mut frus_path = None;
+    let mut git = true;
+
+    while let Some(arg) = args.next() {
+        let Some(text) = arg.to_str() else {
+            set_once(&mut dir, PathBuf::from(arg), "<directory>")?;
+            continue;
+        };
+        // `--name=x` and `--name x` alike.
+        let (flag, inline) = match text.split_once('=') {
+            Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_string())),
+            _ => (text, None),
+        };
+        let mut value = |flag: &str| match &inline {
+            Some(value) => Ok(value.clone()),
+            None => args
+                .next()
+                .and_then(|value| value.into_string().ok())
+                .ok_or_else(|| format!("{flag} needs a value")),
+        };
+        match flag {
+            "-h" | "--help" => return Ok(Command::CreateHelp),
+            "--name" => set_once(&mut name, value(flag)?, flag)?,
+            "--org" => set_once(&mut org, value(flag)?, flag)?,
+            "--frus-path" => set_once(&mut frus_path, PathBuf::from(value(flag)?), flag)?,
+            "--no-git" if inline.is_none() => git = false,
+            _ if flag.starts_with('-') && flag != "-" => {
+                return Err(format!("frus create has no option `{text}`"));
+            }
+            _ => set_once(&mut dir, PathBuf::from(text), "<directory>")?,
+        }
+    }
+
+    let dir = dir.ok_or("frus create needs a directory: `frus create my_app`")?;
+    Ok(Command::Create(Options {
+        dir,
+        name,
+        org: org.unwrap_or_else(|| DEFAULT_ORG.to_string()),
+        frus_path,
+        git,
+    }))
+}
+
+fn set_once<T>(slot: &mut Option<T>, value: T, what: &str) -> Result<(), String> {
+    if slot.is_some() {
+        return Err(format!("{what} is given twice"));
+    }
+    *slot = Some(value);
+    Ok(())
+}
+
+/// What `frus create` prints once the application is written: where it is, and the commands
+/// that run it.
+fn report(created: &Created) -> String {
+    let project = &created.project;
+    let dir = created.dir.display();
+    let mut out = format!(
+        "Created {} in {dir} ({} files).\n",
+        project.project_name, created.files
+    );
+    match &created.git {
+        Git::Initialised => out.push_str("Initialised a git repository.\n"),
+        Git::InsideRepository => {
+            out.push_str("The directory is inside a git repository already: no new one.\n");
+        }
+        Git::Failed(why) => out.push_str(&format!("No git repository: {why}\n")),
+        Git::Skipped => {}
+    }
+    let cd = if created.dir == std::path::Path::new(".") {
+        String::new()
+    } else {
+        format!("  cd {}\n", quote(&dir.to_string()))
+    };
+    out.push_str(&format!(
+        "\nTo run it:\n\n\
+         {cd}  cargo run                  # desktop\n  \
+         cargo apk run --lib        # Android, on the connected device\n\n\
+         The web, the releases and the setup each platform needs are in README.md.\n\
+         The Android package is {}: settle it before the first release.\n",
+        project.android_package()
+    ));
+    out
+}
+
+/// A path as a shell needs it typed.
+fn quote(path: &str) -> String {
+    if path.contains(|c: char| c.is_whitespace() || "'\"$&;()|<>".contains(c)) {
+        format!("\"{path}\"")
+    } else {
+        path.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+    use crate::template::FILES;
+
+    fn args(line: &str) -> Vec<OsString> {
+        line.split_whitespace().map(OsString::from).collect()
+    }
+
+    fn create_options(line: &str) -> Options {
+        match parse(args(line)) {
+            Ok(Command::Create(options)) => options,
+            other => panic!("{line}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn commands() {
+        assert_eq!(parse(args("")), Ok(Command::Help));
+        assert_eq!(parse(args("help")), Ok(Command::Help));
+        assert_eq!(parse(args("--help")), Ok(Command::Help));
+        assert_eq!(parse(args("help create")), Ok(Command::CreateHelp));
+        assert_eq!(parse(args("create --help")), Ok(Command::CreateHelp));
+        assert_eq!(parse(args("create app -h")), Ok(Command::CreateHelp));
+        assert_eq!(parse(args("--version")), Ok(Command::Version));
+        assert_eq!(parse(args("-V")), Ok(Command::Version));
+        assert!(parse(args("build"))
+            .unwrap_err()
+            .contains("no command `build`"));
+        assert!(parse(args("help build"))
+            .unwrap_err()
+            .contains("no command `build`"));
+    }
+
+    #[test]
+    fn create_defaults() {
+        let options = create_options("create my_app");
+        assert_eq!(
+            options,
+            Options {
+                dir: PathBuf::from("my_app"),
+                name: None,
+                org: "com.example".into(),
+                frus_path: None,
+                git: true,
+            }
+        );
+    }
+
+    #[test]
+    fn create_options_in_both_spellings_and_any_order() {
+        let options = create_options(
+            "create --org com.acme apps/x --name=my-app --frus-path=../frus --no-git",
+        );
+        assert_eq!(options.dir, PathBuf::from("apps/x"));
+        assert_eq!(options.name.as_deref(), Some("my-app"));
+        assert_eq!(options.org, "com.acme");
+        assert_eq!(options.frus_path, Some(PathBuf::from("../frus")));
+        assert!(!options.git);
+    }
+
+    #[test]
+    fn create_mistakes() {
+        let error = |line| parse(args(line)).unwrap_err();
+        assert!(error("create").contains("needs a directory"));
+        assert!(error("create a b").contains("<directory> is given twice"));
+        assert!(error("create a --name").contains("--name needs a value"));
+        assert!(error("create a --org x --org y").contains("--org is given twice"));
+        assert!(error("create a --force").contains("no option `--force`"));
+        assert!(error("create a --no-git=yes").contains("no option `--no-git=yes`"));
+    }
+
+    #[test]
+    fn the_report_says_how_to_run_it() {
+        let created = Created {
+            project: create::Project::new("my_app", "com.acme").unwrap(),
+            dir: PathBuf::from("my apps/my_app"),
+            files: 14,
+            git: Git::Initialised,
+        };
+        let out = report(&created);
+        assert!(
+            out.starts_with("Created my_app in my apps/my_app (14 files).\n"),
+            "{out}"
+        );
+        assert!(out.contains("Initialised a git repository."));
+        assert!(
+            out.contains("  cd \"my apps/my_app\"\n  cargo run "),
+            "{out}"
+        );
+        assert!(out.contains("com.acme.my_app"));
+
+        let here = Created {
+            dir: PathBuf::from("."),
+            git: Git::Skipped,
+            ..created
+        };
+        let out = report(&here);
+        assert!(!out.contains("cd "), "{out}");
+        assert!(!out.contains("git"), "{out}");
+    }
+
+    // --- The template and the crate stay in step ---
+
+    fn template_dir() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("template")
+    }
+
+    fn template_text(path: &str) -> String {
+        let file = FILES.iter().find(|file| file.path == path).unwrap();
+        std::str::from_utf8(file.bytes)
+            .unwrap()
+            .replace("\r\n", "\n")
+    }
+
+    /// Every file in `template/` is built into the program, and nothing else is.
+    #[test]
+    fn every_template_file_is_built_in() {
+        fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(root, &path, out);
+                } else {
+                    let relative = path.strip_prefix(root).unwrap();
+                    let parts: Vec<_> = relative
+                        .components()
+                        .map(|c| c.as_os_str().to_str().unwrap())
+                        .collect();
+                    out.push(parts.join("/"));
+                }
+            }
+        }
+        let mut on_disk = Vec::new();
+        walk(&template_dir(), &template_dir(), &mut on_disk);
+        on_disk.sort();
+        let built_in: Vec<String> = FILES.iter().map(|file| file.path.to_string()).collect();
+        assert_eq!(built_in, on_disk, "template.rs's list and template/ differ");
+    }
+
+    /// The files `frus create` copies untouched are the ones `cargo generate` is told to.
+    #[test]
+    fn the_verbatim_files_are_the_cargo_generate_excludes() {
+        let config = template_text("cargo-generate.toml");
+        let exclude = config
+            .lines()
+            .find(|line| line.starts_with("exclude = "))
+            .unwrap();
+        assert_eq!(exclude, r#"exclude = ["*.png", ".github/workflows/*.yml"]"#);
+        let verbatim: Vec<_> = FILES
+            .iter()
+            .map(|f| f.path)
+            .filter(|path| create::is_verbatim(path))
+            .collect();
+        assert_eq!(verbatim.len(), 7, "{verbatim:?}");
+    }
+
+    /// A new application depends on the frus this tool was released with, and asks for the
+    /// compiler frus asks for.
+    #[test]
+    fn the_template_tracks_this_release() {
+        let manifest = template_text("Cargo.toml.liquid");
+        let version = env!("CARGO_PKG_VERSION");
+        let major_minor: Vec<_> = version.split('.').take(2).collect();
+        let requirement = format!("frus = \"{}\"", major_minor.join("."));
+        assert!(
+            manifest.lines().any(|line| line == requirement),
+            "the template should depend on {requirement}"
+        );
+        let rust_version = format!("rust-version = \"{}\"", env!("CARGO_PKG_RUST_VERSION"));
+        assert!(
+            manifest.lines().any(|line| line == rust_version),
+            "the template should ask for {rust_version}"
+        );
+    }
+}

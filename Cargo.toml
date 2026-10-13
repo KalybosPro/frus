@@ -1,9 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
-# `templates/app` is a `cargo generate` template (`{{…}}` files, not compilable):
-# never a workspace member.
-exclude = ["templates"]
+# The application template is `crates/frus-cli/template`. Its manifest is `Cargo.toml.liquid`,
+# so cargo never takes it for a package (see the template's `cargo-generate.toml`).
 
 [workspace.package]
 edition = "2021"
