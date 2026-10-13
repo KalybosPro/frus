@@ -144,15 +144,15 @@ cargo test --workspace         # ~2 180 tests ; ceux du rendu demandent un GPU
 
 ### Créer votre propre application
 
-Le dépôt fournit un template `cargo generate` qui produit un projet câblé pour le bureau **et** Android :
+La commande `frus` crée un projet câblé pour le bureau, Android et le web, avec sa CI et son workflow de release :
 
 ```sh
-cargo install cargo-generate                          # une fois
-cargo generate --path templates/app --name my-app
-cd my-app && cargo run
+cargo install frus-cli          # une fois
+frus create my_app
+cd my_app && cargo run
 ```
 
-Le projet généré dépend de la crate publiée [`frus`](https://crates.io/crates/frus) (`frus = "0.3"`). Pour travailler contre un checkout de ce dépôt à la place, voir [`docs/getting-started.md`](docs/getting-started.md).
+Le projet généré dépend de la crate publiée [`frus`](https://crates.io/crates/frus) (`frus = "0.3"`). `frus create my_app --frus-path <checkout>` le construit contre un checkout de ce dépôt à la place ; [`docs/getting-started.md`](docs/getting-started.md) détaille les options.
 
 ### Android
 
@@ -213,7 +213,7 @@ Quatre couches. Les dépendances ne pointent que vers le bas, et seul `frus-shel
 | [`frus-widgets`](crates/frus-widgets) | La bibliothèque de widgets et le modèle d'interaction (~150 modules). |
 | [`frus-shell`](crates/frus-shell) | Fenêtre, boucle d'événements, cycle de vie, `Command`/`Subscription`, IME, AccessKit, `fetch`. |
 | [`frus-test`](crates/frus-test) | Rendu headless, snapshots, comparaison d'images de référence. |
-| [`frus-hello`](crates/frus-hello) | L'application minimale canonique. Source du template `cargo generate`. |
+| [`frus-hello`](crates/frus-hello) | L'application minimale canonique. Source du template de `frus create`. |
 | [`frus-demo`](crates/frus-demo) | Application d'exemple plus large, exerçant la plupart des widgets. |
 | [`frus-fetch-example`](crates/frus-fetch-example) | Exemple réseau de bout en bout : `RemoteData`, états chargement/erreur/donnée. |
 | [`frus-transforms`](crates/frus-transforms) | Vitrine animée : transforms, ratio d'aspect, dimensionnement fractionnaire. |

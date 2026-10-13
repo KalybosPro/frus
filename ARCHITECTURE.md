@@ -122,7 +122,9 @@ Everything else in the crate is widgets — `button.rs`, `scroll.rs`, `datatable
 
 **`frus-test`** — headless rendering, `Snapshot`, and `assert_golden` / `assert_golden_with` against reference PNGs.
 
-**`frus-hello`**, **`frus-demo`**, **`frus-transforms`**, **`frus-fetch-example`** — sample apps. `frus-hello` is also the source of the `cargo generate` template in [`templates/app`](templates/app); if you change one, change the other.
+**`frus-hello`**, **`frus-demo`**, **`frus-transforms`**, **`frus-fetch-example`** — sample apps. `frus-hello` is also the source of the application template in [`crates/frus-cli/template`](crates/frus-cli/template); if you change one, change the other.
+
+**`frus-cli`** — the `frus` program. `frus create` writes a new application from the template, which is built into the program so that `cargo install frus-cli` is all a developer needs. It depends on nothing, and does nothing after the first command: from there on the tools are cargo's.
 
 ## How a frame happens
 

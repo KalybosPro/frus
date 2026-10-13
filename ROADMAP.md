@@ -425,7 +425,7 @@ The original brief aims at a full framework, not just a UI toolkit. These are re
 Stated so nobody spends a weekend on them:
 
 - **A DSL or markup language.** Rust with builder methods and the `column!`/`row!` macros is the API. No `.frus` files, no macro that reinvents syntax.
-- **A bespoke CLI.** `cargo` is the tool. `cargo generate`, `cargo apk`, `wasm-bindgen` are existing tools; we don't wrap them in `frus doctor`.
+- **A CLI that wraps cargo.** `frus create` starts a project (milestone 651) and steps aside; after it, `cargo`, `cargo apk` and `wasm-bindgen` are the tools. No `frus run`, no `frus build`, no `frus doctor`.
 - **A software rasterizer.** `wgpu` covers every target we care about.
 - **Framework logic in another language.** Non-Rust code is limited to thin platform adapters with no logic of their own.
 - **Cloning another framework's API surface verbatim.** We port what works and fix what doesn't. "Framework X does it this way" is a starting point in a discussion, not an argument that ends one.

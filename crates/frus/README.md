@@ -45,7 +45,7 @@ fn main() -> frus::anyhow::Result<()> {
 ```
 
 A complete version is [`frus-hello`](https://github.com/KalybosPro/frus/tree/master/crates/frus-hello),
-and `cargo generate --path templates/app` starts a project from it.
+and `frus create my_app` (`cargo install frus-cli`) starts a project from it.
 
 ## Features
 

@@ -1,7 +1,7 @@
 //! `frus-hello` — the smallest complete frus application: a counter.
 //!
-//! This is the framework's "Hello, world!" and the source of the `cargo generate`
-//! template (see `templates/app/`). A widget that has something to remember is a
+//! This is the framework's "Hello, world!" and the source of the template `frus create`
+//! writes (see `crates/frus-cli/template/`). A widget that has something to remember is a
 //! `StatefulWidget`: the widget is its configuration, its `State` is what stays between
 //! rebuilds, and a button runs a closure that changes it.
 //!

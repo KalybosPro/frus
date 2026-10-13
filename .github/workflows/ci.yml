@@ -177,6 +177,52 @@ jobs:
         run: cargo build -p frus-fetch-example --target wasm32-unknown-unknown
 
   # ---------------------------------------------------------------------------
+  # `frus create` (milestone 651): what a developer's first command writes must
+  # build, pass its own CI's checks, and keep doing so as the framework changes.
+  # The application is made against this checkout, so a change here that breaks
+  # the template fails here and not on someone's first day.
+  # ---------------------------------------------------------------------------
+  create:
+    name: frus create
+    runs-on: ubuntu-latest
+    env:
+      # One target directory for the tool and the application: the cache covers both.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libxkbcommon-x11-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+
+      # Built from its own tarball, as `cargo install frus-cli` will: a template file
+      # cargo leaves out of the package fails to compile here.
+      - name: Package the tool
+        run: cargo package -p frus-cli --allow-dirty
+
+      - name: Create an application
+        run: |
+          cargo run -p frus-cli -- create "$RUNNER_TEMP/my_app" --org com.acme --frus-path "$GITHUB_WORKSPACE"
+          # The workspace's versions, which the cache holds, rather than a fresh resolution.
+          cp Cargo.lock "$RUNNER_TEMP/my_app/"
+
+      # The application's own CI, step for step (the template's `ci.yml`).
+      - name: Check the application
+        working-directory: ${{ runner.temp }}/my_app
+        run: |
+          cargo fmt --all --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          cargo build --lib --target wasm32-unknown-unknown
+
+  # ---------------------------------------------------------------------------
   # Android target — compiles the shared library against the NDK preinstalled on
   # the runner. Advisory while the NDK setup settles.
   # ---------------------------------------------------------------------------

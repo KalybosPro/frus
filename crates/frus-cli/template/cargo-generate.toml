@@ -1,0 +1,30 @@
+# The template `frus create` starts every application from.
+#
+#   cargo install frus-cli             # once
+#   frus create my_app
+#
+# It is also a `cargo generate` template, for whoever prefers that tool:
+#
+#   cargo generate --git https://github.com/KalybosPro/frus crates/frus-cli/template --name my_app
+#
+# The manifest is `Cargo.toml.liquid` because a directory holding a `Cargo.toml` is a separate
+# package to `cargo publish`, which would leave the whole template out of `frus-cli`. Both tools
+# drop the `.liquid` suffix.
+#
+# The only template syntax used is three values, `{{project-name}}`, `{{crate_name}}` and
+# `{{org}}`, which is all `frus create` substitutes: a test in `frus-cli` fails on anything else.
+[template]
+description = "A frus application (counter) for desktop, Android and the web, with CI and releases"
+# Copied as they are, not read as template syntax:
+#
+# - the launcher icons are binary, and a PNG that happens to hold something that looks like
+#   template syntax makes `cargo generate` fail;
+# - the GitHub workflows are full of `${{ … }}`, which is GitHub's syntax and not ours. They
+#   read the application's name from Cargo.toml when they run instead.
+exclude = ["*.png", ".github/workflows/*.yml"]
+
+[placeholders.org]
+type = "string"
+prompt = "Organisation, in reverse domain order (the Android package is <org>.<name>)"
+regex = "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+default = "com.example"

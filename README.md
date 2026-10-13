@@ -144,15 +144,15 @@ cargo test --workspace         # ~2,180 tests; the rendering ones need a GPU
 
 ### Start your own app
 
-The repo ships a `cargo generate` template that produces a project wired for desktop **and** Android:
+The `frus` command starts a project wired for the desktops, Android and the web, with its CI and its release workflow:
 
 ```sh
-cargo install cargo-generate                          # once
-cargo generate --path templates/app --name my-app
-cd my-app && cargo run
+cargo install frus-cli          # once
+frus create my_app
+cd my_app && cargo run
 ```
 
-The generated project depends on the published [`frus`](https://crates.io/crates/frus) crate (`frus = "0.3"`). To work against a checkout of this repository instead, see [`docs/getting-started.md`](docs/getting-started.md).
+The generated project depends on the published [`frus`](https://crates.io/crates/frus) crate (`frus = "0.3"`). `frus create my_app --frus-path <checkout>` builds it against a checkout of this repository instead; [`docs/getting-started.md`](docs/getting-started.md) has the options.
 
 ### Android
 
@@ -213,7 +213,7 @@ Four layers. Dependencies only ever point downward, and only `frus-shell` knows 
 | [`frus-widgets`](crates/frus-widgets) | The widget library and interaction model (~150 modules). |
 | [`frus-shell`](crates/frus-shell) | Window, event loop, lifecycle, `Command`/`Subscription`, IME, AccessKit, `fetch`. |
 | [`frus-test`](crates/frus-test) | Headless rendering, snapshots, golden-image comparison. |
-| [`frus-hello`](crates/frus-hello) | The canonical minimal app. Source of the `cargo generate` template. |
+| [`frus-hello`](crates/frus-hello) | The canonical minimal app. Source of the `frus create` template. |
 | [`frus-demo`](crates/frus-demo) | Larger sample app exercising most widgets. |
 | [`frus-fetch-example`](crates/frus-fetch-example) | End-to-end network example: `RemoteData`, loading/error/data states. |
 | [`frus-transforms`](crates/frus-transforms) | Animated showcase of transforms, aspect ratio, fractional sizing. |

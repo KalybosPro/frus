@@ -150,20 +150,30 @@ above, and it shows where things are kept:
   `host::spawn(work, then)` runs something on another thread and uses the answer, and
   `cx.block_back(open)` lets an open menu take the back gesture before the router does.
 
-## Generating a new project (`cargo generate`)
+## Generating a new project (`frus create`)
 
-The [`templates/app`](../templates/app) template produces a frus project that
-runs as-is on the desktops, Android and the web, and makes its own releases.
+`frus create` writes a frus project that runs as-is on the desktops, Android and the web,
+and makes its own releases.
 
 ```sh
-cargo install cargo-generate          # once
-cargo generate --path templates/app --name my-app
-cd my-app
+cargo install frus-cli                # once
+frus create my_app
+cd my_app
 cargo run
 ```
 
-The generated `Cargo.toml` has one dependency, the published `frus = "0.3"`, and asks
-nothing. The project also has:
+The name is the directory's own: lowercase letters, digits, `_` and `-`, starting with a
+letter. The directory is made, or must be empty. The options:
+
+| option | what it does |
+|---|---|
+| `--name <name>` | names the package something other than the directory |
+| `--org <org>` | the reverse domain the Android package starts with: `--org com.acme` gives `com.acme.my_app` (default `com.example`) |
+| `--frus-path <dir>` | builds against a checkout of frus rather than the published crates (see below) |
+| `--no-git` | no `git init` (it is skipped anyway inside an existing repository) |
+
+The generated `Cargo.toml` has one dependency, the published `frus = "0.3"`. The project
+also has:
 
 - a `README.md` with each platform's commands, for running and for shipping;
 - `web/index.html`, the page the web build runs in;
@@ -176,9 +186,19 @@ nothing. The project also has:
 
 ### Building against a checkout
 
-To try a change to frus itself from a generated project, point **every** frus crate at
-your checkout — they are versioned together, and a local `frus` beside published
-`frus-shell` and friends is not a combination anyone tests. In the generated project's `Cargo.toml`:
+To try a change to frus itself, make the project against your checkout:
+
+```sh
+frus create my_app --frus-path ../frus
+```
+
+Its `Cargo.toml` then depends on `frus = { path = "…/crates/frus" }`, and the facade reaches
+every other frus crate through its own path dependencies, so the whole framework comes from
+the checkout.
+
+An existing project can do the same with a patch. Point **every** frus crate at your
+checkout: they are versioned together, and a local `frus` beside published `frus-shell` and
+friends is not a combination anyone tests. In the project's `Cargo.toml`:
 
 ```toml
 [patch.crates-io]

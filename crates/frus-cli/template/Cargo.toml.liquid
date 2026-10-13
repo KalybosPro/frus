@@ -29,7 +29,9 @@ wasm-bindgen = "0.2"
 # `--lib` is required: the crate has a library (what Android loads) and a binary (the
 # desktop's), and asked for both, cargo-apk panics after writing the APK.
 [package.metadata.android]
-package = "com.example.{{crate_name}}"
+# The application's identity on Android: a store knows it by this, so it cannot change after
+# the first release. `frus create --org com.acme` writes `com.acme.<name>`.
+package = "{{org}}.{{crate_name}}"
 # `arm64-v8a`, what nearly every phone runs. Add "armv7-linux-androideabi" for 32-bit
 # devices, "x86_64-linux-android" for the emulator (and `rustup target add` each one).
 build_targets = ["aarch64-linux-android"]

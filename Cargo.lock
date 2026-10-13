@@ -1306,6 +1306,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "frus-cli"
+version = "0.3.0"
+
+[[package]]
 name = "frus-core"
 version = "0.3.0"
 dependencies = [
