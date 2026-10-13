@@ -404,6 +404,14 @@ macro_rules! forward_transparent {
             fn drag_track(&self) -> crate::widget::DragTrack {
                 self.inner.drag_track()
             }
+            fn on_thumb_drag(
+                &self,
+                thumb: usize,
+                moment: crate::widget::ThumbDrag,
+                fraction: f32,
+            ) -> Option<Msg> {
+                self.inner.on_thumb_drag(thumb, moment, fraction)
+            }
 
             fn on_drag(&self, fraction: f32) -> Option<Msg> {
                 self.inner.on_drag(fraction)

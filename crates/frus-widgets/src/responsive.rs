@@ -425,6 +425,16 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
             .as_ref()
             .map_or(crate::widget::DragTrack::WHOLE, |w| w.drag_track())
     }
+    fn on_thumb_drag(
+        &self,
+        thumb: usize,
+        moment: crate::widget::ThumbDrag,
+        fraction: f32,
+    ) -> Option<Msg> {
+        self.inner
+            .as_ref()
+            .and_then(|w| w.on_thumb_drag(thumb, moment, fraction))
+    }
 
     fn on_drag(&self, fraction: f32) -> Option<Msg> {
         self.inner.as_ref().and_then(|w| w.on_drag(fraction))
