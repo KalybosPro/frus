@@ -683,6 +683,9 @@ enum Drag {
         /// Whether the press started anything: a slider that only takes a slide on its
         /// thumb, pressed elsewhere, takes none of the gesture.
         active: bool,
+        /// On a track with two thumbs, the one the press took — `None` until a press on
+        /// both has moved far enough to say which (milestone 651).
+        thumb: Option<usize>,
     },
     /// Reordering a **column**: a header is grabbed (`id`, column `from`) and dropped
     /// onto another. `moved` tells a drag from a plain tap — which stays a sort —
@@ -3789,6 +3792,8 @@ impl<A: Application> App<A> {
                 .and_then(|tree| find_widget(tree.as_ref(), id))
                 .map_or(frus_widgets::DragTrack::WHOLE, |widget| widget.drag_track());
             let active = track.engages(rect, x, rtl);
+            let thumbs = matches!(track.mode, frus_widgets::DragMode::Thumbs { .. });
+            let thumb = track.pick_thumb(rect, x, 0.0, rtl);
             self.drag = Some(Drag::Widget {
                 id,
                 rect,
@@ -3796,8 +3801,16 @@ impl<A: Application> App<A> {
                 press_x: x,
                 track,
                 active,
+                thumb,
             });
-            if active {
+            if thumbs {
+                // Two thumbs: the one the press took jumps to it, as one alone would.
+                if let Some(thumb) = thumb {
+                    let at = track.fraction(rect, x, rtl);
+                    self.thumb_drag(id, thumb, frus_widgets::ThumbDrag::Start, at);
+                    self.thumb_drag(id, thumb, frus_widgets::ThumbDrag::Move, at);
+                }
+            } else if active {
                 // The bracket opens **before** the first value: an application that means
                 // to hold the expensive work until the finger lifts has to know the finger
                 // went down first, and a press that jumps the value straight away would
@@ -4126,11 +4139,20 @@ impl<A: Application> App<A> {
             press_x,
             track,
             active: true,
+            thumb,
             ..
         }) = ended
         {
-            let released = track.released_at(rect, press_x, self.cursor.x, self.is_rtl());
-            self.dispatch_drag_edge(id, Edge::End, released);
+            let rtl = self.is_rtl();
+            if matches!(track.mode, frus_widgets::DragMode::Thumbs { .. }) {
+                if let Some(thumb) = thumb {
+                    let at = track.fraction(rect, self.cursor.x, rtl);
+                    self.thumb_drag(id, thumb, frus_widgets::ThumbDrag::End, at);
+                }
+            } else {
+                let released = track.released_at(rect, press_x, self.cursor.x, rtl);
+                self.dispatch_drag_edge(id, Edge::End, released);
+            }
         }
         // The keyboard is told where a dragged handle left the selection.
         #[cfg(android)]
@@ -4939,10 +4961,28 @@ impl<A: Application> App<A> {
                 press_x,
                 track,
                 active,
+                thumb,
             } => {
                 let dx = self.cursor.x - *last_x;
                 *last_x = self.cursor.x;
-                if *active {
+                if matches!(track.mode, frus_widgets::DragMode::Thumbs { .. }) {
+                    let rtl = self.is_rtl();
+                    let at = track.fraction(*rect, self.cursor.x, rtl);
+                    match *thumb {
+                        Some(picked) => {
+                            self.thumb_drag(*id, picked, frus_widgets::ThumbDrag::Move, at);
+                        }
+                        // A press on both thumbs: the first movement says which.
+                        None => {
+                            let moved = self.cursor.x - *press_x;
+                            if let Some(picked) = track.pick_thumb(*rect, *press_x, moved, rtl) {
+                                *thumb = Some(picked);
+                                self.thumb_drag(*id, picked, frus_widgets::ThumbDrag::Start, at);
+                                self.thumb_drag(*id, picked, frus_widgets::ThumbDrag::Move, at);
+                            }
+                        }
+                    }
+                } else if *active {
                     let value = track.value_at(*rect, *press_x, self.cursor.x, true, self.is_rtl());
                     self.apply_widget_drag(*id, dx, value);
                 }
@@ -6161,6 +6201,28 @@ impl<A: Application> App<A> {
                 Edge::Start => widget.on_drag_start(fraction),
                 Edge::End => widget.on_drag_end(fraction),
             });
+        if let Some(message) = message {
+            self.dispatch(message);
+        }
+    }
+
+    /// A moment of a drag on one of a widget's thumbs (milestone 651).
+    fn thumb_drag(
+        &mut self,
+        id: WidgetId,
+        thumb: usize,
+        moment: frus_widgets::ThumbDrag,
+        fraction: f32,
+    ) {
+        if moment == frus_widgets::ThumbDrag::Start {
+            // The widget paints the thumb it took raised and on top.
+            self.runtime.input.thumb = Some((id, thumb));
+        }
+        let message = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.on_thumb_drag(thumb, moment, fraction));
         if let Some(message) = message {
             self.dispatch(message);
         }
@@ -13008,5 +13070,144 @@ mod switch_drag_tests {
         d.run(0.5);
         assert_eq!(d.app().heard, vec![Msg::Set(true)]);
         assert!((along(&d) - 1.0).abs() < 1e-3);
+    }
+}
+
+/// A range slider dragged through the shell (milestone 651): the press picks the nearer
+/// thumb and the drag carries it; a press where the thumbs meet waits for the movement; the
+/// thumb last taken is painted on top.
+#[cfg(test)]
+mod range_slider_drag_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{Container, Point, RangeSlider, Rect, Theme, Widget};
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Range(f32, f32),
+        Start(f32, f32),
+        End(f32, f32),
+    }
+
+    struct Page {
+        values: (f32, f32),
+        heard: Vec<Msg>,
+    }
+
+    impl Application for Page {
+        type Message = Msg;
+
+        fn update(&mut self, message: Msg) -> Command<Msg> {
+            if let Msg::Range(s, e) | Msg::End(s, e) = message {
+                self.values = (s, e);
+            }
+            self.heard.push(message);
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            let (start, end) = self.values;
+            Box::new(
+                Container::new().width(300.0).height(200.0).child(
+                    RangeSlider::new(start, end)
+                        .width(248.0)
+                        .divisions(20)
+                        .on_change(Msg::Range)
+                        .on_change_start(Msg::Start)
+                        .on_change_end(Msg::End),
+                ),
+            )
+        }
+    }
+
+    fn driver(start: f32, end: f32) -> Driver<Page> {
+        let page = Page {
+            values: (start, end),
+            heard: Vec::new(),
+        };
+        let mut d = Driver::new(page, 300.0, 200.0);
+        d.run(0.2);
+        d
+    }
+
+    /// The thumbs the last frame drew, in the order they were painted.
+    fn thumbs(d: &Driver<Page>) -> Vec<Rect> {
+        let (ui, _) = d.frame_parts().expect("a frame");
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_widgets::Primitive::Rect { rect, blur, .. }
+                    if *blur == 0.0 && rect.width == 20.0 && rect.height == 20.0 =>
+                {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn centre(r: Rect) -> Point {
+        Point::new(r.x + r.width * 0.5, r.y + r.height * 0.5)
+    }
+
+    /// A finger pressed at `from`, moved by `dx` in four steps, and lifted.
+    fn drag(d: &mut Driver<Page>, from: Point, dx: f32) {
+        d.press(from);
+        d.run(0.02);
+        for step in 1..=4 {
+            d.move_to(Point::new(from.x + dx * step as f32 / 4.0, from.y));
+            d.run(0.02);
+        }
+        d.release(Point::new(from.x + dx, from.y));
+        d.run(0.02);
+    }
+
+    fn close(a: (f32, f32), b: (f32, f32)) -> bool {
+        (a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3
+    }
+
+    /// **The press takes the nearer thumb and the drag carries it**: the bracket opens on
+    /// the interval as it was and closes on the one the drag settled on; the other thumb
+    /// stays.
+    #[test]
+    fn a_drag_carries_the_nearer_thumb() {
+        let mut d = driver(0.25, 0.75);
+        let t = thumbs(&d);
+        assert_eq!(t.len(), 2);
+        let start = centre(t[0]).x.min(centre(t[1]).x);
+        // Just right of the start thumb, nearer it than the end: it is taken, and carried
+        // to 0.445 of the 200-pixel track, which snaps to 0.45.
+        drag(&mut d, Point::new(start + 4.0, centre(t[0]).y), 34.0);
+        let heard = &d.app().heard;
+        assert_eq!(heard.first(), Some(&Msg::Start(0.25, 0.75)), "{heard:?}");
+        let Some(Msg::End(s, e)) = heard.last().cloned() else {
+            panic!("no end: {heard:?}");
+        };
+        assert!(close((s, e), (0.45, 0.75)), "({s}, {e})");
+        assert!(close(d.app().values, (0.45, 0.75)));
+        // The start, taken last, is now the one on top: painted last.
+        let order = thumbs(&d);
+        assert!(order[1].x < order[0].x, "the start on top: {order:?}");
+    }
+
+    /// **Where the thumbs meet, the movement decides**: leftwards takes the start, and a
+    /// thumb never passes the other.
+    #[test]
+    fn where_the_thumbs_meet_the_movement_decides() {
+        let mut d = driver(0.5, 0.5);
+        let at = centre(thumbs(&d)[0]);
+        drag(&mut d, at, -40.0);
+        assert!(close(d.app().values, (0.3, 0.5)), "{:?}", d.app().values);
+
+        let mut d = driver(0.5, 0.5);
+        drag(&mut d, at, 40.0);
+        assert!(close(d.app().values, (0.5, 0.7)), "{:?}", d.app().values);
+
+        // The start dragged past the end stops at it.
+        let mut d = driver(0.3, 0.5);
+        let start = centre(thumbs(&d)[0]);
+        drag(&mut d, start, 120.0);
+        assert!(close(d.app().values, (0.5, 0.5)), "{:?}", d.app().values);
     }
 }

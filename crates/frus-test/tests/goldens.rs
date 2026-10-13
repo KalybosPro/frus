@@ -2534,35 +2534,37 @@ fn range_slider_matches_golden() {
     snapshot.assert_golden(golden("range_slider"));
 }
 
-/// **A labelled range slider (milestones 160/162)**: the value tooltip appears only on
-/// **hover or focus** of a handle. Here the lower handle is focused, so its "30%"
-/// bubble and its focus ring show. Reproduces its golden.
+/// **A labelled range slider (milestones 160/162, 651)**: a focused thumb shows its value
+/// in the reference's rectangular indicator, and its halo around it. Here the start, on a
+/// slider with divisions, is focused: its "30%" shows, and the end's does not.
+/// Reproduces its golden.
 #[test]
 fn range_slider_labels_matches_golden() {
     use frus_widgets::{build_ui, Runtime, Size};
 
     let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
-    let root: Container<()> = Container::new().padding(24.0).child(
+    let root: Container<()> = Container::new().padding_each(70.0, 24.0, 16.0, 24.0).child(
         RangeSlider::<()>::new(0.3, 0.7)
             .width(240.0)
-            .value_label(|v| format!("{}%", (v * 100.0).round() as i32)),
+            .divisions(10)
+            .value_label(|v| format!("{}%", (v * 100.0).round() as i32))
+            .on_change(|_, _| ()),
     );
-    let (w, h) = (300u32, 110u32);
-    // The lower handle: centre x = 24 + 0.3·240 = 96, within the lower track band.
-    let probe = Point::new(96.0, 62.0);
+    let (w, h) = (300u32, 140u32);
     let base = build_ui(
         &root,
         Size::new(w as f32, h as f32),
         &Runtime::default(),
         &theme,
     );
+    // The start thumb is the first stop.
     let id = base
-        .draggable_at(probe)
-        .map(|(id, _)| id)
-        .expect("the lower handle is grabbable");
-    // Rebuild with the lower handle **focused**, which reveals the bubble and the ring.
+        .focus_next(None, true)
+        .expect("the start thumb takes focus");
     let mut runtime = Runtime::default();
     runtime.input.focused = Some(id);
+    // The halo and the indicator grow with the focus: let it finish.
+    runtime.advance(1.0);
     let ui = build_ui(&root, Size::new(w as f32, h as f32), &runtime, &theme);
 
     let Some(snapshot) = render_scene(ui.scene(), w, h, theme.background) else {
@@ -2571,7 +2573,7 @@ fn range_slider_labels_matches_golden() {
     };
     assert!(
         snapshot.lit_pixels(40) > 60,
-        "the track, the handles and the focused tooltip are drawn"
+        "the track, the thumbs and the focused indicator are drawn"
     );
     snapshot.assert_golden(golden("range_slider_labels"));
 }

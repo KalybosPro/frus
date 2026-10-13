@@ -6,32 +6,16 @@ use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
-use crate::flex::Flex;
 use crate::interaction::{Key, KeyResponse, Status};
 use crate::theme::Theme;
 use crate::widget::Widget;
 use crate::widgetstate::{WidgetState, WidgetStateProperty};
 
-/// The height of the value tooltip (above the thumbs) and its gap from the track.
-const TIP_H: f32 = 20.0;
-const TIP_GAP: f32 = 6.0;
-/// The value bubble's style: what the theme says, else the reference's — it calls this the
-/// *value indicator* and sets it in `labelLarge`.
-///
-/// **Resolved once**, so that the number the bubble is measured with is the number the
-/// digits are drawn at.
-fn tip_style(theme: Option<&Theme>) -> ResolvedTextStyle {
-    theme
-        .and_then(|t| t.widgets.slider.value_indicator_text_style)
-        .unwrap_or_else(|| crate::theme::type_scale(theme).label_large)
-        .resolved()
-}
+#[cfg(test)]
+const H: f32 = 24.0;
 /// The default keyboard step (without `divisions`): an arrow moves by 5%.
 const KEY_STEP: f32 = 0.05;
 
-const H: f32 = 24.0;
-const TRACK_H: f32 = 6.0;
-const THUMB: f32 = 18.0;
 /// How far a thumb sits off the track at rest, and while it is held: the reference's round
 /// thumb on a slider (its slider parts, lines 680–681) and on a range slider (its range
 /// slider parts, lines 789–790).
@@ -954,97 +938,448 @@ fn drop_style(theme: &Theme) -> ResolvedTextStyle {
         .resolved()
 }
 
-/// A transparent, inert shim that positions the thumbs along the track.
-struct Spacer {
-    width: f32,
-    height: f32,
-}
+/// The reference's smallest gap between a continuous range slider's thumbs, in logical
+/// pixels: they may touch, not cross or sit on each other.
+const MIN_THUMB_SEPARATION: f32 = 8.0;
 
-impl<Msg: Clone> Widget<Msg> for Spacer {
-    fn style(&self) -> Style {
-        Style {
-            width: Dimension::Length(self.width),
-            height: Dimension::Length(self.height),
-            ..Default::default()
-        }
-    }
-
-    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        &[]
-    }
-
-    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
-
-    fn on_click(&self) -> Option<Msg> {
-        None
-    }
-}
-
-/// The side of a [`RangeSlider`] thumb.
-#[derive(Copy, Clone)]
-enum Side {
-    Low,
-    High,
-}
-
-/// A **draggable** thumb of the range slider. Each thumb moves **its own** side
-/// (sticky: the thumb grabbed stays the thumb moved), bounded by the other.
-struct RangeThumb<Msg> {
-    side: Side,
-    low: f32,
-    high: f32,
-    /// The track's width, to convert a pixel delta into a fraction.
-    track: f32,
-    /// Total height (the track + any tooltip zone): the thumb is drawn in the
-    /// **lower** `H` band.
-    height: f32,
+/// What a range slider and its two thumbs share: the interval, its travel, its look and
+/// its messages. Cloned into each thumb when the slider is built.
+struct RangeState<Msg> {
+    start: f32,
+    end: f32,
+    min: f32,
+    max: f32,
     divisions: Option<usize>,
-    /// The tooltip formatter: the bubble only appears on **hover or focus** of the thumb.
     label: Option<Rc<dyn Fn(f32) -> String>>,
-    /// The slider's availability, handed down to each thumb.
+    semantic_label: Option<Rc<dyn Fn(f32) -> String>>,
+    show_value_indicator: Option<ShowValueIndicator>,
     enabled: bool,
-    /// The slider's `(resting, pressed)` thumb heights, handed down likewise.
+    colors: SliderColors,
+    overlay_color: Option<WidgetStateProperty<Color>>,
     elevations: (Option<f32>, Option<f32>),
     on_change: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
+    on_change_start: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
+    on_change_end: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
+    /// The track's length in logical pixels, as the slider's last paint found it: the
+    /// thumbs' keys keep them the reference's eight pixels apart, and only a paint knows
+    /// how wide eight pixels are along the travel.
+    track: Rc<std::cell::Cell<f32>>,
 }
 
-impl<Msg> RangeThumb<Msg> {
-    /// Snaps `v` to the nearest step if `divisions` is set.
-    fn snap(&self, v: f32) -> f32 {
+impl<Msg> Clone for RangeState<Msg> {
+    fn clone(&self) -> Self {
+        Self {
+            start: self.start,
+            end: self.end,
+            min: self.min,
+            max: self.max,
+            divisions: self.divisions,
+            label: self.label.clone(),
+            semantic_label: self.semantic_label.clone(),
+            show_value_indicator: self.show_value_indicator,
+            enabled: self.enabled,
+            colors: self.colors,
+            overlay_color: self.overlay_color.clone(),
+            elevations: self.elevations,
+            on_change: self.on_change.clone(),
+            on_change_start: self.on_change_start.clone(),
+            on_change_end: self.on_change_end.clone(),
+            track: self.track.clone(),
+        }
+    }
+}
+
+impl<Msg> RangeState<Msg> {
+    /// The two values, held inside the travel and in order.
+    fn held(&self) -> (f32, f32) {
+        let start = self.start.clamp(self.min, self.max);
+        let end = self.end.clamp(self.min, self.max);
+        (start.min(end), start.max(end))
+    }
+
+    /// Where `value` sits along the travel, `0..=1`.
+    fn fraction_of(&self, value: f32) -> f32 {
+        let span = self.max - self.min;
+        if span <= 0.0 {
+            0.0
+        } else {
+            ((value - self.min) / span).clamp(0.0, 1.0)
+        }
+    }
+
+    fn fractions(&self) -> [f32; 2] {
+        let (start, end) = self.held();
+        [self.fraction_of(start), self.fraction_of(end)]
+    }
+
+    fn discrete(&self) -> bool {
+        self.divisions.is_some_and(|n| n > 0)
+    }
+
+    fn snap(&self, fraction: f32) -> f32 {
         match self.divisions {
-            Some(n) if n > 0 => (v * n as f32).round() / n as f32,
-            _ => v,
+            Some(n) if n > 0 => (fraction * n as f32).round() / n as f32,
+            _ => fraction,
         }
     }
 
-    /// The value this thumb carries, according to its side.
-    fn value(&self) -> f32 {
-        match self.side {
-            Side::Low => self.low,
-            Side::High => self.high,
+    /// The value a fraction along the travel stands for, snapped.
+    fn at(&self, fraction: f32) -> f32 {
+        self.min + self.snap(fraction.clamp(0.0, 1.0)) * (self.max - self.min)
+    }
+
+    /// The least gap between the thumbs, as a fraction of the travel: nothing with
+    /// divisions, eight pixels without — the reference's `minThumbSeparation`.
+    fn separation(&self) -> f32 {
+        let track = self.track.get();
+        if self.discrete() || track <= 0.0 {
+            0.0
+        } else {
+            MIN_THUMB_SEPARATION / track
         }
     }
 
-    /// The new interval after moving this thumb's side by `delta`, bounded by the
-    /// other (no crossing) and snapped.
-    fn moved(&self, delta: f32) -> (f32, f32) {
-        match self.side {
-            Side::Low => (
-                self.snap((self.low + delta).clamp(0.0, self.high)),
-                self.high,
-            ),
-            Side::High => (
-                self.low,
-                self.snap((self.high + delta).clamp(self.low, 1.0)),
-            ),
+    /// The interval with thumb `thumb` (`0` the start) at `fraction`, held off the other
+    /// by the least gap.
+    fn moved(&self, thumb: usize, fraction: f32) -> (f32, f32) {
+        let [s, e] = self.fractions();
+        let gap = self.separation();
+        let f = self.snap(fraction.clamp(0.0, 1.0));
+        if thumb == 0 {
+            (self.at(f.min(e - gap).max(0.0)), self.at(e))
+        } else {
+            (self.at(s), self.at(f.max(s + gap).min(1.0)))
         }
     }
 
-    /// One arrow's step: a division if `divisions` is set, otherwise [`KEY_STEP`].
+    /// One arrow's step, as a fraction of the travel.
     fn key_step(&self) -> f32 {
         match self.divisions {
             Some(n) if n > 0 => 1.0 / n as f32,
             _ => KEY_STEP,
+        }
+    }
+
+    /// What a reader is told a thumb's value is.
+    fn spoken(&self, value: f32) -> String {
+        match self.semantic_label.as_ref().or(self.label.as_ref()) {
+            Some(label) => label(value),
+            None if self.min == 0.0 && self.max == 1.0 => format!("{}%", (value * 100.0).round()),
+            None => format!("{value}"),
+        }
+    }
+
+    /// Whether the value indicators show while the slider is moved, by its policy.
+    fn indicates(&self, theme: &Theme) -> bool {
+        if !self.enabled || self.label.is_none() {
+            return false;
+        }
+        match self
+            .show_value_indicator
+            .or(theme.widgets.slider.show_value_indicator)
+            .unwrap_or_default()
+        {
+            ShowValueIndicator::AlwaysVisible | ShowValueIndicator::OnDrag => true,
+            ShowValueIndicator::Never => false,
+            ShowValueIndicator::OnlyForDiscrete => self.discrete(),
+            ShowValueIndicator::OnlyForContinuous => !self.discrete(),
+        }
+    }
+
+    fn always_indicates(&self, theme: &Theme) -> bool {
+        self.indicates(theme)
+            && self
+                .show_value_indicator
+                .or(theme.widgets.slider.show_value_indicator)
+                == Some(ShowValueIndicator::AlwaysVisible)
+    }
+
+    /// The reference's range slider colours (its 2023 default, which is its earlier
+    /// design): the span between the thumbs in `primary`, the rest `primary` at 24 %.
+    fn palette(&self, theme: &Theme) -> RangePalette {
+        let t = &theme.widgets.slider;
+        let s = &theme.scheme;
+        if !self.enabled {
+            let content = disabled_content(theme);
+            let container = disabled_container(theme);
+            return RangePalette {
+                active: t.disabled_active_track_color.unwrap_or(content),
+                inactive: t.disabled_inactive_track_color.unwrap_or(container),
+                thumb: t.disabled_thumb_color.unwrap_or(content),
+                active_tick: content,
+                inactive_tick: content,
+            };
+        }
+        let active = self
+            .colors
+            .active_track
+            .or(t.active_track_color)
+            .unwrap_or(s.primary);
+        RangePalette {
+            active,
+            inactive: self
+                .colors
+                .inactive_track
+                .or(t.inactive_track_color)
+                .unwrap_or(s.primary.fade(0.24)),
+            thumb: self
+                .colors
+                .thumb
+                .or(self.colors.active_track)
+                .or(t.thumb_color)
+                .unwrap_or(s.primary),
+            active_tick: self
+                .colors
+                .inactive_track
+                .or(t.active_tick_mark_color)
+                .unwrap_or(s.on_primary.fade(0.54)),
+            inactive_tick: self
+                .colors
+                .active_track
+                .or(t.inactive_tick_mark_color)
+                .unwrap_or(s.primary.fade(0.54)),
+        }
+    }
+
+    /// The halo's colour: the widget's, the active colour at 12 %, the theme's, then the
+    /// reference's `primary` at 12 %.
+    fn halo(&self, status: &Status, theme: &Theme) -> Color {
+        let states = status.states();
+        self.overlay_color
+            .as_ref()
+            .and_then(|p| p.resolve(states).copied())
+            .or(self.colors.active_track.map(|c| c.fade(0.12)))
+            .or_else(|| {
+                theme
+                    .widgets
+                    .slider
+                    .overlay_color
+                    .as_ref()
+                    .and_then(|p| p.resolve(states).copied())
+            })
+            .unwrap_or_else(|| theme.scheme.primary.fade(0.12))
+    }
+}
+
+/// What a range slider paints with, resolved.
+struct RangePalette {
+    active: Color,
+    inactive: Color,
+    thumb: Color,
+    active_tick: Color,
+    inactive_tick: Color,
+}
+
+/// A **range** slider: two thumbs bounding an interval of `min..=max`, **controlled** and
+/// draggable — the reference's `RangeSlider`.
+///
+/// Like [`Slider`] it takes the width it is offered and is as tall as its halo, its track
+/// inset by the halo's radius, running from the right in a right-to-left reading
+/// direction. The defaults are the reference's: the span between the thumbs in the
+/// scheme's `primary`, the rest `primary` at 24 %; two round thumbs, a stroke between them
+/// when they overlap; a tick per division; and the values, when
+/// [`value_label`](Self::value_label) formats them, in a tooltip over each thumb while it
+/// is moved — on a slider with divisions, unless
+/// [`show_value_indicator`](Self::show_value_indicator) says otherwise.
+///
+/// A press takes the nearer thumb and the drag moves it, never past the other: the
+/// reference's eight pixels apart on a continuous slider. A press on both, where they
+/// meet, waits for the first movement: leftwards takes the start. Each thumb takes the
+/// keyboard's focus and tells a screen reader its own value.
+pub struct RangeSlider<Msg = crate::callback::Callback> {
+    state: RangeState<Msg>,
+    width: f32,
+    sized: bool,
+    children: Vec<Box<dyn Widget<Msg>>>,
+}
+
+impl<Msg: Clone + 'static> RangeSlider<Msg> {
+    /// A range slider from `start` to `end`, over `0.0..=1.0` until
+    /// [`range`](Self::range) says otherwise. The two are put in order.
+    pub fn new(start: f32, end: f32) -> Self {
+        let mut slider = Self {
+            state: RangeState {
+                start: start.min(end),
+                end: start.max(end),
+                min: 0.0,
+                max: 1.0,
+                divisions: None,
+                label: None,
+                semantic_label: None,
+                show_value_indicator: None,
+                enabled: true,
+                colors: SliderColors::default(),
+                overlay_color: None,
+                elevations: (None, None),
+                on_change: None,
+                on_change_start: None,
+                on_change_end: None,
+                track: Rc::new(std::cell::Cell::new(0.0)),
+            },
+            width: DEFAULT_WIDTH,
+            sized: false,
+            children: Vec::new(),
+        };
+        slider.rebuild();
+        slider
+    }
+
+    fn with(mut self, change: impl FnOnce(&mut RangeState<Msg>)) -> Self {
+        change(&mut self.state);
+        self.rebuild();
+        self
+    }
+
+    /// The travel the two values cover; `0.0..=1.0` by default. Everything the
+    /// application sees is in these units.
+    pub fn range(self, min: f32, max: f32) -> Self {
+        self.with(|s| {
+            s.min = min.min(max);
+            s.max = min.max(max);
+        })
+    }
+
+    /// Splits the travel into `n` steps: the values snap to them, a tick marks each, and
+    /// an arrow moves a thumb by one.
+    pub fn divisions(self, n: usize) -> Self {
+        self.with(|s| s.divisions = Some(n.max(1)))
+    }
+
+    /// The width, in logical pixels. Unset, the slider takes the width it is offered, and
+    /// 220 where none can be.
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = width;
+        self.sized = true;
+        self.rebuild();
+        self
+    }
+
+    /// Formats each thumb's value for its tooltip — the reference's `labels`, as one
+    /// formatter rather than two strings, so it follows the values. A screen reader hears
+    /// it too, unless [`semantic_formatter`](Self::semantic_formatter) says otherwise.
+    pub fn value_label(self, label: impl Fn(f32) -> String + 'static) -> Self {
+        self.with(|s| s.label = Some(Rc::new(label)))
+    }
+
+    /// How a screen reader is told each thumb's value.
+    pub fn semantic_formatter(self, format: impl Fn(f32) -> String + 'static) -> Self {
+        self.with(|s| s.semantic_label = Some(Rc::new(format)))
+    }
+
+    /// When the tooltips show. Unset, the theme's, then only on a slider with divisions.
+    pub fn show_value_indicator(self, when: ShowValueIndicator) -> Self {
+        self.with(|s| s.show_value_indicator = Some(when))
+    }
+
+    /// The span between the thumbs, and the thumbs; the scheme's `primary` otherwise.
+    pub fn active_color(self, color: Color) -> Self {
+        self.with(|s| s.colors.active_track = Some(color))
+    }
+
+    /// The track outside the span; `primary` at 24 % otherwise.
+    pub fn inactive_color(self, color: Color) -> Self {
+        self.with(|s| s.colors.inactive_track = Some(color))
+    }
+
+    /// The thumbs' fill; the active colour otherwise.
+    pub fn thumb_color(self, color: Color) -> Self {
+        self.with(|s| s.colors.thumb = Some(color))
+    }
+
+    /// The halo around a thumb, per state; the active colour at 12 % otherwise.
+    pub fn overlay_color(self, color: WidgetStateProperty<Color>) -> Self {
+        self.with(|s| s.overlay_color = Some(color))
+    }
+
+    /// How far a thumb sits off the track at rest. Unset, the theme's, then the
+    /// reference's 1; `0.0` casts no shadow.
+    pub fn thumb_elevation(self, elevation: f32) -> Self {
+        self.with(|s| s.elevations.0 = Some(elevation))
+    }
+
+    /// How far it rises while it is held. Unset, the theme's, then the reference's 6.
+    pub fn pressed_thumb_elevation(self, elevation: f32) -> Self {
+        self.with(|s| s.elevations.1 = Some(elevation))
+    }
+
+    /// Whether the slider can be moved. Disabled it takes no drag, no key and no focus,
+    /// and still shows its interval.
+    pub fn enabled(self, enabled: bool) -> Self {
+        self.with(|s| s.enabled = enabled)
+    }
+
+    /// A closure producing a message from the new interval, `(start, end)`, in the
+    /// slider's units.
+    pub fn on_change<R: crate::callback::IntoMsg<Msg>>(
+        self,
+        on_change: impl Fn(f32, f32) -> R + 'static,
+    ) -> Self {
+        let make = Rc::new(crate::callback::handler2(on_change));
+        self.with(|s| s.on_change = Some(make))
+    }
+
+    /// Sent once when a drag picks a thumb, with the interval **as it was**, as the
+    /// reference's `onChangeStart`.
+    pub fn on_change_start<R: crate::callback::IntoMsg<Msg>>(
+        self,
+        on_start: impl Fn(f32, f32) -> R + 'static,
+    ) -> Self {
+        let make = Rc::new(crate::callback::handler2(on_start));
+        self.with(|s| s.on_change_start = Some(make))
+    }
+
+    /// Sent once when the drag ends, with the interval it settled on.
+    pub fn on_change_end<R: crate::callback::IntoMsg<Msg>>(
+        self,
+        on_end: impl Fn(f32, f32) -> R + 'static,
+    ) -> Self {
+        let make = Rc::new(crate::callback::handler2(on_end));
+        self.with(|s| s.on_change_end = Some(make))
+    }
+
+    /// The thumbs, each placed at its value by an alignment across the slider's box: a
+    /// 48-pixel thumb aligned at `2t − 1` has its centre at `24 + t·(width − 48)`, which is
+    /// exactly where the inset track puts `t`. A directional alignment mirrors it right to
+    /// left with the track.
+    fn rebuild(&mut self) {
+        let [s, e] = self.state.fractions();
+        let thumb = |side: usize, t: f32| {
+            crate::align::Aligned::new(
+                frus_core::AlignmentDirectional::new(2.0 * t - 1.0, 0.0),
+                RangeThumb {
+                    side,
+                    state: self.state.clone(),
+                },
+            )
+        };
+        let stack = crate::Stack::new()
+            .fit(crate::StackFit::Expand)
+            // A focused thumb's indicator stands over the slider, out of the stack.
+            .clip_behavior(crate::Clip::None)
+            .height(2.0 * OVERLAY_RADIUS)
+            .flex(1.0)
+            .layer(thumb(0, s))
+            .layer(thumb(1, e));
+        self.children = vec![Box::new(stack)];
+    }
+}
+
+/// One of a [`RangeSlider`]'s thumbs: what takes the keyboard's focus, answers its arrows,
+/// tells a screen reader its value, and shows its halo and tooltip while hovered or
+/// focused. The slider draws the thumb itself, under it.
+struct RangeThumb<Msg> {
+    /// `0` the start, `1` the end.
+    side: usize,
+    state: RangeState<Msg>,
+}
+
+impl<Msg> RangeThumb<Msg> {
+    fn value(&self) -> f32 {
+        let (start, end) = self.state.held();
+        if self.side == 0 {
+            start
+        } else {
+            end
         }
     }
 }
@@ -1052,8 +1387,8 @@ impl<Msg> RangeThumb<Msg> {
 impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Length(THUMB),
-            height: Dimension::Length(self.height),
+            width: Dimension::Length(2.0 * OVERLAY_RADIUS),
+            height: Dimension::Length(2.0 * OVERLAY_RADIUS),
             ..Default::default()
         }
     }
@@ -1062,43 +1397,62 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
         &[]
     }
 
+    fn debug_name(&self) -> &'static str {
+        "RangeSliderThumb"
+    }
+
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        if !self.state.enabled {
+            return;
+        }
         let o = status.opacity;
-        // The thumb in the lower `H` band; an accented ring on keyboard focus.
-        let y = bounds.y + bounds.height - H + (H - THUMB) * 0.5;
-        // A disabled thumb never shows the focus ring, because it never takes focus.
-        let border = if status.focused && self.enabled {
-            3.0
+        // The alignment puts this box's centre where a continuous track puts the value; on
+        // a slider with divisions the track pulls its ends in by half its height, and the
+        // thumb with them.
+        let padding = if self.state.discrete() {
+            theme.widgets.slider.track_height.unwrap_or(TRACK_HEIGHT)
         } else {
-            2.0
+            0.0
         };
-        let (fill, ring) = if self.enabled {
-            (Color::WHITE, theme.primary)
+        let t = self.state.fractions()[self.side];
+        let along = padding * (0.5 - t);
+        let shift = if theme.direction.is_rtl() {
+            -along
         } else {
-            let dead = disabled_content(theme);
-            (dead, dead)
+            along
         };
-        let thumb = Rect::new(bounds.x, y, THUMB, THUMB);
-        paint_thumb_shadow(thumb, self.elevations, &status, theme, scene);
-        scene.draw_rect(thumb, fill.fade(o), THUMB * 0.5, border, ring.fade(o));
-        // The tooltip revealed on hover or focus (the upper zone the slider reserves).
-        // A disabled thumb shows none: it is a hint about a value being changed.
-        if let Some(label) = self.label.as_ref().filter(|_| self.enabled) {
-            let active = status.focused || status.hover_progress > 0.01;
-            if active {
-                let reveal = if status.focused {
-                    o
-                } else {
-                    status.hover_progress * o
-                };
-                paint_tip(
-                    bounds.x + THUMB * 0.5,
-                    bounds.y,
-                    label(self.value()),
-                    theme,
-                    reveal,
-                    scene,
-                );
+        let centre = Point::new(
+            bounds.x + bounds.width * 0.5 + shift,
+            bounds.y + bounds.height * 0.5,
+        );
+        let activation = status
+            .hover_progress
+            .max(status.focus_progress)
+            .clamp(0.0, 1.0);
+        // The slider has already painted the thumb, under this: the halo is a ring around
+        // it, so that it does not tint the thumb it is painted over.
+        let r = OVERLAY_RADIUS * activation;
+        if r > THUMB_RADIUS {
+            scene.draw_rect(
+                Rect::new(centre.x - r, centre.y - r, 2.0 * r, 2.0 * r),
+                Color::TRANSPARENT,
+                r,
+                r - THUMB_RADIUS,
+                self.state.halo(&status, theme).fade(o),
+            );
+        }
+        // Focused, its tooltip comes out, as the reference's does; the slider shows both
+        // while it is dragged.
+        if let Some(label) = self.state.label.as_ref() {
+            let reveal = if self.state.always_indicates(theme) {
+                0.0
+            } else if self.state.indicates(theme) {
+                status.focus_progress.clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            if reveal > 0.0 {
+                paint_rect_indicator(centre, label(self.value()), theme, reveal, o, scene);
             }
         }
     }
@@ -1108,255 +1462,37 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
     }
 
     fn focusable(&self) -> bool {
-        self.enabled && self.on_change.is_some()
+        self.state.enabled && self.state.on_change.is_some()
     }
 
-    fn draggable(&self) -> bool {
-        self.enabled
-    }
-
-    fn on_drag_delta(&self, dx: f32) -> Option<Msg> {
-        if !self.enabled || dx == 0.0 || self.track <= 0.0 {
-            return None;
-        }
-        let (low, high) = self.moved(dx / self.track);
-        self.on_change.as_ref().map(|make| make(low, high))
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
+        let value = self.value();
+        let semantics = frus_core::SemanticsProperties::new(frus_core::Role::Slider)
+            .value(self.state.spoken(value))
+            .range(self.state.min, value, self.state.max);
+        Some(if self.state.enabled {
+            semantics
+        } else {
+            semantics.disabled(true)
+        })
     }
 
     fn on_key(&self, key: &Key) -> KeyResponse<Msg> {
-        // A disabled thumb cannot be focused, so this should be unreachable - but a key
+        // A disabled thumb cannot be focused, so this should be unreachable — but a key
         // arriving from a stale focus must not move a value the caller has frozen.
-        if !self.enabled {
+        if !self.state.enabled {
             return KeyResponse::Ignored;
         }
-        // Arrows: one step; Home/End: this side's min/max bound (the shell offers
-        // these keys to the focused widget before the default action).
-        let delta = match key {
-            Key::Left { .. } => -self.key_step(),
-            Key::Right { .. } => self.key_step(),
-            Key::Home { .. } => -2.0, // clamped at 0 or the low neighbour
-            Key::End { .. } => 2.0,   // clamped at the high neighbour or 1
+        let here = self.state.fractions()[self.side];
+        let to = match key {
+            Key::Left { .. } => here - self.state.key_step(),
+            Key::Right { .. } => here + self.state.key_step(),
+            Key::Home { .. } => -1.0,
+            Key::End { .. } => 2.0,
             _ => return KeyResponse::Ignored,
         };
-        let (low, high) = self.moved(delta);
-        KeyResponse::Handled(self.on_change.as_ref().map(|make| make(low, high)))
-    }
-}
-
-/// A **range** slider: two thumbs (low and high) bounding a `0.0..=1.0` interval,
-/// **controlled** and **sticky** (each thumb moves its own side, with no crossing).
-/// An optional discrete step ([`divisions`](RangeSlider::divisions)). The
-/// application receives the new `(low, high)` interval.
-pub struct RangeSlider<Msg = crate::callback::Callback> {
-    low: f32,
-    high: f32,
-    width: f32,
-    divisions: Option<usize>,
-    /// The **value tooltip** formatter: when set, a bubble above each thumb shows
-    /// `label(value)` (and the height reserves the room for it).
-    label: Option<Rc<dyn Fn(f32) -> String>>,
-    enabled: bool,
-    thumb_elevation: Option<f32>,
-    pressed_thumb_elevation: Option<f32>,
-    on_change: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
-    /// Sent once when a drag begins, before the first `on_change`.
-    on_change_start: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
-    /// Sent once when it ends, after the last one.
-    on_change_end: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
-    children: Vec<Box<dyn Widget<Msg>>>,
-}
-
-impl<Msg: Clone + 'static> RangeSlider<Msg> {
-    /// Creates a range slider (values clamped to `0..=1` and ordered `low ≤ high`).
-    pub fn new(low: f32, high: f32) -> Self {
-        let low = low.clamp(0.0, 1.0);
-        let high = high.clamp(0.0, 1.0);
-        let mut slider = Self {
-            low: low.min(high),
-            high: low.max(high),
-            width: 220.0,
-            divisions: None,
-            label: None,
-            enabled: true,
-            thumb_elevation: None,
-            pressed_thumb_elevation: None,
-            on_change: None,
-            on_change_start: None,
-            on_change_end: None,
-            children: Vec::new(),
-        };
-        slider.rebuild();
-        slider
-    }
-
-    /// Width, in logical pixels.
-    pub fn width(mut self, width: f32) -> Self {
-        self.width = width;
-        self.rebuild();
-        self
-    }
-
-    /// Splits the travel into `n` **steps**: dragged values snap to `k/n`. Without
-    /// this call, the travel is continuous.
-    pub fn divisions(mut self, n: usize) -> Self {
-        self.divisions = Some(n.max(1));
-        self.rebuild();
-        self
-    }
-
-    /// A closure producing a message from the new `(low, high)` interval.
-    pub fn on_change<R: crate::callback::IntoMsg<Msg>>(
-        mut self,
-        on_change: impl Fn(f32, f32) -> R + 'static,
-    ) -> Self {
-        self.on_change = Some(Rc::new(crate::callback::handler2(on_change)));
-        self.rebuild();
-        self
-    }
-
-    /// Whether the interval can be changed. Disabled the whole control is **inert** -
-    /// neither thumb takes a drag, a key or the focus - and it still shows its interval.
-    ///
-    /// See [`crate::disabled`] for the whole contract.
-    pub fn enabled(mut self, enabled: bool) -> Self {
-        self.enabled = enabled;
-        self.rebuild();
-        self
-    }
-
-    /// How far each thumb sits off the track at rest. Unset, the theme's, then the
-    /// reference's 1; `0.0` casts no shadow.
-    pub fn thumb_elevation(mut self, elevation: f32) -> Self {
-        self.thumb_elevation = Some(elevation);
-        self.rebuild();
-        self
-    }
-
-    /// How far a thumb rises while it is held. Unset, the theme's, then the reference's 6.
-    pub fn pressed_thumb_elevation(mut self, elevation: f32) -> Self {
-        self.pressed_thumb_elevation = Some(elevation);
-        self.rebuild();
-        self
-    }
-
-    /// Shows a **value tooltip** above each thumb, formatted by `label(value)` (a
-    /// percentage, a price…). Reserves the room above the track.
-    pub fn value_label(mut self, label: impl Fn(f32) -> String + 'static) -> Self {
-        self.label = Some(Rc::new(label));
-        self.rebuild();
-        self
-    }
-
-    /// Sent **once**, when a drag begins — before the first
-    /// [`on_change`](Self::on_change), with the interval as it stands.
-    ///
-    /// See [`Slider::on_change_start`] for why the bracket earns its place.
-    pub fn on_change_start<R: crate::callback::IntoMsg<Msg>>(
-        mut self,
-        on_start: impl Fn(f32, f32) -> R + 'static,
-    ) -> Self {
-        self.on_change_start = Some(Rc::new(crate::callback::handler2(on_start)));
-        self
-    }
-
-    /// Sent **once**, when the drag ends — after the last
-    /// [`on_change`](Self::on_change), with the interval it settled on.
-    pub fn on_change_end<R: crate::callback::IntoMsg<Msg>>(
-        mut self,
-        on_end: impl Fn(f32, f32) -> R + 'static,
-    ) -> Self {
-        self.on_change_end = Some(Rc::new(crate::callback::handler2(on_end)));
-        self
-    }
-
-    /// The interval a drag reaching `fraction` would leave behind — the nearest thumb
-    /// moved to it, the other one where it was.
-    ///
-    /// Shared by the drag and both its ends so that the three cannot disagree about
-    /// which thumb the pointer was nearest.
-    fn interval_at(&self, fraction: f32) -> (f32, f32) {
-        let f = self.snap(fraction.clamp(0.0, 1.0));
-        if f <= self.low {
-            (f, self.high)
-        } else if f >= self.high {
-            (self.low, f)
-        } else if f - self.low <= self.high - f {
-            (f, self.high)
-        } else {
-            (self.low, f)
-        }
-    }
-
-    /// (Re)builds the row of thumbs set at the `low`/`high` positions.
-    fn rebuild(&mut self) {
-        let height = self.content_h();
-        let thumb = |side: Side| RangeThumb {
-            side,
-            low: self.low,
-            high: self.high,
-            track: self.width,
-            height,
-            divisions: self.divisions,
-            label: self.label.clone(),
-            enabled: self.enabled,
-            elevations: (self.thumb_elevation, self.pressed_thumb_elevation),
-            on_change: self.on_change.clone(),
-        };
-        let lo_gap = (self.low * self.width - THUMB * 0.5).max(0.0);
-        let mid_gap = ((self.high - self.low) * self.width - THUMB).max(0.0);
-        let row = Flex::row()
-            .child(Spacer {
-                width: lo_gap,
-                height,
-            })
-            .child(thumb(Side::Low))
-            .child(Spacer {
-                width: mid_gap,
-                height,
-            })
-            .child(thumb(Side::High));
-        self.children = vec![Box::new(row)];
-    }
-}
-
-/// Paints a value tooltip centred on `cx` (top edge `top`) showing `text`.
-fn paint_tip(cx: f32, top: f32, text: String, theme: &Theme, o: f32, scene: &mut Scene) {
-    let style = tip_style(Some(theme));
-    let tw = frus_text::measure_resolved(&text, &style).width;
-    let bw = tw + 12.0;
-    let bx = cx - bw * 0.5;
-    scene.draw_rect(
-        Rect::new(bx, top, bw, TIP_H),
-        theme.primary.fade(o),
-        TIP_H * 0.5,
-        0.0,
-        Color::TRANSPARENT,
-    );
-    let ty = top + (TIP_H - style.line_height()) * 0.5;
-    scene.text(
-        Point::new(bx + 6.0, ty),
-        text,
-        &style,
-        theme.on_primary.fade(o),
-    );
-}
-
-impl<Msg> RangeSlider<Msg> {
-    /// Total height: the track alone, or the track + a tooltip zone if a `label` is set.
-    fn content_h(&self) -> f32 {
-        if self.label.is_some() {
-            TIP_H + TIP_GAP + H
-        } else {
-            H
-        }
-    }
-
-    /// Snaps `v` to the nearest step if `divisions` is set.
-    fn snap(&self, v: f32) -> f32 {
-        match self.divisions {
-            Some(n) if n > 0 => (v * n as f32).round() / n as f32,
-            _ => v,
-        }
+        let (start, end) = self.state.moved(self.side, to);
+        KeyResponse::Handled(self.state.on_change.as_ref().map(|make| make(start, end)))
     }
 }
 
@@ -1364,8 +1500,29 @@ impl<Msg: Clone + 'static> Widget<Msg> for RangeSlider<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Length(self.width),
-            height: Dimension::Length(self.content_h()),
+            min_width: Dimension::Length(if self.sized {
+                0.0
+            } else {
+                MIN_TRACK + 2.0 * OVERLAY_RADIUS
+            }),
+            height: Dimension::Length(2.0 * OVERLAY_RADIUS),
             ..Default::default()
+        }
+    }
+
+    /// **All the room on offer** across, as the reference's takes, unless a width was
+    /// given.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        crate::widget::FillAxes {
+            horizontal: !self.sized,
+            vertical: false,
+        }
+    }
+
+    fn soft_extent(&self) -> crate::widget::FillAxes {
+        crate::widget::FillAxes {
+            horizontal: !self.sized,
+            vertical: false,
         }
     }
 
@@ -1373,81 +1530,258 @@ impl<Msg: Clone + 'static> Widget<Msg> for RangeSlider<Msg> {
         &self.children
     }
 
+    fn debug_name(&self) -> &'static str {
+        "RangeSlider"
+    }
+
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Track + segment in the **lower** `H` band (the upper zone holds the bubbles).
-        let base_y = bounds.y + bounds.height - H;
-        let track_y = base_y + (H - TRACK_H) * 0.5;
-        // The same split as the single slider, and the same secondary container.
-        let (rail, span) = if self.enabled {
-            (theme.scheme.secondary_container, theme.primary)
-        } else {
-            (disabled_container(theme), disabled_content(theme))
+        let rtl = theme.direction.is_rtl();
+        let state = &self.state;
+        let palette = state.palette(theme);
+        let track_h = theme.widgets.slider.track_height.unwrap_or(TRACK_HEIGHT);
+        let left = bounds.x + OVERLAY_RADIUS;
+        let width = (bounds.width - 2.0 * OVERLAY_RADIUS).max(0.0);
+        // What the thumbs' keys measure the least gap with.
+        state.track.set(width);
+        let cy = bounds.y + bounds.height * 0.5;
+        let along = |t: f32| if rtl { 1.0 - t } else { t };
+        let discrete = state.discrete();
+        let [s, e] = state.fractions();
+        let x0 = thumb_x(left, width, along(s), discrete, track_h);
+        let x1 = thumb_x(left, width, along(e), discrete, track_h);
+        let (lo, hi) = (x0.min(x1), x0.max(x1));
+
+        if track_h > 0.0 {
+            let half = track_h * 0.5;
+            let active_half = (track_h + ACTIVE_EXTRA) * 0.5;
+            let right = left + width;
+            // The outer parts, then the span between the thumbs, a little thicker.
+            for (a, b) in [(left, lo + half), (hi - half, right)] {
+                if b - a > track_h {
+                    scene.draw_rect(
+                        Rect::new(a, cy - half, b - a, track_h),
+                        palette.inactive.fade(o),
+                        half,
+                        0.0,
+                        Color::TRANSPARENT,
+                    );
+                }
+            }
+            if hi - lo > 0.0 {
+                scene.draw_rect(
+                    Rect::new(lo, cy - active_half, hi - lo, 2.0 * active_half),
+                    palette.active.fade(o),
+                    0.0,
+                    0.0,
+                    Color::TRANSPARENT,
+                );
+            }
+        }
+
+        // The ticks, one per division, unless they would crowd each other.
+        if let Some(n) = state.divisions.filter(|n| *n > 0) {
+            let tick_r = track_h / 4.0;
+            let adjusted = width - track_h;
+            if tick_r > 0.0 && adjusted / n as f32 >= 3.0 * 2.0 * tick_r {
+                for i in 0..=n {
+                    let x = left + i as f32 / n as f32 * adjusted + track_h / 2.0;
+                    let color = if x >= lo && x <= hi {
+                        palette.active_tick
+                    } else {
+                        palette.inactive_tick
+                    };
+                    scene.draw_rect(
+                        Rect::new(x - tick_r, cy - tick_r, 2.0 * tick_r, 2.0 * tick_r),
+                        color.fade(o),
+                        tick_r,
+                        0.0,
+                        Color::TRANSPARENT,
+                    );
+                }
+            }
+        }
+
+        // The thumb a drag took (the end, until one has) is the one on top, the one that
+        // rises while held and wears the halo — the reference's last selection.
+        let top = status.thumb.unwrap_or(1).min(1);
+        let xs = [x0, x1];
+        let press = status.press_progress.clamp(0.0, 1.0);
+        if state.enabled && press > 0.0 {
+            let r = OVERLAY_RADIUS * press;
+            let x = xs[top];
+            scene.draw_rect(
+                Rect::new(x - r, cy - r, 2.0 * r, 2.0 * r),
+                state.halo(&status, theme).fade(o),
+                r,
+                0.0,
+                Color::TRANSPARENT,
+            );
+        }
+
+        // The thumbs over their shadows, the one on top last. Where they overlap, it wears
+        // a ring in the surface colour, as the reference's does, so the two stay two.
+        let overlap = (x1 - x0).abs() < 2.0 * THUMB_RADIUS;
+        let resting = Status {
+            press_progress: 0.0,
+            ..status
         };
-        scene.draw_rect(
-            Rect::new(bounds.x, track_y, bounds.width, TRACK_H),
-            rail.fade(o),
-            TRACK_H * 0.5,
-            0.0,
-            Color::TRANSPARENT,
-        );
-        let lo = bounds.x + bounds.width * self.low;
-        let hi = bounds.x + bounds.width * self.high;
-        scene.draw_rect(
-            Rect::new(lo, track_y, (hi - lo).max(0.0), TRACK_H),
-            span.fade(o),
-            TRACK_H * 0.5,
-            0.0,
-            Color::TRANSPARENT,
-        );
-        // The tooltips are painted by the thumbs, revealed on hover or focus.
+        for i in [1 - top, top] {
+            let x = xs[i];
+            let thumb = Rect::new(
+                x - THUMB_RADIUS,
+                cy - THUMB_RADIUS,
+                2.0 * THUMB_RADIUS,
+                2.0 * THUMB_RADIUS,
+            );
+            let held = if i == top { &status } else { &resting };
+            paint_thumb_shadow(thumb, state.elevations, held, theme, scene);
+            let (ring_width, ring) = if overlap && i == top {
+                (1.0, theme.scheme.surface.fade(o))
+            } else {
+                (0.0, Color::TRANSPARENT)
+            };
+            scene.draw_rect(thumb, palette.thumb.fade(o), THUMB_RADIUS, ring_width, ring);
+        }
+
+        // Both tooltips while the slider is moved, as the reference's does, the one on top
+        // last.
+        if let Some(label) = state.label.as_ref() {
+            let reveal = if state.always_indicates(theme) {
+                1.0
+            } else if state.indicates(theme) {
+                press
+            } else {
+                0.0
+            };
+            if reveal > 0.0 {
+                let (start, end) = state.held();
+                let values = [start, end];
+                for i in [1 - top, top] {
+                    paint_rect_indicator(
+                        Point::new(xs[i], cy),
+                        label(values[i]),
+                        theme,
+                        reveal,
+                        o,
+                        scene,
+                    );
+                }
+            }
+        }
     }
 
     fn on_click(&self) -> Option<Msg> {
         None
     }
 
-    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
-        // The interval survives, as the single slider's value does.
-        let pct = |v: f32| (v * 100.0).round();
-        let semantics = frus_core::SemanticsProperties::new(frus_core::Role::Slider)
-            .value(format!("{}%–{}%", pct(self.low), pct(self.high)));
-        Some(if self.enabled {
-            semantics
-        } else {
-            semantics.disabled(true)
-        })
-    }
-
     fn draggable(&self) -> bool {
-        // The **track** (outside the thumbs, which sit above it) answers clicks and
-        // drags: the nearest thumb moves to the position.
-        self.enabled && self.on_change.is_some()
+        self.state.enabled && self.state.on_change.is_some()
     }
 
-    fn on_drag(&self, fraction: f32) -> Option<Msg> {
-        if !self.enabled {
-            return None;
+    /// The track, inset by the halo's radius and mirrored right to left, with the two
+    /// thumbs on it: the shell picks the one a press takes.
+    fn drag_track(&self) -> crate::widget::DragTrack {
+        crate::widget::DragTrack {
+            inset: OVERLAY_RADIUS,
+            mirrored: true,
+            mode: crate::widget::DragMode::Thumbs {
+                values: self.state.fractions(),
+                radius: OVERLAY_RADIUS,
+            },
         }
-        // The nearest thumb, bounded by the other, with no crossing.
-        let (low, high) = self.interval_at(fraction);
-        self.on_change.as_ref().map(|make| make(low, high))
     }
 
-    fn on_drag_start(&self, fraction: f32) -> Option<Msg> {
-        if !self.enabled {
+    fn on_thumb_drag(
+        &self,
+        thumb: usize,
+        moment: crate::widget::ThumbDrag,
+        fraction: f32,
+    ) -> Option<Msg> {
+        if !self.state.enabled {
             return None;
         }
-        let (low, high) = self.interval_at(fraction);
-        self.on_change_start.as_ref().map(|make| make(low, high))
+        let state = &self.state;
+        match moment {
+            crate::widget::ThumbDrag::Start => {
+                let (start, end) = state.held();
+                let (start, end) = (
+                    state.at(state.fraction_of(start)),
+                    state.at(state.fraction_of(end)),
+                );
+                state.on_change_start.as_ref().map(|make| make(start, end))
+            }
+            crate::widget::ThumbDrag::Move => {
+                let (start, end) = state.moved(thumb, fraction);
+                state.on_change.as_ref().map(|make| make(start, end))
+            }
+            crate::widget::ThumbDrag::End => {
+                let (start, end) = state.moved(thumb, fraction);
+                state.on_change_end.as_ref().map(|make| make(start, end))
+            }
+        }
     }
+}
 
-    fn on_drag_end(&self, fraction: f32) -> Option<Msg> {
-        if !self.enabled {
-            return None;
-        }
-        let (low, high) = self.interval_at(fraction);
-        self.on_change_end.as_ref().map(|make| make(low, high))
+/// The reference's **rectangular value indicator** (`RectangularSliderValueIndicatorShape`),
+/// a range slider's default: a box with corners of 4, sixteen wider and taller than its text,
+/// over an eight-pixel triangle whose point is fourteen above the thumb's centre `at`; grown
+/// from that point by `scale`. In the theme's indicator colour, else the scheme's
+/// `on_surface` at 60 % over its `surface` at 90 %.
+fn paint_rect_indicator(
+    at: Point,
+    text: String,
+    theme: &Theme,
+    scale: f32,
+    o: f32,
+    scene: &mut Scene,
+) {
+    const TRIANGLE: f32 = 8.0;
+    const PADDING: f32 = 16.0;
+    const MIN_LABEL: f32 = 16.0;
+    const TIP_Y: f32 = 14.0;
+    let style = theme
+        .widgets
+        .slider
+        .value_indicator_text_style
+        .unwrap_or_else(|| {
+            crate::theme::type_scale(Some(theme))
+                .body_large
+                .color(theme.scheme.on_primary)
+        })
+        .resolved();
+    let measured = frus_text::measure_resolved(&text, &style);
+    let rect_w = MIN_LABEL.max(measured.width) + 2.0 * PADDING;
+    let rect_h = measured.height + PADDING;
+    let tip = Point::new(at.x, at.y - TIP_Y);
+    let s = |dx: f32, dy: f32| Point::new(tip.x + dx * scale, tip.y + dy * scale);
+    let scheme = &theme.scheme;
+    let color = theme
+        .widgets
+        .slider
+        .value_indicator_color
+        .unwrap_or_else(|| scheme.surface.fade(0.90).lerp(scheme.on_surface, 0.60))
+        .fade(o);
+    let top_left = s(-rect_w / 2.0, -TRIANGLE - rect_h);
+    let body = Rect::new(top_left.x, top_left.y, rect_w * scale, rect_h * scale);
+    let path = frus_core::Path::new()
+        .move_to(s(0.0, 0.0))
+        .line_to(s(-TRIANGLE, -TRIANGLE))
+        .line_to(s(TRIANGLE, -TRIANGLE))
+        .close();
+    scene.fill_path(&path, color);
+    scene.draw_rect(body, color, 4.0 * scale, 0.0, Color::TRANSPARENT);
+    if scale >= 0.999 {
+        let text_color = style.color.unwrap_or(scheme.on_primary);
+        scene.text(
+            Point::new(
+                body.x + (body.width - measured.width) * 0.5,
+                body.y + (body.height - measured.height) * 0.5,
+            ),
+            text,
+            &style,
+            text_color.fade(o),
+        );
     }
 }
 
@@ -1460,9 +1794,6 @@ mod tests {
         Value(f32),
         Start(f32),
         End(f32),
-        Range(f32, f32),
-        RangeStart(f32, f32),
-        RangeEnd(f32, f32),
     }
 
     /// A slider that was never asked for the bracket sends nothing at either end.
@@ -1561,204 +1892,12 @@ mod tests {
         assert_eq!(Widget::on_drag_end(&slider, 0.5), None);
     }
 
-    /// A range slider brackets the **interval**, and all three agree about which thumb
-    /// the pointer was nearest — they ask the same function.
-    #[test]
-    fn a_range_slider_brackets_the_interval() {
-        let range = RangeSlider::new(0.2, 0.8)
-            .on_change(Msg::Range)
-            .on_change_start(Msg::RangeStart)
-            .on_change_end(Msg::RangeEnd);
-        // 0.3 is nearer the low thumb, so the low one moves and the high one stays.
-        assert_eq!(
-            Widget::on_drag_start(&range, 0.3),
-            Some(Msg::RangeStart(0.3, 0.8))
-        );
-        assert_eq!(Widget::on_drag(&range, 0.3), Some(Msg::Range(0.3, 0.8)));
-        // 0.9 is past the high thumb, so that one moves instead.
-        assert_eq!(
-            Widget::on_drag_end(&range, 0.9),
-            Some(Msg::RangeEnd(0.2, 0.9))
-        );
-    }
-
     #[test]
     fn drag_maps_to_value() {
         let slider = Slider::new(0.0).on_change(Msg::Value);
         assert_eq!(Widget::on_drag(&slider, 0.5), Some(Msg::Value(0.5)));
         // Clamped.
         assert_eq!(Widget::on_drag(&slider, 1.5), Some(Msg::Value(1.0)));
-    }
-
-    /// The row's two draggable thumbs (low, high).
-    fn thumbs(rs: &RangeSlider<Msg>) -> Vec<&dyn Widget<Msg>> {
-        let row = &Widget::<Msg>::children(rs)[0];
-        row.children()
-            .iter()
-            .map(|c| c.as_ref())
-            .filter(|c| c.draggable())
-            .collect()
-    }
-
-    fn range_of(msg: Option<Msg>) -> (f32, f32) {
-        match msg {
-            Some(Msg::Range(lo, hi)) => (lo, hi),
-            other => panic!("expected Range, got {other:?}"),
-        }
-    }
-
-    fn range_of_key(resp: KeyResponse<Msg>) -> (f32, f32) {
-        match resp {
-            KeyResponse::Handled(msg) => range_of(msg),
-            other => panic!("expected Handled, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn each_thumb_moves_its_own_side_and_sticks() {
-        let rs = RangeSlider::new(0.2, 0.8).on_change(Msg::Range); // a 220 px track
-        let t = thumbs(&rs);
-        assert_eq!(t.len(), 2, "two draggable thumbs");
-        // The low thumb: +22 px = +0.1 → low 0.3; the high one unchanged.
-        let (lo, hi) = range_of(t[0].on_drag_delta(22.0));
-        assert!(
-            (lo - 0.3).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4,
-            "low moves ({lo}, {hi})"
-        );
-        // The high thumb: −22 px = −0.1 → high 0.7; the low one unchanged.
-        let (lo, hi) = range_of(t[1].on_drag_delta(-22.0));
-        assert!(
-            (lo - 0.2).abs() < 1e-4 && (hi - 0.7).abs() < 1e-4,
-            "high moves ({lo}, {hi})"
-        );
-        // Sticky: the low thumb pushed all the way stops at the high one (0.8), without moving it.
-        let (lo, hi) = range_of(t[0].on_drag_delta(10_000.0));
-        assert!(
-            (lo - 0.8).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4,
-            "stuck to the top ({lo}, {hi})"
-        );
-        // A zero delta: no message.
-        assert_eq!(t[0].on_drag_delta(0.0), None);
-    }
-
-    #[test]
-    fn arrow_keys_move_focused_thumb_by_a_step() {
-        let rs = RangeSlider::new(0.4, 0.6)
-            .divisions(10)
-            .on_change(Msg::Range); // a step of 0.1
-        let t = thumbs(&rs);
-        // The low thumb focused: right arrow +0.1 → 0.5; left arrow −0.1 → 0.3.
-        let (lo, hi) = range_of_key(t[0].on_key(&Key::Right {
-            shift: false,
-            word: false,
-        }));
-        assert!(
-            (lo - 0.5).abs() < 1e-4 && (hi - 0.6).abs() < 1e-4,
-            "→ ({lo}, {hi})"
-        );
-        let (lo, hi) = range_of_key(t[0].on_key(&Key::Left {
-            shift: false,
-            word: false,
-        }));
-        assert!(
-            (lo - 0.3).abs() < 1e-4 && (hi - 0.6).abs() < 1e-4,
-            "← ({lo}, {hi})"
-        );
-        // The thumbs are focusable, so reachable from the keyboard.
-        assert!(t[0].focusable() && t[1].focusable());
-    }
-
-    #[test]
-    fn track_click_moves_nearest_thumb() {
-        let rs = RangeSlider::new(0.2, 0.8).on_change(Msg::Range);
-        // The track (the slider) is draggable and targets the nearest thumb.
-        assert!(Widget::<Msg>::draggable(&rs), "the track answers clicks");
-        let (lo, hi) = range_of(Widget::on_drag(&rs, 0.25));
-        assert!(
-            (lo - 0.25).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4,
-            "near the low end ({lo}, {hi})"
-        );
-        let (lo, hi) = range_of(Widget::on_drag(&rs, 0.9));
-        assert!(
-            (lo - 0.2).abs() < 1e-4 && (hi - 0.9).abs() < 1e-4,
-            "near the high end ({lo}, {hi})"
-        );
-    }
-
-    #[test]
-    fn home_end_snap_thumb_to_bounds() {
-        let rs = RangeSlider::new(0.3, 0.7).on_change(Msg::Range);
-        let t = thumbs(&rs);
-        let home = Key::Home {
-            shift: false,
-            doc: false,
-        };
-        let end = Key::End {
-            shift: false,
-            doc: false,
-        };
-        // The low thumb: Home → 0; End → the high stop (0.7).
-        let (lo, hi) = range_of_key(t[0].on_key(&home));
-        assert!(
-            (lo - 0.0).abs() < 1e-4 && (hi - 0.7).abs() < 1e-4,
-            "low Home ({lo}, {hi})"
-        );
-        let (lo, hi) = range_of_key(t[0].on_key(&end));
-        assert!(
-            (lo - 0.7).abs() < 1e-4 && (hi - 0.7).abs() < 1e-4,
-            "low End ({lo}, {hi})"
-        );
-        // The high thumb: End → 1.
-        let (lo, hi) = range_of_key(t[1].on_key(&end));
-        assert!(
-            (lo - 0.3).abs() < 1e-4 && (hi - 1.0).abs() < 1e-4,
-            "upper End ({lo}, {hi})"
-        );
-    }
-
-    #[test]
-    fn value_label_reserves_height() {
-        let plain = RangeSlider::new(0.2, 0.8).on_change(Msg::Range);
-        let tipped = RangeSlider::new(0.2, 0.8)
-            .on_change(Msg::Range)
-            .value_label(|v| format!("{}", v));
-        let h = |rs: &RangeSlider<Msg>| match Widget::<Msg>::style(rs).height {
-            Dimension::Length(v) => v,
-            _ => 0.0,
-        };
-        assert!(h(&tipped) > h(&plain), "the tooltip reserves height");
-    }
-
-    #[test]
-    fn divisions_snap_to_steps() {
-        // 10 steps, a 200 px track: +25 px = +0.125 from 0.0 → snapped to 0.1.
-        let rs = RangeSlider::new(0.0, 1.0)
-            .width(200.0)
-            .divisions(10)
-            .on_change(Msg::Range);
-        let (lo, _) = range_of(thumbs(&rs)[0].on_drag_delta(25.0));
-        assert!((lo - 0.1).abs() < 1e-4, "snapped to step 0.1, got {lo}");
-    }
-
-    #[test]
-    fn range_new_orders_and_clamps() {
-        // Inverted bounds → reordered; outside [0,1] → clamped.
-        let rs = RangeSlider::new(0.9, 0.1).on_change(Msg::Range);
-        // From (0.1, 0.9), the low thumb +0.05 → 0.15.
-        let (lo, hi) = range_of(thumbs(&rs)[0].on_drag_delta(0.05 * 220.0));
-        assert!(
-            (lo - 0.15).abs() < 1e-4 && (hi - 0.9).abs() < 1e-4,
-            "reordered ({lo}, {hi})"
-        );
-    }
-
-    /// The thumbs **by position** (the row is spacer, thumb, spacer, thumb), which is the
-    /// only way to reach them once they are disabled: the `thumbs` helper above finds them
-    /// by `draggable`, and a disabled thumb is exactly the thing that is not.
-    fn thumbs_by_position(rs: &RangeSlider<Msg>) -> Vec<&dyn Widget<Msg>> {
-        let row = &Widget::<Msg>::children(rs)[0];
-        let kids = row.children();
-        vec![kids[1].as_ref(), kids[3].as_ref()]
     }
 
     #[test]
@@ -1773,40 +1912,6 @@ mod tests {
         let semantics = Widget::<Msg>::semantics(&dead).expect("still announced");
         assert!(semantics.disabled, "announced as unavailable");
         assert_eq!(semantics.value.as_deref(), Some("40%"), "value survives");
-    }
-
-    /// A slider is dragged and keyed rather than tapped, which is why milestone 322's
-    /// guard covers those hooks: greying one out while it still answered a drag leaves it
-    /// inert only to the gesture nobody was using on it.
-    #[test]
-    fn a_disabled_range_slider_takes_no_drag_no_key_and_no_focus() {
-        let dead = RangeSlider::new(0.2, 0.8)
-            .on_change(Msg::Range)
-            .enabled(false);
-        assert!(!Widget::<Msg>::draggable(&dead), "the track takes no drag");
-        assert_eq!(Widget::on_drag(&dead, 0.5), None);
-        for (i, thumb) in thumbs_by_position(&dead).into_iter().enumerate() {
-            assert!(!thumb.draggable(), "thumb {i} still drags");
-            assert!(!thumb.focusable(), "thumb {i} still takes focus");
-            assert_eq!(thumb.on_drag_delta(20.0), None, "thumb {i} still moves");
-            assert!(
-                matches!(
-                    thumb.on_key(&Key::Right {
-                        shift: false,
-                        word: false
-                    }),
-                    KeyResponse::Ignored
-                ),
-                "thumb {i} still answers an arrow"
-            );
-        }
-        let semantics = Widget::<Msg>::semantics(&dead).expect("still announced");
-        assert!(semantics.disabled);
-        assert_eq!(
-            semantics.value.as_deref(),
-            Some("20%–80%"),
-            "interval survives"
-        );
     }
 
     /// The track splits along the framework's one rule: the part still to travel is a
@@ -1896,23 +2001,6 @@ mod tests {
             vec![2.0],
             "and the slider's over it"
         );
-
-        let cell = Rect::new(0.0, 0.0, THUMB, H);
-        let range = RangeSlider::new(0.25, 0.75).on_change(Msg::Range);
-        for thumb in thumbs(&range) {
-            assert_eq!(heights(thumb, cell, 0.0, &theme), vec![1.0]);
-            assert_eq!(heights(thumb, cell, 1.0, &theme), vec![6.0]);
-        }
-        let raised = RangeSlider::new(0.25, 0.75)
-            .on_change(Msg::Range)
-            .thumb_elevation(3.0);
-        for thumb in thumbs(&raised) {
-            assert_eq!(
-                heights(thumb, cell, 0.0, &theme),
-                vec![3.0],
-                "told on the slider"
-            );
-        }
     }
 }
 
@@ -2669,5 +2757,493 @@ mod reference_tests {
         );
         assert!(!thumb.engages(BOX, 64.0, true));
         assert_eq!(thumb.value_at(BOX, 70.0, 120.0, true, false), Some(0.45));
+    }
+}
+
+#[cfg(test)]
+mod range_slider_tests {
+    use super::*;
+    use crate::widget::{DragMode, DragTrack, ThumbDrag};
+    use frus_core::Primitive;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Range(f32, f32),
+        Start(f32, f32),
+        End(f32, f32),
+    }
+
+    /// A box 248 wide: a track of 200 from 24, the halo's radius in.
+    const BOX: Rect = Rect::new(0.0, 0.0, 248.0, 48.0);
+
+    fn slider(start: f32, end: f32) -> RangeSlider<Msg> {
+        RangeSlider::new(start, end)
+            .on_change(Msg::Range)
+            .on_change_start(Msg::Start)
+            .on_change_end(Msg::End)
+    }
+
+    /// The two thumbs, the start first: each the child of an alignment in the stack.
+    fn thumbs(slider: &RangeSlider<Msg>) -> Vec<&dyn Widget<Msg>> {
+        Widget::<Msg>::children(slider)[0]
+            .children()
+            .iter()
+            .map(|aligned| aligned.children()[0].as_ref())
+            .collect()
+    }
+
+    fn paint(slider: &RangeSlider<Msg>, status: Status, theme: &Theme) -> Vec<Primitive> {
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(slider, BOX, status, theme, &mut scene);
+        scene.primitives().to_vec()
+    }
+
+    fn rects(primitives: &[Primitive]) -> Vec<(Rect, Color)> {
+        primitives
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect {
+                    rect, color, blur, ..
+                } if *blur == 0.0 => Some((*rect, *color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The thumbs' squares, in the order they were painted.
+    fn thumb_rects(primitives: &[Primitive]) -> Vec<Rect> {
+        rects(primitives)
+            .into_iter()
+            .map(|(r, _)| r)
+            .filter(|r| r.width == 20.0 && r.height == 20.0)
+            .collect()
+    }
+
+    fn texts(primitives: &[Primitive]) -> usize {
+        primitives
+            .iter()
+            .filter(|p| matches!(p, Primitive::Text { .. }))
+            .count()
+    }
+
+    fn close(a: (f32, f32), b: (f32, f32)) -> bool {
+        (a.0 - b.0).abs() < 1e-4 && (a.1 - b.1).abs() < 1e-4
+    }
+
+    fn range(msg: Option<Msg>) -> (f32, f32) {
+        match msg {
+            Some(Msg::Range(s, e)) => (s, e),
+            other => panic!("expected a range, got {other:?}"),
+        }
+    }
+
+    fn keyed(response: KeyResponse<Msg>) -> (f32, f32) {
+        match response {
+            KeyResponse::Handled(msg) => range(msg),
+            other => panic!("expected a handled key, got {other:?}"),
+        }
+    }
+
+    const RIGHT: Key = Key::Right {
+        shift: false,
+        word: false,
+    };
+
+    /// **The track the shell drags is the slider's own**: inset by the halo's radius,
+    /// mirrored right to left, with both thumbs on it at their places along the travel —
+    /// in the slider's units, held in order.
+    #[test]
+    fn the_drag_track_carries_both_thumbs() {
+        let s = slider(30.0, 80.0).range(20.0, 120.0);
+        assert!(Widget::<Msg>::draggable(&s));
+        let track = Widget::<Msg>::drag_track(&s);
+        assert_eq!(track.inset, 24.0);
+        assert!(track.mirrored);
+        assert_eq!(
+            track.mode,
+            DragMode::Thumbs {
+                values: [0.1, 0.6],
+                radius: 24.0
+            }
+        );
+        let backwards = slider(0.9, 0.1);
+        assert_eq!(
+            Widget::<Msg>::drag_track(&backwards).mode,
+            DragMode::Thumbs {
+                values: [0.1, 0.9],
+                radius: 24.0
+            },
+            "put in order"
+        );
+    }
+
+    /// **A press takes the nearer thumb**, and one on both waits for the first movement:
+    /// towards the start takes the start — leftwards, or rightwards right to left.
+    #[test]
+    fn a_press_picks_the_nearer_thumb() {
+        let track = DragTrack {
+            inset: 24.0,
+            mirrored: true,
+            mode: DragMode::Thumbs {
+                values: [0.2, 0.8],
+                radius: 24.0,
+            },
+        };
+        // The thumbs at 64 and 184; between them the middle, 124, divides.
+        assert_eq!(track.pick_thumb(BOX, 30.0, 0.0, false), Some(0));
+        assert_eq!(track.pick_thumb(BOX, 123.0, 0.0, false), Some(0));
+        assert_eq!(track.pick_thumb(BOX, 125.0, 0.0, false), Some(1));
+        assert_eq!(track.pick_thumb(BOX, 240.0, 0.0, false), Some(1));
+        // Right to left, the start is on the right.
+        assert_eq!(track.pick_thumb(BOX, 184.0, 0.0, true), Some(0));
+        assert_eq!(track.pick_thumb(BOX, 64.0, 0.0, true), Some(1));
+
+        let met = DragTrack {
+            mode: DragMode::Thumbs {
+                values: [0.5, 0.55],
+                radius: 24.0,
+            },
+            ..track
+        };
+        // At 124 and 134: a press at 129 is on both.
+        assert_eq!(met.pick_thumb(BOX, 129.0, 0.0, false), None, "undecided");
+        assert_eq!(met.pick_thumb(BOX, 129.0, -3.0, false), Some(0));
+        assert_eq!(met.pick_thumb(BOX, 129.0, 3.0, false), Some(1));
+        assert_eq!(
+            met.pick_thumb(BOX, 119.0, 3.0, true),
+            Some(0),
+            "rightwards is towards the start, right to left"
+        );
+        assert_eq!(met.pick_thumb(BOX, 119.0, -3.0, true), Some(1));
+        // Off one thumb's touch radius, the nearer one, whatever the movement.
+        assert_eq!(met.pick_thumb(BOX, 100.0, 5.0, false), Some(0));
+        let single = DragTrack {
+            mode: DragMode::Follow,
+            ..track
+        };
+        assert_eq!(single.pick_thumb(BOX, 64.0, 0.0, false), None);
+        assert_eq!(met.value_at(BOX, 129.0, 174.0, true, false), Some(0.75));
+    }
+
+    /// **The drag's bracket**: the start reports the interval as it was, each movement and
+    /// the end the interval with the picked thumb moved — in the slider's units, snapped.
+    #[test]
+    fn a_thumb_drag_reports_the_interval() {
+        let s = slider(30.0, 80.0).range(20.0, 120.0).divisions(10);
+        assert_eq!(
+            Widget::on_thumb_drag(&s, 0, ThumbDrag::Start, 0.9),
+            Some(Msg::Start(30.0, 80.0)),
+            "as it was"
+        );
+        assert_eq!(
+            Widget::on_thumb_drag(&s, 0, ThumbDrag::Move, 0.22),
+            Some(Msg::Range(40.0, 80.0)),
+            "the start moves, snapped"
+        );
+        assert_eq!(
+            Widget::on_thumb_drag(&s, 1, ThumbDrag::Move, 0.87),
+            Some(Msg::Range(30.0, 110.0)),
+            "the end moves"
+        );
+        assert_eq!(
+            Widget::on_thumb_drag(&s, 1, ThumbDrag::End, 1.4),
+            Some(Msg::End(30.0, 120.0)),
+            "held to the travel"
+        );
+        let dead = slider(30.0, 80.0).range(20.0, 120.0).enabled(false);
+        assert!(!Widget::<Msg>::draggable(&dead));
+        assert_eq!(Widget::on_thumb_drag(&dead, 0, ThumbDrag::Move, 0.5), None);
+        let silent = RangeSlider::<Msg>::new(0.2, 0.8);
+        assert!(!Widget::<Msg>::draggable(&silent), "nothing to tell");
+    }
+
+    /// **A thumb stops at the other**: on a slider with divisions it may meet it; without,
+    /// it stays the reference's eight pixels off — measured on the track the last paint
+    /// found, 200 here.
+    #[test]
+    fn a_thumb_never_passes_the_other() {
+        // Steps fine enough that eight pixels would still show after the snap.
+        let discrete = slider(0.2, 0.8).divisions(100);
+        // Painted, so that it knows its track: the gap is none all the same.
+        paint(&discrete, Status::default(), &Theme::default());
+        let (s, e) = range(Widget::on_thumb_drag(&discrete, 0, ThumbDrag::Move, 0.95));
+        assert!(close((s, e), (0.8, 0.8)), "met ({s}, {e})");
+
+        let continuous = slider(0.2, 0.8);
+        paint(&continuous, Status::default(), &Theme::default());
+        let (s, e) = range(Widget::on_thumb_drag(&continuous, 0, ThumbDrag::Move, 0.95));
+        assert!(close((s, e), (0.76, 0.8)), "eight pixels off ({s}, {e})");
+        let (s, e) = range(Widget::on_thumb_drag(&continuous, 1, ThumbDrag::Move, 0.0));
+        assert!(close((s, e), (0.2, 0.24)), "from above too ({s}, {e})");
+        let (s, e) = range(Widget::on_thumb_drag(&continuous, 1, ThumbDrag::Move, 0.5));
+        assert!(close((s, e), (0.2, 0.5)), "free in between ({s}, {e})");
+    }
+
+    /// **Each thumb is a stop of its own**: it takes the focus, tells a reader its value
+    /// and its travel, and moves with the arrows — stopped by the other thumb.
+    #[test]
+    fn each_thumb_takes_the_keyboard_and_a_reader() {
+        let s = slider(0.4, 0.6).divisions(10);
+        let t = thumbs(&s);
+        assert_eq!(t.len(), 2);
+        assert!(t[0].focusable() && t[1].focusable());
+        assert_eq!(Widget::<Msg>::semantics(&s), None, "the thumbs speak");
+        let start = t[0].semantics().expect("the start");
+        assert_eq!(start.role, frus_core::Role::Slider);
+        assert_eq!(start.value.as_deref(), Some("40%"));
+        assert_eq!(start.range, Some((0.0, 0.4, 1.0)));
+        assert_eq!(
+            t[1].semantics().and_then(|s| s.value).as_deref(),
+            Some("60%")
+        );
+
+        assert!(close(keyed(t[0].on_key(&RIGHT)), (0.5, 0.6)));
+        assert!(close(
+            keyed(t[1].on_key(&Key::Left {
+                shift: false,
+                word: false
+            })),
+            (0.4, 0.5)
+        ));
+        let home = Key::Home {
+            shift: false,
+            doc: false,
+        };
+        let end = Key::End {
+            shift: false,
+            doc: false,
+        };
+        assert!(close(keyed(t[0].on_key(&home)), (0.0, 0.6)));
+        assert!(close(keyed(t[0].on_key(&end)), (0.6, 0.6)), "stopped");
+        assert!(close(keyed(t[1].on_key(&end)), (0.4, 1.0)));
+        assert!(close(keyed(t[1].on_key(&home)), (0.4, 0.4)), "stopped");
+        assert!(matches!(t[0].on_key(&Key::Enter), KeyResponse::Ignored));
+
+        let labelled = slider(20.0, 60.0)
+            .range(0.0, 100.0)
+            .value_label(|v| format!("{v} °C"));
+        let t = thumbs(&labelled);
+        assert_eq!(
+            t[1].semantics().and_then(|s| s.value).as_deref(),
+            Some("60 °C")
+        );
+        assert_eq!(
+            t[1].semantics().and_then(|s| s.range),
+            Some((0.0, 60.0, 100.0)),
+            "in the slider's units"
+        );
+        let told = labelled.semantic_formatter(|v| format!("{v} degrees"));
+        assert_eq!(
+            thumbs(&told)[0]
+                .semantics()
+                .and_then(|s| s.value)
+                .as_deref(),
+            Some("20 degrees")
+        );
+    }
+
+    /// **Disabled, it is inert and still says where it sits**: no drag, no focus, no key.
+    #[test]
+    fn a_disabled_range_slider_takes_no_drag_no_key_and_no_focus() {
+        let dead = slider(0.2, 0.8).enabled(false);
+        assert!(!Widget::<Msg>::draggable(&dead));
+        for (i, thumb) in thumbs(&dead).into_iter().enumerate() {
+            assert!(!thumb.focusable(), "thumb {i} takes focus");
+            assert!(
+                matches!(thumb.on_key(&RIGHT), KeyResponse::Ignored),
+                "thumb {i} answers an arrow"
+            );
+            let said = thumb.semantics().expect("still announced");
+            assert!(said.disabled);
+        }
+        assert_eq!(
+            thumbs(&dead)[0]
+                .semantics()
+                .and_then(|s| s.value)
+                .as_deref(),
+            Some("20%")
+        );
+    }
+
+    /// **The reference's colours**: the span between the thumbs in `primary`, a little
+    /// thicker, the rest `primary` at 24 %, the thumbs `primary`; the widget's colours over
+    /// them.
+    #[test]
+    fn the_track_is_active_between_the_thumbs() {
+        let theme = Theme::default();
+        let primary = theme.scheme.primary;
+        let found = rects(&paint(&slider(0.2, 0.8), Status::default(), &theme));
+        let outer: Vec<_> = found
+            .iter()
+            .filter(|(_, c)| *c == primary.fade(0.24))
+            .collect();
+        assert_eq!(outer.len(), 2, "the two outer parts");
+        assert_eq!(outer[0].0.x, 24.0);
+        assert_eq!(outer[1].0.x + outer[1].0.width, 224.0);
+        let span = found
+            .iter()
+            .find(|(r, c)| *c == primary && r.height == 6.0)
+            .expect("the span");
+        assert_eq!((span.0.x, span.0.width), (64.0, 120.0));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|(r, c)| *c == primary && r.width == 20.0)
+                .count(),
+            2,
+            "two thumbs"
+        );
+
+        let rtl = Theme {
+            direction: frus_core::TextDirection::Rtl,
+            ..Theme::default()
+        };
+        let found = rects(&paint(&slider(0.1, 0.4), Status::default(), &rtl));
+        let span = found
+            .iter()
+            .find(|(r, c)| *c == primary && r.height == 6.0)
+            .expect("the span");
+        assert_eq!((span.0.x, span.0.width), (144.0, 60.0), "from the right");
+
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let blue = Color::rgb(0.0, 0.0, 1.0);
+        let found = rects(&paint(
+            &slider(0.2, 0.8).active_color(red).inactive_color(blue),
+            Status::default(),
+            &theme,
+        ));
+        assert!(found.iter().any(|(r, c)| *c == red && r.height == 6.0));
+        assert_eq!(found.iter().filter(|(_, c)| *c == blue).count(), 2);
+        assert_eq!(
+            found
+                .iter()
+                .filter(|(r, c)| *c == red && r.width == 20.0)
+                .count(),
+            2,
+            "the thumbs take the active colour"
+        );
+    }
+
+    /// **The thumb a drag took is the one on top**: painted last, raised while held, with
+    /// the halo — the end until a drag has taken one. Where the two overlap, the one on top
+    /// wears a ring in the surface colour.
+    #[test]
+    fn the_thumb_last_taken_is_on_top() {
+        let theme = Theme::default();
+        let held = |thumb| Status {
+            press_progress: 1.0,
+            thumb,
+            ..Default::default()
+        };
+        let s = slider(0.2, 0.8);
+        let order = thumb_rects(&paint(&s, held(None), &theme));
+        assert_eq!(order[1].x, 174.0, "the end on top");
+        let order = thumb_rects(&paint(&s, held(Some(0)), &theme));
+        assert_eq!(order[1].x, 54.0, "the start, once taken");
+
+        let heights = |status| crate::shadowprobe::heights(&paint(&s, status, &theme));
+        assert_eq!(heights(held(Some(0))), vec![1.0, 6.0], "only it rises");
+        assert_eq!(heights(Status::default()), vec![1.0, 1.0]);
+        let raised = slider(0.2, 0.8).thumb_elevation(3.0);
+        assert_eq!(
+            crate::shadowprobe::heights(&paint(&raised, Status::default(), &theme)),
+            vec![3.0, 3.0]
+        );
+
+        let halo = theme.scheme.primary.fade(0.12);
+        let found = rects(&paint(&s, held(Some(0)), &theme));
+        let ring = found.iter().find(|(_, c)| *c == halo).expect("the halo");
+        assert_eq!(ring.0, Rect::new(40.0, 0.0, 48.0, 48.0), "on the start");
+
+        let ringed = |s: &RangeSlider<Msg>| {
+            paint(s, Status::default(), &theme)
+                .iter()
+                .filter(|p| {
+                    matches!(p, Primitive::Rect { border_width, border_color, .. }
+                        if *border_width == 1.0 && *border_color == theme.scheme.surface)
+                })
+                .count()
+        };
+        assert_eq!(ringed(&slider(0.5, 0.55)), 1, "overlapping");
+        assert_eq!(ringed(&slider(0.2, 0.8)), 0, "apart");
+    }
+
+    /// **Both values show while it is moved**, in the reference's rectangular indicator, by
+    /// the same policy as a slider's; a focused thumb shows its own.
+    #[test]
+    fn the_values_show_while_it_is_moved() {
+        let theme = Theme::default();
+        let pressed = Status {
+            press_progress: 1.0,
+            ..Default::default()
+        };
+        let labelled = |s: RangeSlider<Msg>| s.value_label(|v| format!("{v:.1}"));
+        let discrete = labelled(slider(0.2, 0.8).divisions(10));
+        assert_eq!(texts(&paint(&discrete, pressed, &theme)), 2, "both");
+        assert_eq!(texts(&paint(&discrete, Status::default(), &theme)), 0);
+        let continuous = labelled(slider(0.2, 0.8));
+        assert_eq!(
+            texts(&paint(&continuous, pressed, &theme)),
+            0,
+            "only for discrete, by default"
+        );
+        let always =
+            labelled(slider(0.2, 0.8)).show_value_indicator(ShowValueIndicator::AlwaysVisible);
+        assert_eq!(texts(&paint(&always, Status::default(), &theme)), 2);
+        assert_eq!(
+            texts(&paint(&slider(0.2, 0.8).divisions(10), pressed, &theme)),
+            0,
+            "nothing to say"
+        );
+
+        // The indicator's box: sixteen wider and taller than its text, its point fourteen
+        // above the thumb's centre.
+        let p = paint(&discrete, pressed, &theme);
+        let indicator = theme
+            .scheme
+            .surface
+            .fade(0.90)
+            .lerp(theme.scheme.on_surface, 0.60);
+        let boxes: Vec<Rect> = rects(&p)
+            .into_iter()
+            .filter(|(_, c)| *c == indicator)
+            .map(|(r, _)| r)
+            .collect();
+        assert_eq!(boxes.len(), 2);
+        let centre = boxes[0].x + boxes[0].width / 2.0;
+        // With divisions the track pulls its ends in by half its height: 24 + 0.2 × 196 + 2.
+        assert!(
+            (centre - 65.2).abs() < 1e-3,
+            "over the start, under: {centre}"
+        );
+        let bottom = boxes[0].y + boxes[0].height;
+        assert!(
+            (bottom - 2.0).abs() < 1e-3,
+            "eight over the point: {bottom}"
+        );
+
+        // A focused thumb shows its own value, not the other's.
+        let focused = Status {
+            focus_progress: 1.0,
+            ..Default::default()
+        };
+        let mut scene = Scene::new();
+        thumbs(&discrete)[0].paint(Rect::new(0.0, 0.0, 48.0, 48.0), focused, &theme, &mut scene);
+        assert_eq!(texts(scene.primitives()), 1);
+    }
+
+    /// **It takes the width it is offered**, as tall as its halo, at least three touch
+    /// targets of track; a width given is kept.
+    #[test]
+    fn it_fills_the_width_it_is_offered() {
+        let theme = Theme::default();
+        let s = slider(0.2, 0.8);
+        assert!(Widget::<Msg>::fill_axes(&s, &theme).horizontal);
+        let style = Widget::<Msg>::style(&s);
+        assert_eq!(style.height, Dimension::Length(48.0));
+        assert_eq!(style.min_width, Dimension::Length(192.0));
+        let sized = slider(0.2, 0.8).width(120.0);
+        assert!(!Widget::<Msg>::fill_axes(&sized, &theme).horizontal);
+        assert_eq!(Widget::<Msg>::style(&sized).width, Dimension::Length(120.0));
     }
 }

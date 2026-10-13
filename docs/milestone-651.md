@@ -1,89 +1,117 @@
-# Milestone 651 — `frus create`
+# Milestone 651 — The range slider, against the reference
 
 ## Objective
 
-Starting an application took two tools and a path into this repository:
+Review `RangeSlider` against the reference's (`material/range_slider.dart`, its 2023
+default `_RangeSliderDefaultsM2`, and the range parts of `slider_theme.dart`), as milestones
+648 and 650 did for `Slider`.
 
-```sh
-cargo install cargo-generate
-cargo generate --path templates/app --name my-app
-```
+frus's range slider was an early widget of its own: a fixed 220-pixel row of spacers and two
+draggable 18-pixel thumbs, values only in `0..=1`, a tooltip whenever a label was set, and a
+rail of 6. Next to the reference it differed in almost everything:
 
-`--path` meant a clone of frus; `--git` meant knowing where the template lives. The reference
-starts a project with one command, its own, and nothing to know beforehand. Now:
-
-```sh
-cargo install frus-cli
-frus create my_app
-```
+| | frus | the reference |
+|---|---|---|
+| width | 220, fixed | the room it is offered, at least three touch targets of track |
+| travel | `0..=1` | `min..=max` |
+| track | 6, one colour | 4, the span between the thumbs `primary` and 2 thicker, the rest `primary` at 24 % |
+| thumbs | 18, dragged one by one | 20 round, a press takes the nearer, a press on both waits for the first movement |
+| gap | the thumbs could sit on each other | 8 pixels apart without divisions, may meet with them |
+| on top | always the end | the thumb last taken, with a ring in the surface colour when they overlap |
+| elevation | both rise on a press | only the thumb held rises, 1 to 6 |
+| halo | a focus ring | `primary` at 12 %, 48 across, on the held, hovered or focused thumb |
+| labels | a tooltip, whenever labelled, reserving height | the rectangular indicator, while dragged or focused, by `showValueIndicator` |
+| ticks | none | one per division, `onPrimary`/`primary` at 54 % |
+| bracket | the value the press landed on | the interval as it was |
 
 ## What was done
 
-- **`frus-cli`**, a new crate whose binary is `frus`. No dependencies: it is compiled on the
-  developer's machine by `cargo install`, and the standard library does everything it needs.
-  The binary is `doc = false`, since its name is the facade's and both would write
-  `target/doc/frus/`.
-- **`frus create <directory>`**, with `--name`, `--org`, `--frus-path` and `--no-git`. Three
-  steps, each testable alone: the names are checked, the files are rendered in memory, and only
-  then is anything written. A directory the command made is removed again if a write fails;
-  one that was there before is never touched unless it is empty.
-- **The name** must work as a package, a crate, a program, a `.wasm` file and the last part of
-  an Android package: lowercase ASCII letters, digits, `_` and `-`, starting with a letter, at
-  most 64 characters. Refused, each with its reason: Rust keywords (the binary calls
-  `my_app::run()`), the standard library's crates, cargo's own directory names, the frus
-  crates and `wasm-bindgen` (with `-` and `_` treated alike, as cargo does), and Windows'
-  device names. A name with capitals gets its lowercase form suggested.
-- **`--org`**: the Android package becomes `<org>.<name>`, where the template used to write
-  `com.example.<name>` and leave changing it to the README. Lowercase parts, none a Java
-  keyword; the name itself is held to the same rule, as the package's last part.
-- **`--frus-path`** replaces `frus = "0.3"` with a path to the checkout's `frus` crate. The
-  facade reaches every other frus crate through its own path dependencies, so one line moves
-  the whole framework, where the patch the README describes needs ten. The published
-  requirement stays in a comment above it.
-- **git**: `git init` unless `--no-git`, and not inside an existing repository, as `cargo new`.
-  No git on the machine is a note, not a failure.
-- **The template moved** into the crate, to `crates/frus-cli/template`. `cargo publish` only
-  ships what is inside the crate, and a directory with a `Cargo.toml` in it is a separate
-  package that it leaves out, so the manifest is now `Cargo.toml.liquid`; `frus create` and
-  `cargo generate` both drop the suffix. The files are built in with `include_bytes!` from a
-  list (`template.rs`) rather than a build script, which is one less program to compile and
-  run on install.
-- **Line endings**: a checkout on Windows has CRLF files, and `frus` built from it would have
-  written them into every application. Text files are written with LF wherever the tool was
-  built.
+- **The widget rewritten on the reference's model.** One box that takes the width it is
+  offered (or the one given) and is as tall as the halo, painting the track, the ticks, the
+  two thumbs with their shadows, the halo of the held thumb and both indicators while it is
+  dragged. Over it, two **thumb stops** placed by a directional alignment
+  (`2t − 1` puts a 48-pixel box's centre exactly where the inset track puts `t`). Each stop
+  takes the focus, answers the arrows, Home and End, tells a reader its own value and travel,
+  and shows its halo and its indicator while hovered or focused. A disabled slider takes no
+  drag, no key and no focus, and still says where it sits.
+- **Two thumbs on one drag.** `DragTrack` has a fifth mode, `DragMode::Thumbs { values,
+  radius }`. `DragTrack::pick_thumb` is the reference's `_defaultRangeThumbSelector`: the
+  nearer thumb, unless the press is within the touch radius of both, when the first movement
+  decides (towards the start takes the start, mirrored right to left). The shell keeps the
+  thumb it picked for the whole drag and reports each moment through the new hook
+  `Widget::on_thumb_drag(thumb, ThumbDrag::{Start, Move, End}, fraction)`.
+- **The thumb last taken** is kept by the runtime (`InputState::thumb`) and handed to the
+  widget as `Status::thumb`, after the drag ends too, as the reference's last selection is:
+  it is painted on top, it rises and fades with the press, and it wears the halo.
+- **The gap.** A thumb is held off the other by the reference's eight pixels on a continuous
+  slider and may meet it on one with divisions. Eight pixels is a fraction only a layout
+  knows; the slider keeps the track's length its last paint found, which its thumbs' keys
+  read too.
+- **The rectangular indicator**: a box with corners of 4, sixteen wider and taller than its
+  text, over an eight-pixel triangle whose point is fourteen above the thumb's centre; in the
+  theme's indicator colour, else `onSurface` at 60 % over `surface` at 90 %, its text in
+  `bodyLarge` and `onPrimary`.
+- **The builders**: `range`, `divisions`, `width`, `value_label`, `semantic_formatter`,
+  `show_value_indicator`, `active_color`, `inactive_color`, `thumb_color`, `overlay_color`,
+  `thumb_elevation`, `pressed_thumb_elevation`, `enabled`, `on_change`, `on_change_start` and
+  `on_change_end`. The theme's slider settings apply to it as to `Slider`.
 
-## What was found
+**Changed**: `RangeSlider` is laid out, painted and dragged differently; its values are in
+`min..=max`; `on_change_start` reports the interval before the press; a label no longer
+shows by itself on a continuous slider (`show_value_indicator` says when); the slider itself
+has no semantics node, its two thumbs do. `Status` and `InputState` have `thumb`.
 
-- **cargo leaves dotfiles out of a package below its root.** With the default file list,
-  `cargo package --list` had no `template/.gitignore` and no `template/.github/`: the published
-  crate would not have compiled, since `include_bytes!` names them. The manifest now says
-  `include = [...]` explicitly, and CI builds the tool from its tarball.
-- **The template was built by nothing.** CI built `frus-hello`, the template's source, but no
-  generated project: a template that stopped compiling would have been found by the first
-  person to use it after a release. The new `frus create` job makes an application against the
-  checkout and runs what its own CI runs — fmt, clippy with `-D warnings`, the tests, and the
-  wasm build.
+## Alternatives weighed
+
+- **Keeping draggable thumbs**, one gesture per thumb, as before. A press between the thumbs
+  must move the nearer one and a press on both must wait for the movement, which only the
+  whole track can decide: the drag belongs to the slider, the thumbs only take the focus.
+- **The two labels as strings**, as the reference's `RangeLabels`. A formatter follows the
+  values without the caller rebuilding the labels, and is what `Slider::value_label` already
+  takes.
+- **A shared "last thumb" kept in the widget.** Widgets are rebuilt every frame from the
+  application's view: the selection has to live in the runtime, beside the press.
+
+## Left
+
+- The reference paints the halo of a hovered thumb under it; here a thumb stop paints over
+  the slider, so its halo is a ring around the thumb instead.
+- The reference's two `RangeLabels` strings and its `RangeSliderThumbShape` and friends;
+  the shapes are not pluggable.
 
 ## Tests
 
-`frus-cli`, 24 tests:
+- `frus-widgets`:
+  - the drag track carrying both thumbs, in order, in the slider's units;
+  - the press picking the nearer thumb, the middle dividing, right to left, a press on both
+    undecided until it moves either way;
+  - the bracket: the interval as it was, the moved thumb snapped, held to the travel;
+    nothing when disabled or with no message;
+  - the gap: meeting with divisions, eight pixels off without, from either side;
+  - each thumb's focus, semantics in the slider's units and with a formatter, arrows, Home
+    and End stopped by the other thumb;
+  - a disabled slider's thumbs inert and still announced;
+  - the colours: the span between the thumbs, the outer parts, right to left, the widget's
+    colours over the theme's;
+  - the thumb last taken on top, alone raised, with the halo; the ring where they overlap;
+  - the indicators: both while dragged with divisions, none by default without, always
+    when asked, the box's place, a focused thumb's own;
+  - the width offered and the width given.
+- `frus-shell`, a range slider driven through the shell: a press beside the start thumb
+  takes it and the drag carries it, the bracket opening on the interval as it was; the
+  start then painted on top; where the thumbs meet, leftwards takes the start and
+  rightwards the end; the start dragged past the end stops at it.
+- Goldens: `disabled_inputs`, `range_slider` and `range_slider_labels` re-recorded; the
+  last now shows a focused start thumb's halo and its indicator over the slider.
 
-- names accepted and refused, each with its reason; organisations; the crate's name;
-- rendering: every value filled in, no template syntax left in a path or a file, no `.liquid`
-  suffix, LF only, `cargo-generate.toml` left out, the icons byte for byte, GitHub's `${{ }}`
-  kept;
-- `--frus-path`: the dependency replaced once, the published one kept in a comment, the path a
-  valid TOML string on Windows (`\\?\` dropped, backslashes escaped);
-- writing: a new directory, an empty one, a refused non-empty one with nothing touched, a file
-  in the way, nothing on disk after a refused name or checkout;
-- the command line: commands, defaults, both option spellings in any order, mistakes;
-- the template in step with the crate: every file in `template/` built in and nothing else;
-  the verbatim files the same as `cargo-generate.toml`'s excludes; the template's
-  `frus = "x.y"` and `rust-version` those of this release.
+Mutation testing: 15 mutants, all killed — two only after their tests were sharpened (the
+gap on a slider with divisions measured on a painted slider with steps fine enough to show
+it; the thumb taken reaching only its own widget). They cover:
 
-By hand, on Linux (WSL) and Windows: `frus create` against the checkout; the generated
-application's tests pass; a second `create` into it, a capitalised name and an unknown command
-exit 1, 1 and 2 with their messages; on Windows the generated manifest's path is read by cargo.
-
-**Not verified here** (the network was down during the milestone): the generated application's
-wasm build and `cargo generate` on the moved template. The CI job covers the first.
+- the thumb selector: the movement mirrored right to left, the middle dividing, the touch
+  radius in pixels;
+- the gap from either side, its length, none with divisions;
+- the thumb on top, alone raised, the overlap ring;
+- the thumb stop's place with divisions, the indicator out of the stack;
+- the shell recording the thumb taken, the movement deciding a press on both, the status
+  reaching only its widget.

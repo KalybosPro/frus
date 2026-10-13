@@ -8,12 +8,12 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 651 so far, each documenting the objective, the alternatives
+> record — one per step, 652 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
-- **`frus create`** (J651). A new crate, `frus-cli`, installs a program called `frus`:
+- **`frus create`** (J652). A new crate, `frus-cli`, installs a program called `frus`:
   `cargo install frus-cli`, then `frus create my_app` writes an application for the desktops,
   Android and the web, with its CI and release workflows, ready for `cargo run`. Options:
   `--name`, `--org` (the Android package is `<org>.<name>`), `--frus-path` (build against a
@@ -25,7 +25,20 @@ any release may break.
   **Moved**: the template, from `templates/app` to `crates/frus-cli/template`. It is still a
   `cargo generate` template, whose manifest is now `Cargo.toml.liquid` and which asks for the
   organisation (default `com.example`).
-
+- **The range slider, against the reference** (J651). `RangeSlider` takes the width it is
+  offered and covers `range(min, max)`; its track is the reference's, the span between the
+  thumbs in `primary` and the rest `primary` at 24 %, with a tick per division. A press takes
+  the nearer thumb, and a press on both waits for the first movement. A thumb stops eight
+  pixels from the other, or meets it on a slider with divisions. The thumb last taken is
+  on top, rises while held and wears the halo. Each thumb takes the focus, answers the
+  arrows, Home and End, and tells a reader its own value. The values show in the reference's
+  rectangular indicator while the slider is dragged or a thumb focused, by
+  `show_value_indicator`. New builders: `range`, `semantic_formatter`,
+  `show_value_indicator`, `thumb_color`, `overlay_color`. Underneath: `DragMode::Thumbs`,
+  `DragTrack::pick_thumb`, `Widget::on_thumb_drag` with `ThumbDrag`, and `Status::thumb`.
+  **Changed**: the layout, the paint and the drag; `on_change_start` reports the interval
+  before the press; a label no longer shows by itself on a continuous slider; the two
+  thumbs carry the semantics, not the slider; `Status` and `InputState` have `thumb`.
 - **What a press and a slide may do to a slider** (J650). `Slider::allowed_interaction`
   takes a `SliderInteraction`, the reference's: `TapAndSlide` (the default), `TapOnly` (a
   press moves the thumb, a slide does nothing), `SlideOnly` (a press does nothing, a slide

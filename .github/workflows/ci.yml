@@ -177,7 +177,7 @@ jobs:
         run: cargo build -p frus-fetch-example --target wasm32-unknown-unknown
 
   # ---------------------------------------------------------------------------
-  # `frus create` (milestone 651): what a developer's first command writes must
+  # `frus create` (milestone 652): what a developer's first command writes must
   # build, pass its own CI's checks, and keep doing so as the framework changes.
   # The application is made against this checkout, so a change here that breaks
   # the template fails here and not on someone's first day.
