@@ -162,7 +162,7 @@ cd my-app
 cargo run
 ```
 
-The generated `Cargo.toml` has one dependency, the published `frus = "0.2"`, and asks
+The generated `Cargo.toml` has one dependency, the published `frus = "0.3"`, and asks
 nothing. The project also has:
 
 - a `README.md` with each platform's commands, for running and for shipping;
@@ -381,7 +381,7 @@ Each group is a feature, all on by default. An application that ships its own fa
 or simply never draws italics or Arabic, can turn off what it does not need:
 
 ```toml
-frus = { version = "0.2", default-features = false, features = ["bundled-sans", "images"] }
+frus = { version = "0.3", default-features = false, features = ["bundled-sans", "images"] }
 ```
 
 `default-features = false` turns off **everything** on by default, and that is not only the

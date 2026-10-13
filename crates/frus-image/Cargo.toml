@@ -12,5 +12,5 @@ keywords = ["image", "png", "jpeg", "gui"]
 categories = ["multimedia::images", "gui"]
 
 [dependencies]
-frus-core = { path = "../frus-core", version = "0.2" }
+frus-core = { path = "../frus-core", version = "0.3" }
 image.workspace = true

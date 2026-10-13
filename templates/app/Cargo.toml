@@ -15,7 +15,7 @@ crate-type = ["rlib", "cdylib"]
 # **A single dependency**: the `frus` facade re-exports shell + widgets + `main!` (and
 # anyhow/log). To build against a checkout of frus instead of the published crates, see
 # "Building against a checkout" in the README.
-frus = "0.2"
+frus = "0.3"
 
 # Web (wasm): the `frus::main!` macro generates the `#[wasm_bindgen(start)]` entry point.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
