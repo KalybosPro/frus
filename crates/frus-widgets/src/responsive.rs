@@ -150,6 +150,16 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         }
     }
 
+    fn paints_over(&self) -> bool {
+        self.inner.as_ref().is_some_and(|w| w.paints_over())
+    }
+
+    fn paint_over(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        if let Some(w) = &self.inner {
+            w.paint_over(bounds, status, theme, scene);
+        }
+    }
+
     fn on_click(&self) -> Option<Msg> {
         self.inner.as_ref().and_then(|w| w.on_click())
     }
@@ -733,6 +743,39 @@ mod tests {
             .compact(Container::new().width(100.0))
             .medium(Container::new().width(200.0))
             .expanded(Container::new().width(300.0))
+    }
+
+    /// **A wrapper paints over its child's children as the child would** (milestone 652):
+    /// a range slider chosen by a selector, or given a key, still paints its thumbs over
+    /// their stops.
+    #[test]
+    fn wrappers_forward_painting_over_the_children() {
+        let slider = || crate::RangeSlider::<()>::new(0.2, 0.8);
+        let chosen = responsive::<()>(400.0).compact(slider());
+        assert!(Widget::<()>::paints_over(&chosen));
+        assert!(!Widget::<()>::paints_over(
+            &responsive::<()>(400.0).compact(Container::new())
+        ));
+        let keyed = crate::Keyed::new(7, slider());
+        assert!(Widget::<()>::paints_over(&keyed));
+        let mut over = frus_core::Scene::new();
+        Widget::<()>::paint_over(
+            &keyed,
+            frus_core::Rect::new(0.0, 0.0, 248.0, 48.0),
+            Status::default(),
+            &crate::Theme::default(),
+            &mut over,
+        );
+        let mut chose = frus_core::Scene::new();
+        Widget::<()>::paint_over(
+            &chosen,
+            frus_core::Rect::new(0.0, 0.0, 248.0, 48.0),
+            Status::default(),
+            &crate::Theme::default(),
+            &mut chose,
+        );
+        assert!(!over.primitives().is_empty(), "the thumbs, through the key");
+        assert_eq!(over.primitives().len(), chose.primitives().len());
     }
 
     #[test]

@@ -1483,6 +1483,21 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// Whether this widget paints **over its own children** too, with
+    /// [`paint_over`](Self::paint_over) (milestone 652). `false` by default, which spares
+    /// the walk the status it would compute for it.
+    fn paints_over(&self) -> bool {
+        false
+    }
+
+    /// Paints **over this widget's children**, after its subtree, in the box and with the
+    /// status [`Widget::paint`] is given — the reference's `foregroundPainter`, for what a
+    /// widget draws that its children must not cover. A range slider's thumbs are one:
+    /// each thumb's focus stop is a child, and the halo it paints belongs under the thumb.
+    ///
+    /// Called only when [`paints_over`](Self::paints_over) says so.
+    fn paint_over(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
+
     /// The **pixel effects** this widget applies to its whole subtree: a blur, a
     /// colour transform, a mask, or a filter over what is painted underneath. The
     /// paint walk drains the subtree into a composited layer and hands the filter to
@@ -2420,6 +2435,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn foreground(&self, theme: &Theme) -> Option<frus_core::BoxDecoration> {
         (**self).foreground(theme)
+    }
+    fn paints_over(&self) -> bool {
+        (**self).paints_over()
+    }
+    fn paint_over(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        (**self).paint_over(bounds, status, theme, scene)
     }
     fn barrier(&self) -> Option<crate::barrier::ModalBarrier> {
         (**self).barrier()

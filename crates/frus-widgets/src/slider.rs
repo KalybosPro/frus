@@ -1337,6 +1337,25 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
         self.with(|s| s.on_change_end = Some(make))
     }
 
+    /// The thumbs' centres in `bounds`: the track's middle, and each thumb's place across,
+    /// the start first.
+    fn thumb_centres(&self, bounds: Rect, theme: &Theme) -> (f32, [f32; 2]) {
+        let rtl = theme.direction.is_rtl();
+        let track_h = theme.widgets.slider.track_height.unwrap_or(TRACK_HEIGHT);
+        let left = bounds.x + OVERLAY_RADIUS;
+        let width = (bounds.width - 2.0 * OVERLAY_RADIUS).max(0.0);
+        let along = |t: f32| if rtl { 1.0 - t } else { t };
+        let discrete = self.state.discrete();
+        let [s, e] = self.state.fractions();
+        (
+            bounds.y + bounds.height * 0.5,
+            [
+                thumb_x(left, width, along(s), discrete, track_h),
+                thumb_x(left, width, along(e), discrete, track_h),
+            ],
+        )
+    }
+
     /// The thumbs, each placed at its value by an alignment across the slider's box: a
     /// 48-pixel thumb aligned at `2t − 1` has its centre at `24 + t·(width − 48)`, which is
     /// exactly where the inset track puts `t`. A directional alignment mirrors it right to
@@ -1429,16 +1448,15 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
             .hover_progress
             .max(status.focus_progress)
             .clamp(0.0, 1.0);
-        // The slider has already painted the thumb, under this: the halo is a ring around
-        // it, so that it does not tint the thumb it is painted over.
-        let r = OVERLAY_RADIUS * activation;
-        if r > THUMB_RADIUS {
+        // Under the thumb, which the slider paints over its stops.
+        if activation > 0.0 {
+            let r = OVERLAY_RADIUS * activation;
             scene.draw_rect(
                 Rect::new(centre.x - r, centre.y - r, 2.0 * r, 2.0 * r),
-                Color::TRANSPARENT,
-                r,
-                r - THUMB_RADIUS,
                 self.state.halo(&status, theme).fade(o),
+                r,
+                0.0,
+                Color::TRANSPARENT,
             );
         }
         // Focused, its tooltip comes out, as the reference's does; the slider shows both
@@ -1536,7 +1554,6 @@ impl<Msg: Clone + 'static> Widget<Msg> for RangeSlider<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let rtl = theme.direction.is_rtl();
         let state = &self.state;
         let palette = state.palette(theme);
         let track_h = theme.widgets.slider.track_height.unwrap_or(TRACK_HEIGHT);
@@ -1544,12 +1561,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for RangeSlider<Msg> {
         let width = (bounds.width - 2.0 * OVERLAY_RADIUS).max(0.0);
         // What the thumbs' keys measure the least gap with.
         state.track.set(width);
-        let cy = bounds.y + bounds.height * 0.5;
-        let along = |t: f32| if rtl { 1.0 - t } else { t };
-        let discrete = state.discrete();
-        let [s, e] = state.fractions();
-        let x0 = thumb_x(left, width, along(s), discrete, track_h);
-        let x1 = thumb_x(left, width, along(e), discrete, track_h);
+        let (cy, [x0, x1]) = self.thumb_centres(bounds, theme);
         let (lo, hi) = (x0.min(x1), x0.max(x1));
 
         if track_h > 0.0 {
@@ -1618,6 +1630,22 @@ impl<Msg: Clone + 'static> Widget<Msg> for RangeSlider<Msg> {
                 Color::TRANSPARENT,
             );
         }
+    }
+
+    fn paints_over(&self) -> bool {
+        true
+    }
+
+    /// The thumbs, and the values over them, over the thumbs' focus stops: a stop's halo
+    /// belongs under its thumb, as the reference paints it.
+    fn paint_over(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        let o = status.opacity;
+        let state = &self.state;
+        let palette = state.palette(theme);
+        let (cy, xs) = self.thumb_centres(bounds, theme);
+        let [x0, x1] = xs;
+        let top = status.thumb.unwrap_or(1).min(1);
+        let press = status.press_progress.clamp(0.0, 1.0);
 
         // The thumbs over their shadows, the one on top last. Where they overlap, it wears
         // a ring in the surface colour, as the reference's does, so the two stay two.
@@ -2792,9 +2820,12 @@ mod range_slider_tests {
             .collect()
     }
 
+    /// What the slider paints under its thumbs' stops and over them, in that order.
     fn paint(slider: &RangeSlider<Msg>, status: Status, theme: &Theme) -> Vec<Primitive> {
         let mut scene = Scene::new();
         Widget::<Msg>::paint(slider, BOX, status, theme, &mut scene);
+        assert!(Widget::<Msg>::paints_over(slider));
+        Widget::<Msg>::paint_over(slider, BOX, status, theme, &mut scene);
         scene.primitives().to_vec()
     }
 
@@ -3154,6 +3185,13 @@ mod range_slider_tests {
         let found = rects(&paint(&s, held(Some(0)), &theme));
         let ring = found.iter().find(|(_, c)| *c == halo).expect("the halo");
         assert_eq!(ring.0, Rect::new(40.0, 0.0, 48.0, 48.0), "on the start");
+        let found = rects(&paint(&s, held(None), &theme));
+        let ring = found.iter().find(|(_, c)| *c == halo).expect("the halo");
+        assert_eq!(
+            ring.0,
+            Rect::new(160.0, 0.0, 48.0, 48.0),
+            "on the end, until one is taken"
+        );
 
         let ringed = |s: &RangeSlider<Msg>| {
             paint(s, Status::default(), &theme)
@@ -3245,5 +3283,39 @@ mod range_slider_tests {
         let sized = slider(0.2, 0.8).width(120.0);
         assert!(!Widget::<Msg>::fill_axes(&sized, &theme).horizontal);
         assert_eq!(Widget::<Msg>::style(&sized).width, Dimension::Length(120.0));
+    }
+
+    /// **A thumb's halo is under it** (milestone 652): the slider paints its track under
+    /// the thumbs' focus stops and the thumbs over them, so a hovered stop's halo — a full
+    /// disc — lies between the two, as the reference paints it.
+    #[test]
+    fn a_hovered_thumb_s_halo_is_under_the_thumb() {
+        use crate::{build_ui, Runtime, Size};
+        let theme = Theme::default();
+        let root = slider(0.2, 0.8).width(248.0);
+        let size = Size::new(248.0, 48.0);
+        let first = build_ui(&root, size, &Runtime::default(), &theme);
+        let stop = first.focus_next(None, true).expect("the start's stop");
+        let mut runtime = Runtime::default();
+        runtime.input.hovered = Some(stop);
+        runtime.advance(1.0);
+        let ui = build_ui(&root, size, &runtime, &theme);
+        let found = rects(ui.scene().primitives());
+        let halo = theme.scheme.primary.fade(0.12);
+        let at = |wanted: &dyn Fn(&(Rect, Color)) -> bool| {
+            found.iter().position(wanted).expect("painted")
+        };
+        let disc = at(&|(r, c)| *c == halo && r.width == 48.0);
+        let thumb = at(&|(r, c)| *c == theme.scheme.primary && r.width == 20.0);
+        let track = at(&|(_, c)| *c == theme.scheme.primary.fade(0.24));
+        assert!(
+            track < disc && disc < thumb,
+            "track {track}, halo {disc}, thumb {thumb}"
+        );
+        let (r, _) = found[disc];
+        assert!(
+            (r.x + 24.0 - 64.0).abs() < 1e-3 && r.y == 0.0,
+            "round the start: {r:?}"
+        );
     }
 }
