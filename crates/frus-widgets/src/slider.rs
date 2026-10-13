@@ -3285,7 +3285,7 @@ mod range_slider_tests {
         assert_eq!(Widget::<Msg>::style(&sized).width, Dimension::Length(120.0));
     }
 
-    /// **A thumb's halo is under it** (milestone 652): the slider paints its track under
+    /// **A thumb's halo is under it** (milestone 653): the slider paints its track under
     /// the thumbs' focus stops and the thumbs over them, so a hovered stop's halo — a full
     /// disc — lies between the two, as the reference paints it.
     #[test]

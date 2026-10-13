@@ -45,7 +45,7 @@ Status: **done** (milestone), **to review**.
 | `RadioGroup` | `RadioGroup` | `widgets/radio_group.dart` | to review |
 | `Switch` | `Switch` | `material/switch.dart` | **done** (J637, J638); the adaptive switch later |
 | `Slider` | `Slider` | `material/slider.dart` | **done**: the 2023 design (track, thumb, halo, ticks, drop indicator and its policy, secondary track, colours, right to left, width, semantics formatter, J648) and `allowedInteraction` (J650); left: the halo shows over the whole slider, not only the thumb |
-| `RangeSlider` | `RangeSlider` | `material/range_slider.dart` | **done** (J651): width offered, `min..=max`, the 2023 track and ticks, the thumb selector (nearer, or the first movement on both), the minimum separation, the last-taken thumb on top and raised, the overlap ring, the rectangular indicator and its policy, a focus stop and a semantics node per thumb; halos under the thumbs (J652); left: the shapes are not pluggable |
+| `RangeSlider` | `RangeSlider` | `material/range_slider.dart` | **done** (J651): width offered, `min..=max`, the 2023 track and ticks, the thumb selector (nearer, or the first movement on both), the minimum separation, the last-taken thumb on top and raised, the overlap ring, the rectangular indicator and its policy, a focus stop and a semantics node per thumb; halos under the thumbs (J653); left: the shapes are not pluggable |
 | `TextField` | `TextField` | `material/text_field.dart` | to review |
 | `DropdownButton` | `DropdownButton` | `material/dropdown.dart` | to review |
 | `DropdownMenu` | `DropdownMenu` | `material/dropdown_menu.dart` | to review |

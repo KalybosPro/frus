@@ -1484,7 +1484,7 @@ pub trait Widget<Msg = crate::callback::Callback> {
     }
 
     /// Whether this widget paints **over its own children** too, with
-    /// [`paint_over`](Self::paint_over) (milestone 652). `false` by default, which spares
+    /// [`paint_over`](Self::paint_over) (milestone 653). `false` by default, which spares
     /// the walk the status it would compute for it.
     fn paints_over(&self) -> bool {
         false

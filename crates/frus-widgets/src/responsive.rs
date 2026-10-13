@@ -745,7 +745,7 @@ mod tests {
             .expanded(Container::new().width(300.0))
     }
 
-    /// **A wrapper paints over its child's children as the child would** (milestone 652):
+    /// **A wrapper paints over its child's children as the child would** (milestone 653):
     /// a range slider chosen by a selector, or given a key, still paints its thumbs over
     /// their stops.
     #[test]

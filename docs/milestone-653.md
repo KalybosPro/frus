@@ -1,4 +1,4 @@
-# Milestone 652 — Painting over one's own children
+# Milestone 653 — Painting over one's own children
 
 ## Objective
 

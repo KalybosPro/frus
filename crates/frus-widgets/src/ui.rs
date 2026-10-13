@@ -3865,7 +3865,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 );
                 self.scene.set_clip(clip);
             }
-            // And what the widget paints over its children itself (milestone 652).
+            // And what the widget paints over its children itself (milestone 653).
             if widget.paints_over() {
                 let status = self.full_status(widget, id);
                 self.scene.set_clip(clip);
