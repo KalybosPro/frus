@@ -44,7 +44,7 @@ Status: **done** (milestone), **to review**.
 | `Radio` | `Radio` | `material/radio.dart` | **done** (J635) |
 | `RadioGroup` | `RadioGroup` | `widgets/radio_group.dart` | to review |
 | `Switch` | `Switch` | `material/switch.dart` | **done** (J637, J638); the adaptive switch later |
-| `Slider` | `Slider` | `material/slider.dart` | **in progress**: the 2023 design (track, thumb, halo, ticks, drop indicator and its policy, secondary track, colours, right to left, width, semantics formatter) done (J648); `allowedInteraction` (tap only, slide only, thumb only) next, it needs the drag's start; the halo shows over the whole slider, not only the thumb |
+| `Slider` | `Slider` | `material/slider.dart` | **done**: the 2023 design (track, thumb, halo, ticks, drop indicator and its policy, secondary track, colours, right to left, width, semantics formatter, J648) and `allowedInteraction` (J650); left: the halo shows over the whole slider, not only the thumb |
 | `RangeSlider` | `RangeSlider` | `material/range_slider.dart` | to review |
 | `TextField` | `TextField` | `material/text_field.dart` | to review |
 | `DropdownButton` | `DropdownButton` | `material/dropdown.dart` | to review |

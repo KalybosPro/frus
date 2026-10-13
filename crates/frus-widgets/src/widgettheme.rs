@@ -318,6 +318,8 @@ pub struct SliderTheme {
     pub value_indicator_color: Option<Color>,
     /// When the value indicator shows. Unset, only on a slider with divisions.
     pub show_value_indicator: Option<crate::ShowValueIndicator>,
+    /// What a press and a slide may do (milestone 650). Unset, tap and slide.
+    pub allowed_interaction: Option<crate::SliderInteraction>,
 }
 
 /// Defaults for [`Switch`](crate::Switch).
