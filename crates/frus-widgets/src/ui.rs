@@ -3865,6 +3865,15 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 );
                 self.scene.set_clip(clip);
             }
+            // And what the widget paints over its children itself (milestone 652).
+            if widget.paints_over() {
+                let status = self.full_status(widget, id);
+                self.scene.set_clip(clip);
+                self.scene.set_owner(id.as_u64());
+                self.scene.set_bounds(bounds);
+                widget.paint_over(bounds, status, &self.theme, &mut self.scene);
+                self.scene.set_clip(clip);
+            }
         }
         if let Some(outer) = outer {
             self.theme = outer;

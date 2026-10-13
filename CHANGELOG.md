@@ -8,11 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 651 so far, each documenting the objective, the alternatives
+> record — one per step, 652 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Painting over one's own children** (J652). `Widget::paint_over`, opted into with
+  `Widget::paints_over`, paints after the widget's subtree in the same box and status as
+  `paint`. The range slider uses it to paint its thumbs over their focus stops, so a hovered
+  or focused thumb's halo is a disc under the thumb, as the reference's is, rather than a
+  ring around it.
 - **The range slider, against the reference** (J651). `RangeSlider` takes the width it is
   offered and covers `range(min, max)`; its track is the reference's, the span between the
   thumbs in `primary` and the rest `primary` at 24 %, with a tick per division. A press takes
