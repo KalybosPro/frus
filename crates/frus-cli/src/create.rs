@@ -414,9 +414,20 @@ pub fn create(options: &Options) -> Result<Created, String> {
 
 /// The name a directory gives an application: its last component, `.` included.
 fn name_of(dir: &Path) -> Result<String, String> {
+    // A trailing `..` is refused as written, before the path is made absolute: Windows
+    // resolves it there and Unix keeps it, so the answer would depend on the platform.
+    if matches!(
+        dir.components().next_back(),
+        Some(std::path::Component::ParentDir)
+    ) {
+        return Err(format!(
+            "cannot tell a name from {}: pass --name",
+            dir.display()
+        ));
+    }
     let absolute = std::path::absolute(dir)
         .map_err(|error| format!("cannot resolve {}: {error}", dir.display()))?;
-    // `components` drops a trailing `.`; a `..` would name the wrong directory.
+    // `components` drops a trailing `.`.
     let last = absolute.components().next_back();
     match last {
         Some(std::path::Component::Normal(name)) => name
