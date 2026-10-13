@@ -13,6 +13,29 @@ any release may break.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-13
+
+The first release since the crates went on crates.io, and a large one: three weeks of
+bringing widgets and painting into line with the reference, one by one, and the pieces that
+were simply missing. **It breaks things**, as any pre-alpha release may: the entries marked
+**Changed** below say what, and how to move. In short:
+
+- **Basic widgets that were missing**: `Center` and `Aligned`, the single-purpose boxes,
+  `GestureDetector`, `MouseRegion`, `Listener`, `OrientationBuilder`, `LimitedBox`,
+  `AnimatedSize`, `AnimatedCrossFade`, `SizeTransition`, `CustomMultiChildLayout`,
+  `StickyHeader`, `SelectionArea` and selectable text.
+- **Widgets reviewed against the reference**: the buttons, `Container`, the checkbox, the
+  radio, the switch (with its thumb dragged), the stack, the progress indicators, the app
+  bar, `CircleAvatar` and `Slider`, and visual density.
+- **Painting**: `BoxDecoration` in full — shapes, sides, shadow lists and blur styles,
+  linear, radial and sweep gradients, pictures (`DecorationImage`), and the background's
+  blend mode, with the reference's 29 blend modes.
+- **Platforms**: which platform's conventions a widget follows, scroll behaviours, page
+  transitions, the iOS back swipe, an Apple theme; a desktop menu bar, on Windows on the
+  title bar's line; never and always scrollable physics.
+- **Tooling**: frame statistics, logs on every platform's console, an application template
+  that builds and ships to every platform.
+
 - **Never and always scrollable** (J649). `ScrollPhysics::NEVER` — the reference's
   `NeverScrollableScrollPhysics` — keeps the user's drag, fling and wheel off an area,
   which the area around it then takes, while the application can still move it;
@@ -5784,7 +5807,8 @@ For releases, use this shape:
 ### Security
 -->
 
-[Unreleased]: https://github.com/KalybosPro/frus/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/KalybosPro/frus/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/KalybosPro/frus/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/KalybosPro/frus/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/KalybosPro/frus/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/KalybosPro/frus/releases/tag/v0.1.0

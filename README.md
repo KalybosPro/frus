@@ -152,7 +152,7 @@ cargo generate --path templates/app --name my-app
 cd my-app && cargo run
 ```
 
-The generated project depends on the published [`frus`](https://crates.io/crates/frus) crate (`frus = "0.2"`). To work against a checkout of this repository instead, see [`docs/getting-started.md`](docs/getting-started.md).
+The generated project depends on the published [`frus`](https://crates.io/crates/frus) crate (`frus = "0.3"`). To work against a checkout of this repository instead, see [`docs/getting-started.md`](docs/getting-started.md).
 
 ### Android
 
@@ -222,7 +222,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 
 ## Project status
 
-**Pre-alpha.** The core is real and exercised by three sample apps, but the API is not stable. The crates are on [crates.io](https://crates.io/crates/frus) (0.2), and any release may break.
+**Pre-alpha.** The core is real and exercised by three sample apps, but the API is not stable. The crates are on [crates.io](https://crates.io/crates/frus) (0.3), and any release may break.
 
 | Platform | State | Notes |
 |---|---|---|

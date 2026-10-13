@@ -12,5 +12,5 @@ keywords = ["layout", "flexbox", "taffy", "gui"]
 categories = ["gui"]
 
 [dependencies]
-frus-core = { path = "../frus-core", version = "0.2" }
+frus-core = { path = "../frus-core", version = "0.3" }
 taffy.workspace = true
