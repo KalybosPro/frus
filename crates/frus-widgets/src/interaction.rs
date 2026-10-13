@@ -268,6 +268,11 @@ pub struct Status {
     /// go (milestone 638)? A widget that curves its value paints it straight while it is:
     /// the thumb under a finger is where the finger is.
     pub value_placed: bool,
+    /// Which of this widget's thumbs the **last drag on it took** (milestone 651), on a
+    /// track with two: `0` the start, `1` the end. It stays after the drag ends, as the
+    /// reference's last selection does, so that the thumb last moved stays on top and its
+    /// press fades out on it rather than on its neighbour. Set by the shell.
+    pub thumb: Option<usize>,
 }
 
 impl Status {
@@ -324,6 +329,7 @@ impl Default for Status {
             scroll_y: 0.0,
             hover_cursor: None,
             value_placed: false,
+            thumb: None,
         }
     }
 }
@@ -341,6 +347,9 @@ pub struct InputState {
     /// hovered widget (milestone 208); `None` otherwise. Set by the shell (see
     /// `Status::hover_cursor`).
     pub hover_cursor: Option<frus_core::Point>,
+    /// The widget a drag last took a thumb of, and which thumb (see `Status::thumb`). Set
+    /// by the shell.
+    pub thumb: Option<(WidgetId, usize)>,
 }
 
 impl InputState {
@@ -382,6 +391,9 @@ impl InputState {
                 None
             },
             value_placed: false,
+            thumb: self
+                .thumb
+                .and_then(|(widget, thumb)| (widget == id).then_some(thumb)),
         }
     }
 }
@@ -389,6 +401,19 @@ impl InputState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The thumb a drag took is that widget's alone** (milestone 651): another widget,
+    /// a range slider beside it, paints its own last selection, not this one's.
+    #[test]
+    fn the_thumb_taken_reaches_only_its_widget() {
+        let taken = WidgetId::ROOT.child(0);
+        let input = InputState {
+            thumb: Some((taken, 0)),
+            ..Default::default()
+        };
+        assert_eq!(input.status_for(taken).thumb, Some(0));
+        assert_eq!(input.status_for(WidgetId::ROOT.child(1)).thumb, None);
+    }
 
     #[test]
     fn same_path_yields_same_id() {

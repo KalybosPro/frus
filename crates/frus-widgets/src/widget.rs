@@ -129,6 +129,26 @@ pub enum DragMode {
         /// How far from the thumb's centre a press still takes it.
         radius: f32,
     },
+    /// **Two thumbs on one travel** (milestone 651), the reference's range slider: the
+    /// press picks one ([`DragTrack::pick_thumb`]) and the drag moves it with the pointer;
+    /// the widget hears it through [`Widget::on_thumb_drag`].
+    Thumbs {
+        /// The two thumbs' places, `0..=1` along the travel, the start first.
+        values: [f32; 2],
+        /// How far from a thumb's centre a press is on it.
+        radius: f32,
+    },
+}
+
+/// A moment of a drag on one of a widget's thumbs: see [`Widget::on_thumb_drag`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ThumbDrag {
+    /// The thumb was picked: the gesture starts.
+    Start,
+    /// It moved.
+    Move,
+    /// It was let go.
+    End,
 }
 
 impl DragTrack {
@@ -199,12 +219,50 @@ impl DragTrack {
         rtl: bool,
     ) -> Option<f32> {
         match self.mode {
-            DragMode::Follow => Some(self.fraction(rect, x, rtl)),
+            DragMode::Follow | DragMode::Thumbs { .. } => Some(self.fraction(rect, x, rtl)),
             DragMode::TapOnly => (!moved).then(|| self.fraction(rect, press_x, rtl)),
             DragMode::Slide { origin } | DragMode::SlideThumb { origin, .. } => moved.then(|| {
                 (origin + self.along(rect, x, rtl) - self.along(rect, press_x, rtl)).clamp(0.0, 1.0)
             }),
         }
+    }
+
+    /// **Which thumb a press at `press_x` takes** on a [`DragMode::Thumbs`] track, `0` for
+    /// the start and `1` for the end, the movement since the press being `dx` — the
+    /// reference's `_defaultRangeThumbSelector`. The nearer thumb, unless the press is on
+    /// both, when the first movement decides: towards the start takes the start. `None`
+    /// while that is undecided, or on a track without thumbs.
+    pub fn pick_thumb(self, rect: crate::Rect, press_x: f32, dx: f32, rtl: bool) -> Option<usize> {
+        let DragMode::Thumbs { values, radius } = self.mode else {
+            return None;
+        };
+        let t = self.fraction(rect, press_x, rtl);
+        let width = (rect.width - 2.0 * self.inset).max(0.0);
+        let on = |v: f32| (t - v).abs() * width < radius;
+        if on(values[0]) && on(values[1]) {
+            // Towards the start is leftwards, or rightwards when the travel runs from the
+            // right.
+            let towards_start = if self.mirrored && rtl {
+                dx > 0.0
+            } else {
+                dx < 0.0
+            };
+            let towards_end = if self.mirrored && rtl {
+                dx < 0.0
+            } else {
+                dx > 0.0
+            };
+            return match (towards_start, towards_end) {
+                (true, _) => Some(0),
+                (_, true) => Some(1),
+                _ => None,
+            };
+        }
+        Some(if t * 2.0 < values[0] + values[1] {
+            0
+        } else {
+            1
+        })
     }
 
     /// The value a drag pressed at `press_x` lets go of at `x`: where the pointer is, where
@@ -671,6 +729,14 @@ pub trait Widget<Msg = crate::callback::Callback> {
     /// width, left to right.
     fn drag_track(&self) -> DragTrack {
         DragTrack::WHOLE
+    }
+
+    /// Message for a moment of a drag on one of this widget's thumbs (milestone 651), on a
+    /// [`DragMode::Thumbs`] track: `thumb` is the one the press picked, `0` for the start,
+    /// and `fraction` the pointer's place along the travel. A press that has picked none
+    /// yet sends nothing.
+    fn on_thumb_drag(&self, _thumb: usize, _moment: ThumbDrag, _fraction: f32) -> Option<Msg> {
+        None
     }
 
     /// Message produced while dragging, `fraction` being the relative horizontal
@@ -2088,6 +2154,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn drag_track(&self) -> DragTrack {
         (**self).drag_track()
+    }
+    fn on_thumb_drag(&self, thumb: usize, moment: ThumbDrag, fraction: f32) -> Option<Msg> {
+        (**self).on_thumb_drag(thumb, moment, fraction)
     }
     fn on_drag(&self, fraction: f32) -> Option<Msg> {
         (**self).on_drag(fraction)

@@ -674,6 +674,8 @@ fn hash_status<H: Hasher>(s: &Status, h: &mut H) {
     quant(s.value).hash(h);
     // Sub-region hover (milestone 208): a change of position repaints the highlight.
     s.hover_cursor.map(|p| (quant(p.x), quant(p.y))).hash(h);
+    // The thumb a drag took is the one that rises and is painted on top.
+    s.thumb.hash(h);
 }
 
 /// The result of building an interface for one frame.
