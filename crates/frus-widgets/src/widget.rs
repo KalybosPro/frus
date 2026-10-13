@@ -101,13 +101,43 @@ pub struct DragTrack {
     pub inset: f32,
     /// Whether the travel runs from the right in a right-to-left reading direction.
     pub mirrored: bool,
+    /// How a press and a slide move the value (milestone 650).
+    pub mode: DragMode,
+}
+
+/// **How a press and a slide move a dragged value** (milestone 650) — the reference's
+/// `SliderInteraction`, in the terms the shell needs to apply it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum DragMode {
+    /// The value goes where the pointer is, from the press on: a tap jumps it, a slide
+    /// carries it. The default.
+    #[default]
+    Follow,
+    /// The press sets the value; the slide that follows changes nothing.
+    TapOnly,
+    /// The press leaves the value where it is; the slide moves it by its own length, from
+    /// `origin`, the value's place along the travel when the press landed.
+    Slide {
+        /// Where the value was, `0..=1` along the travel.
+        origin: f32,
+    },
+    /// As [`Slide`](Self::Slide), and only for a press within `radius` logical pixels of
+    /// the thumb at `origin`: a press anywhere else starts nothing at all.
+    SlideThumb {
+        /// Where the value, and so the thumb, was, `0..=1` along the travel.
+        origin: f32,
+        /// How far from the thumb's centre a press still takes it.
+        radius: f32,
+    },
 }
 
 impl DragTrack {
-    /// The whole width, left to right: what a widget with no opinion answers.
+    /// The whole width, left to right, following the pointer: what a widget with no
+    /// opinion answers.
     pub const WHOLE: Self = Self {
         inset: 0.0,
         mirrored: false,
+        mode: DragMode::Follow,
     };
 
     /// Where `x` falls along `rect`'s travel, as a fraction `0..=1`, for a reading
@@ -116,9 +146,15 @@ impl DragTrack {
     /// One function, used by a drag's start, every move and its end alike: three copies
     /// of this arithmetic would agree on every slider until one of them did not.
     pub fn fraction(self, rect: crate::Rect, x: f32, rtl: bool) -> f32 {
+        self.along(rect, x, rtl).clamp(0.0, 1.0)
+    }
+
+    /// [`fraction`](Self::fraction) before it is held to the travel, so that a slide that
+    /// runs past an end still measures its whole length.
+    fn along(self, rect: crate::Rect, x: f32, rtl: bool) -> f32 {
         let width = rect.width - 2.0 * self.inset;
         let t = if width > 0.0 {
-            ((x - rect.x - self.inset) / width).clamp(0.0, 1.0)
+            (x - rect.x - self.inset) / width
         } else {
             0.0
         };
@@ -126,6 +162,59 @@ impl DragTrack {
             1.0 - t
         } else {
             t
+        }
+    }
+
+    /// Whether a press at `x` starts anything at all: always, but for
+    /// [`DragMode::SlideThumb`], which wants the press on its thumb.
+    pub fn engages(self, rect: crate::Rect, x: f32, rtl: bool) -> bool {
+        match self.mode {
+            DragMode::SlideThumb { origin, radius } => {
+                let width = (rect.width - 2.0 * self.inset).max(0.0);
+                let t = if self.mirrored && rtl {
+                    1.0 - origin
+                } else {
+                    origin
+                };
+                let thumb = rect.x + self.inset + t * width;
+                (x - thumb).abs() <= radius
+            }
+            _ => true,
+        }
+    }
+
+    /// The value a drag pressed at `press_x` and now at `x` stands for, as a fraction of
+    /// the travel; `None` when this moment changes nothing. `moved` is `false` for the
+    /// press itself and `true` for every movement after it — and for the release, which
+    /// is where the slide ended.
+    ///
+    /// A slide that started from the value moves it by the pointer's movement, as the
+    /// reference's does, so a thumb grabbed off its centre does not jump to the pointer.
+    pub fn value_at(
+        self,
+        rect: crate::Rect,
+        press_x: f32,
+        x: f32,
+        moved: bool,
+        rtl: bool,
+    ) -> Option<f32> {
+        match self.mode {
+            DragMode::Follow => Some(self.fraction(rect, x, rtl)),
+            DragMode::TapOnly => (!moved).then(|| self.fraction(rect, press_x, rtl)),
+            DragMode::Slide { origin } | DragMode::SlideThumb { origin, .. } => moved.then(|| {
+                (origin + self.along(rect, x, rtl) - self.along(rect, press_x, rtl)).clamp(0.0, 1.0)
+            }),
+        }
+    }
+
+    /// The value a drag pressed at `press_x` lets go of at `x`: where the pointer is, where
+    /// the press set it, or where the slide took it.
+    pub fn released_at(self, rect: crate::Rect, press_x: f32, x: f32, rtl: bool) -> f32 {
+        match self.mode {
+            DragMode::TapOnly => self.fraction(rect, press_x, rtl),
+            _ => self
+                .value_at(rect, press_x, x, true, rtl)
+                .unwrap_or_else(|| self.fraction(rect, x, rtl)),
         }
     }
 }

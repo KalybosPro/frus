@@ -106,6 +106,22 @@ pub enum ShowValueIndicator {
     Never,
 }
 
+/// **What a press and a slide may do to a slider** (milestone 650) — the reference's
+/// `SliderInteraction`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SliderInteraction {
+    /// A press moves the thumb to it, and a slide carries it on: the default.
+    #[default]
+    TapAndSlide,
+    /// A press moves the thumb to it; a slide does nothing.
+    TapOnly,
+    /// A press does nothing; a slide moves the thumb by its own length, from where it was,
+    /// wherever on the track it starts.
+    SlideOnly,
+    /// As [`SlideOnly`](Self::SlideOnly), and only for a slide that starts on the thumb.
+    SlideThumb,
+}
+
 /// A linear slider over `min..=max`, **controlled** and draggable — the reference's
 /// `Slider`.
 ///
@@ -132,6 +148,9 @@ pub struct Slider<Msg = crate::callback::Callback> {
     /// Formats the value for a screen reader, when it should hear it otherwise.
     semantic_label: Option<Rc<dyn Fn(f32) -> String>>,
     show_value_indicator: Option<ShowValueIndicator>,
+    allowed_interaction: Option<SliderInteraction>,
+    /// The theme's, as the layout last found it: a drag is answered without a theme.
+    theme_interaction: std::cell::Cell<Option<SliderInteraction>>,
     enabled: bool,
     colors: SliderColors,
     overlay_color: Option<WidgetStateProperty<Color>>,
@@ -240,6 +259,8 @@ impl<Msg> Slider<Msg> {
             label: None,
             semantic_label: None,
             show_value_indicator: None,
+            allowed_interaction: None,
+            theme_interaction: std::cell::Cell::new(None),
             enabled: true,
             colors: SliderColors::default(),
             overlay_color: None,
@@ -343,6 +364,13 @@ impl<Msg> Slider<Msg> {
     /// otherwise.
     pub fn value_label(mut self, label: impl Fn(f32) -> String + 'static) -> Self {
         self.label = Some(Rc::new(label));
+        self
+    }
+
+    /// What a press and a slide may do. Unset, the theme's, then
+    /// [`SliderInteraction::TapAndSlide`], the reference's.
+    pub fn allowed_interaction(mut self, interaction: SliderInteraction) -> Self {
+        self.allowed_interaction = Some(interaction);
         self
     }
 
@@ -457,6 +485,13 @@ impl<Msg> Slider<Msg> {
             Some(n) if n > 0 => 1.0 / n as f32,
             _ => KEY_STEP,
         }
+    }
+
+    /// What a press and a slide may do: the widget's, the theme's, then the reference's.
+    fn interaction(&self) -> SliderInteraction {
+        self.allowed_interaction
+            .or(self.theme_interaction.get())
+            .unwrap_or_default()
     }
 
     fn discrete(&self) -> bool {
@@ -574,6 +609,12 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
 
     fn debug_name(&self) -> &'static str {
         "Slider"
+    }
+
+    /// The theme's interaction, kept for the drag, which is answered without one.
+    fn build_themed(&self, theme: &Theme) {
+        self.theme_interaction
+            .set(theme.widgets.slider.allowed_interaction);
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
@@ -776,11 +817,23 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
     }
 
     /// A drag lands on the track, inset by the halo's radius, and runs from the right in a
-    /// right-to-left reading direction.
+    /// right-to-left reading direction; how a press and a slide move the value is the
+    /// [`SliderInteraction`] allowed. A slide starting on the thumb starts within its halo.
     fn drag_track(&self) -> crate::widget::DragTrack {
+        use crate::widget::DragMode;
+        let origin = self.fraction();
         crate::widget::DragTrack {
             inset: OVERLAY_RADIUS,
             mirrored: true,
+            mode: match self.interaction() {
+                SliderInteraction::TapAndSlide => DragMode::Follow,
+                SliderInteraction::TapOnly => DragMode::TapOnly,
+                SliderInteraction::SlideOnly => DragMode::Slide { origin },
+                SliderInteraction::SlideThumb => DragMode::SlideThumb {
+                    origin,
+                    radius: OVERLAY_RADIUS,
+                },
+            },
         }
     }
 
@@ -816,16 +869,19 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
         self.on_change.as_ref().map(|make| make(self.at(fraction)))
     }
 
-    fn on_drag_start(&self, fraction: f32) -> Option<Msg> {
+    /// The bracket opens on the value **as it was** before the press, as the reference's
+    /// `onChangeStart` does (milestone 650): a tap is then a start at the old value and an
+    /// end at the new one, and a slide that never moved the value starts and ends on it.
+    ///
+    /// In the caller's units, not as a fraction: a caller who asked for a range of
+    /// 0..=100 is owed a hundred here too.
+    fn on_drag_start(&self, _fraction: f32) -> Option<Msg> {
         if !self.enabled {
             return None;
         }
-        // The **value**, not the fraction: a caller who asked for a range of 0..=100 is
-        // owed a hundred here too, and a bracket in different units from the stream it
-        // brackets would be a trap inside a signature that looks symmetrical.
-        self.on_change_start
-            .as_ref()
-            .map(|make| make(self.at(fraction)))
+        // Snapped like everything the stream sends, as the reference's is.
+        let before = self.at(self.fraction());
+        self.on_change_start.as_ref().map(|make| make(before))
     }
 
     fn on_drag_end(&self, fraction: f32) -> Option<Msg> {
@@ -1422,14 +1478,17 @@ mod tests {
     /// asked for `0..=100` gets a hundred from `on_change`, and would be owed one at
     /// each end too — a start in fractions inside a signature that looks symmetrical
     /// is a trap.
+    ///
+    /// The start is the value **before** the press (milestone 650), as the reference's
+    /// `onChangeStart` is: a tap is a start at the old value and an end at the new one.
     #[test]
     fn the_bracket_speaks_in_values_not_fractions() {
-        let slider = Slider::new(0.0)
+        let slider = Slider::new(10.0)
             .range(0.0, 100.0)
             .on_change(Msg::Value)
             .on_change_start(Msg::Start)
             .on_change_end(Msg::End);
-        assert_eq!(Widget::on_drag_start(&slider, 0.25), Some(Msg::Start(25.0)));
+        assert_eq!(Widget::on_drag_start(&slider, 0.25), Some(Msg::Start(10.0)));
         assert_eq!(Widget::on_drag(&slider, 0.25), Some(Msg::Value(25.0)));
         assert_eq!(Widget::on_drag_end(&slider, 0.75), Some(Msg::End(75.0)));
     }
@@ -1438,15 +1497,54 @@ mod tests {
     /// stops would name a value the stream can never produce.
     #[test]
     fn the_bracket_snaps_like_the_stream() {
-        let slider = Slider::new(0.0)
+        let slider = Slider::new(0.4)
             .divisions(4)
             .on_change(Msg::Value)
             .on_change_start(Msg::Start)
             .on_change_end(Msg::End);
-        // 0.3 lies between the 0.25 and 0.5 stops, nearer the first.
+        // 0.3 lies between the 0.25 and 0.5 stops, nearer the first; the value before,
+        // 0.4, nearer the second.
         assert_eq!(Widget::on_drag(&slider, 0.3), Some(Msg::Value(0.25)));
-        assert_eq!(Widget::on_drag_start(&slider, 0.3), Some(Msg::Start(0.25)));
+        assert_eq!(Widget::on_drag_start(&slider, 0.3), Some(Msg::Start(0.5)));
         assert_eq!(Widget::on_drag_end(&slider, 0.3), Some(Msg::End(0.25)));
+    }
+
+    /// **Each interaction names its drag mode** (milestone 650): tap and slide follows the
+    /// pointer, tap only takes the press, the two slides move from where the value is, and
+    /// the thumb's within its halo. The theme's is taken when the widget names none.
+    #[test]
+    fn each_interaction_names_its_drag_mode() {
+        use crate::widget::DragMode;
+        let mode = |s: Slider<Msg>| Widget::<Msg>::drag_track(&s).mode;
+        let at = || Slider::<Msg>::new(0.3);
+        assert_eq!(mode(at()), DragMode::Follow, "tap and slide by default");
+        assert_eq!(
+            mode(at().allowed_interaction(SliderInteraction::TapOnly)),
+            DragMode::TapOnly
+        );
+        assert_eq!(
+            mode(at().allowed_interaction(SliderInteraction::SlideOnly)),
+            DragMode::Slide { origin: 0.3 }
+        );
+        assert_eq!(
+            mode(at().allowed_interaction(SliderInteraction::SlideThumb)),
+            DragMode::SlideThumb {
+                origin: 0.3,
+                radius: 24.0
+            }
+        );
+        let mut theme = Theme::default();
+        theme.widgets.slider.allowed_interaction = Some(SliderInteraction::TapOnly);
+        let themed = at();
+        Widget::<Msg>::build_themed(&themed, &theme);
+        assert_eq!(mode(themed), DragMode::TapOnly, "from the theme");
+        let mine = at().allowed_interaction(SliderInteraction::SlideOnly);
+        Widget::<Msg>::build_themed(&mine, &theme);
+        assert_eq!(
+            mode(mine),
+            DragMode::Slide { origin: 0.3 },
+            "over the theme's"
+        );
     }
 
     /// A disabled slider is inert at **every** end. A drag in flight when the caller
@@ -2492,5 +2590,84 @@ mod reference_tests {
             .semantic_formatter(|v| format!("{} percent", (v * 100.0).round()));
         let said = Widget::<()>::semantics(&slider).and_then(|s| s.value);
         assert_eq!(said.as_deref(), Some("50 percent"));
+    }
+
+    /// **Each drag mode moves the value as the reference's interaction does** (milestone
+    /// 650), on a track of 200 from 24: following the pointer; taking the press only;
+    /// sliding from where the value was by the pointer's own movement, past the ends too;
+    /// and only from a press on the thumb.
+    #[test]
+    fn the_drag_modes_move_the_value_as_the_reference_s_do() {
+        use crate::widget::{DragMode, DragTrack};
+        let track = |mode| DragTrack {
+            inset: 24.0,
+            mirrored: true,
+            mode,
+        };
+        let follow = track(DragMode::Follow);
+        assert_eq!(
+            follow.value_at(BOX, 124.0, 124.0, false, false),
+            Some(0.5),
+            "the press"
+        );
+        assert_eq!(
+            follow.value_at(BOX, 124.0, 174.0, true, false),
+            Some(0.75),
+            "the slide"
+        );
+        assert_eq!(follow.released_at(BOX, 124.0, 174.0, false), 0.75);
+        assert!(follow.engages(BOX, 0.0, false));
+
+        let tap = track(DragMode::TapOnly);
+        assert_eq!(tap.value_at(BOX, 124.0, 124.0, false, false), Some(0.5));
+        assert_eq!(
+            tap.value_at(BOX, 124.0, 174.0, true, false),
+            None,
+            "no slide"
+        );
+        assert_eq!(
+            tap.released_at(BOX, 124.0, 174.0, false),
+            0.5,
+            "where the press set it"
+        );
+
+        let slide = track(DragMode::Slide { origin: 0.2 });
+        assert_eq!(
+            slide.value_at(BOX, 124.0, 124.0, false, false),
+            None,
+            "no jump"
+        );
+        assert_eq!(slide.value_at(BOX, 124.0, 174.0, true, false), Some(0.45));
+        assert_eq!(slide.released_at(BOX, 124.0, 174.0, false), 0.45);
+        assert_eq!(
+            slide.value_at(BOX, 124.0, 1000.0, true, false),
+            Some(1.0),
+            "held at the end"
+        );
+        // A slide that starts past the end still measures its whole length.
+        // 1.08 to 0.83 of the travel: a quarter back from 0.2, held at the start.
+        assert_eq!(slide.value_at(BOX, 240.0, 190.0, true, false), Some(0.0));
+        // Right to left, the same rightward slide lowers it.
+        assert_eq!(slide.value_at(BOX, 124.0, 174.0, true, true), Some(0.0));
+        let rtl_slide = track(DragMode::Slide { origin: 0.6 });
+        let moved = rtl_slide.value_at(BOX, 174.0, 124.0, true, true).unwrap();
+        assert!(
+            (moved - 0.85).abs() < 1e-6,
+            "a slide leftwards raises it right to left"
+        );
+
+        let thumb = track(DragMode::SlideThumb {
+            origin: 0.2,
+            radius: 24.0,
+        });
+        assert!(thumb.engages(BOX, 64.0, false), "on the thumb");
+        assert!(thumb.engages(BOX, 88.0, false), "at the halo's edge");
+        assert!(!thumb.engages(BOX, 124.0, false), "off it");
+        assert!(
+            thumb.engages(BOX, 184.0, true),
+            "right to left, the thumb is on the right"
+        );
+        assert!(!thumb.engages(BOX, 64.0, true));
+        assert_eq!(thumb.value_at(BOX, 70.0, 120.0, true, false), Some(0.45));
     }
 }

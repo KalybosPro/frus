@@ -8,10 +8,21 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 649 so far, each documenting the objective, the alternatives
+> record — one per step, 650 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **What a press and a slide may do to a slider** (J650). `Slider::allowed_interaction`
+  takes a `SliderInteraction`, the reference's: `TapAndSlide` (the default), `TapOnly` (a
+  press moves the thumb, a slide does nothing), `SlideOnly` (a press does nothing, a slide
+  moves the thumb by its own length from where it was) and `SlideThumb` (the same, from a
+  press on the thumb only); `SliderTheme::allowed_interaction` sets it for a subtree. The
+  shell keeps the press and the track it landed on for the whole drag: `DragTrack` has a
+  `DragMode`, and `engages`, `value_at` and `released_at` answer each moment of it.
+  **Changed**: `on_change_start` reports the value **before** the press, snapped, as the
+  reference's `onChangeStart` does, not the value the press landed on; a tap is a start at
+  the old value and an end at the new one. `DragTrack` has `mode`.
 
 ## [0.3.0] - 2026-10-13
 

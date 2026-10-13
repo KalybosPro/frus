@@ -676,6 +676,13 @@ enum Drag {
         id: WidgetId,
         rect: frus_widgets::Rect,
         last_x: f32,
+        /// Where the press landed, and the widget's track as it stood then: a slide that
+        /// moves the value from where it was measures from both (milestone 650).
+        press_x: f32,
+        track: frus_widgets::DragTrack,
+        /// Whether the press started anything: a slider that only takes a slide on its
+        /// thumb, pressed elsewhere, takes none of the gesture.
+        active: bool,
     },
     /// Reordering a **column**: a header is grabbed (`id`, column `from`) and dropped
     /// onto another. `moved` tells a drag from a plain tap — which stays a sort —
@@ -3775,18 +3782,30 @@ impl<A: Application> App<A> {
 
         // 1b) Is this a draggable widget, a Slider for instance?
         if let Some((id, rect)) = self.ui.as_ref().and_then(|ui| ui.draggable_at(self.cursor)) {
+            let (x, rtl) = (self.cursor.x, self.is_rtl());
+            let track = self
+                .tree
+                .as_ref()
+                .and_then(|tree| find_widget(tree.as_ref(), id))
+                .map_or(frus_widgets::DragTrack::WHOLE, |widget| widget.drag_track());
+            let active = track.engages(rect, x, rtl);
             self.drag = Some(Drag::Widget {
                 id,
                 rect,
-                last_x: self.cursor.x,
+                last_x: x,
+                press_x: x,
+                track,
+                active,
             });
-            // The bracket opens **before** the first value: an application that means
-            // to hold the expensive work until the finger lifts has to know the finger
-            // went down first, and a press that jumps the value straight away would
-            // otherwise deliver the change before the start.
-            self.dispatch_drag_edge(id, rect, Edge::Start);
-            // A zero delta on press: only a slider, which takes a fraction, jumps.
-            self.apply_widget_drag(id, rect, 0.0);
+            if active {
+                // The bracket opens **before** the first value: an application that means
+                // to hold the expensive work until the finger lifts has to know the finger
+                // went down first, and a press that jumps the value straight away would
+                // otherwise deliver the change before the start.
+                self.dispatch_drag_edge(id, Edge::Start, 0.0);
+                // A zero delta on press: only a slider whose press moves it jumps.
+                self.apply_widget_drag(id, 0.0, track.value_at(rect, x, x, false, rtl));
+            }
             self.request_redraw();
             return;
         }
@@ -4101,8 +4120,17 @@ impl<A: Application> App<A> {
         // The bracket closes. A press that never moved still gets its end: it changed
         // the value once, and a caller that defers its expensive work until the release
         // would otherwise never be told the release happened.
-        if let Some(Drag::Widget { id, rect, .. }) = ended {
-            self.dispatch_drag_edge(id, rect, Edge::End);
+        if let Some(Drag::Widget {
+            id,
+            rect,
+            press_x,
+            track,
+            active: true,
+            ..
+        }) = ended
+        {
+            let released = track.released_at(rect, press_x, self.cursor.x, self.is_rtl());
+            self.dispatch_drag_edge(id, Edge::End, released);
         }
         // The keyboard is told where a dragged handle left the selection.
         #[cfg(android)]
@@ -4904,10 +4932,20 @@ impl<A: Application> App<A> {
                     self.runtime.edits.insert(*id, moved);
                 }
             }
-            Drag::Widget { id, rect, last_x } => {
+            Drag::Widget {
+                id,
+                rect,
+                last_x,
+                press_x,
+                track,
+                active,
+            } => {
                 let dx = self.cursor.x - *last_x;
                 *last_x = self.cursor.x;
-                self.apply_widget_drag(*id, *rect, dx);
+                if *active {
+                    let value = track.value_at(*rect, *press_x, self.cursor.x, true, self.is_rtl());
+                    self.apply_widget_drag(*id, dx, value);
+                }
             }
             Drag::Reorder { start, moved, .. } => {
                 // Past the threshold this is a real drag, and no longer a sort.
@@ -6107,34 +6145,30 @@ impl<A: Application> App<A> {
         self.request_redraw();
     }
 
-    /// Sends a value drag's **start** or **end** to the widget being dragged.
+    /// Sends a value drag's **start** or **end** to the widget being dragged, at
+    /// `fraction` along its travel.
     ///
-    /// The fraction is worked out the same way [`apply_widget_drag`](Self::apply_widget_drag)
-    /// works it out, from the same rectangle: an end that disagreed with the last
-    /// `on_drag` about where the pointer finished would be a slider that settles
+    /// The fraction is the one [`frus_widgets::DragTrack`] works out for every moment of
+    /// the drag, from the same press and the same track: an end that disagreed with the
+    /// last `on_drag` about where the value finished would be a slider that settles
     /// somewhere its own final message never mentioned.
-    fn dispatch_drag_edge(&mut self, id: WidgetId, rect: frus_widgets::Rect, edge: Edge) {
-        let (x, rtl) = (self.cursor.x, self.is_rtl());
+    fn dispatch_drag_edge(&mut self, id: WidgetId, edge: Edge, fraction: f32) {
         let message = self
             .tree
             .as_ref()
             .and_then(|tree| find_widget(tree.as_ref(), id))
-            .and_then(|widget| {
-                let fraction = widget.drag_track().fraction(rect, x, rtl);
-                match edge {
-                    Edge::Start => widget.on_drag_start(fraction),
-                    Edge::End => widget.on_drag_end(fraction),
-                }
+            .and_then(|widget| match edge {
+                Edge::Start => widget.on_drag_start(fraction),
+                Edge::End => widget.on_drag_end(fraction),
             });
         if let Some(message) = message {
             self.dispatch(message);
         }
     }
 
-    fn apply_widget_drag(&mut self, id: WidgetId, rect: frus_widgets::Rect, dx: f32) {
-        let (x, rtl) = (self.cursor.x, self.is_rtl());
-        // An accumulating handle, taking a delta, first; otherwise a slider's absolute
-        // fraction, along the travel the widget names (milestone 648).
+    /// One moment of a value drag: `dx` for a handle that accumulates, else the `value`
+    /// the drag's track says this moment stands for — `None` when it changes nothing.
+    fn apply_widget_drag(&mut self, id: WidgetId, dx: f32, value: Option<f32>) {
         let message = self
             .tree
             .as_ref()
@@ -6142,7 +6176,7 @@ impl<A: Application> App<A> {
             .and_then(|widget| {
                 widget
                     .on_drag_delta(dx)
-                    .or_else(|| widget.on_drag(widget.drag_track().fraction(rect, x, rtl)))
+                    .or_else(|| value.and_then(|v| widget.on_drag(v)))
             });
         if let Some(message) = message {
             self.dispatch(message);
