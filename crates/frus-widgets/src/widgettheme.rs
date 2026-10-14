@@ -320,6 +320,33 @@ pub struct SliderTheme {
     pub show_value_indicator: Option<crate::ShowValueIndicator>,
     /// What a press and a slide may do (milestone 650). Unset, tap and slide.
     pub allowed_interaction: Option<crate::SliderInteraction>,
+    /// A slider's track (milestone 654). Unset, the reference's rounded rectangle.
+    pub track_shape:
+        Option<crate::slidershape::SliderShape<dyn crate::slidershape::SliderTrackShape>>,
+    /// A range slider's track. Unset, the reference's rounded rectangle, square between the thumbs.
+    pub range_track_shape:
+        Option<crate::slidershape::SliderShape<dyn crate::slidershape::SliderTrackShape>>,
+    /// A slider's tick marks. Unset, the reference's dots.
+    pub tick_mark_shape:
+        Option<crate::slidershape::SliderShape<dyn crate::slidershape::SliderTickMarkShape>>,
+    /// A range slider's tick marks. Unset, the reference's dots.
+    pub range_tick_mark_shape:
+        Option<crate::slidershape::SliderShape<dyn crate::slidershape::SliderTickMarkShape>>,
+    /// A slider's thumb. Unset, the reference's disc.
+    pub thumb_shape:
+        Option<crate::slidershape::SliderShape<dyn crate::slidershape::SliderThumbShape>>,
+    /// A range slider's thumbs. Unset, the reference's disc.
+    pub range_thumb_shape:
+        Option<crate::slidershape::SliderShape<dyn crate::slidershape::SliderThumbShape>>,
+    /// The halo around a thumb, on both sliders. Unset, the reference's disc.
+    pub overlay_shape:
+        Option<crate::slidershape::SliderShape<dyn crate::slidershape::SliderOverlayShape>>,
+    /// A slider's value indicator. Unset, the reference's drop.
+    pub value_indicator_shape:
+        Option<crate::slidershape::SliderShape<dyn crate::slidershape::SliderValueIndicatorShape>>,
+    /// A range slider's value indicators. Unset, the reference's rectangle.
+    pub range_value_indicator_shape:
+        Option<crate::slidershape::SliderShape<dyn crate::slidershape::SliderValueIndicatorShape>>,
 }
 
 /// Defaults for [`Switch`](crate::Switch).
