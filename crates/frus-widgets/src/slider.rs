@@ -7,6 +7,10 @@ use frus_layout::{Dimension, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
 use crate::interaction::{Key, KeyResponse, Status};
+use crate::slidershape::{
+    self as shapes, SliderOverlayShape, SliderPaint, SliderPalette, SliderShape, SliderThumb,
+    SliderThumbShape, SliderTickMarkShape, SliderTrackShape, SliderValueIndicatorShape,
+};
 use crate::theme::Theme;
 use crate::widget::Widget;
 use crate::widgetstate::{WidgetState, WidgetStateProperty};
@@ -22,49 +26,23 @@ const KEY_STEP: f32 = 0.05;
 const THUMB_ELEVATION: f32 = 1.0;
 const THUMB_PRESSED_ELEVATION: f32 = 6.0;
 
-/// The shadow under a thumb whose box is `thumb`: its resting height, rising to the pressed
-/// one as the press goes in.
-///
-/// Drawn the way a search bar draws its height — a blur of two pixels a step from four, and a
-/// drop of half a pixel a step — and **not** the way a card does. That is not taste: the
-/// shadow primitive's soft edge stops at its own rectangle, and around a circle this small a
-/// card's wider blur leaves that rectangle's corners in the fade, so the halo comes out square.
-/// At rest this one is round; while held, at six, the corners begin to show.
-///
-/// `told` is the widget's `(resting, pressed)`, each over the theme's and the reference's.
-/// The reference's round thumb casts it enabled or not — its shape has no disabled height
-/// (its slider parts, lines 747–767) — and so does this one.
-fn paint_thumb_shadow(
-    thumb: Rect,
-    told: (Option<f32>, Option<f32>),
-    status: &Status,
-    theme: &Theme,
-    scene: &mut Scene,
-) {
+/// How far a thumb stands off the track: its resting height, rising to the pressed one as
+/// the press goes in. `told` is the widget's `(resting, pressed)`, each over the theme's and
+/// the reference's. The reference's round thumb casts its shadow enabled or not — its shape
+/// has no disabled height (its slider parts, lines 747–767) — and so does this one.
+fn elevation_of(told: (Option<f32>, Option<f32>), press: f32, theme: &Theme) -> f32 {
     let t = &theme.widgets.slider;
     let rest = told.0.or(t.thumb_elevation).unwrap_or(THUMB_ELEVATION);
     let pressed = told
         .1
         .or(t.pressed_thumb_elevation)
         .unwrap_or(THUMB_PRESSED_ELEVATION);
-    let depth = rest + (pressed - rest) * status.press_progress.clamp(0.0, 1.0);
-    if depth <= 0.0 {
-        return;
-    }
-    // The reference's shadows for this height (milestone 606).
-    frus_core::paint_elevation(
-        scene,
-        thumb,
-        frus_core::BorderRadius::uniform(thumb.width * 0.5),
-        depth,
-        theme.scheme.shadow.fade(status.opacity),
-    );
+    rest + (pressed - rest) * press.clamp(0.0, 1.0)
 }
 
 /// The reference's 2023 slider (milestone 648): a 4-pixel track, 2 more for the travelled
 /// part, a 20-pixel thumb, a 48-pixel halo, all inset by the halo's radius at each end.
 const TRACK_HEIGHT: f32 = 4.0;
-const ACTIVE_EXTRA: f32 = 2.0;
 const THUMB_RADIUS: f32 = 10.0;
 const OVERLAY_RADIUS: f32 = 24.0;
 /// The reference's shortest track: three touch targets.
@@ -140,6 +118,7 @@ pub struct Slider<Msg = crate::callback::Callback> {
     overlay_color: Option<WidgetStateProperty<Color>>,
     thumb_elevation: Option<f32>,
     pressed_thumb_elevation: Option<f32>,
+    parts: SliderParts,
     on_change: Option<Box<dyn Fn(f32) -> Msg>>,
     /// Sent once, when a drag begins.
     on_change_start: Option<Box<dyn Fn(f32) -> Msg>>,
@@ -168,6 +147,32 @@ struct Palette {
     ring: Option<Color>,
     active_tick: Color,
     inactive_tick: Color,
+}
+
+impl Palette {
+    /// As the parts are given it.
+    fn shared(&self) -> SliderPalette {
+        SliderPalette {
+            active_track: self.active,
+            inactive_track: self.inactive,
+            secondary_track: self.secondary,
+            thumb: self.thumb,
+            thumb_border: self.ring,
+            active_tick_mark: self.active_tick,
+            inactive_tick_mark: self.inactive_tick,
+        }
+    }
+}
+
+/// The parts a slider names itself (milestone 654); each unset one is the theme's, then the
+/// default.
+#[derive(Clone, Default)]
+pub(crate) struct SliderParts {
+    track: Option<SliderShape<dyn SliderTrackShape>>,
+    tick_mark: Option<SliderShape<dyn SliderTickMarkShape>>,
+    thumb: Option<SliderShape<dyn SliderThumbShape>>,
+    overlay: Option<SliderShape<dyn SliderOverlayShape>>,
+    value_indicator: Option<SliderShape<dyn SliderValueIndicatorShape>>,
 }
 
 impl SliderColors {
@@ -250,6 +255,7 @@ impl<Msg> Slider<Msg> {
             overlay_color: None,
             thumb_elevation: None,
             pressed_thumb_elevation: None,
+            parts: SliderParts::default(),
             on_change: None,
             on_change_start: None,
             on_change_end: None,
@@ -308,6 +314,41 @@ impl<Msg> Slider<Msg> {
     /// How far it rises while it is held. Unset, the theme's, then the reference's 6.
     pub fn pressed_thumb_elevation(mut self, elevation: f32) -> Self {
         self.pressed_thumb_elevation = Some(elevation);
+        self
+    }
+
+    /// Paints the track with `shape`. Unset, the theme's, then the reference's rounded
+    /// rectangle.
+    pub fn track_shape(mut self, shape: impl SliderTrackShape + 'static) -> Self {
+        self.parts.track = Some(SliderShape::track(shape));
+        self
+    }
+
+    /// Paints the tick marks with `shape`. Unset, the theme's, then the reference's dots.
+    pub fn tick_mark_shape(mut self, shape: impl SliderTickMarkShape + 'static) -> Self {
+        self.parts.tick_mark = Some(SliderShape::tick_mark(shape));
+        self
+    }
+
+    /// Paints the thumb with `shape`. Unset, the theme's, then the reference's disc.
+    pub fn thumb_shape(mut self, shape: impl SliderThumbShape + 'static) -> Self {
+        self.parts.thumb = Some(SliderShape::thumb(shape));
+        self
+    }
+
+    /// Paints the halo with `shape`. Unset, the theme's, then the reference's disc.
+    pub fn overlay_shape(mut self, shape: impl SliderOverlayShape + 'static) -> Self {
+        self.parts.overlay = Some(SliderShape::overlay(shape));
+        self
+    }
+
+    /// Paints the value indicator with `shape`. Unset, the theme's, then the reference's
+    /// drop.
+    pub fn value_indicator_shape(
+        mut self,
+        shape: impl SliderValueIndicatorShape + 'static,
+    ) -> Self {
+        self.parts.value_indicator = Some(SliderShape::value_indicator(shape));
         self
     }
 
@@ -602,9 +643,16 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        let o = status.opacity;
         let rtl = theme.direction.is_rtl();
-        let palette = self.colors.resolve(theme, self.enabled);
+        let parts = &self.parts;
+        let t = &theme.widgets.slider;
+        let paint = SliderPaint {
+            theme,
+            palette: self.colors.resolve(theme, self.enabled).shared(),
+            enabled: self.enabled,
+            discrete: self.discrete(),
+            opacity: status.opacity,
+        };
         let track_h = self.track_height(theme);
         // The track, inset by the halo's radius at each end, centred in the box.
         let left = bounds.x + OVERLAY_RADIUS;
@@ -613,76 +661,23 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
         let along = |t: f32| if rtl { 1.0 - t } else { t };
         let discrete = self.discrete();
         let thumb = thumb_x(left, width, along(self.fraction()), discrete, track_h);
-
-        if track_h > 0.0 {
-            let half = track_h * 0.5;
-            let active_half = (track_h + ACTIVE_EXTRA) * 0.5;
-            let right = left + width;
-            // The travelled part runs from the start, a little thicker; the rest from the
-            // thumb to the end. Each reaches half a track past the thumb, under it.
-            let (a0, a1) = if rtl {
-                (thumb - half, right)
-            } else {
-                (left, thumb + half)
-            };
-            let (i0, i1) = if rtl {
-                (left, thumb + half)
-            } else {
-                (thumb - half, right)
-            };
-            if i1 - i0 > track_h {
-                scene.draw_rect(
-                    Rect::new(i0, cy - half, i1 - i0, track_h),
-                    palette.inactive.fade(o),
-                    half,
-                    0.0,
-                    Color::TRANSPARENT,
-                );
-            }
-            if a1 - a0 > track_h {
-                scene.draw_rect(
-                    Rect::new(a0, cy - active_half, a1 - a0, 2.0 * active_half),
-                    palette.active.fade(o),
-                    active_half,
-                    0.0,
-                    Color::TRANSPARENT,
-                );
-            }
-            // The secondary value: from the thumb towards it, when it lies beyond.
-            if let Some(secondary) = self.secondary {
-                let sx = thumb_x(
-                    left,
-                    width,
-                    along(self.fraction_of(secondary)),
-                    discrete,
-                    track_h,
-                );
-                let beyond = if rtl { sx < thumb } else { sx > thumb };
-                if beyond {
-                    let (s0, s1) = if rtl { (sx, thumb) } else { (thumb, sx) };
-                    let radius = if rtl {
-                        frus_core::BorderRadius {
-                            top_left: half,
-                            bottom_left: half,
-                            ..frus_core::BorderRadius::ZERO
-                        }
-                    } else {
-                        frus_core::BorderRadius {
-                            top_right: half,
-                            bottom_right: half,
-                            ..frus_core::BorderRadius::ZERO
-                        }
-                    };
-                    scene.draw_rect(
-                        Rect::new(s0, cy - half, s1 - s0, track_h),
-                        palette.secondary.fade(o),
-                        radius,
-                        0.0,
-                        Color::TRANSPARENT,
-                    );
-                }
-            }
-        }
+        let secondary = self.secondary.map(|secondary| {
+            thumb_x(
+                left,
+                width,
+                along(self.fraction_of(secondary)),
+                discrete,
+                track_h,
+            )
+        });
+        let track = Rect::new(left, cy - track_h * 0.5, width, track_h);
+        shapes::pick(&parts.track, &t.track_shape, &shapes::SLIDER_TRACK).paint(
+            scene,
+            track,
+            &[thumb],
+            secondary,
+            &paint,
+        );
 
         // The halo, grown by hover, focus or a press.
         let activation = status
@@ -690,80 +685,59 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
             .max(status.focus_progress)
             .max(status.press_progress)
             .clamp(0.0, 1.0);
-        if self.enabled && activation > 0.0 {
-            let r = OVERLAY_RADIUS * activation;
-            let halo = self.overlay(&status, theme);
-            if halo.a > 0.0 {
-                scene.draw_rect(
-                    Rect::new(thumb - r, cy - r, 2.0 * r, 2.0 * r),
-                    halo.fade(o),
-                    r,
-                    0.0,
-                    Color::TRANSPARENT,
-                );
-            }
+        if self.enabled {
+            shapes::pick(&parts.overlay, &t.overlay_shape, &shapes::OVERLAY).paint(
+                scene,
+                Point::new(thumb, cy),
+                activation,
+                self.overlay(&status, theme),
+                &paint,
+            );
         }
 
         // The ticks, one per division, unless they would crowd each other.
         if let Some(n) = self.divisions.filter(|n| *n > 0) {
-            let tick_r = track_h / 4.0;
+            let tick = shapes::pick(&parts.tick_mark, &t.tick_mark_shape, &shapes::TICK_MARK);
+            let tick_w = tick.width(track_h);
             let adjusted = width - track_h;
-            if tick_r > 0.0 && adjusted / n as f32 >= 3.0 * 2.0 * tick_r {
+            if tick_w > 0.0 && adjusted / n as f32 >= 3.0 * tick_w {
                 for i in 0..=n {
                     let x = left + i as f32 / n as f32 * adjusted + track_h / 2.0;
                     let travelled = if rtl { x >= thumb } else { x <= thumb };
-                    let color = if travelled {
-                        palette.active_tick
-                    } else {
-                        palette.inactive_tick
-                    };
-                    scene.draw_rect(
-                        Rect::new(x - tick_r, cy - tick_r, 2.0 * tick_r, 2.0 * tick_r),
-                        color.fade(o),
-                        tick_r,
-                        0.0,
-                        Color::TRANSPARENT,
-                    );
+                    tick.paint(scene, Point::new(x, cy), travelled, track_h, &paint);
                 }
             }
         }
 
         // The thumb, over its shadow.
-        let thumb_box = Rect::new(
-            thumb - THUMB_RADIUS,
-            cy - THUMB_RADIUS,
-            2.0 * THUMB_RADIUS,
-            2.0 * THUMB_RADIUS,
-        );
-        paint_thumb_shadow(
-            thumb_box,
-            (self.thumb_elevation, self.pressed_thumb_elevation),
-            &status,
-            theme,
+        shapes::pick(&parts.thumb, &t.thumb_shape, &shapes::THUMB).paint(
             scene,
-        );
-        let (ring_width, ring) = match palette.ring {
-            Some(ring) => (2.0, ring.fade(o)),
-            None => (0.0, Color::TRANSPARENT),
-        };
-        scene.draw_rect(
-            thumb_box,
-            palette.thumb.fade(o),
-            THUMB_RADIUS,
-            ring_width,
-            ring,
+            Point::new(thumb, cy),
+            SliderThumb {
+                elevation: elevation_of(
+                    (self.thumb_elevation, self.pressed_thumb_elevation),
+                    status.press_progress,
+                    theme,
+                ),
+                on_top: false,
+            },
+            &paint,
         );
 
         // The value, in a drop over the thumb, while the slider is moved.
         let reveal = self.indicator_reveal(&status, theme);
         if let (Some(label), true) = (self.label.as_ref(), reveal > 0.0) {
-            paint_drop(
+            shapes::pick(
+                &parts.value_indicator,
+                &t.value_indicator_shape,
+                &shapes::DROP,
+            )
+            .paint(
+                scene,
                 Point::new(thumb, cy),
                 label(self.held()),
-                theme,
                 reveal,
-                o,
-                scene,
+                &paint,
             );
         }
     }
@@ -881,7 +855,14 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
 /// The reference's **drop value indicator** (`DropSliderValueIndicatorShape`): a pill
 /// 28 high, as wide as the text and a margin, over a small triangle pointing at the
 /// thumb's centre `at`, grown from the triangle's tip by `scale`.
-fn paint_drop(at: Point, text: String, theme: &Theme, scale: f32, o: f32, scene: &mut Scene) {
+pub(crate) fn paint_drop(
+    at: Point,
+    text: String,
+    theme: &Theme,
+    scale: f32,
+    o: f32,
+    scene: &mut Scene,
+) {
     const TRIANGLE: f32 = 10.0;
     const PADDING: f32 = 8.0;
     const MIN_LABEL: f32 = 20.0;
@@ -957,6 +938,7 @@ struct RangeState<Msg> {
     colors: SliderColors,
     overlay_color: Option<WidgetStateProperty<Color>>,
     elevations: (Option<f32>, Option<f32>),
+    parts: SliderParts,
     on_change: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
     on_change_start: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
     on_change_end: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
@@ -981,6 +963,7 @@ impl<Msg> Clone for RangeState<Msg> {
             colors: self.colors,
             overlay_color: self.overlay_color.clone(),
             elevations: self.elevations,
+            parts: self.parts.clone(),
             on_change: self.on_change.clone(),
             on_change_start: self.on_change_start.clone(),
             on_change_end: self.on_change_end.clone(),
@@ -1141,6 +1124,44 @@ impl<Msg> RangeState<Msg> {
         }
     }
 
+    /// What the parts are painted with.
+    fn paint<'a>(&self, theme: &'a Theme, opacity: f32) -> SliderPaint<'a> {
+        let palette = self.palette(theme);
+        SliderPaint {
+            theme,
+            palette: SliderPalette {
+                active_track: palette.active,
+                inactive_track: palette.inactive,
+                secondary_track: palette.inactive,
+                thumb: palette.thumb,
+                thumb_border: None,
+                active_tick_mark: palette.active_tick,
+                inactive_tick_mark: palette.inactive_tick,
+            },
+            enabled: self.enabled,
+            discrete: self.discrete(),
+            opacity,
+        }
+    }
+
+    /// The halo's shape: the slider's, the theme's, the reference's disc.
+    fn overlay<'a>(&'a self, theme: &'a Theme) -> &'a dyn SliderOverlayShape {
+        shapes::pick(
+            &self.parts.overlay,
+            &theme.widgets.slider.overlay_shape,
+            &shapes::OVERLAY,
+        )
+    }
+
+    /// The value indicator's shape: the slider's, the theme's, the reference's rectangle.
+    fn indicator<'a>(&'a self, theme: &'a Theme) -> &'a dyn SliderValueIndicatorShape {
+        shapes::pick(
+            &self.parts.value_indicator,
+            &theme.widgets.slider.range_value_indicator_shape,
+            &shapes::RECTANGULAR,
+        )
+    }
+
     /// The halo's colour: the widget's, the active colour at 12 %, the theme's, then the
     /// reference's `primary` at 12 %.
     fn halo(&self, status: &Status, theme: &Theme) -> Color {
@@ -1211,6 +1232,7 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
                 colors: SliderColors::default(),
                 overlay_color: None,
                 elevations: (None, None),
+                parts: SliderParts::default(),
                 on_change: None,
                 on_change_start: None,
                 on_change_end: None,
@@ -1300,6 +1322,38 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
     /// How far it rises while it is held. Unset, the theme's, then the reference's 6.
     pub fn pressed_thumb_elevation(self, elevation: f32) -> Self {
         self.with(|s| s.elevations.1 = Some(elevation))
+    }
+
+    /// Paints the track with `shape`, given both thumbs. Unset, the theme's, then the
+    /// reference's rounded rectangle, square between the thumbs.
+    pub fn track_shape(self, shape: impl SliderTrackShape + 'static) -> Self {
+        let shape = SliderShape::track(shape);
+        self.with(|s| s.parts.track = Some(shape))
+    }
+
+    /// Paints the tick marks with `shape`. Unset, the theme's, then the reference's dots.
+    pub fn tick_mark_shape(self, shape: impl SliderTickMarkShape + 'static) -> Self {
+        let shape = SliderShape::tick_mark(shape);
+        self.with(|s| s.parts.tick_mark = Some(shape))
+    }
+
+    /// Paints both thumbs with `shape`. Unset, the theme's, then the reference's disc.
+    pub fn thumb_shape(self, shape: impl SliderThumbShape + 'static) -> Self {
+        let shape = SliderShape::thumb(shape);
+        self.with(|s| s.parts.thumb = Some(shape))
+    }
+
+    /// Paints the halo with `shape`. Unset, the theme's, then the reference's disc.
+    pub fn overlay_shape(self, shape: impl SliderOverlayShape + 'static) -> Self {
+        let shape = SliderShape::overlay(shape);
+        self.with(|s| s.parts.overlay = Some(shape))
+    }
+
+    /// Paints the value indicators with `shape`. Unset, the theme's, then the reference's
+    /// rectangle.
+    pub fn value_indicator_shape(self, shape: impl SliderValueIndicatorShape + 'static) -> Self {
+        let shape = SliderShape::value_indicator(shape);
+        self.with(|s| s.parts.value_indicator = Some(shape))
     }
 
     /// Whether the slider can be moved. Disabled it takes no drag, no key and no focus,
@@ -1449,16 +1503,14 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
             .max(status.focus_progress)
             .clamp(0.0, 1.0);
         // Under the thumb, which the slider paints over its stops.
-        if activation > 0.0 {
-            let r = OVERLAY_RADIUS * activation;
-            scene.draw_rect(
-                Rect::new(centre.x - r, centre.y - r, 2.0 * r, 2.0 * r),
-                self.state.halo(&status, theme).fade(o),
-                r,
-                0.0,
-                Color::TRANSPARENT,
-            );
-        }
+        let paint = self.state.paint(theme, o);
+        self.state.overlay(theme).paint(
+            scene,
+            centre,
+            activation,
+            self.state.halo(&status, theme),
+            &paint,
+        );
         // Focused, its tooltip comes out, as the reference's does; the slider shows both
         // while it is dragged.
         if let Some(label) = self.state.label.as_ref() {
@@ -1470,7 +1522,13 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
                 0.0
             };
             if reveal > 0.0 {
-                paint_rect_indicator(centre, label(self.value()), theme, reveal, o, scene);
+                self.state.indicator(theme).paint(
+                    scene,
+                    centre,
+                    label(self.value()),
+                    reveal,
+                    &paint,
+                );
             }
         }
     }
@@ -1553,63 +1611,43 @@ impl<Msg: Clone + 'static> Widget<Msg> for RangeSlider<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        let o = status.opacity;
         let state = &self.state;
-        let palette = state.palette(theme);
-        let track_h = theme.widgets.slider.track_height.unwrap_or(TRACK_HEIGHT);
+        let t = &theme.widgets.slider;
+        let paint = state.paint(theme, status.opacity);
+        let track_h = t.track_height.unwrap_or(TRACK_HEIGHT);
         let left = bounds.x + OVERLAY_RADIUS;
         let width = (bounds.width - 2.0 * OVERLAY_RADIUS).max(0.0);
         // What the thumbs' keys measure the least gap with.
         state.track.set(width);
         let (cy, [x0, x1]) = self.thumb_centres(bounds, theme);
         let (lo, hi) = (x0.min(x1), x0.max(x1));
-
-        if track_h > 0.0 {
-            let half = track_h * 0.5;
-            let active_half = (track_h + ACTIVE_EXTRA) * 0.5;
-            let right = left + width;
-            // The outer parts, then the span between the thumbs, a little thicker.
-            for (a, b) in [(left, lo + half), (hi - half, right)] {
-                if b - a > track_h {
-                    scene.draw_rect(
-                        Rect::new(a, cy - half, b - a, track_h),
-                        palette.inactive.fade(o),
-                        half,
-                        0.0,
-                        Color::TRANSPARENT,
-                    );
-                }
-            }
-            if hi - lo > 0.0 {
-                scene.draw_rect(
-                    Rect::new(lo, cy - active_half, hi - lo, 2.0 * active_half),
-                    palette.active.fade(o),
-                    0.0,
-                    0.0,
-                    Color::TRANSPARENT,
-                );
-            }
-        }
+        shapes::pick(
+            &state.parts.track,
+            &t.range_track_shape,
+            &shapes::RANGE_TRACK,
+        )
+        .paint(
+            scene,
+            Rect::new(left, cy - track_h * 0.5, width, track_h),
+            &[x0, x1],
+            None,
+            &paint,
+        );
 
         // The ticks, one per division, unless they would crowd each other.
         if let Some(n) = state.divisions.filter(|n| *n > 0) {
-            let tick_r = track_h / 4.0;
+            let tick = shapes::pick(
+                &state.parts.tick_mark,
+                &t.range_tick_mark_shape,
+                &shapes::TICK_MARK,
+            );
+            let tick_w = tick.width(track_h);
             let adjusted = width - track_h;
-            if tick_r > 0.0 && adjusted / n as f32 >= 3.0 * 2.0 * tick_r {
+            if tick_w > 0.0 && adjusted / n as f32 >= 3.0 * tick_w {
                 for i in 0..=n {
                     let x = left + i as f32 / n as f32 * adjusted + track_h / 2.0;
-                    let color = if x >= lo && x <= hi {
-                        palette.active_tick
-                    } else {
-                        palette.inactive_tick
-                    };
-                    scene.draw_rect(
-                        Rect::new(x - tick_r, cy - tick_r, 2.0 * tick_r, 2.0 * tick_r),
-                        color.fade(o),
-                        tick_r,
-                        0.0,
-                        Color::TRANSPARENT,
-                    );
+                    let between = x >= lo && x <= hi;
+                    tick.paint(scene, Point::new(x, cy), between, track_h, &paint);
                 }
             }
         }
@@ -1620,14 +1658,12 @@ impl<Msg: Clone + 'static> Widget<Msg> for RangeSlider<Msg> {
         let xs = [x0, x1];
         let press = status.press_progress.clamp(0.0, 1.0);
         if state.enabled && press > 0.0 {
-            let r = OVERLAY_RADIUS * press;
-            let x = xs[top];
-            scene.draw_rect(
-                Rect::new(x - r, cy - r, 2.0 * r, 2.0 * r),
-                state.halo(&status, theme).fade(o),
-                r,
-                0.0,
-                Color::TRANSPARENT,
+            state.overlay(theme).paint(
+                scene,
+                Point::new(xs[top], cy),
+                press,
+                state.halo(&status, theme),
+                &paint,
             );
         }
     }
@@ -1639,37 +1675,29 @@ impl<Msg: Clone + 'static> Widget<Msg> for RangeSlider<Msg> {
     /// The thumbs, and the values over them, over the thumbs' focus stops: a stop's halo
     /// belongs under its thumb, as the reference paints it.
     fn paint_over(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        let o = status.opacity;
         let state = &self.state;
-        let palette = state.palette(theme);
+        let t = &theme.widgets.slider;
+        let paint = state.paint(theme, status.opacity);
         let (cy, xs) = self.thumb_centres(bounds, theme);
         let [x0, x1] = xs;
         let top = status.thumb.unwrap_or(1).min(1);
         let press = status.press_progress.clamp(0.0, 1.0);
 
-        // The thumbs over their shadows, the one on top last. Where they overlap, it wears
-        // a ring in the surface colour, as the reference's does, so the two stay two.
+        // The thumbs over their shadows, the one on top last. Where they overlap, it is
+        // told so: the reference's rings it in the surface colour, so the two stay two.
         let overlap = (x1 - x0).abs() < 2.0 * THUMB_RADIUS;
-        let resting = Status {
-            press_progress: 0.0,
-            ..status
-        };
+        let thumb = shapes::pick(&state.parts.thumb, &t.range_thumb_shape, &shapes::THUMB);
         for i in [1 - top, top] {
-            let x = xs[i];
-            let thumb = Rect::new(
-                x - THUMB_RADIUS,
-                cy - THUMB_RADIUS,
-                2.0 * THUMB_RADIUS,
-                2.0 * THUMB_RADIUS,
+            let held = if i == top { press } else { 0.0 };
+            thumb.paint(
+                scene,
+                Point::new(xs[i], cy),
+                SliderThumb {
+                    elevation: elevation_of(state.elevations, held, theme),
+                    on_top: overlap && i == top,
+                },
+                &paint,
             );
-            let held = if i == top { &status } else { &resting };
-            paint_thumb_shadow(thumb, state.elevations, held, theme, scene);
-            let (ring_width, ring) = if overlap && i == top {
-                (1.0, theme.scheme.surface.fade(o))
-            } else {
-                (0.0, Color::TRANSPARENT)
-            };
-            scene.draw_rect(thumb, palette.thumb.fade(o), THUMB_RADIUS, ring_width, ring);
         }
 
         // Both tooltips while the slider is moved, as the reference's does, the one on top
@@ -1685,14 +1713,14 @@ impl<Msg: Clone + 'static> Widget<Msg> for RangeSlider<Msg> {
             if reveal > 0.0 {
                 let (start, end) = state.held();
                 let values = [start, end];
+                let indicator = state.indicator(theme);
                 for i in [1 - top, top] {
-                    paint_rect_indicator(
+                    indicator.paint(
+                        scene,
                         Point::new(xs[i], cy),
                         label(values[i]),
-                        theme,
                         reveal,
-                        o,
-                        scene,
+                        &paint,
                     );
                 }
             }
@@ -1756,7 +1784,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for RangeSlider<Msg> {
 /// over an eight-pixel triangle whose point is fourteen above the thumb's centre `at`; grown
 /// from that point by `scale`. In the theme's indicator colour, else the scheme's
 /// `on_surface` at 60 % over its `surface` at 90 %.
-fn paint_rect_indicator(
+pub(crate) fn paint_rect_indicator(
     at: Point,
     text: String,
     theme: &Theme,

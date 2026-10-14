@@ -8,11 +8,22 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 653 so far, each documenting the objective, the alternatives
+> record — one per step, 654 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The slider's parts, replaceable** (J654). Five traits, one per part of a `Slider` and a
+  `RangeSlider`: `SliderTrackShape`, `SliderTickMarkShape`, `SliderThumbShape`,
+  `SliderOverlayShape` and `SliderValueIndicatorShape`. Each paints with a `SliderPaint`
+  (the theme, the resolved `SliderPalette`, enabled, discrete, opacity). The reference's
+  parts are the defaults and paint what the sliders always did: `RoundedRectSliderTrackShape`,
+  `RoundedRectRangeSliderTrackShape`, `RoundSliderTickMarkShape`, `RoundSliderThumbShape`,
+  `RoundSliderOverlayShape`, `DropSliderValueIndicatorShape` and
+  `RectangularSliderValueIndicatorShape`. `NoSliderShape` paints nothing. Both sliders take
+  `track_shape`, `tick_mark_shape`, `thumb_shape`, `overlay_shape` and
+  `value_indicator_shape`, and `SliderTheme` holds the reference's nine, the range slider's
+  apart, each a `SliderShape` compared by identity.
 - **`frus create`** (J653). A new crate, `frus-cli`, installs a program called `frus`:
   `cargo install frus-cli`, then `frus create my_app` writes an application for the desktops,
   Android and the web, with its CI and release workflows, ready for `cargo run`. Options:

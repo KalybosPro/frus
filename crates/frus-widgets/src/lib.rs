@@ -173,6 +173,7 @@ mod sheet;
 mod shortcuts;
 mod skeleton;
 mod slider;
+mod slidershape;
 mod spacer;
 mod spinner;
 mod stack;
@@ -426,6 +427,13 @@ pub use shortcuts::{
 };
 pub use skeleton::Skeleton;
 pub use slider::{RangeSlider, ShowValueIndicator, Slider, SliderInteraction};
+pub use slidershape::{
+    DropSliderValueIndicatorShape, NoSliderShape, RectangularSliderValueIndicatorShape,
+    RoundSliderOverlayShape, RoundSliderThumbShape, RoundSliderTickMarkShape,
+    RoundedRectRangeSliderTrackShape, RoundedRectSliderTrackShape, SliderOverlayShape, SliderPaint,
+    SliderPalette, SliderShape, SliderThumb, SliderThumbShape, SliderTickMarkShape,
+    SliderTrackShape, SliderValueIndicatorShape,
+};
 pub use spacer::Spacer;
 pub use spinner::CircularProgressIndicator;
 pub use stack::{Clip, IndexedStack, Stack, StackFit};
