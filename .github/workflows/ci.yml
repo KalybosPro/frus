@@ -93,22 +93,33 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      # The pinned packages are kept between runs, so that once one run has fetched them
-      # the job no longer needs snapshot.ubuntu.com at all: the snapshot is one server, and
-      # it is sometimes down (502, 503). The key names the mesa version; moving the pin
-      # moves the key. The packages are the ones the snapshot served, so a cached install
-      # is the same install.
+      # Only mesa is pinned. Everything else comes from the live archive, which is what
+      # the runner image was built from: pinning the whole archive to a snapshot asked for
+      # the snapshot's `libx11-dev`, whose exact `libx11-6` was older than the one the
+      # image already had, and apt could not satisfy both.
+      - name: Install the Vulkan loader and the windowing dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            vulkan-tools libvulkan-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev
+
+      # The pinned mesa is kept between runs, so that once one run has fetched it the job
+      # no longer needs snapshot.ubuntu.com at all: the snapshot is one server, and it is
+      # sometimes down (502, 503). The key names the mesa version; moving the pin moves the
+      # key. The packages are the ones the snapshot served, so a cached install is the same
+      # install.
       - name: Restore the pinned mesa packages
         id: mesa-cache
         uses: actions/cache@v4
         with:
           path: ~/mesa-debs
-          key: mesa-debs-25.2.8-0ubuntu0.24.04.2-${{ runner.os }}-noble-v1
+          key: mesa-debs-25.2.8-0ubuntu0.24.04.2-${{ runner.os }}-noble-v2
 
-      # From the cache, when there is one. It may still fail — the runner image moves,
-      # and a package it now lacks is not in the cache — in which case the snapshot path
-      # below runs as it always did.
-      - name: Install Vulkan (lavapipe) and windowing dependencies from the cache
+      # From the cache, when there is one. It may still fail — the runner image moves, and
+      # a dependency it no longer satisfies is not in the cache — in which case the
+      # snapshot path below runs.
+      - name: Install the pinned mesa from the cache
         id: mesa-cached
         if: steps.mesa-cache.outputs.cache-hit == 'true'
         continue-on-error: true
@@ -140,7 +151,7 @@ jobs:
       # failed fetch fails it: by default `apt-get update` only warns, and the job then
       # died later on "has no installation candidate", which says nothing about why.
       # What it downloads is kept for the cache above.
-      - name: Install Vulkan (lavapipe) and windowing dependencies from the snapshot
+      - name: Install the pinned mesa from the snapshot
         if: steps.mesa-cached.outcome != 'success'
         run: |
           for attempt in 1 2 3 4 5; do
@@ -155,9 +166,7 @@ jobs:
             sleep 30
           done
           sudo apt-get clean
-          sudo apt-get install -y --no-install-recommends \
-            mesa-vulkan-drivers vulkan-tools libvulkan-dev \
-            libxkbcommon-dev libwayland-dev libx11-dev
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
           mkdir -p ~/mesa-debs
           cp /var/cache/apt/archives/*.deb ~/mesa-debs/
 
