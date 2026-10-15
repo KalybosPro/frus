@@ -8,11 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 654 so far, each documenting the objective, the alternatives
+> record — one per step, 655 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The primary scroll view is always scrollable** (J655), as the reference's is. A
+  `ListView` or `GridView` given no physics takes `ScrollPhysics::ALWAYS` when it is the
+  page's primary scroll view: vertical, unless `primary(false)` says it is not, or any axis
+  when `primary(true)` says it is. `GridView` also takes `physics`. **Changed**: a vertical
+  list or grid with everything in sight now takes a vertical drag, bouncing or glowing at
+  its edge, and does not hand it to a scroll view around it; a list nested in a scrolling
+  page says `primary(false)` to let the page scroll through it.
 - **The slider's parts, replaceable** (J654). Five traits, one per part of a `Slider` and a
   `RangeSlider`: `SliderTrackShape`, `SliderTickMarkShape`, `SliderThumbShape`,
   `SliderOverlayShape` and `SliderValueIndicatorShape`. Each paints with a `SliderPaint`

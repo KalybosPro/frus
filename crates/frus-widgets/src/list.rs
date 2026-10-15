@@ -43,6 +43,8 @@ pub struct ListView<Msg = crate::callback::Callback> {
     sized: (bool, bool),
     flex_grow: f32,
     physics: Option<ScrollPhysics>,
+    /// Whether it is the page's primary scroll view; see [`ListView::primary`].
+    primary: Option<bool>,
     reverse: bool,
     /// Room around the items, inside the viewport; see [`ListView::padding`].
     padding: Insets,
@@ -74,6 +76,7 @@ impl<Msg> ListView<Msg> {
             sized: (false, false),
             flex_grow: 0.0,
             physics: None,
+            primary: None,
             reverse: false,
             padding: Insets::ZERO,
             on_scroll: None,
@@ -150,6 +153,18 @@ impl<Msg> ListView<Msg> {
     /// [`crate::scroll::SingleChildScrollView::physics`].
     pub fn physics(mut self, physics: ScrollPhysics) -> Self {
         self.physics = Some(physics);
+        self
+    }
+
+    /// **Whether this is the page's primary scroll view** — the reference's `primary`
+    /// (milestone 655). A primary view is always scrollable unless [`physics`](Self::physics)
+    /// says otherwise: a drag moves it, and bounces or glows at its edge, even when everything
+    /// is in sight, so a page that fits still answers the finger as a page.
+    ///
+    /// Unset, a vertical list is primary and a horizontal one is not, as the reference's
+    /// scroll views are when they are given no controller.
+    pub fn primary(mut self, primary: bool) -> Self {
+        self.primary = Some(primary);
         self
     }
 
@@ -255,7 +270,11 @@ impl<Msg> Widget<Msg> for ListView<Msg> {
     }
 
     fn scroll_physics(&self) -> Option<ScrollPhysics> {
-        self.physics
+        self.physics.or_else(|| {
+            self.primary
+                .unwrap_or(self.axis == Axis::Vertical)
+                .then_some(ScrollPhysics::ALWAYS)
+        })
     }
 
     fn scroll_reverse(&self) -> bool {
@@ -771,5 +790,84 @@ mod across_tests {
         assert_eq!(rows[0].y, 0.0);
         assert_eq!(rows[1].y, 50.0, "the second is below, not beside");
         assert_eq!(rows[0].width, 200.0, "and the width is handed over whole");
+    }
+}
+
+/// The page's primary scroll view (milestone 655).
+#[cfg(test)]
+mod primary_tests {
+    use super::*;
+    use crate::physics::UserScroll;
+    use crate::{build_ui, Runtime, Size, Theme};
+
+    /// Three rows of 20 in a list 200 tall: everything is in sight.
+    fn short() -> ListView<()> {
+        ListView::new(3, 20.0, |_| crate::Container::<()>::new().height(20.0))
+            .width(200.0)
+            .height(200.0)
+    }
+
+    /// The area the list registers, laid out alone in a box of 200.
+    fn area(list: &ListView<()>) -> crate::ui::Scrollable {
+        let ui = build_ui(
+            list,
+            Size::new(200.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        ui.scroll_regions()[0]
+    }
+
+    /// **A vertical list is the page's scroll view**, as the reference's is without a
+    /// controller: a drag moves it with everything in sight. A horizontal one is not.
+    #[test]
+    fn a_vertical_list_is_always_scrollable() {
+        assert_eq!(
+            Widget::<()>::scroll_physics(&short()),
+            Some(ScrollPhysics::ALWAYS)
+        );
+        let page = area(&short());
+        assert_eq!(page.physics.user(), UserScroll::Always);
+        assert!(
+            page.takes_user_scroll(true),
+            "a drag along it, with nothing to scroll"
+        );
+        assert!(!page.takes_user_scroll(false), "not across it");
+
+        let across = short().axis(Axis::Horizontal);
+        assert_eq!(Widget::<()>::scroll_physics(&across), None);
+        assert!(
+            !area(&across).takes_user_scroll(false),
+            "a short row takes no drag"
+        );
+    }
+
+    /// **`primary` says otherwise either way**, and physics given are kept as given.
+    #[test]
+    fn primary_and_physics_say_otherwise() {
+        let quiet = short().primary(false);
+        assert_eq!(Widget::<()>::scroll_physics(&quiet), None);
+        assert!(!area(&quiet).takes_user_scroll(true));
+
+        let row = short().axis(Axis::Horizontal).primary(true);
+        assert_eq!(
+            Widget::<()>::scroll_physics(&row),
+            Some(ScrollPhysics::ALWAYS)
+        );
+
+        let clamped = short().physics(ScrollPhysics::CLAMPING);
+        assert_eq!(
+            Widget::<()>::scroll_physics(&clamped),
+            Some(ScrollPhysics::CLAMPING)
+        );
+        assert!(
+            !area(&clamped).takes_user_scroll(true),
+            "the physics given decide"
+        );
+        let never = short().primary(true).physics(ScrollPhysics::NEVER);
+        assert_eq!(
+            Widget::<()>::scroll_physics(&never),
+            Some(ScrollPhysics::NEVER)
+        );
     }
 }
