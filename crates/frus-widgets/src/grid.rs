@@ -80,6 +80,10 @@ pub struct GridView<Msg = crate::callback::Callback> {
     /// The `row → widget` closure a windowed grid hands the list machinery, composed on
     /// first use for the same reason as `composed` above.
     rows: OnceCell<RowAt<Msg>>,
+    /// How it behaves at its edges and after a fling; see [`GridView::physics`].
+    physics: Option<crate::physics::ScrollPhysics>,
+    /// Whether it is the page's primary scroll view; see [`GridView::primary`].
+    primary: Option<bool>,
     /// Told where this grid is whenever it moves; see [`GridView::on_scroll`].
     on_scroll: Option<Box<dyn Fn(crate::ScrollPosition) -> Msg>>,
     /// How far it must move before it says so again; see [`GridView::notify_every`].
@@ -102,6 +106,8 @@ impl<Msg> GridView<Msg> {
             cells: Cells::Given(Vec::new()),
             composed: OnceCell::new(),
             rows: OnceCell::new(),
+            physics: None,
+            primary: None,
             on_scroll: None,
             grain: 0.0,
         }
@@ -156,6 +162,8 @@ impl<Msg> GridView<Msg> {
             },
             composed: OnceCell::new(),
             rows: OnceCell::new(),
+            physics: None,
+            primary: None,
             on_scroll: None,
             grain: 0.0,
         }
@@ -215,6 +223,8 @@ impl<Msg> GridView<Msg> {
             },
             composed: OnceCell::new(),
             rows: OnceCell::new(),
+            physics: None,
+            primary: None,
             on_scroll: None,
             grain: 0.0,
         }
@@ -290,6 +300,25 @@ impl<Msg> GridView<Msg> {
     /// Flex growth factor along the parent's main axis.
     pub fn flex(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
+        self
+    }
+
+    /// Overrides how the grid behaves at its edges and after a fling (milestone 655); see
+    /// [`crate::scroll::SingleChildScrollView::physics`].
+    pub fn physics(mut self, physics: crate::physics::ScrollPhysics) -> Self {
+        self.physics = Some(physics);
+        self
+    }
+
+    /// **Whether this is the page's primary scroll view** — the reference's `primary`
+    /// (milestone 655). A primary view is always scrollable unless [`physics`](Self::physics)
+    /// says otherwise: a drag moves it, and bounces or glows at its edge, even when everything
+    /// is in sight, so a page that fits still answers the finger as a page.
+    ///
+    /// Unset, it is, as the reference's vertical scroll views are when they are given no
+    /// controller.
+    pub fn primary(mut self, primary: bool) -> Self {
+        self.primary = Some(primary);
         self
     }
 
@@ -457,7 +486,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for GridView<Msg> {
     }
 
     fn scroll_physics(&self) -> Option<crate::physics::ScrollPhysics> {
-        None
+        self.physics.or_else(|| {
+            self.primary
+                .unwrap_or(true)
+                .then_some(crate::physics::ScrollPhysics::ALWAYS)
+        })
     }
 
     fn on_scroll(&self, position: crate::ScrollPosition) -> Option<Msg> {
@@ -1004,6 +1037,33 @@ mod windowed_tests {
             asked.borrow()[0],
             6,
             "and the rows before it were never built"
+        );
+    }
+}
+
+/// The page's primary scroll view (milestone 655).
+#[cfg(test)]
+mod primary_tests {
+    use super::*;
+    use crate::physics::ScrollPhysics;
+
+    /// **A grid is the page's scroll view** unless told otherwise, as the reference's
+    /// vertical grids are; physics given are kept, and `physics` is new to it.
+    #[test]
+    fn a_grid_is_always_scrollable_unless_told() {
+        let grid = || GridView::<()>::new(2).width(220.0);
+        assert_eq!(
+            Widget::<()>::scroll_physics(&grid()),
+            Some(ScrollPhysics::ALWAYS)
+        );
+        assert_eq!(Widget::<()>::scroll_physics(&grid().primary(false)), None);
+        assert_eq!(
+            Widget::<()>::scroll_physics(&grid().physics(ScrollPhysics::BOUNCING)),
+            Some(ScrollPhysics::BOUNCING)
+        );
+        assert_eq!(
+            Widget::<()>::scroll_physics(&grid().primary(false).physics(ScrollPhysics::NEVER)),
+            Some(ScrollPhysics::NEVER)
         );
     }
 }
