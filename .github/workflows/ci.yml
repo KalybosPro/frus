@@ -93,12 +93,48 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
+      # Only mesa is pinned. Everything else comes from the live archive, which is what
+      # the runner image was built from: pinning the whole archive to a snapshot asked for
+      # the snapshot's `libx11-dev`, whose exact `libx11-6` was older than the one the
+      # image already had, and apt could not satisfy both.
+      - name: Install the Vulkan loader and the windowing dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            vulkan-tools libvulkan-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev
+
+      # The pinned mesa is kept between runs, so that once one run has fetched it the job
+      # no longer needs snapshot.ubuntu.com at all: the snapshot is one server, and it is
+      # sometimes down (502, 503). The key names the mesa version; moving the pin moves the
+      # key. The packages are the ones the snapshot served, so a cached install is the same
+      # install.
+      - name: Restore the pinned mesa packages
+        id: mesa-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/mesa-debs
+          key: mesa-debs-25.2.8-0ubuntu0.24.04.2-${{ runner.os }}-noble-v2
+
+      # From the cache, when there is one. It may still fail — the runner image moves, and
+      # a dependency it no longer satisfies is not in the cache — in which case the
+      # snapshot path below runs.
+      - name: Install the pinned mesa from the cache
+        id: mesa-cached
+        if: steps.mesa-cache.outputs.cache-hit == 'true'
+        continue-on-error: true
+        # `--no-download`: a package the cache lacks fails this step rather than coming from
+        # the live archive — lavapipe draws with the llvm it brings, so a dependency drifting
+        # is the same as mesa drifting.
+        run: sudo apt-get install -y --no-install-recommends --no-download ~/mesa-debs/*.deb
+
       # Pin apt to a frozen snapshot instead of the live archive, so the mesa
       # version installed below cannot drift out from under the goldens the way
       # `ubuntu-latest` + the live archive did (see the block comment above).
       # `Check-Valid-Until` is off because a snapshot's Release file is, by
       # definition, always in the past.
       - name: Pin apt to the snapshot mesa 25.2.8-0ubuntu0.24.04.2 was published in
+        if: steps.mesa-cached.outcome != 'success'
         run: |
           echo 'Acquire::Check-Valid-Until "false";' | sudo tee /etc/apt/apt.conf.d/99snapshot
           echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/99retries
@@ -110,12 +146,13 @@ jobs:
           Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
           EOF
 
-      # The snapshot is one server, and it is sometimes down (503 Service Unavailable).
       # Falling back to the live archive would install a different mesa and move the
       # goldens, which is what the pin is for, so the update is retried instead, and a
       # failed fetch fails it: by default `apt-get update` only warns, and the job then
       # died later on "has no installation candidate", which says nothing about why.
-      - name: Install Vulkan (lavapipe) and windowing dependencies
+      # What it downloads is kept for the cache above.
+      - name: Install the pinned mesa from the snapshot
+        if: steps.mesa-cached.outcome != 'success'
         run: |
           for attempt in 1 2 3 4 5; do
             if sudo apt-get update --error-on=any; then
@@ -128,10 +165,21 @@ jobs:
             echo "apt-get update failed (attempt $attempt); retrying in 30 s"
             sleep 30
           done
-          sudo apt-get install -y --no-install-recommends \
-            mesa-vulkan-drivers vulkan-tools libvulkan-dev \
-            libxkbcommon-dev libwayland-dev libx11-dev
-          dpkg-query -W -f '${Package} ${Version}\n' mesa-vulkan-drivers
+          sudo apt-get clean
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+          mkdir -p ~/mesa-debs
+          cp /var/cache/apt/archives/*.deb ~/mesa-debs/
+
+      # Whichever way it came, it is the pinned mesa or the job stops here: a cache that
+      # held anything else must not get as far as the goldens.
+      - name: Check the pinned mesa is the one installed
+        run: |
+          installed=$(dpkg-query -W -f '${Version}' mesa-vulkan-drivers)
+          echo "mesa-vulkan-drivers $installed"
+          if [ "$installed" != "25.2.8-0ubuntu0.24.04.2" ]; then
+            echo "::error::mesa-vulkan-drivers is $installed, not the pinned 25.2.8-0ubuntu0.24.04.2."
+            exit 1
+          fi
           vulkaninfo --summary || true
 
       - name: Test (GPU, everything but the goldens — required)

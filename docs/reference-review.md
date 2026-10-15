@@ -125,9 +125,9 @@ Status: **done** (milestone), **to review**.
 
 | frus | reference | source | status |
 |---|---|---|---|
-| `ListView` | `ListView` | `widgets/scroll_view.dart` | to review |
-| `ScrollPhysics` | `ScrollPhysics`, `NeverScrollableScrollPhysics`, `AlwaysScrollableScrollPhysics`, `BouncingScrollPhysics`, `ClampingScrollPhysics` | `widgets/scroll_physics.dart` | **in progress**: never and always scrollable, laid over the platform's as `applyTo` does (J649); not followed: a vertical scroll view with no controller is always scrollable by default in the reference |
-| `GridView` | `GridView` | `widgets/scroll_view.dart` | to review |
+| `ListView` | `ListView` | `widgets/scroll_view.dart` | to review; done: `primary` and its physics default (J655) |
+| `ScrollPhysics` | `ScrollPhysics`, `NeverScrollableScrollPhysics`, `AlwaysScrollableScrollPhysics`, `BouncingScrollPhysics`, `ClampingScrollPhysics` | `widgets/scroll_physics.dart` | **in progress**: never and always scrollable, laid over the platform's as `applyTo` does (J649); and the primary scroll view always scrollable by default (J655) |
+| `GridView` | `GridView` | `widgets/scroll_view.dart` | to review; done: `physics`, `primary` and its physics default (J655) |
 | `PageView` | `PageView` | `widgets/page_view.dart` | to review |
 | `SingleChildScrollView` | `SingleChildScrollView` | `widgets/single_child_scroll_view.dart` | to review |
 | `ListWheel` | `ListWheelScrollView` | `widgets/list_wheel_scroll_view.dart` | to review |
