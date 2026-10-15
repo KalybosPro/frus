@@ -8,11 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 654 so far, each documenting the objective, the alternatives
+> record — one per step, 656 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The text field's decoration, against the reference** (J656).
+  `TextField::floating_label_behavior` (`FloatingLabelBehavior::Auto`, `Always` — floated
+  over an empty field, its hint showing — or `Never`) and `floating_label_alignment`
+  (`FloatingLabelAlignment::Start` or `Center`), both also in `TextFieldTheme`;
+  `prefix_text` and `suffix_text`, either side of the value in the hint's colour, shown as
+  the label floats; `icon`, outside the box, which the box, its label and the line under it
+  start after; and `counter_text`, said instead of the count, an empty one hiding it. The
+  outer icon and the affixes move the value, and a click is measured from where it is drawn.
 - **The slider's parts, replaceable** (J654). Five traits, one per part of a `Slider` and a
   `RangeSlider`: `SliderTrackShape`, `SliderTickMarkShape`, `SliderThumbShape`,
   `SliderOverlayShape` and `SliderValueIndicatorShape`. Each paints with a `SliderPaint`

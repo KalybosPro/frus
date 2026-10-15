@@ -104,6 +104,51 @@ fn decorated_form_matches_golden() {
     snapshot.assert_golden(golden("decorated_form"));
 }
 
+/// **A field's decoration (milestone 656)**: an icon outside the box, a prefix and a suffix
+/// either side of the value, a label that always floats over an empty field (its hint
+/// showing), a centred one, and a counter told what to say.
+#[test]
+fn field_decoration_matches_golden() {
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(20.0)
+            .child(
+                TextField::<()>::new("120")
+                    .width(300.0)
+                    .label("Weight")
+                    .icon(Icons::STAR)
+                    .prefix_text("~")
+                    .suffix_text("kg")
+                    .max_length(5)
+                    .counter_text("optional"),
+            )
+            .child(
+                TextField::<()>::new("")
+                    .width(300.0)
+                    .label("Email")
+                    .placeholder("you@example.com")
+                    .floating_label_behavior(frus_widgets::FloatingLabelBehavior::Always),
+            )
+            .child(
+                TextField::<()>::new("Ada")
+                    .width(300.0)
+                    .filled()
+                    .label("Name")
+                    .floating_label_alignment(frus_widgets::FloatingLabelAlignment::Center),
+            ),
+    );
+    let Some(snapshot) = render_widget(&root, 360, 290, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "the icon, borders, labels, affixes and text are drawn"
+    );
+    snapshot.assert_golden(golden("field_decoration"));
+}
+
 /// **An outlined field (milestone 144)**: the `outlined` style, where the floating
 /// label sits on the top border, which opens a **notch** behind it. The first field is
 /// filled — label raised, notch open — and the second empty: label at rest, no notch.
