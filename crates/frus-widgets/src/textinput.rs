@@ -75,6 +75,32 @@ pub const FIELD_DISABLED_OPACITY: f32 = DISABLED_CONTENT_OPACITY;
 /// Default masking character of a password field.
 const OBSCURE_CHAR: char = '•';
 
+/// When a field's label floats above the value (milestone 656) — the reference's
+/// `FloatingLabelBehavior`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum FloatingLabelBehavior {
+    /// Inside the field, in the value's place, while it is empty and unfocused; floated
+    /// once it is focused or holds something. The default.
+    #[default]
+    Auto,
+    /// Always floated, so the hint shows in an empty field even before it is focused.
+    Always,
+    /// Never floated: inside an empty field, in the value's place, and gone once it holds
+    /// something — a hint that a screen reader still reads as the field's name.
+    Never,
+}
+
+/// Where a field's floated label sits along its top (milestone 656) — the reference's
+/// `FloatingLabelAlignment`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum FloatingLabelAlignment {
+    /// At the start, over the value. The default.
+    #[default]
+    Start,
+    /// Centred along the field.
+    Center,
+}
+
 /// Which of the reference's two fields this is.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum TextFieldVariant {
@@ -177,8 +203,20 @@ pub struct TextField<Msg = crate::callback::Callback> {
     keyboard: Option<KeyboardType>,
     /// What its action key does; `None` = likewise.
     action: Option<TextInputAction>,
+    /// An icon **outside** the box, before it; see [`TextField::icon`].
+    icon: Option<IconData>,
     /// Decorative icon on the left inside the box.
     prefix: Option<IconData>,
+    /// Text just before the value; see [`TextField::prefix_text`].
+    prefix_text: Option<String>,
+    /// Text just after the value; see [`TextField::suffix_text`].
+    suffix_text: Option<String>,
+    /// When the label floats; see [`TextField::floating_label_behavior`].
+    floating: Option<FloatingLabelBehavior>,
+    /// Where it floats to; see [`TextField::floating_label_alignment`].
+    floating_alignment: Option<FloatingLabelAlignment>,
+    /// What the counter says instead of the count; see [`TextField::counter_text`].
+    counter_text: Option<String>,
     /// Decorative icon on the right inside the box.
     suffix: Option<IconData>,
     /// Message emitted on a **click on the suffix icon** (a clear / reveal button…). Makes
@@ -530,7 +568,13 @@ impl<Msg> TextField<Msg> {
             text_align: TextAlign::Start,
             keyboard: None,
             action: None,
+            icon: None,
             prefix: None,
+            prefix_text: None,
+            suffix_text: None,
+            floating: None,
+            floating_alignment: None,
+            counter_text: None,
             suffix: None,
             suffix_action: None,
             multiline: false,
@@ -921,6 +965,52 @@ impl<Msg> TextField<Msg> {
         self
     }
 
+    /// An icon **outside** the field, before its box — the reference's `icon`: the box, its
+    /// label and the line under it all start after it. It is 24 pixels (18 dense) with 16
+    /// before the box, in the icon colour.
+    pub fn icon(mut self, icon: IconData) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// Text **just before the value**, in the hint's style — a currency sign, a country
+    /// code, `https://` — the reference's `prefixText`. Its room is kept whether it shows or
+    /// not, and it shows while the label is floated: once the field is focused or holds
+    /// something, at once if the label always floats.
+    pub fn prefix_text(mut self, text: impl Into<String>) -> Self {
+        self.prefix_text = Some(text.into());
+        self
+    }
+
+    /// Text **just after the value**, in the hint's style — a unit, a domain — the
+    /// reference's `suffixText`. Shown as [`prefix_text`](Self::prefix_text) is.
+    pub fn suffix_text(mut self, text: impl Into<String>) -> Self {
+        self.suffix_text = Some(text.into());
+        self
+    }
+
+    /// When the label floats above the value. Unset, the theme's, then
+    /// [`FloatingLabelBehavior::Auto`].
+    pub fn floating_label_behavior(mut self, behavior: FloatingLabelBehavior) -> Self {
+        self.floating = Some(behavior);
+        self
+    }
+
+    /// Where the floated label sits along the field's top. Unset, the theme's, then
+    /// [`FloatingLabelAlignment::Start`].
+    pub fn floating_label_alignment(mut self, alignment: FloatingLabelAlignment) -> Self {
+        self.floating_alignment = Some(alignment);
+        self
+    }
+
+    /// What the counter under the field says, in place of the count a
+    /// [`max_length`](Self::max_length) puts there — the reference's `counterText`. An empty
+    /// text hides the counter, limit or not.
+    pub fn counter_text(mut self, text: impl Into<String>) -> Self {
+        self.counter_text = Some(text.into());
+        self
+    }
+
     /// Makes the **suffix icon clickable**: a click on it emits `message` (a clear button,
     /// a reveal-password button…) instead of placing the caret. Implies a suffix icon
     /// (to be set through [`suffix_icon`](Self::suffix_icon)).
@@ -1154,7 +1244,7 @@ impl<Msg> TextField<Msg> {
     }
 
     /// Width reserved for the prefix icon (0 if there is none).
-    fn prefix_w(&self) -> f32 {
+    fn prefix_icon_w(&self) -> f32 {
         if self.prefix.is_some() {
             self.icon_size() + ICON_PAD
         } else {
@@ -1163,11 +1253,69 @@ impl<Msg> TextField<Msg> {
     }
 
     /// Width reserved for the suffix icon (0 if there is none).
-    fn suffix_w(&self) -> f32 {
+    fn suffix_icon_w(&self) -> f32 {
         if self.suffix.is_some() {
             self.icon_size() + ICON_PAD
         } else {
             0.0
+        }
+    }
+
+    /// The width of an affix text, in the value's style.
+    fn affix_w(&self, text: &Option<String>) -> f32 {
+        text.as_ref().map_or(0.0, |text| {
+            frus_text::measure_resolved(text, &self.text_style()).width
+        })
+    }
+
+    /// Width reserved before the value inside the box: the prefix icon and the prefix text.
+    fn prefix_w(&self) -> f32 {
+        self.prefix_icon_w() + self.affix_w(&self.prefix_text)
+    }
+
+    /// Width reserved after the value inside the box: the suffix text and the suffix icon.
+    fn suffix_w(&self) -> f32 {
+        self.suffix_icon_w() + self.affix_w(&self.suffix_text)
+    }
+
+    /// The side of the icon outside the box: the reference's 24, 18 dense.
+    fn outer_icon_size(&self) -> f32 {
+        if self.dense {
+            18.0
+        } else {
+            24.0
+        }
+    }
+
+    /// The room before the box, for the icon outside it: its side and 16 more.
+    fn gutter(&self) -> f32 {
+        if self.icon.is_some() {
+            self.outer_icon_size() + 16.0
+        } else {
+            0.0
+        }
+    }
+
+    /// Where the value starts, from the widget's left edge: the room for the outer icon,
+    /// the padding, the prefix icon and the prefix text.
+    fn lead(&self) -> f32 {
+        self.gutter() + self.pad_x() + self.prefix_w()
+    }
+
+    /// When the label floats, the field's own word over the theme's.
+    fn floating_behavior(&self, theme: &Theme) -> FloatingLabelBehavior {
+        self.floating
+            .or(theme.widgets.text_field.floating_label_behavior)
+            .unwrap_or_default()
+    }
+
+    /// How far the label has floated, `0..=1`, for a focus at `fp`.
+    fn float_progress(&self, fp: f32, theme: &Theme) -> f32 {
+        match self.floating_behavior(theme) {
+            FloatingLabelBehavior::Always => 1.0,
+            FloatingLabelBehavior::Never => 0.0,
+            FloatingLabelBehavior::Auto if self.value.is_empty() => fp,
+            FloatingLabelBehavior::Auto => 1.0,
         }
     }
 
@@ -1189,7 +1337,7 @@ impl<Msg> TextField<Msg> {
         } else {
             0.0
         };
-        let origin_x = self.pad_x() + self.prefix_w() + align - scroll;
+        let origin_x = self.lead() + align - scroll;
         let origin_y = self.label_block() + self.text_top() - vscroll;
         (layout, origin_x, origin_y)
     }
@@ -1238,8 +1386,9 @@ impl<Msg> TextField<Msg> {
         items
     }
 
+    /// The value's width, between the paddings and the affixes, in a widget `width` wide.
     fn content_width(&self, width: f32) -> f32 {
-        (width - (self.pad_x() + self.prefix_w()) - self.pad_x() - self.suffix_w()).max(0.0)
+        (width - self.lead() - self.pad_x() - self.suffix_w()).max(0.0)
     }
 
     /// Height reserved for the label above the box (0 if there is no label). In
@@ -1259,13 +1408,18 @@ impl<Msg> TextField<Msg> {
 
     /// The counter shown at the end of the line below the box, when there is a limit.
     fn counter(&self) -> Option<String> {
-        self.max_length
-            .map(|max| format!("{}/{}", self.value.chars().count(), max))
+        match &self.counter_text {
+            Some(text) if text.is_empty() => None,
+            Some(text) => Some(text.clone()),
+            None => self
+                .max_length
+                .map(|max| format!("{}/{}", self.value.chars().count(), max)),
+        }
     }
 
     /// Height reserved for the helper/error line below the box (0 if there is none).
     fn sub_block(&self) -> f32 {
-        if self.error.is_some() || self.helper.is_some() || self.max_length.is_some() {
+        if self.error.is_some() || self.helper.is_some() || self.counter().is_some() {
             // The helper style's **own** line, not one recomputed from its size: another
             // of milestone 412's survivors, written against a bare constant rather than a
             // style, which is the one formulation that sweep could not find.
@@ -1357,25 +1511,48 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
         // Decoration: label above, input box in the middle, helper/error below. The
         // box is the sub-rectangle where all the editing lives.
         let label_block = self.label_block();
+        let gutter = self.gutter();
         let field = Rect::new(
-            bounds.x,
+            bounds.x + gutter,
             bounds.y + label_block,
-            bounds.width,
+            (bounds.width - gutter).max(0.0),
             self.field_height(),
         );
+        // The icon outside the box, centred on it.
+        if let Some(icon) = self.icon {
+            let side = self.outer_icon_size();
+            let path = icon.placed(
+                side,
+                bounds.x,
+                field.y + (field.height - side) * 0.5,
+                theme.direction,
+            );
+            scene.fill_path(&path, s.icon_color.unwrap().fade(o));
+        }
 
         // **Floating** label: at rest (an empty, unfocused field) it occupies the box,
         // in the hint's place; focused OR filled, it floats above, shrunk. The
         // position/size progress follows that "floating" (`t`); the **colour** follows
         // the focus (`fp`) — a filled but unfocused field keeps a discreet label, not
         // yet accented.
-        let float_t = if self.value.is_empty() { fp } else { 1.0 };
-        let content_left = field.x + self.pad_x() + self.prefix_w();
+        let float_t = self.float_progress(fp, theme);
+        // A label that never floats is a hint: gone once the field holds something.
+        let label_shown = !(self.floating_behavior(theme) == FloatingLabelBehavior::Never
+            && !self.value.is_empty());
+        let content_left = bounds.x + self.lead();
+        // The label at rest sits where the value starts, after the prefix icon; the prefix
+        // text, hidden while it rests, is no part of it.
+        let label_rest = field.x + self.pad_x() + self.prefix_icon_w();
+        let centred = self
+            .floating_alignment
+            .or(theme.widgets.text_field.floating_label_alignment)
+            .unwrap_or_default()
+            == FloatingLabelAlignment::Center;
         // Geometry of the floating label, interpolated between **rest** (inside the box,
         // in the hint's place) and the **floated target**. That target differs with the
         // style: `outlined` → on the top border (with a notch); otherwise → a reserved band.
-        let label_geom = self.label.as_ref().map(|label| {
-            let rest = Point::new(content_left, field.y + self.text_top());
+        let label_geom = self.label.as_ref().filter(|_| label_shown).map(|label| {
+            let rest = Point::new(label_rest, field.y + self.text_top());
             let (fx, fy) = if self.is_outlined() {
                 // On the top border, which the notch opens behind it.
                 (
@@ -1385,7 +1562,18 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
             } else {
                 // Inside the container, in the room reserved above the content — a filled
                 // field never spills outside its own box.
-                (content_left, field.y + self.pad_top())
+                (label_rest, field.y + self.pad_top())
+            };
+            // Centred, the floated label is centred on the box, at its floated size.
+            let fx = if centred {
+                let floated = frus_text::measure_resolved(
+                    label,
+                    &ResolvedTextStyle::exact(self.label_size()),
+                )
+                .width;
+                field.x + (field.width - floated) * 0.5
+            } else {
+                fx
             };
             let x = rest.x + (fx - rest.x) * float_t;
             let y = rest.y + (fy - rest.y) * float_t;
@@ -1413,7 +1601,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
                 s.helper_color.unwrap()
             };
             scene.text(
-                Point::new(bounds.x, field.y + field.height + FIELD_GAP),
+                Point::new(field.x, field.y + field.height + FIELD_GAP),
                 sub.clone(),
                 &self.sub_style(),
                 color.fade(o),
@@ -1562,9 +1750,8 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
 
         let len = self.value.chars().count();
         // The content is inset between the prefix/suffix icons, where there are any.
-        let left = self.pad_x() + self.prefix_w();
-        let content_x = field.x + left;
-        let content_w = self.content_width(field.width);
+        let content_x = content_left;
+        let content_w = self.content_width(bounds.width);
         let text_y = field.y + self.text_top();
         // Multi-line: the text **wraps** at the content width — the same `max_width` for
         // the measure (caret/hit) and for the render → identical wraps.
@@ -1584,7 +1771,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
         // otherwise the two would overlap inside the box.
         if self.value.is_empty() {
             if let Some(placeholder) = &self.placeholder {
-                let ph_alpha = if self.label.is_some() { o * fp } else { o };
+                let ph_alpha = if self.label.is_some() { o * float_t } else { o };
                 if ph_alpha > 0.01 {
                     // The placeholder sits where the text will: a centred field whose
                     // hint hugs the left edge jumps the moment the first key lands.
@@ -1598,6 +1785,42 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
                         theme.muted.fade(ph_alpha),
                     );
                 }
+            }
+        }
+
+        // The affixes, in the hint's colour, shown as the label floats — or, with no label,
+        // once the field is focused or holds something (`input_decorator.dart:1830`).
+        let affix_alpha = if self.label.is_some() {
+            float_t
+        } else if self.value.is_empty() {
+            match self.floating_behavior(theme) {
+                FloatingLabelBehavior::Always => 1.0,
+                _ => fp,
+            }
+        } else {
+            1.0
+        } * o;
+        if affix_alpha > 0.01 {
+            let style = self.text_style();
+            if let Some(prefix) = &self.prefix_text {
+                scene.text(
+                    Point::new(field.x + self.pad_x() + self.prefix_icon_w(), text_y),
+                    prefix.clone(),
+                    &style,
+                    theme.muted.fade(affix_alpha),
+                );
+            }
+            if let Some(suffix) = &self.suffix_text {
+                let w = self.affix_w(&self.suffix_text);
+                scene.text(
+                    Point::new(
+                        field.x + field.width - self.pad_x() - self.suffix_icon_w() - w,
+                        text_y,
+                    ),
+                    suffix.clone(),
+                    &style,
+                    theme.muted.fade(affix_alpha),
+                );
             }
         }
 
@@ -1891,7 +2114,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
         // Rebuilds the same content geometry as the render (icon and decoration insets,
         // wrapping, horizontal scroll), for an exact click. The **retained vertical
         // scroll** is already folded into `local_y` by the shell.
-        let left = self.pad_x() + self.prefix_w();
+        let left = self.lead();
         let content_w = self.content_width(width);
         let layout = self.layout(if self.multiline {
             Some(content_w)
@@ -4049,5 +4272,267 @@ mod limit_tests {
         let dead = field("REF-4417").enabled(false);
         assert!(!Widget::<Msg>::focusable(&dead));
         assert!(Widget::<Msg>::cursor_at(&dead, 20.0, 10.0, 200.0, 0).is_none());
+    }
+}
+
+/// The field's decoration, against the reference's (milestone 656).
+#[cfg(test)]
+mod decoration_tests {
+    use super::*;
+    use crate::Icons;
+
+    const W: f32 = 300.0;
+
+    /// Every text a field paints: what, where, in what colour.
+    fn texts(field: &TextField<()>, status: Status) -> Vec<(String, Point, Color)> {
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            field,
+            Rect::new(0.0, 0.0, W, 80.0),
+            status,
+            &Theme::default(),
+            &mut scene,
+        );
+        scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Text {
+                    text,
+                    position,
+                    color,
+                    ..
+                } => Some((text.clone(), *position, *color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn find(texts: &[(String, Point, Color)], what: &str) -> Option<(Point, Color)> {
+        texts
+            .iter()
+            .find(|(text, ..)| text == what)
+            .map(|(_, at, color)| (*at, *color))
+    }
+
+    fn focused() -> Status {
+        Status {
+            focused: true,
+            focus_progress: 1.0,
+            ..Default::default()
+        }
+    }
+
+    /// **The label's three behaviours**: auto rests inside an empty field and floats once
+    /// it holds something; always floats at once, so the hint shows; never rests inside an
+    /// empty field and is gone once it holds something.
+    #[test]
+    fn the_label_floats_as_it_is_told() {
+        let label_y =
+            |field: &TextField<()>, status| find(&texts(field, status), "Name").map(|(at, _)| at.y);
+        let auto = TextField::<()>::new("").label("Name");
+        let rest = label_y(&auto, Status::default()).unwrap();
+        let floated = label_y(&TextField::new("Ada").label("Name"), Status::default()).unwrap();
+        assert!(
+            floated < rest,
+            "auto floats once filled: {floated} < {rest}"
+        );
+
+        let always = TextField::<()>::new("")
+            .label("Name")
+            .placeholder("e.g. Ada")
+            .floating_label_behavior(FloatingLabelBehavior::Always);
+        let shown = texts(&always, Status::default());
+        assert_eq!(
+            find(&shown, "Name").unwrap().0.y,
+            floated,
+            "floated at rest"
+        );
+        assert!(find(&shown, "e.g. Ada").is_some(), "and the hint shows");
+
+        let never = |value: &str| {
+            TextField::<()>::new(value)
+                .label("Name")
+                .placeholder("e.g. Ada")
+                .floating_label_behavior(FloatingLabelBehavior::Never)
+        };
+        assert_eq!(
+            label_y(&never(""), focused()),
+            Some(rest),
+            "inside, even focused"
+        );
+        assert!(
+            find(&texts(&never(""), focused()), "e.g. Ada").is_none(),
+            "no hint"
+        );
+        assert_eq!(
+            label_y(&never("Ada"), Status::default()),
+            None,
+            "gone once filled"
+        );
+
+        let mut theme = Theme::default();
+        theme.widgets.text_field.floating_label_behavior = Some(FloatingLabelBehavior::Always);
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            &TextField::<()>::new("").label("Name"),
+            Rect::new(0.0, 0.0, W, 80.0),
+            Status::default(),
+            &theme,
+            &mut scene,
+        );
+        let themed = scene.primitives().iter().find_map(|p| match p {
+            frus_core::Primitive::Text { text, position, .. } if text == "Name" => Some(position.y),
+            _ => None,
+        });
+        assert_eq!(themed, Some(floated), "the theme's word");
+    }
+
+    /// **A centred label floats to the middle** of the box, and rests at the start.
+    #[test]
+    fn a_centred_label_floats_to_the_middle() {
+        let x = |value: &str| {
+            let field = TextField::<()>::new(value)
+                .label("Name")
+                .floating_label_alignment(FloatingLabelAlignment::Center);
+            find(&texts(&field, Status::default()), "Name").unwrap().0.x
+        };
+        let width = frus_text::measure_resolved(
+            "Name",
+            &ResolvedTextStyle::exact(FIELD_TEXT_SIZE * FIELD_LABEL_SCALE),
+        )
+        .width;
+        assert!(((x("Ada") + width / 2.0) - W / 2.0).abs() < 0.5, "centred");
+        let rest = find(
+            &texts(&TextField::<()>::new("").label("Name"), Status::default()),
+            "Name",
+        )
+        .unwrap()
+        .0
+        .x;
+        assert_eq!(x(""), rest, "at rest, where the value starts");
+    }
+
+    /// **The affixes sit either side of the value**, in the hint's colour, and the value and
+    /// the caret move over for the prefix. They show once the label floats.
+    #[test]
+    fn the_affixes_sit_either_side_of_the_value() {
+        let theme = Theme::default();
+        let plain = TextField::<()>::new("42");
+        let priced = TextField::<()>::new("42")
+            .prefix_text("$")
+            .suffix_text("kg");
+        let shown = texts(&priced, Status::default());
+        let (dollar, colour) = find(&shown, "$").expect("the prefix");
+        let (value, _) = find(&shown, "42").unwrap();
+        let (unit, _) = find(&shown, "kg").expect("the suffix");
+        assert_eq!(colour, theme.muted, "the hint's colour");
+        let plain_x = find(&texts(&plain, Status::default()), "42").unwrap().0.x;
+        let style = TextStyle::new(FIELD_TEXT_SIZE).resolved();
+        let dollar_w = frus_text::measure_resolved("$", &style).width;
+        assert_eq!(dollar.x, plain_x, "the prefix where the value was");
+        assert!(
+            (value.x - (plain_x + dollar_w)).abs() < 1e-3,
+            "the value after it"
+        );
+        let unit_w = frus_text::measure_resolved("kg", &style).width;
+        assert!(
+            unit.x + unit_w <= W && unit.x > value.x,
+            "the suffix at the end"
+        );
+
+        // A click just after the prefix lands at the value's start.
+        let at = Widget::<()>::cursor_at(&priced, value.x + 0.5, 30.0, W, 0);
+        assert_eq!(at, Some(0));
+
+        // Empty and unfocused under a resting label, they wait; focused, they show.
+        let labelled = TextField::<()>::new("").label("Price").prefix_text("$");
+        assert!(find(&texts(&labelled, Status::default()), "$").is_none());
+        assert!(find(&texts(&labelled, focused()), "$").is_some());
+        // The resting label sits before the prefix, as the reference lays it out
+        // (`input_decorator.dart:1520`): the prefix is no part of where it rests.
+        let without = TextField::<()>::new("").label("Price");
+        assert_eq!(
+            find(&texts(&labelled, Status::default()), "Price")
+                .unwrap()
+                .0
+                .x,
+            find(&texts(&without, Status::default()), "Price")
+                .unwrap()
+                .0
+                .x
+        );
+        let bare = TextField::<()>::new("").prefix_text("$");
+        assert!(
+            find(&texts(&bare, Status::default()), "$").is_none(),
+            "no label: focus"
+        );
+        assert!(find(&texts(&bare, focused()), "$").is_some());
+    }
+
+    /// **The icon outside the box**: the box, its value and the line under it all start
+    /// after it, and a click is measured from there.
+    #[test]
+    fn the_outer_icon_moves_the_box_over() {
+        let plain = TextField::<()>::new("42").helper("Help");
+        let iconed = TextField::<()>::new("42").helper("Help").icon(Icons::STAR);
+        let before = texts(&plain, Status::default());
+        let after = texts(&iconed, Status::default());
+        for what in ["42", "Help"] {
+            let shift = find(&after, what).unwrap().0.x - find(&before, what).unwrap().0.x;
+            assert_eq!(shift, 40.0, "{what} moves over by 24 and 16");
+        }
+        let dense = TextField::<()>::new("42").dense(true).icon(Icons::STAR);
+        let dense_plain = TextField::<()>::new("42").dense(true);
+        let shift = find(&texts(&dense, Status::default()), "42").unwrap().0.x
+            - find(&texts(&dense_plain, Status::default()), "42")
+                .unwrap()
+                .0
+                .x;
+        assert_eq!(shift, 34.0, "18 and 16, dense");
+        let x = find(&after, "42").unwrap().0.x;
+        assert_eq!(
+            Widget::<()>::cursor_at(&iconed, x + 0.5, 30.0, W, 0),
+            Some(0)
+        );
+        // The box itself starts after the icon.
+        let boxes: Vec<Rect> = {
+            let mut scene = Scene::new();
+            Widget::<()>::paint(
+                &iconed,
+                Rect::new(0.0, 0.0, W, 80.0),
+                Status::default(),
+                &Theme::default(),
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Rect { rect, .. } => Some(*rect),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(boxes[0].x, 40.0);
+        assert_eq!(boxes[0].width, W - 40.0);
+    }
+
+    /// **The counter's text**: said instead of the count, and an empty one hides it.
+    #[test]
+    fn the_counter_says_what_it_is_told() {
+        let counted = TextField::<()>::new("abc").max_length(10);
+        assert!(find(&texts(&counted, Status::default()), "3/10").is_some());
+        let told = TextField::<()>::new("abc")
+            .max_length(10)
+            .counter_text("3 of 10");
+        let shown = texts(&told, Status::default());
+        assert!(find(&shown, "3 of 10").is_some() && find(&shown, "3/10").is_none());
+        let hidden = TextField::<()>::new("abc").max_length(10).counter_text("");
+        assert!(find(&texts(&hidden, Status::default()), "3/10").is_none());
+        assert_eq!(hidden.sub_block(), 0.0, "and its line is not kept");
+        let alone = TextField::<()>::new("abc").counter_text("Optional");
+        assert!(find(&texts(&alone, Status::default()), "Optional").is_some());
+        assert!(alone.sub_block() > 0.0);
     }
 }

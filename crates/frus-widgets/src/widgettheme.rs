@@ -561,6 +561,10 @@ pub struct TextFieldTheme {
     pub border_width: Option<f32>,
     /// Border weight once focused.
     pub focused_border_width: Option<f32>,
+    /// When a field's label floats (milestone 656). Unset, auto.
+    pub floating_label_behavior: Option<crate::FloatingLabelBehavior>,
+    /// Where a floated label sits. Unset, at the start.
+    pub floating_label_alignment: Option<crate::FloatingLabelAlignment>,
 }
 
 /// Defaults for [`Button`](crate::Button): a style for each kind of button — the
