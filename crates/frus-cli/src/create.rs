@@ -642,6 +642,9 @@ mod tests {
         assert!(file(&files, "src/bin/my-app.rs").contains("my_app::run()"));
         assert!(file(&files, "web/index.html").contains("./pkg/my_app.js"));
         assert!(file(&files, "src/lib.rs").contains(".title(\"my-app\")"));
+        // The tests live in `tests/`, as a Flutter project's do in `test/`, and reach the
+        // application as the library it is (milestone 658).
+        assert!(file(&files, "tests/counter_test.rs").contains("use my_app::CounterState;"));
 
         for rendered in &files {
             assert!(!rendered.path.contains("{{"), "{}", rendered.path);

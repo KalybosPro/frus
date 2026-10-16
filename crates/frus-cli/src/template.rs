@@ -36,6 +36,8 @@ pub static FILES: &[TemplateFile] = files![
     "res/mipmap-xxxhdpi/ic_launcher.png",
     "res/values/styles.xml",
     "src/bin/{{project-name}}.rs",
+    "src/counter.rs",
     "src/lib.rs",
+    "tests/counter_test.rs",
     "web/index.html",
 ];

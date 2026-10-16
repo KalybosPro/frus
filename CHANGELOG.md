@@ -8,11 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 656 so far, each documenting the objective, the alternatives
+> record — one per step, 658 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **A new application's tests live in `tests/`** (J658), as a Flutter project's do in
+  `test/`. The application `frus create` writes keeps its counter in `src/counter.rs`, its
+  entry in `src/lib.rs`, and its tests in `tests/counter_test.rs`, which reaches the
+  application through its public API.
 - **The text field's decoration, against the reference** (J656).
   `TextField::floating_label_behavior` (`FloatingLabelBehavior::Auto`, `Always` — floated
   over an empty field, its hint showing — or `Never`) and `floating_label_alignment`
