@@ -1,14 +1,23 @@
-//! `frus`, the command-line tool. One command for now:
+//! `frus`, the command-line tool:
 //!
 //! ```text
-//! frus create my_app
+//! frus create my_app        # a new application
+//! frus devices              # what it can run on, now
+//! frus run -d <device>      # build it, start it there, show its log
+//! frus build apk|web|desktop
 //! ```
 //!
-//! writes a new application, ready for `cargo run`, `cargo apk run --lib` and the web, with
-//! its CI and its release workflow. Everything else is cargo's: the tool starts a project and
-//! steps aside.
+//! It drives the tools an application already uses — cargo, cargo-apk, adb, wasm-bindgen — and
+//! adds no build system of its own: everything it does can be done by hand.
 
+mod build;
+mod cargo;
 mod create;
+mod devices;
+mod project;
+mod run;
+mod serve;
+mod setup;
 mod template;
 
 use std::ffi::OsString;
@@ -22,8 +31,57 @@ frus — the frus command-line tool
 
 Usage:
   frus create <directory> [options]   start a new application
-  frus help [create]                  print this, or the options of create
+  frus devices                        list what the application can run on
+  frus run [options] [-- <args>]      build it, start it on a device, show its log
+  frus build <apk|web|desktop>        build what you ship, in release
+  frus help [<command>]               print this, or a command's options
   frus --version                      print the version
+";
+
+const RUN_USAGE: &str = "\
+frus run — build the application, start it on a device, and show its log here
+
+Usage:
+  frus run [options] [-- <args for the application>]
+
+Run from the application's directory. Its log follows in this terminal, on every
+platform: the desktop's output, Android's logcat, the browser's console.
+
+Options:
+  -d, --device <device>    where to run: a device's id or name from `frus devices`,
+                           or `android`, `web`, `desktop` (default: this computer)
+      --release            a release build (default: debug)
+      --port <port>        the port the web build is served on (default: 8080)
+  -h, --help               print this
+
+Examples:
+  frus run
+  frus run -d android
+  frus run -d edge --release
+";
+
+const BUILD_USAGE: &str = "\
+frus build — build what you ship, for one platform
+
+Usage:
+  frus build <target> [--debug]
+
+Targets:
+  apk        the Android package (cargo-apk; a release needs a signing key)
+  web        the site: web/, with the application compiled into web/pkg/
+  desktop    the program for this computer (also: windows, linux, macos)
+
+Options:
+      --debug    a debug build instead of release
+  -h, --help     print this
+";
+
+const DEVICES_USAGE: &str = "\
+frus devices — list what the application can run on
+
+This computer, the Android devices adb sees (USB debugging on), the browsers
+installed here, and a web server any other browser can open. The id in the
+second column is what `frus run -d` takes.
 ";
 
 const CREATE_USAGE: &str = "\
@@ -52,8 +110,14 @@ Example:
 enum Command {
     Help,
     CreateHelp,
+    RunHelp,
+    BuildHelp,
+    DevicesHelp,
     Version,
     Create(Options),
+    Devices,
+    Run(run::RunOptions),
+    Build(build::Target, cargo::Mode),
 }
 
 fn main() -> ExitCode {
@@ -67,10 +131,30 @@ fn main() -> ExitCode {
             print!("{CREATE_USAGE}");
             ExitCode::SUCCESS
         }
+        Ok(Command::RunHelp) => {
+            print!("{RUN_USAGE}");
+            ExitCode::SUCCESS
+        }
+        Ok(Command::BuildHelp) => {
+            print!("{BUILD_USAGE}");
+            ExitCode::SUCCESS
+        }
+        Ok(Command::DevicesHelp) => {
+            print!("{DEVICES_USAGE}");
+            ExitCode::SUCCESS
+        }
         Ok(Command::Version) => {
             println!("frus {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
+        Ok(Command::Devices) => {
+            let found = devices::discover();
+            println!("{} found:\n", plural(found.len(), "device"));
+            print!("{}", devices::table(&found));
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Run(options)) => outcome(run::run(&options)),
+        Ok(Command::Build(target, mode)) => outcome(build::build(target, mode)),
         Ok(Command::Create(options)) => match create::create(&options) {
             Ok(created) => {
                 print!("{}", report(&created));
@@ -98,10 +182,20 @@ fn parse(args: Vec<OsString>) -> Result<Command, String> {
         Some("help") => match args.next().as_ref().and_then(|a| a.to_str()) {
             None => Ok(Command::Help),
             Some("create") => Ok(Command::CreateHelp),
+            Some("run") => Ok(Command::RunHelp),
+            Some("build") => Ok(Command::BuildHelp),
+            Some("devices") => Ok(Command::DevicesHelp),
             Some(other) => Err(format!("no command `{other}`")),
         },
         Some("-V" | "--version" | "version") => Ok(Command::Version),
         Some("create") => parse_create(args),
+        Some("devices") => match args.next().as_ref().and_then(|a| a.to_str()) {
+            None => Ok(Command::Devices),
+            Some("-h" | "--help") => Ok(Command::DevicesHelp),
+            Some(other) => Err(format!("frus devices takes no `{other}`")),
+        },
+        Some("run") => parse_run(args),
+        Some("build") => parse_build(args),
         _ => Err(format!("no command `{}`", command.to_string_lossy())),
     }
 }
@@ -152,6 +246,92 @@ fn parse_create(args: impl Iterator<Item = OsString>) -> Result<Command, String>
         frus_path,
         git,
     }))
+}
+
+fn parse_run(args: impl Iterator<Item = OsString>) -> Result<Command, String> {
+    let mut args = args.peekable();
+    let mut options = run::RunOptions {
+        device: None,
+        mode: cargo::Mode::Debug,
+        port: run::DEFAULT_PORT,
+        args: Vec::new(),
+    };
+    let mut port = None;
+    while let Some(arg) = args.next() {
+        let text = arg
+            .into_string()
+            .map_err(|arg| format!("`{}` is not valid text", arg.to_string_lossy()))?;
+        if text == "--" {
+            options.args.extend(
+                args.by_ref()
+                    .map(|rest| rest.to_string_lossy().into_owned()),
+            );
+            break;
+        }
+        let (flag, inline) = match text.split_once('=') {
+            Some((flag, value)) if flag.starts_with("--") => {
+                (flag.to_string(), Some(value.to_string()))
+            }
+            _ => (text.clone(), None),
+        };
+        let mut value = |flag: &str| match &inline {
+            Some(value) => Ok(value.clone()),
+            None => args
+                .next()
+                .and_then(|value| value.into_string().ok())
+                .ok_or_else(|| format!("{flag} needs a value")),
+        };
+        match flag.as_str() {
+            "-h" | "--help" => return Ok(Command::RunHelp),
+            "-d" | "--device" => set_once(&mut options.device, value("--device")?, "--device")?,
+            "--release" if inline.is_none() => options.mode = cargo::Mode::Release,
+            "--port" => {
+                let text = value(&flag)?;
+                let number = text
+                    .parse()
+                    .map_err(|_| format!("--port takes a number, not `{text}`"))?;
+                set_once(&mut port, number, "--port")?;
+            }
+            _ => return Err(format!("frus run has no option `{text}`")),
+        }
+    }
+    if let Some(port) = port {
+        options.port = port;
+    }
+    Ok(Command::Run(options))
+}
+
+fn parse_build(args: impl Iterator<Item = OsString>) -> Result<Command, String> {
+    let mut target = None;
+    let mut mode = cargo::Mode::Release;
+    for arg in args {
+        let text = arg.to_string_lossy();
+        match text.as_ref() {
+            "-h" | "--help" => return Ok(Command::BuildHelp),
+            "--debug" => mode = cargo::Mode::Debug,
+            flag if flag.starts_with('-') => {
+                return Err(format!("frus build has no option `{flag}`"));
+            }
+            word => set_once(&mut target, build::Target::parse(word)?, "the target")?,
+        }
+    }
+    let target = target.ok_or("frus build needs a target: `frus build apk`, `web` or `desktop`")?;
+    Ok(Command::Build(target, mode))
+}
+
+/// A command's result, as the program's exit.
+fn outcome(result: Result<ExitCode, String>) -> ExitCode {
+    result.unwrap_or_else(|error| {
+        eprintln!("error: {error}");
+        ExitCode::FAILURE
+    })
+}
+
+fn plural(count: usize, word: &str) -> String {
+    match count {
+        1 => format!("1 {word}"),
+        n => format!("{n} {word}s"),
+    }
 }
 
 fn set_once<T>(slot: &mut Option<T>, value: T, what: &str) -> Result<(), String> {
@@ -232,12 +412,63 @@ mod tests {
         assert_eq!(parse(args("create app -h")), Ok(Command::CreateHelp));
         assert_eq!(parse(args("--version")), Ok(Command::Version));
         assert_eq!(parse(args("-V")), Ok(Command::Version));
-        assert!(parse(args("build"))
+        assert!(parse(args("deploy"))
             .unwrap_err()
-            .contains("no command `build`"));
-        assert!(parse(args("help build"))
+            .contains("no command `deploy`"));
+        assert!(parse(args("help deploy"))
             .unwrap_err()
-            .contains("no command `build`"));
+            .contains("no command `deploy`"));
+        assert_eq!(parse(args("help run")), Ok(Command::RunHelp));
+        assert_eq!(parse(args("build -h")), Ok(Command::BuildHelp));
+        assert_eq!(parse(args("devices")), Ok(Command::Devices));
+        assert_eq!(parse(args("devices --help")), Ok(Command::DevicesHelp));
+    }
+
+    fn run_options(line: &str) -> run::RunOptions {
+        match parse(args(line)) {
+            Ok(Command::Run(options)) => options,
+            other => panic!("{line}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn run_options_parse() {
+        let plain = run_options("run");
+        assert_eq!(plain.device, None);
+        assert_eq!(plain.mode, cargo::Mode::Debug);
+        assert_eq!(plain.port, run::DEFAULT_PORT);
+
+        let full = run_options("run -d edge --release --port=9000 -- /widget/button --flag");
+        assert_eq!(full.device.as_deref(), Some("edge"));
+        assert_eq!(full.mode, cargo::Mode::Release);
+        assert_eq!(full.port, 9000);
+        assert_eq!(full.args, ["/widget/button", "--flag"]);
+
+        assert_eq!(
+            run_options("run --device=android").device.as_deref(),
+            Some("android")
+        );
+        let error = |line| parse(args(line)).unwrap_err();
+        assert!(error("run -d").contains("needs a value"));
+        assert!(error("run -d a -d b").contains("given twice"));
+        assert!(error("run --port x").contains("takes a number"));
+        assert!(error("run --verbose").contains("no option `--verbose`"));
+    }
+
+    #[test]
+    fn build_options_parse() {
+        assert_eq!(
+            parse(args("build apk")),
+            Ok(Command::Build(build::Target::Apk, cargo::Mode::Release))
+        );
+        assert_eq!(
+            parse(args("build --debug web")),
+            Ok(Command::Build(build::Target::Web, cargo::Mode::Debug))
+        );
+        let error = |line| parse(args(line)).unwrap_err();
+        assert!(error("build").contains("needs a target"));
+        assert!(error("build apk web").contains("given twice"));
+        assert!(error("build ios").contains("not `ios`"));
     }
 
     #[test]

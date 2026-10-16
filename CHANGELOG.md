@@ -13,6 +13,13 @@ any release may break.
 
 ## [Unreleased]
 
+- **`frus devices`, `frus run` and `frus build`** (J661). `frus devices` lists this computer,
+  the Android devices and emulators, the iOS simulators on a Mac, and the browsers. `frus run
+  -d <device>` builds the application for it, starts it, and shows its log in the terminal: the
+  desktop's output, the phone's logcat, the browser's console. `frus build apk|web|desktop`
+  builds what is shipped. What a command needs and does not find (a Rust target, cargo-apk,
+  wasm-bindgen at the lockfile's version, the Android SDK and NDK) is installed.
+
 - **Hearing the focus move** (J660). `Widget::on_focus_change(focused)` is told when the focus
   arrives in or leaves a widget's subtree, and `Focus::on_focus_change` offers it, as the
   reference's `onFocusChange`: a move between two fields inside a group says nothing to the
