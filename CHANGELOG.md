@@ -17,6 +17,12 @@ any release may break.
   `test/`. The application `frus create` writes keeps its counter in `src/counter.rs`, its
   entry in `src/lib.rs`, and its tests in `tests/counter_test.rs`, which reaches the
   application through its public API.
+- **A text field that grows with its value** (J657). `TextField::max_lines(n)` lets a
+  multi-line field grow as its value wraps, from one line, or from `min_lines(n)`, up to `n`
+  lines, then scroll; `max_lines(None)` grows without a limit, and `max_lines(1)` is a
+  single-line field, as the reference's `maxLines` is. A growing field is measured from its
+  width, so the layout, the paint and the click agree on how tall it is. `rows(n)` still
+  fixes the box at `n` lines.
 - **The text field's decoration, against the reference** (J656).
   `TextField::floating_label_behavior` (`FloatingLabelBehavior::Auto`, `Always` — floated
   over an empty field, its hint showing — or `Never`) and `floating_label_alignment`
