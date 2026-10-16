@@ -1,0 +1,18 @@
+# Rust / Cargo
+/target
+**/*.rs.bk
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# Build outputs
+*.apk
+
+# The Web build's generated JavaScript glue and wasm
+/web/pkg/

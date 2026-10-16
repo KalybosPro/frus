@@ -20,6 +20,10 @@ any release may break.
   `cursor_height`, `cursor_radius` (2 on Apple's platforms, square elsewhere, unless told)
   and `show_cursor`; `obscuring_character` for a masked field; and `autofocus`.
   **Changed**: the caret's colour.
+- **A new application's tests live in `tests/`** (J658), as a Flutter project's do in
+  `test/`. The application `frus create` writes keeps its counter in `src/counter.rs`, its
+  entry in `src/lib.rs`, and its tests in `tests/counter_test.rs`, which reaches the
+  application through its public API.
 - **A text field that grows with its value** (J657). `TextField::max_lines(n)` lets a
   multi-line field grow as its value wraps, from one line, or from `min_lines(n)`, up to `n`
   lines, then scroll; `max_lines(None)` grows without a limit, and `max_lines(1)` is a

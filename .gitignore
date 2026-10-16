@@ -16,7 +16,9 @@ Thumbs.db
 CLAUDE.md
 docs/brief.md
 docs/new-idea.md
-/frus-examples
+
+# Forge's design references (mock-ups and their archive): kept locally, not shipped
+/frus-examples/forge/frontend/forge/docs/design/
 
 # Build outputs
 *.apk

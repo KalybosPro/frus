@@ -1,0 +1,63 @@
+[package]
+name = "widgets"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+publish = false
+
+# A standalone project: without this, Cargo walks up to the frus repository's own
+# workspace (this folder sits inside it) and refuses to build a non-member.
+[workspace]
+
+# Library: `rlib` for the desktop binary, `cdylib` (the `.so`) for Android.
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+# **A single dependency**: the `frus` facade re-exports shell + widgets + `main!`.
+# This points at the frus checkout the example sits in; outside it, use the published
+# crate instead:  frus = "0.3"
+frus = { path = "../../crates/frus" }
+
+# Web (wasm): the `frus::main!` macro generates the `#[wasm_bindgen(start)]` entry point.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+
+# --- Android packaging (cargo-apk) ---
+#
+#     cargo apk run --lib                  # build, install and start on the device
+#     cargo apk build --lib --release      # the APK you ship
+[package.metadata.android]
+package = "com.example.widgets"
+build_targets = ["aarch64-linux-android"]
+# The launch theme lives here — see `res/values/styles.xml`.
+resources = "res"
+
+[package.metadata.android.application]
+label = "widgets"
+icon = "@mipmap/ic_launcher"
+# NoActionBar launch theme: no white flash before the first frame, and no 56 dp
+# action bar eating into the safe area.
+theme = "@style/LaunchTheme"
+
+[package.metadata.android.sdk]
+min_sdk_version = 24
+target_sdk_version = 34
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# The Web build: smallest code first (see README.md, "Web").
+#
+#     cargo build --lib --target wasm32-unknown-unknown --profile web-release
+[profile.web-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
