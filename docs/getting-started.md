@@ -214,6 +214,31 @@ frus-text    = { path = "../frus/crates/frus-text" }
 frus-widgets = { path = "../frus/crates/frus-widgets" }
 ```
 
+## Running on a device (`frus run`)
+
+From an application's directory, the `frus` tool builds it for a device, starts it there, and
+shows its log in the terminal until it ends:
+
+```sh
+frus devices              # this computer, the connected phones, the emulators, the browsers
+frus run                  # on this computer
+frus run -d android       # on the connected phone, or a named emulator it starts
+frus run -d web           # in a browser: its console shows in the terminal
+frus run --release        # a release build
+frus build apk            # what you ship: apk, web or desktop
+```
+
+`-d` takes a device's id or name as `frus devices` prints them, or `android`, `web` or
+`desktop`. The log is the same on every platform: the desktop program's output, the phone's
+logcat filtered on the application, and the browser's console, which the page sends back to the
+terminal.
+
+A command that needs something the machine lacks installs it and carries on: a Rust target,
+cargo-apk, wasm-bindgen at the version the application's `Cargo.lock` holds (in `~/.frus/tools`,
+leaving any other version alone), and the Android SDK and NDK (completed if there is one,
+installed in `~/.frus/android-sdk` if there is none). The sections below are the same steps by
+hand.
+
 ## Android
 
 The template includes the `android_main` entry point and the `cargo-apk`

@@ -1,0 +1,432 @@
+//! What a command needs on this machine, found — or installed, then found.
+//!
+//! A developer who runs `frus run -d android` on a machine that has never built for Android
+//! should get the application on their phone, not a list of things to install first. So each
+//! command asks here for what it needs, and what is missing is fetched with the tools every
+//! platform already has: `rustup` and `cargo install` for Rust's part, and `curl` with the
+//! system's archive tool for the Android SDK, the NDK and a JDK — into `~/.frus/` when there is
+//! no SDK on the machine yet, and into the existing SDK when there is one.
+//!
+//! Each download says what it is and roughly how big before it starts.
+
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+use crate::cargo;
+
+/// The version of Google's command-line tools fetched when there is no SDK at all.
+const CMDLINE_TOOLS: &str = "11076708";
+/// The NDK installed when the SDK has none (the one frus is built and tested with).
+const NDK: &str = "27.0.12077973";
+/// The JDK `sdkmanager` runs on.
+const JDK_MAJOR: &str = "17";
+
+/// frus's own directory: `~/.frus`, or `FRUS_HOME`.
+pub(crate) fn frus_home() -> PathBuf {
+    if let Some(home) = std::env::var_os("FRUS_HOME") {
+        return PathBuf::from(home);
+    }
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    home.join(".frus")
+}
+
+// --- Rust ---
+
+/// The compiler can build for `target` — installed with rustup if it cannot yet.
+pub(crate) fn rust_target(target: &str) -> Result<(), String> {
+    let installed = Command::new("rustup")
+        .args(["target", "list", "--installed"])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .any(|l| l.trim() == target)
+        });
+    match installed {
+        Ok(true) => Ok(()),
+        Ok(false) => {
+            println!("Installing Rust's {target} target (rustup, about 30 MB)…");
+            cargo::run(Command::new("rustup").args(["target", "add", target]))
+        }
+        // No rustup (a distribution's packaged Rust): let the build say what is missing.
+        Err(_) => Ok(()),
+    }
+}
+
+/// The program `program`, ready to run: the one on the `PATH` when it will do, or one
+/// `cargo install` puts in place.
+///
+/// A tool pinned to a `version` (wasm-bindgen must match the library exactly) that is installed
+/// at another version is **not replaced**: other projects on the machine may need the one that
+/// is there. The pinned version goes in a directory of its own, `~/.frus/tools/<crate>-<version>`,
+/// and that copy is the one used for this project. `probe` is an argument the program answers
+/// successfully (`--version`; cargo-apk has only `--help`).
+pub(crate) fn cargo_tool(
+    program: &str,
+    probe: &str,
+    krate: &str,
+    version: Option<&str>,
+) -> Result<PathBuf, String> {
+    let answers = |exe: &Path| {
+        Command::new(exe)
+            .arg(probe)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+    };
+    let on_path = PathBuf::from(program);
+    let found = answers(&on_path);
+    let Some(version) = version else {
+        if found.is_some() {
+            return Ok(on_path);
+        }
+        println!("Installing {krate} (cargo install; it compiles, a few minutes)…");
+        cargo::run(cargo_install(krate).arg("--locked"))?;
+        return Ok(on_path);
+    };
+    if found
+        .as_deref()
+        .is_some_and(|text| text.split_whitespace().any(|word| word == version))
+    {
+        return Ok(on_path);
+    }
+    let private = frus_home().join("tools").join(format!("{krate}-{version}"));
+    let exe = private.join("bin").join(if cfg!(windows) {
+        format!("{program}.exe")
+    } else {
+        program.to_string()
+    });
+    if answers(&exe).is_some() {
+        return Ok(exe);
+    }
+    println!(
+        "This application needs {krate} {version}{}: installing it for frus in {} \
+         (cargo install; it compiles, a few minutes the first time)…",
+        match found.as_deref().and_then(|t| t.split_whitespace().nth(1)) {
+            Some(other) => format!(" (the one on the PATH is {other}, and is left alone)"),
+            None => String::new(),
+        },
+        private.display()
+    );
+    cargo::run(
+        cargo_install(krate)
+            .args(["--locked", "--version", version, "--root"])
+            .arg(&private),
+    )?;
+    Ok(exe)
+}
+
+/// `cargo install <krate>`, compiled in a directory of its own rather than in whatever
+/// `CARGO_TARGET_DIR` the developer's project uses.
+fn cargo_install(krate: &str) -> Command {
+    let mut command = Command::new("cargo");
+    command
+        .args(["install", krate])
+        .env_remove("CARGO_TARGET_DIR");
+    command
+}
+
+// --- Android ---
+
+/// The SDK this machine already has, wherever it is — without installing anything. What
+/// `frus devices` reads, so listing devices never downloads a gigabyte.
+pub(crate) fn existing_sdk() -> Option<PathBuf> {
+    sdk_candidates().into_iter().find(|dir| dir.is_dir())
+}
+
+/// Where an SDK is looked for: `FRUS_ANDROID_SDK`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, Android
+/// Studio's default for this system, then frus's own.
+fn sdk_candidates() -> Vec<PathBuf> {
+    if let Some(forced) = std::env::var_os("FRUS_ANDROID_SDK") {
+        return vec![PathBuf::from(forced)];
+    }
+    let mut candidates: Vec<PathBuf> = ["ANDROID_HOME", "ANDROID_SDK_ROOT"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .map(PathBuf::from)
+        .collect();
+    let studio = if cfg!(windows) {
+        std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Android").join("Sdk"))
+    } else if cfg!(target_os = "macos") {
+        std::env::var_os("HOME").map(|d| PathBuf::from(d).join("Library/Android/sdk"))
+    } else {
+        std::env::var_os("HOME").map(|d| PathBuf::from(d).join("Android/Sdk"))
+    };
+    candidates.extend(studio);
+    candidates.push(frus_home().join("android-sdk"));
+    candidates
+}
+
+/// An SDK ready to build with: found, completed with what it lacks, or installed from nothing.
+/// The variables cargo-apk reads are set for the rest of this process.
+pub(crate) fn android_sdk(target_sdk: u32) -> Result<PathBuf, String> {
+    let home = match existing_sdk() {
+        Some(home) => home,
+        None => {
+            let home = sdk_candidates()
+                .pop()
+                .unwrap_or_else(|| frus_home().join("android-sdk"));
+            install_command_line_tools(&home)?;
+            home
+        }
+    };
+
+    let mut missing = Vec::new();
+    if !home.join("platform-tools").is_dir() {
+        missing.push("platform-tools".to_string());
+    }
+    let platform = format!("platforms;android-{target_sdk}");
+    if !home
+        .join("platforms")
+        .join(format!("android-{target_sdk}"))
+        .is_dir()
+    {
+        missing.push(platform);
+    }
+    if newest_version_dir(&home.join("build-tools")).is_none() {
+        missing.push(format!("build-tools;{target_sdk}.0.0"));
+    }
+    let ndk_dir = std::env::var_os("ANDROID_NDK_ROOT")
+        .or_else(|| std::env::var_os("ANDROID_NDK_HOME"))
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_dir())
+        .or_else(|| newest_version_dir(&home.join("ndk")));
+    if ndk_dir.is_none() {
+        missing.push(format!("ndk;{NDK}"));
+    }
+    if !missing.is_empty() {
+        sdkmanager(&home, &missing)?;
+    }
+    let ndk = ndk_dir
+        .or_else(|| newest_version_dir(&home.join("ndk")))
+        .ok_or("the NDK was installed but cannot be found in the SDK")?;
+
+    // cargo-apk and adb read these; set once, every command started from here on sees them.
+    std::env::set_var("ANDROID_HOME", &home);
+    std::env::set_var("ANDROID_NDK_ROOT", &ndk);
+    Ok(home)
+}
+
+/// The highest-versioned directory in `dir` (`ndk/27.0.12077973`, `build-tools/35.0.0`).
+fn newest_version_dir(dir: &Path) -> Option<PathBuf> {
+    std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .max_by_key(|p| version_key(p.file_name().and_then(|n| n.to_str()).unwrap_or("")))
+}
+
+/// `27.0.12077973` → `[27, 0, 12077973]`, so `10.0.0` sorts after `9.0.0`.
+fn version_key(name: &str) -> Vec<u64> {
+    name.split(['.', '-'])
+        .map(|part| part.parse().unwrap_or(0))
+        .collect()
+}
+
+/// Google's command-line tools (`sdkmanager`), into `home/cmdline-tools/latest`.
+fn install_command_line_tools(home: &Path) -> Result<(), String> {
+    let os = if cfg!(windows) {
+        "win"
+    } else if cfg!(target_os = "macos") {
+        "mac"
+    } else {
+        "linux"
+    };
+    println!(
+        "No Android SDK on this machine: installing one in {} (the command-line tools, about \
+         150 MB, then the parts frus needs).",
+        home.display()
+    );
+    let url = format!(
+        "https://dl.google.com/android/repository/commandlinetools-{os}-{CMDLINE_TOOLS}_latest.zip"
+    );
+    let staging = home.join(".download");
+    let archive = staging.join("cmdline-tools.zip");
+    download(&url, &archive)?;
+    let unpacked = staging.join("unpacked");
+    let _ = std::fs::remove_dir_all(&unpacked);
+    extract(&archive, &unpacked)?;
+    let latest = home.join("cmdline-tools").join("latest");
+    std::fs::create_dir_all(latest.parent().unwrap_or(home)).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_dir_all(&latest);
+    std::fs::rename(unpacked.join("cmdline-tools"), &latest)
+        .map_err(|e| format!("could not put the command-line tools in place: {e}"))?;
+    let _ = std::fs::remove_dir_all(&staging);
+    Ok(())
+}
+
+/// Installs SDK packages, accepting their licences on the developer's behalf (what Android
+/// Studio's first-run wizard does with one click).
+fn sdkmanager(home: &Path, packages: &[String]) -> Result<(), String> {
+    let script = if cfg!(windows) {
+        "sdkmanager.bat"
+    } else {
+        "sdkmanager"
+    };
+    let tool = home
+        .join("cmdline-tools")
+        .join("latest")
+        .join("bin")
+        .join(script);
+    if !tool.is_file() {
+        install_command_line_tools(home)?;
+    }
+    let java_home = java()?;
+    println!(
+        "Installing Android {} (sdkmanager; the NDK alone is about 1 GB)…",
+        packages.join(", ")
+    );
+    let run = |args: &[String]| -> Result<(), String> {
+        let mut child = Command::new(&tool)
+            .arg(format!("--sdk_root={}", home.display()))
+            .args(args)
+            .env("JAVA_HOME", &java_home)
+            .stdin(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("could not run sdkmanager: {e}"))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write;
+            // Every licence prompt answered yes.
+            let _ = stdin.write_all("y\n".repeat(50).as_bytes());
+        }
+        let status = child.wait().map_err(|e| e.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("sdkmanager failed ({status})"))
+        }
+    };
+    run(&["--licenses".to_string()])?;
+    run(packages)
+}
+
+/// A `JAVA_HOME` for sdkmanager: the machine's, or a JDK fetched into `~/.frus/jdk`.
+fn java() -> Result<PathBuf, String> {
+    let java_exe = if cfg!(windows) { "java.exe" } else { "java" };
+    if let Some(home) = std::env::var_os("JAVA_HOME").map(PathBuf::from) {
+        if home.join("bin").join(java_exe).is_file() {
+            return Ok(home);
+        }
+    }
+    let ours = frus_home().join("jdk");
+    if let Some(home) = jdk_in(&ours, java_exe) {
+        return Ok(home);
+    }
+    let (os, ext) = if cfg!(windows) {
+        ("windows", "zip")
+    } else if cfg!(target_os = "macos") {
+        ("mac", "tar.gz")
+    } else {
+        ("linux", "tar.gz")
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "x64"
+    };
+    println!(
+        "The Android SDK's tools run on Java, and there is none here: installing a JDK {JDK_MAJOR} \
+         in {} (about 190 MB)…",
+        ours.display()
+    );
+    let url = format!(
+        "https://api.adoptium.net/v3/binary/latest/{JDK_MAJOR}/ga/{os}/{arch}/jdk/hotspot/normal/eclipse"
+    );
+    let archive = frus_home().join(format!("jdk.{ext}"));
+    download(&url, &archive)?;
+    let _ = std::fs::remove_dir_all(&ours);
+    extract(&archive, &ours)?;
+    let _ = std::fs::remove_file(&archive);
+    jdk_in(&ours, java_exe).ok_or_else(|| "the JDK was unpacked but has no java in it".into())
+}
+
+/// The JDK unpacked somewhere under `dir` (`jdk-17…/`, or `…/Contents/Home` on a Mac).
+fn jdk_in(dir: &Path, java_exe: &str) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .find_map(|top| {
+            [top.clone(), top.join("Contents").join("Home")]
+                .into_iter()
+                .find(|home| home.join("bin").join(java_exe).is_file())
+        })
+}
+
+// --- Fetching ---
+
+/// `url` to `file`, with curl's progress bar — curl ships with Windows 10 and later, macOS and
+/// every Linux.
+fn download(url: &str, file: &Path) -> Result<(), String> {
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    cargo::run(
+        Command::new("curl")
+            .args(["--fail", "--location", "--progress-bar", "--output"])
+            .arg(file)
+            .arg(url),
+    )
+    .map_err(|e| format!("could not download {url}: {e}"))
+}
+
+/// Unpacks a `.zip` or `.tar.gz` into `dir`, with the system's own tool.
+fn extract(archive: &Path, dir: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let zip = archive.extension().is_some_and(|e| e == "zip");
+    let mut command = if cfg!(windows) {
+        // Windows' own tar (bsdtar) reads zips; a GNU tar earlier on the PATH would not.
+        let system = std::env::var_os("SystemRoot")
+            .map(|root| PathBuf::from(root).join("System32").join("tar.exe"))
+            .filter(|tar| tar.is_file())
+            .unwrap_or_else(|| PathBuf::from("tar"));
+        let mut tar = Command::new(system);
+        tar.arg("-xf").arg(archive).arg("-C").arg(dir);
+        tar
+    } else if zip {
+        let mut unzip = Command::new("unzip");
+        unzip.arg("-q").arg("-o").arg(archive).arg("-d").arg(dir);
+        unzip
+    } else {
+        let mut tar = Command::new("tar");
+        tar.arg("-xzf").arg(archive).arg("-C").arg(dir);
+        tar
+    };
+    cargo::run(&mut command).map_err(|e| format!("could not unpack {}: {e}", archive.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn versions_sort_as_numbers() {
+        assert!(version_key("10.0.0") > version_key("9.0.0"));
+        assert!(version_key("27.0.12077973") > version_key("26.3.11579264"));
+        assert!(version_key("36.1.0") > version_key("36.0.0"));
+    }
+
+    #[test]
+    fn the_newest_version_directory_wins() {
+        let dir = std::env::temp_dir().join(format!("frus-ndk-{}", std::process::id()));
+        for version in ["26.3.11579264", "27.0.12077973", "9.9.9"] {
+            std::fs::create_dir_all(dir.join(version)).unwrap();
+        }
+        assert_eq!(newest_version_dir(&dir), Some(dir.join("27.0.12077973")));
+        assert_eq!(newest_version_dir(&dir.join("missing")), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn frus_own_sdk_is_the_last_resort() {
+        if std::env::var_os("FRUS_ANDROID_SDK").is_none() {
+            assert!(sdk_candidates().last().unwrap().ends_with("android-sdk"));
+        }
+    }
+}

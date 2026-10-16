@@ -1,6 +1,6 @@
 [package]
 name = "frus-cli"
-description = "frus — the command-line tool: `frus create` starts an application for desktop, Android and the web"
+description = "frus — the command-line tool: create an application, run it on any device with its log in the terminal, build what you ship"
 edition.workspace = true
 rust-version.workspace = true
 version.workspace = true

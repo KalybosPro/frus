@@ -5,12 +5,28 @@ macOS, Linux, Android and the web.
 
 | platform | try it | ship it |
 |---|---|---|
-| Desktop | `cargo run` | `cargo build --release` |
-| Android | `cargo apk run --lib` | `cargo apk build --lib --release` |
-| Web | see [Web](#web) | see [Web](#web) |
+| Desktop | `frus run` | `frus build desktop` |
+| Android | `frus run -d android` | `frus build apk` |
+| Web | `frus run -d web` | `frus build web` |
 | Every platform at once | | push a `v*` tag: see [Releases](#releases) |
 
 `cargo test` runs the tests in `tests/`. They need no window and no GPU.
+
+## Running it: `frus run`
+
+The `frus` tool (`cargo install frus-cli`) builds the application for a device, starts it there and
+shows its log in this terminal, whatever the platform:
+
+```sh
+frus devices              # this computer, the connected phones, the browsers
+frus run                  # on this computer
+frus run -d android       # on the connected phone (or an emulator)
+frus run -d web           # in a browser; its console shows here
+frus build apk            # what you ship: apk, web or desktop
+```
+
+What it needs and does not find — a Rust target, wasm-bindgen, cargo-apk, the Android SDK — it
+installs. The sections below are the same steps by hand.
 
 ## Desktop
 
