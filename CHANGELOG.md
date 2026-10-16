@@ -8,11 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 659 so far, each documenting the objective, the alternatives
+> record — one per step, 660 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Hearing the focus move** (J660). `Widget::on_focus_change(focused)` is told when the focus
+  arrives in or leaves a widget's subtree, and `Focus::on_focus_change` offers it, as the
+  reference's `onFocusChange`: a move between two fields inside a group says nothing to the
+  group. The shell reports once a frame, before building, so every way the focus moves is
+  heard. `TextField::on_tap_outside` (and `Widget::on_tap_outside`) is told of a press
+  outside the focused field, before the focus moves. `focus_changes` is the rule, exported.
 - **The text field's caret, mask and focus** (J659). The caret is the scheme's `primary`, as
   the reference's is, and the error's colour while an error shows, instead of `on_surface`.
   `TextField::cursor_color`, `cursor_error_color` (also in `TextFieldStyle`,

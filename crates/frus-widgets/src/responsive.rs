@@ -164,6 +164,14 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_click())
     }
 
+    fn on_focus_change(&self, focused: bool) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_focus_change(focused))
+    }
+
+    fn on_tap_outside(&self) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_tap_outside())
+    }
+
     fn opaque(&self) -> bool {
         self.inner.as_ref().is_some_and(|w| w.opaque())
     }
