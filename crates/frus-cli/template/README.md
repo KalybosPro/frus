@@ -10,7 +10,7 @@ macOS, Linux, Android and the web.
 | Web | see [Web](#web) | see [Web](#web) |
 | Every platform at once | | push a `v*` tag: see [Releases](#releases) |
 
-`cargo test` runs the tests. They need no window and no GPU.
+`cargo test` runs the tests in `tests/`. They need no window and no GPU.
 
 ## Desktop
 
