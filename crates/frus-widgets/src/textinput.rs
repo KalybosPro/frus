@@ -225,8 +225,14 @@ pub struct TextField<Msg = crate::callback::Callback> {
     /// **Multi-line** field: Enter inserts a line break (instead of submitting), the box
     /// is `rows` lines tall and scrolls vertically to follow the caret.
     multiline: bool,
-    /// Number of visible lines in multi-line mode.
+    /// Number of visible lines in multi-line mode, at least: the box is never shorter.
     rows: u16,
+    /// The most lines the box grows to as the value wraps, `None` without a limit; equal
+    /// to `rows` for a box that does not grow. See [`TextField::max_lines`].
+    max_rows: Option<u16>,
+    /// Whether `rows` was said, by [`TextField::rows`] or [`TextField::min_lines`]: a box
+    /// given only a most starts at one line, as the reference's does.
+    rows_told: bool,
     /// Which of the reference's two fields to draw.
     variant: TextFieldVariant,
     /// A field that is shown but cannot be edited: greyed out, and inert. It still
@@ -579,6 +585,8 @@ impl<Msg> TextField<Msg> {
             suffix_action: None,
             multiline: false,
             rows: 3,
+            max_rows: Some(3),
+            rows_told: false,
             variant: TextFieldVariant::Outlined,
             enabled: true,
             dense: false,
@@ -837,6 +845,38 @@ impl<Msg> TextField<Msg> {
     pub fn rows(mut self, rows: u16) -> Self {
         self.multiline = true;
         self.rows = rows.max(1);
+        self.max_rows = Some(self.rows);
+        self.rows_told = true;
+        self
+    }
+
+    /// The **fewest lines** the box shows — the reference's `minLines`. Implies
+    /// [`multiline`](Self::multiline); with a [`max_lines`](Self::max_lines), the box grows
+    /// from these to those as the value wraps.
+    pub fn min_lines(mut self, lines: u16) -> Self {
+        self.multiline = true;
+        self.rows = lines.max(1);
+        self.rows_told = true;
+        self.max_rows = self.max_rows.map(|max| max.max(self.rows));
+        self
+    }
+
+    /// The **most lines** the box grows to as the value wraps, then scrolls — the
+    /// reference's `maxLines` (milestone 657). `None` grows without a limit. Given alone, the
+    /// box starts at one line, as the reference's does; `1` is a single-line field.
+    pub fn max_lines(mut self, lines: impl Into<Option<u16>>) -> Self {
+        let lines = lines.into();
+        if lines == Some(1) {
+            self.multiline = false;
+            self.rows = 1;
+            self.max_rows = Some(1);
+            return self;
+        }
+        self.multiline = true;
+        if !self.rows_told {
+            self.rows = 1;
+        }
+        self.max_rows = lines.map(|max| max.max(self.rows));
         self
     }
 
@@ -1027,7 +1067,7 @@ impl<Msg> TextField<Msg> {
         }
         let zone_left = width - (self.icon_size() + ICON_PAD * 2.0);
         let top = self.label_block();
-        let bottom = top + self.field_height();
+        let bottom = top + self.field_height_at(width);
         local_x >= zone_left && local_y >= top && local_y <= bottom
     }
 
@@ -1332,7 +1372,7 @@ impl<Msg> TextField<Msg> {
         let scroll = (layout.caret_rect(edit.cursor.min(len)).x - content_w).max(0.0);
         let align = self.align_offset(content_w, layout.size().width);
         let vscroll = if self.multiline {
-            let visible = self.field_height() - self.text_top() - self.pad_bottom();
+            let visible = self.field_height_at(width) - self.text_top() - self.pad_bottom();
             scroll_y.clamp(0.0, (layout.size().height - visible).max(0.0))
         } else {
             0.0
@@ -1429,15 +1469,54 @@ impl<Msg> TextField<Msg> {
         }
     }
 
-    /// Height of the input box itself (decoration excluded): one line in single-line
-    /// mode, `rows` lines in multi-line mode.
+    /// Height of the input box itself (decoration excluded) before the value is known to
+    /// wrap: one line in single-line mode, `rows` lines in multi-line mode.
     fn field_height(&self) -> f32 {
         let lines = if self.multiline {
             self.rows.max(1) as f32
         } else {
             1.0
         };
+        self.box_height(lines)
+    }
+
+    /// The box's height for `lines` lines of text.
+    fn box_height(&self, lines: f32) -> f32 {
         (self.text_style().line_height() * lines + self.text_top() + self.pad_bottom()).ceil()
+    }
+
+    /// Whether the box grows with the value (milestone 657): multi-line, with more lines
+    /// allowed than it starts with.
+    fn grows(&self) -> bool {
+        self.multiline && self.max_rows != Some(self.rows)
+    }
+
+    /// How many lines the box shows in a widget `width` wide: the value's own, wrapped at
+    /// the content's width, held between the fewest and the most.
+    fn lines_at(&self, width: f32) -> f32 {
+        if !self.grows() {
+            return if self.multiline {
+                self.rows.max(1) as f32
+            } else {
+                1.0
+            };
+        }
+        let layout = self.layout(Some(self.content_width(width)));
+        let line_h = self.text_style().line_height();
+        let wrapped = if line_h > 0.0 {
+            (layout.size().height / line_h).round().max(1.0)
+        } else {
+            1.0
+        };
+        wrapped.clamp(
+            self.rows.max(1) as f32,
+            self.max_rows.map_or(f32::INFINITY, |max| max as f32),
+        )
+    }
+
+    /// The box's height in a widget `width` wide; see [`Self::lines_at`].
+    fn field_height_at(&self, width: f32) -> f32 {
+        self.box_height(self.lines_at(width))
     }
 }
 
@@ -1464,12 +1543,64 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
     }
 
     fn style(&self) -> Style {
-        let height = self.label_block() + self.field_height() + self.sub_block();
+        // A box that grows is as tall as its value makes it, which only the width says: it
+        // is measured instead (milestone 657).
+        let height = if self.grows() {
+            Dimension::Auto
+        } else {
+            Dimension::Length(self.label_block() + self.field_height() + self.sub_block())
+        };
         Style {
             width: self.width,
-            height: Dimension::Length(height),
+            height,
             ..Default::default()
         }
+    }
+
+    fn measure(&self, _theme: &Theme) -> Option<frus_layout::MeasureFn<'_>> {
+        if !self.grows() {
+            return None;
+        }
+        Some(Box::new(move |width, _| {
+            let width = width.unwrap_or(match self.width {
+                Dimension::Length(w) => w,
+                _ => 220.0,
+            });
+            // Whole pixels, rounded up: the label and helper bands are fractions of a
+            // line, and a box rounded down is one the field no longer fits in.
+            frus_core::Size::new(
+                width,
+                frus_core::fits(
+                    self.label_block() + self.field_height_at(width) + self.sub_block(),
+                ),
+            )
+        }))
+    }
+
+    fn measure_key(&self, _theme: &Theme) -> Option<u64> {
+        if !self.grows() {
+            return None;
+        }
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.display().hash(&mut hasher);
+        self.rows.hash(&mut hasher);
+        self.max_rows.hash(&mut hasher);
+        self.size.to_bits().hash(&mut hasher);
+        // Everything that moves the wrap or the bands around the box, as numbers: a key
+        // listing the builders would miss the next one to change them.
+        for part in [
+            self.lead(),
+            self.pad_x(),
+            self.suffix_w(),
+            self.text_top(),
+            self.pad_bottom(),
+            self.label_block(),
+            self.sub_block(),
+        ] {
+            part.to_bits().hash(&mut hasher);
+        }
+        Some(hasher.finish())
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -1516,7 +1647,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
             bounds.x + gutter,
             bounds.y + label_block,
             (bounds.width - gutter).max(0.0),
-            self.field_height(),
+            self.field_height_at(bounds.width),
         );
         // The icon outside the box, centred on it.
         if let Some(icon) = self.icon {
@@ -2140,7 +2271,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
         }
         let layout = self.layout(Some(self.content_width(width)));
         let caret = layout.caret_rect(cursor);
-        let visible = self.field_height() - self.text_top() - self.pad_bottom();
+        let visible = self.field_height_at(width) - self.text_top() - self.pad_bottom();
         Some((layout.size().height, visible, caret.y, caret.height))
     }
 
@@ -2153,7 +2284,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
             rect.x,
             rect.y + self.label_block(),
             rect.width,
-            self.field_height(),
+            self.field_height_at(rect.width),
         ))
     }
 
@@ -2175,7 +2306,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
         let x = goal_x.unwrap_or(caret.x);
         // A step of one line, or of one page (the field's visible height, at least 1 line).
         let step = if page {
-            (self.field_height() - self.text_top() - self.pad_bottom()).max(line_h)
+            (self.field_height_at(width) - self.text_top() - self.pad_bottom()).max(line_h)
         } else {
             line_h
         };
@@ -4534,5 +4665,139 @@ mod decoration_tests {
         let alone = TextField::<()>::new("abc").counter_text("Optional");
         assert!(find(&texts(&alone, Status::default()), "Optional").is_some());
         assert!(alone.sub_block() > 0.0);
+    }
+}
+
+/// A box that grows with its value (milestone 657).
+#[cfg(test)]
+mod lines_tests {
+    use super::*;
+
+    const W: f32 = 300.0;
+
+    /// A value of `n` short words: enough of them wrap.
+    fn words(n: usize) -> String {
+        vec!["word"; n].join(" ")
+    }
+
+    fn lines(field: &TextField<()>) -> f32 {
+        field.lines_at(W)
+    }
+
+    /// **Given only a most, the box starts at one line** and grows as the value wraps, up
+    /// to the most, as the reference's `maxLines` does.
+    #[test]
+    fn a_box_grows_from_one_line_to_the_most() {
+        let empty = TextField::<()>::new("").max_lines(4);
+        assert!(empty.grows());
+        assert_eq!(lines(&empty), 1.0, "one line, empty");
+        let short = TextField::<()>::new(words(2)).max_lines(4);
+        assert_eq!(lines(&short), 1.0);
+        let wrapped = TextField::<()>::new(words(40)).max_lines(4);
+        assert_eq!(lines(&wrapped), 4.0, "held at the most");
+        let some = TextField::<()>::new(words(14)).max_lines(4);
+        let n = lines(&some);
+        assert!(n > 1.0 && n < 4.0, "in between: {n}");
+        let unbounded = TextField::<()>::new(words(160)).max_lines(None);
+        assert!(lines(&unbounded) > 12.0, "no most: {}", lines(&unbounded));
+    }
+
+    /// **The fewest lines hold the box open**, and the most is never below them.
+    #[test]
+    fn the_fewest_lines_hold_the_box_open() {
+        let held = TextField::<()>::new("").min_lines(2).max_lines(5);
+        assert_eq!(lines(&held), 2.0);
+        let either_order = TextField::<()>::new("").max_lines(5).min_lines(2);
+        assert_eq!(lines(&either_order), 2.0, "said after the most");
+        let inverted = TextField::<()>::new(words(40)).min_lines(6).max_lines(3);
+        assert_eq!(
+            lines(&inverted),
+            6.0,
+            "a most below the fewest is the fewest"
+        );
+        assert!(!inverted.grows());
+        let raised = TextField::<()>::new(words(40)).max_lines(3).min_lines(6);
+        assert_eq!(lines(&raised), 6.0, "the fewest raise a most said first");
+        assert!(!raised.grows());
+    }
+
+    /// **One line at most is a single-line field**, and `rows` still fixes the box.
+    #[test]
+    fn one_line_and_fixed_rows_do_not_grow() {
+        let single = TextField::<()>::new(words(40)).max_lines(1);
+        assert!(!single.multiline && !single.grows());
+        assert_eq!(lines(&single), 1.0);
+        let fixed = TextField::<()>::new(words(40)).rows(3);
+        assert!(!fixed.grows());
+        assert_eq!(lines(&fixed), 3.0);
+        assert!(Widget::<()>::measure(&fixed, &Theme::default()).is_none());
+        assert!(matches!(
+            Widget::<()>::style(&fixed).height,
+            Dimension::Length(_)
+        ));
+    }
+
+    /// **The layout, the paint and the click agree on the height**: a growing box is
+    /// measured from its width, painted that tall, and its suffix answers down its whole
+    /// height.
+    #[test]
+    fn the_layout_and_the_paint_agree() {
+        let field = TextField::<()>::new(words(14))
+            .max_lines(6)
+            .label("Notes")
+            .suffix_icon(crate::Icons::CLOSE)
+            .on_suffix(());
+        let style = Widget::<()>::style(&field);
+        assert_eq!(style.height, Dimension::Auto);
+        let theme = Theme::default();
+        let measure = Widget::<()>::measure(&field, &theme).expect("measured");
+        let size = measure(Some(W), None);
+        let expected =
+            frus_core::fits(field.label_block() + field.field_height_at(W) + field.sub_block());
+        assert_eq!(size.height, expected, "in whole pixels");
+        assert_eq!(size.height.fract(), 0.0);
+        assert!(
+            field.field_height_at(W) > field.field_height(),
+            "taller than one line"
+        );
+        let narrow = measure(Some(200.0), None);
+        assert!(narrow.height > size.height, "narrower wraps more");
+
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            &field,
+            Rect::new(0.0, 0.0, W, size.height),
+            Status::default(),
+            &theme,
+            &mut scene,
+        );
+        let tallest = scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Rect { rect, .. } => Some(rect.height),
+                _ => None,
+            })
+            .fold(0.0, f32::max);
+        assert_eq!(tallest, field.field_height_at(W), "the box is that tall");
+        let low = field.label_block() + field.field_height_at(W) - 4.0;
+        assert!(
+            field.suffix_hit(W - 10.0, low, W),
+            "the suffix answers low in the box"
+        );
+
+        let key = |f: &TextField<()>| Widget::<()>::measure_key(f, &theme);
+        assert_ne!(
+            key(&TextField::<()>::new(words(14)).max_lines(6).label("Notes")),
+            key(&TextField::<()>::new(words(30)).max_lines(6).label("Notes")),
+            "another value, and nothing else, another measurement"
+        );
+        assert_ne!(
+            key(&TextField::<()>::new(words(14)).max_lines(6)),
+            key(&TextField::<()>::new(words(14))
+                .max_lines(6)
+                .prefix_text("$")),
+            "a prefix narrows the wrap"
+        );
     }
 }
