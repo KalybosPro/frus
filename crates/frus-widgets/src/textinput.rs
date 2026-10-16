@@ -126,6 +126,31 @@ pub enum TextFieldVariant {
     None,
 }
 
+/// The caret's shape (milestone 659): what the caller said, each unset part the reference's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct CursorShape {
+    /// Its width; the reference's 2.
+    width: f32,
+    /// Its height; the line's when `None`.
+    height: Option<f32>,
+    /// Its corners' radius; 2 on Apple's platforms and square elsewhere when `None`, as the
+    /// reference's are.
+    radius: Option<f32>,
+    /// Whether it shows at all.
+    shown: bool,
+}
+
+impl Default for CursorShape {
+    fn default() -> Self {
+        Self {
+            width: 2.0,
+            height: None,
+            radius: None,
+            shown: true,
+        }
+    }
+}
+
 /// Everything a [`TextField`] paints, each answer the caller's, the theme's, or the
 /// framework's — resolved in that order.
 #[derive(Clone, Copy, Debug, Default)]
@@ -155,6 +180,11 @@ pub struct TextFieldStyle {
     /// The handles under a touch selection. Unset, the scheme's `primary`
     /// (`text_selection.dart:83`).
     pub handle_color: Option<frus_core::Color>,
+    /// The caret (milestone 659). Unset, the theme's text selection's, then the scheme's
+    /// `primary`, as the reference's `cursorColor` is.
+    pub cursor_color: Option<frus_core::Color>,
+    /// The caret while an error is showing. Unset, the error colour.
+    pub cursor_error_color: Option<frus_core::Color>,
     /// Corner radius.
     pub radius: Option<f32>,
     /// Border weight at rest.
@@ -195,6 +225,12 @@ pub struct TextField<Msg = crate::callback::Callback> {
     /// Masks the value (a password field): every character is rendered as
     /// [`OBSCURE_CHAR`]. Editing acts on the real value; only the display changes.
     obscure: bool,
+    /// What a masked character shows as; see [`TextField::obscuring_character`].
+    obscuring: char,
+    /// The caret's shape; see [`TextField::cursor_width`] and the others.
+    cursor: CursorShape,
+    /// Whether the field takes the focus when it appears; see [`TextField::autofocus`].
+    autofocus: bool,
     /// Where the text sits inside the field. Single-line only; see
     /// [`TextField::text_align`].
     text_align: TextAlign,
@@ -571,6 +607,9 @@ impl<Msg> TextField<Msg> {
             helper: None,
             error: None,
             obscure: false,
+            obscuring: OBSCURE_CHAR,
+            cursor: CursorShape::default(),
+            autofocus: false,
             text_align: TextAlign::Start,
             keyboard: None,
             action: None,
@@ -811,6 +850,21 @@ impl<Msg> TextField<Msg> {
                     .or(t.focused_border_width)
                     .unwrap_or(FIELD_FOCUSED_BORDER_WIDTH),
             ),
+            cursor_color: Some(
+                self.style
+                    .cursor_color
+                    .or(t.cursor_color)
+                    .or(theme.widgets.text_selection.cursor_color)
+                    .unwrap_or(theme.scheme.primary),
+            ),
+            cursor_error_color: Some(
+                self.style
+                    .cursor_error_color
+                    .or(t.cursor_error_color)
+                    .or(self.style.error_color)
+                    .or(t.error_color)
+                    .unwrap_or(theme.scheme.error),
+            ),
             icon_size: Some(self.icon_size()),
             padding_x: Some(self.pad_x()),
         }
@@ -889,6 +943,59 @@ impl<Msg> TextField<Msg> {
     /// what is typed into it. The dots are drawn by us and tell the keyboard nothing.
     pub fn obscure(mut self, obscure: bool) -> Self {
         self.obscure = obscure;
+        self
+    }
+
+    /// What each character of a masked value shows as — the reference's
+    /// `obscuringCharacter`. A dot unless told.
+    pub fn obscuring_character(mut self, character: char) -> Self {
+        self.obscuring = character;
+        self
+    }
+
+    /// The caret's colour (milestone 659). Unset, the theme's, then the scheme's `primary`.
+    pub fn cursor_color(mut self, color: Color) -> Self {
+        self.style.cursor_color = Some(color);
+        self
+    }
+
+    /// The caret's colour while an error is showing. Unset, the error colour.
+    pub fn cursor_error_color(mut self, color: Color) -> Self {
+        self.style.cursor_error_color = Some(color);
+        self
+    }
+
+    /// The caret's width, in logical pixels; the reference's 2 unless told.
+    pub fn cursor_width(mut self, width: f32) -> Self {
+        self.cursor.width = width.max(0.0);
+        self
+    }
+
+    /// The caret's height, centred on the line; the line's own unless told.
+    pub fn cursor_height(mut self, height: f32) -> Self {
+        self.cursor.height = Some(height.max(0.0));
+        self
+    }
+
+    /// The radius of the caret's corners. Unset, 2 on Apple's platforms and square
+    /// elsewhere, as the reference's are.
+    pub fn cursor_radius(mut self, radius: f32) -> Self {
+        self.cursor.radius = Some(radius.max(0.0));
+        self
+    }
+
+    /// Whether the caret shows while the field is focused — the reference's `showCursor`.
+    /// A field that hides it still takes keys and selections.
+    pub fn show_cursor(mut self, show: bool) -> Self {
+        self.cursor.shown = show;
+        self
+    }
+
+    /// Takes the keyboard's focus when the field appears — the reference's `autofocus`: the
+    /// field a screen exists to type into. Where the focus came from is given back when it
+    /// goes (milestone 605).
+    pub fn autofocus(mut self, autofocus: bool) -> Self {
+        self.autofocus = autofocus;
         self
     }
 
@@ -1263,7 +1370,9 @@ impl<Msg> TextField<Msg> {
     /// the hit-test stay aligned index for index.
     fn display(&self) -> String {
         if self.obscure {
-            OBSCURE_CHAR.to_string().repeat(self.value.chars().count())
+            self.obscuring
+                .to_string()
+                .repeat(self.value.chars().count())
         } else {
             self.value.clone()
         }
@@ -2032,10 +2141,30 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
         }
 
         // The caret, in the shown half of its blink (milestone 513).
-        if status.focused && !status.caret_hidden {
-            scene.fill_rect(
-                Rect::new(text_x + caret.x, text_top + caret.y, 2.0, caret.height),
-                theme.on_surface.fade(o),
+        // In the reference's colour, `primary`, and the error's while one shows; its shape the
+        // caller's or the platform's (milestone 659).
+        if status.focused && !status.caret_hidden && self.cursor.shown {
+            let color = if has_error {
+                s.cursor_error_color.unwrap()
+            } else {
+                s.cursor_color.unwrap()
+            };
+            let height = self.cursor.height.unwrap_or(caret.height);
+            let radius =
+                self.cursor
+                    .radius
+                    .unwrap_or(if theme.platform.is_apple() { 2.0 } else { 0.0 });
+            scene.draw_rect(
+                Rect::new(
+                    text_x + caret.x,
+                    text_top + caret.y + (caret.height - height) * 0.5,
+                    self.cursor.width,
+                    height,
+                ),
+                color.fade(o),
+                radius,
+                0.0,
+                Color::TRANSPARENT,
             );
         }
 
@@ -2420,6 +2549,10 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
 
     fn autofill_hints(&self) -> &[AutofillHint] {
         &self.autofill
+    }
+
+    fn autofocus(&self) -> bool {
+        self.autofocus && self.enabled
     }
 
     fn focusable(&self) -> bool {
@@ -4799,5 +4932,153 @@ mod lines_tests {
                 .prefix_text("$")),
             "a prefix narrows the wrap"
         );
+    }
+}
+
+/// The caret, the mask and the focus a field asks for (milestone 659).
+#[cfg(test)]
+mod cursor_tests {
+    use super::*;
+    use frus_core::{BorderRadius, Primitive, TargetPlatform};
+
+    /// Every rectangle a focused field paints: where, in what colour, how round.
+    fn rects(field: &TextField<()>, theme: &Theme) -> Vec<(Rect, Color, BorderRadius)> {
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            field,
+            Rect::new(0.0, 0.0, 300.0, 80.0),
+            Status {
+                focused: true,
+                focus_progress: 1.0,
+                cursor: Some(2),
+                ..Default::default()
+            },
+            theme,
+            &mut scene,
+        );
+        scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect {
+                    rect,
+                    color,
+                    radius,
+                    ..
+                } => Some((*rect, *color, *radius)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The caret: the rectangle in `color`.
+    fn caret(field: &TextField<()>, theme: &Theme, color: Color) -> Option<(Rect, BorderRadius)> {
+        rects(field, theme)
+            .into_iter()
+            .find(|(_, c, _)| *c == color)
+            .map(|(r, _, radius)| (r, radius))
+    }
+
+    /// **The caret is `primary`**, as the reference's is, and the error's colour while one
+    /// shows; the field's colour over the theme's, the field theme's over the text
+    /// selection's.
+    #[test]
+    fn the_caret_takes_the_reference_s_colours() {
+        let theme = Theme::default();
+        let field = TextField::<()>::new("ab");
+        let (rect, _) = caret(&field, &theme, theme.scheme.primary).expect("in primary");
+        assert_eq!(rect.width, 2.0, "the reference's two pixels");
+
+        let errored = TextField::<()>::new("ab").error("Wrong");
+        assert!(
+            caret(&errored, &theme, theme.scheme.error).is_some(),
+            "in error"
+        );
+        assert!(caret(&errored, &theme, theme.scheme.primary).is_none());
+
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let told = TextField::<()>::new("ab").cursor_color(red);
+        assert!(caret(&told, &theme, red).is_some(), "the field's");
+        let blue = Color::rgb(0.0, 0.0, 1.0);
+        let told_error = TextField::<()>::new("ab")
+            .error("Wrong")
+            .cursor_error_color(blue);
+        assert!(
+            caret(&told_error, &theme, blue).is_some(),
+            "the field's error colour"
+        );
+
+        let mut selection = Theme::default();
+        selection.widgets.text_selection.cursor_color = Some(red);
+        assert!(
+            caret(&field, &selection, red).is_some(),
+            "the text selection's"
+        );
+        let mut both = selection.clone();
+        both.widgets.text_field.cursor_color = Some(blue);
+        assert!(
+            caret(&field, &both, blue).is_some(),
+            "the field theme's over it"
+        );
+    }
+
+    /// **Its shape**: the width and height told, the height centred on the line; rounded on
+    /// Apple's platforms and square elsewhere unless told; hidden when told.
+    #[test]
+    fn the_caret_takes_its_shape() {
+        let theme = Theme::default().with_platform(TargetPlatform::Android);
+        let primary = theme.scheme.primary;
+        let (line, square) = caret(&TextField::new("ab"), &theme, primary).unwrap();
+        assert_eq!(square, BorderRadius::uniform(0.0), "square on Android");
+
+        let shaped = TextField::<()>::new("ab")
+            .cursor_width(3.0)
+            .cursor_height(10.0);
+        let (rect, _) = caret(&shaped, &theme, primary).unwrap();
+        assert_eq!((rect.width, rect.height), (3.0, 10.0));
+        let centre = |r: Rect| r.y + r.height / 2.0;
+        assert!(
+            (centre(rect) - centre(line)).abs() < 1e-3,
+            "centred on the line"
+        );
+
+        let ios = Theme::default().with_platform(TargetPlatform::Ios);
+        let (_, round) = caret(&TextField::new("ab"), &ios, ios.scheme.primary).unwrap();
+        assert_eq!(round, BorderRadius::uniform(2.0), "rounded on iOS");
+        let told = TextField::<()>::new("ab").cursor_radius(1.0);
+        assert_eq!(
+            caret(&told, &theme, primary).unwrap().1,
+            BorderRadius::uniform(1.0)
+        );
+
+        let hidden = TextField::<()>::new("ab").show_cursor(false);
+        assert!(caret(&hidden, &theme, primary).is_none(), "not shown");
+    }
+
+    /// **A masked value shows the character told**, a dot unless told.
+    #[test]
+    fn a_masked_value_shows_the_character_told() {
+        assert_eq!(TextField::<()>::new("abc").obscure(true).display(), "•••");
+        let starred = TextField::<()>::new("abc")
+            .obscure(true)
+            .obscuring_character('*');
+        assert_eq!(starred.display(), "***");
+        assert_eq!(
+            TextField::<()>::new("abc")
+                .obscuring_character('*')
+                .display(),
+            "abc",
+            "only a masked field"
+        );
+    }
+
+    /// **A field asks for the focus when told**, and a disabled one never does.
+    #[test]
+    fn a_field_asks_for_the_focus_when_told() {
+        assert!(!Widget::<()>::autofocus(&TextField::new("")));
+        assert!(Widget::<()>::autofocus(&TextField::new("").autofocus(true)));
+        assert!(!Widget::<()>::autofocus(
+            &TextField::new("").autofocus(true).enabled(false)
+        ));
     }
 }

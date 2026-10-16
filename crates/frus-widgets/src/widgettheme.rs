@@ -186,6 +186,9 @@ pub struct TextSelectionTheme {
     pub selection_color: Option<Color>,
     /// The handles under a touch selection. Unset, the scheme's `primary`.
     pub handle_color: Option<Color>,
+    /// A text field's caret (milestone 659) — the reference keeps it here too. Unset, the
+    /// scheme's `primary`.
+    pub cursor_color: Option<Color>,
 }
 
 impl TextSelectionTheme {
@@ -565,6 +568,10 @@ pub struct TextFieldTheme {
     pub floating_label_behavior: Option<crate::FloatingLabelBehavior>,
     /// Where a floated label sits. Unset, at the start.
     pub floating_label_alignment: Option<crate::FloatingLabelAlignment>,
+    /// A field's caret (milestone 659). Unset, the text selection's, then `primary`.
+    pub cursor_color: Option<Color>,
+    /// The caret while an error shows. Unset, the error colour.
+    pub cursor_error_color: Option<Color>,
 }
 
 /// Defaults for [`Button`](crate::Button): a style for each kind of button — the
