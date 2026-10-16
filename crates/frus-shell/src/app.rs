@@ -919,6 +919,9 @@ pub struct App<A: Application> {
     themes: crate::theming::ThemeFade,
     /// Live-reload watching (development, `FRUS_WATCH=1`): relaunch on recompilation.
     reload: Option<crate::reload::ReloadWatcher>,
+    /// The channel `frus run` listens on, when it started this application — see [`crate::dev`].
+    #[cfg(any(desktop, android))]
+    dev: Option<crate::dev::DevChannel>,
     /// Overflowing boxes already named on the console, so that a layout that does not
     /// fit is reported once and not sixty times a second.
     reported_overflows: std::cell::RefCell<std::collections::HashSet<u64>>,
@@ -1183,6 +1186,8 @@ impl<A: Application> App<A> {
             runtime: Runtime::default(),
             themes: crate::theming::ThemeFade::default(),
             reload: crate::reload::ReloadWatcher::new(),
+            #[cfg(any(desktop, android))]
+            dev: None,
             reported_overflows: std::cell::RefCell::new(std::collections::HashSet::new()),
             inspector: false,
             inspector_dump: false,
@@ -1843,6 +1848,13 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         if let Some((w, h)) = self.app.window_size() {
             attributes = attributes.with_inner_size(winit::dpi::LogicalSize::new(w, h));
         }
+        // Restarted by `frus run`: where the window was, as big as it was.
+        #[cfg(desktop)]
+        if let Some([x, y, w, h]) = crate::dev::restore_window() {
+            attributes = attributes
+                .with_position(winit::dpi::PhysicalPosition::new(x, y))
+                .with_inner_size(winit::dpi::PhysicalSize::new(w as u32, h as u32));
+        }
         // Web: winit creates a `<canvas>` and **appends it** to the document's body.
         #[cfg(web)]
         {
@@ -1947,6 +1959,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         self.sync_subscriptions();
                         #[cfg(any(android, desktop))]
                         self.open_launch_link();
+                        #[cfg(any(android, desktop))]
+                        self.connect_dev();
                     }
                     window.request_redraw();
                 }
@@ -2506,6 +2520,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.run_command(asked);
                 #[cfg(web)]
                 self.sync_address();
+                #[cfg(any(desktop, android))]
+                self.report_dev();
                 #[cfg(desktop)]
                 self.open_links_from_other_instances();
                 // Work a component started brought something: build again to show it.
@@ -4645,6 +4661,8 @@ impl<A: Application> App<A> {
         self.run_command(asked);
         #[cfg(web)]
         self.sync_address();
+        #[cfg(any(desktop, android))]
+        self.report_dev();
         self.sync_subscriptions();
     }
 
@@ -4657,11 +4675,52 @@ impl<A: Application> App<A> {
             .android_app
             .as_ref()
             .and_then(crate::android_link::launch_link);
+        // A link on the command line, or where `frus run` restarted the application from.
         #[cfg(desktop)]
-        let link = crate::link::link_among(std::env::args());
+        let link = crate::link::link_among(std::env::args()).or_else(crate::dev::restore_link);
         if let Some(location) = link.as_deref().and_then(crate::link::location_of_link) {
             let command = self.app.open_location(&location);
             self.run_command(command);
+        }
+    }
+
+    /// Opens the channel to `frus run`, when it started this application with one.
+    #[cfg(any(android, desktop))]
+    fn connect_dev(&mut self) {
+        #[cfg(desktop)]
+        {
+            self.dev = crate::dev::address()
+                .as_deref()
+                .and_then(crate::dev::DevChannel::connect);
+        }
+        // On Android the extra only says that `frus run` is listening, and it listens to the log.
+        #[cfg(android)]
+        {
+            let asked = self
+                .android_app
+                .as_ref()
+                .and_then(|app| crate::android_link::launch_extra(app, crate::dev::DEV_EXTRA));
+            self.dev = asked.map(|_| crate::dev::DevChannel::through_log());
+        }
+    }
+
+    /// Tells `frus run` where the application is and where its window sits, when either
+    /// changed; a channel that can no longer be written to is closed.
+    #[cfg(any(android, desktop))]
+    fn report_dev(&mut self) {
+        let Some(dev) = self.dev.as_mut() else {
+            return;
+        };
+        #[cfg(desktop)]
+        let window = self.window.as_ref().and_then(|window| {
+            let at = window.outer_position().ok()?;
+            let size = window.inner_size();
+            Some([at.x, at.y, size.width as i32, size.height as i32])
+        });
+        #[cfg(android)]
+        let window = None;
+        if !dev.report(self.app.location(), window) {
+            self.dev = None;
         }
     }
 
