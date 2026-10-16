@@ -8,11 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 657 so far, each documenting the objective, the alternatives
+> record — one per step, 659 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The text field's caret, mask and focus** (J659). The caret is the scheme's `primary`, as
+  the reference's is, and the error's colour while an error shows, instead of `on_surface`.
+  `TextField::cursor_color`, `cursor_error_color` (also in `TextFieldStyle`,
+  `TextFieldTheme`, and `TextSelectionTheme::cursor_color`), `cursor_width`,
+  `cursor_height`, `cursor_radius` (2 on Apple's platforms, square elsewhere, unless told)
+  and `show_cursor`; `obscuring_character` for a masked field; and `autofocus`.
+  **Changed**: the caret's colour.
 - **A text field that grows with its value** (J657). `TextField::max_lines(n)` lets a
   multi-line field grow as its value wraps, from one line, or from `min_lines(n)`, up to `n`
   lines, then scroll; `max_lines(None)` grows without a limit, and `max_lines(1)` is a

@@ -104,6 +104,54 @@ fn decorated_form_matches_golden() {
     snapshot.assert_golden(golden("decorated_form"));
 }
 
+/// **A focused field's caret (milestone 659)**: in the scheme's `primary`, as the reference's
+/// is, two pixels wide after the value; the field below is unfocused and shows none.
+#[test]
+fn field_cursor_matches_golden() {
+    use frus_widgets::{build_ui, Runtime, Size};
+
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(16.0)
+            .child(
+                TextField::<()>::new("Ada")
+                    .width(300.0)
+                    .label("Name")
+                    .on_input(|_| ()),
+            )
+            .child(
+                TextField::<()>::new("Lovelace")
+                    .width(300.0)
+                    .label("Surname")
+                    .on_input(|_| ()),
+            ),
+    );
+    let (w, h) = (360u32, 190u32);
+    let base = build_ui(
+        &root,
+        Size::new(w as f32, h as f32),
+        &Runtime::default(),
+        &theme,
+    );
+    let id = base
+        .focus_next(None, true)
+        .expect("the first field takes focus");
+    let mut runtime = Runtime::default();
+    runtime.input.focused = Some(id);
+    runtime.advance(1.0);
+    let ui = build_ui(&root, Size::new(w as f32, h as f32), &runtime, &theme);
+    let Some(snapshot) = render_scene(ui.scene(), w, h, theme.background) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "borders, labels, text and the caret are drawn"
+    );
+    snapshot.assert_golden(golden("field_cursor"));
+}
+
 /// **Fields that grow with their value (milestone 657)**: given at most five lines, an
 /// empty field is one line tall and a field holding three lines of text is three, with the
 /// helper line under each where the box ends; one given at least two holds them open.
