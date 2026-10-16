@@ -22,12 +22,53 @@ use winit::platform::android::activity::AndroidApp;
 
 /// The link the activity was started with, if it was started with one.
 pub(crate) fn launch_link(app: &AndroidApp) -> Option<String> {
+    with_intent(app, |env, intent| {
+        let data = env
+            .call_method(intent, "getDataString", "()Ljava/lang/String;", &[])?
+            .l()?;
+        string(env, data)
+    })
+}
+
+/// A text extra of the launch intent: `am start --es <name> <value>`. How `frus run` hands an
+/// application the address it reports to (see [`crate::dev`]).
+pub(crate) fn launch_extra(app: &AndroidApp, name: &str) -> Option<String> {
+    with_intent(app, |env, intent| {
+        let key = env.new_string(name)?;
+        let value = env
+            .call_method(
+                intent,
+                "getStringExtra",
+                "(Ljava/lang/String;)Ljava/lang/String;",
+                &[(&key).into()],
+            )?
+            .l()?;
+        string(env, value)
+    })
+}
+
+/// Runs `read` on the activity's intent; any failure is a warning and `None`.
+fn with_intent(
+    app: &AndroidApp,
+    read: impl FnOnce(&mut JNIEnv, &JObject) -> Result<Option<String>, jni::errors::Error>,
+) -> Option<String> {
     let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as *mut jni::sys::JavaVM) }.ok()?;
     let mut env = vm.attach_current_thread_permanently().ok()?;
-    match read(&mut env, app) {
-        Ok(link) => link,
+    let activity = unsafe { JObject::from_raw(app.activity_as_ptr() as jni::sys::jobject) };
+    let result = env
+        .call_method(&activity, "getIntent", "()Landroid/content/Intent;", &[])
+        .and_then(|intent| intent.l())
+        .and_then(|intent| {
+            if intent.is_null() {
+                Ok(None)
+            } else {
+                read(&mut env, &intent)
+            }
+        });
+    match result {
+        Ok(value) => value,
         Err(err) => {
-            log::warn!("the launch intent could not be read ({err}); starting at the root");
+            log::warn!("the launch intent could not be read ({err})");
             if env.exception_check().unwrap_or(false) {
                 let _ = env.exception_clear();
             }
@@ -36,21 +77,12 @@ pub(crate) fn launch_link(app: &AndroidApp) -> Option<String> {
     }
 }
 
-fn read(env: &mut JNIEnv, app: &AndroidApp) -> Result<Option<String>, jni::errors::Error> {
-    let activity = unsafe { JObject::from_raw(app.activity_as_ptr() as jni::sys::jobject) };
-    let intent = env
-        .call_method(&activity, "getIntent", "()Landroid/content/Intent;", &[])?
-        .l()?;
-    if intent.is_null() {
+/// A Java string, or `None` for `null`.
+fn string(env: &mut JNIEnv, value: JObject) -> Result<Option<String>, jni::errors::Error> {
+    if value.is_null() {
         return Ok(None);
     }
-    let data = env
-        .call_method(&intent, "getDataString", "()Ljava/lang/String;", &[])?
-        .l()?;
-    if data.is_null() {
-        return Ok(None);
-    }
-    let data = JString::from(data);
-    let link: String = env.get_string(&data)?.into();
-    Ok(Some(link))
+    let value = JString::from(value);
+    let text: String = env.get_string(&value)?.into();
+    Ok(Some(text))
 }

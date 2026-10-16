@@ -57,6 +57,9 @@ mod logging;
 #[cfg(feature = "net")]
 pub mod net;
 mod reload;
+// The channel `frus run` restarts an application through.
+#[cfg(any(desktop, android))]
+mod dev;
 mod remote;
 /// The async runtime: one executor and a reactor, shared by every asynchronous
 /// effect. Native only — on the Web the browser is the runtime.
