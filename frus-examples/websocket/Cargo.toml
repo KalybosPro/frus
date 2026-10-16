@@ -1,0 +1,85 @@
+[package]
+name = "websocket"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+publish = false
+
+# A standalone project: without this, Cargo walks up to the frus repository's own
+# workspace (this folder sits inside it) and refuses to build a non-member.
+[workspace]
+
+# Library: `rlib` for the desktop binary, `cdylib` (the `.so`) for Android.
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+# The `frus` facade re-exports shell + widgets + `main!`.
+# This points at the frus checkout the example sits in; outside it, use the published
+# crate instead:  frus = "0.3"
+frus = { path = "../../crates/frus" }
+# The local time of day stamped on each message. `clock` alone: no serde, no formatting
+# tables we do not use.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+# Native only (desktop + Android): the WebSocket client. frus has no socket of its own;
+# any client works, because the socket runs on a thread of its own (see
+# `features/chat/controllers/connection.rs`).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# `tungstenite` is the synchronous WebSocket protocol: one blocking socket, no async
+# runtime. `rustls-tls-webpki-roots` adds `wss://` with a pure-Rust TLS stack and the
+# Mozilla root certificates compiled in — nothing to find on the device, so Android needs
+# no system OpenSSL.
+tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+# tungstenite asks rustls for its process-wide crypto provider. Naming `ring` here picks
+# it: a crate that builds for Android with no C toolchain beyond the NDK.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+# Web (wasm): the `frus::main!` macro generates the `#[wasm_bindgen(start)]` entry point.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+# The browser's own WebSocket (see `features/chat/controllers/browser.rs`).
+web-sys = { version = "0.3", features = ["WebSocket", "MessageEvent", "CloseEvent", "BinaryType"] }
+js-sys = "0.3"
+wasm-bindgen-futures = "0.4"
+# The local time on the Web comes from JavaScript's `Date`.
+chrono = { version = "0.4", default-features = false, features = ["clock", "wasmbind"] }
+
+# --- Android packaging (cargo-apk) ---
+#
+#     cargo apk run --lib                  # build, install and start on the device
+#     cargo apk build --lib --release      # the APK you ship
+[package.metadata.android]
+package = "com.example.websocket"
+build_targets = ["aarch64-linux-android"]
+# The launch theme lives here — see `res/values/styles.xml`.
+resources = "res"
+
+[package.metadata.android.application]
+label = "websocket"
+icon = "@mipmap/ic_launcher"
+# NoActionBar launch theme: no white flash before the first frame, and no 56 dp
+# action bar eating into the safe area.
+theme = "@style/LaunchTheme"
+
+[package.metadata.android.sdk]
+min_sdk_version = 24
+target_sdk_version = 34
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# The Web build: smallest code first (see README.md, "Web").
+#
+#     cargo build --lib --target wasm32-unknown-unknown --profile web-release
+[profile.web-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
