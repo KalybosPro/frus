@@ -104,6 +104,51 @@ fn decorated_form_matches_golden() {
     snapshot.assert_golden(golden("decorated_form"));
 }
 
+/// **Fields that grow with their value (milestone 657)**: given at most five lines, an
+/// empty field is one line tall and a field holding three lines of text is three, with the
+/// helper line under each where the box ends; one given at least two holds them open.
+#[test]
+fn growing_fields_match_golden() {
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(16.0)
+            .child(
+                TextField::<()>::new("")
+                    .width(300.0)
+                    .label("Comment")
+                    .helper("Up to five lines")
+                    .max_lines(5),
+            )
+            .child(
+                TextField::<()>::new(
+                    "A field that grows with what is typed in it, one line at a time, up to the most it was given.",
+                )
+                .width(300.0)
+                .label("Comment")
+                .helper("Up to five lines")
+                .max_lines(5),
+            )
+            .child(
+                TextField::<()>::new("Short")
+                    .width(300.0)
+                    .filled()
+                    .label("Notes")
+                    .min_lines(2)
+                    .max_lines(4),
+            ),
+    );
+    let Some(snapshot) = render_widget(&root, 360, 380, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "borders, labels, helpers and text are drawn"
+    );
+    snapshot.assert_golden(golden("growing_fields"));
+}
+
 /// **A field's decoration (milestone 656)**: an icon outside the box, a prefix and a suffix
 /// either side of the value, a label that always floats over an empty field (its hint
 /// showing), a centred one, and a counter told what to say.
