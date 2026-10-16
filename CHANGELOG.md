@@ -13,6 +13,13 @@ any release may break.
 
 ## [Unreleased]
 
+- **`frus devices`, `frus run` and `frus build`** (J661). `frus devices` lists this computer,
+  the Android devices and emulators, the iOS simulators on a Mac, and the browsers. `frus run
+  -d <device>` builds the application for it, starts it, and shows its log in the terminal: the
+  desktop's output, the phone's logcat, the browser's console. `frus build apk|web|desktop`
+  builds what is shipped. What a command needs and does not find (a Rust target, cargo-apk,
+  wasm-bindgen at the lockfile's version, the Android SDK and NDK) is installed.
+
 - **The text field's caret, mask and focus** (J659). The caret is the scheme's `primary`, as
   the reference's is, and the error's colour while an error shows, instead of `on_surface`.
   `TextField::cursor_color`, `cursor_error_color` (also in `TextFieldStyle`,
