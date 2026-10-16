@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The **launch theme**: what the window is painted with between the moment Android opens
+  it and the moment this application draws its first frame.
+
+  Without it the window keeps the platform theme's background — white on a device in
+  light mode — so a dark application opens with a full-screen white flash. The reference
+  ships the same file in its own template, for the same reason.
+
+  `windowBackground` is the only thing here that matters, and it should be the colour the
+  application's first frame starts with: `Theme::dark()`'s background, since that is what
+  a frus application uses unless it says otherwise.
+
+  Two things were tried and are **not** here:
+
+  - `statusBarColor` and `navigationBarColor` do nothing on their own — the platform only
+    honours them once the window is told to draw the system bars' backgrounds;
+  - and `windowDrawsSystemBarBackgrounds`, which tells it to, **brings the white flash
+    back** (measured on a Huawei STK-L21, Android 10): the launch background stops being
+    used at all. A white strip along the navigation bar during the opening animation is
+    the smaller of the two, so that is the one that stays.
+
+  NoActionBar, and not by taste: a theme that keeps the system title bar makes Android
+  report a content rect 56 dp shorter than the window, which the shell reads as a
+  safe-area inset and pads a second time (milestone 288).
+-->
+<resources>
+    <color name="launch_background">#121418</color>
+
+    <style name="LaunchTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/launch_background</item>
+    </style>
+</resources>
