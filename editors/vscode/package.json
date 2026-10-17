@@ -1,0 +1,166 @@
+{
+  "name": "frus",
+  "displayName": "frus",
+  "description": "Run frus applications on any device from VS Code: a device picker, F5, the application's log in the Debug Console, and reload on save.",
+  "version": "0.1.0",
+  "publisher": "kalybospro",
+  "license": "MIT OR Apache-2.0",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KalybosPro/frus",
+    "directory": "editors/vscode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Debuggers",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "frus",
+    "rust",
+    "ui",
+    "android",
+    "hot reload"
+  ],
+  "main": "./out/src/extension.js",
+  "activationEvents": [
+    "workspaceContains:Cargo.toml",
+    "workspaceContains:*/Cargo.toml",
+    "onDebugResolve:frus"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "frus.selectDevice",
+        "title": "Select Device",
+        "category": "frus"
+      },
+      {
+        "command": "frus.reload",
+        "title": "Reload",
+        "category": "frus",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "frus.restart",
+        "title": "Restart (state afresh)",
+        "category": "frus",
+        "icon": "$(debug-restart)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "frus.reload",
+        "key": "ctrl+f5",
+        "mac": "cmd+f5",
+        "when": "inDebugMode && debugType == 'frus'"
+      }
+    ],
+    "menus": {
+      "debug/toolbar": [
+        {
+          "command": "frus.reload",
+          "when": "debugType == 'frus'",
+          "group": "navigation@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "frus.reload",
+          "when": "inDebugMode && debugType == 'frus'"
+        },
+        {
+          "command": "frus.restart",
+          "when": "inDebugMode && debugType == 'frus'"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "frus",
+      "properties": {
+        "frus.path": {
+          "type": "string",
+          "default": "",
+          "description": "The `frus` program to use. Empty: the one on the PATH, installed with `cargo install frus-cli` when there is none."
+        },
+        "frus.reloadOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reload the running application when a Rust file is saved, keeping the state of the components that keep one."
+        }
+      }
+    },
+    "debuggers": [
+      {
+        "type": "frus",
+        "label": "frus",
+        "languages": [
+          "rust"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "properties": {
+              "cwd": {
+                "type": "string",
+                "description": "The application's directory: where its Cargo.toml is.",
+                "default": "${workspaceFolder}"
+              },
+              "deviceId": {
+                "type": "string",
+                "description": "Where to run: a device's id as `frus devices` prints it, or `android`, `web`, `desktop`. Empty: the device chosen in the status bar."
+              },
+              "release": {
+                "type": "boolean",
+                "description": "A release build.",
+                "default": false
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Arguments for the application (desktop).",
+                "default": []
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "frus",
+            "request": "launch",
+            "name": "frus",
+            "cwd": "${workspaceFolder}"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "frus: Run",
+            "description": "Run a frus application on the selected device",
+            "body": {
+              "type": "frus",
+              "request": "launch",
+              "name": "frus",
+              "cwd": "^\"\\${workspaceFolder}\""
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "test": "tsc -p . && node --test \"out/test/*.test.js\"",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "^5.4.0"
+  }
+}
