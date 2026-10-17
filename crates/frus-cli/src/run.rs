@@ -1,14 +1,21 @@
 //! `frus run`: build the application for a device, start it there, and show what it logs —
 //! the desktop's terminal output, Android's logcat, the browser's console — in this terminal
 //! until it ends.
+//!
+//! While it runs, keys drive it: `R` **restarts** it (it is built again, and the new build
+//! opens where the old one was — the same page, the window in the same place), `q` quits. A
+//! build that fails leaves the running application as it was.
 
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::{Command, ExitCode, Stdio};
-use std::time::Duration;
+use std::process::{Child, Command, ExitCode, Stdio};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::time::{Duration, Instant};
 
 use crate::cargo::{self, Mode};
 use crate::devices::{self, Device, Kind};
+use crate::devlink::{DevLink, Report};
+use crate::keys;
 use crate::project::Project;
 use crate::serve;
 
@@ -26,6 +33,33 @@ pub(crate) struct RunOptions {
 
 pub(crate) const DEFAULT_PORT: u16 = 8080;
 
+/// What a key asks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Action {
+    Restart,
+    /// Hot reload: a restart until it exists (milestone 663).
+    Reload,
+    Quit,
+    Help,
+}
+
+pub(crate) fn action(key: char) -> Option<Action> {
+    match key {
+        'R' => Some(Action::Restart),
+        'r' => Some(Action::Reload),
+        'q' | 'Q' => Some(Action::Quit),
+        'h' | 'H' | '?' => Some(Action::Help),
+        _ => None,
+    }
+}
+
+// No line continuation after the opening quote: it would eat this line's indentation too.
+const KEYS: &str = "  R  hot restart: build again, and start where it was
+  r  hot reload (a restart, until frus has hot reload)
+  q  quit
+  h  this list
+";
+
 pub(crate) fn run(options: &RunOptions) -> Result<ExitCode, String> {
     let here = std::env::current_dir().map_err(|e| e.to_string())?;
     let project = Project::find(&here)?;
@@ -37,7 +71,7 @@ pub(crate) fn run(options: &RunOptions) -> Result<ExitCode, String> {
             device.name
         );
     }
-    match &device.kind {
+    let result = match &device.kind {
         Kind::Host => run_desktop(&project, options),
         Kind::Android { serial } => run_android(&project, &device, serial, options.mode),
         Kind::Emulator { avd } => {
@@ -51,19 +85,130 @@ pub(crate) fn run(options: &RunOptions) -> Result<ExitCode, String> {
         )),
         Kind::Browser { exe } => run_web(&project, Some(exe), options),
         Kind::WebServer => run_web(&project, None, options),
+    };
+    keys::restore();
+    result
+}
+
+/// The keys, from the moment the application is up.
+fn attach(what: &str) -> Receiver<char> {
+    println!("\n{what}. Keys:\n{KEYS}");
+    keys::listen()
+}
+
+/// The next key's action, waiting at most `wait`. Keys that mean nothing are skipped.
+fn next_action(keys: &Receiver<char>, wait: Duration) -> Option<Action> {
+    match keys.recv_timeout(wait) {
+        Ok(key) => action(key),
+        Err(RecvTimeoutError::Timeout) => None,
+        // No more input (it was a pipe that closed): only the application can end the run now.
+        Err(RecvTimeoutError::Disconnected) => {
+            std::thread::sleep(wait);
+            None
+        }
     }
 }
 
+fn restarting(action: Action, location: Option<&str>) {
+    if action == Action::Reload {
+        println!("Hot reload is not in frus yet: restarting instead.");
+    }
+    match location {
+        Some(location) => println!("Restarting at {location}: building…"),
+        None => println!("Restarting: building…"),
+    }
+}
+
+// --- Desktop ---
+
 fn run_desktop(project: &Project, options: &RunOptions) -> Result<ExitCode, String> {
-    let exe = cargo::build_desktop(project, options.mode)?;
-    println!("Running {}…", exe.display());
-    let status = Command::new(&exe)
+    let link = DevLink::open()?;
+    let runs = project.target_dir()?.join("frus-run");
+    let mut generation = 0;
+    let built = cargo::build_desktop(project, options.mode)?;
+    let mut child = start_desktop(project, options, &built, &runs, &mut generation, &link)?;
+    let keys = attach(&format!("{} is running", project.package));
+    loop {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            println!("{} has stopped.", project.package);
+            return Ok(exit_code(status.code()));
+        }
+        match next_action(&keys, Duration::from_millis(100)) {
+            Some(Action::Quit) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Ok(ExitCode::SUCCESS);
+            }
+            Some(Action::Help) => print!("{KEYS}"),
+            Some(action @ (Action::Restart | Action::Reload)) => {
+                restarting(action, link.report().location.as_deref());
+                let started = Instant::now();
+                // The running application stays up while the new one builds: it runs from a
+                // copy, so the build may write its executable.
+                match cargo::build_desktop(project, options.mode) {
+                    Ok(built) => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        child =
+                            start_desktop(project, options, &built, &runs, &mut generation, &link)?;
+                        println!("Restarted in {:.1} s.", started.elapsed().as_secs_f32());
+                    }
+                    Err(error) => eprintln!("{error}: the running application is left as it was."),
+                }
+            }
+            None => {}
+        }
+    }
+}
+
+/// Starts a copy of `built`, told where to report and, after a restart, where to open.
+///
+/// A copy, because Windows does not let a running program's file be written: started from where
+/// cargo built it, the application would make the next build fail.
+fn start_desktop(
+    project: &Project,
+    options: &RunOptions,
+    built: &Path,
+    runs: &Path,
+    generation: &mut u32,
+    link: &DevLink,
+) -> Result<Child, String> {
+    std::fs::create_dir_all(runs).map_err(|e| e.to_string())?;
+    // The previous copies, which are no longer running.
+    if let Ok(entries) = std::fs::read_dir(runs) {
+        for entry in entries.filter_map(Result::ok) {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    *generation += 1;
+    let name = built
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| project.package.clone());
+    let copy = runs.join(match built.extension() {
+        Some(ext) => format!("{name}-{generation}.{}", ext.to_string_lossy()),
+        None => format!("{name}-{generation}"),
+    });
+    std::fs::copy(built, &copy).map_err(|e| format!("could not copy the program to run: {e}"))?;
+
+    let mut command = Command::new(&copy);
+    command
         .args(&options.args)
         .current_dir(&project.root)
-        .status()
-        .map_err(|e| format!("could not start {}: {e}", exe.display()))?;
-    Ok(exit_code(status.code()))
+        .env("FRUS_DEV", link.address());
+    let Report { location, window } = link.report();
+    if let Some(location) = location {
+        command.env("FRUS_RESTORE_LOCATION", location);
+    }
+    if let Some(window) = window {
+        command.env("FRUS_RESTORE_WINDOW", window);
+    }
+    command
+        .spawn()
+        .map_err(|e| format!("could not start {}: {e}", copy.display()))
 }
+
+// --- Android ---
 
 fn run_android(
     project: &Project,
@@ -72,22 +217,39 @@ fn run_android(
     mode: Mode,
 ) -> Result<ExitCode, String> {
     let adb = devices::adb().ok_or("adb was not found: install Android's platform-tools")?;
-    let apk = cargo::build_apk(project, mode)?;
     let adb_on = |args: &[&str]| {
         let mut command = Command::new(&adb);
         command.arg("-s").arg(serial).args(args);
         command
     };
-
-    println!("Installing {} on {}…", file_name(&apk), device.name);
-    cargo::run(adb_on(&["install", "-r"]).arg(&apk))?;
+    // The application reports where it is through its log (see `devlink`): no socket, so it
+    // needs no network permission to be restarted.
+    let link = DevLink::open()?;
     let package = &project.android_package;
-    let _ = adb_on(&["shell", "am", "force-stop", package]).output();
+
+    let install = |location: Option<&str>| -> Result<(), String> {
+        let apk = cargo::build_apk(project, mode)?;
+        println!("Installing {} on {}…", file_name(&apk), device.name);
+        cargo::run(adb_on(&["install", "-r"]).arg(&apk).stdout(Stdio::null()))?;
+        let _ = adb_on(&["shell", "am", "force-stop", package]).output();
+        let activity = format!("{package}/android.app.NativeActivity");
+        let mut start = adb_on(&[
+            "shell", "am", "start", "-n", &activity, "--es", "frus_dev", "log",
+        ]);
+        // After a restart, where the application was, as a link it reads like any other. Quoted
+        // for the device's shell, which `adb shell` hands its arguments to joined by spaces —
+        // a location's `?` and `&` would mean something there.
+        if let Some(location) = location {
+            start.args([
+                "-d",
+                &shell_quote(&format!("frus:///{}", location.trim_start_matches('/'))),
+            ]);
+        }
+        cargo::run(start.stdout(Stdio::null()))
+    };
 
     // The log from this moment on, read before the application starts so its first lines are
-    // there: its own tag (the library's name), and Rust's panics.
-    // adb hands its arguments to the device's shell joined by spaces, so a value holding a
-    // space is quoted for that shell.
+    // there: its own tag (the library's name), and Rust's panics. It goes on across restarts.
     let since = adb_on(&["shell", "date +'%m-%d %H:%M:%S.000'"])
         .output()
         .ok()
@@ -109,50 +271,89 @@ fn run_android(
         .spawn()
         .map_err(|e| format!("could not read the device's log: {e}"))?;
     if let Some(stdout) = logcat.stdout.take() {
+        let report = link.shared();
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                print_logcat(&line);
+                if !DevLink::from_log(&report, &line) {
+                    print_logcat(&line);
+                }
             }
         });
     }
 
-    cargo::run(&mut adb_on(&[
-        "shell",
-        "am",
-        "start",
-        "-n",
-        &format!("{package}/android.app.NativeActivity"),
-    ]))?;
-    println!(
-        "{} is running on {}. Its log follows; Ctrl+C stops reading it.",
+    install(None)?;
+    let keys = attach(&format!(
+        "{} is running on {}",
         project.package, device.name
-    );
+    ));
 
-    // Until the application's process is gone: closed, or crashed.
+    // Until the application's process is gone — closed, or crashed — or `q`.
     let alive = || {
         adb_on(&["shell", "pidof", package])
             .output()
             .is_ok_and(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
     };
-    let mut seen = false;
-    let mut gone = 0;
-    loop {
-        std::thread::sleep(Duration::from_secs(1));
-        if alive() {
-            seen = true;
-            gone = 0;
-        } else if seen || gone > 10 {
-            gone += 1;
-            if gone >= 2 {
-                break;
+    let mut watch = Watch::default();
+    let mut next_check = Instant::now();
+    let end = loop {
+        if Instant::now() >= next_check {
+            next_check = Instant::now() + Duration::from_secs(1);
+            if watch.gone(alive()) {
+                println!("{} has stopped.", project.package);
+                break ExitCode::SUCCESS;
             }
+        }
+        match next_action(&keys, Duration::from_millis(200)) {
+            Some(Action::Quit) => {
+                let _ = adb_on(&["shell", "am", "force-stop", package]).output();
+                break ExitCode::SUCCESS;
+            }
+            Some(Action::Help) => print!("{KEYS}"),
+            Some(action @ (Action::Restart | Action::Reload)) => {
+                restarting(action, link.report().location.as_deref());
+                let started = Instant::now();
+                match install(link.report().location.as_deref()) {
+                    Ok(()) => {
+                        watch = Watch::default();
+                        println!("Restarted in {:.1} s.", started.elapsed().as_secs_f32());
+                    }
+                    Err(error) => eprintln!("{error}: the running application is left as it was."),
+                }
+            }
+            None => {}
+        }
+    };
+    let _ = logcat.kill();
+    Ok(end)
+}
+
+/// Whether an application on a device has gone, from one look a second: it has to have been
+/// seen first (or be missing for ten seconds), then be missing twice in a row.
+#[derive(Debug, Default)]
+pub(crate) struct Watch {
+    seen: bool,
+    missing: u32,
+}
+
+impl Watch {
+    pub(crate) fn gone(&mut self, alive: bool) -> bool {
+        if alive {
+            self.seen = true;
+            self.missing = 0;
+            return false;
+        }
+        self.missing += 1;
+        if self.seen {
+            self.missing >= 2
         } else {
-            gone += 1;
+            self.missing > 10
         }
     }
-    let _ = logcat.kill();
-    println!("{} has stopped.", project.package);
-    Ok(ExitCode::SUCCESS)
+}
+
+/// `text` as one word for a POSIX shell.
+pub(crate) fn shell_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
 }
 
 /// Starts the emulator `avd`, waits until Android has booted in it, and gives its adb serial.
@@ -184,7 +385,7 @@ fn start_emulator(avd: &str) -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("could not start the emulator: {e}"))?;
 
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let mut serial = None;
     while started.elapsed() < Duration::from_secs(300) {
         std::thread::sleep(Duration::from_secs(2));
@@ -223,6 +424,8 @@ fn print_logcat(line: &str) {
     }
 }
 
+// --- Web ---
+
 fn run_web(
     project: &Project,
     browser: Option<&Path>,
@@ -230,33 +433,74 @@ fn run_web(
 ) -> Result<ExitCode, String> {
     let site = cargo::build_web(project, options.mode)?;
     let server = serve::start(site, options.port)?;
-    let url = &server.url;
-    let Some(browser) = browser else {
-        println!("{} is served at {url}: open it in a browser with WebGPU. Its console shows here; Ctrl+C stops.", project.package);
-        loop {
-            std::thread::sleep(Duration::from_secs(3600));
-        }
-    };
+    let url = server.url.clone();
 
     // A profile of its own: the browser is a fresh instance this run owns and can close, not a
     // tab in the developer's own windows.
     let profile = std::env::temp_dir().join(format!("frus-run-{}", std::process::id()));
-    println!("Opening {url}… The page's console shows here; closing the browser ends the run.");
-    let status = Command::new(browser)
-        .arg(format!("--user-data-dir={}", profile.display()))
-        .args([
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--new-window",
-        ])
-        .arg(url)
-        // The browser's own diagnostics are not the application's log.
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|e| format!("could not open {}: {e}", browser.display()))?;
+    let mut browser_process = match browser {
+        Some(browser) => Some(
+            Command::new(browser)
+                .arg(format!("--user-data-dir={}", profile.display()))
+                .args([
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--new-window",
+                ])
+                .arg(&url)
+                // The browser's own diagnostics are not the application's log.
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("could not open {}: {e}", browser.display()))?,
+        ),
+        None => None,
+    };
+    let keys = attach(&match browser_process {
+        Some(_) => {
+            format!("{url} is open; its console shows here, and closing the browser ends the run")
+        }
+        None => format!(
+            "{} is served at {url}: open it in a browser with WebGPU; its console shows here",
+            project.package
+        ),
+    });
+
+    let end = loop {
+        if let Some(process) = browser_process.as_mut() {
+            if process.try_wait().map_err(|e| e.to_string())?.is_some() {
+                break ExitCode::SUCCESS;
+            }
+        }
+        match next_action(&keys, Duration::from_millis(200)) {
+            Some(Action::Quit) => {
+                if let Some(process) = browser_process.as_mut() {
+                    let _ = process.kill();
+                }
+                break ExitCode::SUCCESS;
+            }
+            Some(Action::Help) => print!("{KEYS}"),
+            Some(action @ (Action::Restart | Action::Reload)) => {
+                restarting(action, None);
+                let started = Instant::now();
+                match cargo::build_web(project, options.mode) {
+                    // The page asks which build is served and reloads itself; its address,
+                    // the application's location, survives the reload.
+                    Ok(_) => {
+                        server.rebuilt();
+                        println!(
+                            "Restarted in {:.1} s: the page reloads.",
+                            started.elapsed().as_secs_f32()
+                        );
+                    }
+                    Err(error) => eprintln!("{error}: the running application is left as it was."),
+                }
+            }
+            None => {}
+        }
+    };
     let _ = std::fs::remove_dir_all(&profile);
-    Ok(exit_code(status.code()))
+    Ok(end)
 }
 
 fn exit_code(code: Option<i32>) -> ExitCode {
@@ -288,5 +532,37 @@ mod tests {
             Some((true, "E/RustPanic: panicked at src/lib.rs:3".into()))
         );
         assert_eq!(logcat_line("--------- beginning of main"), None);
+    }
+
+    #[test]
+    fn keys_mean_what_they_say() {
+        assert_eq!(action('R'), Some(Action::Restart));
+        assert_eq!(action('r'), Some(Action::Reload));
+        assert_eq!(action('q'), Some(Action::Quit));
+        assert_eq!(action('h'), Some(Action::Help));
+        assert_eq!(action('x'), None);
+    }
+
+    #[test]
+    fn locations_are_quoted_for_the_device_shell() {
+        assert_eq!(
+            shell_quote("frus:///search?q=shoes&sort=price"),
+            "'frus:///search?q=shoes&sort=price'"
+        );
+        assert_eq!(shell_quote("it's"), r"'it'\''s'");
+    }
+
+    #[test]
+    fn an_application_is_gone_after_two_misses() {
+        let mut watch = Watch::default();
+        // Not up yet: patience, for a while.
+        assert!(!watch.gone(false));
+        assert!(!watch.gone(true));
+        assert!(!watch.gone(false));
+        assert!(watch.gone(false));
+        // Never seen: given up after ten seconds.
+        let mut never = Watch::default();
+        assert!((0..10).all(|_| !never.gone(false)));
+        assert!(never.gone(false));
     }
 }

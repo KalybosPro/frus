@@ -62,6 +62,26 @@ console — the page is served with a small script that copies each console mess
 terminal. The run lasts as long as the application: closing the window, the app or the browser
 ends it.
 
+While it runs, keys drive it:
+
+| key | |
+|---|---|
+| `R` | **hot restart**: build again, stop the application and start the new build where the old one was — the same page, and on a desktop the window in the same place and size |
+| `r` | hot reload (a restart, until frus has hot reload) |
+| `q` | quit: the application is stopped |
+| `h` | the list of keys |
+
+A build that fails leaves the running application as it was. The restart is the same on every
+platform as far as the developer sees, and done three ways underneath:
+
+- **desktop**: the application runs from a copy of the program, so the new build can be written
+  while it runs; it reports where it is and where its window sits to `frus run` over a local
+  socket, and the next one is started with both;
+- **Android**: the same report reaches `frus run` through `adb reverse`; the new APK is
+  installed and started with the location as the link it opens;
+- **web**: the page asks the server which build it serves, and reloads itself when there is a
+  new one — its address, which is the application's location, survives the reload.
+
 iOS simulators are listed, but frus cannot run on iOS yet: its shell does not exist (issue #19).
 
 ## Building: `frus build`

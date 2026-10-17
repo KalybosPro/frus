@@ -13,6 +13,12 @@ any release may break.
 
 ## [Unreleased]
 
+- **Hot restart in `frus run`** (J662). `R` builds the application again and starts the new
+  build where the old one was: the same page on every platform, and on a desktop the window in
+  the same place and size. A failed build leaves the running application alone; `q` quits. An
+  application started by `frus run` reports its location and window to it (the shell's `dev`
+  module, active only when `frus run` passes its address).
+
 - **`frus devices`, `frus run` and `frus build`** (J661). `frus devices` lists this computer,
   the Android devices and emulators, the iOS simulators on a Mac, and the browsers. `frus run
   -d <device>` builds the application for it, starts it, and shows its log in the terminal: the
