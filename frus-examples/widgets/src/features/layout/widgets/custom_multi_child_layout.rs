@@ -13,7 +13,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // A label that hangs off the corner of whatever it annotates: its place depends
         // on the box's measured size, which only a custom layout can know in advance.

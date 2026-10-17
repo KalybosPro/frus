@@ -1,1 +1,1 @@
-pub(crate) mod order_summary;
+pub mod order_summary;

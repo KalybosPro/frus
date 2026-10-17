@@ -13,7 +13,7 @@ const EXPANDED: f32 = 160.0;
 /// The frame the page sits in.
 const FRAME_HEIGHT: f32 = 400.0;
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         Box::new(section("Pinned at toolbar height", framed(page(false)))),
         Box::new(section("Floating: goes away entirely", framed(page(true)))),

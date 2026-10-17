@@ -13,8 +13,8 @@ use frus::FrusApp;
 
 use crate::features::home::pages::homepage::HomePage;
 
-mod common;
-mod features;
+pub mod common;
+pub mod features;
 
 // **One entry point** — a single declaration generates the desktop / Android / Web
 // entries. The thin `src/bin/hello_world.rs` binary calls the `run()` it produces.

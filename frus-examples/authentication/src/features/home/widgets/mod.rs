@@ -1,1 +1,1 @@
-pub(crate) mod user_card;
+pub mod user_card;

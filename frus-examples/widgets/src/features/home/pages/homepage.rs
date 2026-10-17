@@ -6,7 +6,7 @@ use frus::{
 use crate::common::{catalog::categories, routes::category_location};
 
 /// The gallery's first page: one row per category of widgets.
-pub(crate) struct HomePage;
+pub struct HomePage;
 
 impl StatelessWidget for HomePage {
     fn build(&self, cx: &BuildContext) -> Box<dyn Widget> {

@@ -9,12 +9,12 @@ use crate::common::{
 /// `GoRouter::error_builder`. Without one the router shows a plain line of text.
 ///
 /// It is told the location, so it can say which one was wrong.
-pub(crate) struct NotFoundPage {
+pub struct NotFoundPage {
     location: String,
 }
 
 impl NotFoundPage {
-    pub(crate) fn new(location: &str) -> Self {
+    pub fn new(location: &str) -> Self {
         Self {
             location: location.to_string(),
         }

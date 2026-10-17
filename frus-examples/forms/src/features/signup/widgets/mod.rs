@@ -1,5 +1,5 @@
-pub(crate) mod birth_date_calendar;
-pub(crate) mod form_section;
-pub(crate) mod interest_chips;
-pub(crate) mod password_strength;
-pub(crate) mod submit_button;
+pub mod birth_date_calendar;
+pub mod form_section;
+pub mod interest_chips;
+pub mod password_strength;
+pub mod submit_button;

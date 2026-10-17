@@ -6,7 +6,7 @@ use frus::{ListTile, SearchAnchor, State, StateContext, StatefulWidget, Text, Wi
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(SearchAnchorDemo.into_widget())
 }
 

@@ -10,7 +10,7 @@ use crate::features::home::pages::homepage::HomePage;
 ///
 /// On the desktop, a location given on the command line opens the gallery there:
 /// `cargo run -- /widget/container`, or `/widget/container?tab=code` for its code.
-pub(crate) fn router() -> GoRouter {
+pub fn router() -> GoRouter {
     let start = std::env::args()
         .nth(1)
         .filter(|location| location.starts_with('/'))

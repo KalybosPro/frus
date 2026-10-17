@@ -16,7 +16,7 @@ const CORNERS: [(Alignment, &str); 4] = [
     (Alignment::BOTTOM_LEFT, "bottom left"),
 ];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // The anchor is the animated quantity: change it and the child slides there.
         Box::new(section("Corner to corner", corners())),

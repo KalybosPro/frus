@@ -20,12 +20,12 @@ use crate::features::signup::widgets::{
 use crate::models::profile::{Date, Plan, COUNTRIES};
 
 /// The sign-up page's configuration: whether it opens with its errors already showing.
-pub(crate) struct SignupPage {
+pub struct SignupPage {
     show_errors: bool,
 }
 
 impl SignupPage {
-    pub(crate) fn new(show_errors: bool) -> Self {
+    pub fn new(show_errors: bool) -> Self {
         Self { show_errors }
     }
 }

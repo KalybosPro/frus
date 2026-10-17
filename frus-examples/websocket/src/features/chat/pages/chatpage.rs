@@ -14,12 +14,12 @@ use crate::models::message::TimeOfDay;
 
 /// The chat page's configuration: the server it connects to first.
 #[derive(Clone)]
-pub(crate) struct ChatPage {
+pub struct ChatPage {
     url: String,
 }
 
 impl ChatPage {
-    pub(crate) fn new(url: impl Into<String>) -> Self {
+    pub fn new(url: impl Into<String>) -> Self {
         Self { url: url.into() }
     }
 }

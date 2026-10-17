@@ -1,1 +1,1 @@
-pub(crate) mod home;
+pub mod home;

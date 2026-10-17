@@ -6,7 +6,7 @@ use frus::{Center, Color, Colors, Container, GridView, Text, Widget};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // A fixed number of columns. `aspect` makes every tile the same shape
         // (width / height); without it a row is as tall as its tallest cell.

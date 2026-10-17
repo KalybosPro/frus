@@ -4,7 +4,7 @@ use frus::{Rating, State, StateContext, StatefulWidget, Text, Widget};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(RatingDemo.into_widget())
 }
 

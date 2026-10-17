@@ -12,13 +12,13 @@ use crate::features::auth::states::loginstate::LoginState;
 
 /// The sign-in page's configuration: the service it signs in with, and where the person
 /// was heading (`?from=..`), which it passes on to the register and reset pages.
-pub(crate) struct LoginPage {
+pub struct LoginPage {
     auth: Auth,
     from: Option<String>,
 }
 
 impl LoginPage {
-    pub(crate) fn new(auth: Auth, from: Option<String>) -> Self {
+    pub fn new(auth: Auth, from: Option<String>) -> Self {
         Self { auth, from }
     }
 }

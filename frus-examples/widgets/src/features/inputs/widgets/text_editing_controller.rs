@@ -6,7 +6,7 @@ use frus::{component, Align, Button, Column, Row, Text, TextField, Variant, Widg
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     // A function component: the hook gives back the same controller on every rebuild.
     Box::new(component(|cx| {
         let message = cx.use_text_controller("Hello");

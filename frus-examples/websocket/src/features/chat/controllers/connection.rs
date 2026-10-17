@@ -36,11 +36,11 @@ use frus::host;
 
 // On the Web the same API is the browser's own `WebSocket`: see `browser.rs`.
 #[cfg(target_arch = "wasm32")]
-pub(crate) use super::browser::{Connection, Watch};
+pub use super::browser::{Connection, Watch};
 
 /// What a connection reports, in the order it happens.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum Event {
+pub enum Event {
     /// The handshake succeeded: messages can go both ways.
     Connected,
     /// The server sent a message.
@@ -54,14 +54,14 @@ pub(crate) enum Event {
 
 #[cfg(not(target_arch = "wasm32"))]
 /// What the page asks of the socket thread.
-pub(crate) enum Outgoing {
+pub enum Outgoing {
     Text(String),
     Close,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 /// A live connection: a way to talk to the socket thread. Cheap to hold in state.
-pub(crate) struct Connection {
+pub struct Connection {
     outgoing: Sender<Outgoing>,
 }
 
@@ -69,7 +69,7 @@ pub(crate) struct Connection {
 impl Connection {
     /// Starts connecting to `url` (`ws://` or `wss://`) and returns at once; the outcome
     /// arrives as an [`Event`] through `on_event`, on the interface's thread.
-    pub(crate) fn open(url: &str, on_event: impl Fn(Event) + 'static) -> Self {
+    pub fn open(url: &str, on_event: impl Fn(Event) + 'static) -> Self {
         let (outgoing, requests) = mpsc::channel();
         let (events_out, events_in) = mpsc::channel();
         start(url.to_owned(), requests, events_out);
@@ -79,13 +79,13 @@ impl Connection {
 
     /// Queues `text` for the server. If the socket is already gone this does nothing: its
     /// `Failed` or `Closed` event is on its way and says why.
-    pub(crate) fn send(&self, text: String) {
+    pub fn send(&self, text: String) {
         let _ = self.outgoing.send(Outgoing::Text(text));
     }
 
     /// Asks the socket thread to close the connection politely and stop. Dropping the
     /// `Connection` does the same.
-    pub(crate) fn close(&self) {
+    pub fn close(&self) {
         let _ = self.outgoing.send(Outgoing::Close);
     }
 }

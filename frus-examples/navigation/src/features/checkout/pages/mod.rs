@@ -1,2 +1,2 @@
-pub(crate) mod checkoutpage;
-pub(crate) mod orderplacedpage;
+pub mod checkoutpage;
+pub mod orderplacedpage;

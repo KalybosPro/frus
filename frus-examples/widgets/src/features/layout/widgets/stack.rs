@@ -5,7 +5,7 @@ use frus::{Alignment, Clip, Color, Container, Positioned, Stack, StackFit, Text,
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // Layers that are not positioned sit at the stack's `alignment`; the stack is as
         // big as the biggest of them.

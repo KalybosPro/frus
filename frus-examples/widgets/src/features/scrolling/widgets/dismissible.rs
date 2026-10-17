@@ -16,7 +16,7 @@ const INBOX: [&str; 5] = [
     "Password changed",
 ];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         // Indices into `INBOX` still shown, and what happened last.
         let mail = cx.use_state(|| (0..INBOX.len()).collect::<Vec<usize>>());

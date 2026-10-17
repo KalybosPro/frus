@@ -1,1 +1,1 @@
-pub(crate) mod chatpage;
+pub mod chatpage;

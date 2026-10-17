@@ -3,7 +3,7 @@
 //! The text fields' values live in `TextEditingController`s rather than in `String`s: a
 //! controller is a field's text held **outside** the field, so code can write into it —
 //! "Fill with sample data" does — and the field shows it on the next frame. Everything
-//! else is a plain field. No method here draws, so the behaviour is tested below with no
+//! else is a plain field. No method here draws, so the behaviour is tested in `tests/signupstate_test.rs` with no
 //! window.
 
 use frus::form::Form;
@@ -15,7 +15,7 @@ use crate::features::signup::controllers::validation::{
 };
 use crate::models::profile::{Date, Plan, Profile, COUNTRIES, INTERESTS};
 
-pub(crate) struct SignupState {
+pub struct SignupState {
     pub name: TextEditingController,
     pub email: TextEditingController,
     pub password: TextEditingController,
@@ -51,7 +51,7 @@ pub(crate) struct SignupState {
 
 impl SignupState {
     /// `show_errors` opens the form as if a submit had already failed — see the router.
-    pub(crate) fn new(show_errors: bool) -> Self {
+    pub fn new(show_errors: bool) -> Self {
         Self {
             name: TextEditingController::new(),
             email: TextEditingController::new(),
@@ -76,7 +76,7 @@ impl SignupState {
     }
 
     /// A snapshot of every value, for the rules to check.
-    pub(crate) fn input(&self) -> SignupInput {
+    pub fn input(&self) -> SignupInput {
         SignupInput {
             name: self.name.text(),
             email: self.email.text(),
@@ -96,39 +96,39 @@ impl SignupState {
 
     /// The validation report, once errors are showing (after the first submit); `None`
     /// before that, so no field is decorated while the form is still being filled in.
-    pub(crate) fn visible_report(&self, today: Option<Date>) -> Option<Form> {
+    pub fn visible_report(&self, today: Option<Date>) -> Option<Form> {
         self.submitted.then(|| validate(&self.input(), today))
     }
 
     // --- Editing -------------------------------------------------------------------------
 
-    pub(crate) fn toggle_password(&mut self) {
+    pub fn toggle_password(&mut self) {
         self.show_password = !self.show_password;
     }
 
-    pub(crate) fn toggle_country_menu(&mut self) {
+    pub fn toggle_country_menu(&mut self) {
         self.country_open = !self.country_open;
         self.country_query.clear();
     }
 
-    pub(crate) fn set_country_query(&mut self, query: String) {
+    pub fn set_country_query(&mut self, query: String) {
         self.country_query = query;
         self.country_open = true;
     }
 
     /// A pick closes the menu: the dropdown is **controlled**, so nothing closes it unless
     /// the state says so.
-    pub(crate) fn pick_country(&mut self, index: usize) {
+    pub fn pick_country(&mut self, index: usize) {
         self.country = Some(index);
         self.country_open = false;
         self.country_query.clear();
     }
 
-    pub(crate) fn pick_plan(&mut self, index: usize) {
+    pub fn pick_plan(&mut self, index: usize) {
         self.plan = Plan::from_index(index);
     }
 
-    pub(crate) fn toggle_interest(&mut self, index: usize) {
+    pub fn toggle_interest(&mut self, index: usize) {
         if let Some(at) = self.interests.iter().position(|&i| i == index) {
             self.interests.remove(at);
         } else if index < INTERESTS.len() {
@@ -136,18 +136,18 @@ impl SignupState {
         }
     }
 
-    pub(crate) fn set_newsletter(&mut self, on: bool) {
+    pub fn set_newsletter(&mut self, on: bool) {
         self.newsletter = on;
     }
 
-    pub(crate) fn set_terms(&mut self, accepted: bool) {
+    pub fn set_terms(&mut self, accepted: bool) {
         self.terms = accepted;
     }
 
     // --- The date-of-birth dialog ----------------------------------------------------------
 
     /// Opens the calendar on the chosen date's month, or twenty years back from `today`.
-    pub(crate) fn open_calendar(&mut self, today: Option<Date>) {
+    pub fn open_calendar(&mut self, today: Option<Date>) {
         let shown = match (self.birth_date, today) {
             (Some(date), _) => (date.year, date.month),
             (None, Some(today)) => (today.year - 20, today.month),
@@ -156,12 +156,12 @@ impl SignupState {
         self.calendar = Some(shown);
     }
 
-    pub(crate) fn close_calendar(&mut self) {
+    pub fn close_calendar(&mut self) {
         self.calendar = None;
     }
 
     /// Moves the calendar by `months`, across year boundaries.
-    pub(crate) fn shift_calendar(&mut self, months: i32) {
+    pub fn shift_calendar(&mut self, months: i32) {
         if let Some((year, month)) = self.calendar {
             let index = year * 12 + (month as i32 - 1) + months;
             self.calendar = Some((index.div_euclid(12), index.rem_euclid(12) as u32 + 1));
@@ -169,7 +169,7 @@ impl SignupState {
     }
 
     /// A day picked in the calendar: that is the date, and the dialog closes.
-    pub(crate) fn pick_day(&mut self, day: u32) {
+    pub fn pick_day(&mut self, day: u32) {
         if let Some((year, month)) = self.calendar.take() {
             self.birth_date = Some(Date::new(year, month, day));
         }
@@ -179,7 +179,7 @@ impl SignupState {
 
     /// Writes a complete, valid profile into the form. The text goes through the
     /// controllers, so the fields show it at once.
-    pub(crate) fn fill_sample(&mut self) {
+    pub fn fill_sample(&mut self) {
         let sample = Profile::sample();
         let password = "Analytical-Engine-1843";
         self.name.set_text(sample.full_name);
@@ -206,7 +206,7 @@ impl SignupState {
 
     /// The press on "Create account". From now on errors show; if the form is valid, the
     /// request starts and the profile to send comes back.
-    pub(crate) fn begin_submit(&mut self, today: Option<Date>) -> Option<Profile> {
+    pub fn begin_submit(&mut self, today: Option<Date>) -> Option<Profile> {
         if self.submitting {
             return None;
         }
@@ -218,10 +218,7 @@ impl SignupState {
 
     /// The server's answer. A created account comes back to be shown; a refusal becomes an
     /// error on the field it is about.
-    pub(crate) fn finish_submit(
-        &mut self,
-        answer: Result<Profile, SignupError>,
-    ) -> Option<Profile> {
+    pub fn finish_submit(&mut self, answer: Result<Profile, SignupError>) -> Option<Profile> {
         self.submitting = false;
         match answer {
             Ok(profile) => Some(profile),
@@ -230,96 +227,5 @@ impl SignupState {
                 None
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::features::signup::controllers::validation::field;
-
-    const TODAY: Option<Date> = Some(Date::new(2026, 10, 15));
-
-    /// What the page would show under field `key`.
-    fn shown(state: &SignupState, key: &str) -> Option<String> {
-        state
-            .visible_report(TODAY)
-            .and_then(|report| report.error(key).map(str::to_string))
-    }
-
-    #[test]
-    fn errors_stay_hidden_until_the_first_submit() {
-        let mut state = SignupState::new(false);
-        assert_eq!(shown(&state, field::EMAIL), None);
-
-        assert_eq!(state.begin_submit(TODAY), None, "an empty form is not sent");
-        assert!(!state.submitting);
-        assert_eq!(
-            shown(&state, field::EMAIL).as_deref(),
-            Some("Enter your email address")
-        );
-    }
-
-    #[test]
-    fn sample_data_makes_a_valid_form_that_submits_once() {
-        let mut state = SignupState::new(false);
-        state.fill_sample();
-        let profile = state.begin_submit(TODAY).expect("the sample is valid");
-        assert_eq!(profile, Profile::sample());
-        assert!(state.submitting);
-        assert_eq!(
-            state.begin_submit(TODAY),
-            None,
-            "no second request in flight"
-        );
-    }
-
-    #[test]
-    fn a_taken_email_lands_on_the_email_field() {
-        let mut state = SignupState::new(false);
-        state.fill_sample();
-        state.email.set_text("taken@example.com");
-        let profile = state.begin_submit(TODAY).expect("valid on the client");
-        let answer = state.finish_submit(Err(SignupError::EmailTaken(profile.email)));
-        assert_eq!(answer, None);
-        assert!(!state.submitting);
-        assert_eq!(
-            shown(&state, field::EMAIL).as_deref(),
-            Some("An account already uses this address")
-        );
-        // Changing the address clears it.
-        state.email.set_text("ada@example.org");
-        assert_eq!(shown(&state, field::EMAIL), None);
-    }
-
-    #[test]
-    fn the_calendar_walks_across_years_and_closes_on_a_pick() {
-        let mut state = SignupState::new(false);
-        state.open_calendar(TODAY);
-        assert_eq!(state.calendar, Some((2006, 10)));
-        state.shift_calendar(3);
-        assert_eq!(state.calendar, Some((2007, 1)));
-        state.shift_calendar(-12);
-        assert_eq!(state.calendar, Some((2006, 1)));
-        state.pick_day(31);
-        assert_eq!(state.birth_date, Some(Date::new(2006, 1, 31)));
-        assert_eq!(state.calendar, None);
-    }
-
-    #[test]
-    fn interests_toggle_and_countries_close_their_menu() {
-        let mut state = SignupState::new(false);
-        state.toggle_interest(2);
-        state.toggle_interest(0);
-        assert_eq!(state.interests, vec![2, 0]);
-        state.toggle_interest(2);
-        assert_eq!(state.interests, vec![0]);
-
-        state.toggle_country_menu();
-        state.set_country_query("ger".into());
-        state.pick_country(4);
-        assert_eq!(state.country, Some(4));
-        assert!(!state.country_open);
-        assert!(state.country_query.is_empty());
     }
 }

@@ -5,7 +5,7 @@ use frus::{Align, Color, Icons, Row, State, StateContext, StatefulWidget, Switch
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(SwitchDemo.into_widget())
 }
 

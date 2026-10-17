@@ -9,7 +9,7 @@ use frus::{Align, Color, Column, Container, FontFamily, SelectionArea, Text, Too
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // One selectable text: drag across it, double-click a word, or press Ctrl+A
         // once it has focus, then Ctrl+C. On a touch screen, long-press.

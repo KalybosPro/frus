@@ -8,7 +8,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let last = cx.use_state(|| "Nothing yet".to_string());
         let overflow_open = cx.use_state(|| false);

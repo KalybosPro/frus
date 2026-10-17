@@ -5,7 +5,7 @@ use frus::{Align, BuildContext, Card, Column, Text, Widget};
 /// A plain function rather than a `StatelessWidget`: it takes its fields **by value** and
 /// places them once, while a widget's `build(&self)` may run many times and could only
 /// borrow them.
-pub(crate) fn form_section(
+pub fn form_section(
     cx: &BuildContext,
     title: &str,
     fields: Vec<Box<dyn Widget>>,

@@ -11,7 +11,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // Three shadows per height — a sharp one close under the surface, a softer one
         // further down, a wide faint one all round — in the colour given at full strength.

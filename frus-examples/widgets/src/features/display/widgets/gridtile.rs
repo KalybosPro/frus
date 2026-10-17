@@ -18,7 +18,7 @@ const PHOTOS: [(&str, &str, &str); 6] = [
     ("#EF4444", "Lanterns", "Barbara"),
 ];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let starred = cx.use_state(|| vec![false; PHOTOS.len()]);
 

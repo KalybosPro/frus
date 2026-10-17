@@ -8,14 +8,14 @@ use crate::features::catalog::states::demostate::DemoState;
 
 /// One widget's page: the live example in one tab, the file it is written in in the
 /// other.
-pub(crate) struct DemoPage {
+pub struct DemoPage {
     id: String,
     /// The tab it opens on: `/widget/<id>?tab=code` opens on the code.
     initial_tab: usize,
 }
 
 impl DemoPage {
-    pub(crate) fn new(id: &str, tab: Option<&str>) -> Self {
+    pub fn new(id: &str, tab: Option<&str>) -> Self {
         Self {
             id: id.to_string(),
             initial_tab: usize::from(tab == Some("code")),

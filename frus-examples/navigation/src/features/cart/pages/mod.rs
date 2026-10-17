@@ -1,1 +1,1 @@
-pub(crate) mod cartpage;
+pub mod cartpage;

@@ -9,7 +9,7 @@ use frus::{Align, Alignment, BlendMode, Color, Column, Container, ShaderMask, Te
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // `linear(from, to, from_colour, to_colour)`, points as fractions of the box.
         Box::new(section(

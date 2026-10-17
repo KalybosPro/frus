@@ -5,13 +5,13 @@ use frus::{BuildContext, Callback, SegmentedButton, StatelessWidget, Widget};
 use crate::features::search::states::searchstate::Sort;
 
 /// The three orders, as a segmented button. The parent says what picking one does.
-pub(crate) struct SortPicker {
+pub struct SortPicker {
     selected: Sort,
     on_pick: Rc<dyn Fn(Sort) -> Callback>,
 }
 
 impl SortPicker {
-    pub(crate) fn new(selected: Sort, on_pick: impl Fn(Sort) -> Callback + 'static) -> Self {
+    pub fn new(selected: Sort, on_pick: impl Fn(Sort) -> Callback + 'static) -> Self {
         Self {
             selected,
             on_pick: Rc::new(on_pick),

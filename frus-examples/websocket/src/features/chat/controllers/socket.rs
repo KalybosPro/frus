@@ -17,23 +17,23 @@ use tungstenite::{HandshakeError, Message, WebSocket};
 
 use super::connection::{Event, Outgoing};
 
-type Socket = WebSocket<MaybeTlsStream<TcpStream>>;
+pub type Socket = WebSocket<MaybeTlsStream<TcpStream>>;
 
 /// How long to try reaching the server before giving up.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long the TLS and WebSocket handshakes may take.
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long one read waits for the server before the loop looks at the outgoing queue.
-const POLL: Duration = Duration::from_millis(50);
+pub const POLL: Duration = Duration::from_millis(50);
 
 /// How many polls to wait for the server to acknowledge our close (≈ 2 s).
-const CLOSE_POLLS: u32 = 40;
+pub const CLOSE_POLLS: u32 = 40;
 
 /// Connects to `url`, then relays both ways until the page closes or the network fails.
 /// Every outcome is reported on `events`; the thread ends right after `Closed`/`Failed`.
-pub(crate) fn run(url: &str, requests: Receiver<Outgoing>, events: Sender<Event>) {
+pub fn run(url: &str, requests: Receiver<Outgoing>, events: Sender<Event>) {
     let mut socket = match connect(url) {
         Ok(socket) => socket,
         Err(error) => {
@@ -99,7 +99,7 @@ pub(crate) fn run(url: &str, requests: Receiver<Outgoing>, events: Sender<Event>
     }
 }
 
-fn fail(events: &Sender<Event>, url: &str, error: String) {
+pub fn fail(events: &Sender<Event>, url: &str, error: String) {
     frus::log::warn!("websocket: connection to {url} lost: {error}");
     let _ = events.send(Event::Failed(error));
 }
@@ -109,7 +109,7 @@ fn fail(events: &Sender<Event>, url: &str, error: String) {
 /// `tungstenite::connect(url)` does all of this in one call, but waits for the operating
 /// system's own connect timeout, which can be minutes. Opening the TCP stream ourselves
 /// lets the page say "unreachable" after [`CONNECT_TIMEOUT`].
-fn connect(url: &str) -> Result<Socket, String> {
+pub fn connect(url: &str) -> Result<Socket, String> {
     let request = url
         .into_client_request()
         .map_err(|error| format!("Not a WebSocket address: {error}"))?;
@@ -159,7 +159,7 @@ fn connect(url: &str) -> Result<Socket, String> {
 ///
 /// (A `try_clone` of the stream taken before the handshake looks simpler, but on Windows
 /// a timeout set through the clone does not reach reads made through the original.)
-fn tcp(socket: &Socket) -> Result<&TcpStream, String> {
+pub fn tcp(socket: &Socket) -> Result<&TcpStream, String> {
     match socket.get_ref() {
         MaybeTlsStream::Plain(tcp) => Ok(tcp),
         MaybeTlsStream::Rustls(tls) => Ok(tls.get_ref()),
@@ -169,7 +169,7 @@ fn tcp(socket: &Socket) -> Result<&TcpStream, String> {
 }
 
 /// Says goodbye: sends a close frame and waits briefly for the server's.
-fn close(socket: &mut Socket) {
+pub fn close(socket: &mut Socket) {
     if socket.close(None).is_err() {
         return;
     }
@@ -183,59 +183,15 @@ fn close(socket: &mut Socket) {
 }
 
 /// A read that ran out of time: `WouldBlock` on Unix, `TimedOut` on Windows.
-fn is_timeout(kind: ErrorKind) -> bool {
+pub fn is_timeout(kind: ErrorKind) -> bool {
     matches!(kind, ErrorKind::WouldBlock | ErrorKind::TimedOut)
 }
 
-fn describe_close(frame: CloseFrame) -> String {
+pub fn describe_close(frame: CloseFrame) -> String {
     let code = u16::from(frame.code);
     if frame.reason.is_empty() {
         format!("code {code}")
     } else {
         format!("{} (code {code})", frame.reason)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::mpsc;
-
-    const WAIT: Duration = Duration::from_secs(15);
-
-    /// The whole round trip against the public echo server. Ignored by default because
-    /// it needs the network: `cargo test -- --ignored`.
-    #[test]
-    #[ignore = "needs the network"]
-    fn the_echo_server_greets_echoes_and_closes() {
-        let (requests_out, requests) = mpsc::channel();
-        let (events, events_in) = mpsc::channel();
-        let thread = std::thread::spawn(move || run("wss://echo.websocket.org", requests, events));
-
-        assert_eq!(events_in.recv_timeout(WAIT), Ok(Event::Connected));
-        let greeting = events_in.recv_timeout(WAIT);
-        assert!(matches!(greeting, Ok(Event::Received(_))), "{greeting:?}");
-
-        requests_out
-            .send(Outgoing::Text("hello from frus".into()))
-            .expect("the socket thread is listening");
-        assert_eq!(
-            events_in.recv_timeout(WAIT),
-            Ok(Event::Received("hello from frus".into()))
-        );
-
-        requests_out
-            .send(Outgoing::Close)
-            .expect("the socket thread is listening");
-        assert_eq!(events_in.recv_timeout(WAIT), Ok(Event::Closed(None)));
-        thread.join().expect("the socket thread ends after closing");
-    }
-
-    #[test]
-    fn an_address_that_is_not_a_websocket_fails_without_the_network() {
-        let (_requests_out, requests) = mpsc::channel();
-        let (events, events_in) = mpsc::channel();
-        run("https://example.test", requests, events);
-        assert!(matches!(events_in.recv(), Ok(Event::Failed(_))));
     }
 }

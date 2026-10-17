@@ -8,7 +8,7 @@ use frus::{Color, Container, ListTile, ListView, RefreshIndicator, Text, Widget}
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let loading = cx.use_state(|| false);
         let version = cx.use_state(|| 1u32);

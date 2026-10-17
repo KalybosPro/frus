@@ -9,32 +9,32 @@ use frus::{
 
 use crate::common::shared::section;
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(DialogDemo.into_widget())
 }
 
-struct DialogDemo;
+pub struct DialogDemo;
 
-struct DialogDemoState {
-    open: bool,
+pub struct DialogDemoState {
+    pub open: bool,
     /// What is being typed in the dialog, kept apart from the saved value so that
     /// Cancel can throw it away.
-    draft: String,
-    name: String,
+    pub draft: String,
+    pub name: String,
 }
 
 impl DialogDemoState {
-    fn open(&mut self) {
+    pub fn open(&mut self) {
         self.draft = self.name.clone();
         self.open = true;
     }
 
-    fn save(&mut self) {
+    pub fn save(&mut self) {
         self.name = self.draft.trim().to_string();
         self.open = false;
     }
 
-    fn cancel(&mut self) {
+    pub fn cancel(&mut self) {
         self.open = false;
     }
 }
@@ -106,30 +106,5 @@ impl State for DialogDemoState {
             .body(body);
 
         Box::new(dialog)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cancel_keeps_the_old_name() {
-        let mut state = DialogDemo.create_state();
-        state.open();
-        state.draft = "Road trip".into();
-        state.cancel();
-        assert_eq!(state.name, "My playlist");
-        assert!(!state.open);
-    }
-
-    #[test]
-    fn save_trims_and_closes() {
-        let mut state = DialogDemo.create_state();
-        state.open();
-        state.draft = "  Road trip ".into();
-        state.save();
-        assert_eq!(state.name, "Road trip");
-        assert!(!state.open);
     }
 }

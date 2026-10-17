@@ -13,7 +13,7 @@ use crate::common::shared::{section, sections};
 
 const NAMES: [&str; 3] = ["Ada", "Grace", "Alan"];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         let order = cx.use_state(|| NAMES.to_vec());
 

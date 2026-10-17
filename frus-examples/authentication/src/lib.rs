@@ -20,9 +20,9 @@ use frus::{FrusApp, Theme};
 
 use crate::common::{auth::Auth, colors::brand, routers::router};
 
-mod common;
-mod features;
-mod models;
+pub mod common;
+pub mod features;
+pub mod models;
 
 frus::main!({
     // One service for the whole application: the router and every page get a handle on it.

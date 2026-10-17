@@ -22,7 +22,7 @@ use crate::common::api::ApiError;
 
 /// What a page knows of a call.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Loaded<T> {
+pub struct Loaded<T> {
     /// The answer to show: still loading, the data, or why it failed.
     pub data: RemoteData<T, ApiError>,
     /// `true` while a reload is on its way and `data` is the previous answer.
@@ -35,7 +35,7 @@ pub(crate) struct Loaded<T> {
 /// what Retry and pull-to-refresh do.
 ///
 /// Like every hook, call it unconditionally and in the same order on every build.
-pub(crate) fn use_api<D, T, F>(cx: &BuildContext, deps: D, make: impl FnOnce() -> F) -> Loaded<T>
+pub fn use_api<D, T, F>(cx: &BuildContext, deps: D, make: impl FnOnce() -> F) -> Loaded<T>
 where
     D: PartialEq + 'static,
     T: Clone + MaybeSend + 'static,
@@ -57,7 +57,7 @@ where
 
 /// The rule, apart from the hook so it is tested without a window: what arrived wins;
 /// while nothing has, the previous answer stands in, marked as reloading.
-fn settle<T>(arrived: Option<Result<T, ApiError>>, previous: Option<T>) -> Loaded<T> {
+pub fn settle<T>(arrived: Option<Result<T, ApiError>>, previous: Option<T>) -> Loaded<T> {
     match (arrived, previous) {
         (Some(result), _) => Loaded {
             data: RemoteData::from_result(result),
@@ -71,34 +71,5 @@ fn settle<T>(arrived: Option<Result<T, ApiError>>, previous: Option<T>) -> Loade
             data: RemoteData::Loading,
             reloading: false,
         },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_first_call_is_loading() {
-        let loaded = settle::<u8>(None, None);
-        assert_eq!(loaded.data, RemoteData::Loading);
-        assert!(!loaded.reloading);
-    }
-
-    #[test]
-    fn a_reload_keeps_the_previous_answer_on_screen() {
-        let loaded = settle(None, Some(vec![1, 2, 3]));
-        assert_eq!(loaded.data, RemoteData::Success(vec![1, 2, 3]));
-        assert!(loaded.reloading);
-    }
-
-    #[test]
-    fn what_arrives_replaces_the_previous_answer() {
-        let loaded = settle(Some(Ok(2)), Some(1));
-        assert_eq!(loaded.data, RemoteData::Success(2));
-        assert!(!loaded.reloading);
-
-        let failed = settle(Some(Err(ApiError::Offline)), Some(1));
-        assert_eq!(failed.data, RemoteData::Failure(ApiError::Offline));
     }
 }

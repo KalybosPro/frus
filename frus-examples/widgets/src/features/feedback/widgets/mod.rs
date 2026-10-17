@@ -2,20 +2,20 @@
 
 use crate::models::demo::Demo;
 
-mod about_dialog;
-mod alert;
-mod alert_dialog;
-mod bottom_sheet;
-mod dialog;
-mod draggable_sheet;
-mod material_banner;
-mod progress_indicator;
-mod simple_dialog;
-mod skeleton;
-mod snack_bar;
-mod tooltip;
+pub mod about_dialog;
+pub mod alert;
+pub mod alert_dialog;
+pub mod bottom_sheet;
+pub mod dialog;
+pub mod draggable_sheet;
+pub mod material_banner;
+pub mod progress_indicator;
+pub mod simple_dialog;
+pub mod skeleton;
+pub mod snack_bar;
+pub mod tooltip;
 
-pub(crate) fn demos() -> Vec<Demo> {
+pub fn demos() -> Vec<Demo> {
     vec![
         Demo::new(
             "alert-dialog",

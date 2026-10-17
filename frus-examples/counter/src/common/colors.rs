@@ -2,14 +2,14 @@
 
 use frus::Color;
 
-pub(crate) fn positive() -> Color {
+pub fn positive() -> Color {
     Color::hex("#16A34A")
 }
 
-pub(crate) fn negative() -> Color {
+pub fn negative() -> Color {
     Color::hex("#DC2626")
 }
 
-pub(crate) fn text_muted() -> Color {
+pub fn text_muted() -> Color {
     Color::hex("#71717B")
 }

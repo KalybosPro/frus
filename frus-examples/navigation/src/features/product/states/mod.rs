@@ -1,1 +1,1 @@
-pub(crate) mod productstate;
+pub mod productstate;

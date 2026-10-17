@@ -8,26 +8,26 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(BookingDemo.into_widget())
 }
 
-type Date = (i32, u32, u32);
-type Time = (u32, u32);
+pub type Date = (i32, u32, u32);
+pub type Time = (u32, u32);
 
 /// The month `delta` months away from `(year, month)`.
-fn shift_month(year: i32, month: u32, delta: i32) -> (i32, u32) {
+pub fn shift_month(year: i32, month: u32, delta: i32) -> (i32, u32) {
     let index = year * 12 + month as i32 - 1 + delta;
     (index.div_euclid(12), index.rem_euclid(12) as u32 + 1)
 }
 
-struct BookingDemo;
+pub struct BookingDemo;
 
-struct BookingState {
+pub struct BookingState {
     /// The first of the two months on show.
     shown: (i32, u32),
-    start: Option<Date>,
-    end: Option<Date>,
+    pub start: Option<Date>,
+    pub end: Option<Date>,
     start_time: Time,
     end_time: Time,
 }
@@ -35,7 +35,7 @@ struct BookingState {
 impl BookingState {
     /// First click: the start. Second click on or after it: the end. Anything else
     /// starts again.
-    fn pick(&mut self, date: Date) {
+    pub fn pick(&mut self, date: Date) {
         match (self.start, self.end) {
             (Some(start), None) if date >= start => self.end = Some(date),
             _ => {
@@ -106,25 +106,5 @@ impl State for BookingState {
                 .axis(Axis::Horizontal)
                 .child(picker),
         ))])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn two_clicks_make_a_range_and_a_third_starts_again() {
-        let mut state = BookingDemo.create_state();
-        state.start = None;
-        state.end = None;
-        state.pick((2026, 10, 30));
-        state.pick((2026, 11, 2));
-        assert_eq!(
-            (state.start, state.end),
-            (Some((2026, 10, 30)), Some((2026, 11, 2)))
-        );
-        state.pick((2026, 10, 1));
-        assert_eq!((state.start, state.end), (Some((2026, 10, 1)), None));
     }
 }

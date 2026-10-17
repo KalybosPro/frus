@@ -15,7 +15,7 @@ const CELLS: usize = 6;
 /// The viewport is square, as wide as the page allows up to this.
 const MAX_SIDE: f32 = 360.0;
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         let scheme = cx.theme().scheme;
         let muted = scheme.on_surface_variant;

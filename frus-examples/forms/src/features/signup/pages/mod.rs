@@ -1,1 +1,1 @@
-pub(crate) mod signuppage;
+pub mod signuppage;

@@ -2,31 +2,31 @@
 
 use crate::models::demo::Demo;
 
-mod align;
-mod aspect_ratio;
-mod baseline;
-mod constrained_box;
-mod container;
-mod custom_multi_child_layout;
-mod expanded;
-mod fitted_box;
-mod flex;
-mod fractionally_sized_box;
-mod indexed_stack;
-mod layout_builder;
-mod overflow_bar;
-mod overflow_box;
-mod padding;
-mod placeholder;
-mod rotated_box;
-mod row_column;
-mod safe_area;
-mod sized_box;
-mod stack;
-mod two_pane;
-mod wrap;
+pub mod align;
+pub mod aspect_ratio;
+pub mod baseline;
+pub mod constrained_box;
+pub mod container;
+pub mod custom_multi_child_layout;
+pub mod expanded;
+pub mod fitted_box;
+pub mod flex;
+pub mod fractionally_sized_box;
+pub mod indexed_stack;
+pub mod layout_builder;
+pub mod overflow_bar;
+pub mod overflow_box;
+pub mod padding;
+pub mod placeholder;
+pub mod rotated_box;
+pub mod row_column;
+pub mod safe_area;
+pub mod sized_box;
+pub mod stack;
+pub mod two_pane;
+pub mod wrap;
 
-pub(crate) fn demos() -> Vec<Demo> {
+pub fn demos() -> Vec<Demo> {
     vec![
         Demo::new(
             "container",

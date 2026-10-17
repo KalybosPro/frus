@@ -10,7 +10,7 @@ use crate::features::new_post::states::newpoststate::{NewPostState, SendStatus, 
 use crate::features::new_post::widgets::created_post::CreatedPost;
 
 /// The form that creates a post with `POST /posts`.
-pub(crate) struct NewPostPage;
+pub struct NewPostPage;
 
 impl StatefulWidget for NewPostPage {
     type State = NewPostState;

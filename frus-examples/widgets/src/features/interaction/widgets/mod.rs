@@ -2,21 +2,21 @@
 
 use crate::models::demo::Demo;
 
-mod disabled;
-mod drag_and_drop;
-mod focus;
-mod gesture_detector;
-mod ink_well;
-mod interactive_viewer;
-mod keyboard;
-mod listener;
-mod mouse_region;
-mod pointer_barriers;
-mod semantics;
-mod shortcuts;
-mod visibility;
+pub mod disabled;
+pub mod drag_and_drop;
+pub mod focus;
+pub mod gesture_detector;
+pub mod ink_well;
+pub mod interactive_viewer;
+pub mod keyboard;
+pub mod listener;
+pub mod mouse_region;
+pub mod pointer_barriers;
+pub mod semantics;
+pub mod shortcuts;
+pub mod visibility;
 
-pub(crate) fn demos() -> Vec<Demo> {
+pub fn demos() -> Vec<Demo> {
     vec![
         Demo::new(
             "gesture-detector",

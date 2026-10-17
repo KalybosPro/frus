@@ -7,7 +7,7 @@ use crate::common::shared::{section, sections};
 
 const SAMPLE: &str = "The quick brown fox jumps over the lazy dog";
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // What text gets when it says nothing.
         Box::new(section(

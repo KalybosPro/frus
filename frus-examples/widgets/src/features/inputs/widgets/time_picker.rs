@@ -9,21 +9,21 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(TimePickerDemo.into_widget())
 }
 
-struct TimePickerDemo;
+pub struct TimePickerDemo;
 
-struct TimePickerDemoState {
+pub struct TimePickerDemoState {
     alarm: (u32, u32),
     meeting: (u32, u32),
-    shift: ((u32, u32), (u32, u32)),
+    pub shift: ((u32, u32), (u32, u32)),
 }
 
 impl TimePickerDemoState {
     /// `TimeRange` reports one change at a time: which end, which field, the new value.
-    fn change_shift(&mut self, endpoint: Endpoint, field: TimeField, value: u32) {
+    pub fn change_shift(&mut self, endpoint: Endpoint, field: TimeField, value: u32) {
         let time = match endpoint {
             Endpoint::Start => &mut self.shift.0,
             Endpoint::End => &mut self.shift.1,
@@ -105,18 +105,5 @@ impl State for TimePickerDemoState {
                 self.shift.0 .0, self.shift.0 .1, self.shift.1 .0, self.shift.1 .1
             ))),
         ])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_range_change_touches_one_field_of_one_end() {
-        let mut state = TimePickerDemo.create_state();
-        state.change_shift(Endpoint::End, TimeField::Hour, 18);
-        state.change_shift(Endpoint::Start, TimeField::Minute, 15);
-        assert_eq!(state.shift, ((9, 15), (18, 30)));
     }
 }

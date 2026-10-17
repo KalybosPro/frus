@@ -11,28 +11,28 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(ProgressDemo.into_widget())
 }
 
-struct ProgressDemo;
+pub struct ProgressDemo;
 
-struct ProgressDemoState {
+pub struct ProgressDemoState {
     /// From 0 to 1.
-    progress: f32,
-    running: bool,
+    pub progress: f32,
+    pub running: bool,
 }
 
 impl ProgressDemoState {
     /// One tick of the fake download: 2% more, stopping at the end.
-    fn tick(&mut self) {
+    pub fn tick(&mut self) {
         self.progress = (self.progress + 0.02).min(1.0);
         if self.progress >= 1.0 {
             self.running = false;
         }
     }
 
-    fn start(&mut self) {
+    pub fn start(&mut self) {
         if self.progress >= 1.0 {
             self.progress = 0.0;
         }
@@ -143,24 +143,5 @@ impl State for ProgressDemoState {
                     ),
             )),
         ])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_download_stops_at_the_end() {
-        let mut state = ProgressDemo.create_state();
-        state.start();
-        for _ in 0..100 {
-            state.tick();
-        }
-        assert_eq!(state.progress, 1.0);
-        assert!(!state.running);
-        // Starting again from the end starts from zero.
-        state.start();
-        assert_eq!(state.progress, 0.0);
     }
 }

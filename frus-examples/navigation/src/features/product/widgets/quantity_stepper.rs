@@ -1,14 +1,14 @@
 use frus::{Align, BuildContext, Callback, IconButton, Icons, Row, StatelessWidget, Text, Widget};
 
 /// `−  3  +`. The parent owns the number and says what each button does.
-pub(crate) struct QuantityStepper {
+pub struct QuantityStepper {
     quantity: u32,
     on_less: Callback,
     on_more: Callback,
 }
 
 impl QuantityStepper {
-    pub(crate) fn new(quantity: u32, on_less: Callback, on_more: Callback) -> Self {
+    pub fn new(quantity: u32, on_less: Callback, on_more: Callback) -> Self {
         Self {
             quantity,
             on_less,

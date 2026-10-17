@@ -12,7 +12,7 @@ const SLIDES: [(&str, &str); 4] = [
     ("Ocean", "#1D4ED8"),
 ];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let index = cx.use_state(|| 0usize);
 

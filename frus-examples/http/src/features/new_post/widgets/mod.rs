@@ -1,1 +1,1 @@
-pub(crate) mod created_post;
+pub mod created_post;

@@ -6,7 +6,7 @@ use frus::{
 };
 
 /// `1234` cents → `$12.34`.
-pub(crate) fn format_price(cents: u32) -> String {
+pub fn format_price(cents: u32) -> String {
     format!("${}.{:02}", cents / 100, cents % 100)
 }
 
@@ -17,7 +17,7 @@ pub(crate) fn format_price(cents: u32) -> String {
 /// pushed on top of another, and for a nested location (`/products/3` has home beneath
 /// it) even when the app was opened at that address. The button just pops. Returned
 /// unbuilt so a page can add actions before `.build()`.
-pub(crate) fn page_app_bar(cx: &BuildContext, title: impl Into<String>) -> AppBar {
+pub fn page_app_bar(cx: &BuildContext, title: impl Into<String>) -> AppBar {
     let router = cx.router();
     let bar = AppBar::new().title(Text::new(title.into()));
     if router.can_pop() {
@@ -31,7 +31,7 @@ pub(crate) fn page_app_bar(cx: &BuildContext, title: impl Into<String>) -> AppBa
 
 /// A centred icon, a line and an optional action: an empty cart, no search results, a
 /// page that does not exist.
-pub(crate) fn empty_state(
+pub fn empty_state(
     cx: &BuildContext,
     icon: IconData,
     message: impl Into<String>,
@@ -52,17 +52,4 @@ pub(crate) fn empty_state(
         column = column.child(action);
     }
     Center::new(column)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn prices_are_written_in_dollars_and_cents() {
-        assert_eq!(format_price(0), "$0.00");
-        assert_eq!(format_price(5), "$0.05");
-        assert_eq!(format_price(8900), "$89.00");
-        assert_eq!(format_price(123456), "$1234.56");
-    }
 }

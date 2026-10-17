@@ -8,7 +8,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // `spacing` puts the same gap between every pair of children — no spacer widgets.
         Box::new(section(

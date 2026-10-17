@@ -25,9 +25,9 @@ use frus::FrusApp;
 
 use crate::features::chat::pages::chatpage::ChatPage;
 
-mod common;
-mod features;
-mod models;
+pub mod common;
+pub mod features;
+pub mod models;
 
 /// A public echo server: it greets each new connection, then sends back every message.
 const DEFAULT_SERVER: &str = "wss://echo.websocket.org";

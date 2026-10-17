@@ -1,2 +1,2 @@
-pub(crate) mod homepage;
-pub(crate) mod notfoundpage;
+pub mod homepage;
+pub mod notfoundpage;

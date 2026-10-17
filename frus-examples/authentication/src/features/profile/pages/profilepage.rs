@@ -10,12 +10,12 @@ use crate::common::shared::{server_error, submit_button};
 use crate::features::profile::states::profilestate::ProfileState;
 
 /// Edit the display name, or sign out.
-pub(crate) struct ProfilePage {
+pub struct ProfilePage {
     auth: Auth,
 }
 
 impl ProfilePage {
-    pub(crate) fn new(auth: Auth) -> Self {
+    pub fn new(auth: Auth) -> Self {
         Self { auth }
     }
 }

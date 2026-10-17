@@ -2,22 +2,22 @@
 
 use crate::models::demo::Demo;
 
-mod appbar;
-mod bottomappbar;
-mod bottombar;
-mod collapsingheader;
-mod drawer;
-mod navbar;
-mod navdrawer;
-mod navrail;
-mod navscaffold;
-mod pageselector;
-mod pagination;
-mod scaffold;
-mod steps;
-mod tabs;
+pub mod appbar;
+pub mod bottomappbar;
+pub mod bottombar;
+pub mod collapsingheader;
+pub mod drawer;
+pub mod navbar;
+pub mod navdrawer;
+pub mod navrail;
+pub mod navscaffold;
+pub mod pageselector;
+pub mod pagination;
+pub mod scaffold;
+pub mod steps;
+pub mod tabs;
 
-pub(crate) fn demos() -> Vec<Demo> {
+pub fn demos() -> Vec<Demo> {
     vec![
         Demo::new(
             "app-bar",

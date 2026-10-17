@@ -2,28 +2,28 @@
 
 use crate::models::demo::Demo;
 
-mod autocomplete;
-mod autofill_group;
-mod checkbox;
-mod color_picker;
-mod control_tiles;
-mod date_picker;
-mod date_time_picker;
-mod date_time_range;
-mod form;
-mod radio;
-mod range_slider;
-mod rating;
-mod search_anchor;
-mod search_bar;
-mod slider;
-mod stepper;
-mod switch;
-mod text_editing_controller;
-mod text_field;
-mod time_picker;
+pub mod autocomplete;
+pub mod autofill_group;
+pub mod checkbox;
+pub mod color_picker;
+pub mod control_tiles;
+pub mod date_picker;
+pub mod date_time_picker;
+pub mod date_time_range;
+pub mod form;
+pub mod radio;
+pub mod range_slider;
+pub mod rating;
+pub mod search_anchor;
+pub mod search_bar;
+pub mod slider;
+pub mod stepper;
+pub mod switch;
+pub mod text_editing_controller;
+pub mod text_field;
+pub mod time_picker;
 
-pub(crate) fn demos() -> Vec<Demo> {
+pub fn demos() -> Vec<Demo> {
     vec![
         Demo::new(
             "text-field",

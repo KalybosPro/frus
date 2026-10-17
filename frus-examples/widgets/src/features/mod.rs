@@ -1,17 +1,17 @@
-pub(crate) mod catalog;
-pub(crate) mod home;
+pub mod catalog;
+pub mod home;
 
 // One feature per family of widgets. Each holds a `widgets/` folder: one file per
 // widget, and a `mod.rs` that lists them.
-pub(crate) mod animation;
-pub(crate) mod buttons;
-pub(crate) mod display;
-pub(crate) mod feedback;
-pub(crate) mod inputs;
-pub(crate) mod interaction;
-pub(crate) mod layout;
-pub(crate) mod navigation;
-pub(crate) mod painting;
-pub(crate) mod scrolling;
-pub(crate) mod state;
-pub(crate) mod text;
+pub mod animation;
+pub mod buttons;
+pub mod display;
+pub mod feedback;
+pub mod inputs;
+pub mod interaction;
+pub mod layout;
+pub mod navigation;
+pub mod painting;
+pub mod scrolling;
+pub mod state;
+pub mod text;

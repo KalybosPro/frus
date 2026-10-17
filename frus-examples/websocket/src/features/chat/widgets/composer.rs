@@ -9,7 +9,7 @@ use frus::{
 ///
 /// It holds no text of its own: the draft lives in the page's state, and the widget is
 /// handed what to show and what to call — the page decides, the widget only draws.
-pub(crate) struct Composer {
+pub struct Composer {
     draft: String,
     /// Whether there is a connection to type for.
     enabled: bool,
@@ -20,7 +20,7 @@ pub(crate) struct Composer {
 }
 
 impl Composer {
-    pub(crate) fn new(
+    pub fn new(
         draft: impl Into<String>,
         enabled: bool,
         can_send: bool,

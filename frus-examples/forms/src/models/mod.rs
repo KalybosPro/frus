@@ -1,1 +1,1 @@
-pub(crate) mod profile;
+pub mod profile;

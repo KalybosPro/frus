@@ -6,13 +6,13 @@ use crate::models::product::Product;
 /// One product in a list: what it is, what it costs, and what happens on a tap — which
 /// the **parent** decides. The front page opens the product with `go`, the search page
 /// with `push`; the card does not know or care.
-pub(crate) struct ProductCard {
+pub struct ProductCard {
     product: &'static Product,
     on_tap: Callback,
 }
 
 impl ProductCard {
-    pub(crate) fn new(product: &'static Product, on_tap: Callback) -> Self {
+    pub fn new(product: &'static Product, on_tap: Callback) -> Self {
         Self { product, on_tap }
     }
 }

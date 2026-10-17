@@ -13,7 +13,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         let name = cx.use_state(String::new);
         let email = cx.use_state(String::new);

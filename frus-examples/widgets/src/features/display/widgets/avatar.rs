@@ -5,7 +5,7 @@ use frus::{CircleAvatar, Color, Colors, Icon, Icons, Row, Widget, Wrap};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     // `asset!` embeds a file in the binary at compile time (the path is relative to this
     // source file), and decodes it once per process. `handle()` is the decoded picture,
     // or `None` if the bytes were not an image — the avatar then shows its colour.

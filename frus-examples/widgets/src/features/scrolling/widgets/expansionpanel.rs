@@ -5,7 +5,7 @@ use frus::{Callback, Container, ExpansionPanel, ExpansionPanelList, Text, Widget
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let open = cx.use_state(|| vec![0usize]);
         let radio = cx.use_state(|| Some(1usize));

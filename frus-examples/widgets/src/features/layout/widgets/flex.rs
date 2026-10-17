@@ -9,7 +9,7 @@ use frus::{Align, Color, Container, Flex, Justify, Text, Widget};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // A flex row is as wide as its children; `gap` spaces them and `padding` pads the
         // whole line.

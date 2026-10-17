@@ -4,7 +4,7 @@ use frus::{FontWeight, TextStyle, Timeline, Widget};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // Each event is a title and a line of detail, oldest first.
         Box::new(section(

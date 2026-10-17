@@ -5,7 +5,7 @@ use frus::{component, Align, Column, Container, Offstage, Row, Switch, Text, Vis
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         let shown = cx.use_state(|| true);
         let on = shown.get();

@@ -5,7 +5,7 @@ use frus::{Alignment, AspectRatio, Color, Container, Row, SizedBox, Text, Widget
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // The box takes the width it is given and derives its height: 16:9 at 300 px
         // wide is about 169 px tall. The ratio is width / height.

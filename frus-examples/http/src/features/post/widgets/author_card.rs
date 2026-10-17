@@ -14,7 +14,7 @@ use crate::models::user::User;
 /// who the author is — has arrived, and the rest of the page does not wait for it.
 ///
 /// `attempt` is part of the key so the page's Retry asks for the author again too.
-pub(crate) fn author_card(user_id: u32, attempt: u64) -> Component {
+pub fn author_card(user_id: u32, attempt: u64) -> Component {
     FutureBuilder::new(
         (user_id, attempt),
         |&(user_id, _): &(u32, u64)| api::user(user_id),

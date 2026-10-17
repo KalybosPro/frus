@@ -8,7 +8,7 @@ use frus::{
 };
 
 /// The application's logo: an icon in a rounded tile, and the name.
-pub(crate) fn app_logo(cx: &BuildContext) -> Box<dyn Widget> {
+pub fn app_logo(cx: &BuildContext) -> Box<dyn Widget> {
     let theme = cx.theme();
     let tile = Container::new()
         .width(40.0)
@@ -35,7 +35,7 @@ pub(crate) fn app_logo(cx: &BuildContext) -> Box<dyn Widget> {
 
 /// The frame of an auth page: the theme's background, a scrollable body (a phone's
 /// keyboard covers half the screen), and a column no wider than a form should be.
-pub(crate) fn auth_frame(cx: &BuildContext, content: Column) -> Box<dyn Widget> {
+pub fn auth_frame(cx: &BuildContext, content: Column) -> Box<dyn Widget> {
     let body = SingleChildScrollView::new()
         .padding_each(32.0, 20.0, 32.0, 20.0)
         .child(Center::new(
@@ -49,7 +49,7 @@ pub(crate) fn auth_frame(cx: &BuildContext, content: Column) -> Box<dyn Widget> 
 }
 
 /// A page title and the sentence under it.
-pub(crate) fn heading(cx: &BuildContext, title: &str, subtitle: &str) -> Box<dyn Widget> {
+pub fn heading(cx: &BuildContext, title: &str, subtitle: &str) -> Box<dyn Widget> {
     Box::new(
         Column::new()
             .spacing(6.0)
@@ -72,7 +72,7 @@ pub(crate) fn heading(cx: &BuildContext, title: &str, subtitle: &str) -> Box<dyn
 /// The form's main button, as wide as the form. While the request is on its way it shows
 /// a spinner and the `busy` label, and is disabled — a second press would send a second
 /// request.
-pub(crate) fn submit_button(
+pub fn submit_button(
     cx: &BuildContext,
     label: &str,
     busy: &str,
@@ -107,6 +107,6 @@ pub(crate) fn submit_button(
 }
 
 /// What the server said when it refused, above the form — or nothing.
-pub(crate) fn server_error(message: Option<&str>) -> Option<Box<dyn Widget>> {
+pub fn server_error(message: Option<&str>) -> Option<Box<dyn Widget>> {
     message.map(|message| Box::new(Alert::new(message).error()) as Box<dyn Widget>)
 }

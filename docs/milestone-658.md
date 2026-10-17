@@ -3,7 +3,7 @@
 ## Objective
 
 The owner's direction (2026-10-15): an application made with frus keeps its tests apart from
-its code, in a test folder, as a Flutter project keeps them in `test/`. The application that
+its code, in a folder of their own. The application that
 `frus create` writes kept its one test inline, in a `#[cfg(test)]` module at the bottom of
 `src/lib.rs`, next to the counter it tested.
 

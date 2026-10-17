@@ -1,3 +1,3 @@
-pub(crate) mod comment;
-pub(crate) mod post;
-pub(crate) mod user;
+pub mod comment;
+pub mod post;
+pub mod user;

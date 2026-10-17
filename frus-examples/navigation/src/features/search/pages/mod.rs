@@ -1,1 +1,1 @@
-pub(crate) mod searchpage;
+pub mod searchpage;

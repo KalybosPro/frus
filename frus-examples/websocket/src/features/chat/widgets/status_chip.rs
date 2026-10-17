@@ -11,12 +11,12 @@ use crate::features::chat::states::chatstate::Status;
 /// Built from a `Container` rather than a `Chip`: a chip is a control (a filter, an
 /// entry), and its leading icon takes the theme's accent — here both the fill and the
 /// icon carry the status, so a plain decorated box says it more directly.
-pub(crate) struct StatusChip {
+pub struct StatusChip {
     status: Status,
 }
 
 impl StatusChip {
-    pub(crate) fn new(status: Status) -> Self {
+    pub fn new(status: Status) -> Self {
         Self { status }
     }
 }

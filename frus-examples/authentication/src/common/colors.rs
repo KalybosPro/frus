@@ -7,6 +7,6 @@
 use frus::Color;
 
 /// The seed the theme is made from: every role colour derives from it.
-pub(crate) fn brand() -> Color {
+pub fn brand() -> Color {
     Color::hex("#4F46E5")
 }

@@ -10,13 +10,13 @@ use crate::common::shared::{app_logo, auth_frame, heading, server_error, submit_
 use crate::features::auth::states::forgotpasswordstate::ForgotPasswordState;
 
 /// Asks for a password reset link, then says to check the inbox.
-pub(crate) struct ForgotPasswordPage {
+pub struct ForgotPasswordPage {
     auth: Auth,
     from: Option<String>,
 }
 
 impl ForgotPasswordPage {
-    pub(crate) fn new(auth: Auth, from: Option<String>) -> Self {
+    pub fn new(auth: Auth, from: Option<String>) -> Self {
         Self { auth, from }
     }
 }
