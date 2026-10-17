@@ -79,6 +79,17 @@ pub(crate) fn build_web(project: &Project, mode: Mode) -> Result<PathBuf, String
             project.package
         ));
     }
+    // A page that loads another name's glue — a crate renamed, a page copied from another
+    // project — fails in the browser with a bare "failed to fetch": say it here instead.
+    let glue = format!("pkg/{}.js", project.lib);
+    if let Ok(page) = std::fs::read_to_string(web.join("index.html")) {
+        if !page.contains(&glue) {
+            crate::report::warn(&format!(
+                "web/index.html does not load {glue}, which is what this build writes: the page \
+                 will not find the application"
+            ));
+        }
+    }
     if !project.has_lib {
         return Err(format!(
             "{} has no library to compile for the web",
@@ -152,8 +163,16 @@ pub(crate) fn build_apk(project: &Project, mode: Mode) -> Result<PathBuf, String
     command
         .args(["apk", "build", "--lib"])
         .current_dir(&project.root);
-    if mode == Mode::Release {
-        command.arg("--release");
+    match mode {
+        Mode::Release => {
+            command.arg("--release");
+        }
+        // A debug `.so` is mostly debug information nobody reads on a phone: 267 MB of APK for a
+        // hello world, against 56 MB without it. Every run and every reload sends the APK over
+        // the cable, so it is left out; the symbols stay, and with them a panic's backtrace.
+        Mode::Debug => {
+            command.env("CARGO_PROFILE_DEV_STRIP", "debuginfo");
+        }
     }
     run(&mut command)?;
     // Only an APK written by this build: a failed one must never install yesterday's.

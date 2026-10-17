@@ -12,7 +12,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 /// Where the page posts its console.
@@ -41,12 +41,17 @@ const CONSOLE_BRIDGE: &str = r#"<script>(() => {
   }
   addEventListener('error', (event) => send('error', [event.error || event.message]));
   addEventListener('unhandledrejection', (event) => send('error', ['Unhandled rejection:', event.reason]));
+  window.__frusRun = true;
   let build = null;
   setInterval(() => fetch('/__frus/build', { cache: 'no-store' })
     .then((answer) => answer.text())
     .then((served) => {
       if (build === null) build = served;
-      else if (served !== build) location.reload();
+      else if (served !== build) {
+        // A restart afresh: the application keeps none of its states across this reload.
+        if (served.endsWith(' fresh')) sessionStorage.setItem('frus-run-fresh', '1');
+        location.reload();
+      }
     })
     .catch(() => {}), 1000);
 })();</script>"#;
@@ -55,11 +60,14 @@ const CONSOLE_BRIDGE: &str = r#"<script>(() => {
 pub(crate) struct Server {
     pub url: String,
     build: Arc<AtomicU64>,
+    fresh: Arc<AtomicBool>,
 }
 
 impl Server {
-    /// A new build is in `web/`: the open pages reload within a second.
-    pub(crate) fn rebuilt(&self) {
+    /// A new build is in `web/`: the open pages reload within a second — keeping the states of
+    /// the components that keep one, unless `fresh`.
+    pub(crate) fn rebuilt(&self, fresh: bool) {
+        self.fresh.store(fresh, Ordering::SeqCst);
         self.build.fetch_add(1, Ordering::SeqCst);
     }
 }
@@ -74,24 +82,29 @@ pub(crate) fn start(dir: PathBuf, port: u16) -> Result<Server, String> {
         .map_err(|e| format!("could not open a port to serve the application on: {e}"))?;
     let address: SocketAddr = listener.local_addr().map_err(|e| e.to_string())?;
     let build = Arc::new(AtomicU64::new(0));
-    let served = build.clone();
+    let fresh = Arc::new(AtomicBool::new(false));
+    let (served, served_fresh) = (build.clone(), fresh.clone());
     std::thread::spawn(move || {
         for stream in listener.incoming().map_while(Result::ok) {
             let dir = dir.clone();
-            let build = served.load(Ordering::SeqCst);
+            let build = match served.load(Ordering::SeqCst) {
+                n if served_fresh.load(Ordering::SeqCst) => format!("{n} fresh"),
+                n => n.to_string(),
+            };
             std::thread::spawn(move || {
-                let _ = handle(stream, &dir, build);
+                let _ = handle(stream, &dir, &build);
             });
         }
     });
     Ok(Server {
         url: format!("http://localhost:{}/", address.port()),
         build,
+        fresh,
     })
 }
 
 /// One request: a file, or a console message.
-fn handle(mut stream: TcpStream, dir: &Path, build: u64) -> std::io::Result<()> {
+fn handle(mut stream: TcpStream, dir: &Path, build: &str) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
@@ -119,12 +132,7 @@ fn handle(mut stream: TcpStream, dir: &Path, build: u64) -> std::io::Result<()> 
         return respond(&mut stream, "204 No Content", "text/plain", b"");
     }
     if path == BUILD_PATH {
-        return respond(
-            &mut stream,
-            "200 OK",
-            "text/plain",
-            build.to_string().as_bytes(),
-        );
+        return respond(&mut stream, "200 OK", "text/plain", build.as_bytes());
     }
     if method != "GET" && method != "HEAD" {
         return respond(&mut stream, "405 Method Not Allowed", "text/plain", b"");
@@ -286,8 +294,12 @@ mod tests {
         assert!(ask("GET /nope HTTP/1.1\r\n\r\n").starts_with("HTTP/1.1 404"));
         // The build the page polls moves on when a restart has made a new one.
         assert!(ask("GET /__frus/build HTTP/1.1\r\n\r\n").ends_with("\r\n\r\n0"));
-        server.rebuilt();
+        server.rebuilt(false);
         assert!(ask("GET /__frus/build HTTP/1.1\r\n\r\n").ends_with("\r\n\r\n1"));
+        // A restart afresh says so: the page drops its states.
+        server.rebuilt(true);
+        assert!(ask("GET /__frus/build HTTP/1.1\r\n\r\n").ends_with("\r\n\r\n2 fresh"));
+        assert!(page.contains("__frusRun"), "{page}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -57,6 +57,9 @@ mod logging;
 #[cfg(feature = "net")]
 pub mod net;
 mod reload;
+// The Web side of a reload under `frus run`: the states kept across the page's reload.
+#[cfg(web)]
+mod web_dev;
 // The channel `frus run` restarts an application through.
 #[cfg(any(desktop, android))]
 mod dev;

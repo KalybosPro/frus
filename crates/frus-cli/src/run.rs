@@ -67,12 +67,25 @@ const KEYS: &str = "  r  reload: build again, start where it was, with the state
 ";
 
 pub(crate) fn run(options: &RunOptions) -> Result<ExitCode, String> {
+    // For an editor, from the very start: even a run that cannot begin ends with `app.stop`.
+    if options.machine {
+        report::machine(format!("frus-run-{}", std::process::id()));
+    }
+    let result = run_session(options);
+    keys::restore();
+    report::event(
+        "app.stop",
+        object([("error", result.as_ref().err().map(String::as_str).into())]),
+    );
+    result
+}
+
+fn run_session(options: &RunOptions) -> Result<ExitCode, String> {
     let here = std::env::current_dir().map_err(|e| e.to_string())?;
     let project = Project::find(&here)?;
     let devices = devices::discover();
     let device = devices::select(&devices, options.device.as_deref())?;
     if options.machine {
-        report::machine(format!("{}-{}", project.package, std::process::id()));
         report::event(
             "app.start",
             object([
@@ -104,11 +117,6 @@ pub(crate) fn run(options: &RunOptions) -> Result<ExitCode, String> {
         Kind::Browser { exe } => run_web(&project, Some(exe), options),
         Kind::WebServer => run_web(&project, None, options),
     };
-    keys::restore();
-    report::event(
-        "app.stop",
-        object([("error", result.as_ref().err().map(String::as_str).into())]),
-    );
     result
 }
 
@@ -609,7 +617,7 @@ fn run_web(
                     // The page asks which build is served and reloads itself; its address,
                     // the application's location, survives the reload.
                     Ok(_) => {
-                        server.rebuilt();
+                        server.rebuilt(action == Action::Restart);
                         restarted(action, started, ": the page reloads");
                     }
                     Err(error) => report::warn(&format!(
