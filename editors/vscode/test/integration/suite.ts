@@ -58,6 +58,14 @@ export async function run(): Promise<void> {
     await until("its log", () => appLines() > 0, 60_000);
     step(`its log reaches the Debug Console (${appLines()} lines so far)`);
 
+    // `cargo install frus-cli` while the daemon and the session run: it writes the new program
+    // beside the old one and renames it over, which Windows refuses for a program in use.
+    const installed = process.env.FRUS_INTEGRATION_FRUS!;
+    const next = `${installed}.next`;
+    fs.copyFileSync(installed, next);
+    fs.renameSync(next, installed);
+    step("the installed frus is replaced while the daemon and the session run");
+
     await new Promise((r) => setTimeout(r, 3000));
     await vscode.commands.executeCommand("frus.reload");
     await until("the reload", () => /Reloaded in [\d.]+ s/.test(console_()), 600_000);

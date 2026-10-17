@@ -34,6 +34,16 @@ export class Devices {
     send(daemon, { id: this.nextId++, method: "device.enable" });
   }
 
+  /** Stops the daemon running and starts `frus`'s: a new install. The list starts again from
+   *  what the new one reports. */
+  restart(frus: string): void {
+    this.dispose();
+    this.process = undefined;
+    this.devices.clear();
+    this.listeners.forEach((listener) => listener());
+    this.start(frus);
+  }
+
   /** A message of the daemon's. */
   take(message: any): void {
     switch (message.event) {

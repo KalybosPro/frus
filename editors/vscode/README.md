@@ -30,6 +30,11 @@ The extension drives the `frus` command-line tool (`frus daemon` and `frus run -
 not installed, the extension installs it with `cargo install frus-cli`; `frus` installs what it
 needs in turn (Rust targets, the Android SDK, wasm-bindgen).
 
+The extension runs a copy of `frus`, kept in its own storage, never the installed program
+itself: `cargo install frus-cli` can update it while VS Code is open (Windows refuses to replace
+a program that is running). When the installed `frus` changes, the device list restarts from
+the new one, and the next F5 uses it.
+
 ## Settings
 
 | setting | |
