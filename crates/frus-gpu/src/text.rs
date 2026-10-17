@@ -227,8 +227,9 @@ impl TextPainter {
                         // **unconstrained** (`None`) — and above all is not bounded to
                         // the surface: in RTL, cosmic-text right-aligns to the buffer's
                         // width, which would push the glyphs off screen past the right
-                        // edge once `position.x` shifts them.
-                        buffer.set_size(*max_width, Some(height as f32));
+                        // edge once `position.x` shifts them. Its height is what is left
+                        // of the surface under its top (see `height_below`).
+                        buffer.set_size(*max_width, Some(height_below(height, position.y)));
                         // Weight and italic: cosmic-text picks the matching face of the
                         // family, falling back to the closest one when it is missing.
                         let attrs = glyphon::Attrs::new()
@@ -308,7 +309,7 @@ impl TextPainter {
                         // As for plain text: a rich paragraph wraps at its layout
                         // width, otherwise it is unconstrained (`None`) and never bounded
                         // to the surface, which would push RTL alignment off screen.
-                        buffer.set_size(*max_width, Some(height as f32));
+                        buffer.set_size(*max_width, Some(height_below(height, position.y)));
                         let spans = runs.iter().enumerate().map(|(index, run)| {
                             (
                                 run.text.as_str(),
@@ -439,6 +440,16 @@ impl TextPainter {
     }
 }
 
+/// A text buffer's height: from the text's `top` down to the bottom of the `surface`.
+///
+/// cosmic-text lays out only the lines that start within the buffer's height, counted
+/// from the text's own top. Given the surface's height alone, a text taller than the
+/// window and scrolled up past its top drew its first screenful of lines and nothing
+/// under them: a long block of code in a scroll view went blank halfway down.
+fn height_below(surface: u32, top: f32) -> f32 {
+    (surface as f32 - top).max(0.0)
+}
+
 /// The renderer's alignment for one of ours. `None` — our `Start` — leaves cosmic-text
 /// to align by the paragraph's own direction, which is the answer for prose; the rest
 /// override it.
@@ -522,6 +533,33 @@ mod tests {
             }
             _ => eprintln!("no GPU adapter available: test skipped"),
         }
+    }
+
+    /// **A text scrolled up past the surface's top still draws its lower lines**: forty
+    /// lines starting 300 px above the surface reach into it from line sixteen on. With
+    /// the buffer as tall as the surface, only the first 128 px of the text were laid
+    /// out, all of them above the top, and nothing lit.
+    #[test]
+    fn text_scrolled_above_the_surface_draws_its_lower_lines() {
+        let mut scene = Scene::new();
+        scene.text(
+            Point::new(4.0, -300.0),
+            ["IIII"; 40].join("\n"),
+            &frus_core::ResolvedTextStyle::exact(16.0),
+            Color::WHITE,
+        );
+        match lit_pixels_for(&scene) {
+            None => eprintln!("no GPU adapter available: test skipped"),
+            Some(lit) => assert!(lit > 100, "the lower lines should be drawn ({lit})"),
+        }
+    }
+
+    #[test]
+    fn height_below_runs_from_the_top_to_the_surface_bottom() {
+        assert_eq!(height_below(800, 0.0), 800.0);
+        assert_eq!(height_below(800, -1200.0), 2000.0);
+        assert_eq!(height_below(800, 300.0), 500.0);
+        assert_eq!(height_below(800, 900.0), 0.0);
     }
 
     /// Proof of rasterisation: white text produces non-black pixels.
