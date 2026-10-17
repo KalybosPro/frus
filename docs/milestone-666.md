@@ -55,6 +55,19 @@ the editor side, in `editors/vscode`.
   reload sends it over the cable. The symbols stay, and with them a panic's backtrace; release
   builds are unchanged.
 
+- **The Web keeps states across a reload too** (`frus-shell/src/web_dev.rs`). Milestone 663
+  left it out: there a reload is the page reloading itself.
+  - On a page served by `frus run` (its script sets `window.__frusRun`), the shell keeps a
+    snapshot of the states after each frame. It writes the snapshot into the tab's session
+    storage on `pagehide`, and the new build reads it back once, before its first build.
+  - For `R`, the server's `/__frus/build` says `fresh` and the page leaves a mark that drops the
+    snapshot.
+  - In headless Edge, on a copy of the counter counting by itself: 11 before `r`, 13 after it
+    (it carried on); 0 after `R`.
+- **A page that loads another name's glue is reported.** `frus run` and `frus build web` warn
+  when `web/index.html` does not load `pkg/<library>.js` (a crate renamed, a page copied from
+  another project), instead of the browser's bare "failed to fetch".
+
 ## Left
 
 - **The status bar and the picker** were not looked at on screen: the integration test drives

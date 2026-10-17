@@ -79,6 +79,17 @@ pub(crate) fn build_web(project: &Project, mode: Mode) -> Result<PathBuf, String
             project.package
         ));
     }
+    // A page that loads another name's glue — a crate renamed, a page copied from another
+    // project — fails in the browser with a bare "failed to fetch": say it here instead.
+    let glue = format!("pkg/{}.js", project.lib);
+    if let Ok(page) = std::fs::read_to_string(web.join("index.html")) {
+        if !page.contains(&glue) {
+            crate::report::warn(&format!(
+                "web/index.html does not load {glue}, which is what this build writes: the page \
+                 will not find the application"
+            ));
+        }
+    }
     if !project.has_lib {
         return Err(format!(
             "{} has no library to compile for the web",

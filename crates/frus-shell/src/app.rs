@@ -1896,6 +1896,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.run_command(command);
                 self.sync_subscriptions();
                 self.open_launch_address(&window);
+                if let Some(states) = crate::web_dev::start() {
+                    self.runtime.states.restore_from(&states);
+                }
             }
             let slot = self.pending_renderer.clone();
             let win = window.clone();
@@ -2837,6 +2840,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // effects it asked for run. An effect that changed something asks for the
                 // frame that shows it.
                 self.runtime.states.end_frame();
+                #[cfg(web)]
+                crate::web_dev::keep(|| self.runtime.states.snapshot());
                 if frus_widgets::rebuild_requested() {
                     self.request_redraw();
                 }

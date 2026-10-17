@@ -617,7 +617,7 @@ fn run_web(
                     // The page asks which build is served and reloads itself; its address,
                     // the application's location, survives the reload.
                     Ok(_) => {
-                        server.rebuilt();
+                        server.rebuilt(action == Action::Restart);
                         restarted(action, started, ": the page reloads");
                     }
                     Err(error) => report::warn(&format!(
