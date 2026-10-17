@@ -832,6 +832,10 @@ mod tests {
     /// properly.
     #[test]
     fn the_crossing_runs_one_way() {
+        // A network image asks the process-wide fetcher, which the network tests swap
+        // and count: without their lock this ask lands in one of their counts.
+        let _guard = network::serialised();
+        frus_core::set_image_fetcher(|_url, _deliver| {});
         let ready = Image::new(handle(8, 8)).placeholder(Color::WHITE);
         assert_eq!(Widget::<()>::anim_target(&ready), Some(1.0));
         assert_eq!(Widget::<()>::anim_duration(&ready), IMAGE_FADE);
@@ -1344,7 +1348,7 @@ mod tests {
         use super::*;
         use std::sync::{Mutex, MutexGuard, OnceLock};
 
-        fn serialised() -> MutexGuard<'static, ()> {
+        pub(super) fn serialised() -> MutexGuard<'static, ()> {
             static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
             let lock = LOCK.get_or_init(|| Mutex::new(()));
             let guard = lock.lock().unwrap_or_else(|e| e.into_inner());
