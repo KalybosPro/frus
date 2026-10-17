@@ -71,6 +71,16 @@ export async function run(): Promise<void> {
     await until("the reload", () => /Reloaded in [\d.]+ s/.test(console_()), 600_000);
     step(console_().match(/Reloaded in [\d.]+ s/)![0] + " (frus.reload)");
 
+    // A key of the run's, from the command palette: the application says what it did.
+    const logged = () =>
+      seen
+        .filter((m) => m.event === "output" && ["stdout", "stderr"].includes(m.body?.category))
+        .map((m) => m.body.output)
+        .join("");
+    await vscode.commands.executeCommand("frus.toggleDebugPaint");
+    await until("debug paint", () => logged().includes("debug paint on"), 60_000);
+    step("frus.toggleDebugPaint turns debug paint on");
+
     await vscode.debug.stopDebugging();
     await until("the end of the session", () => seen.some((m) => m.event === "terminated"), 60_000);
     step("stopping the session ends it");

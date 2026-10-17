@@ -7,10 +7,33 @@ import * as vscode from "vscode";
 import { FrusDebugAdapter } from "./adapter";
 import { resolveProgram, runnableCopy, watchProgram } from "./copy";
 import { Devices } from "./daemon";
+import { ReloadOnSave, savesReload } from "./save";
 import { frusProgram } from "./frus";
 
 const SELECTED = "frus.device";
 const APP = "frus.application";
+
+/** The commands that press a key of `frus run`'s, as its terminal does. */
+const KEY_COMMANDS: Array<[string, string]> = [
+  ["frus.toggleDebugPaint", "p"],
+  ["frus.toggleInspector", "i"],
+  ["frus.togglePlatform", "o"],
+  ["frus.toggleBrightness", "b"],
+  ["frus.togglePerformanceOverlay", "P"],
+  ["frus.printWidgetTree", "w"],
+  ["frus.printFocusTree", "f"],
+  ["frus.printSemanticsTree", "S"],
+  ["frus.screenshot", "s"],
+  ["frus.detach", "d"],
+];
+
+/** The `frus.reloadOnSave` setting, read as its older true/false too. */
+function reloadOnSave(): ReloadOnSave {
+  const value = vscode.workspace.getConfiguration("frus").get<string | boolean>("reloadOnSave");
+  if (value === true) return "all";
+  if (value === false) return "never";
+  return (["never", "manual", "manualIfDirty", "all"] as const).find((m) => m === value) ?? "manual";
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   const devices = new Devices();
@@ -73,6 +96,9 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand("frus.reload", () => customRequest("hotReload")),
     vscode.commands.registerCommand("frus.restart", () => customRequest("hotRestart")),
+    ...KEY_COMMANDS.map(([command, key]) =>
+      vscode.commands.registerCommand(command, () => customRequest("key", { key })),
+    ),
 
     // F5: a configuration with the selected device and the application's directory.
     vscode.debug.registerDebugConfigurationProvider("frus", {
@@ -97,22 +123,35 @@ export function activate(context: vscode.ExtensionContext): void {
         new vscode.DebugAdapterInlineImplementation(new FrusDebugAdapter() as any),
     }),
 
-    // Saving a Rust file reloads the running application.
+    // Saving a Rust file reloads the running application: by hand only, by default, so that
+    // auto save does not reload at every pause in typing. How it was saved is known before.
+    vscode.workspace.onWillSaveTextDocument((event) => {
+      if (event.document.languageId !== "rust") return;
+      saving.set(event.document.uri.toString(), {
+        manual: event.reason === vscode.TextDocumentSaveReason.Manual,
+        dirty: event.document.isDirty,
+      });
+    }),
     vscode.workspace.onDidSaveTextDocument((document) => {
-      const reloadOnSave = vscode.workspace.getConfiguration("frus").get<boolean>("reloadOnSave");
-      if (reloadOnSave && document.languageId === "rust") customRequest("hotReload");
+      if (document.languageId !== "rust") return;
+      const how = saving.get(document.uri.toString()) ?? { manual: true, dirty: true };
+      saving.delete(document.uri.toString());
+      if (savesReload(reloadOnSave(), how.manual, how.dirty)) customRequest("hotReload");
     }),
   );
 }
 
 export function deactivate(): void {}
 
+/** How each Rust file being saved is saved, from `onWillSave` to `onDidSave`. */
+const saving = new Map<string, { manual: boolean; dirty: boolean }>();
+
 /** A request to every running frus session. */
-function customRequest(command: string): void {
+function customRequest(command: string, args?: object): void {
   const sessions = [vscode.debug.activeDebugSession].filter(
     (session): session is vscode.DebugSession => session?.type === "frus",
   );
-  for (const session of sessions) session.customRequest(command);
+  for (const session of sessions) session.customRequest(command, args);
 }
 
 /** The application F5 runs: the frus application the open Rust file belongs to; else the

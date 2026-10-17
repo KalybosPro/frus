@@ -25,6 +25,13 @@
 //! [`crate::link::location_of_link`] reads like any other. The web needs none of this: a reload
 //! keeps the address, and the address is the location.
 //!
+//! **Commands** come the other way, from the keys of `frus run` (milestone 668): `do <command>`
+//! — the inspector, debug paint, a tree dump, another platform, the other brightness, the
+//! frame statistics, a screenshot. A desktop application reads them from the socket; an Android
+//! one from a file in its own storage, which `frus run` writes with `run-as`; a page from
+//! `window.__frusCommand`, which the script `frus run` adds calls. Each is queued, the window is
+//! woken, and the next frame carries it out ([`take_commands`]).
+//!
 //! **Component states** that opt in (`State::save`) cross the restart too, as a snapshot of the
 //! state store. On a desktop `frus run` asks for it just before stopping the application —
 //! `save <file>` on the socket, answered `saved` once written — and the new build reads it from
@@ -35,10 +42,8 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
-
-use winit::window::Window;
 
 /// The environment variable a desktop application finds the channel's address in.
 #[cfg(desktop)]
@@ -61,8 +66,6 @@ const STATES_FILE: &str = "frus-run-states";
 
 /// Where `frus run` asked the states to be written, not yet done.
 static SAVE_TO: Mutex<Option<PathBuf>> = Mutex::new(None);
-/// The window to wake when it asks: the request arrives on another thread.
-static WINDOW: Mutex<Option<Arc<Window>>> = Mutex::new(None);
 
 /// A window's place and size: outer position, inner size, in physical pixels.
 pub(crate) type Placement = [i32; 4];
@@ -118,11 +121,9 @@ impl DevChannel {
                         if let Ok(mut slot) = SAVE_TO.lock() {
                             *slot = Some(PathBuf::from(path.trim()));
                         }
-                        if let Ok(window) = WINDOW.lock() {
-                            if let Some(window) = window.as_ref() {
-                                window.request_redraw();
-                            }
-                        }
+                        crate::dev_commands::wake();
+                    } else if let Some(command) = line.strip_prefix("do ") {
+                        crate::dev_commands::push_command(command);
                     }
                 }
             });
@@ -184,14 +185,6 @@ impl DevChannel {
                 true
             }
         }
-    }
-}
-
-/// The window a request from `frus run` wakes.
-#[cfg(desktop)]
-pub(crate) fn set_window(window: Option<Arc<Window>>) {
-    if let Ok(mut slot) = WINDOW.lock() {
-        *slot = window;
     }
 }
 
@@ -260,7 +253,7 @@ pub(crate) fn parse_placement(text: &str) -> Option<Placement> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{BufRead, BufReader};
+    use std::io::{BufRead, BufReader, Write};
     use std::net::TcpListener;
 
     use super::*;
@@ -319,6 +312,25 @@ mod tests {
                 "window 10 20 800 600"
             ]
         );
+    }
+
+    /// `do <command>` on the socket is queued for the next frame, in order.
+    #[test]
+    fn commands_from_the_socket_are_queued() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let _channel = DevChannel::connect(&address).unwrap();
+        let (mut peer, _) = listener.accept().unwrap();
+        crate::dev_commands::take_commands();
+        peer.write_all(b"do outlines\ndo screenshot shot.png\n")
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut got = Vec::new();
+        while got.len() < 2 && std::time::Instant::now() < deadline {
+            got.extend(crate::dev_commands::take_commands());
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(got, ["outlines", "screenshot shot.png"]);
     }
 
     #[test]

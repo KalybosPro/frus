@@ -138,3 +138,20 @@ test("end to end with the real frus", { skip: !frusExe || !app, timeout: 1_200_0
   process.stdout.write(`# ${logs} application log lines reached the console\n`);
   assert.ok(logs > 0, "the application's log reached the Debug Console");
 });
+
+test("the other keys of the run go to it by their letter", async () => {
+  const { frus, request } = session();
+  request("launch", { frus: "frus", cwd: "." });
+  request("key", { key: "p" });
+  request("key", { key: "S" });
+  request("key", { key: "pp" });
+  request("key", {});
+  await tick();
+  assert.deepEqual(
+    frus.sent.map((c) => [c.method, c.params?.key]),
+    [
+      ["app.key", "p"],
+      ["app.key", "S"],
+    ],
+  );
+});

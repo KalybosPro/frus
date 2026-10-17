@@ -13,12 +13,14 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Where the page posts its console.
 const LOG_PATH: &str = "/__frus/log";
 /// Where the page asks which build is served.
 const BUILD_PATH: &str = "/__frus/build";
+/// Where the page asks what the keys of `frus run` asked of it since it last asked.
+const COMMANDS_PATH: &str = "/__frus/commands";
 
 /// The script added to the page. Each message goes out as soon as it is written, in order.
 const CONSOLE_BRIDGE: &str = r#"<script>(() => {
@@ -54,6 +56,13 @@ const CONSOLE_BRIDGE: &str = r#"<script>(() => {
       }
     })
     .catch(() => {}), 1000);
+  // What the keys of `frus run` ask: the inspector, debug paint, a tree printed… The shell
+  // defines `__frusCommand` once the application has started.
+  setInterval(() => fetch('/__frus/commands', { cache: 'no-store' })
+    .then((answer) => answer.text())
+    .then((lines) => lines.split('\n').filter(Boolean)
+      .forEach((command) => window.__frusCommand && window.__frusCommand(command)))
+    .catch(() => {}), 300);
 })();</script>"#;
 
 /// A server running on a thread of its own until the program ends.
@@ -61,6 +70,7 @@ pub(crate) struct Server {
     pub url: String,
     build: Arc<AtomicU64>,
     fresh: Arc<AtomicBool>,
+    commands: Arc<Mutex<Vec<String>>>,
 }
 
 impl Server {
@@ -69,6 +79,13 @@ impl Server {
     pub(crate) fn rebuilt(&self, fresh: bool) {
         self.fresh.store(fresh, Ordering::SeqCst);
         self.build.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// A command for the page, which it picks up the next time it asks (within a moment).
+    pub(crate) fn command(&self, command: &str) {
+        if let Ok(mut queue) = self.commands.lock() {
+            queue.push(command.to_string());
+        }
     }
 }
 
@@ -83,7 +100,8 @@ pub(crate) fn start(dir: PathBuf, port: u16) -> Result<Server, String> {
     let address: SocketAddr = listener.local_addr().map_err(|e| e.to_string())?;
     let build = Arc::new(AtomicU64::new(0));
     let fresh = Arc::new(AtomicBool::new(false));
-    let (served, served_fresh) = (build.clone(), fresh.clone());
+    let commands = Arc::new(Mutex::new(Vec::new()));
+    let (served, served_fresh, queued) = (build.clone(), fresh.clone(), commands.clone());
     std::thread::spawn(move || {
         for stream in listener.incoming().map_while(Result::ok) {
             let dir = dir.clone();
@@ -91,8 +109,9 @@ pub(crate) fn start(dir: PathBuf, port: u16) -> Result<Server, String> {
                 n if served_fresh.load(Ordering::SeqCst) => format!("{n} fresh"),
                 n => n.to_string(),
             };
+            let queued = queued.clone();
             std::thread::spawn(move || {
-                let _ = handle(stream, &dir, &build);
+                let _ = handle(stream, &dir, &build, &queued);
             });
         }
     });
@@ -100,11 +119,17 @@ pub(crate) fn start(dir: PathBuf, port: u16) -> Result<Server, String> {
         url: format!("http://localhost:{}/", address.port()),
         build,
         fresh,
+        commands,
     })
 }
 
 /// One request: a file, or a console message.
-fn handle(mut stream: TcpStream, dir: &Path, build: &str) -> std::io::Result<()> {
+fn handle(
+    mut stream: TcpStream,
+    dir: &Path,
+    build: &str,
+    commands: &Mutex<Vec<String>>,
+) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
@@ -133,6 +158,18 @@ fn handle(mut stream: TcpStream, dir: &Path, build: &str) -> std::io::Result<()>
     }
     if path == BUILD_PATH {
         return respond(&mut stream, "200 OK", "text/plain", build.as_bytes());
+    }
+    if path == COMMANDS_PATH {
+        let taken = commands
+            .lock()
+            .map(|mut queue| std::mem::take(&mut *queue))
+            .unwrap_or_default();
+        return respond(
+            &mut stream,
+            "200 OK",
+            "text/plain",
+            taken.join("\n").as_bytes(),
+        );
     }
     if method != "GET" && method != "HEAD" {
         return respond(&mut stream, "405 Method Not Allowed", "text/plain", b"");
@@ -300,6 +337,15 @@ mod tests {
         server.rebuilt(true);
         assert!(ask("GET /__frus/build HTTP/1.1\r\n\r\n").ends_with("\r\n\r\n2 fresh"));
         assert!(page.contains("__frusRun"), "{page}");
+        // What the keys ask, handed to the page once, in order.
+        assert!(ask("GET /__frus/commands HTTP/1.1\r\n\r\n").ends_with("\r\n\r\n"));
+        server.command("outlines");
+        server.command("platform");
+        assert!(
+            ask("GET /__frus/commands HTTP/1.1\r\n\r\n").ends_with("\r\n\r\noutlines\nplatform")
+        );
+        assert!(ask("GET /__frus/commands HTTP/1.1\r\n\r\n").ends_with("\r\n\r\n"));
+        assert!(page.contains("__frusCommand"), "{page}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

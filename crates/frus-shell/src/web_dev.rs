@@ -9,7 +9,8 @@
 //! kept.
 //!
 //! The page says it is served by `frus run` by setting `window.__frusRun`; nothing of this runs
-//! on any other page.
+//! on any other page. On such a page the shell also defines `window.__frusCommand(command)`,
+//! which the script calls with what the keys of `frus run` ask (milestone 668).
 
 use std::cell::{Cell, RefCell};
 
@@ -58,6 +59,11 @@ pub(crate) fn start() -> Option<String> {
     });
     let _ = window.add_event_listener_with_callback("pagehide", keep.as_ref().unchecked_ref());
     keep.forget();
+    let command = Closure::<dyn FnMut(String)>::new(|command: String| {
+        crate::dev_commands::push_command(&command);
+    });
+    let _ = js_sys::Reflect::set(&window, &"__frusCommand".into(), command.as_ref());
+    command.forget();
 
     let storage = storage()?;
     let states = storage.get_item(STATES).ok().flatten();

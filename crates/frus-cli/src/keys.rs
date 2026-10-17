@@ -82,6 +82,14 @@ pub(crate) fn command_key(command: &crate::json::Value) -> Option<char> {
         "app.restart" if full => Some('R'),
         "app.restart" => Some('r'),
         "app.stop" => Some('q'),
+        "app.detach" => Some('d'),
+        // Any other key of the run's, by its letter: `{"method":"app.key","params":{"key":"p"}}`.
+        "app.key" => {
+            let key = command.get("params")?.get("key")?.as_str()?;
+            let mut chars = key.chars();
+            let key = chars.next().filter(|_| chars.next().is_none())?;
+            crate::run::action(key).map(|_| key)
+        }
         _ => None,
     }
 }
@@ -189,5 +197,36 @@ mod terminal {
         if let Some(saved) = saved {
             stty(&[&saved]);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_editor_presses_any_key_by_its_letter() {
+        let key = |line: &str| command_key(&crate::json::parse(line).unwrap());
+        assert_eq!(
+            key(r#"{"id":1,"method":"app.key","params":{"key":"p"}}"#),
+            Some('p')
+        );
+        assert_eq!(
+            key(r#"{"id":1,"method":"app.key","params":{"key":"S"}}"#),
+            Some('S')
+        );
+        assert_eq!(
+            key(r#"{"id":1,"method":"app.key","params":{"key":"x"}}"#),
+            None
+        );
+        assert_eq!(
+            key(r#"{"id":1,"method":"app.key","params":{"key":"pp"}}"#),
+            None
+        );
+        assert_eq!(key(r#"{"id":1,"method":"app.detach"}"#), Some('d'));
+        assert_eq!(
+            key(r#"{"id":1,"method":"app.restart","params":{"fullRestart":true}}"#),
+            Some('R')
+        );
     }
 }

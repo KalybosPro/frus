@@ -6,6 +6,11 @@
 //! opens where the old one was — the same page, the window in the same place — with the state
 //! of every component that keeps one (`State::save`). `R` **restarts** it the same way but with
 //! every state afresh. `q` quits. A build that fails leaves the running application as it was.
+//!
+//! The other keys (milestone 668) look into the running application or change how it shows: the
+//! inspector, debug paint, the widget, focus and semantics trees, another platform, the other
+//! brightness, a performance panel, a screenshot. The application is told through the same
+//! channel it reports on (see `devlink`), and carries them out on its next frame.
 
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -47,24 +52,100 @@ pub(crate) enum Action {
     Reload,
     Quit,
     Help,
+    /// `frus run` ends and the application goes on running.
+    Detach,
+    /// The terminal is cleared.
+    Clear,
+    /// The screen, as a PNG beside the application: `frus_01.png`, `frus_02.png`…
+    Screenshot,
+    /// Something the application does itself, by the command it is sent (`frus-shell`'s
+    /// `dev_commands`).
+    App(&'static str),
+    /// A key of the reference's tool that has nothing to do here, and why.
+    Missing(&'static str),
 }
 
 pub(crate) fn action(key: char) -> Option<Action> {
-    match key {
-        'R' => Some(Action::Restart),
-        'r' => Some(Action::Reload),
-        'q' | 'Q' => Some(Action::Quit),
-        'h' | 'H' | '?' => Some(Action::Help),
-        _ => None,
-    }
+    Some(match key {
+        'R' => Action::Restart,
+        'r' => Action::Reload,
+        'q' | 'Q' => Action::Quit,
+        'h' | 'H' | '?' => Action::Help,
+        'd' => Action::Detach,
+        'c' => Action::Clear,
+        's' => Action::Screenshot,
+        'w' => Action::App("widgets"),
+        'f' => Action::App("focus"),
+        'S' => Action::App("semantics"),
+        'i' => Action::App("inspector"),
+        'p' => Action::App("outlines"),
+        'o' => Action::App("platform"),
+        'b' => Action::App("brightness"),
+        'P' => Action::App("performance"),
+        't' => Action::Missing("frus has a single tree: `w` prints it, every widget with its box"),
+        'L' => Action::Missing("frus has no layer tree: a frame is one scene, painted in order"),
+        'U' => Action::Missing("frus hit-tests one way only: there is no order to invert"),
+        'I' => Action::Missing("frus does not mark oversized images yet"),
+        'a' => Action::Missing("frus records no timeline yet: `P` shows what each frame costs"),
+        'M' => Action::Missing("frus compiles no shaders at run time: there is nothing to write"),
+        'g' => Action::Missing("frus has no code generators to run"),
+        'v' => Action::Missing("frus has no DevTools yet: `i` is its inspector"),
+        _ => return None,
+    })
 }
 
 // No line continuation after the opening quote: it would eat this line's indentation too.
 const KEYS: &str = "  r  reload: build again, start where it was, with the states it keeps
   R  restart: build again, start where it was, every state afresh
-  q  quit
   h  this list
+  d  detach: frus run ends, the application goes on
+  c  clear the screen
+  q  quit
+  s  save a screenshot to frus_01.png (02, 03…)
+  w  print the widget tree, every widget with its box
+  f  print the focus tree, in tab order
+  S  print the semantics tree, in reading order
+  i  inspector: outlines, and a card for the widget under the pointer
+  p  debug paint: outlines around every widget
+  o  switch the platform the widgets behave as (Android, iOS, Windows…)
+  b  switch between light and dark
+  P  performance panel: what each frame costs
 ";
+
+/// Clears the terminal, its scrollback too, and puts the cursor at the top.
+fn clear_screen() {
+    if !report::is_machine() {
+        print!("\x1b[2J\x1b[3J\x1b[H");
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+    }
+}
+
+/// Where the next screenshot goes: the first `frus_NN.png` not taken in `dir`.
+pub(crate) fn screenshot_path(dir: &Path) -> std::path::PathBuf {
+    (1..)
+        .map(|n| dir.join(format!("frus_{n:02}.png")))
+        .find(|path| !path.exists())
+        .unwrap_or_else(|| dir.join("frus.png"))
+}
+
+/// Says where a screenshot went, once it is there: the application writes it on its next frame.
+fn report_screenshot(path: &Path, wait: Duration) {
+    let deadline = Instant::now() + wait;
+    while Instant::now() < deadline {
+        if let Ok(meta) = std::fs::metadata(path) {
+            if meta.len() > 0 {
+                report::say(&format!(
+                    "Screenshot written to {} ({} kB).",
+                    file_name(path),
+                    meta.len().div_ceil(1024)
+                ));
+                return;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    report::warn("the screenshot did not arrive: is the application still drawing?");
+}
 
 pub(crate) fn run(options: &RunOptions) -> Result<ExitCode, String> {
     // For an editor, from the very start: even a run that cannot begin ends with `app.stop`.
@@ -199,6 +280,25 @@ fn run_desktop(project: &Project, options: &RunOptions) -> Result<ExitCode, Stri
                 return Ok(ExitCode::SUCCESS);
             }
             Some(Action::Help) => report::say(KEYS),
+            Some(Action::Detach) => {
+                report::say(&format!("Detached: {} goes on running.", project.package));
+                return Ok(ExitCode::SUCCESS);
+            }
+            Some(Action::Clear) => clear_screen(),
+            Some(Action::Missing(why)) => report::say(why),
+            Some(Action::App(command)) => {
+                if !link.send(&format!("do {command}")) {
+                    report::warn("the application is not connected to frus run");
+                }
+            }
+            Some(Action::Screenshot) => {
+                let path = screenshot_path(&project.root);
+                if link.send(&format!("do screenshot {}", path.display())) {
+                    report_screenshot(&path, Duration::from_secs(10));
+                } else {
+                    report::warn("the application is not connected to frus run");
+                }
+            }
             Some(action @ (Action::Restart | Action::Reload)) => {
                 restarting(action, link.report().location.as_deref());
                 let started = Instant::now();
@@ -210,6 +310,7 @@ fn run_desktop(project: &Project, options: &RunOptions) -> Result<ExitCode, Stri
                         let states = states.filter(|file| link.save_states(file));
                         let _ = child.kill();
                         let _ = child.wait();
+                        link.disconnect();
                         child = start_desktop(
                             project,
                             options,
@@ -336,14 +437,23 @@ fn run_android(
     let link = DevLink::open()?;
     let package = &project.android_package;
 
+    // What was installed last: a build that wrote the same package again — nothing in the code
+    // changed — is not sent over the cable again, which is most of a restart's time.
+    let installed = std::cell::Cell::new(None::<u64>);
     let install = |location: Option<&str>| -> Result<(), String> {
         let apk = cargo::build_apk(project, mode)?;
-        report::say(&format!(
-            "Installing {} on {}…",
-            file_name(&apk),
-            device.name
-        ));
-        cargo::run(adb_on(&["install", "-r"]).arg(&apk).stdout(Stdio::null()))?;
+        let digest = std::fs::read(&apk).ok().map(|bytes| digest(&bytes));
+        if digest.is_some() && digest == installed.get() {
+            report::say("The package has not changed: starting it again.");
+        } else {
+            report::say(&format!(
+                "Installing {} on {}…",
+                file_name(&apk),
+                device.name
+            ));
+            cargo::run(adb_on(&["install", "-r"]).arg(&apk).stdout(Stdio::null()))?;
+            installed.set(digest);
+        }
         let _ = adb_on(&["shell", "am", "force-stop", package]).output();
         let activity = format!("{package}/android.app.NativeActivity");
         let mut start = adb_on(&[
@@ -422,6 +532,45 @@ fn run_android(
                 break ExitCode::SUCCESS;
             }
             Some(Action::Help) => report::say(KEYS),
+            Some(Action::Detach) => {
+                report::say(&format!("Detached: {} goes on running.", project.package));
+                break ExitCode::SUCCESS;
+            }
+            Some(Action::Clear) => clear_screen(),
+            Some(Action::Missing(why)) => report::say(why),
+            // Nothing reaches a running application from outside but its own storage, which a
+            // debuggable package lets `run-as` write.
+            Some(Action::App(command)) => {
+                let write = format!(
+                    "run-as {package} sh -c {}",
+                    shell_quote(&format!(
+                        "echo {} >> files/frus-run-commands",
+                        shell_quote(command)
+                    ))
+                );
+                let done = adb_on(&["shell", &write]).output();
+                let refused = done.as_ref().map_or(true, |out| {
+                    !out.status.success() || !String::from_utf8_lossy(&out.stderr).trim().is_empty()
+                });
+                if refused {
+                    report::warn(
+                        "the application could not be told: only a debug build can be (run \
+                         without --release)",
+                    );
+                }
+            }
+            Some(Action::Screenshot) => {
+                let path = screenshot_path(&project.root);
+                match adb_on(&["exec-out", "screencap", "-p"]).output() {
+                    Ok(out) if out.status.success() && out.stdout.starts_with(b"\x89PNG") => {
+                        match std::fs::write(&path, &out.stdout) {
+                            Ok(()) => report_screenshot(&path, Duration::from_secs(1)),
+                            Err(error) => report::warn(&format!("{}: {error}", path.display())),
+                        }
+                    }
+                    _ => report::warn("the device took no screenshot"),
+                }
+            }
             Some(action @ (Action::Restart | Action::Reload)) => {
                 restarting(action, link.report().location.as_deref());
                 let started = Instant::now();
@@ -610,6 +759,17 @@ fn run_web(
                 break ExitCode::SUCCESS;
             }
             Some(Action::Help) => report::say(KEYS),
+            Some(Action::Detach) => report::say(
+                "The page is served by frus run: it cannot go on without it. `q` ends both.",
+            ),
+            Some(Action::Clear) => clear_screen(),
+            Some(Action::Missing(why)) => report::say(why),
+            // The page asks for them, as it asks which build is served.
+            Some(Action::App(command)) => server.command(command),
+            Some(Action::Screenshot) => report::say(
+                "A page cannot hand its picture over yet: the browser's own tools take one \
+                 (its developer tools, then Capture screenshot).",
+            ),
             Some(action @ (Action::Restart | Action::Reload)) => {
                 restarting(action, None);
                 let started = Instant::now();
@@ -630,6 +790,14 @@ fn run_web(
     };
     let _ = std::fs::remove_dir_all(&profile);
     Ok(end)
+}
+
+/// A digest of a package's bytes, to tell whether a build wrote the same one again.
+fn digest(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn exit_code(code: Option<i32>) -> ExitCode {
@@ -678,6 +846,41 @@ mod tests {
         assert_eq!(action('q'), Some(Action::Quit));
         assert_eq!(action('h'), Some(Action::Help));
         assert_eq!(action('x'), None);
+        assert_eq!(action('d'), Some(Action::Detach));
+        assert_eq!(action('c'), Some(Action::Clear));
+        assert_eq!(action('s'), Some(Action::Screenshot));
+        assert_eq!(action('p'), Some(Action::App("outlines")));
+        assert_eq!(action('P'), Some(Action::App("performance")));
+        assert!(matches!(action('v'), Some(Action::Missing(_))));
+    }
+
+    /// Every key the help lists does something, and every key that does something is listed
+    /// (the reference's keys frus has nothing for say why instead, and are not).
+    #[test]
+    fn the_help_lists_the_keys() {
+        let listed: Vec<char> = KEYS
+            .lines()
+            .filter_map(|line| line.trim_start().chars().next())
+            .collect();
+        for key in &listed {
+            assert!(action(*key).is_some(), "{key} is listed and does nothing");
+        }
+        for key in ('!'..='~').filter(|k| !matches!(k, 'Q' | 'H' | '?')) {
+            match action(key) {
+                None | Some(Action::Missing(_)) => {}
+                Some(_) => assert!(listed.contains(&key), "{key} is not listed"),
+            }
+        }
+    }
+
+    #[test]
+    fn screenshots_take_the_next_free_number() {
+        let dir = std::env::temp_dir().join(format!("frus-shots-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(screenshot_path(&dir), dir.join("frus_01.png"));
+        std::fs::write(dir.join("frus_01.png"), b"x").unwrap();
+        assert_eq!(screenshot_path(&dir), dir.join("frus_02.png"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

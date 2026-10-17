@@ -8,10 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 667 so far, each documenting the objective, the alternatives
+> record — one per step, 668 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The keys of `frus run`** (J668), in the terminal and in VS Code: `w` prints the widget tree,
+  `f` the focus tree, `S` the semantics tree; `i` toggles the inspector, `p` debug paint, `P` a
+  performance panel; `o` switches the platform the widgets behave as, `b` the brightness; `s`
+  saves a screenshot; `d` detaches, `c` clears. The application is told on every platform — a
+  socket on a desktop, a file in its own storage on Android, the page's script on the web — and
+  a key pressed while it starts waits for it. In VS Code, each is a command, Ctrl+Shift+F5
+  restarts, and `frus.reloadOnSave` reloads on a save by hand only by default. A restart on
+  Android no longer installs a package the build wrote again unchanged.
 
 - **`frus create .` in an application** (J667) writes the template's files that are missing,
   and nothing else: a deleted `web/`, icon or workflow comes back. The application's manifest

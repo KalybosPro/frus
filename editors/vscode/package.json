@@ -49,6 +49,56 @@
         "title": "Restart (state afresh)",
         "category": "frus",
         "icon": "$(debug-restart)"
+      },
+      {
+        "command": "frus.toggleDebugPaint",
+        "title": "Toggle Debug Paint",
+        "category": "frus"
+      },
+      {
+        "command": "frus.toggleInspector",
+        "title": "Toggle Inspector",
+        "category": "frus"
+      },
+      {
+        "command": "frus.togglePlatform",
+        "title": "Toggle Platform",
+        "category": "frus"
+      },
+      {
+        "command": "frus.toggleBrightness",
+        "title": "Toggle Brightness",
+        "category": "frus"
+      },
+      {
+        "command": "frus.togglePerformanceOverlay",
+        "title": "Toggle Performance Overlay",
+        "category": "frus"
+      },
+      {
+        "command": "frus.printWidgetTree",
+        "title": "Print Widget Tree",
+        "category": "frus"
+      },
+      {
+        "command": "frus.printFocusTree",
+        "title": "Print Focus Tree",
+        "category": "frus"
+      },
+      {
+        "command": "frus.printSemanticsTree",
+        "title": "Print Semantics Tree",
+        "category": "frus"
+      },
+      {
+        "command": "frus.screenshot",
+        "title": "Save Screenshot",
+        "category": "frus"
+      },
+      {
+        "command": "frus.detach",
+        "title": "Detach (leave the application running)",
+        "category": "frus"
       }
     ],
     "keybindings": [
@@ -56,6 +106,12 @@
         "command": "frus.reload",
         "key": "ctrl+f5",
         "mac": "cmd+f5",
+        "when": "inDebugMode && debugType == 'frus'"
+      },
+      {
+        "command": "frus.restart",
+        "key": "ctrl+shift+f5",
+        "mac": "cmd+shift+f5",
         "when": "inDebugMode && debugType == 'frus'"
       }
     ],
@@ -75,6 +131,46 @@
         {
           "command": "frus.restart",
           "when": "inDebugMode && debugType == 'frus'"
+        },
+        {
+          "command": "frus.toggleDebugPaint",
+          "when": "inDebugMode && debugType == 'frus'"
+        },
+        {
+          "command": "frus.toggleInspector",
+          "when": "inDebugMode && debugType == 'frus'"
+        },
+        {
+          "command": "frus.togglePlatform",
+          "when": "inDebugMode && debugType == 'frus'"
+        },
+        {
+          "command": "frus.toggleBrightness",
+          "when": "inDebugMode && debugType == 'frus'"
+        },
+        {
+          "command": "frus.togglePerformanceOverlay",
+          "when": "inDebugMode && debugType == 'frus'"
+        },
+        {
+          "command": "frus.printWidgetTree",
+          "when": "inDebugMode && debugType == 'frus'"
+        },
+        {
+          "command": "frus.printFocusTree",
+          "when": "inDebugMode && debugType == 'frus'"
+        },
+        {
+          "command": "frus.printSemanticsTree",
+          "when": "inDebugMode && debugType == 'frus'"
+        },
+        {
+          "command": "frus.screenshot",
+          "when": "inDebugMode && debugType == 'frus'"
+        },
+        {
+          "command": "frus.detach",
+          "when": "inDebugMode && debugType == 'frus'"
         }
       ]
     },
@@ -87,9 +183,21 @@
           "description": "The `frus` program to use. Empty: the one on the PATH, installed with `cargo install frus-cli` when there is none."
         },
         "frus.reloadOnSave": {
-          "type": "boolean",
-          "default": true,
-          "description": "Reload the running application when a Rust file is saved, keeping the state of the components that keep one."
+          "type": "string",
+          "enum": [
+            "never",
+            "manual",
+            "manualIfDirty",
+            "all"
+          ],
+          "enumDescriptions": [
+            "Never reload on save.",
+            "Reload when a Rust file is saved by hand (Ctrl+S), not by auto save.",
+            "Reload when a Rust file with changes is saved by hand, not by auto save.",
+            "Reload on every save of a Rust file, auto save included."
+          ],
+          "default": "manual",
+          "description": "When saving a Rust file reloads the running application, keeping the state of the components that keep one."
         }
       }
     },

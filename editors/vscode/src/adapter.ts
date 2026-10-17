@@ -8,6 +8,7 @@
 //   app.progress, stderr  → output in the console category (the build, the tool's messages)
 //   restart (toolbar)     → app.restart with fullRestart: true
 //   `hotReload` (custom)  → app.restart with fullRestart: false
+//   `key` (custom)        → app.key: any other key of the run's, `{ key: "p" }`
 //   disconnect/terminate  → app.stop, then the process is ended if it lingers
 //   app.stop / exit       → terminated
 
@@ -100,6 +101,10 @@ export class FrusDebugAdapter {
         this.restart(true);
         respond();
         break;
+      case "key":
+        this.key(String((message.arguments as { key?: string } | undefined)?.key ?? ""));
+        respond();
+        break;
       case "disconnect":
       case "terminate":
         this.stop();
@@ -172,6 +177,12 @@ export class FrusDebugAdapter {
       method: "app.restart",
       params: { fullRestart: full },
     });
+  }
+
+  /** A key of `frus run`'s: what it does is reported in the log, as in the terminal. */
+  private key(key: string): void {
+    if (!this.run || this.ended || key.length !== 1) return;
+    send(this.run, { id: this.nextCommandId++, method: "app.key", params: { key } });
   }
 
   private stop(): void {
