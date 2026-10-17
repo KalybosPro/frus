@@ -36,8 +36,11 @@ frus create <directory> [options]
       --no-git             do not make the directory a git repository
 ```
 
-The directory is made, or must be empty: `frus create` never writes over a file. The name is
-checked before anything is written. It must work as a package, a crate, a program, a `.wasm`
+The directory is made if it is not there, and `frus create` never writes over a file. In a
+directory with files already, only the template's missing files are written: `frus create .`
+in an application brings back what was deleted (`web/`, the icons, the desktop binary, the
+workflows), keeps its `Cargo.toml` and its code, adds no sample code beside them, and takes
+the application's name from its manifest. The name is checked before anything is written. It must work as a package, a crate, a program, a `.wasm`
 file and part of an Android package, so it is lowercase letters, digits, `_` and `-`, starting
 with a letter, and neither a Rust keyword nor the name of a crate the application builds with.
 

@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 664 so far, each documenting the objective, the alternatives
+> record — one per step, 667 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`frus create .` in an application** (J667) writes the template's files that are missing,
+  and nothing else: a deleted `web/`, icon or workflow comes back. The application's manifest
+  and code are left as they are, no sample code is added beside them, and its name comes from
+  its `Cargo.toml`, not from the directory. A directory with other files in it is filled in
+  the same way, without writing over any of them; before, both were refused as not empty.
 
 - **A VS Code extension** (J666), in `editors/vscode`: a device picker in the status bar fed by
   `frus daemon`, F5 to run on the selected device with the application's log in the Debug

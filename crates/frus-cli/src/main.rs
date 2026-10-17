@@ -97,8 +97,13 @@ frus create — start a new application for desktop, Android and the web
 Usage:
   frus create <directory> [options]
 
-The directory is made, or must be empty. The application's name is the directory's
-own unless --name gives one: lowercase letters, digits, `_` and `-`.
+The directory is made if it is not there. In one that has files already, only the
+template's missing files are written and nothing there is changed: `frus create .`
+in an application brings back what was deleted (web/, icons, the desktop binary),
+keeps its manifest and code, and takes its name from its Cargo.toml.
+
+A new application's name is the directory's own unless --name gives one:
+lowercase letters, digits, `_` and `-`.
 
 Options:
       --name <name>        the package's name (default: the directory's name)
@@ -108,8 +113,9 @@ Options:
       --no-git             do not make the directory a git repository
   -h, --help               print this
 
-Example:
+Examples:
   frus create my_app --org com.acme
+  frus create .                        # in an application: restore missing files
 ";
 
 /// What the command line asked for.
@@ -359,10 +365,20 @@ fn set_once<T>(slot: &mut Option<T>, value: T, what: &str) -> Result<(), String>
 fn report(created: &Created) -> String {
     let project = &created.project;
     let dir = created.dir.display();
+    if created.existing {
+        return report_existing(created);
+    }
     let mut out = format!(
         "Created {} in {dir} ({} files).\n",
-        project.project_name, created.files
+        project.project_name,
+        created.written.len()
     );
+    if created.kept > 0 {
+        out.push_str(&format!(
+            "{} of the template's files were there already and are left as they are.\n",
+            created.kept
+        ));
+    }
     match &created.git {
         Git::Initialised => out.push_str("Initialised a git repository.\n"),
         Git::InsideRepository => {
@@ -384,6 +400,26 @@ fn report(created: &Created) -> String {
          The Android package is {}: settle it before the first release.\n",
         project.android_package()
     ));
+    out
+}
+
+/// What `frus create` prints in an application that was there: what came back.
+fn report_existing(created: &Created) -> String {
+    let name = &created.project.project_name;
+    if created.written.is_empty() {
+        return format!(
+            "{name} has every file the template gives an application: nothing to recreate.\n"
+        );
+    }
+    let mut out = format!(
+        "Recreated {} missing file{} in {name}:\n",
+        created.written.len(),
+        if created.written.len() == 1 { "" } else { "s" }
+    );
+    for path in &created.written {
+        out.push_str(&format!("  {path}\n"));
+    }
+    out.push_str("Nothing that was there has been changed.\n");
     out
 }
 
@@ -529,7 +565,9 @@ mod tests {
         let created = Created {
             project: create::Project::new("my_app", "com.acme").unwrap(),
             dir: PathBuf::from("my apps/my_app"),
-            files: 14,
+            written: vec!["Cargo.toml".to_string(); 14],
+            kept: 0,
+            existing: false,
             git: Git::Initialised,
         };
         let out = report(&created);
@@ -552,6 +590,23 @@ mod tests {
         let out = report(&here);
         assert!(!out.contains("cd "), "{out}");
         assert!(!out.contains("git"), "{out}");
+
+        let restored = Created {
+            written: vec!["web/index.html".to_string()],
+            kept: 13,
+            existing: true,
+            ..here.clone()
+        };
+        assert_eq!(
+            report(&restored),
+            "Recreated 1 missing file in my_app:\n  web/index.html\n\
+             Nothing that was there has been changed.\n"
+        );
+        let whole = Created {
+            written: Vec::new(),
+            ..restored
+        };
+        assert!(report(&whole).contains("nothing to recreate"));
     }
 
     // --- The template and the crate stay in step ---

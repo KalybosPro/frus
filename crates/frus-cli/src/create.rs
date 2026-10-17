@@ -2,8 +2,13 @@
 //!
 //! The work is split in three so that each part can be tested without the others: the names
 //! are checked ([`Project::new`]), the files are rendered in memory ([`render`]), and only then
-//! is anything written ([`create`]). A name that would not build, or a directory that is not
-//! empty, stops the command before the disk is touched.
+//! is anything written ([`create`]). A name that would not build stops the command before the
+//! disk is touched.
+//!
+//! In a directory that has files already — `frus create .` in an application — only the
+//! template's files that are **missing** are written: a deleted `web/` or icon comes back, and
+//! nothing that is there is overwritten. An application's code is its own: the template's
+//! sample code is not added beside it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,7 +22,7 @@ pub const DEFAULT_ORG: &str = "com.example";
 /// What `frus create` was asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {
-    /// Where the application goes: a directory that does not exist yet, or an empty one.
+    /// Where the application goes: a new directory, or one whose missing files are filled in.
     pub dir: PathBuf,
     /// The package's name; the directory's own name when `None`.
     pub name: Option<String>,
@@ -371,23 +376,70 @@ pub enum Git {
 pub struct Created {
     pub project: Project,
     pub dir: PathBuf,
-    pub files: usize,
+    /// The files written, `/`-separated, in the template's order.
+    pub written: Vec<String>,
+    /// How many of the template's files were there already and were left as they are.
+    pub kept: usize,
+    /// Whether the directory held an application already (a `Cargo.toml` with a `[package]`).
+    pub existing: bool,
     pub git: Git,
 }
 
-/// Creates the application: checks the names, renders the files, then writes them.
+/// The template's sample application: the code a new application starts with. An application
+/// that exists has its own, and these are not added beside it — a `tests/counter_test.rs`
+/// next to code that has no counter would not even build.
+const SAMPLE_CODE: &[&str] = &["src/lib.rs", "src/counter.rs", "tests/counter_test.rs"];
+
+/// Creates the application: checks the names, renders the files, then writes the ones that
+/// are missing.
 pub fn create(options: &Options) -> Result<Created, String> {
-    let name = match &options.name {
-        Some(name) => name.clone(),
-        None => name_of(&options.dir)?,
+    let existing = existing_application(&options.dir)?;
+    let project = match &existing {
+        // The application says what it is called, and that is what its files are written
+        // with: the directory's name may be anything.
+        Some(app) => {
+            if let Some(name) = options.name.as_ref().filter(|name| **name != app.package) {
+                return Err(format!(
+                    "{} holds the application {}: --name {name} does not match it",
+                    options.dir.display(),
+                    app.package
+                ));
+            }
+            let crate_name = app.lib.clone();
+            // The organisation the manifest's Android package already has, when it reads as
+            // one; the one asked for otherwise.
+            let suffix = format!(".{crate_name}");
+            let org = app
+                .android_package
+                .strip_suffix(&suffix)
+                .filter(|org| check_org(org, &crate_name).is_ok())
+                .unwrap_or(&options.org)
+                .to_string();
+            check_org(&org, &crate_name)?;
+            Project {
+                project_name: app.package.clone(),
+                crate_name,
+                org,
+            }
+        }
+        None => {
+            let name = match &options.name {
+                Some(name) => name.clone(),
+                None => name_of(&options.dir)?,
+            };
+            Project::new(&name, &options.org)?
+        }
     };
-    let project = Project::new(&name, &options.org)?;
 
     let frus_path = match &options.frus_path {
         Some(path) => Some(check_checkout(path)?),
         None => None,
     };
-    let files = render(&project, frus_path.as_deref())?;
+    let rendered = render(&project, frus_path.as_deref())?;
+    let wanted = wanted_files(&options.dir, rendered, existing.is_some());
+    let (present, files): (Vec<_>, Vec<_>) = wanted
+        .into_iter()
+        .partition(|file| options.dir.join(&file.path).exists());
 
     let made_dir = prepare_dir(&options.dir)?;
     if let Err(error) = write_files(&options.dir, &files) {
@@ -399,7 +451,8 @@ pub fn create(options: &Options) -> Result<Created, String> {
         return Err(error);
     }
 
-    let git = if options.git {
+    // An application that exists keeps its version control as it is, or as it is not.
+    let git = if options.git && existing.is_none() {
         git_init(&options.dir)
     } else {
         Git::Skipped
@@ -407,9 +460,48 @@ pub fn create(options: &Options) -> Result<Created, String> {
     Ok(Created {
         project,
         dir: options.dir.clone(),
-        files: files.len(),
+        written: files.into_iter().map(|file| file.path).collect(),
+        kept: present.len(),
+        existing: existing.is_some(),
         git,
     })
+}
+
+/// The application already in `dir`, if there is one: a `Cargo.toml` with a `[package]`.
+fn existing_application(dir: &Path) -> Result<Option<crate::project::Project>, String> {
+    let manifest = dir.join("Cargo.toml");
+    if !manifest.is_file() {
+        return Ok(None);
+    }
+    let text = fs::read_to_string(&manifest)
+        .map_err(|error| format!("cannot read {}: {error}", manifest.display()))?;
+    crate::project::Project::from_manifest(dir, &text)
+        .map(Some)
+        .ok_or_else(|| {
+            format!(
+                "{} has no [package]: it is a workspace, not an application. Run frus create in \
+                 a new directory, or in one of its applications",
+                manifest.display()
+            )
+        })
+}
+
+/// The template's files that belong in `dir`: every one in a new application; in one that
+/// exists, not its manifest nor the sample code, and no desktop binary when it has its own.
+fn wanted_files(dir: &Path, files: Vec<RenderedFile>, existing: bool) -> Vec<RenderedFile> {
+    // Sample code goes in only where there is no code: beside someone's `src/lib.rs`, a
+    // `counter.rs` would be a stray and its test would not build.
+    let has_code = existing || dir.join("src").join("lib.rs").exists();
+    // A second binary of the same name is a build error; of another name, a second program.
+    let src = dir.join("src");
+    let has_binary = src.join("main.rs").exists()
+        || fs::read_dir(src.join("bin")).is_ok_and(|mut entries| entries.next().is_some());
+    files
+        .into_iter()
+        .filter(|file| !(existing && file.path == "Cargo.toml"))
+        .filter(|file| !(has_code && SAMPLE_CODE.contains(&file.path.as_str())))
+        .filter(|file| !(has_binary && file.path.starts_with("src/bin/")))
+        .collect()
 }
 
 /// The name a directory gives an application: its last component, `.` included.
@@ -457,19 +549,12 @@ fn check_checkout(path: &Path) -> Result<PathBuf, String> {
     Ok(root)
 }
 
-/// Makes the directory, or checks that the one there is empty. True when it was made here.
+/// Makes the directory, or checks that the one there is a directory. True when it was made
+/// here.
 fn prepare_dir(dir: &Path) -> Result<bool, String> {
     if dir.exists() {
         if !dir.is_dir() {
             return Err(format!("{} exists and is not a directory", dir.display()));
-        }
-        let mut entries =
-            fs::read_dir(dir).map_err(|error| format!("cannot read {}: {error}", dir.display()))?;
-        if entries.next().is_some() {
-            return Err(format!(
-                "{} is not empty: frus create writes only into a new or empty directory",
-                dir.display()
-            ));
         }
         Ok(false)
     } else {
@@ -753,7 +838,9 @@ mod tests {
         let created = create(&options(dir.clone())).unwrap();
         assert_eq!(created.project.crate_name, "hello_app");
         assert_eq!(created.git, Git::Skipped);
-        assert_eq!(created.files, FILES.len() - 1);
+        assert_eq!(created.written.len(), FILES.len() - 1);
+        assert_eq!(created.kept, 0);
+        assert!(!created.existing);
         let manifest = fs::read_to_string(dir.join("Cargo.toml")).unwrap();
         assert!(manifest.contains("package = \"com.example.hello_app\""));
         assert!(dir.join("src/bin/hello_app.rs").is_file());
@@ -773,18 +860,126 @@ mod tests {
     }
 
     #[test]
-    fn create_refuses_a_directory_with_something_in_it() {
+    fn create_writes_around_what_a_directory_holds() {
         let temp = TempDir::new("full");
         fs::write(temp.0.join("notes.txt"), "mine").unwrap();
+        fs::write(temp.0.join("README.md"), "my readme").unwrap();
         let mut opts = options(temp.0.clone());
         opts.name = Some("app".into());
-        assert!(create(&opts).unwrap_err().contains("not empty"));
-        // Nothing was touched.
-        assert_eq!(fs::read_dir(&temp.0).unwrap().count(), 1);
+        let created = create(&opts).unwrap();
+        assert!(!created.existing);
+        assert_eq!(created.kept, 1, "the README was there");
+        assert!(!created.written.contains(&"README.md".to_string()));
+        // Nothing that was there is touched; the rest of the application is written.
         assert_eq!(
             fs::read_to_string(temp.0.join("notes.txt")).unwrap(),
             "mine"
         );
+        assert_eq!(
+            fs::read_to_string(temp.0.join("README.md")).unwrap(),
+            "my readme"
+        );
+        assert!(temp.0.join("Cargo.toml").is_file());
+        assert!(temp.0.join("src/counter.rs").is_file());
+    }
+
+    /// `frus create .` in an application brings back what was deleted, and nothing else:
+    /// its manifest, its code and its binary stay as they are, and no sample code is added.
+    #[test]
+    fn create_in_an_application_restores_only_what_is_missing() {
+        let temp = TempDir::new("restore");
+        let first = create(&options(temp.0.join("shop"))).unwrap();
+        let dir = first.dir;
+        let manifest = fs::read_to_string(dir.join("Cargo.toml"))
+            .unwrap()
+            .replace("com.example.shop", "com.acme.shop");
+        fs::write(dir.join("Cargo.toml"), &manifest).unwrap();
+        fs::write(dir.join("src/lib.rs"), "// mine").unwrap();
+        fs::remove_file(dir.join("src/counter.rs")).unwrap();
+        fs::remove_file(dir.join("tests/counter_test.rs")).unwrap();
+        fs::remove_dir_all(dir.join("web")).unwrap();
+        fs::remove_file(dir.join("res/mipmap-hdpi/ic_launcher.png")).unwrap();
+
+        // Under another directory name, and with the default organisation asked for.
+        let moved = temp.0.join("elsewhere");
+        fs::rename(&dir, &moved).unwrap();
+        let mut opts = options(moved.clone());
+        opts.git = true;
+        let again = create(&opts).unwrap();
+        assert!(again.existing);
+        assert_eq!(again.project.project_name, "shop");
+        assert_eq!(again.project.org, "com.acme", "the manifest's organisation");
+        assert_eq!(
+            again.git,
+            Git::Skipped,
+            "an application keeps its git as it is"
+        );
+        assert_eq!(
+            again.written,
+            ["res/mipmap-hdpi/ic_launcher.png", "web/index.html"]
+        );
+        assert!(fs::read_to_string(moved.join("web/index.html"))
+            .unwrap()
+            .contains("./pkg/shop.js"));
+        assert_eq!(
+            fs::read_to_string(moved.join("Cargo.toml")).unwrap(),
+            manifest
+        );
+        assert_eq!(
+            fs::read_to_string(moved.join("src/lib.rs")).unwrap(),
+            "// mine"
+        );
+        assert!(!moved.join("src/counter.rs").exists());
+        assert!(!moved.join("tests/counter_test.rs").exists());
+
+        // Run again: nothing is missing.
+        let third = create(&options(moved.clone())).unwrap();
+        assert!(third.written.is_empty());
+        assert_eq!(third.kept, again.kept + again.written.len());
+    }
+
+    #[test]
+    fn create_in_an_application_keeps_its_names() {
+        let temp = TempDir::new("names");
+        let dir = temp.0.join("app");
+        fs::create_dir_all(dir.join("src/bin")).unwrap();
+        fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"my-app\"\n\n[lib]\nname = \"core_of_app\"\n",
+        )
+        .unwrap();
+        fs::write(dir.join("src/bin/tool.rs"), "fn main() {}").unwrap();
+        let created = create(&options(dir.clone())).unwrap();
+        assert_eq!(created.project.crate_name, "core_of_app");
+        // No package in the manifest: cargo-apk's own `rust.<lib>` is the one Android gets,
+        // and that is what the README written now says.
+        assert_eq!(created.project.org, "rust");
+        assert!(fs::read_to_string(dir.join("web/index.html"))
+            .unwrap()
+            .contains("./pkg/core_of_app.js"));
+        // It has a binary: none is added beside it.
+        assert!(created
+            .written
+            .iter()
+            .all(|path| !path.starts_with("src/bin/")));
+
+        let mut opts = options(dir.clone());
+        opts.name = Some("other".into());
+        assert!(create(&opts).unwrap_err().contains("does not match"));
+    }
+
+    #[test]
+    fn create_refuses_a_workspace() {
+        let temp = TempDir::new("workspace");
+        fs::write(
+            temp.0.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"a\"]\n",
+        )
+        .unwrap();
+        let mut opts = options(temp.0.clone());
+        opts.name = Some("app".into());
+        assert!(create(&opts).unwrap_err().contains("workspace"));
+        assert_eq!(fs::read_dir(&temp.0).unwrap().count(), 1);
     }
 
     #[test]
