@@ -2824,7 +2824,13 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         log::info!(target: "frus::inspector", "focus, in tab order:
 {}", dump_focus(&nodes, &focusable, self.runtime.input.focused));
                     }
-                    let mut scene = ui.scene().clone();
+                    let mut scene = if self.inspector {
+                        // The card goes over the application's text, which a scene draws after
+                        // its shapes: the application's frame as one layer, under it.
+                        on_top_of(ui.scene())
+                    } else {
+                        ui.scene().clone()
+                    };
                     if self.inspector || self.debug.outlines {
                         frus_widgets::paint_inspector_overlay(
                             &nodes,
@@ -2881,9 +2887,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 {}", dump_semantics(ui.semantics()));
                 }
                 let scene = if self.debug.performance {
-                    let mut scene = scene;
+                    // The application's frame as one layer, the panel over it: in a scene of
+                    // its own, the application's text would be drawn over the panel's
+                    // rectangle — the renderer draws a scene's shapes, then its text.
+                    let mut scene = on_top_of(&scene);
                     let costs = self.debug.last_costs.as_ref().map(|(costs, _)| costs);
-                    paint_performance(&mut scene, costs, self.debug.fps, width * scale, scale);
+                    // Below the status bar, where the system draws its own.
+                    let top = self.last_insets.padding.top * scale;
+                    paint_performance(&mut scene, costs, self.debug.fps, width * scale, top, scale);
                     scene
                 } else {
                     scene
@@ -3222,13 +3233,27 @@ fn paint_performance(
     costs: Option<&crate::frame_stats::FrameCosts>,
     fps: f32,
     width: f32,
+    top: f32,
     scale: f32,
 ) {
     let lines = match costs {
         Some(costs) => performance_lines(costs, fps),
         None => vec!["measuring…".to_string()],
     };
-    paint_panel(scene, lines, width, scale);
+    paint_panel(scene, lines, width, top, scale);
+}
+
+/// A scene holding `scene` as one layer, for something to be painted over all of it: within a
+/// scene, the renderer draws the shapes first and the text after, so a panel's rectangle in the
+/// same scene would sit under the application's text.
+fn on_top_of(scene: &Scene) -> Scene {
+    let mut over = Scene::new();
+    over.layer(1.0, |inner| {
+        for primitive in scene.primitives() {
+            inner.push_primitive(primitive.clone());
+        }
+    });
+    over
 }
 
 /// The panel's lines for a frame that cost `costs`.
@@ -3237,7 +3262,12 @@ fn performance_lines(costs: &crate::frame_stats::FrameCosts, fps: f32) -> Vec<St
         .build
         .map_or_else(|| "kept".to_string(), |ms| format!("{ms:.1} ms"));
     let mut lines = vec![
-        format!("{fps:.0} fps"),
+        // One frame alone has no rate: the interface is idle.
+        if fps > 0.0 {
+            format!("{fps:.0} fps")
+        } else {
+            "idle".to_string()
+        },
         format!("build {build}  layout+paint {:.1} ms", costs.layout_paint),
         format!(
             "render {:.1} ms (acquire {:.1}, draw {:.1})",
@@ -3250,8 +3280,15 @@ fn performance_lines(costs: &crate::frame_stats::FrameCosts, fps: f32) -> Vec<St
     lines
 }
 
-/// `lines` in a dark panel in the top right corner of a frame `width` physical pixels wide.
-fn paint_panel(scene: &mut frus_widgets::Scene, lines: Vec<String>, width: f32, scale: f32) {
+/// `lines` in a dark panel in the top right corner of a frame `width` physical pixels wide,
+/// `top` pixels down.
+fn paint_panel(
+    scene: &mut frus_widgets::Scene,
+    lines: Vec<String>,
+    width: f32,
+    top: f32,
+    scale: f32,
+) {
     let size = 12.0 * scale;
     let style = frus_widgets::TextStyle::new(size).resolved();
     let pad = 6.0 * scale;
@@ -3266,15 +3303,16 @@ fn paint_panel(scene: &mut frus_widgets::Scene, lines: Vec<String>, width: f32, 
     let text_w = longest as f32 * size * 0.6;
     let panel = Rect::new(
         (width - text_w - pad * 3.0).max(0.0),
-        pad,
+        top + pad,
         text_w + pad * 2.0,
         line_h * lines.len() as f32 + pad * 2.0,
     );
     scene.set_clip(Rect::UNBOUNDED);
     scene.set_owner(0);
+    // Opaque: a translucent one blends in linear light and paints as a grey.
     scene.draw_rect(
         panel,
-        frus_widgets::Color::rgba(0.0, 0.0, 0.0, 0.72),
+        frus_widgets::Color::rgb(0.05, 0.05, 0.05),
         4.0 * scale,
         0.0,
         frus_widgets::Color::TRANSPARENT,
@@ -3361,6 +3399,8 @@ impl<A: Application> App<A> {
                     self.debug.performance = !self.debug.performance;
                     self.debug.last_costs = None;
                     self.frame_stats.set_enabled(self.debug.performance);
+                    // This frame began unmeasured: the next one is, and shows its figures.
+                    self.request_redraw();
                     log::info!(target: "frus::dev", "performance panel {}", on_off(self.debug.performance));
                 }
                 "screenshot" if !argument.is_empty() => {

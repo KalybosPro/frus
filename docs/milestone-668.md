@@ -62,11 +62,17 @@ commands, a save by hand reloads, and Ctrl+Shift+F5 restarts.
   `d` the application was still running.
 - Web, in headless Edge: `p`, `b`, `P` and `f`, with the page's screenshot showing outlines, the
   dark theme and the panel.
+- Android, on the test phone (Huawei STK-L21): `p`, `o`, `b`, `P`, `w` through `run-as`, each
+  answered in the terminal; `s` saved the device's screen; `R` and `r` without a change said "The
+  package has not changed" and took 5.2 s and 7.3 s, against about 15 s before.
+- The phone showed what the desktop had hidden: the panel under the status bar (it is placed
+  below the top inset now), and the application's text and icons over the panel and the
+  inspector's card — a scene draws its shapes first and its text after, so both are painted over
+  the application's frame taken as one layer.
 - VS Code 1.142, isolated: **frus: Toggle Debug Paint** from the command palette, right after a
   reload, and the application's "debug paint on" in the Debug Console.
 
 ## Left
 
-- **Android was not run on the phone**: it was disconnected before the keys could be tried there.
 - A screenshot on the web.
 - The performance panel is text, not the reference's graphs.
