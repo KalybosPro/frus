@@ -7,14 +7,14 @@ use crate::common::shared::format_price;
 use crate::models::cart_item::CartItem;
 
 /// The lines of an order and its totals. Used by the checkout and by the confirmation.
-pub(crate) struct OrderSummary {
+pub struct OrderSummary {
     items: Vec<CartItem>,
     shipping_cents: u32,
     total_cents: u32,
 }
 
 impl OrderSummary {
-    pub(crate) fn new(items: Vec<CartItem>, shipping_cents: u32, total_cents: u32) -> Self {
+    pub fn new(items: Vec<CartItem>, shipping_cents: u32, total_cents: u32) -> Self {
         Self {
             items,
             shipping_cents,

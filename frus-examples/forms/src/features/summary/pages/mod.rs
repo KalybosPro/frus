@@ -1,1 +1,1 @@
-pub(crate) mod summarypage;
+pub mod summarypage;

@@ -7,7 +7,7 @@ use crate::common::shared::{section, sections};
 
 const UNITS: [&str; 5] = ["mm", "cm", "m", "km", "in"];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let hours = cx.use_state(|| 7usize);
         let minutes = cx.use_state(|| 30usize);

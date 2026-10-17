@@ -13,7 +13,7 @@ use crate::models::profile::Date;
 /// birthday twenty years back — so the year has its own arrows, which move the same
 /// calendar twelve months at a time. Days after `latest` (today) are greyed out and cannot
 /// be picked.
-pub(crate) struct BirthDateCalendar {
+pub struct BirthDateCalendar {
     /// The month on screen.
     year: i32,
     month: u32,
@@ -25,7 +25,7 @@ pub(crate) struct BirthDateCalendar {
 }
 
 impl BirthDateCalendar {
-    pub(crate) fn new(
+    pub fn new(
         (year, month): (i32, u32),
         selected: Option<Date>,
         latest: Option<Date>,

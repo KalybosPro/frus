@@ -6,7 +6,7 @@ use frus::{Alert, Align, Color, Column, TextStyle, Widget};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // The kind sets the accent colour and the icon.
         Box::new(section(

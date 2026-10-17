@@ -1,1 +1,1 @@
-pub(crate) mod message;
+pub mod message;

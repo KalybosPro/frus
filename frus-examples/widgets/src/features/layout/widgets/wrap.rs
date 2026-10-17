@@ -18,7 +18,7 @@ const TAGS: [&str; 10] = [
     "animation",
 ];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // Tags, filters, chips: as many per line as fit, the rest on the next line.
         // `gap` spaces them along a line, `run_gap` spaces the lines. Narrow the window

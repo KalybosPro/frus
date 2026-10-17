@@ -4,11 +4,11 @@
 use frus::Color;
 
 /// Prices stand out from the text around them.
-pub(crate) fn price() -> Color {
+pub fn price() -> Color {
     Color::hex("#15803D")
 }
 
 /// The stars of a rating.
-pub(crate) fn rating() -> Color {
+pub fn rating() -> Color {
     Color::hex("#F59E0B")
 }

@@ -8,7 +8,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // A floor: the box is at least 120 px wide however short its label, the way
         // buttons keep a minimum width. The tint shows the box.

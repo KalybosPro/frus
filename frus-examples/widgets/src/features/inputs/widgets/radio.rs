@@ -5,7 +5,7 @@ use frus::{Color, Radio, RadioGroup, Row, State, StateContext, StatefulWidget, T
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(RadioDemo.into_widget())
 }
 

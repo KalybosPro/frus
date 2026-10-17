@@ -1,5 +1,5 @@
-pub(crate) mod catalog;
-pub(crate) mod colors;
-pub(crate) mod routers;
-pub(crate) mod routes;
-pub(crate) mod shared;
+pub mod catalog;
+pub mod colors;
+pub mod routers;
+pub mod routes;
+pub mod shared;

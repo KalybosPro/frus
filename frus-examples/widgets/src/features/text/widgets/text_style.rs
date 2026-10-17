@@ -16,7 +16,7 @@ const LABEL: TextStyle = TextStyle::new(12.0)
     .letter_spacing(1.2)
     .color(Color::rgb(0.39, 0.40, 0.95));
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // `Text::styled` takes a whole style at once.
         Box::new(section(

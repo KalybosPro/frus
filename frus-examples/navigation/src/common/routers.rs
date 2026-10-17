@@ -23,7 +23,7 @@ use crate::models::product::Product;
 /// A route's builder is told the `GoRouterState` — what the location said — and hands the
 /// page what it needs: the path parameters, the query, the object that travelled with the
 /// navigation, and the shared cart.
-pub(crate) fn router(cart: Cart) -> GoRouter {
+pub fn router(cart: Cart) -> GoRouter {
     // Each builder owns its own handle to the cart: they are `Fn` closures, called every
     // time their page is built.
     let (home, search, product, size, cart_page, checkout, guard) = (
@@ -100,7 +100,7 @@ pub(crate) fn router(cart: Cart) -> GoRouter {
 /// On the desktop a location given on the command line opens the app there —
 /// `cargo run -- /products/3`, `cargo run -- "/search?q=shoes"` — which is handy while
 /// working on one page. On the web the address bar does this on its own.
-fn start_location() -> String {
+pub fn start_location() -> String {
     std::env::args()
         .nth(1)
         .filter(|location| location.starts_with('/'))
@@ -108,38 +108,11 @@ fn start_location() -> String {
 }
 
 /// The checkout guard, as a **plain function**: what it decides depends only on its
-/// arguments, so it is tested below without a router or a window.
+/// arguments, so it is tested in `tests/routers_test.rs` without a router or a window.
 ///
 /// `None` lets the navigation through; `Some(location)` sends it there instead.
-pub(crate) fn guard_redirect(cart_is_empty: bool, location: &str) -> Option<String> {
+pub fn guard_redirect(cart_is_empty: bool, location: &str) -> Option<String> {
     // The location includes the query (`/checkout?from=drawer`): compare the path only.
     let path = location.split(['?', '#']).next().unwrap_or(location);
     (cart_is_empty && path == CHECKOUT).then(|| CART.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_empty_cart_cannot_reach_the_checkout() {
-        assert_eq!(guard_redirect(true, CHECKOUT), Some(CART.to_string()));
-        assert_eq!(
-            guard_redirect(true, "/checkout?from=drawer"),
-            Some(CART.to_string()),
-            "the query does not get it past the guard"
-        );
-    }
-
-    #[test]
-    fn a_full_cart_goes_through() {
-        assert_eq!(guard_redirect(false, CHECKOUT), None);
-    }
-
-    #[test]
-    fn the_guard_leaves_every_other_page_alone() {
-        for location in [HOME, SEARCH, CART, "/products/3", "/nowhere", "/checkouts"] {
-            assert_eq!(guard_redirect(true, location), None, "{location}");
-        }
-    }
 }

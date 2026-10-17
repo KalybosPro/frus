@@ -15,7 +15,7 @@ use crate::common::shared::{section, sections};
 const STAGE_HEIGHT: f32 = 180.0;
 const PANEL_HEIGHT: f32 = 110.0;
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // A bottom panel: pinned left, right and bottom at a fixed height; its bottom pin
         // is what moves, from below the stage's edge to just inside it.

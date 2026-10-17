@@ -12,7 +12,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         let enabled = cx.use_state(|| false);
         let checked = cx.use_state(|| true);

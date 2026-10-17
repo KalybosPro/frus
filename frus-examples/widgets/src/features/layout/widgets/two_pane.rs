@@ -19,7 +19,7 @@ const MAILS: [(&str, &str); 4] = [
     ("Barbara", "Slides for Thursday's talk."),
 ];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // Switch the size class: `Expanded` shows both panes, anything smaller shows the
         // list, or the detail once an item is opened (`show_detail`), with a way back.

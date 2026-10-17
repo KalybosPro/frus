@@ -14,7 +14,7 @@ use crate::common::shared::{section, sections};
 
 const LIMITS: [usize; 3] = [100_000, 1_000_000, 3_000_000];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         let limit = cx.use_state(|| LIMITS[0]);
         let n = limit.get();

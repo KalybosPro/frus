@@ -13,7 +13,7 @@ use crate::models::profile::Profile;
 /// - `cargo run -- "/?errors"` — the form as it looks after a failed submit, to style the
 ///   error state without clicking through it each time;
 /// - `cargo run -- /summary` — the summary page, with sample data.
-pub(crate) fn router() -> GoRouter {
+pub fn router() -> GoRouter {
     let start = std::env::args()
         .nth(1)
         .filter(|location| location.starts_with('/'))

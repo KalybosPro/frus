@@ -5,7 +5,7 @@ use frus::{Align, Axis, Column, Container, Kanban, SingleChildScrollView, Text, 
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let board = cx.use_state(|| {
             vec![
@@ -70,7 +70,7 @@ pub(crate) fn example() -> Box<dyn Widget> {
 }
 
 /// Takes the card at `from` and inserts it at `to` (positions within columns).
-fn move_card(columns: &mut [(String, Vec<String>)], from: (usize, usize), to: (usize, usize)) {
+pub fn move_card(columns: &mut [(String, Vec<String>)], from: (usize, usize), to: (usize, usize)) {
     let Some(card) = columns
         .get_mut(from.0)
         .filter(|(_, cards)| from.1 < cards.len())
@@ -86,32 +86,5 @@ fn move_card(columns: &mut [(String, Vec<String>)], from: (usize, usize), to: (u
             to.1
         };
         cards.insert(at.min(cards.len()), card);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::move_card;
-
-    fn board() -> Vec<(String, Vec<String>)> {
-        vec![
-            ("A".into(), vec!["1".into(), "2".into()]),
-            ("B".into(), vec!["3".into()]),
-        ]
-    }
-
-    #[test]
-    fn moves_a_card_to_another_column() {
-        let mut columns = board();
-        move_card(&mut columns, (0, 0), (1, 1));
-        assert_eq!(columns[0].1, ["2"]);
-        assert_eq!(columns[1].1, ["3", "1"]);
-    }
-
-    #[test]
-    fn a_bad_source_changes_nothing() {
-        let mut columns = board();
-        move_card(&mut columns, (0, 9), (1, 0));
-        assert_eq!(columns, board());
     }
 }

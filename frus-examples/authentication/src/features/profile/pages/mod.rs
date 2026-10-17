@@ -1,1 +1,1 @@
-pub(crate) mod profilepage;
+pub mod profilepage;

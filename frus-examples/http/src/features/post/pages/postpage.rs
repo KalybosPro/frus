@@ -14,12 +14,12 @@ use crate::features::posts::widgets::post_tile::capitalize;
 ///
 /// The configuration is the id read from the address — `None` when the address held
 /// something that is not a number.
-pub(crate) struct PostPage {
+pub struct PostPage {
     id: Option<u32>,
 }
 
 impl PostPage {
-    pub(crate) fn new(id: Option<u32>) -> Self {
+    pub fn new(id: Option<u32>) -> Self {
         Self { id }
     }
 }

@@ -12,13 +12,13 @@ use crate::models::comment::Comment;
 /// A `StatelessWidget` configured with the request's state: the page owns the request,
 /// this only draws it. The section has its own loading and error lines, so a post whose
 /// comments fail still shows the post.
-pub(crate) struct CommentsSection {
+pub struct CommentsSection {
     comments: Loaded<Vec<Comment>>,
     on_retry: Callback,
 }
 
 impl CommentsSection {
-    pub(crate) fn new(comments: Loaded<Vec<Comment>>, on_retry: Callback) -> Self {
+    pub fn new(comments: Loaded<Vec<Comment>>, on_retry: Callback) -> Self {
         Self { comments, on_retry }
     }
 }
@@ -67,12 +67,12 @@ fn error_line(error: &ApiError) -> String {
 }
 
 /// One comment: who wrote it, then what they wrote.
-pub(crate) struct CommentView {
+pub struct CommentView {
     comment: Comment,
 }
 
 impl CommentView {
-    pub(crate) fn new(comment: Comment) -> Self {
+    pub fn new(comment: Comment) -> Self {
         Self { comment }
     }
 }

@@ -2,19 +2,19 @@
 
 use crate::models::demo::Demo;
 
-mod backdrop_filter;
-mod clip;
-mod color_filtered;
-mod custom_paint;
-mod decorated_box;
-mod elevation;
-mod gradients;
-mod image_filtered;
-mod opacity;
-mod shader_mask;
-mod transform;
+pub mod backdrop_filter;
+pub mod clip;
+pub mod color_filtered;
+pub mod custom_paint;
+pub mod decorated_box;
+pub mod elevation;
+pub mod gradients;
+pub mod image_filtered;
+pub mod opacity;
+pub mod shader_mask;
+pub mod transform;
 
-pub(crate) fn demos() -> Vec<Demo> {
+pub fn demos() -> Vec<Demo> {
     vec![
         Demo::new(
             "decorated-box",

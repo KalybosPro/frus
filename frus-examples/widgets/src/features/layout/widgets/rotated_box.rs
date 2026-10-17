@@ -8,7 +8,7 @@ use frus::{Align, Color, Container, Insets, MainAxisSize, Padding, RotatedBox, R
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // 0 to 3 quarter turns, clockwise. The odd ones are taller than wide.
         Box::new(section(

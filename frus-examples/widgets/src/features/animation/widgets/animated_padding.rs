@@ -10,7 +10,7 @@ use crate::common::shared::{section, sections};
 
 const FOLDERS: [&str; 4] = ["Inbox", "Starred", "Sent", "Drafts"];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // Tap a row: the chosen one is indented further, and the change is animated.
         Box::new(section("Tap a folder", folders())),

@@ -9,7 +9,7 @@ use frus::{component, Align, Button, Column, Component, Row, Slider, Text, Varia
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         Box::new(section(
             "use_state: a value that rebuilds when set",
@@ -23,7 +23,7 @@ pub(crate) fn example() -> Box<dyn Widget> {
     ])
 }
 
-fn counter() -> Component {
+pub fn counter() -> Component {
     component(|cx| {
         // Made by the closure the first time, then kept for as long as the component is
         // on screen. `set` and `update` ask for a rebuild.
@@ -44,7 +44,7 @@ fn counter() -> Component {
     })
 }
 
-fn builds() -> Component {
+pub fn builds() -> Component {
     component(|cx| {
         // A `use_ref` changes without rebuilding: right for bookkeeping the screen does not
         // show directly — a timer handle, a previous value, a counter of builds.
@@ -83,7 +83,7 @@ fn builds() -> Component {
     })
 }
 
-fn primes() -> Component {
+pub fn primes() -> Component {
     component(|cx| {
         let limit = cx.use_state(|| 10_000.0_f32);
         let unrelated = cx.use_state(|| 0_u32);
@@ -135,7 +135,7 @@ fn primes() -> Component {
 }
 
 /// How many primes are below `n` — a sieve, cheap but not free.
-fn count_primes(n: usize) -> usize {
+pub fn count_primes(n: usize) -> usize {
     if n < 3 {
         return 0;
     }
@@ -152,17 +152,4 @@ fn count_primes(n: usize) -> usize {
         }
     }
     count
-}
-
-#[cfg(test)]
-mod tests {
-    use super::count_primes;
-
-    #[test]
-    fn counts_the_primes_below_a_bound() {
-        assert_eq!(count_primes(0), 0);
-        assert_eq!(count_primes(3), 1);
-        assert_eq!(count_primes(10), 4);
-        assert_eq!(count_primes(100), 25);
-    }
 }

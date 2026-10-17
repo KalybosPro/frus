@@ -4,7 +4,7 @@ use frus::{Color, Container, Insets, InsetsDirectional, Padding, Text, Widget};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // A single number pads every side by the same amount.
         Box::new(section(

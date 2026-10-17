@@ -5,11 +5,11 @@ use frus::{Autocomplete, State, StateContext, StatefulWidget, Text, Widget};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(AutocompleteDemo.into_widget())
 }
 
-const LANGUAGES: [&str; 10] = [
+pub const LANGUAGES: [&str; 10] = [
     "C",
     "C++",
     "Go",
@@ -22,8 +22,8 @@ const LANGUAGES: [&str; 10] = [
     "Swift",
 ];
 
-/// The suggestions for a query: plain logic, so it is tested below.
-fn suggestions(query: &str) -> Vec<&'static str> {
+/// The suggestions for a query: plain logic, so it is tested in `tests/autocomplete_test.rs`.
+pub fn suggestions(query: &str) -> Vec<&'static str> {
     let query = query.trim().to_lowercase();
     if query.is_empty() {
         return Vec::new();
@@ -38,9 +38,9 @@ fn suggestions(query: &str) -> Vec<&'static str> {
         .collect()
 }
 
-struct AutocompleteDemo;
+pub struct AutocompleteDemo;
 
-struct AutocompleteDemoState {
+pub struct AutocompleteDemoState {
     query: String,
     picked: Option<String>,
 }
@@ -83,21 +83,5 @@ impl State for AutocompleteDemoState {
                 None => "Nothing picked yet".to_string(),
             })),
         ])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn suggestions_match_anywhere_and_ignore_case() {
-        assert_eq!(suggestions("JAVA"), vec!["JavaScript"]);
-        assert!(suggestions("as").contains(&"Haskell"));
-    }
-
-    #[test]
-    fn nothing_is_suggested_for_an_empty_query() {
-        assert!(suggestions("  ").is_empty());
     }
 }

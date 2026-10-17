@@ -1,1 +1,1 @@
-pub(crate) mod post_tile;
+pub mod post_tile;

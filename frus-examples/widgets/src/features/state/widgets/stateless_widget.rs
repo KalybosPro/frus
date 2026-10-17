@@ -35,7 +35,7 @@ impl StatelessWidget for StatusBadge {
     }
 }
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // `.into_widget()` turns the struct into a widget for any child slot.
         Box::new(section(

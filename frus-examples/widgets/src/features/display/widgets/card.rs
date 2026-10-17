@@ -8,7 +8,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // The three variants say how far the card stands off what is behind it: a shadow
         // (elevated, the default), a tonal fill, or only an outline.

@@ -10,7 +10,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // The usual fixed levels: a disabled-looking 38 %, a secondary 60 %, full.
         Box::new(section(

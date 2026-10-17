@@ -8,7 +8,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // Centred, a big number and its small unit do not read as one line: the unit
         // floats halfway up.

@@ -7,7 +7,7 @@ use crate::common::shared::{section, sections};
 
 const TOTAL: usize = 20;
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let page = cx.use_state(|| 1usize);
         let few = cx.use_state(|| 2usize);

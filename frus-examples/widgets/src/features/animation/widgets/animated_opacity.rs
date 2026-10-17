@@ -11,7 +11,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // A fixed opacity: a watermark, a placeholder, something deliberately quiet.
         Box::new(section("Opacity", fixed())),

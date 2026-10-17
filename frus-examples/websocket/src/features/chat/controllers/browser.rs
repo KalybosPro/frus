@@ -68,14 +68,14 @@ impl Inner {
 }
 
 /// A live connection to a server, through the browser.
-pub(crate) struct Connection {
+pub struct Connection {
     inner: Rc<Inner>,
 }
 
 impl Connection {
     /// Starts connecting to `url` and returns at once; the outcome arrives as an [`Event`]
     /// through `on_event`, on the page's thread.
-    pub(crate) fn open(url: &str, on_event: impl Fn(Event) + 'static) -> Self {
+    pub fn open(url: &str, on_event: impl Fn(Event) + 'static) -> Self {
         let socket = match WebSocket::new(url) {
             Ok(socket) => socket,
             // A malformed address throws at once. Report it like any failure, but not
@@ -177,14 +177,14 @@ impl Connection {
 
     /// Sends `text`. Only called while connected; if the socket has gone meanwhile, its
     /// event is on its way and says why.
-    pub(crate) fn send(&self, text: String) {
+    pub fn send(&self, text: String) {
         if let (false, Some(socket)) = (self.inner.done.get(), &self.inner.socket) {
             let _ = socket.send_with_str(&text);
         }
     }
 
     /// Closes the connection politely. Dropping the `Connection` does the same.
-    pub(crate) fn close(&self) {
+    pub fn close(&self) {
         if let (false, Some(socket)) = (self.inner.done.get(), &self.inner.socket) {
             let _ = socket.close();
         }
@@ -192,7 +192,7 @@ impl Connection {
     }
 
     /// A future that ends when this connection does.
-    pub(crate) fn watch(&self) -> Watch {
+    pub fn watch(&self) -> Watch {
         Watch(Some(self.inner.clone()))
     }
 }
@@ -206,10 +206,10 @@ impl Drop for Connection {
 /// Ends when the connection does; while it waits, the shell keeps drawing frames, which
 /// is what shows the events the browser delivers between them. `Watch::none()` is
 /// already over: for when there is no connection.
-pub(crate) struct Watch(Option<Rc<Inner>>);
+pub struct Watch(Option<Rc<Inner>>);
 
 impl Watch {
-    pub(crate) fn none() -> Self {
+    pub fn none() -> Self {
         Watch(None)
     }
 }

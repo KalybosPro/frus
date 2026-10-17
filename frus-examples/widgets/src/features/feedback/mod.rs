@@ -1,1 +1,1 @@
-pub(crate) mod widgets;
+pub mod widgets;

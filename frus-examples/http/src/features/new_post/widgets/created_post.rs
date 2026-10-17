@@ -6,12 +6,12 @@ use crate::models::post::Post;
 
 /// What the server answered to `POST /posts`: the post as it stored it, with the id it
 /// gave.
-pub(crate) struct CreatedPost {
+pub struct CreatedPost {
     post: Post,
 }
 
 impl CreatedPost {
-    pub(crate) fn new(post: Post) -> Self {
+    pub fn new(post: Post) -> Self {
         Self { post }
     }
 }

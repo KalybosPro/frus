@@ -15,7 +15,7 @@ const CONTACTS: [(&str, &[&str]); 5] = [
     ("K", &["Ken", "Katherine", "Kristen"]),
 ];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     // Each section is `StickyHeader::new(header, content)`, one after another in a
     // column inside a vertical scroll view.
     let list = CONTACTS.iter().fold(

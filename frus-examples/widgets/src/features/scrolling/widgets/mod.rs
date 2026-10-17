@@ -2,24 +2,24 @@
 
 use crate::models::demo::Demo;
 
-mod carousel;
-mod dismissible;
-mod expansionpanel;
-mod expansiontile;
-mod gridview;
-mod kanban;
-mod listview;
-mod listwheel;
-mod pageview;
-mod refresh;
-mod reorderable;
-mod scrollbehavior;
-mod scrolloverlay;
-mod scrollto;
-mod scrollview;
-mod sticky;
+pub mod carousel;
+pub mod dismissible;
+pub mod expansionpanel;
+pub mod expansiontile;
+pub mod gridview;
+pub mod kanban;
+pub mod listview;
+pub mod listwheel;
+pub mod pageview;
+pub mod refresh;
+pub mod reorderable;
+pub mod scrollbehavior;
+pub mod scrolloverlay;
+pub mod scrollto;
+pub mod scrollview;
+pub mod sticky;
 
-pub(crate) fn demos() -> Vec<Demo> {
+pub fn demos() -> Vec<Demo> {
     vec![
         Demo::new(
             "single-child-scroll-view",

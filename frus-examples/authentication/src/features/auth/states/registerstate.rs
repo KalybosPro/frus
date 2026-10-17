@@ -5,7 +5,7 @@ use frus::form::{Form, Rule};
 use crate::common::submission::Submission;
 
 #[derive(Default)]
-pub(crate) struct RegisterState {
+pub struct RegisterState {
     pub name: String,
     pub email: String,
     pub password: String,
@@ -15,31 +15,31 @@ pub(crate) struct RegisterState {
 }
 
 impl RegisterState {
-    pub(crate) fn set_name(&mut self, value: String) {
+    pub fn set_name(&mut self, value: String) {
         self.name = value;
         self.submit.edited();
     }
 
-    pub(crate) fn set_email(&mut self, value: String) {
+    pub fn set_email(&mut self, value: String) {
         self.email = value;
         self.submit.edited();
     }
 
-    pub(crate) fn set_password(&mut self, value: String) {
+    pub fn set_password(&mut self, value: String) {
         self.password = value;
         self.submit.edited();
     }
 
-    pub(crate) fn set_confirm(&mut self, value: String) {
+    pub fn set_confirm(&mut self, value: String) {
         self.confirm = value;
         self.submit.edited();
     }
 
-    pub(crate) fn toggle_visibility(&mut self) {
+    pub fn toggle_visibility(&mut self) {
         self.visibility = !self.visibility;
     }
 
-    pub(crate) fn form(&self) -> Form {
+    pub fn form(&self) -> Form {
         Form::new()
             .field(
                 "name",
@@ -72,49 +72,5 @@ impl RegisterState {
             )
             // A rule across two fields: declared after the one it compares with.
             .matches("confirm", &self.confirm, "password", "The passwords differ")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn filled() -> RegisterState {
-        RegisterState {
-            name: "Ada".to_string(),
-            email: "ada@frus.dev".to_string(),
-            password: "analytical1".to_string(),
-            confirm: "analytical1".to_string(),
-            ..RegisterState::default()
-        }
-    }
-
-    #[test]
-    fn a_complete_form_is_valid() {
-        assert!(filled().form().is_valid());
-    }
-
-    #[test]
-    fn the_confirmation_must_match() {
-        let mut state = filled();
-        state.set_confirm("analytical2".to_string());
-        assert_eq!(state.form().error("confirm"), Some("The passwords differ"));
-    }
-
-    #[test]
-    fn a_password_needs_a_digit() {
-        let mut state = filled();
-        state.set_password("analytical".to_string());
-        assert_eq!(
-            state.form().error("password"),
-            Some("Add at least one digit")
-        );
-    }
-
-    #[test]
-    fn a_blank_name_is_refused() {
-        let mut state = filled();
-        state.set_name("   ".to_string());
-        assert_eq!(state.form().error("name"), Some("Your name is required"));
     }
 }

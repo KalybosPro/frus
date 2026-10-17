@@ -25,9 +25,9 @@ use frus::FrusApp;
 
 use crate::common::routers::router;
 
-mod common;
-mod features;
-mod models;
+pub mod common;
+pub mod features;
+pub mod models;
 
 // A router app: each page is a route, and `cx.router()` reaches the router from any
 // page.

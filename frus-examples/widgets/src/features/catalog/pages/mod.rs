@@ -1,2 +1,2 @@
-pub(crate) mod categorypage;
-pub(crate) mod demopage;
+pub mod categorypage;
+pub mod demopage;

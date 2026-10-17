@@ -1,1 +1,1 @@
-pub(crate) mod demo;
+pub mod demo;

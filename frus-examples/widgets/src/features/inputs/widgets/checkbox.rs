@@ -7,15 +7,15 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(CheckboxDemo.into_widget())
 }
 
-const TOPPINGS: [&str; 3] = ["Cheese", "Mushrooms", "Olives"];
+pub const TOPPINGS: [&str; 3] = ["Cheese", "Mushrooms", "Olives"];
 
-struct CheckboxDemo;
+pub struct CheckboxDemo;
 
-struct CheckboxDemoState {
+pub struct CheckboxDemoState {
     terms: bool,
     toppings: [bool; 3],
     newsletter: bool,
@@ -23,7 +23,7 @@ struct CheckboxDemoState {
 
 impl CheckboxDemoState {
     /// The parent's value follows its children: all, none, or some (`None`).
-    fn all_toppings(&self) -> Option<bool> {
+    pub fn all_toppings(&self) -> Option<bool> {
         match self.toppings.iter().filter(|on| **on).count() {
             0 => Some(false),
             n if n == self.toppings.len() => Some(true),
@@ -32,7 +32,7 @@ impl CheckboxDemoState {
     }
 
     /// Ticking the parent ticks every child; anything else clears them.
-    fn set_all(&mut self, value: Option<bool>) {
+    pub fn set_all(&mut self, value: Option<bool>) {
         self.toppings = [value == Some(true); 3];
     }
 }
@@ -111,20 +111,5 @@ impl State for CheckboxDemoState {
                     ),
             )),
         ])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_parent_is_partly_on_when_some_children_are() {
-        let mut state = CheckboxDemo.create_state();
-        assert_eq!(state.all_toppings(), None);
-        state.set_all(Some(true));
-        assert_eq!(state.all_toppings(), Some(true));
-        state.set_all(Some(false));
-        assert_eq!(state.all_toppings(), Some(false));
     }
 }

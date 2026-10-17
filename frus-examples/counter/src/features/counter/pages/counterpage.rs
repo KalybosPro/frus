@@ -15,12 +15,12 @@ use crate::features::counter::{
 /// The widget is made again on every rebuild; what must survive a rebuild lives in its
 /// `State` (`CounterState`), which the framework creates once and keeps.
 #[derive(Clone)]
-pub(crate) struct CounterPage {
+pub struct CounterPage {
     initial_step: i64,
 }
 
 impl CounterPage {
-    pub(crate) fn new(initial_step: i64) -> Self {
+    pub fn new(initial_step: i64) -> Self {
         Self { initial_step }
     }
 }

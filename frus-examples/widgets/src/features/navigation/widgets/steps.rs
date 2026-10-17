@@ -9,27 +9,27 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-const STEPS: [&str; 3] = ["Account", "Plan", "Confirm"];
+pub const STEPS: [&str; 3] = ["Account", "Plan", "Confirm"];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(WizardDemo.into_widget())
 }
 
-struct WizardDemo;
+pub struct WizardDemo;
 
 #[derive(Default)]
-struct WizardState {
-    current: usize,
+pub struct WizardState {
+    pub current: usize,
     /// Step 1's only question; the wizard cannot move on until it is answered.
-    terms_accepted: bool,
+    pub terms_accepted: bool,
     /// Step 2's choice.
-    premium: bool,
-    finished: bool,
+    pub premium: bool,
+    pub finished: bool,
 }
 
 impl WizardState {
     /// Whether step `i` is complete — what the indicator ticks, and what Next checks.
-    fn is_done(&self, i: usize) -> bool {
+    pub fn is_done(&self, i: usize) -> bool {
         match i {
             0 => self.terms_accepted,
             1 => self.current > 1,
@@ -42,7 +42,7 @@ impl WizardState {
         self.current != 0 || self.terms_accepted
     }
 
-    fn next(&mut self) {
+    pub fn next(&mut self) {
         if !self.can_advance() {
             return;
         }
@@ -59,7 +59,7 @@ impl WizardState {
     }
 
     /// A tap on a marker jumps back to a step already reached, never ahead of it.
-    fn jump(&mut self, i: usize) {
+    pub fn jump(&mut self, i: usize) {
         if i < self.current {
             self.current = i;
             self.finished = false;
@@ -150,44 +150,5 @@ impl State for WizardState {
                 ),
             )),
         ])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn next_waits_for_the_terms() {
-        let mut wizard = WizardState::default();
-        wizard.next();
-        assert_eq!(wizard.current, 0);
-        wizard.terms_accepted = true;
-        wizard.next();
-        assert_eq!(wizard.current, 1);
-    }
-
-    #[test]
-    fn markers_only_jump_backwards() {
-        let mut wizard = WizardState {
-            current: 1,
-            terms_accepted: true,
-            ..WizardState::default()
-        };
-        wizard.jump(2);
-        assert_eq!(wizard.current, 1);
-        wizard.jump(0);
-        assert_eq!(wizard.current, 0);
-    }
-
-    #[test]
-    fn finishing_the_last_step_marks_it_done() {
-        let mut wizard = WizardState {
-            current: 2,
-            terms_accepted: true,
-            ..WizardState::default()
-        };
-        wizard.next();
-        assert!(wizard.finished && wizard.is_done(2));
     }
 }

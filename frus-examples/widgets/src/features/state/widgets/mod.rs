@@ -2,23 +2,23 @@
 
 use crate::models::demo::Demo;
 
-mod future_builder;
-mod hooks;
-mod host_tasks;
-mod keyed;
-mod localizations;
-mod media_query;
-mod notifiers;
-mod responsive;
-mod stateful_widget;
-mod stateless_widget;
-mod stream_builder;
-mod theme;
-mod themed;
-mod use_effect;
-mod use_interval;
+pub mod future_builder;
+pub mod hooks;
+pub mod host_tasks;
+pub mod keyed;
+pub mod localizations;
+pub mod media_query;
+pub mod notifiers;
+pub mod responsive;
+pub mod stateful_widget;
+pub mod stateless_widget;
+pub mod stream_builder;
+pub mod theme;
+pub mod themed;
+pub mod use_effect;
+pub mod use_interval;
 
-pub(crate) fn demos() -> Vec<Demo> {
+pub fn demos() -> Vec<Demo> {
     vec![
         Demo::new(
             "stateless-widget",

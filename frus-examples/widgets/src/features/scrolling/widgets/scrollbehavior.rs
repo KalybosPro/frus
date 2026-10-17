@@ -9,7 +9,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // Per scrollable: the physics at the edges. Bouncing goes past the edge and
         // springs back; clamping stops dead; `NEVER` does not let the user scroll at all

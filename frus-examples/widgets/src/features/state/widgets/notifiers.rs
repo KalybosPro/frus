@@ -43,7 +43,7 @@ impl Basket {
     }
 }
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         // In an app these would live in a service or a page's state; `use_ref` keeps them
         // for the demo's lifetime.

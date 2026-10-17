@@ -12,12 +12,12 @@ use crate::features::home::{states::homestate::HomeState, widgets::product_card:
 use crate::models::product::Category;
 
 /// The front page (`/`): the catalogue, filtered by category.
-pub(crate) struct HomePage {
+pub struct HomePage {
     cart: Cart,
 }
 
 impl HomePage {
-    pub(crate) fn new(cart: Cart) -> Self {
+    pub fn new(cart: Cart) -> Self {
         Self { cart }
     }
 }

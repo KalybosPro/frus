@@ -10,12 +10,12 @@ const MAX_BUBBLE_WIDTH: f32 = 420.0;
 
 /// One line of the conversation: a bubble on the right for what was sent, on the left for
 /// what was received, and a quiet line in the middle for what the app itself says.
-pub(crate) struct MessageBubble {
+pub struct MessageBubble {
     message: Message,
 }
 
 impl MessageBubble {
-    pub(crate) fn new(message: Message) -> Self {
+    pub fn new(message: Message) -> Self {
         Self { message }
     }
 }

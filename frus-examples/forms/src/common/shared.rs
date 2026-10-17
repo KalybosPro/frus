@@ -8,15 +8,15 @@ use frus::{
 
 /// The widest the content gets. A form stretched across a desktop monitor is hard to read:
 /// past this width the column stops growing and stays centred.
-pub(crate) const MAX_CONTENT_WIDTH: f32 = 560.0;
+pub const MAX_CONTENT_WIDTH: f32 = 560.0;
 
 /// The room on either side of the content on a phone.
-pub(crate) const GUTTER: f32 = 16.0;
+pub const GUTTER: f32 = 16.0;
 
 /// How wide the content column comes out: the window minus the gutters, up to
 /// [`MAX_CONTENT_WIDTH`]. For the few widgets that take a width in pixels rather than the
 /// room on offer (a dropdown menu sizes its list to it).
-pub(crate) fn content_width() -> f32 {
+pub fn content_width() -> f32 {
     (MediaQuery::of().size.width - 2.0 * GUTTER).clamp(0.0, MAX_CONTENT_WIDTH)
 }
 
@@ -25,7 +25,7 @@ pub(crate) fn content_width() -> f32 {
 ///
 /// `Center` centres; the `ConstrainedBox` caps. A field inside takes the width on offer, so
 /// the fields follow the column without being told a width each.
-pub(crate) fn centered_page(content: impl Widget + 'static) -> SingleChildScrollView {
+pub fn centered_page(content: impl Widget + 'static) -> SingleChildScrollView {
     SingleChildScrollView::new()
         .padding_each(24.0, GUTTER, 32.0, GUTTER)
         .child(Center::new(
@@ -35,12 +35,12 @@ pub(crate) fn centered_page(content: impl Widget + 'static) -> SingleChildScroll
 
 /// The error line under a control that has no `error(..)` of its own — a dropdown, a group
 /// of chips, a checkbox — in the colour and size a text field uses for its own.
-pub(crate) fn control_error(cx: &BuildContext, message: &str) -> Text {
+pub fn control_error(cx: &BuildContext, message: &str) -> Text {
     Text::styled(message, cx.theme().text.body_small).color(cx.theme().error)
 }
 
 /// A control with the error line under it when there is one.
-pub(crate) fn with_error(
+pub fn with_error(
     cx: &BuildContext,
     control: impl Widget + 'static,
     error: Option<&str>,

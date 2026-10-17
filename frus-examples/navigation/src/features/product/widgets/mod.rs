@@ -1,2 +1,2 @@
-pub(crate) mod quantity_stepper;
-pub(crate) mod review_tile;
+pub mod quantity_stepper;
+pub mod review_tile;

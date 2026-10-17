@@ -2,19 +2,19 @@
 
 use crate::models::demo::Demo;
 
-mod action_buttons;
-mod button;
-mod dropdown_button;
-mod dropdown_menu;
-mod fab;
-mod icon_button;
-mod menu_anchor;
-mod menu_bar;
-mod popup_menu_button;
-mod segmented_button;
-mod toggle_buttons;
+pub mod action_buttons;
+pub mod button;
+pub mod dropdown_button;
+pub mod dropdown_menu;
+pub mod fab;
+pub mod icon_button;
+pub mod menu_anchor;
+pub mod menu_bar;
+pub mod popup_menu_button;
+pub mod segmented_button;
+pub mod toggle_buttons;
 
-pub(crate) fn demos() -> Vec<Demo> {
+pub fn demos() -> Vec<Demo> {
     vec![
         Demo::new(
             "button",

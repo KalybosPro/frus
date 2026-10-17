@@ -37,7 +37,7 @@ fn key(route: Route) -> (usize, usize) {
     }
 }
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         let route = cx.use_state(|| None::<usize>);
         // The page being left and the direction (push or pop), while a transition runs.

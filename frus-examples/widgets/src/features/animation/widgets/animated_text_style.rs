@@ -9,7 +9,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // A heading that grows when its section is selected. The texts inside name no size,
         // weight or colour of their own — a text that states its size keeps it.

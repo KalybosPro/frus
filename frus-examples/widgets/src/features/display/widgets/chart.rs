@@ -9,7 +9,7 @@ const MONTHS: [&str; 6] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
 const WEB: [f32; 6] = [12.0, 18.0, 15.0, 22.0, 28.0, 31.0];
 const MOBILE: [f32; 6] = [8.0, 11.0, 17.0, 19.0, 21.0, 30.0];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let picked = cx.use_state(|| None::<(usize, usize)>);
         let hidden = cx.use_state(Vec::<usize>::new);

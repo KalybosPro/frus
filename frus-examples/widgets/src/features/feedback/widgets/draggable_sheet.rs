@@ -13,7 +13,7 @@ use crate::common::shared::{section, sections};
 /// The preview is phone-sized: it fits a phone's page and reads like a screen.
 const PREVIEW_WIDTH: f32 = 320.0;
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(SheetDemo.into_widget())
 }
 

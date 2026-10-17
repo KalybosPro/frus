@@ -16,7 +16,7 @@ use crate::models::message::TimeOfDay;
 ///
 /// Takes the state by `&mut` because it is called from places that already hold it: a
 /// handler made with `cx.callback`, and `init_state`.
-pub(crate) fn connect(state: &mut ChatState, handle: &StateHandle<ChatState>) {
+pub fn connect(state: &mut ChatState, handle: &StateHandle<ChatState>) {
     let session = state.begin_connect();
     let handle = handle.clone();
     let connection = Connection::open(&state.url, move |event| deliver(&handle, session, event));

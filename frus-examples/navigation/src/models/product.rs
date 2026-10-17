@@ -4,16 +4,16 @@
 use frus::{IconData, Icons};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Category {
+pub enum Category {
     Shoes,
     Clothing,
     Bags,
 }
 
 impl Category {
-    pub(crate) const ALL: [Category; 3] = [Category::Shoes, Category::Clothing, Category::Bags];
+    pub const ALL: [Category; 3] = [Category::Shoes, Category::Clothing, Category::Bags];
 
-    pub(crate) fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Category::Shoes => "Shoes",
             Category::Clothing => "Clothing",
@@ -21,7 +21,7 @@ impl Category {
         }
     }
 
-    pub(crate) fn icon(self) -> IconData {
+    pub fn icon(self) -> IconData {
         match self {
             Category::Shoes => Icons::DIRECTIONS_RUN,
             Category::Clothing => Icons::CHECKROOM,
@@ -31,7 +31,7 @@ impl Category {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Review {
+pub struct Review {
     pub author: &'static str,
     /// From 1 to 5.
     pub stars: u8,
@@ -41,7 +41,7 @@ pub(crate) struct Review {
 /// One article. `Clone` because a page hands it to the next one as the navigation's
 /// `extra` (see the size page).
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Product {
+pub struct Product {
     pub id: u32,
     pub name: &'static str,
     pub category: Category,
@@ -54,18 +54,18 @@ pub(crate) struct Product {
 
 impl Product {
     /// The product whose id is `id`.
-    pub(crate) fn find(id: u32) -> Option<&'static Product> {
+    pub fn find(id: u32) -> Option<&'static Product> {
         CATALOG.iter().find(|product| product.id == id)
     }
 
     /// The product a location names: the `:id` of `/products/:id` is text, and text from
     /// an address can be anything — `/products/abc` must not crash the app.
-    pub(crate) fn from_param(id: Option<&str>) -> Option<&'static Product> {
+    pub fn from_param(id: Option<&str>) -> Option<&'static Product> {
         id?.parse().ok().and_then(Product::find)
     }
 
     /// The average rating, or `None` when nobody has reviewed it yet.
-    pub(crate) fn rating(&self) -> Option<f32> {
+    pub fn rating(&self) -> Option<f32> {
         if self.reviews.is_empty() {
             return None;
         }
@@ -74,11 +74,11 @@ impl Product {
     }
 }
 
-const SHOE_SIZES: &[&str] = &["39", "40", "41", "42", "43", "44"];
-const CLOTHING_SIZES: &[&str] = &["XS", "S", "M", "L", "XL"];
-const ONE_SIZE: &[&str] = &["One size"];
+pub const SHOE_SIZES: &[&str] = &["39", "40", "41", "42", "43", "44"];
+pub const CLOTHING_SIZES: &[&str] = &["XS", "S", "M", "L", "XL"];
+pub const ONE_SIZE: &[&str] = &["One size"];
 
-pub(crate) const CATALOG: &[Product] = &[
+pub const CATALOG: &[Product] = &[
     Product {
         id: 1,
         name: "Trail runner",
@@ -177,35 +177,3 @@ pub(crate) const CATALOG: &[Product] = &[
         }],
     },
 ];
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_product_is_found_by_its_id() {
-        assert_eq!(Product::find(3).map(|p| p.name), Some("Road racer"));
-        assert!(Product::find(99).is_none());
-    }
-
-    #[test]
-    fn a_location_parameter_that_is_not_an_id_finds_nothing() {
-        assert_eq!(Product::from_param(Some("2")).map(|p| p.id), Some(2));
-        assert!(Product::from_param(Some("abc")).is_none());
-        assert!(Product::from_param(Some("-1")).is_none());
-        assert!(Product::from_param(None).is_none());
-    }
-
-    #[test]
-    fn the_rating_is_the_average_of_the_reviews() {
-        assert_eq!(Product::find(1).and_then(Product::rating), Some(4.5));
-        assert_eq!(Product::find(4).and_then(Product::rating), None);
-    }
-
-    #[test]
-    fn ids_are_unique() {
-        for (i, a) in CATALOG.iter().enumerate() {
-            assert!(CATALOG[i + 1..].iter().all(|b| b.id != a.id), "{}", a.id);
-        }
-    }
-}

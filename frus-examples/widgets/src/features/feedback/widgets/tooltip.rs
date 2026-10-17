@@ -5,7 +5,7 @@ use frus::{Color, Icon, IconButton, Icons, Insets, Row, Text, TextStyle, Tooltip
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // Wrap any widget. (An `IconButton` already shows its `label` as a tooltip.)
         Box::new(section(

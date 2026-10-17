@@ -8,11 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 659 so far, each documenting the objective, the alternatives
+> record — one per step, 662 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The examples' tests live in `tests/`** (J662), as the application `frus create` writes
+  keeps them (J658). Each of the seven example projects with tests moved its inline
+  `#[cfg(test)]` modules to `tests/<module>_test.rs`, 158 tests in all, and made public what
+  they reach; the authentication project's shared helpers are in `tests/support/`.
 - **`frus devices`, `frus run` and `frus build`** (J661). `frus devices` lists this computer,
   the Android devices and emulators, the iOS simulators on a Mac, and the browsers. `frus run
   -d <device>` builds the application for it, starts it, and shows its log in the terminal: the
@@ -27,8 +31,8 @@ any release may break.
   `cursor_height`, `cursor_radius` (2 on Apple's platforms, square elsewhere, unless told)
   and `show_cursor`; `obscuring_character` for a masked field; and `autofocus`.
   **Changed**: the caret's colour.
-- **A new application's tests live in `tests/`** (J658), as a Flutter project's do in
-  `test/`. The application `frus create` writes keeps its counter in `src/counter.rs`, its
+- **A new application's tests live in `tests/`** (J658), apart from its code, in a folder of
+  their own. The application `frus create` writes keeps its counter in `src/counter.rs`, its
   entry in `src/lib.rs`, and its tests in `tests/counter_test.rs`, which reaches the
   application through its public API.
 - **A text field that grows with its value** (J657). `TextField::max_lines(n)` lets a

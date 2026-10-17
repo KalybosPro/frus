@@ -10,7 +10,7 @@ use frus::{component, host, Align, Button, Column, Row, Text, Variant, Widget};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         let result = cx.use_state(|| "Not started".to_string());
         let busy = cx.use_state(|| false);
@@ -73,22 +73,10 @@ pub(crate) fn example() -> Box<dyn Widget> {
 }
 
 /// Deliberately slow: the naive recursion, to give the thread something to do.
-fn fibonacci(n: u32) -> u64 {
+pub fn fibonacci(n: u32) -> u64 {
     if n < 2 {
         u64::from(n)
     } else {
         fibonacci(n - 1) + fibonacci(n - 2)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::fibonacci;
-
-    #[test]
-    fn small_fibonacci_numbers() {
-        assert_eq!(fibonacci(0), 0);
-        assert_eq!(fibonacci(1), 1);
-        assert_eq!(fibonacci(10), 55);
     }
 }

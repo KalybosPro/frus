@@ -2,23 +2,23 @@
 
 use crate::models::demo::Demo;
 
-mod avatar;
-mod badge;
-mod breadcrumb;
-mod card;
-mod chart;
-mod chip;
-mod datatable;
-mod divider;
-mod gridtile;
-mod icon;
-mod image;
-mod listtile;
-mod table;
-mod timeline;
-mod tree;
+pub mod avatar;
+pub mod badge;
+pub mod breadcrumb;
+pub mod card;
+pub mod chart;
+pub mod chip;
+pub mod datatable;
+pub mod divider;
+pub mod gridtile;
+pub mod icon;
+pub mod image;
+pub mod listtile;
+pub mod table;
+pub mod timeline;
+pub mod tree;
 
-pub(crate) fn demos() -> Vec<Demo> {
+pub fn demos() -> Vec<Demo> {
     vec![
         Demo::new(
             "card",

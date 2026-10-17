@@ -6,42 +6,42 @@ use frus::{DatePicker, State, StateContext, StatefulWidget, Text, Widget};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(DatePickerDemo.into_widget())
 }
 
 /// A date as the pickers speak it: `(year, month 1–12, day)`.
-type Date = (i32, u32, u32);
+pub type Date = (i32, u32, u32);
 
-/// The month `delta` months away from `(year, month)`. Plain arithmetic, tested below.
-fn shift_month(year: i32, month: u32, delta: i32) -> (i32, u32) {
+/// The month `delta` months away from `(year, month)`. Plain arithmetic, tested in `tests/date_picker_test.rs`.
+pub fn shift_month(year: i32, month: u32, delta: i32) -> (i32, u32) {
     let index = year * 12 + month as i32 - 1 + delta;
     (index.div_euclid(12), index.rem_euclid(12) as u32 + 1)
 }
 
 /// Day of the week, 0 = Sunday (Sakamoto's method), to disable weekends.
-fn weekday((year, month, day): Date) -> u32 {
+pub fn weekday((year, month, day): Date) -> u32 {
     const T: [i32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
     let y = if month < 3 { year - 1 } else { year };
     ((y + y / 4 - y / 100 + y / 400 + T[month as usize - 1] + day as i32).rem_euclid(7)) as u32
 }
 
-struct DatePickerDemo;
+pub struct DatePickerDemo;
 
-struct DatePickerDemoState {
+pub struct DatePickerDemoState {
     /// The month each calendar shows.
     shown: (i32, u32),
     selected: Option<Date>,
     weekday_shown: (i32, u32),
     weekday: Option<Date>,
     range_shown: (i32, u32),
-    range: (Option<Date>, Option<Date>),
+    pub range: (Option<Date>, Option<Date>),
 }
 
 impl DatePickerDemoState {
     /// The usual range rule: the first click starts a range, the second ends it (or
     /// starts again if it is before the start).
-    fn pick_range_day(&mut self, date: Date) {
+    pub fn pick_range_day(&mut self, date: Date) {
         self.range = match self.range {
             (Some(start), None) if date >= start => (Some(start), Some(date)),
             _ => (Some(date), None),
@@ -64,7 +64,7 @@ impl StatefulWidget for DatePickerDemo {
     }
 }
 
-fn describe(date: Option<Date>) -> String {
+pub fn describe(date: Option<Date>) -> String {
     match date {
         Some((y, m, d)) => format!("{y}-{m:02}-{d:02}"),
         None => "—".to_string(),
@@ -140,34 +140,5 @@ impl State for DatePickerDemoState {
                 describe(self.range.1)
             ))),
         ])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn months_roll_over_years() {
-        assert_eq!(shift_month(2026, 12, 1), (2027, 1));
-        assert_eq!(shift_month(2026, 1, -1), (2025, 12));
-        assert_eq!(shift_month(2026, 5, 0), (2026, 5));
-    }
-
-    #[test]
-    fn weekdays_are_counted_from_sunday() {
-        // 15 October 2026 is a Thursday.
-        assert_eq!(weekday((2026, 10, 15)), 4);
-        assert_eq!(weekday((2026, 10, 18)), 0);
-    }
-
-    #[test]
-    fn a_second_click_before_the_start_starts_again() {
-        let mut state = DatePickerDemo.create_state();
-        state.range = (Some((2026, 10, 12)), None);
-        state.pick_range_day((2026, 10, 5));
-        assert_eq!(state.range, (Some((2026, 10, 5)), None));
-        state.pick_range_day((2026, 10, 9));
-        assert_eq!(state.range, (Some((2026, 10, 5)), Some((2026, 10, 9))));
     }
 }

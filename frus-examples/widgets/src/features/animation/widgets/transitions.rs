@@ -20,7 +20,7 @@ use crate::common::shared::{section, sections};
 /// How often the controller is advanced while it runs: about sixty times a second.
 const FRAME: Duration = Duration::from_millis(16);
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         // The driver lives as long as the component: `use_ref`, because changing it is not
         // by itself a reason to rebuild. The value the widgets read is a `use_state`, so

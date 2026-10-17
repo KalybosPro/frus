@@ -13,12 +13,12 @@ use crate::common::{
 use crate::features::cart::{states::cartstate::CartState, widgets::cart_line::CartLine};
 
 /// The cart (`/cart`), a section.
-pub(crate) struct CartPage {
+pub struct CartPage {
     cart: Cart,
 }
 
 impl CartPage {
-    pub(crate) fn new(cart: Cart) -> Self {
+    pub fn new(cart: Cart) -> Self {
         Self { cart }
     }
 }

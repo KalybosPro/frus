@@ -9,7 +9,7 @@ use crate::common::shared::{section, sections};
 
 const COUNT: usize = 10_000;
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let tapped = cx.use_state(|| None::<usize>);
 

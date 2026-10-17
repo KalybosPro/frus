@@ -8,7 +8,7 @@ use frus::{Align, Button, Color, Container, Justify, OverflowBar, Variant, Widge
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // Short labels with room enough: one line, pushed to the end as dialog actions
         // are.

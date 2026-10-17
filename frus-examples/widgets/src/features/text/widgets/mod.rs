@@ -2,15 +2,15 @@
 
 use crate::models::demo::Demo;
 
-mod font_family;
-mod kbd;
-mod rich_text;
-mod selectable_text;
-mod text;
-mod text_style;
-mod text_theme;
+pub mod font_family;
+pub mod kbd;
+pub mod rich_text;
+pub mod selectable_text;
+pub mod text;
+pub mod text_style;
+pub mod text_theme;
 
-pub(crate) fn demos() -> Vec<Demo> {
+pub fn demos() -> Vec<Demo> {
     vec![
         Demo::new(
             "text",

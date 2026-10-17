@@ -6,7 +6,7 @@ use frus::{Badge, Color, Colors, Icons, Table, Text, Widget};
 use crate::common::shared::{section, sections};
 
 /// One planet: name, moons, and how far from the sun (in astronomical units).
-const PLANETS: [(&str, u32, f32); 5] = [
+pub const PLANETS: [(&str, u32, f32); 5] = [
     ("Mercury", 0, 0.39),
     ("Venus", 0, 0.72),
     ("Earth", 1, 1.0),
@@ -14,7 +14,7 @@ const PLANETS: [(&str, u32, f32); 5] = [
     ("Jupiter", 95, 5.2),
 ];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let sort = cx.use_state(|| (0usize, true));
         let selected = cx.use_state(|| None::<usize>);
@@ -87,14 +87,14 @@ pub(crate) fn example() -> Box<dyn Widget> {
 }
 
 /// A coloured label for a status cell.
-fn status(label: &str, hex: &str) -> Badge {
+pub fn status(label: &str, hex: &str) -> Badge {
     Badge::new(label)
         .background_color(Color::hex(hex))
         .text_color(Colors::WHITE)
 }
 
 /// The planets ordered by one column — the sorting the app owns.
-fn sorted_planets(column: usize, ascending: bool) -> Vec<(&'static str, u32, f32)> {
+pub fn sorted_planets(column: usize, ascending: bool) -> Vec<(&'static str, u32, f32)> {
     let mut rows = PLANETS.to_vec();
     rows.sort_by(|a, b| match column {
         1 => a.1.cmp(&b.1),
@@ -105,17 +105,4 @@ fn sorted_planets(column: usize, ascending: bool) -> Vec<(&'static str, u32, f32
         rows.reverse();
     }
     rows
-}
-
-#[cfg(test)]
-mod tests {
-    use super::sorted_planets;
-
-    #[test]
-    fn sorts_by_the_chosen_column() {
-        let by_moons = sorted_planets(1, false);
-        assert_eq!(by_moons[0].0, "Jupiter");
-        let by_name = sorted_planets(0, true);
-        assert_eq!(by_name[0].0, "Earth");
-    }
 }

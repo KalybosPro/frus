@@ -6,12 +6,12 @@ use frus::{
 use crate::common::{catalog::category, routes::demo_location};
 
 /// One category: the widgets it holds, each opening its demo.
-pub(crate) struct CategoryPage {
+pub struct CategoryPage {
     id: String,
 }
 
 impl CategoryPage {
-    pub(crate) fn new(id: &str) -> Self {
+    pub fn new(id: &str) -> Self {
         Self { id: id.to_string() }
     }
 }

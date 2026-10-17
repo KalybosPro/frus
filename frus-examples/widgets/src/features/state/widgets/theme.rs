@@ -17,7 +17,7 @@ const MODES: [(ThemeMode, &str); 3] = [
     (ThemeMode::System, "System"),
 ];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         let theme = cx.theme();
         let scheme = &theme.scheme;

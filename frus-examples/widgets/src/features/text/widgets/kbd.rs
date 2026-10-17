@@ -4,7 +4,7 @@ use frus::{Align, Column, FontWeight, Kbd, MainAxisSize, Row, SizedBox, Text, Te
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         Box::new(section(
             "Single keys",
