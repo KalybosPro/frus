@@ -1,4 +1,4 @@
-//! Tests for `widgets::features::feedback::widgets::progress_indicator`, moved out of `src/` (milestone 662).
+//! Tests for `widgets::features::feedback::widgets::progress_indicator`, moved out of `src/` (milestone 664).
 
 use frus::StatefulWidget;
 use widgets::features::feedback::widgets::progress_indicator::*;

@@ -1,4 +1,4 @@
-//! Tests for `websocket::features::chat::controllers::socket`, moved out of `src/` (milestone 662).
+//! Tests for `websocket::features::chat::controllers::socket`, moved out of `src/` (milestone 664).
 
 use std::sync::mpsc;
 use std::time::Duration;

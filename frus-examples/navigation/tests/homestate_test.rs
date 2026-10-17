@@ -1,4 +1,4 @@
-//! Tests for `navigation::features::home::states::homestate`, moved out of `src/` (milestone 662).
+//! Tests for `navigation::features::home::states::homestate`, moved out of `src/` (milestone 664).
 
 use navigation::features::home::states::homestate::*;
 use navigation::models::product::{Category, CATALOG};

@@ -1,4 +1,4 @@
-//! Tests for `authentication::common::submission`, moved out of `src/` (milestone 662).
+//! Tests for `authentication::common::submission`, moved out of `src/` (milestone 664).
 
 use frus::form::Form;
 use frus::form::Rule;

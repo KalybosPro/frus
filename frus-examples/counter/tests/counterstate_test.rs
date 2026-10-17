@@ -1,4 +1,4 @@
-//! Tests for `counter::features::counter::states::counterstate`, moved out of `src/` (milestone 662).
+//! Tests for `counter::features::counter::states::counterstate`, moved out of `src/` (milestone 664).
 
 use counter::features::counter::states::counterstate::*;
 

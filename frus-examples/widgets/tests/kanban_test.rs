@@ -1,4 +1,4 @@
-//! Tests for `widgets::features::scrolling::widgets::kanban`, moved out of `src/` (milestone 662).
+//! Tests for `widgets::features::scrolling::widgets::kanban`, moved out of `src/` (milestone 664).
 
 use widgets::features::scrolling::widgets::kanban::move_card;
 

@@ -1,4 +1,4 @@
-//! Tests for `websocket::models::message`, moved out of `src/` (milestone 662).
+//! Tests for `websocket::models::message`, moved out of `src/` (milestone 664).
 
 use websocket::models::message::*;
 

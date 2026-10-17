@@ -1,4 +1,4 @@
-//! Tests for `widgets::features::display::widgets::badge`, moved out of `src/` (milestone 662).
+//! Tests for `widgets::features::display::widgets::badge`, moved out of `src/` (milestone 664).
 
 use widgets::features::display::widgets::badge::count_label;
 

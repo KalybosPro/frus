@@ -1,4 +1,4 @@
-//! Tests for `widgets::features::display::widgets::table`, moved out of `src/` (milestone 662).
+//! Tests for `widgets::features::display::widgets::table`, moved out of `src/` (milestone 664).
 
 use widgets::features::display::widgets::table::sorted_planets;
 

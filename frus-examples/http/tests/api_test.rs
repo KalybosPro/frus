@@ -1,4 +1,4 @@
-//! Tests for `http::common::api`, moved out of `src/` (milestone 662).
+//! Tests for `http::common::api`, moved out of `src/` (milestone 664).
 
 use frus::FetchError;
 use http::common::api::*;

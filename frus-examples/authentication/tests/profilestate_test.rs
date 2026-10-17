@@ -1,4 +1,4 @@
-//! Tests for `authentication::features::profile::states::profilestate`, moved out of `src/` (milestone 662).
+//! Tests for `authentication::features::profile::states::profilestate`, moved out of `src/` (milestone 664).
 
 use authentication::features::profile::states::profilestate::*;
 

@@ -1,4 +1,4 @@
-//! Tests for `http::common::remote`, moved out of `src/` (milestone 662).
+//! Tests for `http::common::remote`, moved out of `src/` (milestone 664).
 
 use frus::RemoteData;
 use http::common::api::ApiError;

@@ -1,4 +1,4 @@
-//! Tests for `widgets::features::inputs::widgets::date_picker`, moved out of `src/` (milestone 662).
+//! Tests for `widgets::features::inputs::widgets::date_picker`, moved out of `src/` (milestone 664).
 
 use frus::StatefulWidget;
 use widgets::features::inputs::widgets::date_picker::*;

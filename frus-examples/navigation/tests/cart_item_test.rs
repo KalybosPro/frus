@@ -1,4 +1,4 @@
-//! Tests for `navigation::models::cart_item`, moved out of `src/` (milestone 662).
+//! Tests for `navigation::models::cart_item`, moved out of `src/` (milestone 664).
 
 use navigation::models::cart_item::*;
 use navigation::models::product::Product;

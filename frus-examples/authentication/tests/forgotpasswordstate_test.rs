@@ -1,4 +1,4 @@
-//! Tests for `authentication::features::auth::states::forgotpasswordstate`, moved out of `src/` (milestone 662).
+//! Tests for `authentication::features::auth::states::forgotpasswordstate`, moved out of `src/` (milestone 664).
 
 use authentication::features::auth::states::forgotpasswordstate::*;
 

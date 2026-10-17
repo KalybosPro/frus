@@ -1,4 +1,4 @@
-//! Tests for `authentication::common::auth`, moved out of `src/` (milestone 662).
+//! Tests for `authentication::common::auth`, moved out of `src/` (milestone 664).
 
 use authentication::common::session::Session;
 use authentication::features::auth::controllers::user_store::{AuthError, UserStore};

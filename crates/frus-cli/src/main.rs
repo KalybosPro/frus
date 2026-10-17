@@ -14,6 +14,8 @@ mod build;
 mod cargo;
 mod create;
 mod devices;
+mod devlink;
+mod keys;
 mod project;
 mod run;
 mod serve;

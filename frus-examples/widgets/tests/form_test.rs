@@ -1,4 +1,4 @@
-//! Tests for `widgets::features::inputs::widgets::form`, moved out of `src/` (milestone 662).
+//! Tests for `widgets::features::inputs::widgets::form`, moved out of `src/` (milestone 664).
 
 use widgets::features::inputs::widgets::form::*;
 

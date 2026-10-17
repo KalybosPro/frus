@@ -1,4 +1,4 @@
-//! Tests for `authentication::common::session`, moved out of `src/` (milestone 662).
+//! Tests for `authentication::common::session`, moved out of `src/` (milestone 664).
 
 use authentication::common::session::*;
 

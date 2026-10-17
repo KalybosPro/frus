@@ -1,4 +1,4 @@
-//! Tests for `widgets::features::feedback::widgets::snack_bar`, moved out of `src/` (milestone 662).
+//! Tests for `widgets::features::feedback::widgets::snack_bar`, moved out of `src/` (milestone 664).
 
 use frus::{SnackBarKind, StatefulWidget};
 use widgets::features::feedback::widgets::snack_bar::*;

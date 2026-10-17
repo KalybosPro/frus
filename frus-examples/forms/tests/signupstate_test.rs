@@ -1,4 +1,4 @@
-//! Tests for `forms::features::signup::states::signupstate`, moved out of `src/` (milestone 662).
+//! Tests for `forms::features::signup::states::signupstate`, moved out of `src/` (milestone 664).
 
 use forms::features::signup::controllers::signup_service::SignupError;
 use forms::features::signup::controllers::validation::field;

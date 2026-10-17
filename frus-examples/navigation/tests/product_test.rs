@@ -1,4 +1,4 @@
-//! Tests for `navigation::models::product`, moved out of `src/` (milestone 662).
+//! Tests for `navigation::models::product`, moved out of `src/` (milestone 664).
 
 use navigation::models::product::*;
 

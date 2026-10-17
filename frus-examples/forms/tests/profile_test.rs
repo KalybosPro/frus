@@ -1,4 +1,4 @@
-//! Tests for `forms::models::profile`, moved out of `src/` (milestone 662).
+//! Tests for `forms::models::profile`, moved out of `src/` (milestone 664).
 
 use forms::models::profile::*;
 

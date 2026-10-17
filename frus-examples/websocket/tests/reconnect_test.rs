@@ -1,4 +1,4 @@
-//! Tests for `websocket::features::chat::controllers::reconnect`, moved out of `src/` (milestone 662).
+//! Tests for `websocket::features::chat::controllers::reconnect`, moved out of `src/` (milestone 664).
 
 use websocket::features::chat::controllers::reconnect::*;
 

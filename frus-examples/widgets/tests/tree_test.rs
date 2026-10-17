@@ -1,4 +1,4 @@
-//! Tests for `widgets::features::display::widgets::tree`, moved out of `src/` (milestone 662).
+//! Tests for `widgets::features::display::widgets::tree`, moved out of `src/` (milestone 664).
 
 use std::collections::HashSet;
 use widgets::features::display::widgets::tree::*;

@@ -1,4 +1,4 @@
-//! Tests for `http::models::post`, moved out of `src/` (milestone 662).
+//! Tests for `http::models::post`, moved out of `src/` (milestone 664).
 
 use http::models::post::*;
 

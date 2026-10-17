@@ -1,4 +1,4 @@
-//! Tests for `forms::features::signup::controllers::validation`, moved out of `src/` (milestone 662).
+//! Tests for `forms::features::signup::controllers::validation`, moved out of `src/` (milestone 664).
 
 use forms::features::signup::controllers::validation::*;
 use forms::models::profile::{Date, Plan};

@@ -4,14 +4,21 @@
 //! The page it serves is the application's own `index.html` with one script added at the top
 //! of `<head>`: it copies every console message, and every uncaught error, to `/__frus/log`,
 //! which this server prints. So the application's `log::info!` shows in the terminal on the web
-//! as it does on the desktop and on Android. The file on disk is not touched.
+//! as it does on the desktop and on Android. The same script asks `/__frus/build` once a
+//! second which build is being served, and reloads the page when a restart has made a new one:
+//! the address — the application's location — survives the reload. The file on disk is not
+//! touched.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Where the page posts its console.
 const LOG_PATH: &str = "/__frus/log";
+/// Where the page asks which build is served.
+const BUILD_PATH: &str = "/__frus/build";
 
 /// The script added to the page. Each message goes out as soon as it is written, in order.
 const CONSOLE_BRIDGE: &str = r#"<script>(() => {
@@ -34,11 +41,27 @@ const CONSOLE_BRIDGE: &str = r#"<script>(() => {
   }
   addEventListener('error', (event) => send('error', [event.error || event.message]));
   addEventListener('unhandledrejection', (event) => send('error', ['Unhandled rejection:', event.reason]));
+  let build = null;
+  setInterval(() => fetch('/__frus/build', { cache: 'no-store' })
+    .then((answer) => answer.text())
+    .then((served) => {
+      if (build === null) build = served;
+      else if (served !== build) location.reload();
+    })
+    .catch(() => {}), 1000);
 })();</script>"#;
 
 /// A server running on a thread of its own until the program ends.
 pub(crate) struct Server {
     pub url: String,
+    build: Arc<AtomicU64>,
+}
+
+impl Server {
+    /// A new build is in `web/`: the open pages reload within a second.
+    pub(crate) fn rebuilt(&self) {
+        self.build.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 /// Serves `dir` on `localhost`, on `port` if it is free, on another otherwise.
@@ -50,21 +73,25 @@ pub(crate) fn start(dir: PathBuf, port: u16) -> Result<Server, String> {
         .or_else(|_| TcpListener::bind(("127.0.0.1", 0)))
         .map_err(|e| format!("could not open a port to serve the application on: {e}"))?;
     let address: SocketAddr = listener.local_addr().map_err(|e| e.to_string())?;
+    let build = Arc::new(AtomicU64::new(0));
+    let served = build.clone();
     std::thread::spawn(move || {
         for stream in listener.incoming().map_while(Result::ok) {
             let dir = dir.clone();
+            let build = served.load(Ordering::SeqCst);
             std::thread::spawn(move || {
-                let _ = handle(stream, &dir);
+                let _ = handle(stream, &dir, build);
             });
         }
     });
     Ok(Server {
         url: format!("http://localhost:{}/", address.port()),
+        build,
     })
 }
 
 /// One request: a file, or a console message.
-fn handle(mut stream: TcpStream, dir: &Path) -> std::io::Result<()> {
+fn handle(mut stream: TcpStream, dir: &Path, build: u64) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
@@ -90,6 +117,14 @@ fn handle(mut stream: TcpStream, dir: &Path) -> std::io::Result<()> {
         reader.read_exact(&mut body)?;
         print_console(query_value(query, "level"), &String::from_utf8_lossy(&body));
         return respond(&mut stream, "204 No Content", "text/plain", b"");
+    }
+    if path == BUILD_PATH {
+        return respond(
+            &mut stream,
+            "200 OK",
+            "text/plain",
+            build.to_string().as_bytes(),
+        );
     }
     if method != "GET" && method != "HEAD" {
         return respond(&mut stream, "405 Method Not Allowed", "text/plain", b"");
@@ -252,6 +287,10 @@ mod tests {
         let posted = ask("POST /__frus/log?level=info HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello");
         assert!(posted.starts_with("HTTP/1.1 204"), "{posted}");
         assert!(ask("GET /nope HTTP/1.1\r\n\r\n").starts_with("HTTP/1.1 404"));
+        // The build the page polls moves on when a restart has made a new one.
+        assert!(ask("GET /__frus/build HTTP/1.1\r\n\r\n").ends_with("\r\n\r\n0"));
+        server.rebuilt();
+        assert!(ask("GET /__frus/build HTTP/1.1\r\n\r\n").ends_with("\r\n\r\n1"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

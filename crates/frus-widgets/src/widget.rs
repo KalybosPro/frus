@@ -658,6 +658,21 @@ pub trait Widget<Msg = crate::callback::Callback> {
         false
     }
 
+    /// Message for the focus **arriving in or leaving this widget's subtree** (milestone
+    /// 660) — the reference's `onFocusChange`: `true` when the focused widget is now this
+    /// one or inside it and was not, `false` the other way. The shell asks once a frame,
+    /// after the focus has moved, every widget on the two paths from the root that the move
+    /// changed, the one that lost it first.
+    fn on_focus_change(&self, _focused: bool) -> Option<Msg> {
+        None
+    }
+
+    /// Message for a **press outside this widget while it holds the focus** (milestone
+    /// 660) — the reference's `onTapOutside`: sent before the press moves the focus.
+    fn on_tap_outside(&self) -> Option<Msg> {
+        None
+    }
+
     /// If `true`, a focusable widget **takes the focus when it appears**: a menu's first
     /// row when the menu opens, a field on a screen made to type into (milestone 605). Where
     /// the focus came from is remembered, and it goes back there when this one goes.
@@ -2116,6 +2131,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn autofocus(&self) -> bool {
         (**self).autofocus()
+    }
+    fn on_focus_change(&self, focused: bool) -> Option<Msg> {
+        (**self).on_focus_change(focused)
+    }
+    fn on_tap_outside(&self) -> Option<Msg> {
+        (**self).on_tap_outside()
     }
 
     fn shortcut_bindings(&self) -> &[(crate::shortcuts::KeyStroke, crate::shortcuts::Intent)] {

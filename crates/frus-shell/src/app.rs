@@ -13,7 +13,7 @@ use web_time::Instant;
 
 use frus_gpu::Renderer;
 use frus_widgets::{
-    build_deferred, build_ui, collect_ids, find_by_key, find_path, find_widget,
+    build_deferred, build_ui, collect_ids, find_by_key, find_path, find_widget, focus_changes,
     nearest_reorder_slot, reflow_reorder_cards, reflow_reorder_columns, reorder_drop_after,
     reorder_siblings, reorderable_owners, subtree_ids, Accessibility, Brightness, Color,
     Cursor as UiCursor, Edit, EditKind, EditSnapshot, FocusDirection, Insets, Key, KeyResponse,
@@ -919,6 +919,9 @@ pub struct App<A: Application> {
     themes: crate::theming::ThemeFade,
     /// Live-reload watching (development, `FRUS_WATCH=1`): relaunch on recompilation.
     reload: Option<crate::reload::ReloadWatcher>,
+    /// The channel `frus run` listens on, when it started this application — see [`crate::dev`].
+    #[cfg(any(desktop, android))]
+    dev: Option<crate::dev::DevChannel>,
     /// Overflowing boxes already named on the console, so that a layout that does not
     /// fit is reported once and not sixty times a second.
     reported_overflows: std::cell::RefCell<std::collections::HashSet<u64>>,
@@ -1073,6 +1076,9 @@ pub struct App<A: Application> {
     focus_history: Vec<WidgetId>,
     /// The previous frame's focus, to detect the transitions worth pushing.
     prev_focus: Option<WidgetId>,
+    /// The focus the widgets were last told about (milestone 660); see
+    /// `report_focus`.
+    focus_reported: Option<WidgetId>,
     /// The widgets that took the focus on appearing, as of the last frame: one that is new
     /// this frame takes it (milestone 605).
     autofocused: std::collections::HashSet<WidgetId>,
@@ -1183,6 +1189,8 @@ impl<A: Application> App<A> {
             runtime: Runtime::default(),
             themes: crate::theming::ThemeFade::default(),
             reload: crate::reload::ReloadWatcher::new(),
+            #[cfg(any(desktop, android))]
+            dev: None,
             reported_overflows: std::cell::RefCell::new(std::collections::HashSet::new()),
             inspector: false,
             inspector_dump: false,
@@ -1235,6 +1243,7 @@ impl<A: Application> App<A> {
             retry_sheet: Vec::new(),
             focus_history: Vec::new(),
             prev_focus: None,
+            focus_reported: None,
             autofocused: std::collections::HashSet::new(),
             frame_stats: crate::frame_stats::FrameStats::new(),
             frame_costs: crate::frame_stats::FrameCosts::default(),
@@ -1843,6 +1852,13 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         if let Some((w, h)) = self.app.window_size() {
             attributes = attributes.with_inner_size(winit::dpi::LogicalSize::new(w, h));
         }
+        // Restarted by `frus run`: where the window was, as big as it was.
+        #[cfg(desktop)]
+        if let Some([x, y, w, h]) = crate::dev::restore_window() {
+            attributes = attributes
+                .with_position(winit::dpi::PhysicalPosition::new(x, y))
+                .with_inner_size(winit::dpi::PhysicalSize::new(w as u32, h as u32));
+        }
         // Web: winit creates a `<canvas>` and **appends it** to the document's body.
         #[cfg(web)]
         {
@@ -1947,6 +1963,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         self.sync_subscriptions();
                         #[cfg(any(android, desktop))]
                         self.open_launch_link();
+                        #[cfg(any(android, desktop))]
+                        self.connect_dev();
                     }
                     window.request_redraw();
                 }
@@ -2326,6 +2344,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 while let Some(pasted) = self.clipboard.take_answered() {
                     self.land_paste(pasted);
                 }
+                // The widgets hear where the focus went since the last frame, before this
+                // one is built from what they answer (milestone 660).
+                self.report_focus();
                 // A bar whose field is no longer the focused one is over: a field focused
                 // again later must not find it open.
                 if self
@@ -2506,6 +2527,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.run_command(asked);
                 #[cfg(web)]
                 self.sync_address();
+                #[cfg(any(desktop, android))]
+                self.report_dev();
                 #[cfg(desktop)]
                 self.open_links_from_other_instances();
                 // Work a component started brought something: build again to show it.
@@ -3853,6 +3876,22 @@ impl<A: Application> App<A> {
         // 2) Focus and caret placement, and the start of a text selection.
         let previously_focused = self.runtime.input.focused;
         let focus = self.ui.as_ref().and_then(|ui| ui.focus_hit(self.cursor));
+        // A press outside the focused widget tells it so, before the focus moves
+        // (milestone 660).
+        if let Some(held) = previously_focused {
+            let inside = focus.is_some_and(|(id, _)| id == held);
+            let outside = (!inside)
+                .then(|| {
+                    self.tree
+                        .as_ref()
+                        .and_then(|tree| find_widget(tree.as_ref(), held))
+                        .and_then(|widget| widget.on_tap_outside())
+                })
+                .flatten();
+            if let Some(message) = outside {
+                self.dispatch(message);
+            }
+        }
         self.runtime.input.focused = focus.map(|(id, _)| id);
         if let Some((id, rect)) = focus {
             let local_x = self.cursor.x - rect.x;
@@ -4634,6 +4673,26 @@ impl<A: Application> App<A> {
         }
     }
 
+    /// Tells the widgets **where the focus went** since they were last told (milestone 660):
+    /// each one whose subtree it left or entered, through `Widget::on_focus_change`.
+    fn report_focus(&mut self) {
+        let now = self.runtime.input.focused;
+        // Nothing moved, nothing to say — and no walk of the tree, which is the point: the
+        // answer would be empty anyway.
+        if now == self.focus_reported {
+            return;
+        }
+        let before = std::mem::replace(&mut self.focus_reported, now);
+        let messages = self
+            .tree
+            .as_ref()
+            .map(|tree| focus_changes(tree.as_ref(), before, now))
+            .unwrap_or_default();
+        for message in messages {
+            self.dispatch(message);
+        }
+    }
+
     /// Applies a message to the application, runs its effects, then re-evaluates the
     /// subscriptions, the state having possibly changed which ones should run.
     fn dispatch(&mut self, message: A::Message) {
@@ -4645,6 +4704,8 @@ impl<A: Application> App<A> {
         self.run_command(asked);
         #[cfg(web)]
         self.sync_address();
+        #[cfg(any(desktop, android))]
+        self.report_dev();
         self.sync_subscriptions();
     }
 
@@ -4657,11 +4718,52 @@ impl<A: Application> App<A> {
             .android_app
             .as_ref()
             .and_then(crate::android_link::launch_link);
+        // A link on the command line, or where `frus run` restarted the application from.
         #[cfg(desktop)]
-        let link = crate::link::link_among(std::env::args());
+        let link = crate::link::link_among(std::env::args()).or_else(crate::dev::restore_link);
         if let Some(location) = link.as_deref().and_then(crate::link::location_of_link) {
             let command = self.app.open_location(&location);
             self.run_command(command);
+        }
+    }
+
+    /// Opens the channel to `frus run`, when it started this application with one.
+    #[cfg(any(android, desktop))]
+    fn connect_dev(&mut self) {
+        #[cfg(desktop)]
+        {
+            self.dev = crate::dev::address()
+                .as_deref()
+                .and_then(crate::dev::DevChannel::connect);
+        }
+        // On Android the extra only says that `frus run` is listening, and it listens to the log.
+        #[cfg(android)]
+        {
+            let asked = self
+                .android_app
+                .as_ref()
+                .and_then(|app| crate::android_link::launch_extra(app, crate::dev::DEV_EXTRA));
+            self.dev = asked.map(|_| crate::dev::DevChannel::through_log());
+        }
+    }
+
+    /// Tells `frus run` where the application is and where its window sits, when either
+    /// changed; a channel that can no longer be written to is closed.
+    #[cfg(any(android, desktop))]
+    fn report_dev(&mut self) {
+        let Some(dev) = self.dev.as_mut() else {
+            return;
+        };
+        #[cfg(desktop)]
+        let window = self.window.as_ref().and_then(|window| {
+            let at = window.outer_position().ok()?;
+            let size = window.inner_size();
+            Some([at.x, at.y, size.width as i32, size.height as i32])
+        });
+        #[cfg(android)]
+        let window = None;
+        if !dev.report(self.app.location(), window) {
+            self.dev = None;
         }
     }
 
@@ -10087,6 +10189,7 @@ pub mod testing {
             if frus_widgets::take_rebuild_request() || arrived {
                 s.build_dirty = true;
             }
+            s.report_focus();
             if frame_needs_build(
                 s.build_dirty,
                 app_animating,
@@ -13209,5 +13312,107 @@ mod range_slider_drag_tests {
         let start = centre(thumbs(&d)[0]);
         drag(&mut d, start, 120.0);
         assert!(close(d.app().values, (0.5, 0.5)), "{:?}", d.app().values);
+    }
+}
+
+/// The focus moving, through the shell (milestone 660): a group told when it arrives and
+/// leaves, and a field told of a press outside it.
+#[cfg(test)]
+mod focus_change_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{Flex, Focus, Point, Rect, TextField, Theme, Widget};
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Group(bool),
+        Outside,
+        Typed,
+    }
+
+    #[derive(Default)]
+    struct Page {
+        heard: Vec<Msg>,
+    }
+
+    impl Application for Page {
+        type Message = Msg;
+
+        fn update(&mut self, message: Msg) -> Command<Msg> {
+            if message != Msg::Typed {
+                self.heard.push(message);
+            }
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            Box::new(
+                Flex::column()
+                    .width(300.0)
+                    .height(400.0)
+                    .gap(40.0)
+                    .child(
+                        Focus::new(
+                            TextField::new("a")
+                                .on_input(|_| Msg::Typed)
+                                .on_tap_outside(Msg::Outside),
+                        )
+                        .skip_traversal()
+                        .on_focus_change(Msg::Group),
+                    )
+                    .child(TextField::new("b").on_input(|_| Msg::Typed)),
+            )
+        }
+    }
+
+    /// The two fields' boxes, `a` then `b`.
+    fn fields(d: &Driver<Page>) -> (Rect, Rect) {
+        let (ui, _) = d.frame_parts().expect("a frame");
+        let rects: Vec<Rect> = ui
+            .focusable_ids()
+            .filter_map(|id| ui.widget_rect(id))
+            .filter(|r| r.height < 100.0)
+            .collect();
+        (rects[0], rects[rects.len() - 1])
+    }
+
+    fn centre(r: Rect) -> Point {
+        Point::new(r.x + r.width / 2.0, r.y + r.height / 2.0)
+    }
+
+    fn tap(d: &mut Driver<Page>, at: Point) {
+        d.press(at);
+        d.release(at);
+        d.run(0.05);
+    }
+
+    /// **A press on the field brings the focus into the group; a press elsewhere tells the
+    /// field it was outside, then the group that the focus left.**
+    #[test]
+    fn the_shell_reports_the_focus_moving() {
+        let mut d = Driver::new(Page::default(), 300.0, 400.0);
+        d.run(0.2);
+        let (a, b) = fields(&d);
+        tap(&mut d, centre(a));
+        assert_eq!(d.app().heard, vec![Msg::Group(true)], "arrived");
+        tap(&mut d, centre(a));
+        assert_eq!(
+            d.app().heard,
+            vec![Msg::Group(true)],
+            "a press inside says nothing"
+        );
+        tap(&mut d, centre(b));
+        assert_eq!(
+            d.app().heard,
+            vec![Msg::Group(true), Msg::Outside, Msg::Group(false)],
+            "outside, then left"
+        );
+        tap(&mut d, Point::new(150.0, 390.0));
+        assert_eq!(
+            d.app().heard.len(),
+            3,
+            "the other field holds no `on_tap_outside`: {:?}",
+            d.app().heard
+        );
     }
 }

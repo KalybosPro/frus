@@ -1,4 +1,4 @@
-//! Tests for `navigation::features::product::pages::productpage`, moved out of `src/` (milestone 662).
+//! Tests for `navigation::features::product::pages::productpage`, moved out of `src/` (milestone 664).
 
 use navigation::features::product::pages::productpage::*;
 use navigation::models::product::CATALOG;

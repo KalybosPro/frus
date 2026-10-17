@@ -1,4 +1,4 @@
-//! Tests for `http::features::new_post::states::newpoststate`, moved out of `src/` (milestone 662).
+//! Tests for `http::features::new_post::states::newpoststate`, moved out of `src/` (milestone 664).
 
 use http::common::api::ApiError;
 use http::features::new_post::states::newpoststate::*;

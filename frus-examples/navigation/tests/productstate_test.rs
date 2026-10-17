@@ -1,4 +1,4 @@
-//! Tests for `navigation::features::product::states::productstate`, moved out of `src/` (milestone 662).
+//! Tests for `navigation::features::product::states::productstate`, moved out of `src/` (milestone 664).
 
 use navigation::common::cart::MAX_QUANTITY;
 use navigation::features::product::states::productstate::*;

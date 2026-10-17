@@ -1,4 +1,4 @@
-//! Tests for `widgets::features::inputs::widgets::time_picker`, moved out of `src/` (milestone 662).
+//! Tests for `widgets::features::inputs::widgets::time_picker`, moved out of `src/` (milestone 664).
 
 use frus::{Endpoint, StatefulWidget, TimeField};
 use widgets::features::inputs::widgets::time_picker::*;

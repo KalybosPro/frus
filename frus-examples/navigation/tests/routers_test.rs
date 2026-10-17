@@ -1,4 +1,4 @@
-//! Tests for `navigation::common::routers`, moved out of `src/` (milestone 662).
+//! Tests for `navigation::common::routers`, moved out of `src/` (milestone 664).
 
 use navigation::common::routers::*;
 use navigation::common::routes::*;

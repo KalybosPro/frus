@@ -1,4 +1,4 @@
-//! Tests for `navigation::features::search::states::searchstate`, moved out of `src/` (milestone 662).
+//! Tests for `navigation::features::search::states::searchstate`, moved out of `src/` (milestone 664).
 
 use navigation::common::routes::{QUERY, SORT};
 use navigation::features::search::states::searchstate::*;

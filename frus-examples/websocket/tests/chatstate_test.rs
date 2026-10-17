@@ -1,4 +1,4 @@
-//! Tests for `websocket::features::chat::states::chatstate`, moved out of `src/` (milestone 662).
+//! Tests for `websocket::features::chat::states::chatstate`, moved out of `src/` (milestone 664).
 
 use std::time::Duration;
 use websocket::features::chat::controllers::connection::Event;
