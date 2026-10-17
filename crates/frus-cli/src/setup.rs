@@ -47,7 +47,9 @@ pub(crate) fn rust_target(target: &str) -> Result<(), String> {
     match installed {
         Ok(true) => Ok(()),
         Ok(false) => {
-            println!("Installing Rust's {target} target (rustup, about 30 MB)…");
+            crate::report::say(&format!(
+                "Installing Rust's {target} target (rustup, about 30 MB)…"
+            ));
             cargo::run(Command::new("rustup").args(["target", "add", target]))
         }
         // No rustup (a distribution's packaged Rust): let the build say what is missing.
@@ -85,7 +87,9 @@ pub(crate) fn cargo_tool(
         if found.is_some() {
             return Ok(on_path);
         }
-        println!("Installing {krate} (cargo install; it compiles, a few minutes)…");
+        crate::report::say(&format!(
+            "Installing {krate} (cargo install; it compiles, a few minutes)…"
+        ));
         cargo::run(cargo_install(krate).arg("--locked"))?;
         return Ok(on_path);
     };
@@ -104,7 +108,7 @@ pub(crate) fn cargo_tool(
     if answers(&exe).is_some() {
         return Ok(exe);
     }
-    println!(
+    crate::report::say(&format!(
         "This application needs {krate} {version}{}: installing it for frus in {} \
          (cargo install; it compiles, a few minutes the first time)…",
         match found.as_deref().and_then(|t| t.split_whitespace().nth(1)) {
@@ -112,7 +116,7 @@ pub(crate) fn cargo_tool(
             None => String::new(),
         },
         private.display()
-    );
+    ));
     cargo::run(
         cargo_install(krate)
             .args(["--locked", "--version", version, "--root"])
@@ -238,11 +242,11 @@ fn install_command_line_tools(home: &Path) -> Result<(), String> {
     } else {
         "linux"
     };
-    println!(
+    crate::report::say(&format!(
         "No Android SDK on this machine: installing one in {} (the command-line tools, about \
          150 MB, then the parts frus needs).",
         home.display()
-    );
+    ));
     let url = format!(
         "https://dl.google.com/android/repository/commandlinetools-{os}-{CMDLINE_TOOLS}_latest.zip"
     );
@@ -278,10 +282,10 @@ fn sdkmanager(home: &Path, packages: &[String]) -> Result<(), String> {
         install_command_line_tools(home)?;
     }
     let java_home = java()?;
-    println!(
+    crate::report::say(&format!(
         "Installing Android {} (sdkmanager; the NDK alone is about 1 GB)…",
         packages.join(", ")
-    );
+    ));
     let run = |args: &[String]| -> Result<(), String> {
         let mut child = Command::new(&tool)
             .arg(format!("--sdk_root={}", home.display()))
@@ -330,11 +334,11 @@ fn java() -> Result<PathBuf, String> {
     } else {
         "x64"
     };
-    println!(
+    crate::report::say(&format!(
         "The Android SDK's tools run on Java, and there is none here: installing a JDK {JDK_MAJOR} \
          in {} (about 190 MB)…",
         ours.display()
-    );
+    ));
     let url = format!(
         "https://api.adoptium.net/v3/binary/latest/{JDK_MAJOR}/ga/{os}/{arch}/jdk/hotspot/normal/eclipse"
     );

@@ -13,6 +13,11 @@ any release may break.
 
 ## [Unreleased]
 
+- **`frus daemon` and `frus run --machine`** (J665): JSON lines for an editor. The daemon lists
+  the devices and reports them as they come and go; a machine run reports `app.start`,
+  `app.started`, the application's log as `app.log`, `app.restarted` and `app.stop`, and takes
+  `app.restart` and `app.stop`. Nothing but JSON reaches standard output in that mode.
+
 - **The examples' tests live in `tests/`** (J664), as the application `frus create` writes
   keeps them (J658). Each of the seven example projects with tests moved its inline
   `#[cfg(test)]` modules to `tests/<module>_test.rs`, 158 tests in all, and made public what

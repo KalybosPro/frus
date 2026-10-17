@@ -6,13 +6,18 @@
 //! with Ctrl+C, or the developer's shell would be left without echo.
 //!
 //! When the input is not a terminal (an editor drives the run through a pipe), keys arrive as
-//! lines instead, and the first character of each counts.
+//! lines instead, and the first character of each counts. With `--machine`, each line is a JSON
+//! command instead — `{"id":1,"method":"app.restart","params":{"fullRestart":false}}` — answered
+//! on standard output.
 
 use std::io::{IsTerminal, Read};
 use std::sync::mpsc::{self, Receiver};
 
 /// Reads keys on a thread of its own; each arrives on the channel returned.
 pub(crate) fn listen() -> Receiver<char> {
+    if crate::report::is_machine() {
+        return commands();
+    }
     let (send, receive) = mpsc::channel();
     let raw = std::io::stdin().is_terminal() && terminal::raw();
     std::thread::spawn(move || {
@@ -37,6 +42,48 @@ pub(crate) fn listen() -> Receiver<char> {
         }
     });
     receive
+}
+
+/// An editor's commands, as the keys they stand for.
+fn commands() -> Receiver<char> {
+    use crate::json::{object, parse, Value};
+    let (send, receive) = mpsc::channel();
+    std::thread::spawn(move || {
+        let stdin = std::io::stdin();
+        for line in std::io::BufRead::lines(stdin.lock()).map_while(Result::ok) {
+            let Ok(command) = parse(&line) else {
+                continue;
+            };
+            let id = command.get("id").cloned().unwrap_or(Value::Null);
+            let key = command_key(&command);
+            let answer = match key {
+                Some(_) => object([("id", id), ("result", true.into())]),
+                None => object([("id", id), ("error", "unknown method".into())]),
+            };
+            crate::report::line(&answer);
+            if let Some(key) = key {
+                if send.send(key).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+    receive
+}
+
+/// The key an editor's command stands for.
+pub(crate) fn command_key(command: &crate::json::Value) -> Option<char> {
+    let full = command
+        .get("params")
+        .and_then(|p| p.get("fullRestart"))
+        .and_then(crate::json::Value::as_bool)
+        .unwrap_or(false);
+    match command.get("method").and_then(crate::json::Value::as_str)? {
+        "app.restart" if full => Some('R'),
+        "app.restart" => Some('r'),
+        "app.stop" => Some('q'),
+        _ => None,
+    }
 }
 
 /// Puts the terminal back as it was: called when the run ends.
