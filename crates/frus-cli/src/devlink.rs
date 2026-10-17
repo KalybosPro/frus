@@ -8,9 +8,12 @@
 //! declare the `INTERNET` permission. The web needs none of this: a page reloaded keeps its
 //! address, which is its location.
 
-use std::io::{BufRead, BufReader};
-use std::net::TcpListener;
+use std::io::{BufRead, BufReader, Write};
+use std::net::{TcpListener, TcpStream};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// What a log line carrying a report holds after its tag, before the report itself.
 pub(crate) const LOG_MARK: &str = "frus-dev ";
@@ -42,6 +45,10 @@ impl Report {
 pub(crate) struct DevLink {
     pub port: u16,
     report: Arc<Mutex<Report>>,
+    /// The application connected last, to ask it things.
+    latest: Arc<Mutex<Option<TcpStream>>>,
+    /// It answered `saved`.
+    saved: Arc<AtomicBool>,
 }
 
 impl DevLink {
@@ -52,20 +59,32 @@ impl DevLink {
             .map_err(|e| format!("could not open the restart channel: {e}"))?;
         let port = listener.local_addr().map_err(|e| e.to_string())?.port();
         let report = Arc::new(Mutex::new(Report::default()));
-        let shared = report.clone();
+        let latest = Arc::new(Mutex::new(None));
+        let saved = Arc::new(AtomicBool::new(false));
+        let (shared, newest, answered) = (report.clone(), latest.clone(), saved.clone());
         std::thread::spawn(move || {
             for stream in listener.incoming().map_while(Result::ok) {
-                let shared = shared.clone();
+                if let (Ok(mut slot), Ok(writer)) = (newest.lock(), stream.try_clone()) {
+                    *slot = Some(writer);
+                }
+                let (shared, answered) = (shared.clone(), answered.clone());
                 std::thread::spawn(move || {
                     for line in BufReader::new(stream).lines().map_while(Result::ok) {
-                        if let Ok(mut report) = shared.lock() {
+                        if line == "saved" {
+                            answered.store(true, Ordering::SeqCst);
+                        } else if let Ok(mut report) = shared.lock() {
                             report.take(&line);
                         }
                     }
                 });
             }
         });
-        Ok(Self { port, report })
+        Ok(Self {
+            port,
+            report,
+            latest,
+            saved,
+        })
     }
 
     /// `127.0.0.1:<port>`, what the application is told.
@@ -75,6 +94,30 @@ impl DevLink {
 
     pub(crate) fn report(&self) -> Report {
         self.report.lock().map(|r| r.clone()).unwrap_or_default()
+    }
+
+    /// Asks the running application to write its component states to `file`, and waits — a few
+    /// seconds at most — for it to say it did. `false`: it did not answer, and the restart
+    /// goes on without them.
+    pub(crate) fn save_states(&self, file: &Path) -> bool {
+        self.saved.store(false, Ordering::SeqCst);
+        let asked = self.latest.lock().ok().and_then(|mut slot| {
+            let stream = slot.as_mut()?;
+            stream
+                .write_all(format!("save {}\n", file.display()).as_bytes())
+                .ok()
+        });
+        if asked.is_none() {
+            return false;
+        }
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            if self.saved.load(Ordering::SeqCst) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        false
     }
 
     /// A log line, taken in if it carries a report: `true` when it did, and is not the
@@ -125,6 +168,26 @@ mod tests {
             report.lock().unwrap().location.as_deref(),
             Some("/search?q=shoes")
         );
+    }
+
+    /// The request goes to the application, and its answer is waited for.
+    #[test]
+    fn states_are_asked_for_and_answered() {
+        let link = DevLink::open().unwrap();
+        let app = TcpStream::connect(link.address()).unwrap();
+        let mut answer = app.try_clone().unwrap();
+        std::thread::spawn(move || {
+            let mut asked = String::new();
+            BufReader::new(app).read_line(&mut asked).unwrap();
+            assert_eq!(asked, "save states.txt\n");
+            answer.write_all(b"saved\n").unwrap();
+        });
+        // The listener takes the connection on its own thread.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while link.latest.lock().unwrap().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(link.save_states(Path::new("states.txt")));
     }
 
     #[test]

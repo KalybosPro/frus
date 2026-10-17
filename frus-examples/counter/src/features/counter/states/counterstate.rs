@@ -40,6 +40,21 @@ impl CounterState {
     pub(crate) fn set_step(&mut self, step: i64) {
         self.step = step;
     }
+
+    /// What survives a reload under `frus run` (`r`): the count and the step, as text.
+    pub(crate) fn to_saved(&self) -> String {
+        format!("{} {}", self.count, self.step)
+    }
+
+    /// Takes back what [`CounterState::to_saved`] wrote. Text from an older version that no
+    /// longer reads is ignored: the counter starts afresh.
+    pub(crate) fn take_saved(&mut self, saved: &str) {
+        let mut numbers = saved.split_whitespace().map(str::parse::<i64>);
+        if let (Some(Ok(count)), Some(Ok(step))) = (numbers.next(), numbers.next()) {
+            self.count = count;
+            self.step = step;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -57,6 +72,20 @@ mod tests {
         state.set_step(10);
         state.increment();
         assert_eq!(state.count, 11);
+    }
+
+    #[test]
+    fn the_count_survives_a_reload() {
+        let mut before = CounterState::new(1);
+        before.set_step(5);
+        before.increment();
+        let mut after = CounterState::new(1);
+        after.take_saved(&before.to_saved());
+        assert_eq!((after.count, after.step), (5, 5));
+
+        let mut fresh = CounterState::new(1);
+        fresh.take_saved("not a counter");
+        assert_eq!((fresh.count, fresh.step), (0, 1));
     }
 
     #[test]

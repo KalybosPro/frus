@@ -13,6 +13,13 @@ any release may break.
 
 ## [Unreleased]
 
+- **`r` reloads with the state kept** (J663). `State::save` and `State::restore`, both
+  optional, let a component's state cross a restart under `frus run`: `r` builds the
+  application again and brings it back on the same page with those states, `R` restarts it
+  afresh. The state store gains `snapshot` and `restore_from`. The counter example keeps its
+  count. True hot reload (code patched in place) was tried and is not possible yet:
+  `docs/milestone-663.md` says why.
+
 - **Hot restart in `frus run`** (J662). `R` builds the application again and starts the new
   build where the old one was: the same page on every platform, and on a desktop the window in
   the same place and size. A failed build leaves the running application alone; `q` quits. An

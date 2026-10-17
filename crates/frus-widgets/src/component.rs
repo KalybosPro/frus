@@ -203,6 +203,8 @@ pub struct StateStore {
     building: Cell<bool>,
     effects: RefCell<Vec<PendingEffect>>,
     services: RefCell<HashMap<TypeId, Rc<dyn Any>>>,
+    /// What a restart handed over and no component has taken yet: by place, then type name.
+    restoring: RefCell<HashMap<(StateKey, String), String>>,
 }
 
 struct Entry {
@@ -211,6 +213,14 @@ struct Entry {
     state: Option<Rc<dyn Any>>,
     hooks: Rc<Hooks>,
     dispose: Option<Box<dyn FnOnce()>>,
+    /// What [`State::save`] says, for a restart; `None` for hooks.
+    save: Option<Saver>,
+}
+
+/// A state's type name and its [`State::save`], reached without its type.
+struct Saver {
+    name: &'static str,
+    save: Box<dyn Fn() -> Option<String>>,
 }
 
 impl Entry {
@@ -253,6 +263,53 @@ impl StateStore {
             self.sweep();
         }
         self.flush_effects();
+    }
+
+    /// What every live state that opts in ([`State::save`]) wants kept across a restart, as
+    /// text: a line a state, its place, its type and what it saved.
+    ///
+    /// `frus run` asks for this just before it stops the application to start a new build,
+    /// and hands it to [`StateStore::restore_from`] in the new one. A state is given back what
+    /// it saved only by the component at the same place, of the same type.
+    pub fn snapshot(&self) -> String {
+        let mut lines: Vec<String> = self
+            .entries
+            .borrow()
+            .iter()
+            .filter_map(|((id, depth), entry)| {
+                let saver = entry.save.as_ref()?;
+                let saved = (saver.save)()?;
+                Some(format!(
+                    "{:x}\t{depth}\t{}\t{}",
+                    id.as_u64(),
+                    saver.name,
+                    escape(&saved)
+                ))
+            })
+            .collect();
+        lines.sort();
+        lines.join("\n")
+    }
+
+    /// Takes a [`StateStore::snapshot`]: each state it holds is given back to the component
+    /// that mounts first at its place, with its type.
+    pub fn restore_from(&self, snapshot: &str) {
+        let mut restoring = self.restoring.borrow_mut();
+        for line in snapshot.lines() {
+            let mut fields = line.splitn(4, '\t');
+            let (Some(id), Some(depth), Some(name), Some(saved)) =
+                (fields.next(), fields.next(), fields.next(), fields.next())
+            else {
+                continue;
+            };
+            let (Ok(id), Ok(depth)) = (u64::from_str_radix(id, 16), depth.parse::<u32>()) else {
+                continue;
+            };
+            restoring.insert(
+                ((WidgetId::from_u64(id), depth), name.to_string()),
+                unescape(saved),
+            );
+        }
     }
 
     /// Makes `value` available to every component below as a service: the way an
@@ -338,6 +395,7 @@ impl StateStore {
                 state: None,
                 hooks: hooks.clone(),
                 dispose: None,
+                save: None,
             },
         );
         hooks
@@ -377,8 +435,15 @@ impl StateStore {
             widget: RefCell::new(widget),
             mounted: Cell::new(true),
         });
+        // A restart handed over what this state saved: given back before `init_state`.
+        let name = std::any::type_name::<W::State>();
+        let saved = self.restoring.borrow_mut().remove(&(key, name.to_string()));
+        if let Some(saved) = saved {
+            cell.state.borrow_mut().restore(&saved);
+        }
         let hooks = Rc::new(Hooks::default());
         let leaving = cell.clone();
+        let saving = cell.clone();
         self.entries.borrow_mut().insert(
             key,
             Entry {
@@ -392,6 +457,10 @@ impl StateStore {
                         state.dispose();
                     }
                 })),
+                save: Some(Saver {
+                    name,
+                    save: Box::new(move || saving.state.try_borrow().ok()?.save()),
+                }),
             },
         );
         Mounted {
@@ -406,6 +475,33 @@ struct Mounted<W: StatefulWidget> {
     cell: Rc<StateCell<W::State>>,
     hooks: Rc<Hooks>,
     previous: Option<Rc<W>>,
+}
+
+/// A saved state on one line of a snapshot: `\\`, tabs and line breaks escaped.
+fn escape(text: &str) -> String {
+    text.replace('\\', "\\\\")
+        .replace('\t', "\\t")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
+fn unescape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('t') => out.push('\t'),
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some(other) => out.push(other),
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------------------
@@ -883,6 +979,32 @@ pub trait State: Sized + 'static {
     /// Called once, when the widget leaves the tree. The state is never used again.
     fn dispose(&mut self) {}
 
+    /// What this state keeps across a **restart** under `frus run` (`R`, or `r`): the new
+    /// build of the application starts with it, given back through [`State::restore`]. Any
+    /// text will do — a number, a few fields joined, a JSON document.
+    ///
+    /// `None`, the default, keeps nothing: the state starts afresh, as on a first launch.
+    /// Nothing is saved outside `frus run`.
+    ///
+    /// ```ignore
+    /// fn save(&self) -> Option<String> {
+    ///     Some(self.count.to_string())
+    /// }
+    ///
+    /// fn restore(&mut self, saved: &str) {
+    ///     self.count = saved.parse().unwrap_or(0);
+    /// }
+    /// ```
+    fn save(&self) -> Option<String> {
+        None
+    }
+
+    /// Takes back what [`State::save`] returned before a restart. Called once, right after
+    /// [`StatefulWidget::create_state`] and before [`State::init_state`], and only for the
+    /// component at the same place, of the same type. What no longer fits — the code changed
+    /// in between — can simply be ignored.
+    fn restore(&mut self, _saved: &str) {}
+
     /// The widget this state stands for. Called whenever the tree is rebuilt.
     ///
     /// It only *reads* the state. What a handler changes goes through
@@ -1326,6 +1448,99 @@ mod tests {
 
     fn width(widget: &dyn Widget) -> Dimension {
         widget.style().width
+    }
+
+    /// A counter that keeps its count across a restart.
+    struct Kept;
+
+    struct KeptState {
+        count: i32,
+        seen_at_init: Option<i32>,
+    }
+
+    impl StatefulWidget for Kept {
+        type State = KeptState;
+        fn create_state(&self) -> KeptState {
+            KeptState {
+                count: 0,
+                seen_at_init: None,
+            }
+        }
+    }
+
+    impl State for KeptState {
+        type Widget = Kept;
+        fn init_state(&mut self, _cx: &StateContext<Self>) {
+            self.seen_at_init = Some(self.count);
+        }
+        fn save(&self) -> Option<String> {
+            Some(format!("{}\tline two\n\\", self.count))
+        }
+        fn restore(&mut self, saved: &str) {
+            assert!(saved.ends_with("\tline two\n\\"), "{saved:?}");
+            self.count = saved.split('\t').next().unwrap().parse().unwrap();
+        }
+        fn build(&self, _cx: &StateContext<Self>) -> Box<dyn Widget> {
+            Box::new(Container::new().width(10.0 + self.count as f32).height(4.0))
+        }
+    }
+
+    /// What a state saves comes back to the component at the same place in the next build of
+    /// the application — before its `init_state` — and a state that saves nothing is left out.
+    #[test]
+    fn kept_states_cross_a_restart() {
+        let before = Runtime::default();
+        let (log, out) = (log(), handle());
+        let tree = || -> Box<dyn Widget> {
+            Box::new(crate::column![Kept.into_widget(), life(1, &log, &out)])
+        };
+        let root = tree();
+        frame(&before, root.as_ref());
+        let kept = before
+            .states
+            .entries
+            .borrow()
+            .values()
+            .find_map(|entry| entry.state.clone()?.downcast::<StateCell<KeptState>>().ok())
+            .unwrap();
+        kept.state.borrow_mut().count = 7;
+        let snapshot = before.states.snapshot();
+        assert_eq!(
+            snapshot.lines().count(),
+            1,
+            "only the state that saves: {snapshot}"
+        );
+
+        let after = Runtime::default();
+        after.states.restore_from(&snapshot);
+        let root = tree();
+        frame(&after, root.as_ref());
+        let restored = after
+            .states
+            .entries
+            .borrow()
+            .values()
+            .find_map(|entry| entry.state.clone()?.downcast::<StateCell<KeptState>>().ok())
+            .unwrap();
+        let state = restored.state.borrow();
+        assert_eq!(state.count, 7);
+        assert_eq!(state.seen_at_init, Some(7), "restored before init_state");
+        assert!(after.states.restoring.borrow().is_empty(), "taken once");
+    }
+
+    #[test]
+    fn saved_text_survives_escaping() {
+        for text in [
+            "plain",
+            "tab\there",
+            "two\nlines",
+            "back\\slash",
+            "\\n literally",
+            "",
+        ] {
+            assert_eq!(unescape(&escape(text)), text);
+            assert!(!escape(text).contains(['\n', '\t']));
+        }
     }
 
     #[test]

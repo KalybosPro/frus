@@ -233,6 +233,27 @@ frus build apk            # what you ship: apk, web or desktop
 logcat filtered on the application, and the browser's console, which the page sends back to the
 terminal.
 
+While it runs, `r` **reloads** the application with your change: it is built again and comes
+back on the same page, with the window where it was, and with the state of every component
+that keeps one. `R` does the same with every state afresh, and `q` quits. A state keeps itself
+by saying what to keep, as text, and taking it back:
+
+```rust
+impl State for CounterState {
+    type Widget = Counter;
+
+    fn save(&self) -> Option<String> {
+        Some(self.count.to_string())
+    }
+
+    fn restore(&mut self, saved: &str) {
+        self.count = saved.parse().unwrap_or(0);
+    }
+
+    fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> { /* … */ }
+}
+```
+
 A command that needs something the machine lacks installs it and carries on: a Rust target,
 cargo-apk, wasm-bindgen at the version the application's `Cargo.lock` holds (in `~/.frus/tools`,
 leaving any other version alone), and the Android SDK and NDK (completed if there is one,
