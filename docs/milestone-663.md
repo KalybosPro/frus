@@ -49,6 +49,9 @@ one**.
 - `cargo test -p frus-cli`: the request is sent to the application and its answer waited for.
 - On Windows, a copy of the counter example counting by itself: 6 on screen, then `r` showed
   8 (it had carried on from where it was), then `R` showed 1 (afresh).
+- On a Huawei STK-L21 (Android 10), the same copy, captured 10 seconds after each relaunch:
+  `r` showed 12 and `R` showed 4. The 8 between them is the count kept when the HOME key sent
+  the application to the background, given back after the reinstall.
 
 ## Hot reload proper: what was learned
 
@@ -85,6 +88,4 @@ certain. The experiment's code is not kept; this note is its record.
 - **The web keeps no state across a reload yet**: its page reloads, and the snapshot would have
   to cross that reload (session storage is the natural place).
 - **Hooks** (`use_state`) are not kept, only `State`s that implement `save`.
-- **Android**: the reload was verified on the desktop; the phone was not connected when it was
-  finished.
 - **True hot reload**: see above.
