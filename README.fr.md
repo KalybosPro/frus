@@ -13,7 +13,7 @@ Un seul code → bureau, Android et le Web. Rendu GPU. Construit à partir de co
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 [![Statut](https://img.shields.io/badge/statut-pré--alpha-yellow.svg)](#état-du-projet)
 
-[Démarrer](#démarrer) · [Galerie](#à-quoi-ça-ressemble) · [Architecture](#architecture) · [État](#état-du-projet) · [Contribuer](CONTRIBUTING.md) · [English](README.md)
+[Démarrer](#démarrer) · [Galerie](#à-quoi-ça-ressemble) · [Galerie de widgets en ligne](https://kalybospro.github.io/frus/) · [Architecture](#architecture) · [État](#état-du-projet) · [Contribuer](CONTRIBUTING.md) · [English](README.md)
 
 <br>
 

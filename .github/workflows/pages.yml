@@ -1,0 +1,77 @@
+name: Pages
+
+# The widget gallery (`frus-examples/widgets`), built for the Web and published on GitHub
+# Pages: https://kalybospro.github.io/frus/
+#
+# The site is the `gh-pages` branch, rewritten as a single commit on every run so ten
+# megabytes of wasm per push do not pile up in its history.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "crates/**"
+      - "frus-examples/widgets/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gallery:
+    name: Widget gallery
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frus-examples/widgets
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frus-examples/widgets
+
+      # The CLI must be the exact version of the `wasm-bindgen` crate in the lock file,
+      # or the glue it writes does not match the module.
+      - name: wasm-bindgen version
+        id: bindgen
+        run: |
+          version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
+
+      - name: Build
+        run: cargo build --lib --target wasm32-unknown-unknown --profile web-release
+
+      - name: Generate the JavaScript glue
+        run: >
+          wasm-bindgen --target web --no-typescript --out-dir web/pkg
+          target/wasm32-unknown-unknown/web-release/widgets.wasm
+
+      - name: Publish to gh-pages
+        run: |
+          cp -r web "$RUNNER_TEMP/site"
+          cd "$RUNNER_TEMP/site"
+          # Served as is, not through Jekyll.
+          touch .nojekyll
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Widget gallery from ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" gh-pages
