@@ -2,9 +2,10 @@
 //! the desktop's terminal output, Android's logcat, the browser's console — in this terminal
 //! until it ends.
 //!
-//! While it runs, keys drive it: `R` **restarts** it (it is built again, and the new build
-//! opens where the old one was — the same page, the window in the same place), `q` quits. A
-//! build that fails leaves the running application as it was.
+//! While it runs, keys drive it. `r` **reloads** it: it is built again, and the new build
+//! opens where the old one was — the same page, the window in the same place — with the state
+//! of every component that keeps one (`State::save`). `R` **restarts** it the same way but with
+//! every state afresh. `q` quits. A build that fails leaves the running application as it was.
 
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -36,8 +37,9 @@ pub(crate) const DEFAULT_PORT: u16 = 8080;
 /// What a key asks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Action {
+    /// A new build, where the old one was, every state afresh.
     Restart,
-    /// Hot reload: a restart until it exists (milestone 663).
+    /// A new build, where the old one was, with the states that are kept.
     Reload,
     Quit,
     Help,
@@ -54,8 +56,8 @@ pub(crate) fn action(key: char) -> Option<Action> {
 }
 
 // No line continuation after the opening quote: it would eat this line's indentation too.
-const KEYS: &str = "  R  hot restart: build again, and start where it was
-  r  hot reload (a restart, until frus has hot reload)
+const KEYS: &str = "  r  reload: build again, start where it was, with the states it keeps
+  R  restart: build again, start where it was, every state afresh
   q  quit
   h  this list
 ";
@@ -110,12 +112,13 @@ fn next_action(keys: &Receiver<char>, wait: Duration) -> Option<Action> {
 }
 
 fn restarting(action: Action, location: Option<&str>) {
-    if action == Action::Reload {
-        println!("Hot reload is not in frus yet: restarting instead.");
-    }
+    let what = match action {
+        Action::Reload => "Reloading",
+        _ => "Restarting",
+    };
     match location {
-        Some(location) => println!("Restarting at {location}: building…"),
-        None => println!("Restarting: building…"),
+        Some(location) => println!("{what} at {location}: building…"),
+        None => println!("{what}: building…"),
     }
 }
 
@@ -126,7 +129,15 @@ fn run_desktop(project: &Project, options: &RunOptions) -> Result<ExitCode, Stri
     let runs = project.target_dir()?.join("frus-run");
     let mut generation = 0;
     let built = cargo::build_desktop(project, options.mode)?;
-    let mut child = start_desktop(project, options, &built, &runs, &mut generation, &link)?;
+    let mut child = start_desktop(
+        project,
+        options,
+        &built,
+        &runs,
+        &mut generation,
+        &link,
+        None,
+    )?;
     let keys = attach(&format!("{} is running", project.package));
     loop {
         if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
@@ -147,10 +158,19 @@ fn run_desktop(project: &Project, options: &RunOptions) -> Result<ExitCode, Stri
                 // copy, so the build may write its executable.
                 match cargo::build_desktop(project, options.mode) {
                     Ok(built) => {
+                        let states = (action == Action::Reload).then(|| runs.join("states.txt"));
+                        let states = states.filter(|file| link.save_states(file));
                         let _ = child.kill();
                         let _ = child.wait();
-                        child =
-                            start_desktop(project, options, &built, &runs, &mut generation, &link)?;
+                        child = start_desktop(
+                            project,
+                            options,
+                            &built,
+                            &runs,
+                            &mut generation,
+                            &link,
+                            states.as_deref(),
+                        )?;
                         println!("Restarted in {:.1} s.", started.elapsed().as_secs_f32());
                     }
                     Err(error) => eprintln!("{error}: the running application is left as it was."),
@@ -172,12 +192,15 @@ fn start_desktop(
     runs: &Path,
     generation: &mut u32,
     link: &DevLink,
+    states: Option<&Path>,
 ) -> Result<Child, String> {
     std::fs::create_dir_all(runs).map_err(|e| e.to_string())?;
-    // The previous copies, which are no longer running.
+    // The previous copies, which are no longer running (the states file is the new one's).
     if let Ok(entries) = std::fs::read_dir(runs) {
         for entry in entries.filter_map(Result::ok) {
-            let _ = std::fs::remove_file(entry.path());
+            if Some(entry.path().as_path()) != states {
+                let _ = std::fs::remove_file(entry.path());
+            }
         }
     }
     *generation += 1;
@@ -202,6 +225,9 @@ fn start_desktop(
     }
     if let Some(window) = window {
         command.env("FRUS_RESTORE_WINDOW", window);
+    }
+    if let Some(states) = states {
+        command.env("FRUS_RESTORE_STATES", states);
     }
     command
         .spawn()
@@ -312,6 +338,23 @@ fn run_android(
             Some(action @ (Action::Restart | Action::Reload)) => {
                 restarting(action, link.report().location.as_deref());
                 let started = Instant::now();
+                // On a reload, the application is sent to the background first: going there
+                // under `frus run`, it keeps its states in its own storage, which the
+                // reinstall leaves alone, and the next launch reads them back.
+                if action == Action::Reload {
+                    let _ = adb_on(&["shell", "input", "keyevent", "KEYCODE_HOME"]).output();
+                    std::thread::sleep(Duration::from_millis(1500));
+                } else {
+                    let _ = adb_on(&[
+                        "shell",
+                        "run-as",
+                        package,
+                        "rm",
+                        "-f",
+                        "files/frus-run-states",
+                    ])
+                    .output();
+                }
                 match install(link.report().location.as_deref()) {
                     Ok(()) => {
                         watch = Watch::default();

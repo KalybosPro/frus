@@ -40,6 +40,16 @@ const STEPS: [i64; 3] = [1, 5, 10];
 impl State for CounterState {
     type Widget = CounterPage;
 
+    /// Kept across a reload under `frus run` (`r`): change the code, press `r`, and the
+    /// counter is still where it was. Outside `frus run` this is never called.
+    fn save(&self) -> Option<String> {
+        Some(self.to_saved())
+    }
+
+    fn restore(&mut self, saved: &str) {
+        self.take_saved(saved);
+    }
+
     /// Describes the page for the current state.
     ///
     /// Every handler is made with `cx.callback(..)`: it changes the state through one of

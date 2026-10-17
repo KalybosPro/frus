@@ -40,4 +40,19 @@ impl CounterState {
     pub fn set_step(&mut self, step: i64) {
         self.step = step;
     }
+
+    /// What survives a reload under `frus run` (`r`): the count and the step, as text.
+    pub fn to_saved(&self) -> String {
+        format!("{} {}", self.count, self.step)
+    }
+
+    /// Takes back what [`CounterState::to_saved`] wrote. Text from an older version that no
+    /// longer reads is ignored: the counter starts afresh.
+    pub fn take_saved(&mut self, saved: &str) {
+        let mut numbers = saved.split_whitespace().map(str::parse::<i64>);
+        if let (Some(Ok(count)), Some(Ok(step))) = (numbers.next(), numbers.next()) {
+            self.count = count;
+            self.step = step;
+        }
+    }
 }

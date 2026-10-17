@@ -66,8 +66,8 @@ While it runs, keys drive it:
 
 | key | |
 |---|---|
-| `R` | **hot restart**: build again, stop the application and start the new build where the old one was — the same page, and on a desktop the window in the same place and size |
-| `r` | hot reload (a restart, until frus has hot reload) |
+| `r` | **reload**: build again, stop the application and start the new build where the old one was — the same page, on a desktop the window in the same place and size — **with the state of every component that keeps one** (`State::save`) |
+| `R` | **restart**: the same, but every state starts afresh |
 | `q` | quit: the application is stopped |
 | `h` | the list of keys |
 

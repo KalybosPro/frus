@@ -1983,6 +1983,17 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         // Background: the surface is lost, so the app moves to `Paused`.
         self.set_lifecycle(Lifecycle::Paused);
+        // Under `frus run`, this is how a restart begins on Android: the states are kept.
+        #[cfg(android)]
+        if self.dev.is_some() {
+            if let Some(storage) = self
+                .android_app
+                .as_ref()
+                .and_then(|a| a.internal_data_path())
+            {
+                crate::dev::keep_states(&storage, &self.runtime.states.snapshot());
+            }
+        }
         self.renderer = None;
         self.window = None;
         #[cfg(android)]
@@ -4735,6 +4746,10 @@ impl<A: Application> App<A> {
             self.dev = crate::dev::address()
                 .as_deref()
                 .and_then(crate::dev::DevChannel::connect);
+            crate::dev::set_window(self.window.clone());
+            if let Some(states) = crate::dev::restored_states() {
+                self.runtime.states.restore_from(&states);
+            }
         }
         // On Android the extra only says that `frus run` is listening, and it listens to the log.
         #[cfg(android)]
@@ -4744,6 +4759,15 @@ impl<A: Application> App<A> {
                 .as_ref()
                 .and_then(|app| crate::android_link::launch_extra(app, crate::dev::DEV_EXTRA));
             self.dev = asked.map(|_| crate::dev::DevChannel::through_log());
+            if self.dev.is_some() {
+                let storage = self
+                    .android_app
+                    .as_ref()
+                    .and_then(|app| app.internal_data_path());
+                if let Some(states) = storage.and_then(|dir| crate::dev::restored_states(&dir)) {
+                    self.runtime.states.restore_from(&states);
+                }
+            }
         }
     }
 
@@ -4764,7 +4788,10 @@ impl<A: Application> App<A> {
         let window = None;
         if !dev.report(self.app.location(), window) {
             self.dev = None;
+            return;
         }
+        let states = &self.runtime.states;
+        dev.save_if_asked(|| states.snapshot());
     }
 
     /// The links a second process handed to this one since the last frame.

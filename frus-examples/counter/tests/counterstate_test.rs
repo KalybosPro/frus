@@ -24,3 +24,17 @@ fn reset_also_stops_the_timer() {
     assert_eq!(state.count, 0);
     assert!(!state.auto);
 }
+
+#[test]
+fn the_count_survives_a_reload() {
+    let mut before = CounterState::new(1);
+    before.set_step(5);
+    before.increment();
+    let mut after = CounterState::new(1);
+    after.take_saved(&before.to_saved());
+    assert_eq!((after.count, after.step), (5, 5));
+
+    let mut fresh = CounterState::new(1);
+    fresh.take_saved("not a counter");
+    assert_eq!((fresh.count, fresh.step), (0, 1));
+}

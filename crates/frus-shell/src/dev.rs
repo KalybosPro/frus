@@ -24,10 +24,21 @@
 //! a desktop, and on Android a link the launch intent carries, which
 //! [`crate::link::location_of_link`] reads like any other. The web needs none of this: a reload
 //! keeps the address, and the address is the location.
+//!
+//! **Component states** that opt in (`State::save`) cross the restart too, as a snapshot of the
+//! state store. On a desktop `frus run` asks for it just before stopping the application —
+//! `save <file>` on the socket, answered `saved` once written — and the new build reads it from
+//! `FRUS_RESTORE_STATES`. On Android, where nothing reaches the application, `frus run` sends
+//! it to the background first: the shell writes the snapshot to the application's own storage
+//! as it goes, and the next launch under `frus run` reads it back.
 
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpStream};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use winit::window::Window;
 
 /// The environment variable a desktop application finds the channel's address in.
 #[cfg(desktop)]
@@ -41,6 +52,17 @@ const LOCATION_ENV: &str = "FRUS_RESTORE_LOCATION";
 /// Where its window goes, and how big it is: `x,y,width,height`, physical pixels.
 #[cfg(desktop)]
 const WINDOW_ENV: &str = "FRUS_RESTORE_WINDOW";
+/// The file a restarted desktop application's component states are read from.
+#[cfg(desktop)]
+const STATES_ENV: &str = "FRUS_RESTORE_STATES";
+/// The file, in an Android application's own storage, its states are kept in across a restart.
+#[cfg(android)]
+const STATES_FILE: &str = "frus-run-states";
+
+/// Where `frus run` asked the states to be written, not yet done.
+static SAVE_TO: Mutex<Option<PathBuf>> = Mutex::new(None);
+/// The window to wake when it asks: the request arrives on another thread.
+static WINDOW: Mutex<Option<Arc<Window>>> = Mutex::new(None);
 
 /// A window's place and size: outer position, inner size, in physical pixels.
 pub(crate) type Placement = [i32; 4];
@@ -65,6 +87,17 @@ enum Sink {
     Log,
 }
 
+/// The socket is closed, both ways, when the channel goes: `frus run` sees the application
+/// leave, and the thread reading its requests ends instead of waiting on a connection that a
+/// clone of the socket would otherwise keep open.
+impl Drop for DevChannel {
+    fn drop(&mut self) {
+        if let Sink::Socket(stream) = &self.sink {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+        }
+    }
+}
+
 impl DevChannel {
     /// Connects to `address` — or does nothing, within a second, if nobody listens there.
     #[cfg_attr(not(desktop), allow(dead_code))]
@@ -77,7 +110,35 @@ impl DevChannel {
             return None;
         };
         let _ = stream.set_nodelay(true);
+        // What `frus run` asks: `save <file>`, before it stops the application.
+        if let Ok(reading) = stream.try_clone() {
+            std::thread::spawn(move || {
+                for line in BufReader::new(reading).lines().map_while(Result::ok) {
+                    if let Some(path) = line.strip_prefix("save ") {
+                        if let Ok(mut slot) = SAVE_TO.lock() {
+                            *slot = Some(PathBuf::from(path.trim()));
+                        }
+                        if let Ok(window) = WINDOW.lock() {
+                            if let Some(window) = window.as_ref() {
+                                window.request_redraw();
+                            }
+                        }
+                    }
+                }
+            });
+        }
         Some(Self::to(Sink::Socket(stream)))
+    }
+
+    /// Writes `snapshot` where `frus run` asked, if it asked, and says it is done.
+    pub(crate) fn save_if_asked(&mut self, snapshot: impl FnOnce() -> String) {
+        let Some(path) = SAVE_TO.lock().ok().and_then(|mut slot| slot.take()) else {
+            return;
+        };
+        let written = std::fs::write(&path, snapshot()).is_ok();
+        if let Sink::Socket(stream) = &mut self.sink {
+            let _ = stream.write_all(if written { b"saved\n" } else { b"unsaved\n" });
+        }
     }
 
     /// Reports through the log, which `frus run` reads.
@@ -124,6 +185,39 @@ impl DevChannel {
             }
         }
     }
+}
+
+/// The window a request from `frus run` wakes.
+#[cfg(desktop)]
+pub(crate) fn set_window(window: Option<Arc<Window>>) {
+    if let Ok(mut slot) = WINDOW.lock() {
+        *slot = window;
+    }
+}
+
+/// The component states a restart handed over, if it did; the file is consumed.
+#[cfg(desktop)]
+pub(crate) fn restored_states() -> Option<String> {
+    let path = std::env::var_os(STATES_ENV)?;
+    let states = std::fs::read_to_string(&path).ok();
+    let _ = std::fs::remove_file(&path);
+    states
+}
+
+/// The same on Android, from the application's own storage.
+#[cfg(android)]
+pub(crate) fn restored_states(storage: &std::path::Path) -> Option<String> {
+    let path = storage.join(STATES_FILE);
+    let states = std::fs::read_to_string(&path).ok();
+    let _ = std::fs::remove_file(&path);
+    states
+}
+
+/// Keeps the states in the application's own storage, as it goes to the background under
+/// `frus run`: a reinstall keeps that storage, and the next launch reads them back.
+#[cfg(android)]
+pub(crate) fn keep_states(storage: &std::path::Path, snapshot: &str) {
+    let _ = std::fs::write(storage.join(STATES_FILE), snapshot);
 }
 
 /// The channel's address, if `frus run` gave one.
@@ -211,6 +305,10 @@ mod tests {
         assert!(channel.report(None, Some([10, 20, 800, 600])));
         drop(channel);
 
+        // Read to the end: the channel, dropped, closed its socket (a clone of it lives on in the
+        // thread reading requests, and must not keep the connection open).
+        peer.set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
         let lines: Vec<String> = BufReader::new(peer).lines().map_while(Result::ok).collect();
         assert_eq!(
             lines,
