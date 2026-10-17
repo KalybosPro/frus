@@ -7,9 +7,22 @@ Run [frus](https://github.com/KalybosPro/frus) applications from VS Code, on any
 - **F5** builds the application for the selected device, starts it there and shows **its log in
   the Debug Console**: the desktop program's output, the phone's logcat, the browser's console.
   Errors are shown as errors.
-- **Reload on save**: saving a Rust file builds the application again and brings it back on the
-  same page, with the state of every component that keeps one (`State::save`). The ⚡ button in
-  the debug toolbar, or Ctrl+F5, does the same; the toolbar's restart button starts it afresh.
+- **Reload on save**: saving a Rust file (Ctrl+S) builds the application again and brings it
+  back on the same page, with the state of every component that keeps one (`State::save`).
+  Auto save does not reload, unless `frus.reloadOnSave` says `all`.
+- **While it runs**:
+
+  | | |
+  |---|---|
+  | Ctrl+S | reload (a Rust file) |
+  | Ctrl+F5, ⚡ in the debug toolbar | reload |
+  | Ctrl+Shift+F5, the toolbar's restart | restart, every state afresh |
+  | Shift+F5 | stop |
+
+  and in the command palette, **frus: Toggle Debug Paint**, **Toggle Inspector**, **Toggle
+  Platform**, **Toggle Brightness**, **Toggle Performance Overlay**, **Print Widget Tree**,
+  **Print Focus Tree**, **Print Semantics Tree**, **Save Screenshot** and **Detach** — the keys
+  of `frus run` in a terminal. What they print appears in the Debug Console.
 
 No `launch.json` is needed: F5 in a frus application runs it on the selected device. To pin a
 device or pass arguments, add a configuration:
@@ -40,7 +53,7 @@ the new one, and the next F5 uses it.
 | setting | |
 |---|---|
 | `frus.path` | the `frus` program to use; empty for the one on the PATH |
-| `frus.reloadOnSave` | reload the running application when a Rust file is saved (default on) |
+| `frus.reloadOnSave` | when saving a Rust file reloads: `manual` (by hand, the default), `manualIfDirty` (by hand, with changes), `all` (auto save too), `never` |
 
 ## Developing it
 

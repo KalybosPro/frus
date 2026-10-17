@@ -63,6 +63,8 @@ mod web_dev;
 // The channel `frus run` restarts an application through.
 #[cfg(any(desktop, android))]
 mod dev;
+// What the keys of `frus run` ask a running application, on every platform.
+mod dev_commands;
 mod remote;
 /// The async runtime: one executor and a reactor, shared by every asynchronous
 /// effect. Native only — on the Web the browser is the runtime.
