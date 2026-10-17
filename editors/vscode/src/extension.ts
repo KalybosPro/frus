@@ -5,6 +5,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { FrusDebugAdapter } from "./adapter";
+import { resolveProgram, runnableCopy, watchProgram } from "./copy";
 import { Devices } from "./daemon";
 import { frusProgram } from "./frus";
 
@@ -26,10 +27,30 @@ export function activate(context: vscode.ExtensionContext): void {
     status.show();
   };
   devices.onDidChange(refresh);
-  frusProgram().then(
+
+  // The program the extension runs, daemon and F5 alike: a copy of the installed `frus`, so a
+  // `cargo install frus-cli` can replace that one while the window is open.
+  const copies = path.join(context.globalStorageUri.fsPath, "bin");
+  let installed: string | undefined;
+  const runnable = async (): Promise<string> => {
+    const frus = await frusProgram();
+    installed = resolveProgram(frus);
+    if (!installed) return frus;
+    try {
+      return runnableCopy(installed, copies);
+    } catch {
+      return installed;
+    }
+  };
+  runnable().then(
     (frus) => {
       devices.start(frus);
       refresh();
+      if (installed) {
+        // A new install: the daemon starts again from it, and F5 runs it from then on.
+        const watch = watchProgram(installed, () => runnable().then((next) => devices.restart(next)));
+        context.subscriptions.push(watch);
+      }
     },
     (error) => vscode.window.showErrorMessage(`frus: ${error.message}`),
   );
@@ -63,7 +84,7 @@ export function activate(context: vscode.ExtensionContext): void {
         if (!config.cwd) return undefined;
         config.deviceId ||= selected();
         try {
-          config.frus = await frusProgram();
+          config.frus = await runnable();
         } catch (error: any) {
           vscode.window.showErrorMessage(`frus: ${error.message}`);
           return undefined;
