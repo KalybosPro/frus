@@ -15,7 +15,7 @@ use crate::features::profile::pages::profilepage::ProfilePage;
 /// On the desktop, a location given on the command line is where it starts — try
 /// `cargo run -- /profile` while signed out: the guard sends you to
 /// `/login?from=/profile`, and signing in brings you back to the profile.
-pub(crate) fn router(auth: Auth) -> GoRouter {
+pub fn router(auth: Auth) -> GoRouter {
     let start = std::env::args()
         .nth(1)
         .filter(|location| location.starts_with('/'))
@@ -25,7 +25,7 @@ pub(crate) fn router(auth: Auth) -> GoRouter {
 
 /// The routes, the guard and the start, without reading the command line (the tests
 /// call this).
-pub(crate) fn routes(auth: Auth, start: &str) -> GoRouter {
+pub fn routes(auth: Auth, start: &str) -> GoRouter {
     // Each route builder keeps its own handle on the service: cloning `Auth` is cloning
     // a few `Rc`s, and every clone is the same service.
     let (for_home, for_profile, for_login, for_register, for_forgot, guard) = (
@@ -69,7 +69,7 @@ pub(crate) fn routes(auth: Auth, start: &str) -> GoRouter {
 
 /// Where a navigation to `location` must go instead, or `None` to let it through.
 ///
-/// A plain function of two values, so every case is tested below without a router:
+/// A plain function of two values, so every case is tested in `tests/routers_test.rs` without a router:
 ///
 /// | signed in | page    | goes to                                  |
 /// |-----------|---------|------------------------------------------|
@@ -77,7 +77,7 @@ pub(crate) fn routes(auth: Auth, start: &str) -> GoRouter {
 /// | no        | private | `/login?from=<where it was heading>`     |
 /// | yes       | public  | the `from` it carries, or home           |
 /// | yes       | private | where it was heading                     |
-pub(crate) fn guard_redirect(signed_in: bool, location: &str) -> Option<String> {
+pub fn guard_redirect(signed_in: bool, location: &str) -> Option<String> {
     let (path, query) = location.split_once('?').unwrap_or((location, ""));
     let public = PUBLIC_ROUTES.contains(&path);
     match (signed_in, public) {
@@ -89,7 +89,7 @@ pub(crate) fn guard_redirect(signed_in: bool, location: &str) -> Option<String> 
 
 /// The login page, remembering `location` — unless that is home, where signing in goes
 /// anyway.
-fn login_from(location: &str) -> String {
+pub fn login_from(location: &str) -> String {
     if location == HOME {
         LOGIN.to_string()
     } else {
@@ -99,7 +99,7 @@ fn login_from(location: &str) -> String {
 
 /// `path`, carrying `from` along: `/register?from=/profile`. How the auth pages link to
 /// each other without losing where the person was going.
-pub(crate) fn with_from(path: &str, from: Option<&str>) -> String {
+pub fn with_from(path: &str, from: Option<&str>) -> String {
     match from {
         Some(from) => format!("{path}?{FROM}={}", encode(from)),
         None => path.to_string(),
@@ -108,7 +108,7 @@ pub(crate) fn with_from(path: &str, from: Option<&str>) -> String {
 
 /// Where to go once signed in: the `from` of the query when it is a page of this
 /// application, home otherwise.
-fn return_to(query: &str) -> String {
+pub fn return_to(query: &str) -> String {
     query
         .split('&')
         .filter_map(|pair| pair.split_once('='))
@@ -126,7 +126,7 @@ fn return_to(query: &str) -> String {
 
 /// Percent-encodes a location so it travels inside another location's query. `/` is
 /// left as it is, so the address stays readable: `?from=/profile`.
-fn encode(text: &str) -> String {
+pub fn encode(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for byte in text.bytes() {
         match byte {
@@ -140,7 +140,7 @@ fn encode(text: &str) -> String {
 }
 
 /// The reverse of [`encode`], also reading `+` as a space as browsers write it.
-fn decode(text: &str) -> String {
+pub fn decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -165,102 +165,4 @@ fn decode(text: &str) -> String {
         }
     }
     String::from_utf8_lossy(&out).into_owned()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::common::auth::tests::{answer_now, signed_out};
-    use crate::features::auth::controllers::user_store::{DEMO_EMAIL, DEMO_PASSWORD};
-
-    fn guard(signed_in: bool, location: &str) -> Option<String> {
-        guard_redirect(signed_in, location)
-    }
-
-    #[test]
-    fn signed_out_may_see_the_public_pages() {
-        for page in PUBLIC_ROUTES {
-            assert_eq!(guard(false, page), None, "{page}");
-        }
-        assert_eq!(guard(false, "/login?from=/profile"), None);
-    }
-
-    #[test]
-    fn signed_out_is_sent_to_login_remembering_where_it_was_going() {
-        assert_eq!(guard(false, HOME), Some(LOGIN.to_string()));
-        assert_eq!(
-            guard(false, PROFILE),
-            Some("/login?from=/profile".to_string())
-        );
-    }
-
-    #[test]
-    fn signed_in_may_see_the_private_pages() {
-        assert_eq!(guard(true, HOME), None);
-        assert_eq!(guard(true, PROFILE), None);
-    }
-
-    #[test]
-    fn signed_in_is_sent_away_from_the_public_pages() {
-        for page in PUBLIC_ROUTES {
-            assert_eq!(guard(true, page), Some(HOME.to_string()), "{page}");
-        }
-        assert_eq!(
-            guard(true, "/register?from=/profile"),
-            Some(PROFILE.to_string())
-        );
-    }
-
-    #[test]
-    fn from_survives_the_round_trip_query_and_all() {
-        let heading = "/profile?tab=security&note=a b+c";
-        let login = guard(false, heading);
-        assert_eq!(
-            login.as_deref(),
-            Some("/login?from=/profile%3Ftab%3Dsecurity%26note%3Da%20b%2Bc")
-        );
-        let back = login.and_then(|login| guard(true, &login));
-        assert_eq!(back.as_deref(), Some(heading));
-    }
-
-    #[test]
-    fn from_never_leaves_the_application_nor_loops() {
-        for from in [
-            "//evil.example",
-            "https://evil.example",
-            "/login",
-            "/register?x=1",
-            "",
-        ] {
-            let location = format!("/login?from={}", encode(from));
-            assert_eq!(guard(true, &location), Some(HOME.to_string()), "{from}");
-        }
-    }
-
-    /// The whole loop with a real router: the guard, the query, and the refresh when the
-    /// service changes.
-    #[test]
-    fn the_router_follows_signing_in_and_out() {
-        let auth = signed_out();
-        let router = routes(auth.clone(), PROFILE);
-        assert_eq!(router.location(), "/login?from=/profile");
-        assert_eq!(
-            router
-                .state()
-                .and_then(|s| s.query(FROM).map(str::to_string)),
-            Some(PROFILE.to_string())
-        );
-
-        auth.sign_in(DEMO_EMAIL, DEMO_PASSWORD, |_| {});
-        answer_now();
-        assert_eq!(router.location(), PROFILE, "back where it was heading");
-        assert_eq!(
-            router.locations(),
-            [HOME, PROFILE],
-            "with home to go back to"
-        );
-
-        auth.sign_out();
-        assert_eq!(router.location(), "/login?from=/profile");
-    }
 }

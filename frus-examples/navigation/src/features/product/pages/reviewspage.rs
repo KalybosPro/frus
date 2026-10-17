@@ -6,12 +6,12 @@ use crate::models::product::Product;
 
 /// A product's reviews (`/products/:id/reviews`), a route nested two levels deep. It
 /// remembers nothing, so it is a `StatelessWidget`: the `:id` is all it needs.
-pub(crate) struct ReviewsPage {
+pub struct ReviewsPage {
     id: Option<String>,
 }
 
 impl ReviewsPage {
-    pub(crate) fn new(id: Option<&str>) -> Self {
+    pub fn new(id: Option<&str>) -> Self {
         Self {
             id: id.map(str::to_string),
         }

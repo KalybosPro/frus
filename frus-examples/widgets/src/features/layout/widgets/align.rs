@@ -6,7 +6,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // `Center` takes all the room it is offered and puts its child in the middle.
         Box::new(section("Center", frame(Center::new(dot("center"))))),

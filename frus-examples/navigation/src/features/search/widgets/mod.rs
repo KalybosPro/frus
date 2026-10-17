@@ -1,1 +1,1 @@
-pub(crate) mod sort_picker;
+pub mod sort_picker;

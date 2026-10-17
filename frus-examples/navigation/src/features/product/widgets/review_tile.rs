@@ -4,12 +4,12 @@ use crate::common::colors::rating;
 use crate::models::product::Review;
 
 /// One review: the stars, who wrote it, what they said.
-pub(crate) struct ReviewTile {
+pub struct ReviewTile {
     review: Review,
 }
 
 impl ReviewTile {
-    pub(crate) fn new(review: Review) -> Self {
+    pub fn new(review: Review) -> Self {
         Self { review }
     }
 }

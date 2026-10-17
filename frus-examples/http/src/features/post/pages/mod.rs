@@ -1,1 +1,1 @@
-pub(crate) mod postpage;
+pub mod postpage;

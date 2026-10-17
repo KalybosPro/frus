@@ -16,7 +16,7 @@ use crate::common::shared::{section, sections};
 const SAVE: Intent = Intent("save");
 const CLEAR: Intent = Intent("clear");
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         let draft = cx.use_state(|| "Some text to save".to_string());
         let saved = cx.use_state(|| None::<String>);

@@ -8,7 +8,7 @@ use crate::common::shared::{section, sections};
 
 const HEADER: f32 = 40.0;
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     // The list leaves room at its top for the header drawn over it.
     let list = ListView::new(40, 48.0, |i| {
         ListTile::new().title(format!("Chapter {}", i + 1))

@@ -19,9 +19,9 @@ use frus::FrusApp;
 
 use crate::common::{cart::Cart, routers::router};
 
-mod common;
-mod features;
-mod models;
+pub mod common;
+pub mod features;
+pub mod models;
 
 frus::main!({
     // **One cart for the whole app**, handed to the router, which hands it to the pages.

@@ -15,7 +15,7 @@ use crate::features::posts::widgets::post_tile::{post_tile, POST_TILE_HEIGHT};
 use crate::models::post::Post;
 
 /// The first page: every post, from `GET /posts`.
-pub(crate) struct PostsPage;
+pub struct PostsPage;
 
 impl StatefulWidget for PostsPage {
     type State = PostsState;

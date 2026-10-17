@@ -5,7 +5,7 @@ use frus::{Alignment, Color, Container, Expanded, Flexible, Row, Spacer, Text, W
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // `Expanded` takes whatever room the fixed children leave: the classic "label
         // fills, button keeps its size" row.

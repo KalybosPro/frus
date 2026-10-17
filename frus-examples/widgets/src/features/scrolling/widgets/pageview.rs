@@ -7,7 +7,7 @@ use crate::common::shared::{section, sections};
 
 const HUES: [&str; 5] = ["#6366F1", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444"];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let page = cx.use_state(|| 0usize);
 

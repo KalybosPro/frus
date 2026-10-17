@@ -8,7 +8,7 @@ use frus::{component, Align, Column, Text, TextStyle, Widget};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // A page title and a section title, from the scale. `heading()` changes nothing
         // drawn: it tells screen readers this is a title, so their users can jump between

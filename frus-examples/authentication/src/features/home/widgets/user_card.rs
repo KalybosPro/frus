@@ -9,12 +9,12 @@ use crate::models::user::User;
 ///
 /// A `StatelessWidget` configured by its parent with the user to show — it knows nothing
 /// of the service, so it can show any user anywhere.
-pub(crate) struct UserCard {
+pub struct UserCard {
     user: User,
 }
 
 impl UserCard {
-    pub(crate) fn new(user: User) -> Self {
+    pub fn new(user: User) -> Self {
         Self { user }
     }
 }

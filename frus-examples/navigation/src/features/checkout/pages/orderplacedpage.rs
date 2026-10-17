@@ -11,12 +11,12 @@ use crate::models::order::Order;
 
 /// The confirmation (`/order-placed`). The order arrives as the navigation's `extra`;
 /// opened from an address there is none, and the page still makes sense.
-pub(crate) struct OrderPlacedPage {
+pub struct OrderPlacedPage {
     order: Option<Rc<Order>>,
 }
 
 impl OrderPlacedPage {
-    pub(crate) fn new(order: Option<Rc<Order>>) -> Self {
+    pub fn new(order: Option<Rc<Order>>) -> Self {
         Self { order }
     }
 }

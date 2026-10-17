@@ -1,2 +1,2 @@
-pub(crate) mod pages;
-pub(crate) mod widgets;
+pub mod pages;
+pub mod widgets;

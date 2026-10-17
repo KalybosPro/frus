@@ -1,1 +1,1 @@
-pub(crate) mod searchstate;
+pub mod searchstate;

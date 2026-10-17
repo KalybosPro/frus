@@ -5,7 +5,7 @@ use frus::{State, StateContext, StatefulWidget, Stepper, Text, Widget};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(StepperDemo.into_widget())
 }
 

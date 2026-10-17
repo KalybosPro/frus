@@ -1,1 +1,1 @@
-pub(crate) mod profilestate;
+pub mod profilestate;

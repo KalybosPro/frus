@@ -15,7 +15,7 @@ const MORE: &str = "That is why a widget looks the same on the desktop, on Andro
                     platform to the next except what the platform should change — scrolling \
                     physics, page transitions, the text selection handles.";
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // "Read more": the paragraph's box opens and closes smoothly; what is below it
         // follows the box.

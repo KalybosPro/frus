@@ -1,1 +1,1 @@
-pub(crate) mod newpostpage;
+pub mod newpostpage;

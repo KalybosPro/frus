@@ -7,12 +7,12 @@ use crate::common::colors::{negative, positive, text_muted};
 /// A `StatelessWidget` configured by its parent: it is made again, with the new count,
 /// every time the page rebuilds. Pulling a piece out like this keeps `build` short and
 /// the piece reusable.
-pub(crate) struct CountDisplay {
+pub struct CountDisplay {
     count: i64,
 }
 
 impl CountDisplay {
-    pub(crate) fn new(count: i64) -> Self {
+    pub fn new(count: i64) -> Self {
         Self { count }
     }
 }

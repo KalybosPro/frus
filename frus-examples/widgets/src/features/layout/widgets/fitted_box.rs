@@ -7,7 +7,7 @@ use frus::{Align, Alignment, BoxFit, Color, Column, Container, FittedBox, Text, 
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // The same 80 × 40 badge in a 140 × 90 box under each rule. `Contain` shows all
         // of it, `Cover` fills the box and crops, `Fill` stretches it out of shape,

@@ -13,7 +13,7 @@ use crate::common::shared::{section, sections};
 /// The tick, in tenths of a second.
 const TICK: Duration = Duration::from_millis(100);
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         let tenths = cx.use_state(|| 0_u64);
         let running = cx.use_state(|| false);

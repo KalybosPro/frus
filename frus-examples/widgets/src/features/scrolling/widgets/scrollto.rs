@@ -14,7 +14,7 @@ const LIST: &str = "scroll-to-demo-list";
 const ROW: f32 = 48.0;
 const COUNT: usize = 200;
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let position = cx.use_state(|| None::<ScrollPosition>);
 

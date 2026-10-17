@@ -20,7 +20,7 @@ fn diamond() -> Path {
         .close()
 }
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let theme = cx.theme();
 

@@ -10,7 +10,7 @@ use crate::features::posts::pages::postspage::PostsPage;
 /// On the desktop, a location given on the command line opens the app there:
 /// `cargo run -- /posts/1`, or `cargo run -- /posts/new`. (On the Web the address bar
 /// does the same.)
-pub(crate) fn router() -> GoRouter {
+pub fn router() -> GoRouter {
     let start = std::env::args()
         .nth(1)
         .filter(|location| location.starts_with('/'))

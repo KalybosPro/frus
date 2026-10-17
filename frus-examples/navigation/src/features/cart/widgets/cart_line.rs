@@ -8,7 +8,7 @@ use crate::features::product::widgets::quantity_stepper::QuantityStepper;
 use crate::models::cart_item::CartItem;
 
 /// One line of the cart, with its quantity controls. What the buttons do is the page's.
-pub(crate) struct CartLine {
+pub struct CartLine {
     item: CartItem,
     on_less: Callback,
     on_more: Callback,
@@ -16,12 +16,7 @@ pub(crate) struct CartLine {
 }
 
 impl CartLine {
-    pub(crate) fn new(
-        item: CartItem,
-        on_less: Callback,
-        on_more: Callback,
-        on_remove: Callback,
-    ) -> Self {
+    pub fn new(item: CartItem, on_less: Callback, on_more: Callback, on_remove: Callback) -> Self {
         Self {
             item,
             on_less,

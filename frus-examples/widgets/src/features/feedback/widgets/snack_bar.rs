@@ -16,29 +16,29 @@ use frus::{
 use crate::common::shared::{section, sections};
 
 /// The preview is phone-sized: it fits a phone's page and reads like a screen.
-const PREVIEW_WIDTH: f32 = 320.0;
+pub const PREVIEW_WIDTH: f32 = 320.0;
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(SnackBarDemo.into_widget())
 }
 
 /// How long a message stays, and how long its fade-out takes.
-const SHOWN: Duration = Duration::from_millis(3000);
-const FADE: Duration = Duration::from_millis(300);
+pub const SHOWN: Duration = Duration::from_millis(3000);
+pub const FADE: Duration = Duration::from_millis(300);
 
 /// One queued message. The id tells a timer whether the message it was started for is
 /// still the one on screen.
 #[derive(Clone)]
-struct Toast {
+pub struct Toast {
     id: u64,
     text: String,
     kind: SnackBarKind,
     undo: bool,
 }
 
-struct SnackBarDemo;
+pub struct SnackBarDemo;
 
-struct SnackBarDemoState {
+pub struct SnackBarDemoState {
     queue: SnackBarQueue<Toast>,
     next_id: u64,
     archived: u32,
@@ -47,7 +47,7 @@ struct SnackBarDemoState {
 impl SnackBarDemoState {
     /// Queues a message; returns its id when it went straight on screen, so the caller
     /// starts its timer.
-    fn push(&mut self, text: &str, kind: SnackBarKind, undo: bool) -> Option<u64> {
+    pub fn push(&mut self, text: &str, kind: SnackBarKind, undo: bool) -> Option<u64> {
         let id = self.next_id;
         self.next_id += 1;
         let was_empty = self.queue.is_empty();
@@ -65,12 +65,12 @@ impl SnackBarDemoState {
     }
 
     /// The id of the message on screen, if any.
-    fn current_id(&self) -> Option<u64> {
+    pub fn current_id(&self) -> Option<u64> {
         self.queue.current().map(|toast| toast.id)
     }
 
     /// Removes the current message; returns the next one's id so its timer starts.
-    fn dismiss(&mut self) -> Option<u64> {
+    pub fn dismiss(&mut self) -> Option<u64> {
         self.queue.dismiss();
         self.current_id()
     }
@@ -78,7 +78,7 @@ impl SnackBarDemoState {
 
 /// The message `id` stays `SHOWN`, fades for `FADE`, then makes room for the next one.
 /// A message already closed by its action or its cross is not touched again.
-fn expire_later(handle: StateHandle<SnackBarDemoState>, id: u64) {
+pub fn expire_later(handle: StateHandle<SnackBarDemoState>, id: u64) {
     host::after(SHOWN, move || {
         if handle.read(|s| s.current_id()) != Some(id) {
             return;
@@ -245,21 +245,5 @@ impl State for SnackBarDemoState {
                     ),
             )),
         ])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_the_first_message_starts_a_timer() {
-        let mut state = SnackBarDemo.create_state();
-        assert_eq!(state.push("one", SnackBarKind::Info, false), Some(0));
-        assert_eq!(state.push("two", SnackBarKind::Info, false), None);
-        assert_eq!(state.current_id(), Some(0));
-        // Closing the first puts the second on screen, and hands back its id.
-        assert_eq!(state.dismiss(), Some(1));
-        assert_eq!(state.dismiss(), None);
     }
 }

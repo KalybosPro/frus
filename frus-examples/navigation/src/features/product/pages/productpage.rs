@@ -17,13 +17,13 @@ use crate::models::product::{Product, CATALOG};
 
 /// A product (`/products/:id`). The router hands it the `:id` exactly as the address
 /// wrote it; turning that into a product — or into "no such product" — is the page's job.
-pub(crate) struct ProductPage {
+pub struct ProductPage {
     cart: Cart,
     id: Option<String>,
 }
 
 impl ProductPage {
-    pub(crate) fn new(cart: Cart, id: Option<&str>) -> Self {
+    pub fn new(cart: Cart, id: Option<&str>) -> Self {
         Self {
             cart,
             id: id.map(str::to_string),
@@ -40,7 +40,7 @@ impl StatefulWidget for ProductPage {
 }
 
 /// The product after `product` in the catalogue, wrapping round.
-fn next_after(product: &Product) -> &'static Product {
+pub fn next_after(product: &Product) -> &'static Product {
     let at = CATALOG.iter().position(|p| p.id == product.id).unwrap_or(0);
     &CATALOG[(at + 1) % CATALOG.len()]
 }
@@ -196,17 +196,5 @@ impl State for ProductState {
             )
             .body(SingleChildScrollView::new().padding(16.0).child(content))
             .build()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_next_product_wraps_round() {
-        let last = CATALOG.last().expect("the catalogue is not empty");
-        assert_eq!(next_after(last).id, CATALOG[0].id);
-        assert_eq!(next_after(&CATALOG[0]).id, CATALOG[1].id);
     }
 }

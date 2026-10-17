@@ -14,7 +14,7 @@ use crate::models::product::Product;
 /// The product page pushes it; a tap writes the size into the shared cart and pops. The
 /// product page, underneath all along, reads the size back from the cart when it is
 /// shown again. The result travels through shared state, not through the router.
-pub(crate) struct SizePage {
+pub struct SizePage {
     cart: Cart,
     product: Option<Product>,
 }
@@ -22,7 +22,7 @@ pub(crate) struct SizePage {
 impl SizePage {
     /// `product` is the navigation's `extra` when there was one, or the product the
     /// address names.
-    pub(crate) fn new(cart: Cart, product: Option<Product>) -> Self {
+    pub fn new(cart: Cart, product: Option<Product>) -> Self {
         Self { cart, product }
     }
 }

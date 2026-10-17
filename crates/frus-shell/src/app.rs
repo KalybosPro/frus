@@ -13,7 +13,7 @@ use web_time::Instant;
 
 use frus_gpu::Renderer;
 use frus_widgets::{
-    build_deferred, build_ui, collect_ids, find_by_key, find_path, find_widget,
+    build_deferred, build_ui, collect_ids, find_by_key, find_path, find_widget, focus_changes,
     nearest_reorder_slot, reflow_reorder_cards, reflow_reorder_columns, reorder_drop_after,
     reorder_siblings, reorderable_owners, subtree_ids, Accessibility, Brightness, Color,
     Cursor as UiCursor, Edit, EditKind, EditSnapshot, FocusDirection, Insets, Key, KeyResponse,
@@ -1076,6 +1076,9 @@ pub struct App<A: Application> {
     focus_history: Vec<WidgetId>,
     /// The previous frame's focus, to detect the transitions worth pushing.
     prev_focus: Option<WidgetId>,
+    /// The focus the widgets were last told about (milestone 660); see
+    /// `report_focus`.
+    focus_reported: Option<WidgetId>,
     /// The widgets that took the focus on appearing, as of the last frame: one that is new
     /// this frame takes it (milestone 605).
     autofocused: std::collections::HashSet<WidgetId>,
@@ -1240,6 +1243,7 @@ impl<A: Application> App<A> {
             retry_sheet: Vec::new(),
             focus_history: Vec::new(),
             prev_focus: None,
+            focus_reported: None,
             autofocused: std::collections::HashSet::new(),
             frame_stats: crate::frame_stats::FrameStats::new(),
             frame_costs: crate::frame_stats::FrameCosts::default(),
@@ -2351,6 +2355,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 while let Some(pasted) = self.clipboard.take_answered() {
                     self.land_paste(pasted);
                 }
+                // The widgets hear where the focus went since the last frame, before this
+                // one is built from what they answer (milestone 660).
+                self.report_focus();
                 // A bar whose field is no longer the focused one is over: a field focused
                 // again later must not find it open.
                 if self
@@ -3880,6 +3887,22 @@ impl<A: Application> App<A> {
         // 2) Focus and caret placement, and the start of a text selection.
         let previously_focused = self.runtime.input.focused;
         let focus = self.ui.as_ref().and_then(|ui| ui.focus_hit(self.cursor));
+        // A press outside the focused widget tells it so, before the focus moves
+        // (milestone 660).
+        if let Some(held) = previously_focused {
+            let inside = focus.is_some_and(|(id, _)| id == held);
+            let outside = (!inside)
+                .then(|| {
+                    self.tree
+                        .as_ref()
+                        .and_then(|tree| find_widget(tree.as_ref(), held))
+                        .and_then(|widget| widget.on_tap_outside())
+                })
+                .flatten();
+            if let Some(message) = outside {
+                self.dispatch(message);
+            }
+        }
         self.runtime.input.focused = focus.map(|(id, _)| id);
         if let Some((id, rect)) = focus {
             let local_x = self.cursor.x - rect.x;
@@ -4658,6 +4681,26 @@ impl<A: Application> App<A> {
         if after != before || appeared.is_some() {
             self.runtime.input.focused = after;
             self.request_redraw();
+        }
+    }
+
+    /// Tells the widgets **where the focus went** since they were last told (milestone 660):
+    /// each one whose subtree it left or entered, through `Widget::on_focus_change`.
+    fn report_focus(&mut self) {
+        let now = self.runtime.input.focused;
+        // Nothing moved, nothing to say — and no walk of the tree, which is the point: the
+        // answer would be empty anyway.
+        if now == self.focus_reported {
+            return;
+        }
+        let before = std::mem::replace(&mut self.focus_reported, now);
+        let messages = self
+            .tree
+            .as_ref()
+            .map(|tree| focus_changes(tree.as_ref(), before, now))
+            .unwrap_or_default();
+        for message in messages {
+            self.dispatch(message);
         }
     }
 
@@ -10173,6 +10216,7 @@ pub mod testing {
             if frus_widgets::take_rebuild_request() || arrived {
                 s.build_dirty = true;
             }
+            s.report_focus();
             if frame_needs_build(
                 s.build_dirty,
                 app_animating,
@@ -13295,5 +13339,107 @@ mod range_slider_drag_tests {
         let start = centre(thumbs(&d)[0]);
         drag(&mut d, start, 120.0);
         assert!(close(d.app().values, (0.5, 0.5)), "{:?}", d.app().values);
+    }
+}
+
+/// The focus moving, through the shell (milestone 660): a group told when it arrives and
+/// leaves, and a field told of a press outside it.
+#[cfg(test)]
+mod focus_change_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{Flex, Focus, Point, Rect, TextField, Theme, Widget};
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Group(bool),
+        Outside,
+        Typed,
+    }
+
+    #[derive(Default)]
+    struct Page {
+        heard: Vec<Msg>,
+    }
+
+    impl Application for Page {
+        type Message = Msg;
+
+        fn update(&mut self, message: Msg) -> Command<Msg> {
+            if message != Msg::Typed {
+                self.heard.push(message);
+            }
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            Box::new(
+                Flex::column()
+                    .width(300.0)
+                    .height(400.0)
+                    .gap(40.0)
+                    .child(
+                        Focus::new(
+                            TextField::new("a")
+                                .on_input(|_| Msg::Typed)
+                                .on_tap_outside(Msg::Outside),
+                        )
+                        .skip_traversal()
+                        .on_focus_change(Msg::Group),
+                    )
+                    .child(TextField::new("b").on_input(|_| Msg::Typed)),
+            )
+        }
+    }
+
+    /// The two fields' boxes, `a` then `b`.
+    fn fields(d: &Driver<Page>) -> (Rect, Rect) {
+        let (ui, _) = d.frame_parts().expect("a frame");
+        let rects: Vec<Rect> = ui
+            .focusable_ids()
+            .filter_map(|id| ui.widget_rect(id))
+            .filter(|r| r.height < 100.0)
+            .collect();
+        (rects[0], rects[rects.len() - 1])
+    }
+
+    fn centre(r: Rect) -> Point {
+        Point::new(r.x + r.width / 2.0, r.y + r.height / 2.0)
+    }
+
+    fn tap(d: &mut Driver<Page>, at: Point) {
+        d.press(at);
+        d.release(at);
+        d.run(0.05);
+    }
+
+    /// **A press on the field brings the focus into the group; a press elsewhere tells the
+    /// field it was outside, then the group that the focus left.**
+    #[test]
+    fn the_shell_reports_the_focus_moving() {
+        let mut d = Driver::new(Page::default(), 300.0, 400.0);
+        d.run(0.2);
+        let (a, b) = fields(&d);
+        tap(&mut d, centre(a));
+        assert_eq!(d.app().heard, vec![Msg::Group(true)], "arrived");
+        tap(&mut d, centre(a));
+        assert_eq!(
+            d.app().heard,
+            vec![Msg::Group(true)],
+            "a press inside says nothing"
+        );
+        tap(&mut d, centre(b));
+        assert_eq!(
+            d.app().heard,
+            vec![Msg::Group(true), Msg::Outside, Msg::Group(false)],
+            "outside, then left"
+        );
+        tap(&mut d, Point::new(150.0, 390.0));
+        assert_eq!(
+            d.app().heard.len(),
+            3,
+            "the other field holds no `on_tap_outside`: {:?}",
+            d.app().heard
+        );
     }
 }

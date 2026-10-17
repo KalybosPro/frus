@@ -9,7 +9,7 @@ use crate::common::shared::{section, sections};
 const TOPPINGS: [&str; 4] = ["Cheese", "Olives", "Basil", "Mushrooms"];
 const SIZES: [&str; 3] = ["Small", "Medium", "Large"];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     // `frus::component` turns a closure into a widget that can keep state with hooks:
     // each `use_state` value survives rebuilds, and setting it rebuilds the component.
     Box::new(frus::component(|cx| {

@@ -184,6 +184,14 @@ macro_rules! forward_transparent {
                 self.inner.paints_over()
             }
 
+            fn on_focus_change(&self, focused: bool) -> Option<Msg> {
+                self.inner.on_focus_change(focused)
+            }
+
+            fn on_tap_outside(&self) -> Option<Msg> {
+                self.inner.on_tap_outside()
+            }
+
             fn paint_over(
                 &self,
                 bounds: frus_core::Rect,

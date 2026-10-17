@@ -8,12 +8,12 @@ use frus::{
 use crate::common::api::ApiError;
 
 /// A spinner and what is being waited for.
-pub(crate) struct LoadingView {
+pub struct LoadingView {
     label: &'static str,
 }
 
 impl LoadingView {
-    pub(crate) fn new(label: &'static str) -> Self {
+    pub fn new(label: &'static str) -> Self {
         Self { label }
     }
 }
@@ -34,13 +34,13 @@ impl StatelessWidget for LoadingView {
 ///
 /// Every failure gets one: a screen that only ever shows a spinner when the network is
 /// gone leaves its user waiting for something that is not coming.
-pub(crate) struct ErrorView {
+pub struct ErrorView {
     error: ApiError,
     on_retry: Callback,
 }
 
 impl ErrorView {
-    pub(crate) fn new(error: ApiError, on_retry: Callback) -> Self {
+    pub fn new(error: ApiError, on_retry: Callback) -> Self {
         Self { error, on_retry }
     }
 }
@@ -84,7 +84,7 @@ impl StatelessWidget for ErrorView {
 ///
 /// The bar does not add one by itself — the router, not the bar, knows whether there is a
 /// page to go back to — so a page that can be left says so.
-pub(crate) fn back_button(cx: &BuildContext) -> BackButton {
+pub fn back_button(cx: &BuildContext) -> BackButton {
     let router = cx.router();
     BackButton::new().on_press(Callback::new(move || {
         router.pop();

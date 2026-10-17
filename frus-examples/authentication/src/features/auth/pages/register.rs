@@ -11,13 +11,13 @@ use crate::features::auth::states::registerstate::RegisterState;
 
 /// The registration page. Creating the account signs into it, so — like the login page —
 /// it never navigates on success: the router does.
-pub(crate) struct RegisterPage {
+pub struct RegisterPage {
     auth: Auth,
     from: Option<String>,
 }
 
 impl RegisterPage {
-    pub(crate) fn new(auth: Auth, from: Option<String>) -> Self {
+    pub fn new(auth: Auth, from: Option<String>) -> Self {
         Self { auth, from }
     }
 }

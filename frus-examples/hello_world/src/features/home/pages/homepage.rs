@@ -6,7 +6,7 @@ use frus::{
 use crate::common::colors::{primary_color, text_muted};
 
 /// The only page: a `StatelessWidget`, because it has nothing to remember.
-pub(crate) struct HomePage;
+pub struct HomePage;
 
 impl StatelessWidget for HomePage {
     /// `build` says what the page is made of. It runs again whenever the framework needs

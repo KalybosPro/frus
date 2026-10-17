@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use frus::{Align, Column, Text, Tree, Widget};
 
 /// One node: its id, its parent's id (`None` at the root), and its label.
-const NODES: [(u64, Option<u64>, &str); 9] = [
+pub const NODES: [(u64, Option<u64>, &str); 9] = [
     (1, None, "src"),
     (2, Some(1), "features"),
     (3, Some(2), "display.rs"),
@@ -20,9 +20,9 @@ const NODES: [(u64, Option<u64>, &str); 9] = [
 ];
 
 /// A visible row: `(id, depth, label, has children, is expanded)`, what `Tree::node` takes.
-type VisibleRow = (u64, usize, &'static str, bool, bool);
+pub type VisibleRow = (u64, usize, &'static str, bool, bool);
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let expanded = cx.use_state(|| HashSet::from([1u64]));
         let selected = cx.use_state(|| None::<u64>);
@@ -63,7 +63,7 @@ pub(crate) fn example() -> Box<dyn Widget> {
 }
 
 /// The rows to show: every root, and the children of every expanded node, depth first.
-fn visible_rows(expanded: &HashSet<u64>) -> Vec<VisibleRow> {
+pub fn visible_rows(expanded: &HashSet<u64>) -> Vec<VisibleRow> {
     fn walk(parent: Option<u64>, depth: usize, expanded: &HashSet<u64>, out: &mut Vec<VisibleRow>) {
         for &(id, _, label) in NODES.iter().filter(|(_, p, _)| *p == parent) {
             let has_children = NODES.iter().any(|(_, p, _)| *p == Some(id));
@@ -77,23 +77,4 @@ fn visible_rows(expanded: &HashSet<u64>) -> Vec<VisibleRow> {
     let mut rows = Vec::new();
     walk(None, 0, expanded, &mut rows);
     rows
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn collapsed_nodes_hide_their_children() {
-        let rows = visible_rows(&HashSet::new());
-        let labels: Vec<_> = rows.iter().map(|r| r.2).collect();
-        assert_eq!(labels, ["src", "assets", "Cargo.toml", "README.md"]);
-    }
-
-    #[test]
-    fn expanded_nodes_show_children_one_level_deeper() {
-        let rows = visible_rows(&HashSet::from([1, 2]));
-        assert_eq!(rows[1], (2, 1, "features", true, true));
-        assert_eq!(rows[2], (3, 2, "display.rs", false, false));
-    }
 }

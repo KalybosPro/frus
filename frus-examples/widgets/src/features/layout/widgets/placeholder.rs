@@ -5,7 +5,7 @@ use frus::{Align, Color, Column, MainAxisSize, Placeholder, Row, Widget};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // `fallback` gives it a size of its own (400 × 400 unless told otherwise).
         Box::new(section(

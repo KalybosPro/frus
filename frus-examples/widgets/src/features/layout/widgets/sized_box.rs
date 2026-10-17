@@ -4,7 +4,7 @@ use frus::{Alignment, Color, Container, Row, SizedBox, Text, Widget};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // A fixed width and height forces the child to that size.
         Box::new(section(

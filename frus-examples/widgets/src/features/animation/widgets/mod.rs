@@ -2,24 +2,24 @@
 
 use crate::models::demo::Demo;
 
-mod animated_align;
-mod animated_container;
-mod animated_cross_fade;
-mod animated_fractionally_sized_box;
-mod animated_icon;
-mod animated_opacity;
-mod animated_padding;
-mod animated_positioned;
-mod animated_size;
-mod animated_switcher;
-mod animated_text_style;
-mod animated_transform;
-mod curves;
-mod decorated_transitions;
-mod hero;
-mod transitions;
+pub mod animated_align;
+pub mod animated_container;
+pub mod animated_cross_fade;
+pub mod animated_fractionally_sized_box;
+pub mod animated_icon;
+pub mod animated_opacity;
+pub mod animated_padding;
+pub mod animated_positioned;
+pub mod animated_size;
+pub mod animated_switcher;
+pub mod animated_text_style;
+pub mod animated_transform;
+pub mod curves;
+pub mod decorated_transitions;
+pub mod hero;
+pub mod transitions;
 
-pub(crate) fn demos() -> Vec<Demo> {
+pub fn demos() -> Vec<Demo> {
     vec![
         Demo::new(
             "animated-container",

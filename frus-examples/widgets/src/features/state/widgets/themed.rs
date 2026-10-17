@@ -43,7 +43,7 @@ fn sample() -> Box<dyn Widget> {
     }))
 }
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         Box::new(section("The theme around it", sample())),
         // A whole theme, made from one seed colour, dark whatever the app is.

@@ -11,7 +11,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // Live: the slider sets the blur's sigma, in logical pixels. At zero the filter is
         // switched off with `enabled(false)` — a zero blur would still cost a layer.

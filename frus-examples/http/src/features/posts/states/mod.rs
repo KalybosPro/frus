@@ -1,1 +1,1 @@
-pub(crate) mod postsstate;
+pub mod postsstate;

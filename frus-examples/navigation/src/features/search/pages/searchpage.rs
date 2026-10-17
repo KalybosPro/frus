@@ -17,14 +17,14 @@ use crate::features::search::{
 
 /// Search (`/search?q=shoes&sort=price`). The router reads the query and **configures**
 /// the page with it: the address is the source of truth, and the page writes to it.
-pub(crate) struct SearchPage {
+pub struct SearchPage {
     cart: Cart,
     query: String,
     sort: Sort,
 }
 
 impl SearchPage {
-    pub(crate) fn new(cart: Cart, query: &str, sort: Sort) -> Self {
+    pub fn new(cart: Cart, query: &str, sort: Sort) -> Self {
         Self {
             cart,
             query: query.to_string(),

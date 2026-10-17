@@ -7,7 +7,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let unread = cx.use_state(|| 3u32);
 
@@ -97,22 +97,10 @@ pub(crate) fn example() -> Box<dyn Widget> {
 }
 
 /// Counts above 99 are shown as "99+", so the pill stays small.
-fn count_label(count: u32) -> String {
+pub fn count_label(count: u32) -> String {
     if count > 99 {
         "99+".to_string()
     } else {
         count.to_string()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::count_label;
-
-    #[test]
-    fn large_counts_are_capped() {
-        assert_eq!(count_label(7), "7");
-        assert_eq!(count_label(99), "99");
-        assert_eq!(count_label(100), "99+");
     }
 }

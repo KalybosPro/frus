@@ -10,7 +10,7 @@ use crate::common::shared::{section, sections};
 
 const SCREENS: [&str; 3] = ["Settings", "Display", "Font size"];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         // How deep the reader has gone: the bar of the top screen shows a back button.
         let depth = cx.use_state(|| 0usize);

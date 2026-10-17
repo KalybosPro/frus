@@ -16,12 +16,12 @@ use crate::models::order::Order;
 /// The checkout (`/checkout`). It does not have to check for an empty cart: the router's
 /// redirect lets nobody in with one, and sends them back to the cart if it empties while
 /// they are here.
-pub(crate) struct CheckoutPage {
+pub struct CheckoutPage {
     cart: Cart,
 }
 
 impl CheckoutPage {
-    pub(crate) fn new(cart: Cart) -> Self {
+    pub fn new(cart: Cart) -> Self {
         Self { cart }
     }
 }

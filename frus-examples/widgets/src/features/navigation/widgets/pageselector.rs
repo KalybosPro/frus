@@ -14,7 +14,7 @@ const SLIDES: [(&str, &str); 3] = [
     ("You're all set", "#22C55E"),
 ];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let page = cx.use_state(|| 0usize);
 

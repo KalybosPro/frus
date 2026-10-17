@@ -55,7 +55,7 @@ fn curves() -> Vec<(&'static str, Curve)> {
     ]
 }
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         // Started when it is made: a sawtooth from 0 to 1 every 1.6 s, for as long as the
         // demo is on screen.

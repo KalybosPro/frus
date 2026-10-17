@@ -20,7 +20,7 @@ const EXTENDED_RAIL_WIDTH: f32 = 256.0;
 
 /// The three places the bottom bar (or the rail) switches between.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Section {
+pub enum Section {
     Shop,
     Search,
     Cart,
@@ -51,7 +51,7 @@ impl Section {
 /// Whether the drawer is open is remembered with a **hook**, `cx.use_state`: called from
 /// a page's `build`, it belongs to that page and lives as long as the page does. Every
 /// section page calls this once per build, so the hook is always in the same place.
-pub(crate) fn section_scaffold(
+pub fn section_scaffold(
     cx: &BuildContext,
     cart: &Cart,
     section: Section,

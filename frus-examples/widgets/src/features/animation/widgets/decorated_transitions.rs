@@ -13,7 +13,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         let progress = cx.use_state(|| 0.0_f32);
         let t = progress.get();

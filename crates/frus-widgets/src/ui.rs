@@ -6641,6 +6641,33 @@ pub fn find_sheet_by_key<Msg>(root: &dyn Widget<Msg>, key: u64) -> Option<Widget
     walk(root, WidgetId::ROOT, key)
 }
 
+/// The messages a **move of the focus** from `before` to `after` sends (milestone 660): each
+/// widget whose subtree the focus left hears `false`, deepest first, then each whose subtree
+/// it entered hears `true`, deepest first. The widgets around both — the paths' shared start
+/// — hear nothing; a widget no longer in the tree is not heard from.
+pub fn focus_changes<Msg>(
+    root: &dyn Widget<Msg>,
+    before: Option<WidgetId>,
+    after: Option<WidgetId>,
+) -> Vec<Msg> {
+    let path = |id: Option<WidgetId>| id.map_or_else(Vec::new, |id| find_path(root, id));
+    let (left, entered) = (path(before), path(after));
+    let shared = left
+        .iter()
+        .zip(&entered)
+        .take_while(|(a, b)| std::ptr::addr_eq(**a, **b))
+        .count();
+    let lost = left[shared..]
+        .iter()
+        .rev()
+        .filter_map(|widget| widget.on_focus_change(false));
+    let gained = entered[shared..]
+        .iter()
+        .rev()
+        .filter_map(|widget| widget.on_focus_change(true));
+    lost.chain(gained).collect()
+}
+
 /// Path from the **root down to the widget** with identity `target` (`[root, …, target]`), for
 /// the leaf→root bubbling of keys. Empty when it cannot be found.
 pub fn find_path<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Vec<&dyn Widget<Msg>> {

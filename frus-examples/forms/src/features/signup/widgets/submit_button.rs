@@ -4,13 +4,13 @@ use frus::{BuildContext, Button, Callback, CircularProgressIndicator, StatelessW
 ///
 /// Disabling it is what stops a second press from sending the form twice; the spinner is
 /// what tells the person their first press was heard.
-pub(crate) struct SubmitButton {
+pub struct SubmitButton {
     submitting: bool,
     on_press: Callback,
 }
 
 impl SubmitButton {
-    pub(crate) fn new(submitting: bool, on_press: Callback) -> Self {
+    pub fn new(submitting: bool, on_press: Callback) -> Self {
         Self {
             submitting,
             on_press,

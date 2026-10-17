@@ -10,7 +10,7 @@ use crate::common::shared::{section, sections};
 
 const STEPS: [f32; 4] = [0.1, 0.4, 0.75, 1.0];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // The track is 280 px wide; the fill is a fraction of it, whatever the track's size.
         Box::new(section("Upload progress", progress())),

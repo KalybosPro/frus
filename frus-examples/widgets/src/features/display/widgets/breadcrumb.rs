@@ -5,7 +5,7 @@ use frus::{Align, Breadcrumb, Button, Column, Text, Variant, Widget};
 
 const PATH: [&str; 5] = ["Home", "Documents", "Projects", "frus", "Roadmap"];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         // How deep we are: the trail shows `PATH[..=depth]`.
         let depth = cx.use_state(|| PATH.len() - 1);

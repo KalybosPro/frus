@@ -10,12 +10,12 @@ use crate::features::signup::controllers::validation::password_strength;
 /// gets harder to guess, and a word that says the same for anyone who cannot see colour.
 ///
 /// Configured by the page with the password as it stands; made again on every keystroke.
-pub(crate) struct PasswordStrengthMeter {
+pub struct PasswordStrengthMeter {
     password: String,
 }
 
 impl PasswordStrengthMeter {
-    pub(crate) fn new(password: String) -> Self {
+    pub fn new(password: String) -> Self {
         Self { password }
     }
 }

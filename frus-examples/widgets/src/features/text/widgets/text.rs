@@ -12,7 +12,7 @@ const LONG: &str = "Text wraps at the width it is given. This sentence is long e
                     several lines in a narrow box, which is where alignment, line limits and \
                     ellipses start to matter.";
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // Unstyled, a text takes the theme's body style and colour, so it reads right in
         // light and dark mode without any setting.

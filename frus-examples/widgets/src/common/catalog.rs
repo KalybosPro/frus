@@ -6,7 +6,7 @@ use frus::Icons;
 use crate::features;
 use crate::models::demo::{Category, Demo};
 
-pub(crate) fn categories() -> Vec<Category> {
+pub fn categories() -> Vec<Category> {
     vec![
         Category {
             id: "layout",
@@ -95,32 +95,14 @@ pub(crate) fn categories() -> Vec<Category> {
     ]
 }
 
-pub(crate) fn category(id: &str) -> Option<Category> {
+pub fn category(id: &str) -> Option<Category> {
     categories().into_iter().find(|category| category.id == id)
 }
 
 /// A demo by its id, with the category it belongs to.
-pub(crate) fn demo(id: &str) -> Option<(Category, Demo)> {
+pub fn demo(id: &str) -> Option<(Category, Demo)> {
     categories().into_iter().find_map(|category| {
         let demo = (category.demos)().into_iter().find(|demo| demo.id == id)?;
         Some((category, demo))
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-
-    use super::*;
-
-    /// A demo is found by its id alone, so two with the same id would hide one another.
-    #[test]
-    fn demo_ids_are_unique() {
-        let mut seen = HashSet::new();
-        for category in categories() {
-            for demo in (category.demos)() {
-                assert!(seen.insert(demo.id), "two demos are called `{}`", demo.id);
-            }
-        }
-    }
 }

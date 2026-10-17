@@ -22,8 +22,8 @@ use frus::FrusApp;
 
 use crate::common::routers::router;
 
-mod common;
-mod features;
-mod models;
+pub mod common;
+pub mod features;
+pub mod models;
 
 frus::main!(FrusApp::router(router()).title("Create your account"));

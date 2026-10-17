@@ -14,7 +14,7 @@ use crate::common::shared::{section, sections};
 
 const SALES: [f32; 7] = [0.35, 0.6, 0.45, 0.8, 0.7, 0.95, 0.55];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // Rectangles and a polyline: a small chart in the theme's colours.
         Box::new(section(

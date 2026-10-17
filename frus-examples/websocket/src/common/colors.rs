@@ -6,26 +6,26 @@
 use frus::Color;
 
 /// Connected: all is well.
-pub(crate) fn online() -> Color {
+pub fn online() -> Color {
     Color::hex("#16A34A")
 }
 
 /// Connecting: wait and see.
-pub(crate) fn pending() -> Color {
+pub fn pending() -> Color {
     Color::hex("#D97706")
 }
 
 /// Failed: something to fix, or a retry on its way.
-pub(crate) fn failed() -> Color {
+pub fn failed() -> Color {
     Color::hex("#DC2626")
 }
 
 /// Closed: nothing is happening, by choice.
-pub(crate) fn offline() -> Color {
+pub fn offline() -> Color {
     Color::hex("#71717B")
 }
 
 /// Text that sits on one of the status colours.
-pub(crate) fn on_status() -> Color {
+pub fn on_status() -> Color {
     Color::hex("#FFFFFF")
 }

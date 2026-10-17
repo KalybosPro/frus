@@ -7,7 +7,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let songs = cx.use_state(|| {
             vec![
@@ -71,7 +71,7 @@ pub(crate) fn example() -> Box<dyn Widget> {
 }
 
 /// Moves the item at `from` so that it ends up at `to`.
-fn move_item<T>(list: &mut Vec<T>, from: usize, to: usize) {
+pub fn move_item<T>(list: &mut Vec<T>, from: usize, to: usize) {
     if from < list.len() {
         let item = list.remove(from);
         list.insert(to.min(list.len()), item);
@@ -80,23 +80,9 @@ fn move_item<T>(list: &mut Vec<T>, from: usize, to: usize) {
 
 /// A stable key for a row: here the text itself, which is unique in these lists. A real
 /// app uses its own id.
-fn key_of(text: &str) -> u64 {
+pub fn key_of(text: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     text.hash(&mut hasher);
     hasher.finish()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::move_item;
-
-    #[test]
-    fn moves_down_and_up() {
-        let mut list = vec!['a', 'b', 'c', 'd'];
-        move_item(&mut list, 0, 2);
-        assert_eq!(list, ['b', 'c', 'a', 'd']);
-        move_item(&mut list, 3, 0);
-        assert_eq!(list, ['d', 'b', 'c', 'a']);
-    }
 }

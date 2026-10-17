@@ -1,3 +1,3 @@
-pub(crate) mod productpage;
-pub(crate) mod reviewspage;
-pub(crate) mod sizepage;
+pub mod productpage;
+pub mod reviewspage;
+pub mod sizepage;

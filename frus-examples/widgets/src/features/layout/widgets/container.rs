@@ -4,7 +4,7 @@ use frus::{BorderRadius, BoxDecoration, BoxShadow, Color, Colors, Container, Row
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // The simplest use: a fixed size and a colour.
         Box::new(section(

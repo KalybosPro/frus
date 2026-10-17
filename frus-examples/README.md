@@ -33,7 +33,10 @@ Every example is organised the same way, so what you learn in one carries to the
       controllers/      logic that is not a widget: validation, API calls
       widgets/          pieces of a page, pulled out
     models/             plain data types
+  tests/                the tests, one file per module tested (`counterstate_test.rs`)
 ```
+
+The tests live in `tests/`, beside `src/`, apart from the code they test. Each file there is built against the project as a library, so it tests what `src/` makes public.
 
 ## Running
 
@@ -42,7 +45,7 @@ From any project folder:
 ```sh
 cargo run                       # desktop (Windows, macOS, Linux)
 cargo apk run --lib             # Android, with cargo-apk and a device connected
-cargo test                      # the logic, without a window
+cargo test                      # the tests in tests/, without a window
 ```
 
 Every project also runs in the browser: each has a `web/index.html`, and its README's "Web"

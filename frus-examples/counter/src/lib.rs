@@ -16,8 +16,8 @@ use frus::FrusApp;
 
 use crate::features::counter::pages::counterpage::CounterPage;
 
-mod common;
-mod features;
+pub mod common;
+pub mod features;
 
 // `FrusApp::stateful` takes a root that has state. The widget is cloned for every
 // rebuild, which is why `CounterPage` derives `Clone`.

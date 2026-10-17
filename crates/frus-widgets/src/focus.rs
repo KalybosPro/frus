@@ -44,6 +44,8 @@ struct Wrapper<Msg> {
     skip_traversal: bool,
     order: Option<f32>,
     group: bool,
+    /// Told when the focus arrives in or leaves the subtree; see [`Focus::on_focus_change`].
+    on_focus_change: Option<Box<dyn Fn(bool) -> Msg>>,
 }
 
 impl<Msg> Wrapper<Msg> {
@@ -55,6 +57,7 @@ impl<Msg> Wrapper<Msg> {
             skip_traversal: false,
             order: None,
             group: false,
+            on_focus_change: None,
         }
     }
 }
@@ -101,6 +104,10 @@ impl<Msg: Clone> Widget<Msg> for Wrapper<Msg> {
     fn focus_group(&self) -> bool {
         self.group
     }
+
+    fn on_focus_change(&self, focused: bool) -> Option<Msg> {
+        self.on_focus_change.as_ref().map(|make| make(focused))
+    }
 }
 
 /// Makes its child a **focus stop**: somewhere Tab can land and a click can focus, even
@@ -125,6 +132,18 @@ impl<Msg> Focus<Msg> {
     /// Focusable by a click, passed over by Tab.
     pub fn skip_traversal(mut self) -> Self {
         self.0.skip_traversal = true;
+        self
+    }
+
+    /// A message for the focus **arriving in or leaving** this subtree — the reference's
+    /// `onFocusChange` (milestone 660): `true` when it, or anything inside it, now has the
+    /// focus and did not, `false` the other way. A move between two widgets inside it says
+    /// nothing.
+    pub fn on_focus_change<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        on_change: impl Fn(bool) -> R + 'static,
+    ) -> Self {
+        self.0.on_focus_change = Some(Box::new(crate::callback::handler1(on_change)));
         self
     }
 }
@@ -222,6 +241,9 @@ macro_rules! delegate {
             }
             fn focus_group(&self) -> bool {
                 Widget::<Msg>::focus_group(&self.0)
+            }
+            fn on_focus_change(&self, focused: bool) -> Option<Msg> {
+                Widget::<Msg>::on_focus_change(&self.0, focused)
             }
         }
     )*};
@@ -369,5 +391,148 @@ mod tests {
         assert!(!Widget::<Msg>::focusable(
             &Focus::new(Container::<Msg>::new()).can_request_focus(false)
         ));
+    }
+}
+
+/// The focus arriving in and leaving a subtree (milestone 660).
+#[cfg(test)]
+mod focus_change_tests {
+    use super::*;
+    use crate::WidgetId;
+    use crate::{build_ui, focus_changes, Flex, Runtime, Size, TextField};
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Group(bool),
+        Typed,
+    }
+
+    /// A group of two fields under a `Focus`, and a third field beside it.
+    fn page() -> Flex<Msg> {
+        Flex::column()
+            .width(300.0)
+            .height(300.0)
+            .child(
+                Focus::new(
+                    Flex::column()
+                        .child(TextField::new("a").on_input(|_| Msg::Typed))
+                        .child(TextField::new("b").on_input(|_| Msg::Typed)),
+                )
+                .skip_traversal()
+                .on_focus_change(Msg::Group),
+            )
+            .child(TextField::new("c").on_input(|_| Msg::Typed))
+    }
+
+    /// The three fields' ids, in order: `a`, `b`, `c`.
+    fn fields(page: &Flex<Msg>) -> Vec<WidgetId> {
+        let ui = build_ui(
+            page,
+            Size::new(300.0, 300.0),
+            &Runtime::default(),
+            &crate::Theme::default(),
+        );
+        let ids: Vec<WidgetId> = ui.focusable_ids().collect();
+        // The group itself is a stop too, ahead of its fields.
+        assert_eq!(ids.len(), 4, "{ids:?}");
+        ids[1..].to_vec()
+    }
+
+    /// **The group hears the focus arrive and leave**, and nothing for a move between its
+    /// own fields.
+    #[test]
+    fn a_group_hears_the_focus_arrive_and_leave() {
+        let page = page();
+        let ids = fields(&page);
+        let (a, b, c) = (Some(ids[0]), Some(ids[1]), Some(ids[2]));
+        assert_eq!(
+            focus_changes(&page, None, a),
+            vec![Msg::Group(true)],
+            "arrived"
+        );
+        assert_eq!(focus_changes(&page, a, b), vec![], "moved inside");
+        assert_eq!(focus_changes(&page, b, c), vec![Msg::Group(false)], "left");
+        assert_eq!(focus_changes(&page, c, a), vec![Msg::Group(true)]);
+        assert_eq!(
+            focus_changes(&page, a, None),
+            vec![Msg::Group(false)],
+            "cleared"
+        );
+        assert_eq!(focus_changes(&page, a, a), vec![], "no move");
+        let gone = Some(WidgetId::ROOT.child(9));
+        assert_eq!(
+            focus_changes(&page, gone, a),
+            vec![Msg::Group(true)],
+            "a widget no longer there is not heard from"
+        );
+    }
+
+    /// **The one that lost the focus hears first**, deepest first.
+    #[test]
+    fn the_one_that_lost_it_hears_first() {
+        let nested = Flex::column()
+            .width(300.0)
+            .height(300.0)
+            .child(
+                Focus::new(TextField::new("a").on_input(|_| Msg::Typed))
+                    .skip_traversal()
+                    .on_focus_change(|f| if f { Msg::Group(true) } else { Msg::Typed }),
+            )
+            .child(
+                Focus::new(TextField::new("b").on_input(|_| Msg::Typed))
+                    .skip_traversal()
+                    .on_focus_change(Msg::Group),
+            );
+        let ui = build_ui(
+            &nested,
+            Size::new(300.0, 300.0),
+            &Runtime::default(),
+            &crate::Theme::default(),
+        );
+        let ids: Vec<WidgetId> = ui.focusable_ids().collect();
+        // [group a, a, group b, b]
+        let (a, b) = (Some(ids[1]), Some(ids[3]));
+        assert_eq!(
+            focus_changes(&nested, a, b),
+            vec![Msg::Typed, Msg::Group(true)],
+            "the first group's `false`, then the second's `true`"
+        );
+    }
+
+    /// **Nested groups the focus leaves hear it deepest first**, as do those it enters.
+    #[test]
+    fn nested_groups_hear_it_deepest_first() {
+        let nested = Flex::column()
+            .width(300.0)
+            .height(300.0)
+            .child(
+                Focus::new(
+                    Focus::new(TextField::new("a").on_input(|_| Msg::Typed))
+                        .skip_traversal()
+                        .on_focus_change(|f| Msg::Group(!f)),
+                )
+                .skip_traversal()
+                .on_focus_change(Msg::Group),
+            )
+            .child(TextField::new("b").on_input(|_| Msg::Typed));
+        let ui = build_ui(
+            &nested,
+            Size::new(300.0, 300.0),
+            &Runtime::default(),
+            &crate::Theme::default(),
+        );
+        let ids: Vec<WidgetId> = ui.focusable_ids().collect();
+        // [outer, inner, a, b]
+        let (a, b) = (Some(ids[2]), Some(ids[3]));
+        assert_eq!(
+            focus_changes(&nested, a, b),
+            vec![Msg::Group(true), Msg::Group(false)],
+            "the inner group (which says the opposite) first, then the outer"
+        );
+        assert_eq!(
+            focus_changes(&nested, b, a),
+            vec![Msg::Group(false), Msg::Group(true)],
+            "entering: the inner first, then the outer"
+        );
     }
 }

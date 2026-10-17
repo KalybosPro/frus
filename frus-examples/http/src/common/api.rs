@@ -20,30 +20,30 @@ use crate::models::{comment::Comment, post::NewPost, post::Post, user::User};
 ///
 /// It answers browser requests from any origin (CORS), which is what lets the Web build
 /// of this app call it too.
-pub(crate) const BASE_URL: &str = "https://jsonplaceholder.typicode.com";
+pub const BASE_URL: &str = "https://jsonplaceholder.typicode.com";
 
 /// How long a call may take before it is given up. Without one, a request on a network
 /// that swallows packets (a captive portal, a dead Wi-Fi) waits for as long as the OS
 /// lets it: minutes, with a spinner that never ends.
-pub(crate) const TIMEOUT: Duration = Duration::from_secs(10);
+pub const TIMEOUT: Duration = Duration::from_secs(10);
 
 // ---------------------------------------------------------------------------------------
 // Addresses — plain functions, tested without a network
 // ---------------------------------------------------------------------------------------
 
-pub(crate) fn posts_url() -> String {
+pub fn posts_url() -> String {
     format!("{BASE_URL}/posts")
 }
 
-pub(crate) fn post_url(id: u32) -> String {
+pub fn post_url(id: u32) -> String {
     format!("{BASE_URL}/posts/{id}")
 }
 
-pub(crate) fn comments_url(post_id: u32) -> String {
+pub fn comments_url(post_id: u32) -> String {
     format!("{BASE_URL}/posts/{post_id}/comments")
 }
 
-pub(crate) fn user_url(id: u32) -> String {
+pub fn user_url(id: u32) -> String {
     format!("{BASE_URL}/users/{id}")
 }
 
@@ -53,7 +53,7 @@ pub(crate) fn user_url(id: u32) -> String {
 
 /// What every call starts from: the method and address, the `Accept` header, the
 /// timeout. A request is a value, built by chaining, and nothing is sent until `send`.
-fn request(request: Request) -> Request {
+pub fn request(request: Request) -> Request {
     request
         .header("Accept", "application/json")
         .timeout(TIMEOUT)
@@ -64,31 +64,31 @@ fn request(request: Request) -> Request {
 /// `send_json` sends the request and decodes the body into the type asked for, here a
 /// `Vec<Post>`. A body that does not match the model is a `FetchError::Decode`, which
 /// `?`/`map_err` turns into an `ApiError` like any other failure.
-pub(crate) async fn posts() -> Result<Vec<Post>, ApiError> {
+pub async fn posts() -> Result<Vec<Post>, ApiError> {
     Ok(request(Request::get(posts_url())).send_json().await?)
 }
 
 /// `GET /posts/{id}` — one post.
-pub(crate) async fn post(id: u32) -> Result<Post, ApiError> {
+pub async fn post(id: u32) -> Result<Post, ApiError> {
     Ok(request(Request::get(post_url(id))).send_json().await?)
 }
 
 /// `GET /posts/{id}/comments` — the comments under a post.
-pub(crate) async fn comments(post_id: u32) -> Result<Vec<Comment>, ApiError> {
+pub async fn comments(post_id: u32) -> Result<Vec<Comment>, ApiError> {
     Ok(request(Request::get(comments_url(post_id)))
         .send_json()
         .await?)
 }
 
 /// `GET /users/{id}` — a post's author.
-pub(crate) async fn user(id: u32) -> Result<User, ApiError> {
+pub async fn user(id: u32) -> Result<User, ApiError> {
     Ok(request(Request::get(user_url(id))).send_json().await?)
 }
 
 /// `POST /posts` — creates a post, and answers what the server stored.
 ///
 /// `json_body` serialises the draft and sets `Content-Type: application/json`.
-pub(crate) async fn create_post(draft: NewPost) -> Result<Post, ApiError> {
+pub async fn create_post(draft: NewPost) -> Result<Post, ApiError> {
     Ok(request(Request::post(posts_url()))
         .json_body(&draft)
         .send_json()
@@ -104,7 +104,7 @@ pub(crate) async fn create_post(draft: NewPost) -> Result<Post, ApiError> {
 /// `frus::FetchError` says what went wrong *technically*; this says what the user can do
 /// about it. The mapping lives here, once, rather than in every page.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum ApiError {
+pub enum ApiError {
     /// The server could not be reached at all: no network, airplane mode, DNS, refused.
     Offline,
     /// The server was reached, or might have been, but did not answer in time.
@@ -121,7 +121,7 @@ pub(crate) enum ApiError {
 
 impl ApiError {
     /// A short title for an error view.
-    pub(crate) fn title(&self) -> &'static str {
+    pub fn title(&self) -> &'static str {
         match self {
             ApiError::Offline => "You're offline",
             ApiError::Timeout => "The server is taking too long",
@@ -133,7 +133,7 @@ impl ApiError {
     }
 
     /// One sentence telling the user what happened and what to do next.
-    pub(crate) fn message(&self) -> String {
+    pub fn message(&self) -> String {
         match self {
             ApiError::Offline => {
                 "Couldn't reach the server. Check your connection — is airplane mode on? — \
@@ -188,74 +188,5 @@ impl From<FetchError> for ApiError {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn addresses_are_built_from_the_base_url() {
-        assert_eq!(posts_url(), "https://jsonplaceholder.typicode.com/posts");
-        assert_eq!(post_url(3), "https://jsonplaceholder.typicode.com/posts/3");
-        assert_eq!(
-            comments_url(3),
-            "https://jsonplaceholder.typicode.com/posts/3/comments"
-        );
-        assert_eq!(
-            user_url(10),
-            "https://jsonplaceholder.typicode.com/users/10"
-        );
-    }
-
-    #[test]
-    fn statuses_map_to_what_the_user_can_do() {
-        assert_eq!(ApiError::from(FetchError::Status(404)), ApiError::NotFound);
-        assert_eq!(
-            ApiError::from(FetchError::Status(503)),
-            ApiError::Server(503)
-        );
-        assert_eq!(
-            ApiError::from(FetchError::Status(401)),
-            ApiError::Status(401)
-        );
-    }
-
-    #[test]
-    fn a_deadline_is_a_timeout_on_every_platform() {
-        // Native wording, then the browser's.
-        let native = FetchError::Network("timeout: global".into());
-        let browser = FetchError::Network("JsValue(AbortError: signal is aborted)".into());
-        assert_eq!(ApiError::from(native), ApiError::Timeout);
-        assert_eq!(ApiError::from(browser), ApiError::Timeout);
-    }
-
-    #[test]
-    fn any_other_transport_failure_means_offline() {
-        for detail in [
-            "host not found",
-            "connection failed",
-            "io: No such host is known. (os error 11001)",
-            "JsValue(TypeError: Failed to fetch)",
-        ] {
-            assert_eq!(
-                ApiError::from(FetchError::Network(detail.into())),
-                ApiError::Offline,
-                "{detail}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_body_that_does_not_match_the_model_is_a_decode_error() {
-        let error = ApiError::from(FetchError::Decode("expected a sequence".into()));
-        assert!(matches!(error, ApiError::Decode(_)));
-        assert!(error.message().contains("expected a sequence"));
-    }
-
-    #[test]
-    fn the_timeout_message_names_the_deadline() {
-        assert!(ApiError::Timeout.message().contains("10 seconds"));
     }
 }

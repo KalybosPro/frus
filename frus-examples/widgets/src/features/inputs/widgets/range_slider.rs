@@ -5,7 +5,7 @@ use frus::{Color, RangeSlider, State, StateContext, StatefulWidget, Text, Widget
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(RangeDemo.into_widget())
 }
 

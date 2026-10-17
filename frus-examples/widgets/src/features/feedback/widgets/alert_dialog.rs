@@ -12,7 +12,7 @@ use frus::{
 
 use crate::common::shared::section;
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(AlertDialogDemo.into_widget())
 }
 

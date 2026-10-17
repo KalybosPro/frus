@@ -21,7 +21,7 @@ const FAQ: [(&str, &str); 3] = [
     ),
 ];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let open = cx.use_state(|| [true, false, false]);
         let accordion = cx.use_state(|| None::<usize>);

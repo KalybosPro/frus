@@ -5,7 +5,7 @@ use frus::{
     Align, Button, Column, DataTable, State, StateContext, StatefulWidget, Text, Variant, Widget,
 };
 
-const PEOPLE: [(&str, &str, u32); 12] = [
+pub const PEOPLE: [(&str, &str, u32); 12] = [
     ("Ada", "Research", 92),
     ("Alan", "Research", 88),
     ("Barbara", "Platform", 75),
@@ -20,30 +20,30 @@ const PEOPLE: [(&str, &str, u32); 12] = [
     ("Radia", "Networks", 90),
 ];
 
-const PER_PAGE: usize = 5;
+pub const PER_PAGE: usize = 5;
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(PeopleTable.into_widget())
 }
 
 /// The demo is a small `StatefulWidget`: the table's whole state lives in one struct, and
 /// each handler changes it through a method — the same shape as a real page.
-struct PeopleTable;
+pub struct PeopleTable;
 
 #[derive(Default)]
-struct PeopleTableState {
+pub struct PeopleTableState {
     /// The sorted column and its direction; `None` keeps the source order.
-    sort: Option<(usize, bool)>,
+    pub sort: Option<(usize, bool)>,
     /// 1-based page.
     page: usize,
     query: String,
     /// Checked rows, as indices into `PEOPLE` (the table translates through sorting).
-    checked: Vec<usize>,
+    pub checked: Vec<usize>,
 }
 
 impl PeopleTableState {
     /// A click on a header: a new column sorts ascending, the same one flips.
-    fn sort_by(&mut self, column: usize) {
+    pub fn sort_by(&mut self, column: usize) {
         let ascending = match self.sort {
             Some((current, ascending)) if current == column => !ascending,
             _ => true,
@@ -57,7 +57,7 @@ impl PeopleTableState {
         self.page = 1;
     }
 
-    fn toggle(&mut self, row: usize) {
+    pub fn toggle(&mut self, row: usize) {
         if let Some(at) = self.checked.iter().position(|&r| r == row) {
             self.checked.remove(at);
         } else {
@@ -66,7 +66,7 @@ impl PeopleTableState {
     }
 
     /// The header box: everything, or nothing if everything was already checked.
-    fn toggle_all(&mut self) {
+    pub fn toggle_all(&mut self) {
         if self.checked.len() == PEOPLE.len() {
             self.checked.clear();
         } else {
@@ -139,31 +139,5 @@ impl State for PeopleTableState {
                     Text::new(format!("{} checked", self.checked.len())).color(cx.theme().muted),
                 ),
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sorting_the_same_column_flips_direction() {
-        let mut state = PeopleTableState::default();
-        state.sort_by(2);
-        assert_eq!(state.sort, Some((2, true)));
-        state.sort_by(2);
-        assert_eq!(state.sort, Some((2, false)));
-        state.sort_by(0);
-        assert_eq!(state.sort, Some((0, true)));
-    }
-
-    #[test]
-    fn check_all_toggles_everything() {
-        let mut state = PeopleTableState::default();
-        state.toggle(3);
-        state.toggle_all();
-        assert_eq!(state.checked.len(), PEOPLE.len());
-        state.toggle_all();
-        assert!(state.checked.is_empty());
     }
 }

@@ -7,7 +7,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // Fractions of a fixed frame: 75 % of the width, 50 % of the height.
         Box::new(section(

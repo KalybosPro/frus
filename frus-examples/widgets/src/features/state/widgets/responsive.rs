@@ -13,7 +13,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         let scheme = &cx.theme().scheme;
         let (fill, on_fill) = (scheme.secondary_container, scheme.on_secondary_container);

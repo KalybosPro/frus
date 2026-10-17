@@ -211,6 +211,9 @@ pub struct TextField<Msg = crate::callback::Callback> {
     sized: bool,
     on_input: Option<Box<dyn Fn(String) -> Msg>>,
     on_submit: Option<Msg>,
+    /// Sent for a press outside the field while it is focused; see
+    /// [`TextField::on_tap_outside`].
+    on_tap_outside: Option<Msg>,
     /// What to tell the screen reader when `on_submit` fires — see [`TextField::announce`].
     announce: Option<String>,
     /// Label displayed above the field.
@@ -601,6 +604,7 @@ impl<Msg> TextField<Msg> {
             sized: false,
             on_input: None,
             on_submit: None,
+            on_tap_outside: None,
             announce: None,
             label: None,
             placeholder: None,
@@ -1176,6 +1180,14 @@ impl<Msg> TextField<Msg> {
         let top = self.label_block();
         let bottom = top + self.field_height_at(width);
         local_x >= zone_left && local_y >= top && local_y <= bottom
+    }
+
+    /// A message for a **press outside the field while it is focused** — the reference's
+    /// `onTapOutside` (milestone 660), sent before the press moves the focus: a form that
+    /// saves a draft, or closes a suggestion list, when the user taps away.
+    pub fn on_tap_outside(mut self, message: impl Into<Msg>) -> Self {
+        self.on_tap_outside = Some(message.into());
+        self
     }
 
     /// Label displayed above the field.
@@ -2553,6 +2565,10 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
 
     fn autofocus(&self) -> bool {
         self.autofocus && self.enabled
+    }
+
+    fn on_tap_outside(&self) -> Option<Msg> {
+        self.on_tap_outside.clone()
     }
 
     fn focusable(&self) -> bool {

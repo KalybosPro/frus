@@ -5,7 +5,7 @@ use frus::{Align, Color, Column, Container, Divider, Row, Text, VerticalDivider,
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // A divider is as wide as it is allowed to be, inside a band of `height` (16 by
         // default) that leaves room above and below. A column centres its children

@@ -4,7 +4,7 @@
 use frus::Color;
 
 /// The background of the "Code" tab.
-pub(crate) fn code_background(dark: bool) -> Color {
+pub fn code_background(dark: bool) -> Color {
     if dark {
         Color::hex("#1E1E24")
     } else {

@@ -8,7 +8,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // A fixed-size container stretches its child to fill it (left). Wrapped in an
         // `UnconstrainedBox`, the child keeps its natural size instead (right).

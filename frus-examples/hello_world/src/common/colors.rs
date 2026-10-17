@@ -2,10 +2,10 @@
 
 use frus::Color;
 
-pub(crate) fn primary_color() -> Color {
+pub fn primary_color() -> Color {
     Color::hex("#4F46E5")
 }
 
-pub(crate) fn text_muted() -> Color {
+pub fn text_muted() -> Color {
     Color::hex("#71717B")
 }

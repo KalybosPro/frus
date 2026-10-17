@@ -13,7 +13,7 @@ const ROOMS: [(&str, &str); 3] = [
     ("Bedroom", "1 light on"),
 ];
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(frus::component(|cx| {
         let selected = cx.use_state(|| 0usize);
         let wifi = cx.use_state(|| true);

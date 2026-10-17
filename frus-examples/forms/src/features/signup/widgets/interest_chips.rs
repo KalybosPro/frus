@@ -9,16 +9,13 @@ use crate::models::profile::INTERESTS;
 ///
 /// The chips report a press, not a value, so the page hands in a function from a chip's
 /// index to the callback for it — `cx.handler(..)` makes exactly that.
-pub(crate) struct InterestChips {
+pub struct InterestChips {
     selected: Vec<usize>,
     on_toggle: Rc<dyn Fn(usize) -> Callback>,
 }
 
 impl InterestChips {
-    pub(crate) fn new(
-        selected: Vec<usize>,
-        on_toggle: impl Fn(usize) -> Callback + 'static,
-    ) -> Self {
+    pub fn new(selected: Vec<usize>, on_toggle: impl Fn(usize) -> Callback + 'static) -> Self {
         Self {
             selected,
             on_toggle: Rc::new(on_toggle),

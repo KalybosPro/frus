@@ -12,32 +12,30 @@ use std::path::PathBuf;
 
 /// Where the session is kept, if anywhere.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct Session {
+pub struct Session {
     path: Option<PathBuf>,
 }
 
 impl Session {
     /// A session kept nowhere: forgotten when the application stops. What the tests use.
-    #[cfg(test)]
-    pub(crate) fn in_memory() -> Self {
+    pub fn in_memory() -> Self {
         Self { path: None }
     }
 
     /// A session kept in a file at `path`.
-    #[cfg(test)]
-    pub(crate) fn at(path: PathBuf) -> Self {
+    pub fn at(path: PathBuf) -> Self {
         Self { path: Some(path) }
     }
 
     /// The platform's place for it: a file in the configuration folder on a desktop.
-    pub(crate) fn on_device() -> Self {
+    pub fn on_device() -> Self {
         Self {
             path: config_dir().map(|dir| dir.join("frus-authentication-example").join("session")),
         }
     }
 
     /// The saved session id, if there is one.
-    pub(crate) fn load(&self) -> Option<String> {
+    pub fn load(&self) -> Option<String> {
         let path = self.path.as_ref()?;
         let id = std::fs::read_to_string(path).ok()?;
         let id = id.trim();
@@ -46,7 +44,7 @@ impl Session {
 
     /// Saves the session id. A failure is logged and otherwise ignored: the person is
     /// signed in either way, they will just have to sign in again next time.
-    pub(crate) fn save(&self, id: &str) {
+    pub fn save(&self, id: &str) {
         let Some(path) = &self.path else { return };
         let written = path
             .parent()
@@ -58,7 +56,7 @@ impl Session {
     }
 
     /// Forgets the saved session.
-    pub(crate) fn clear(&self) {
+    pub fn clear(&self) {
         if let Some(path) = &self.path {
             // A missing file is already what we want.
             let _ = std::fs::remove_file(path);
@@ -68,7 +66,7 @@ impl Session {
 
 /// The user's configuration folder on a desktop; `None` where there is none to write to.
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-fn config_dir() -> Option<PathBuf> {
+pub fn config_dir() -> Option<PathBuf> {
     let var = |name| std::env::var_os(name).map(PathBuf::from);
     if cfg!(windows) {
         var("APPDATA")
@@ -81,30 +79,6 @@ fn config_dir() -> Option<PathBuf> {
 
 /// Android and the Web: no file here (see the module's documentation).
 #[cfg(any(target_os = "android", target_arch = "wasm32"))]
-fn config_dir() -> Option<PathBuf> {
+pub fn config_dir() -> Option<PathBuf> {
     None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_saved_session_is_read_back_then_forgotten() {
-        let path = std::env::temp_dir()
-            .join("frus-authentication-test")
-            .join("session-roundtrip");
-        let session = Session::at(path);
-        session.save("u1");
-        assert_eq!(session.load(), Some("u1".to_string()));
-        session.clear();
-        assert_eq!(session.load(), None);
-    }
-
-    #[test]
-    fn an_in_memory_session_keeps_nothing() {
-        let session = Session::in_memory();
-        session.save("u1");
-        assert_eq!(session.load(), None);
-    }
 }

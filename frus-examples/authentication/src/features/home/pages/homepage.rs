@@ -9,12 +9,12 @@ use crate::features::home::widgets::user_card::UserCard;
 
 /// The page behind the sign-in. It has no state of its own — what it shows is the
 /// service's — so it is a `StatelessWidget`.
-pub(crate) struct HomePage {
+pub struct HomePage {
     auth: Auth,
 }
 
 impl HomePage {
-    pub(crate) fn new(auth: Auth) -> Self {
+    pub fn new(auth: Auth) -> Self {
         Self { auth }
     }
 }

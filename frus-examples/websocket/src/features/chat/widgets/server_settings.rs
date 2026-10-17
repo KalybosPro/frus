@@ -6,14 +6,14 @@ use frus::{
 };
 
 /// The panel under the app bar where the server's address is changed.
-pub(crate) struct ServerSettings {
+pub struct ServerSettings {
     url_draft: String,
     on_input: Rc<dyn Fn(String) -> Callback>,
     on_apply: Callback,
 }
 
 impl ServerSettings {
-    pub(crate) fn new(
+    pub fn new(
         url_draft: impl Into<String>,
         on_input: impl Fn(String) -> Callback + 'static,
         on_apply: Callback,

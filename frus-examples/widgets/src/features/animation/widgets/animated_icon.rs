@@ -11,7 +11,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         // One flag per bundled pair, kept together.
         let states = cx.use_state(|| [false; 4]);

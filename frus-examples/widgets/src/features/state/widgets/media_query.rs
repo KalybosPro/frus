@@ -8,7 +8,7 @@ use frus::{component, Align, Column, Container, Insets, MediaQuery, MediaScope, 
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         // The description in force where this is built. Read it in `build`, never cache
         // it: a resize or a rotation rebuilds, and it is read afresh.

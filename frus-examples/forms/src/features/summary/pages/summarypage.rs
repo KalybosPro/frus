@@ -16,12 +16,12 @@ use crate::models::profile::Profile;
 /// came with the navigation (`push_with_extra`); opened any other way — a typed address,
 /// `cargo run -- /summary` — there is none, and the page shows sample data under a notice
 /// rather than an empty card.
-pub(crate) struct SummaryPage {
+pub struct SummaryPage {
     profile: Option<Rc<Profile>>,
 }
 
 impl SummaryPage {
-    pub(crate) fn new(profile: Option<Rc<Profile>>) -> Self {
+    pub fn new(profile: Option<Rc<Profile>>) -> Self {
         Self { profile }
     }
 }

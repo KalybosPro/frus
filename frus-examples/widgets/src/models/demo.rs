@@ -3,7 +3,7 @@
 use frus::{IconData, Widget};
 
 /// One widget's demo: a live example, and the source file it is written in.
-pub(crate) struct Demo {
+pub struct Demo {
     /// Where it lives in the address: `/widget/<id>`. Unique across the gallery.
     pub id: &'static str,
     /// The widget's name, as a developer types it.
@@ -17,7 +17,7 @@ pub(crate) struct Demo {
 }
 
 impl Demo {
-    pub(crate) fn new(
+    pub fn new(
         id: &'static str,
         name: &'static str,
         summary: &'static str,
@@ -35,7 +35,7 @@ impl Demo {
 }
 
 /// A family of widgets: one feature folder under `src/features/`.
-pub(crate) struct Category {
+pub struct Category {
     pub id: &'static str,
     pub name: &'static str,
     pub summary: &'static str,

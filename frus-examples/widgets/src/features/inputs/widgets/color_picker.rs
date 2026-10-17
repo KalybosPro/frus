@@ -4,7 +4,7 @@ use frus::{Color, ColorPicker, Container, Row, State, StateContext, StatefulWidg
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(ColorPickerDemo.into_widget())
 }
 

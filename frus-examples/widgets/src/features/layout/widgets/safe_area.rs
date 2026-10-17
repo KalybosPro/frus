@@ -8,7 +8,7 @@ use frus::{Color, Container, Edges, Insets, SafeArea, Text, Widget};
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // `build` hands you the screen's current metrics: here, the insets it is keeping
         // clear on this device. On a desktop window they are all zero.

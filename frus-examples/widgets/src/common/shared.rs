@@ -10,7 +10,7 @@ use frus::{Align, Column, FontWeight, Text, Widget};
 ///     .child(section("Filled", Button::new("Save")))
 ///     .child(section("Outlined", Button::new("Cancel").variant(Variant::Outlined)))
 /// ```
-pub(crate) fn section(title: &str, child: impl Widget + 'static) -> Column {
+pub fn section(title: &str, child: impl Widget + 'static) -> Column {
     Column::new()
         .spacing(8.0)
         .cross_axis_alignment(Align::Start)
@@ -20,7 +20,7 @@ pub(crate) fn section(title: &str, child: impl Widget + 'static) -> Column {
 
 /// Several sections, one under the other, with room between them — the usual body of a
 /// demo.
-pub(crate) fn sections(children: Vec<Box<dyn Widget>>) -> Box<dyn Widget> {
+pub fn sections(children: Vec<Box<dyn Widget>>) -> Box<dyn Widget> {
     let column = children.into_iter().fold(
         Column::new()
             .spacing(24.0)

@@ -13,7 +13,7 @@ use frus::{
 
 use crate::common::shared::{section, sections};
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     sections(vec![
         // A translucent card over a busy background: the blur makes its text readable.
         Box::new(section(

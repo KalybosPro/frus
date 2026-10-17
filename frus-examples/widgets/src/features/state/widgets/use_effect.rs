@@ -11,7 +11,7 @@ use crate::common::shared::{section, sections};
 /// How many lines of the log are shown.
 const LINES: usize = 8;
 
-pub(crate) fn example() -> Box<dyn Widget> {
+pub fn example() -> Box<dyn Widget> {
     Box::new(component(|cx| {
         let log = cx.use_state(Vec::<String>::new);
         let mounted = cx.use_state(|| true);
