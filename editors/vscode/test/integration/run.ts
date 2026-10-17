@@ -17,15 +17,19 @@ async function main(): Promise<void> {
     console.log("FRUS_E2E_FRUS and FRUS_E2E_APP are not set: nothing to run.");
     return;
   }
+  // An instance of its own: its own profile and extensions, whatever VS Code is open already.
+  const isolated = fs.mkdtempSync(path.join(require("os").tmpdir(), "frus-vscode-"));
+  // And a `frus` of its own, which the suite replaces as an install would.
+  const installed = path.join(isolated, "bin", path.basename(frus));
+  fs.mkdirSync(path.dirname(installed), { recursive: true });
+  fs.copyFileSync(frus, installed);
   const settings = path.join(app, ".vscode", "settings.json");
   fs.mkdirSync(path.dirname(settings), { recursive: true });
-  fs.writeFileSync(settings, JSON.stringify({ "frus.path": frus, "frus.reloadOnSave": false }, null, 2));
+  fs.writeFileSync(settings, JSON.stringify({ "frus.path": installed, "frus.reloadOnSave": false }, null, 2));
 
   const extensionDevelopmentPath = path.resolve(__dirname, "../../..");
   const result = path.join(app, ".vscode", "frus-integration.json");
   fs.rmSync(result, { force: true });
-  // An instance of its own: its own profile and extensions, whatever VS Code is open already.
-  const isolated = fs.mkdtempSync(path.join(require("os").tmpdir(), "frus-vscode-"));
   await runTests({
     extensionDevelopmentPath,
     extensionTestsPath: path.resolve(__dirname, "suite"),
@@ -37,7 +41,7 @@ async function main(): Promise<void> {
       `--user-data-dir=${path.join(isolated, "data")}`,
       `--extensions-dir=${path.join(isolated, "extensions")}`,
     ],
-    extensionTestsEnv: { ...process.env, FRUS_INTEGRATION_RESULT: result } as Record<string, string>,
+    extensionTestsEnv: { ...process.env, FRUS_INTEGRATION_RESULT: result, FRUS_INTEGRATION_FRUS: installed } as Record<string, string>,
     // An installed VS Code (FRUS_VSCODE), or one downloaded into FRUS_VSCODE_CACHE.
     vscodeExecutablePath: process.env.FRUS_VSCODE,
     cachePath: process.env.FRUS_VSCODE_CACHE,

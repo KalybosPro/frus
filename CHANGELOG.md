@@ -24,7 +24,9 @@ any release may break.
   Console, and a reload on every save of a Rust file (or the ⚡ button, Ctrl+F5).
   On the way: the Web keeps component states across a reload too, a debug APK built by
   `frus run` leaves its debug information out (267 MB → 56 MB for a hello world), and a
-  `web/index.html` that loads the wrong file is reported.
+  `web/index.html` that loads the wrong file is reported. The extension runs a copy of `frus`,
+  so `cargo install frus-cli` can update the installed one while VS Code is open; the device
+  list restarts from the new one.
 
 - **`frus daemon` and `frus run --machine`** (J665): JSON lines for an editor. The daemon lists
   the devices and reports them as they come and go; a machine run reports `app.start`,
