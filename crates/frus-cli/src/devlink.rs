@@ -49,6 +49,9 @@ pub(crate) struct DevLink {
     latest: Arc<Mutex<Option<TcpStream>>>,
     /// It answered `saved`.
     saved: Arc<AtomicBool>,
+    /// Lines sent before any application connected: a key pressed while it starts. The next
+    /// connection gets them first.
+    pending: Arc<Mutex<Vec<String>>>,
 }
 
 impl DevLink {
@@ -61,10 +64,21 @@ impl DevLink {
         let report = Arc::new(Mutex::new(Report::default()));
         let latest = Arc::new(Mutex::new(None));
         let saved = Arc::new(AtomicBool::new(false));
-        let (shared, newest, answered) = (report.clone(), latest.clone(), saved.clone());
+        let pending = Arc::new(Mutex::new(Vec::<String>::new()));
+        let (shared, newest, answered, waiting) = (
+            report.clone(),
+            latest.clone(),
+            saved.clone(),
+            pending.clone(),
+        );
         std::thread::spawn(move || {
             for stream in listener.incoming().map_while(Result::ok) {
-                if let (Ok(mut slot), Ok(writer)) = (newest.lock(), stream.try_clone()) {
+                if let (Ok(mut slot), Ok(mut writer)) = (newest.lock(), stream.try_clone()) {
+                    if let Ok(mut waiting) = waiting.lock() {
+                        for line in waiting.drain(..) {
+                            let _ = writer.write_all(format!("{line}\n").as_bytes());
+                        }
+                    }
                     *slot = Some(writer);
                 }
                 let (shared, answered) = (shared.clone(), answered.clone());
@@ -84,6 +98,7 @@ impl DevLink {
             report,
             latest,
             saved,
+            pending,
         })
     }
 
@@ -94,6 +109,31 @@ impl DevLink {
 
     pub(crate) fn report(&self) -> Report {
         self.report.lock().map(|r| r.clone()).unwrap_or_default()
+    }
+
+    /// Sends the running application a line: `do <command>` (milestone 668). Before it has
+    /// connected — it is starting — the line waits for it. `false` when it could not be written.
+    pub(crate) fn send(&self, line: &str) -> bool {
+        let Ok(mut slot) = self.latest.lock() else {
+            return false;
+        };
+        match slot.as_mut() {
+            Some(stream) => stream.write_all(format!("{line}\n").as_bytes()).is_ok(),
+            None => {
+                if let Ok(mut pending) = self.pending.lock() {
+                    pending.push(line.to_string());
+                }
+                true
+            }
+        }
+    }
+
+    /// The application was stopped: what is sent from now on waits for the next one to connect,
+    /// rather than going to a socket nobody reads.
+    pub(crate) fn disconnect(&self) {
+        if let Ok(mut slot) = self.latest.lock() {
+            *slot = None;
+        }
     }
 
     /// Asks the running application to write its component states to `file`, and waits — a few
@@ -188,6 +228,18 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert!(link.save_states(Path::new("states.txt")));
+    }
+
+    /// A key pressed while the application starts reaches it once it connects.
+    #[test]
+    fn a_command_waits_for_the_application() {
+        let link = DevLink::open().unwrap();
+        assert!(link.send("do outlines"));
+        let app = TcpStream::connect(link.address()).unwrap();
+        app.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let mut line = String::new();
+        BufReader::new(app).read_line(&mut line).unwrap();
+        assert_eq!(line, "do outlines\n");
     }
 
     #[test]

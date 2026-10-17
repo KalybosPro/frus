@@ -929,6 +929,9 @@ pub struct App<A: Application> {
     inspector: bool,
     /// A tree dump to print on the next inspected frame.
     inspector_dump: bool,
+    /// What the keys of `frus run` turned on or asked for (milestone 668); see
+    /// [`App::take_dev_commands`].
+    debug: DebugAsks,
     /// The current keyboard modifiers.
     shift: bool,
     ctrl: bool,
@@ -1194,6 +1197,7 @@ impl<A: Application> App<A> {
             reported_overflows: std::cell::RefCell::new(std::collections::HashSet::new()),
             inspector: false,
             inspector_dump: false,
+            debug: DebugAsks::default(),
             shift: false,
             ctrl: false,
             alt: false,
@@ -1896,6 +1900,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.run_command(command);
                 self.sync_subscriptions();
                 self.open_launch_address(&window);
+                crate::dev_commands::set_window(Some(window.clone()));
                 if let Some(states) = crate::web_dev::start() {
                     self.runtime.states.restore_from(&states);
                 }
@@ -1954,6 +1959,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     // What the input bridge's wakes ask a frame of (milestone 513).
                     #[cfg(android)]
                     crate::android_ime::set_window(Some(window.clone()));
+                    #[cfg(android)]
+                    crate::dev_commands::set_window(Some(window.clone()));
                     self.renderer = Some(renderer);
                     // The surface was (re)created: force a full rebuild on the first frame.
                     self.build_dirty = true;
@@ -2001,6 +2008,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         self.window = None;
         #[cfg(android)]
         crate::android_ime::set_window(None);
+        #[cfg(android)]
+        crate::dev_commands::set_window(None);
         self.last_frame = None;
     }
 
@@ -2480,7 +2489,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
                 let theme_moved = self.themes.advance(
                     &self.app,
-                    self.platform.brightness,
+                    self.brightness(),
                     settings.high_contrast,
                     settings.disable_animations,
                     dt,
@@ -2539,6 +2548,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // work for another thread — is run first: it may ask for this very rebuild.
                 let asked = self.app.effects();
                 self.run_command(asked);
+                self.take_dev_commands();
                 #[cfg(web)]
                 self.sync_address();
                 #[cfg(any(desktop, android))]
@@ -2791,7 +2801,13 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // and the overlay — outlines plus a card for the hovered widget — is
                 // painted on top of a copy of the scene.
                 let layout_start = measuring.then(Instant::now);
-                let (ui, scene) = if self.inspector {
+                // So do debug paint (outlines alone, no card) and the dumps `frus run` asks
+                // for (milestone 668).
+                let inspected = self.inspector
+                    || self.debug.outlines
+                    || self.inspector_dump
+                    || self.debug.focus_dump;
+                let (ui, scene) = if inspected {
                     let (ui, nodes) = frus_widgets::build_ui_inspected(
                         tree,
                         Size::new(width, height),
@@ -2803,14 +2819,21 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         log::info!(target: "frus::inspector", "
 {}", frus_widgets::dump_tree(&nodes));
                     }
+                    if std::mem::take(&mut self.debug.focus_dump) {
+                        let focusable: Vec<WidgetId> = ui.focusable_ids().collect();
+                        log::info!(target: "frus::inspector", "focus, in tab order:
+{}", dump_focus(&nodes, &focusable, self.runtime.input.focused));
+                    }
                     let mut scene = ui.scene().clone();
-                    frus_widgets::paint_inspector_overlay(
-                        &nodes,
-                        Some(self.cursor),
-                        Size::new(width, height),
-                        &theme,
-                        &mut scene,
-                    );
+                    if self.inspector || self.debug.outlines {
+                        frus_widgets::paint_inspector_overlay(
+                            &nodes,
+                            self.inspector.then_some(self.cursor),
+                            Size::new(width, height),
+                            &theme,
+                            &mut scene,
+                        );
+                    }
                     // Scene: logical → physical (DPI × density).
                     (ui, scene.scaled(scale))
                 } else {
@@ -2852,6 +2875,23 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 } else {
                     scene
                 };
+                // What the keys of `frus run` asked of this frame (milestone 668).
+                if std::mem::take(&mut self.debug.semantics_dump) {
+                    log::info!(target: "frus::inspector", "semantics, in reading order:
+{}", dump_semantics(ui.semantics()));
+                }
+                let scene = if self.debug.performance {
+                    let mut scene = scene;
+                    let costs = self.debug.last_costs.as_ref().map(|(costs, _)| costs);
+                    paint_performance(&mut scene, costs, self.debug.fps, width * scale, scale);
+                    scene
+                } else {
+                    scene
+                };
+                #[cfg(desktop)]
+                if let Some(path) = self.debug.screenshot.take() {
+                    write_screenshot(&scene, width * scale, height * scale, &path);
+                }
                 if let Some(renderer) = self.renderer.as_mut() {
                     let render_start = measuring.then(Instant::now);
                     match renderer.render(&scene) {
@@ -3053,6 +3093,19 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         .filter(|(on, _)| *on)
                         .fold(Why::NONE, |all, (_, why)| all | why);
                     self.frame_stats.frame(start, self.frame_costs);
+                    if self.debug.performance {
+                        if let Some((_, before)) = self.debug.last_costs {
+                            let gap = start.saturating_duration_since(before).as_secs_f32();
+                            if gap > 0.0 {
+                                self.debug.fps = 1.0 / gap;
+                            }
+                        }
+                        // The first frame measured: one more shows what it cost.
+                        if self.debug.last_costs.is_none() {
+                            self.request_redraw();
+                        }
+                        self.debug.last_costs = Some((self.frame_costs, start));
+                    }
                 }
                 // The title bar's line, shared with the content when it asks (milestone 640).
                 #[cfg(windows)]
@@ -3064,7 +3117,273 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
     }
 }
 
+/// What the keys of `frus run` turned on or asked for (milestone 668).
+#[derive(Default)]
+struct DebugAsks {
+    /// Outlines around every widget, without the inspector's card: debug paint (`p`).
+    outlines: bool,
+    /// The focusable widgets to print on the next frame, the focused one marked (`f`).
+    focus_dump: bool,
+    /// The accessibility tree to print on the next frame (`S`).
+    semantics_dump: bool,
+    /// The brightness the theme is resolved with instead of the platform's (`b`).
+    brightness: Option<frus_widgets::Brightness>,
+    /// The performance panel: the last frame's costs, over the interface (`P`).
+    performance: bool,
+    /// The last frame's costs and when it began, for the panel.
+    last_costs: Option<(crate::frame_stats::FrameCosts, Instant)>,
+    /// Frames per second, from the gap between the last two.
+    fps: f32,
+    /// Where to write the next frame as a PNG (`s`).
+    #[cfg_attr(not(desktop), allow(dead_code))]
+    screenshot: Option<std::path::PathBuf>,
+}
+
+/// The order `o` goes through the platforms in.
+const PLATFORM_CYCLE: [frus_widgets::TargetPlatform; 6] = [
+    frus_widgets::TargetPlatform::Android,
+    frus_widgets::TargetPlatform::Ios,
+    frus_widgets::TargetPlatform::Windows,
+    frus_widgets::TargetPlatform::MacOs,
+    frus_widgets::TargetPlatform::Linux,
+    frus_widgets::TargetPlatform::Fuchsia,
+];
+
+/// The platform after `current` in [`PLATFORM_CYCLE`].
+fn next_platform(current: frus_widgets::TargetPlatform) -> frus_widgets::TargetPlatform {
+    let at = PLATFORM_CYCLE
+        .iter()
+        .position(|p| *p == current)
+        .unwrap_or(0);
+    PLATFORM_CYCLE[(at + 1) % PLATFORM_CYCLE.len()]
+}
+
+/// The focusable widgets of a frame, in tab order, the focused one marked.
+fn dump_focus(
+    nodes: &[frus_widgets::InspectorNode],
+    focusable: &[WidgetId],
+    focused: Option<WidgetId>,
+) -> String {
+    let mut out = String::new();
+    for id in focusable {
+        let node = nodes.iter().rev().find(|n| n.id == *id);
+        let mark = if Some(*id) == focused { "▶ " } else { "  " };
+        match node {
+            Some(n) => out.push_str(&format!(
+                "{mark}{}  {:.0},{:.0}  {:.0}×{:.0}  #{:08x}\n",
+                n.name,
+                n.rect.x,
+                n.rect.y,
+                n.rect.width,
+                n.rect.height,
+                id.as_u64() as u32
+            )),
+            None => out.push_str(&format!("{mark}#{:08x}\n", id.as_u64() as u32)),
+        }
+    }
+    if out.is_empty() {
+        out.push_str("  (nothing focusable)\n");
+    }
+    out
+}
+
+/// The accessibility tree of a frame, one node a line, in reading order.
+fn dump_semantics(nodes: &[(WidgetId, Rect, frus_widgets::SemanticsProperties)]) -> String {
+    let mut out = String::new();
+    for (_, rect, props) in nodes {
+        out.push_str(&format!("  {:?}", props.role));
+        if let Some(label) = &props.label {
+            out.push_str(&format!(" \"{label}\""));
+        }
+        if let Some(value) = &props.value {
+            out.push_str(&format!(" = {value}"));
+        }
+        if props.clickable {
+            out.push_str(" clickable");
+        }
+        if props.disabled {
+            out.push_str(" disabled");
+        }
+        out.push_str(&format!(
+            "  {:.0},{:.0}  {:.0}×{:.0}\n",
+            rect.x, rect.y, rect.width, rect.height
+        ));
+    }
+    if out.is_empty() {
+        out.push_str("  (empty)\n");
+    }
+    out
+}
+
+/// The performance panel, in the top right corner of a `width`×`height` frame drawn at
+/// `scale`: the last frame's costs and the rate of frames.
+fn paint_performance(
+    scene: &mut frus_widgets::Scene,
+    costs: Option<&crate::frame_stats::FrameCosts>,
+    fps: f32,
+    width: f32,
+    scale: f32,
+) {
+    let lines = match costs {
+        Some(costs) => performance_lines(costs, fps),
+        None => vec!["measuring…".to_string()],
+    };
+    paint_panel(scene, lines, width, scale);
+}
+
+/// The panel's lines for a frame that cost `costs`.
+fn performance_lines(costs: &crate::frame_stats::FrameCosts, fps: f32) -> Vec<String> {
+    let build = costs
+        .build
+        .map_or_else(|| "kept".to_string(), |ms| format!("{ms:.1} ms"));
+    let mut lines = vec![
+        format!("{fps:.0} fps"),
+        format!("build {build}  layout+paint {:.1} ms", costs.layout_paint),
+        format!(
+            "render {:.1} ms (acquire {:.1}, draw {:.1})",
+            costs.render, costs.acquire, costs.draw
+        ),
+    ];
+    if let Some(gpu) = costs.gpu {
+        lines.push(format!("GPU {gpu:.1} ms"));
+    }
+    lines
+}
+
+/// `lines` in a dark panel in the top right corner of a frame `width` physical pixels wide.
+fn paint_panel(scene: &mut frus_widgets::Scene, lines: Vec<String>, width: f32, scale: f32) {
+    let size = 12.0 * scale;
+    let style = frus_widgets::TextStyle::new(size).resolved();
+    let pad = 6.0 * scale;
+    let line_h = size * 1.4;
+    // Estimated rather than measured: the panel is a tool's, and a little room to spare is
+    // all an estimate costs.
+    let longest = lines
+        .iter()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(0);
+    let text_w = longest as f32 * size * 0.6;
+    let panel = Rect::new(
+        (width - text_w - pad * 3.0).max(0.0),
+        pad,
+        text_w + pad * 2.0,
+        line_h * lines.len() as f32 + pad * 2.0,
+    );
+    scene.set_clip(Rect::UNBOUNDED);
+    scene.set_owner(0);
+    scene.draw_rect(
+        panel,
+        frus_widgets::Color::rgba(0.0, 0.0, 0.0, 0.72),
+        4.0 * scale,
+        0.0,
+        frus_widgets::Color::TRANSPARENT,
+    );
+    for (i, line) in lines.into_iter().enumerate() {
+        scene.text(
+            frus_widgets::Point::new(panel.x + pad, panel.y + pad + line_h * i as f32),
+            line,
+            &style,
+            frus_widgets::Color::rgb(0.55, 1.0, 0.55),
+        );
+    }
+}
+
+/// Writes `scene`, a frame `width`×`height` physical pixels, to `path` as a PNG, drawn again
+/// offscreen: the window's own image cannot be read back. Says where in the log, or why not.
+#[cfg(desktop)]
+fn write_screenshot(scene: &Scene, width: f32, height: f32, path: &std::path::Path) {
+    let (w, h) = (
+        width.round().max(1.0) as u32,
+        height.round().max(1.0) as u32,
+    );
+    let Some(frame) = frus_gpu::render_offscreen(scene, w, h, frus_gpu::backdrop()) else {
+        log::warn!(target: "frus::dev", "screenshot: no GPU to draw it with");
+        return;
+    };
+    let png = crate::dev_commands::png(frame.width, frame.height, &frame.rgba);
+    match std::fs::write(path, png) {
+        Ok(()) => log::debug!(
+            target: "frus::dev",
+            "screenshot {}×{} written to {}",
+            frame.width,
+            frame.height,
+            path.display()
+        ),
+        Err(error) => log::warn!(target: "frus::dev", "screenshot: {}: {error}", path.display()),
+    }
+}
+
 impl<A: Application> App<A> {
+    /// Carries out what the keys of `frus run` asked since the last frame (milestone 668).
+    /// Each says what it did in the log, which `frus run` shows.
+    fn take_dev_commands(&mut self) {
+        for command in crate::dev_commands::take_commands() {
+            let (name, argument) = command
+                .split_once(' ')
+                .map_or((command.as_str(), ""), |(n, a)| (n, a.trim()));
+            let on_off = |on: bool| if on { "on" } else { "off" };
+            match name {
+                "inspector" => {
+                    self.inspector = !self.inspector;
+                    self.inspector_dump = self.inspector;
+                    log::info!(target: "frus::dev", "inspector {}", on_off(self.inspector));
+                }
+                "outlines" => {
+                    self.debug.outlines = !self.debug.outlines;
+                    log::info!(target: "frus::dev", "debug paint {}", on_off(self.debug.outlines));
+                }
+                "widgets" => self.inspector_dump = true,
+                "focus" => self.debug.focus_dump = true,
+                "semantics" => self.debug.semantics_dump = true,
+                "platform" => {
+                    let next = next_platform(frus_widgets::default_target_platform());
+                    if cfg!(debug_assertions) {
+                        frus_widgets::set_debug_default_target_platform_override(Some(next));
+                        log::info!(target: "frus::dev", "target platform: {next:?}");
+                    } else {
+                        log::warn!(target: "frus::dev", "the platform can be switched in a debug build only");
+                    }
+                }
+                "brightness" => {
+                    let now = self.debug.brightness.unwrap_or(self.platform.brightness);
+                    let next = match now {
+                        frus_widgets::Brightness::Light => frus_widgets::Brightness::Dark,
+                        frus_widgets::Brightness::Dark => frus_widgets::Brightness::Light,
+                    };
+                    self.debug.brightness = Some(next);
+                    log::info!(
+                        target: "frus::dev",
+                        "brightness: {next:?} (an application without a theme for it stays as it is)"
+                    );
+                }
+                "performance" => {
+                    self.debug.performance = !self.debug.performance;
+                    self.debug.last_costs = None;
+                    self.frame_stats.set_enabled(self.debug.performance);
+                    log::info!(target: "frus::dev", "performance panel {}", on_off(self.debug.performance));
+                }
+                "screenshot" if !argument.is_empty() => {
+                    #[cfg(desktop)]
+                    {
+                        self.debug.screenshot = Some(std::path::PathBuf::from(argument));
+                    }
+                    #[cfg(not(desktop))]
+                    log::warn!(target: "frus::dev", "the application takes no screenshot of itself here");
+                }
+                _ => {
+                    log::warn!(target: "frus::dev", "frus run asked for `{command}`, which this frus does not know")
+                }
+            }
+            self.build_dirty = true;
+        }
+    }
+
+    /// The brightness the theme is resolved with: the platform's, unless `b` said otherwise.
+    fn brightness(&self) -> frus_widgets::Brightness {
+        self.debug.brightness.unwrap_or(self.platform.brightness)
+    }
+
     /// How tall the title bar's line the system paints is, in physical pixels: `0` where
     /// it paints none (milestone 643).
     fn system_line(&self) -> f32 {
@@ -3102,7 +3421,7 @@ impl<A: Application> App<A> {
             .with_device_pixel_ratio(self.scale)
             .with_density(self.app.density())
             .with_text_scaler(self.platform.text_scaler)
-            .with_platform_brightness(self.platform.brightness)
+            .with_platform_brightness(self.brightness())
             .with_accessibility(
                 self.platform
                     .accessibility
@@ -4751,7 +5070,7 @@ impl<A: Application> App<A> {
             self.dev = crate::dev::address()
                 .as_deref()
                 .and_then(crate::dev::DevChannel::connect);
-            crate::dev::set_window(self.window.clone());
+            crate::dev_commands::set_window(self.window.clone());
             if let Some(states) = crate::dev::restored_states() {
                 self.runtime.states.restore_from(&states);
             }
@@ -4769,8 +5088,11 @@ impl<A: Application> App<A> {
                     .android_app
                     .as_ref()
                     .and_then(|app| app.internal_data_path());
-                if let Some(states) = storage.and_then(|dir| crate::dev::restored_states(&dir)) {
+                if let Some(states) = storage.as_deref().and_then(crate::dev::restored_states) {
                     self.runtime.states.restore_from(&states);
+                }
+                if let Some(dir) = storage {
+                    crate::dev_commands::poll_commands(dir);
                 }
             }
         }
@@ -8187,6 +8509,56 @@ fn fetch_image_bytes(
     crate::runtime::spawn(run).detach();
     #[cfg(web)]
     wasm_bindgen_futures::spawn_local(run);
+}
+
+#[cfg(test)]
+mod debug_keys_tests {
+    use super::*;
+
+    #[test]
+    fn the_platform_goes_round_as_the_reference_does() {
+        use frus_widgets::TargetPlatform as P;
+        let mut seen = vec![P::Android];
+        for _ in 0..6 {
+            seen.push(next_platform(*seen.last().unwrap()));
+        }
+        assert_eq!(
+            seen,
+            [
+                P::Android,
+                P::Ios,
+                P::Windows,
+                P::MacOs,
+                P::Linux,
+                P::Fuchsia,
+                P::Android
+            ]
+        );
+    }
+
+    #[test]
+    fn the_dumps_say_what_there_is() {
+        let id = WidgetId::from_u64(0x1234_5678);
+        let other = WidgetId::from_u64(0x9);
+        let nodes = [frus_widgets::InspectorNode {
+            id,
+            rect: Rect::new(10.0, 20.0, 100.0, 40.0),
+            name: "Button",
+            depth: 3,
+        }];
+        let focus = dump_focus(&nodes, &[id, other], Some(id));
+        assert_eq!(focus, "▶ Button  10,20  100×40  #12345678\n  #00000009\n");
+        assert_eq!(dump_focus(&nodes, &[], None), "  (nothing focusable)\n");
+
+        let semantics = [(
+            id,
+            Rect::new(0.0, 0.0, 50.0, 20.0),
+            frus_widgets::SemanticsProperties::new(frus_widgets::Role::Button).label("Save"),
+        )];
+        let dump = dump_semantics(&semantics);
+        assert!(dump.starts_with("  Button \"Save\""), "{dump}");
+        assert!(dump.ends_with("0,0  50×20\n"), "{dump}");
+    }
 }
 
 #[cfg(test)]

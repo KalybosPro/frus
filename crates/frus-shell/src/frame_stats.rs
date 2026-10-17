@@ -139,6 +139,13 @@ impl FrameStats {
         }
     }
 
+    /// Turns the measuring on or off while the application runs: `frus run`'s `P`
+    /// (milestone 668).
+    pub(crate) fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled || switched_on();
+        self.last = None;
+    }
+
     /// Whether frames are being measured: a frame need not time itself otherwise.
     pub(crate) fn enabled(&self) -> bool {
         self.enabled

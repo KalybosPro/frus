@@ -71,8 +71,24 @@ While it runs, keys drive it:
 |---|---|
 | `r` | **reload**: build again, stop the application and start the new build where the old one was — the same page, on a desktop the window in the same place and size — **with the state of every component that keeps one** (`State::save`) |
 | `R` | **restart**: the same, but every state starts afresh |
-| `q` | quit: the application is stopped |
 | `h` | the list of keys |
+| `d` | **detach**: `frus run` ends and the application goes on running (desktop, Android) |
+| `c` | clear the terminal |
+| `q` | quit: the application is stopped |
+| `s` | **screenshot**, saved beside the application as `frus_01.png`, `frus_02.png`… (desktop: the application's frame; Android: the device's screen) |
+| `w` | print the **widget tree**, every widget with its box |
+| `f` | print the **focus tree**: the focusable widgets in tab order, the focused one marked |
+| `S` | print the **semantics tree**: what a screen reader is told, in reading order |
+| `i` | the **inspector**: outlines, and a card for the widget under the pointer (F12 in the window) |
+| `p` | **debug paint**: outlines around every widget |
+| `o` | **switch the platform** the widgets behave as: Android, iOS, Windows, macOS, Linux, Fuchsia (debug builds) |
+| `b` | **switch the brightness**: light or dark, for an application with a theme for each |
+| `P` | the **performance panel**: what the last frame cost, building, laying out and painting, rendering, on the GPU; and the frame statistics in the log |
+
+The keys that look into the application reach it through the channel it reports on, and it
+carries them out on its next frame: a socket on a desktop, a file in its own storage on Android
+(written with `run-as`, so a debug build only), and the page's own script on the web. A key
+pressed while the application is still starting waits for it.
 
 A build that fails leaves the running application as it was. The restart is the same on every
 platform as far as the developer sees, and done three ways underneath:
@@ -80,8 +96,9 @@ platform as far as the developer sees, and done three ways underneath:
 - **desktop**: the application runs from a copy of the program, so the new build can be written
   while it runs; it reports where it is and where its window sits to `frus run` over a local
   socket, and the next one is started with both;
-- **Android**: the same report reaches `frus run` through `adb reverse`; the new APK is
-  installed and started with the location as the link it opens;
+- **Android**: the same report reaches `frus run` through the application's log; the new APK is
+  installed — unless the build wrote the same package again, which is only started again — and
+  started with the location as the link it opens;
 - **web**: the page asks the server which build it serves, and reloads itself when there is a
   new one — its address, which is the application's location, survives the reload.
 
@@ -121,8 +138,9 @@ output; the tools `frus` runs (cargo, cargo-apk, wasm-bindgen) write to standard
 | `app.restarted` | a reload or restart is done: `fullRestart`, `seconds` |
 | `app.stop` | the run ended: `error` when it failed |
 
-and takes `{"method":"app.restart","params":{"fullRestart":false}}` (`r`; `true` is `R`) and
-`{"method":"app.stop"}`.
+and takes `{"method":"app.restart","params":{"fullRestart":false}}` (`r`; `true` is `R`),
+`{"method":"app.stop"}`, `{"method":"app.detach"}`, and any other key by its letter:
+`{"method":"app.key","params":{"key":"p"}}`.
 
 ## Building: `frus build`
 
