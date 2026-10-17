@@ -42,10 +42,26 @@ impl Project {
             }
             dir = here.parent();
         }
-        Err(format!(
-            "no application here: there is no Cargo.toml with a [package] in {} or above it",
+        let mut message = format!(
+            "no application here: {} is not inside a frus application (a Cargo.toml with a \
+             [package])",
             start.display()
-        ))
+        );
+        let below = applications_below(start);
+        if let Some(first) = below.first() {
+            message.push_str("\n\nThe applications below it:\n");
+            for app in below.iter().take(12) {
+                message.push_str(&format!("  {}\n", app.display()));
+            }
+            if below.len() > 12 {
+                message.push_str(&format!("  and {} more\n", below.len() - 12));
+            }
+            message.push_str(&format!(
+                "\nRun `frus run` in one of them: cd {}",
+                first.display()
+            ));
+        }
+        Err(message)
     }
 
     /// The application `text` describes, or `None` when it has no `[package]` (a workspace root).
@@ -161,6 +177,54 @@ fn string_list(raw: &str) -> Vec<String> {
         .collect()
 }
 
+/// The frus applications in the directories below `start`, a few levels down, as paths relative
+/// to it: what to suggest to someone who ran `frus run` at the top of a workspace.
+pub(crate) fn applications_below(start: &Path) -> Vec<PathBuf> {
+    const SKIP: [&str; 8] = [
+        "target",
+        "node_modules",
+        ".git",
+        "src",
+        "web",
+        "res",
+        "assets",
+        "docs",
+    ];
+    let mut found = Vec::new();
+    let mut pending = vec![(start.to_path_buf(), 0)];
+    while let Some((dir, depth)) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !path.is_dir() || name.starts_with('.') || SKIP.contains(&name.as_str()) {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(path.join("Cargo.toml")) {
+                if is_frus_application(&path, &text) {
+                    found.push(path.strip_prefix(start).unwrap_or(&path).to_path_buf());
+                }
+            }
+            if depth < 3 {
+                pending.push((path, depth + 1));
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// A package that runs: it depends on frus and has a library or a program.
+fn is_frus_application(root: &Path, text: &str) -> bool {
+    let depends = text.lines().any(|line| {
+        let line = line.trim_start();
+        line.starts_with("frus =") || line.starts_with("frus.") || line.starts_with("frus=")
+    });
+    depends && Project::from_manifest(root, text).is_some()
+}
+
 /// `"value"` → `value`; anything else (a table, a number) is not a string.
 fn string_value(raw: &str) -> Option<String> {
     let raw = raw.trim();
@@ -263,6 +327,40 @@ inherits = "release"
         assert_eq!(project.android_targets, ["aarch64-linux-android"]);
         assert_eq!(project.android_target_sdk, 34);
         assert!(!project.has_web_release);
+    }
+
+    #[test]
+    fn a_workspace_root_points_at_its_applications() {
+        let root = std::env::temp_dir().join(format!("frus-find-{}", std::process::id()));
+        let app = root.join("examples").join("counter");
+        let library = root.join("crates").join("widgets");
+        let built = root.join("target").join("copy");
+        for dir in [&app, &library, &built] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n",
+        )
+        .unwrap();
+        let manifest =
+            "[package]\nname = \"counter\"\n\n[dependencies]\nfrus = { path = \"../..\" }\n";
+        std::fs::write(app.join("Cargo.toml"), manifest).unwrap();
+        std::fs::write(built.join("Cargo.toml"), manifest).unwrap();
+        std::fs::write(
+            library.join("Cargo.toml"),
+            "[package]\nname = \"widgets\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            applications_below(&root),
+            [Path::new("examples").join("counter")]
+        );
+        let error = Project::find(&root).unwrap_err();
+        assert!(error.contains("The applications below it"), "{error}");
+        assert!(error.contains("cd examples"), "{error}");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

@@ -84,6 +84,43 @@ platform as far as the developer sees, and done three ways underneath:
 
 iOS simulators are listed, but frus cannot run on iOS yet: its shell does not exist (issue #19).
 
+## For editors: `frus daemon` and `frus run --machine`
+
+An editor drives the same commands through **JSON lines**: one object a line, commands on
+standard input, answers and events on standard output. Nothing else is written to standard
+output; the tools `frus` runs (cargo, cargo-apk, wasm-bindgen) write to standard error.
+
+`frus daemon` runs as long as the editor does, and knows the devices:
+
+```text
+→ {"id":1,"method":"device.getDevices"}
+← {"id":1,"result":[{"id":"windows","name":"Windows","platform":"windows","category":"desktop","detail":"windows-x64","emulator":false,"available":true,"unavailableReason":null}, …]}
+→ {"id":2,"method":"device.enable"}
+← {"id":2,"result":true}
+← {"event":"device.added","params":{"id":"XMJNW19B23011768","name":"STK L21","platform":"android", …}}
+```
+
+| method | answer |
+|---|---|
+| `daemon.version` | the tool's version |
+| `daemon.shutdown` | `true`, and the daemon ends |
+| `device.getDevices` | the devices, as `frus devices` lists them |
+| `device.enable` / `device.disable` | `true`; `device.added` and `device.removed` events while enabled |
+
+`frus run --machine -d <device>` is one run, with every event carrying its `appId`:
+
+| event | when |
+|---|---|
+| `app.start` | the run begins: `deviceId`, `deviceName`, `directory` |
+| `app.progress` | what the tool says: `message`, and `error: true` for a failure that did not end the run |
+| `app.started` | the application is up |
+| `app.log` | a line of the application's own log: `log`, `error` |
+| `app.restarted` | a reload or restart is done: `fullRestart`, `seconds` |
+| `app.stop` | the run ended: `error` when it failed |
+
+and takes `{"method":"app.restart","params":{"fullRestart":false}}` (`r`; `true` is `R`) and
+`{"method":"app.stop"}`.
+
 ## Building: `frus build`
 
 ```text

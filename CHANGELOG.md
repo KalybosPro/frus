@@ -13,6 +13,18 @@ any release may break.
 
 ## [Unreleased]
 
+- **A VS Code extension** (J666), in `editors/vscode`: a device picker in the status bar fed by
+  `frus daemon`, F5 to run on the selected device with the application's log in the Debug
+  Console, and a reload on every save of a Rust file (or the ⚡ button, Ctrl+F5).
+  On the way: the Web keeps component states across a reload too, a debug APK built by
+  `frus run` leaves its debug information out (267 MB → 56 MB for a hello world), and a
+  `web/index.html` that loads the wrong file is reported.
+
+- **`frus daemon` and `frus run --machine`** (J665): JSON lines for an editor. The daemon lists
+  the devices and reports them as they come and go; a machine run reports `app.start`,
+  `app.started`, the application's log as `app.log`, `app.restarted` and `app.stop`, and takes
+  `app.restart` and `app.stop`. Nothing but JSON reaches standard output in that mode.
+
 - **The examples' tests live in `tests/`** (J664), as the application `frus create` writes
   keeps them (J658). Each of the seven example projects with tests moved its inline
   `#[cfg(test)]` modules to `tests/<module>_test.rs`, 158 tests in all, and made public what
