@@ -37,11 +37,20 @@ the editor side, in `editors/vscode`.
   (`FRUS_E2E_FRUS`, `FRUS_E2E_APP`): it launched, reloaded ("Reloaded in … s"), carried the
   application's log, and terminated on disconnect.
 - `vsce package` builds `frus-0.1.0.vsix` (25 KB).
+- **Inside VS Code itself** (`npm run test:integration`): a VS Code 1.142 of its own was
+  downloaded and opened on the same application, with its own profile and extensions, so
+  nothing touched the one being worked in. Driven through VS Code's API, with a debug adapter
+  tracker watching every message, the steps were:
+  - the extension activated and its commands were registered;
+  - `startDebugging` with a `frus` configuration started the session, and the application ran;
+  - its log reached the Debug Console;
+  - `frus.reload` reloaded it;
+  - `stopDebugging` ended the session.
 
 ## Left
 
-- **Not yet tried inside VS Code itself**: the status bar, the picker and F5 were exercised
-  through the adapter and the daemon, not through the editor's own interface.
+- **The status bar and the picker** were not looked at on screen: the integration test drives
+  VS Code's API, not its pixels.
 - **Publishing** to the Marketplace: it needs a publisher account.
 - **Starting an emulator from the picker**: an AVD is listed, and F5 starts it through
   `frus run -d <avd>`.

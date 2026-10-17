@@ -43,5 +43,8 @@ needs in turn (Rust targets, the Android SDK, wasm-bindgen).
 npm install
 npm test        # the debug adapter, with a stand-in for frus
 FRUS_E2E_FRUS=/path/to/frus FRUS_E2E_APP=/path/to/an/app npm test   # and with the real one
+# inside a VS Code of its own (downloaded into FRUS_VSCODE_CACHE, or FRUS_VSCODE=<Code.exe>),
+# never the one you work in: activation, F5, the log, a reload, the end of the session
+FRUS_E2E_FRUS=/path/to/frus FRUS_E2E_APP=/path/to/an/app npm run test:integration
 npm run package # frus-<version>.vsix
 ```

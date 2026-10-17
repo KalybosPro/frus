@@ -155,11 +155,13 @@
     "compile": "tsc -p .",
     "watch": "tsc -watch -p .",
     "test": "tsc -p . && node --test \"out/test/*.test.js\"",
-    "package": "vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies",
+    "test:integration": "tsc -p . && node out/test/integration/run.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.2.0",
     "typescript": "^5.4.0"
   }
