@@ -13,7 +13,7 @@ One codebase → desktop, Android, and the web. GPU-rendered. Built from compone
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 [![Status](https://img.shields.io/badge/status-pre--alpha-yellow.svg)](#project-status)
 
-[Quick start](#quick-start) · [Gallery](#what-it-looks-like) · [Architecture](#architecture) · [Status](#project-status) · [Contributing](CONTRIBUTING.md) · [Français](README.fr.md)
+[Quick start](#quick-start) · [Gallery](#what-it-looks-like) · [Live widget gallery](https://kalybospro.github.io/frus/) · [Architecture](#architecture) · [Status](#project-status) · [Contributing](CONTRIBUTING.md) · [Français](README.fr.md)
 
 <br>
 

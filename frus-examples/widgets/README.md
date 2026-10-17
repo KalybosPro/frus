@@ -2,6 +2,9 @@
 
 Every frus widget with a live example, and the code that builds it, side by side.
 
+**Try it in the browser: <https://kalybospro.github.io/frus/>**, the Web build of this project, published
+from `master` by [`.github/workflows/pages.yml`](../../.github/workflows/pages.yml).
+
 ## Run it
 
 ```sh
