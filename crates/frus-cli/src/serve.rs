@@ -196,10 +196,7 @@ fn query_value<'a>(query: &'a str, key: &str) -> &'a str {
 /// on stderr, the rest on stdout.
 fn print_console(level: &str, text: &str) {
     for line in text.lines() {
-        match level {
-            "error" | "warn" => eprintln!("{line}"),
-            _ => println!("{line}"),
-        }
+        crate::report::app_log(line, matches!(level, "error" | "warn"));
     }
 }
 

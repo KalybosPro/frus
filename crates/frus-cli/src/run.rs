@@ -16,8 +16,10 @@ use std::time::{Duration, Instant};
 use crate::cargo::{self, Mode};
 use crate::devices::{self, Device, Kind};
 use crate::devlink::{DevLink, Report};
+use crate::json::object;
 use crate::keys;
 use crate::project::Project;
+use crate::report;
 use crate::serve;
 
 /// What `frus run` was asked.
@@ -30,6 +32,8 @@ pub(crate) struct RunOptions {
     pub port: u16,
     /// Everything after `--`, handed to the application (desktop only).
     pub args: Vec<String>,
+    /// `--machine`: JSON lines for an editor instead of text for a person (see `report`).
+    pub machine: bool,
 }
 
 pub(crate) const DEFAULT_PORT: u16 = 8080;
@@ -67,11 +71,23 @@ pub(crate) fn run(options: &RunOptions) -> Result<ExitCode, String> {
     let project = Project::find(&here)?;
     let devices = devices::discover();
     let device = devices::select(&devices, options.device.as_deref())?;
+    if options.machine {
+        report::machine(format!("{}-{}", project.package, std::process::id()));
+        report::event(
+            "app.start",
+            object([
+                ("deviceId", device.id.as_str().into()),
+                ("deviceName", device.name.as_str().into()),
+                ("directory", project.root.display().to_string().into()),
+                ("supportsRestart", true.into()),
+            ]),
+        );
+    }
     if options.device.is_none() && devices.iter().any(|d| d.platform != device.platform) {
-        println!(
+        report::say(&format!(
             "Running on {}. To run elsewhere: `frus run -d <device>` (`frus devices` lists them).",
             device.name
-        );
+        ));
     }
     let result = match &device.kind {
         Kind::Host => run_desktop(&project, options),
@@ -89,12 +105,36 @@ pub(crate) fn run(options: &RunOptions) -> Result<ExitCode, String> {
         Kind::WebServer => run_web(&project, None, options),
     };
     keys::restore();
+    report::event(
+        "app.stop",
+        object([("error", result.as_ref().err().map(String::as_str).into())]),
+    );
     result
+}
+
+/// Says a restart is done, and how long it took.
+fn restarted(action: Action, started: Instant, more: &str) {
+    let seconds = started.elapsed().as_secs_f32();
+    if report::is_machine() {
+        report::event(
+            "app.restarted",
+            object([
+                ("fullRestart", (action == Action::Restart).into()),
+                ("seconds", f64::from(seconds).into()),
+            ]),
+        );
+    } else {
+        report::say(&format!("Restarted in {seconds:.1} s{more}."));
+    }
 }
 
 /// The keys, from the moment the application is up.
 fn attach(what: &str) -> Receiver<char> {
-    println!("\n{what}. Keys:\n{KEYS}");
+    if report::is_machine() {
+        report::event("app.started", object([]));
+    } else {
+        report::say(&format!("\n{what}. Keys:\n{KEYS}"));
+    }
     keys::listen()
 }
 
@@ -117,8 +157,8 @@ fn restarting(action: Action, location: Option<&str>) {
         _ => "Restarting",
     };
     match location {
-        Some(location) => println!("{what} at {location}: building…"),
-        None => println!("{what}: building…"),
+        Some(location) => report::say(&format!("{what} at {location}: building…")),
+        None => report::say(&format!("{what}: building…")),
     }
 }
 
@@ -141,7 +181,7 @@ fn run_desktop(project: &Project, options: &RunOptions) -> Result<ExitCode, Stri
     let keys = attach(&format!("{} is running", project.package));
     loop {
         if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-            println!("{} has stopped.", project.package);
+            report::say(&format!("{} has stopped.", project.package));
             return Ok(exit_code(status.code()));
         }
         match next_action(&keys, Duration::from_millis(100)) {
@@ -150,7 +190,7 @@ fn run_desktop(project: &Project, options: &RunOptions) -> Result<ExitCode, Stri
                 let _ = child.wait();
                 return Ok(ExitCode::SUCCESS);
             }
-            Some(Action::Help) => print!("{KEYS}"),
+            Some(Action::Help) => report::say(KEYS),
             Some(action @ (Action::Restart | Action::Reload)) => {
                 restarting(action, link.report().location.as_deref());
                 let started = Instant::now();
@@ -171,9 +211,11 @@ fn run_desktop(project: &Project, options: &RunOptions) -> Result<ExitCode, Stri
                             &link,
                             states.as_deref(),
                         )?;
-                        println!("Restarted in {:.1} s.", started.elapsed().as_secs_f32());
+                        restarted(action, started, "");
                     }
-                    Err(error) => eprintln!("{error}: the running application is left as it was."),
+                    Err(error) => report::warn(&format!(
+                        "{error}: the running application is left as it was."
+                    )),
                 }
             }
             None => {}
@@ -229,9 +271,42 @@ fn start_desktop(
     if let Some(states) = states {
         command.env("FRUS_RESTORE_STATES", states);
     }
-    command
+    if !report::is_machine() {
+        return command
+            .spawn()
+            .map_err(|e| format!("could not start {}: {e}", copy.display()));
+    }
+    // For an editor, the application's output is carried in `app.log` events: it must not
+    // reach standard output, which holds JSON only.
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("could not start {}: {e}", copy.display()))
+        .map_err(|e| format!("could not start {}: {e}", copy.display()))?;
+    if let Some(out) = child.stdout.take() {
+        std::thread::spawn(move || {
+            for line in BufReader::new(out).lines().map_while(Result::ok) {
+                report::app_log(&line, false);
+            }
+        });
+    }
+    if let Some(err) = child.stderr.take() {
+        std::thread::spawn(move || {
+            for line in BufReader::new(err).lines().map_while(Result::ok) {
+                report::app_log(&line, is_error_line(&line));
+            }
+        });
+    }
+    Ok(child)
+}
+
+/// Whether a line of a desktop program's standard error is an error. The log goes there whole,
+/// information included, so its level says — and a panic.
+pub(crate) fn is_error_line(line: &str) -> bool {
+    line.contains(" ERROR ")
+        || line.contains(" WARN ")
+        || line.starts_with("thread '") && line.contains("panicked")
+        || line.starts_with("error")
 }
 
 // --- Android ---
@@ -255,7 +330,11 @@ fn run_android(
 
     let install = |location: Option<&str>| -> Result<(), String> {
         let apk = cargo::build_apk(project, mode)?;
-        println!("Installing {} on {}…", file_name(&apk), device.name);
+        report::say(&format!(
+            "Installing {} on {}…",
+            file_name(&apk),
+            device.name
+        ));
         cargo::run(adb_on(&["install", "-r"]).arg(&apk).stdout(Stdio::null()))?;
         let _ = adb_on(&["shell", "am", "force-stop", package]).output();
         let activity = format!("{package}/android.app.NativeActivity");
@@ -325,7 +404,7 @@ fn run_android(
         if Instant::now() >= next_check {
             next_check = Instant::now() + Duration::from_secs(1);
             if watch.gone(alive()) {
-                println!("{} has stopped.", project.package);
+                report::say(&format!("{} has stopped.", project.package));
                 break ExitCode::SUCCESS;
             }
         }
@@ -334,7 +413,7 @@ fn run_android(
                 let _ = adb_on(&["shell", "am", "force-stop", package]).output();
                 break ExitCode::SUCCESS;
             }
-            Some(Action::Help) => print!("{KEYS}"),
+            Some(Action::Help) => report::say(KEYS),
             Some(action @ (Action::Restart | Action::Reload)) => {
                 restarting(action, link.report().location.as_deref());
                 let started = Instant::now();
@@ -358,9 +437,11 @@ fn run_android(
                 match install(link.report().location.as_deref()) {
                     Ok(()) => {
                         watch = Watch::default();
-                        println!("Restarted in {:.1} s.", started.elapsed().as_secs_f32());
+                        restarted(action, started, "");
                     }
-                    Err(error) => eprintln!("{error}: the running application is left as it was."),
+                    Err(error) => report::warn(&format!(
+                        "{error}: the running application is left as it was."
+                    )),
                 }
             }
             None => {}
@@ -420,7 +501,7 @@ fn start_emulator(avd: &str) -> Result<String, String> {
             .unwrap_or_default()
     };
     let before = serials(&adb);
-    println!("Starting the {avd} emulator…");
+    report::say(&format!("Starting the {avd} emulator…"));
     Command::new(&emulator)
         .args(["-avd", avd])
         .stdout(Stdio::null())
@@ -459,11 +540,9 @@ pub(crate) fn logcat_line(line: &str) -> Option<(bool, String)> {
 }
 
 fn print_logcat(line: &str) {
-    match logcat_line(line) {
-        Some((true, text)) => eprintln!("{text}"),
-        Some((false, text)) => println!("{text}"),
-        // `--------- beginning of main` and the like.
-        None => {}
+    // Lines that are not the application's (`--------- beginning of main`) are left out.
+    if let Some((urgent, text)) = logcat_line(line) {
+        report::app_log(&text, urgent);
     }
 }
 
@@ -522,7 +601,7 @@ fn run_web(
                 }
                 break ExitCode::SUCCESS;
             }
-            Some(Action::Help) => print!("{KEYS}"),
+            Some(Action::Help) => report::say(KEYS),
             Some(action @ (Action::Restart | Action::Reload)) => {
                 restarting(action, None);
                 let started = Instant::now();
@@ -531,12 +610,11 @@ fn run_web(
                     // the application's location, survives the reload.
                     Ok(_) => {
                         server.rebuilt();
-                        println!(
-                            "Restarted in {:.1} s: the page reloads.",
-                            started.elapsed().as_secs_f32()
-                        );
+                        restarted(action, started, ": the page reloads");
                     }
-                    Err(error) => eprintln!("{error}: the running application is left as it was."),
+                    Err(error) => report::warn(&format!(
+                        "{error}: the running application is left as it was."
+                    )),
                 }
             }
             None => {}
@@ -575,6 +653,14 @@ mod tests {
             Some((true, "E/RustPanic: panicked at src/lib.rs:3".into()))
         );
         assert_eq!(logcat_line("--------- beginning of main"), None);
+    }
+
+    #[test]
+    fn errors_are_told_from_information() {
+        assert!(!is_error_line("[2026-10-17T10:00:00Z INFO  app] started"));
+        assert!(is_error_line("[2026-10-17T10:00:00Z WARN  app] slow"));
+        assert!(is_error_line("[2026-10-17T10:00:00Z ERROR app] failed"));
+        assert!(is_error_line("thread 'main' panicked at src/lib.rs:3:5:"));
     }
 
     #[test]

@@ -13,10 +13,13 @@
 mod build;
 mod cargo;
 mod create;
+mod daemon;
 mod devices;
 mod devlink;
+mod json;
 mod keys;
 mod project;
+mod report;
 mod run;
 mod serve;
 mod setup;
@@ -36,6 +39,7 @@ Usage:
   frus devices                        list what the application can run on
   frus run [options] [-- <args>]      build it, start it on a device, show its log
   frus build <apk|web|desktop>        build what you ship, in release
+  frus daemon                         JSON lines for an editor: devices, as they come and go
   frus help [<command>]               print this, or a command's options
   frus --version                      print the version
 ";
@@ -54,6 +58,7 @@ Options:
                            or `android`, `web`, `desktop` (default: this computer)
       --release            a release build (default: debug)
       --port <port>        the port the web build is served on (default: 8080)
+      --machine            JSON lines for an editor instead of text (see `frus daemon`)
   -h, --help               print this
 
 Examples:
@@ -118,6 +123,7 @@ enum Command {
     Version,
     Create(Options),
     Devices,
+    Daemon,
     Run(run::RunOptions),
     Build(build::Target, cargo::Mode),
 }
@@ -156,6 +162,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(Command::Run(options)) => outcome(run::run(&options)),
+        Ok(Command::Daemon) => outcome(daemon::daemon()),
         Ok(Command::Build(target, mode)) => outcome(build::build(target, mode)),
         Ok(Command::Create(options)) => match create::create(&options) {
             Ok(created) => {
@@ -197,6 +204,7 @@ fn parse(args: Vec<OsString>) -> Result<Command, String> {
             Some(other) => Err(format!("frus devices takes no `{other}`")),
         },
         Some("run") => parse_run(args),
+        Some("daemon") => Ok(Command::Daemon),
         Some("build") => parse_build(args),
         _ => Err(format!("no command `{}`", command.to_string_lossy())),
     }
@@ -257,6 +265,7 @@ fn parse_run(args: impl Iterator<Item = OsString>) -> Result<Command, String> {
         mode: cargo::Mode::Debug,
         port: run::DEFAULT_PORT,
         args: Vec::new(),
+        machine: false,
     };
     let mut port = None;
     while let Some(arg) = args.next() {
@@ -287,6 +296,7 @@ fn parse_run(args: impl Iterator<Item = OsString>) -> Result<Command, String> {
             "-h" | "--help" => return Ok(Command::RunHelp),
             "-d" | "--device" => set_once(&mut options.device, value("--device")?, "--device")?,
             "--release" if inline.is_none() => options.mode = cargo::Mode::Release,
+            "--machine" if inline.is_none() => options.machine = true,
             "--port" => {
                 let text = value(&flag)?;
                 let number = text
@@ -445,6 +455,9 @@ mod tests {
         assert_eq!(full.mode, cargo::Mode::Release);
         assert_eq!(full.port, 9000);
         assert_eq!(full.args, ["/widget/button", "--flag"]);
+        assert!(!full.machine);
+        assert!(run_options("run --machine -d windows").machine);
+        assert_eq!(parse(args("daemon")), Ok(Command::Daemon));
 
         assert_eq!(
             run_options("run --device=android").device.as_deref(),

@@ -177,6 +177,10 @@ fn newest_apk(dir: &Path, since: SystemTime) -> Option<PathBuf> {
 /// Runs a command with its output shown, and fails if it does.
 pub(crate) fn run(command: &mut Command) -> Result<(), String> {
     let program = command.get_program().to_string_lossy().into_owned();
+    // An editor reads standard output as JSON: what the tools print goes to standard error.
+    if crate::report::is_machine() {
+        command.stdout(std::io::stderr());
+    }
     let status = command
         .status()
         .map_err(|e| format!("could not run {program}: {e}"))?;
