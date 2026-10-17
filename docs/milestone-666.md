@@ -47,6 +47,14 @@ the editor side, in `editors/vscode`.
   - `frus.reload` reloaded it;
   - `stopDebugging` ended the session.
 
+## On the way
+
+- **A debug APK built by `frus run` leaves the debug information out**
+  (`CARGO_PROFILE_DEV_STRIP=debuginfo`). A hello world's APK was 267 MB, nearly all of it
+  debug information nobody reads on a phone; it is 56 MB without it, and every run and every
+  reload sends it over the cable. The symbols stay, and with them a panic's backtrace; release
+  builds are unchanged.
+
 ## Left
 
 - **The status bar and the picker** were not looked at on screen: the integration test drives
