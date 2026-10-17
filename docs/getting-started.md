@@ -163,7 +163,9 @@ cargo run
 ```
 
 The name is the directory's own: lowercase letters, digits, `_` and `-`, starting with a
-letter. The directory is made, or must be empty. The options:
+letter. The directory is made if it is not there; `frus create` never writes over a file, and
+`frus create .` in an application brings back the files of the template that are missing
+(`web/`, the icons, the desktop binary) without touching the rest. The options:
 
 | option | what it does |
 |---|---|
