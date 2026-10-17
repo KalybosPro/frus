@@ -9,6 +9,7 @@ import { Devices } from "./daemon";
 import { frusProgram } from "./frus";
 
 const SELECTED = "frus.device";
+const APP = "frus.application";
 
 export function activate(context: vscode.ExtensionContext): void {
   const devices = new Devices();
@@ -58,7 +59,8 @@ export function activate(context: vscode.ExtensionContext): void {
         if (!config.type) {
           config = { type: "frus", request: "launch", name: "frus" };
         }
-        config.cwd ??= appDirectory(folder);
+        config.cwd ??= await application(context, folder);
+        if (!config.cwd) return undefined;
         config.deviceId ||= selected();
         try {
           config.frus = await frusProgram();
@@ -92,19 +94,52 @@ function customRequest(command: string): void {
   for (const session of sessions) session.customRequest(command);
 }
 
-/** Where the application is: the folder of the open Rust file's nearest Cargo.toml inside the
- *  workspace, or the workspace folder. */
-function appDirectory(folder: vscode.WorkspaceFolder | undefined): string | undefined {
+/** The application F5 runs: the frus application the open Rust file belongs to; else the
+ *  workspace folder if it is one; else the one picked among the workspace's applications (the
+ *  pick is remembered). `undefined` when there is none, or the pick was dismissed. */
+async function application(
+  context: vscode.ExtensionContext,
+  folder: vscode.WorkspaceFolder | undefined,
+): Promise<string | undefined> {
   const root = folder?.uri.fsPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const file = vscode.window.activeTextEditor?.document.uri.fsPath;
-  if (!root || !file || !file.startsWith(root)) return root;
-  let dir = path.dirname(file);
-  const fs = require("fs") as typeof import("fs");
-  while (dir.startsWith(root)) {
-    if (fs.existsSync(path.join(dir, "Cargo.toml"))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+  if (root && file?.startsWith(root)) {
+    for (let dir = path.dirname(file); dir.startsWith(root); dir = path.dirname(dir)) {
+      if (isApplication(dir)) return dir;
+      if (path.dirname(dir) === dir) break;
+    }
   }
-  return root;
+  if (root && isApplication(root)) return root;
+
+  const manifests = await vscode.workspace.findFiles(
+    "**/Cargo.toml",
+    "**/{target,node_modules,.git}/**",
+    500,
+  );
+  const apps = manifests.map((uri) => path.dirname(uri.fsPath)).filter(isApplication).sort();
+  if (apps.length === 0) {
+    vscode.window.showErrorMessage("frus: there is no frus application in this workspace.");
+    return undefined;
+  }
+  if (apps.length === 1) return apps[0];
+  const remembered = context.workspaceState.get<string>(APP);
+  if (remembered && apps.includes(remembered)) return remembered;
+  const picked = await vscode.window.showQuickPick(
+    apps.map((dir) => ({ label: path.basename(dir), description: root ? path.relative(root, dir) : dir, dir })),
+    { placeHolder: "Which application should F5 run?" },
+  );
+  if (picked) await context.workspaceState.update(APP, picked.dir);
+  return picked?.dir;
+}
+
+/** A directory holding a frus application: a package that depends on frus. */
+function isApplication(dir: string): boolean {
+  const fs = require("fs") as typeof import("fs");
+  let text: string;
+  try {
+    text = fs.readFileSync(path.join(dir, "Cargo.toml"), "utf8");
+  } catch {
+    return false;
+  }
+  return /^\s*\[package\]/m.test(text) && /^\s*frus\s*(=|\.)/m.test(text);
 }
