@@ -87,6 +87,17 @@ enum Sink {
     Log,
 }
 
+/// The socket is closed, both ways, when the channel goes: `frus run` sees the application
+/// leave, and the thread reading its requests ends instead of waiting on a connection that a
+/// clone of the socket would otherwise keep open.
+impl Drop for DevChannel {
+    fn drop(&mut self) {
+        if let Sink::Socket(stream) = &self.sink {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+        }
+    }
+}
+
 impl DevChannel {
     /// Connects to `address` — or does nothing, within a second, if nobody listens there.
     #[cfg_attr(not(desktop), allow(dead_code))]
@@ -294,6 +305,10 @@ mod tests {
         assert!(channel.report(None, Some([10, 20, 800, 600])));
         drop(channel);
 
+        // Read to the end: the channel, dropped, closed its socket (a clone of it lives on in the
+        // thread reading requests, and must not keep the connection open).
+        peer.set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
         let lines: Vec<String> = BufReader::new(peer).lines().map_while(Result::ok).collect();
         assert_eq!(
             lines,
