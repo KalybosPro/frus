@@ -78,6 +78,12 @@ and applied it. Three findings stop it here:
    patched with it. A patched build then works with fresh copies of state the rest of frus holds
    elsewhere.
 
+> **Corrected by milestone 669.** The recursion was not frus's thread-locals: the patch engine's
+> Windows stubs overwrote the register `__chkstk` reads the frame size from, so every patched
+> function with a frame over a page overflowed the stack on entry. With that fixed, a frus
+> application hot-patches and keeps its state. The paragraph below is the record of what was
+> believed then.
+
 Making frus patchable would mean reaching every thread-local of the framework only through
 functions that are not generic and not inlined, so that no copy of the access is compiled into
 the application. That is a refactor across frus-widgets and frus-shell, and its result is not

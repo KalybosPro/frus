@@ -577,6 +577,7 @@ impl TextStyle {
 ///
 /// Read once, by [`TextStyle::resolved`]. Nothing else should consult it: a second reader
 /// is a second chance to scale a size twice, or to scale one a sibling did not.
+#[inline(never)]
 pub fn text_scale() -> f32 {
     TEXT_SCALE.with(|s| s.get())
 }
@@ -618,6 +619,7 @@ pub fn with_text_scale<R>(scale: f32, f: impl FnOnce() -> R) -> R {
 /// reached a device without changing a single pixel (milestone 407).
 ///
 /// Scales at or below zero are ignored, as in [`with_text_scale`].
+#[inline(never)]
 #[must_use = "the scale is restored the moment the guard is dropped"]
 pub fn install_text_scale(scale: f32) -> TextScaleGuard {
     let scale = if scale > 0.0 { scale } else { 1.0 };
@@ -630,6 +632,7 @@ pub fn install_text_scale(scale: f32) -> TextScaleGuard {
 pub struct TextScaleGuard(f32);
 
 impl Drop for TextScaleGuard {
+    #[inline(never)]
     fn drop(&mut self) {
         TEXT_SCALE.with(|s| s.set(self.0));
     }

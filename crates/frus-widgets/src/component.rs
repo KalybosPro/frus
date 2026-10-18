@@ -122,9 +122,27 @@ thread_local! {
     static BACK_BLOCKS: Cell<u32> = const { Cell::new(0) };
 }
 
+// Every access to these goes through a function that is neither generic nor inlined, and so is
+// compiled once, here. A generic function is compiled into the application that uses it, and a
+// hot patch of the application carries its own copy of every thread-local such a function reads
+// directly: fresh, and apart from the one the rest of frus holds (milestone 669).
+
+/// How many components deep the expansion is, as `Deeper` keeps it.
+#[inline(never)]
+fn depth() -> u32 {
+    DEPTH.with(|d| d.get())
+}
+
+/// Adds a timer to the latest build's.
+#[inline(never)]
+fn push_interval(interval: Interval) {
+    INTERVALS.with(|intervals| intervals.borrow_mut().push(interval));
+}
+
 /// Whether some component of the latest build has said that the back gesture and the back
 /// button are not for the router to answer — an open menu or dialog is what they close first.
 /// See [`BuildContext::block_back`].
+#[inline(never)]
 pub fn back_blocked() -> bool {
     BACK_BLOCKS.with(|blocks| blocks.get() > 0)
 }
@@ -143,6 +161,7 @@ pub struct Interval {
 
 /// The timers the components of the latest build asked for. The shell starts the ones it is not
 /// running and stops the ones no longer here.
+#[inline(never)]
 pub fn intervals() -> Vec<Interval> {
     INTERVALS.with(|intervals| intervals.borrow().clone())
 }
@@ -150,17 +169,20 @@ pub fn intervals() -> Vec<Interval> {
 /// Asks the shell to rebuild the tree on its next frame. Anything that changed what a
 /// component would build — [`StateHandle::set_state`], a hook's `set`, a controller —
 /// calls this; an application rarely does.
+#[inline(never)]
 pub fn request_rebuild() {
     REBUILD.with(|flag| flag.set(true));
 }
 
 /// Whether a rebuild has been asked for and not yet taken. Asking does not consume it.
+#[inline(never)]
 pub fn rebuild_requested() -> bool {
     REBUILD.with(|flag| flag.get())
 }
 
 /// Whether a rebuild was asked for since the last time this was called, and forgets it.
 /// The shell reads this at the top of every frame.
+#[inline(never)]
 pub fn take_rebuild_request() -> bool {
     REBUILD.with(|flag| flag.replace(false))
 }
@@ -171,6 +193,7 @@ pub fn take_rebuild_request() -> bool {
 struct Deeper(u32);
 
 impl Deeper {
+    #[inline(never)]
     fn enter() -> Self {
         let now = DEPTH.with(|d| d.get());
         DEPTH.with(|d| d.set(now + 1));
@@ -179,6 +202,7 @@ impl Deeper {
 }
 
 impl Drop for Deeper {
+    #[inline(never)]
     fn drop(&mut self) {
         DEPTH.with(|d| d.set(self.0));
     }
@@ -243,6 +267,7 @@ struct PendingEffect {
 
 impl StateStore {
     /// A rebuild of the tree is about to run. Every state it reaches is marked as reached.
+    #[inline(never)]
     pub fn begin_build(&self) {
         self.epoch.set(self.epoch.get() + 1);
         self.building.set(true);
@@ -828,12 +853,10 @@ impl<'a> BuildContext<'a> {
             (self.key.0.as_u64(), self.key.1, index, period.as_millis()).hash(&mut hasher);
             hasher.finish()
         };
-        INTERVALS.with(|intervals| {
-            intervals.borrow_mut().push(Interval {
-                id,
-                period,
-                callback: on_tick.into(),
-            })
+        push_interval(Interval {
+            id,
+            period,
+            callback: on_tick.into(),
         });
     }
 
@@ -843,6 +866,7 @@ impl<'a> BuildContext<'a> {
     ///
     /// Like [`use_interval`](Self::use_interval) it is asked again on every build and may be
     /// called conditionally: `cx.block_back(self.menu_open)`.
+    #[inline(never)]
     pub fn block_back(&self, blocked: bool) {
         if blocked {
             BACK_BLOCKS.with(|blocks| blocks.set(blocks.get() + 1));
@@ -1153,12 +1177,40 @@ pub struct Component<Msg = Callback> {
     key: Option<u64>,
 }
 
+/// A stateless widget's `build` — looked up in the hot-patching table, by the method itself,
+/// when frus is built for hot reload: the method is the application's code, which a patch
+/// replaces, and the table answers for functions, not for closures frus made around them.
+#[inline]
+fn build_stateless<W: StatelessWidget>(widget: &W, cx: &BuildContext) -> Box<dyn Widget> {
+    #[cfg(feature = "hot-reload")]
+    {
+        subsecond::HotFn::current(<W as StatelessWidget>::build).call((widget, cx))
+    }
+    #[cfg(not(feature = "hot-reload"))]
+    {
+        widget.build(cx)
+    }
+}
+
+/// A state's `build`, the same way.
+#[inline]
+fn build_state<S: State>(state: &S, cx: &StateContext<S>) -> Box<dyn Widget> {
+    #[cfg(feature = "hot-reload")]
+    {
+        subsecond::HotFn::current(<S as State>::build).call((state, cx))
+    }
+    #[cfg(not(feature = "hot-reload"))]
+    {
+        state.build(cx)
+    }
+}
+
 impl Component<Callback> {
     /// A stateless component.
     pub fn stateless<W: StatelessWidget>(widget: W) -> Self {
         Self::from_builder(
             TypeId::of::<W>(),
-            Box::new(move |cx: &BuildContext| widget.build(cx)),
+            Box::new(move |cx: &BuildContext| build_stateless(&widget, cx)),
         )
     }
 
@@ -1178,7 +1230,7 @@ impl Component<Callback> {
                     None => cell.state.borrow_mut().init_state(&state_cx),
                     Some(old) => cell.state.borrow_mut().did_update_widget(&old, &state_cx),
                 }
-                let built = cell.state.borrow().build(&state_cx);
+                let built = build_state(&*cell.state.borrow(), &state_cx);
                 built
             }),
         )
@@ -1228,8 +1280,7 @@ impl<Msg> LazyChild<Msg> {
         if self.built.get().is_none() {
             let build = self.build.borrow_mut().take();
             if let Some(build) = build {
-                let depth = DEPTH.with(|d| d.get());
-                let cx = BuildContext::new((id, depth), self.kind, runtime, theme);
+                let cx = BuildContext::new((id, depth()), self.kind, runtime, theme);
                 let child = build(&cx);
                 let _ = self.built.set(child);
             }

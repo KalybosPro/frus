@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 668 so far, each documenting the objective, the alternatives
+> record — one per step, 669 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **frus can be hot-patched** (J669): the code of a running application replaced in place, its
+  state kept. Behind the `hot-reload` feature, each component's `build` is looked up in the
+  patch table by the method itself, the application's library can be compiled as the program
+  the patch replaces, and every thread-local of the framework is reached only through functions
+  compiled once, in frus (a test keeps it so). Milestone 663's diagnosis was wrong: the crash was
+  in the patch engine's Windows stubs, reported upstream with a fix (DioxusLabs/dioxus#5966).
 
 - **The keys of `frus run`** (J668), in the terminal and in VS Code: `w` prints the widget tree,
   `f` the focus tree, `S` the semantics tree; `i` toggles the inspector, `p` debug paint, `P` a

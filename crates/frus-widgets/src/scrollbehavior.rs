@@ -228,6 +228,7 @@ pub struct ScrollConfiguration<Msg = crate::callback::Callback> {
 impl ScrollConfiguration {
     /// The behaviour in force where this is asked — during a build or a layout — or the
     /// base one, [`ScrollBehavior::new`], where nothing installed one.
+    #[inline(never)]
     pub fn of() -> ScrollBehavior {
         AMBIENT.with(Cell::get)
     }
@@ -235,6 +236,7 @@ impl ScrollConfiguration {
     /// Makes `behavior` the one in force until the guard is dropped: what the walks do for
     /// each [`ScrollConfiguration`], and what a test does to lay a tree out under a
     /// behaviour.
+    #[inline(never)]
     pub fn install(behavior: ScrollBehavior) -> ScrollBehaviorGuard {
         ScrollBehaviorGuard(AMBIENT.with(|a| a.replace(behavior)))
     }
@@ -242,6 +244,7 @@ impl ScrollConfiguration {
     /// Makes `behavior` the one in force at the **root** of the tree, under every
     /// [`ScrollConfiguration`]: the application's, which the shell sets afresh each frame
     /// from `Application::scroll_behavior`, as an application's root installs its own.
+    #[inline(never)]
     pub fn set_root(behavior: ScrollBehavior) {
         AMBIENT.with(|a| a.set(behavior));
     }
@@ -265,6 +268,7 @@ impl<Msg> ScrollConfiguration<Msg> {
 pub struct ScrollBehaviorGuard(ScrollBehavior);
 
 impl Drop for ScrollBehaviorGuard {
+    #[inline(never)]
     fn drop(&mut self) {
         AMBIENT.with(|a| a.set(self.0));
     }

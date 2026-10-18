@@ -585,6 +585,7 @@ impl MediaQuery {
 
     /// The description currently in force, or [`UNSET`](Self::UNSET) outside any
     /// scope.
+    #[inline(never)]
     pub fn of() -> MediaQuery {
         AMBIENT.with(|a| a.get())
     }
@@ -631,6 +632,7 @@ impl MediaQuery {
     /// each other, which is the same bug with an extra step: whoever holds one and forgets
     /// the other gets a layout measured at one size and painted at another, with nothing to
     /// say so.
+    #[inline(never)]
     #[must_use = "the surface is uninstalled the moment the guard is dropped"]
     pub fn install(self) -> SurfaceGuard {
         let previous = AMBIENT.with(|a| a.replace(self));
@@ -671,6 +673,7 @@ thread_local! {
 struct Restore(MediaQuery);
 
 impl Drop for Restore {
+    #[inline(never)]
     fn drop(&mut self) {
         AMBIENT.with(|a| a.set(self.0));
     }
