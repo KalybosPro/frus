@@ -43,7 +43,9 @@ builds turn on:
 - **The application's code is the program's.** subsecond patches the program's own crate, and a
   frus application keeps its code in its library. With the feature, `main!` also writes a `main`,
   so `src/lib.rs` can be compiled as a binary (`[[bin]] path = "src/lib.rs"`) that is the
-  application.
+  application. That is decided inside frus-shell (`__hot_main!`, one definition with the feature
+  and an empty one without), so an application's crate never sees an unknown condition, and one
+  that has a `main` of its own is left alone.
 - **The shell connects to the patch server** at start-up, and builds the interface again when a
   patch arrives (`frus-shell/src/hot.rs`).
 - **Every thread-local is reached only through functions compiled once, in frus**: not generic,
