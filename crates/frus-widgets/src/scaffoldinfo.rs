@@ -43,6 +43,7 @@ pub struct ScaffoldInfo {
 
 impl ScaffoldInfo {
     /// The one in force here — empty outside every [`ScaffoldInfo::scope`].
+    #[inline(never)]
     #[must_use]
     pub fn of() -> Self {
         AMBIENT.with(|a| a.borrow().clone())
@@ -89,6 +90,7 @@ impl ScaffoldInfo {
     }
 
     /// Puts this in force until the guard is dropped.
+    #[inline(never)]
     #[must_use]
     pub fn install(self) -> ScaffoldGuard {
         ScaffoldGuard(AMBIENT.with(|a| a.replace(self)))
@@ -117,6 +119,7 @@ impl ScaffoldInfo {
 pub struct ScaffoldGuard(ScaffoldInfo);
 
 impl Drop for ScaffoldGuard {
+    #[inline(never)]
     fn drop(&mut self) {
         AMBIENT.with(|a| a.replace(std::mem::take(&mut self.0)));
     }

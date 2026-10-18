@@ -285,11 +285,13 @@ thread_local! {
 /// This is the *resolved* one — one of the application's supported locales — not the
 /// reader's raw first preference. A widget asking what language to write in wants the
 /// language it will actually find words in.
+#[inline(never)]
 pub fn of() -> Locale {
     AMBIENT.with(|ambient| ambient.borrow().clone().unwrap_or_default())
 }
 
 /// Installs `locale` for this thread, from now on. The shell does this every frame.
+#[inline(never)]
 pub fn install(locale: Locale) {
     AMBIENT.with(|ambient| *ambient.borrow_mut() = Some(locale));
 }
@@ -298,9 +300,15 @@ pub fn install(locale: Locale) {
 /// when `f` panics, so one bad frame cannot leave a stale language installed for every
 /// frame after it.
 pub fn scope<R>(locale: Locale, f: impl FnOnce() -> R) -> R {
-    let previous = AMBIENT.with(|ambient| ambient.borrow_mut().replace(locale));
-    let _restore = Restore(previous);
+    let _restore = Restore(swap(Some(locale)));
     f()
+}
+
+/// Puts `next` in place, and gives back what was there. Not generic, and not inlined: see
+/// `component.rs` on thread-locals and hot patches.
+#[inline(never)]
+fn swap(next: Option<Locale>) -> Option<Locale> {
+    AMBIENT.with(|ambient| std::mem::replace(&mut *ambient.borrow_mut(), next))
 }
 
 /// Puts back the previous locale when dropped, panic or not.
@@ -308,8 +316,7 @@ struct Restore(Option<Locale>);
 
 impl Drop for Restore {
     fn drop(&mut self) {
-        let previous = self.0.take();
-        AMBIENT.with(|ambient| *ambient.borrow_mut() = previous);
+        swap(self.0.take());
     }
 }
 

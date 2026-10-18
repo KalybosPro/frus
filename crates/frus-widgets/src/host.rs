@@ -86,11 +86,13 @@ pub fn app() -> App {
 macro_rules! setting {
     ($(#[$doc:meta])* $get:ident, $set:ident: $ty:ty, $field:ident) => {
         $(#[$doc])*
+        #[inline(never)]
         pub fn $get(&self) -> $ty {
             SETTINGS.with(|s| s.borrow().$field.clone())
         }
 
         #[doc = concat!("Changes [`App::", stringify!($get), "`].")]
+        #[inline(never)]
         pub fn $set(&self, value: $ty) {
             SETTINGS.with(|s| s.borrow_mut().$field = value);
             request_rebuild();
@@ -174,6 +176,7 @@ pub fn key_hash(key: impl Hash) -> u64 {
     hasher.finish()
 }
 
+#[inline(never)]
 fn push(effect: Effect) {
     EFFECTS.with(|effects| effects.borrow_mut().push(effect));
     // Something has to be there to take it: a frame.
@@ -182,6 +185,7 @@ fn push(effect: Effect) {
 
 /// Takes the effects asked for since the last time, oldest first. The shell calls this after
 /// each frame.
+#[inline(never)]
 pub fn take_effects() -> Vec<Effect> {
     EFFECTS.with(|effects| std::mem::take(&mut *effects.borrow_mut()))
 }

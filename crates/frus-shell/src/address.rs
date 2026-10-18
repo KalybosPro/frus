@@ -88,6 +88,7 @@ pub(crate) fn apply(step: Step, strategy: LocationStrategy, base: &str, index: u
 /// Starts listening to the browser's own moves — its back and forward buttons, an address
 /// typed over the old one. Each is queued for [`take_popped`] and asks `window` for a frame,
 /// which is where the shell looks.
+#[inline(never)]
 pub(crate) fn listen(window: Arc<Window>, strategy: LocationStrategy, base: String) {
     let Some(browser) = web_sys::window() else {
         return;
@@ -111,6 +112,7 @@ pub(crate) fn listen(window: Arc<Window>, strategy: LocationStrategy, base: Stri
 }
 
 /// What the browser has said since the last call, oldest first.
+#[inline(never)]
 pub(crate) fn take_popped() -> Vec<(String, Option<usize>)> {
     POPPED.with(|queue| queue.borrow_mut().drain(..).collect())
 }

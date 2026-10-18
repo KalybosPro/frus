@@ -527,6 +527,7 @@ thread_local! {
 /// **The table in force**, or [`English`] when nothing has been installed.
 ///
 /// Cheap enough to call from a paint: it is a reference count, not a table.
+#[inline(never)]
 pub fn of() -> Rc<dyn Localizations> {
     AMBIENT.with(|ambient| {
         ambient
@@ -542,6 +543,7 @@ pub fn of() -> Rc<dyn Localizations> {
 /// that changes language while it is running is obeyed on the next frame.
 ///
 /// [`Application::localizations`]: https://docs.rs/frus-shell
+#[inline(never)]
 pub fn install(table: Rc<dyn Localizations>) {
     AMBIENT.with(|ambient| *ambient.borrow_mut() = Some(table));
 }
@@ -550,9 +552,15 @@ pub fn install(table: Rc<dyn Localizations>) {
 /// when `f` panics, so one bad frame cannot leave a stale language installed for every
 /// frame after it.
 pub fn scope<R>(table: Rc<dyn Localizations>, f: impl FnOnce() -> R) -> R {
-    let previous = AMBIENT.with(|ambient| ambient.borrow_mut().replace(table));
-    let _restore = Restore(previous);
+    let _restore = Restore(swap(Some(table)));
     f()
+}
+
+/// Puts `next` in place, and gives back what was there. Not generic, and not inlined: see
+/// `component.rs` on thread-locals and hot patches.
+#[inline(never)]
+fn swap(next: Option<Rc<dyn Localizations>>) -> Option<Rc<dyn Localizations>> {
+    AMBIENT.with(|ambient| std::mem::replace(&mut *ambient.borrow_mut(), next))
 }
 
 /// Puts back the previous table when dropped, panic or not.
@@ -560,8 +568,7 @@ struct Restore(Option<Rc<dyn Localizations>>);
 
 impl Drop for Restore {
     fn drop(&mut self) {
-        let previous = self.0.take();
-        AMBIENT.with(|ambient| *ambient.borrow_mut() = previous);
+        swap(self.0.take());
     }
 }
 

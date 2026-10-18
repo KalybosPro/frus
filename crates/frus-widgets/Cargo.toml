@@ -16,6 +16,9 @@ categories = ["gui"]
 #   frus = { version = "0.3", default-features = false, features = ["bundled-sans"] }
 [features]
 default = ["frus-text/default", "images"]
+# Hot reload under `frus run`: each component's `build` is called through subsecond's jump
+# table, so a patched build is the one that runs. Development only; `frus run` turns it on.
+hot-reload = ["dep:subsecond"]
 # Decoding embedded PNG/JPEG bytes, for `Image::memory` and `asset!`. On by default and
 # droppable: without it those two report a missing decoder rather than panicking, exactly
 # as dropping a bundled font leaves text to fall back rather than crash.
@@ -33,6 +36,7 @@ icons-rounded = []
 icons-sharp = []
 
 [dependencies]
+subsecond = { version = "0.7", optional = true }
 frus-core = { path = "../frus-core", version = "0.3" }
 frus-image = { path = "../frus-image", version = "0.3", optional = true }
 frus-layout = { path = "../frus-layout", version = "0.3" }

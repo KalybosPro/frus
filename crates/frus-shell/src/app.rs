@@ -1975,6 +1975,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         self.open_launch_link();
                         #[cfg(any(android, desktop))]
                         self.connect_dev();
+                        #[cfg(all(feature = "hot-reload", any(android, desktop)))]
+                        {
+                            crate::hot::set_window(window.clone());
+                            crate::hot::connect();
+                        }
                     }
                     window.request_redraw();
                 }
@@ -2557,6 +2562,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.open_links_from_other_instances();
                 // Work a component started brought something: build again to show it.
                 let arrived = self.take_task_arrivals();
+                // A hot-reload patch changed what the components build.
+                #[cfg(all(feature = "hot-reload", any(android, desktop)))]
+                let arrived = crate::hot::take_patched() || arrived;
                 if frus_widgets::take_rebuild_request() || arrived {
                     self.build_dirty = true;
                 }
@@ -2920,7 +2928,6 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         self.frame_costs.gpu = timings.gpu;
                     }
                 }
-
                 // A continuously animating widget, a spinner say, forces a redraw. So
                 // does an image still on its way: without a frame to draw it in, the
                 // frame that would show it never happens.

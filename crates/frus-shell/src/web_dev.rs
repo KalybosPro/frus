@@ -35,6 +35,7 @@ fn storage() -> Option<web_sys::Storage> {
 
 /// At start-up: if `frus run` serves the page, the states a reload handed over (consumed), and
 /// the page made to keep its states as it goes away.
+#[inline(never)]
 pub(crate) fn start() -> Option<String> {
     let window = web_sys::window()?;
     let watched = js_sys::Reflect::get(&window, &"__frusRun".into())
@@ -73,8 +74,19 @@ pub(crate) fn start() -> Option<String> {
 
 /// After a frame: the states as they are now, for the reload that may come.
 pub(crate) fn keep(snapshot: impl FnOnce() -> String) {
-    if WATCHED.with(Cell::get) {
-        let states = snapshot();
-        LATEST.with(|latest| *latest.borrow_mut() = Some(states));
+    if watched() {
+        set_latest(snapshot());
     }
+}
+
+/// Whether the page is served by `frus run`. Not generic, and not inlined, like every access to
+/// these thread-locals: see `frus-widgets/src/component.rs` on hot patches.
+#[inline(never)]
+fn watched() -> bool {
+    WATCHED.with(Cell::get)
+}
+
+#[inline(never)]
+fn set_latest(states: String) {
+    LATEST.with(|latest| *latest.borrow_mut() = Some(states));
 }

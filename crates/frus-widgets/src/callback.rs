@@ -70,6 +70,7 @@ impl Drop for Slot {
 }
 
 /// Lets go of the closures other threads dropped the last callback to.
+#[inline(never)]
 fn collect_abandoned() {
     if !ANY_ABANDONED.load(Ordering::Acquire) {
         return;
@@ -105,9 +106,17 @@ impl Callback {
     /// Wraps `work` so that it can be handed to a widget and run later, any number of
     /// times.
     pub fn new(work: impl Fn() + 'static) -> Self {
+        Self::from_work(Rc::new(work))
+    }
+
+    /// [`Callback::new`] past its generic part: compiled once, here, so that every callback of
+    /// an application, hot-patched or not, goes into the same table (see `component.rs` on
+    /// thread-locals and hot patches).
+    #[inline(never)]
+    fn from_work(work: Rc<dyn Fn()>) -> Self {
         collect_abandoned();
         let id = NEXT.fetch_add(1, Ordering::Relaxed);
-        WORK.with(|table| table.borrow_mut().insert(id, Rc::new(work)));
+        WORK.with(|table| table.borrow_mut().insert(id, work));
         Self {
             slot: Arc::new(Slot {
                 id,
@@ -120,6 +129,7 @@ impl Callback {
     ///
     /// Called from a thread other than the one that made this callback, it finds nothing
     /// to run — and, in a debug build, says so, since that is never what was meant.
+    #[inline(never)]
     pub fn call(&self) {
         collect_abandoned();
         let work = WORK.with(|table| table.borrow().get(&self.slot.id).cloned());

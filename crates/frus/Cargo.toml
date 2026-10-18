@@ -32,6 +32,8 @@ categories = ["gui", "graphics", "wasm"]
 # Without one, its constants do not exist and `Icons::by_name` answers `None` for its
 # names rather than quietly handing back a different drawing.
 [features]
+# Hot reload under `frus run`, which turns it on: development only, never shipped.
+hot-reload = ["frus-shell/hot-reload", "frus-widgets/hot-reload"]
 net = ["frus-shell/net"]
 json = ["frus-shell/json"]
 default = ["frus-shell/default", "frus-widgets/default", "frus-text/default"]

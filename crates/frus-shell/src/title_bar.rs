@@ -94,7 +94,14 @@ thread_local! {
 
 /// What to call when the line's state changes and a frame is owed.
 pub(crate) fn on_change(wake: impl Fn() + 'static) {
-    WAKE.with(|slot| *slot.borrow_mut() = Some(Box::new(wake)));
+    set_wake(Box::new(wake));
+}
+
+/// Not generic, and not inlined: see `frus-widgets/src/component.rs` on thread-locals and hot
+/// patches.
+#[inline(never)]
+fn set_wake(wake: Box<dyn Fn()>) {
+    WAKE.with(|slot| *slot.borrow_mut() = Some(wake));
 }
 
 /// **The colours the system would draw `hwnd`'s caption in now**: its surface and its words,
@@ -109,6 +116,7 @@ pub(crate) fn on_change(wake: impl Fn() + 'static) {
 ///   or `#202020` dark, black or white words, grey on an inactive window — measured on
 ///   Windows 11's own captions. An active window's caption there is tinted by the wallpaper
 ///   (Mica), which an opaque surface cannot follow: the untinted surface is the nearest.
+#[inline(never)]
 pub(crate) fn caption_colors(dark: bool, active: bool) -> (Color, Color) {
     let caption = LINE.with(|line| *line.borrow_mut().caption.get_or_insert_with(read_caption));
     if let Some([surface, ink, inactive_surface, inactive_ink]) = caption.high_contrast {
@@ -157,6 +165,7 @@ fn light_caption() -> Color {
 }
 
 /// The system's build number, `0` if it cannot be read.
+#[inline(never)]
 fn os_build() -> u32 {
     type RtlGetVersion = unsafe extern "system" fn(
         *mut windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW,
@@ -246,6 +255,7 @@ fn colorref(c: u32) -> Color {
 }
 
 /// The compositor's accent (`0xAABBGGRR`), opaque.
+#[inline(never)]
 fn abgr(c: u32) -> Color {
     colorref(c & 0x00FF_FFFF)
 }
@@ -371,6 +381,7 @@ unsafe fn frame_changed(hwnd: HWND) {
 }
 
 /// The line's height, in physical pixels.
+#[inline(never)]
 pub(crate) fn height() -> i32 {
     LINE.with(|line| line.borrow().height)
 }
@@ -417,6 +428,7 @@ pub(crate) unsafe fn buttons(hwnd: HWND) -> Option<RECT> {
 
 /// What the application has on the line, and where the window's icon is, in client
 /// pixels: told every frame.
+#[inline(never)]
 pub(crate) fn publish(interactive: Vec<RECT>, icon: Option<RECT>) {
     LINE.with(|line| {
         let mut line = line.borrow_mut();
@@ -427,6 +439,7 @@ pub(crate) fn publish(interactive: Vec<RECT>, icon: Option<RECT>) {
 
 /// The compositor's button under the pointer and the one pressed, as hit-test codes (`0`
 /// for none).
+#[inline(never)]
 pub(crate) fn buttons_state() -> (u32, u32) {
     LINE.with(|line| {
         let line = line.borrow();
@@ -491,6 +504,7 @@ fn is_button(code: u32) -> bool {
     matches!(code, HTMINBUTTON | HTMAXBUTTON | HTCLOSE)
 }
 
+#[inline(never)]
 fn contains(r: &RECT, at: &POINT) -> bool {
     at.x >= r.left && at.x < r.right && at.y >= r.top && at.y < r.bottom
 }
