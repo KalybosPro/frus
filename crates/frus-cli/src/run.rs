@@ -39,6 +39,8 @@ pub(crate) struct RunOptions {
     pub args: Vec<String>,
     /// `--machine`: JSON lines for an editor instead of text for a person (see `report`).
     pub machine: bool,
+    /// `--hot`: true hot reload, the code patched into the running application (desktop).
+    pub hot: bool,
 }
 
 pub(crate) const DEFAULT_PORT: u16 = 8080;
@@ -183,7 +185,15 @@ fn run_session(options: &RunOptions) -> Result<ExitCode, String> {
             device.name
         ));
     }
+    if options.hot && device.kind != Kind::Host {
+        return Err(format!(
+            "--hot patches the code of a running application on the desktop only, for now; on \
+             {} use `r`, which reloads with the state kept",
+            device.name
+        ));
+    }
     let result = match &device.kind {
+        Kind::Host if options.hot => run_hot(&project, options),
         Kind::Host => run_desktop(&project, options),
         Kind::Android { serial } => run_android(&project, &device, serial, options.mode),
         Kind::Emulator { avd } => {
@@ -416,6 +426,159 @@ pub(crate) fn is_error_line(line: &str) -> bool {
         || line.contains(" WARN ")
         || line.starts_with("thread '") && line.contains("panicked")
         || line.starts_with("error")
+}
+
+// --- Desktop, hot ---
+
+/// `frus run --hot`: `dx serve --hot-patch` on the shadow package (see `hot`), its output read
+/// and turned into the run's own — the application's log, and a line for each patch.
+fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> {
+    let engine = crate::hot::engine()?;
+    let shadow = crate::hot::shadow(project)?;
+    let link = DevLink::open()?;
+    // A build of its own: the program a patch replaces is linked with everything kept.
+    let target = project.target_dir()?.join("frus-hot").join("target");
+    let (lines_in, lines) = std::sync::mpsc::channel::<crate::hot::DxLine>();
+    let start = |link: &DevLink| -> Result<Child, String> {
+        let mut command = Command::new(&engine);
+        command
+            .args([
+                "serve",
+                crate::hot::platform_flag(),
+                "--hot-patch",
+                "--bin",
+                &project.package,
+                "--features",
+                "frus/hot-reload",
+                "--interactive",
+                "false",
+                "--open",
+                "true",
+            ])
+            .args(options.mode.eq(&Mode::Release).then_some("--release"))
+            .current_dir(&shadow)
+            .env("CARGO_TARGET_DIR", &target)
+            // The application dx starts inherits it, and reports to this run as under `r`.
+            .env("FRUS_DEV", link.address())
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut dx = command
+            .spawn()
+            .map_err(|e| format!("could not start the hot-reload engine: {e}"))?;
+        for stream in [
+            dx.stdout
+                .take()
+                .map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
+            dx.stderr
+                .take()
+                .map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let send = lines_in.clone();
+            std::thread::spawn(move || {
+                for line in BufReader::new(stream).lines().map_while(Result::ok) {
+                    if send.send(crate::hot::dx_line(&line)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        Ok(dx)
+    };
+
+    report::say("Building for hot reload (the first build takes longer)…");
+    let mut dx = start(&link)?;
+    let mut keys: Option<Receiver<char>> = None;
+    let mut restarting: Option<Instant> = None;
+    loop {
+        while let Ok(line) = lines.try_recv() {
+            use crate::hot::DxLine;
+            match line {
+                DxLine::App(text, error) => report::app_log(&text, error),
+                DxLine::Launched => match restarting.take() {
+                    Some(started) => restarted(Action::Restart, started, ""),
+                    None if keys.is_none() => {
+                        keys = Some(attach(&format!(
+                            "{} is running with hot reload: save a file and the change is \
+                             patched into it, its state kept",
+                            project.package
+                        )));
+                    }
+                    None => {}
+                },
+                DxLine::Patched { file, millis } => {
+                    let seconds = millis as f64 / 1000.0;
+                    if report::is_machine() {
+                        report::event(
+                            "app.restarted",
+                            object([("fullRestart", false.into()), ("seconds", seconds.into())]),
+                        );
+                    } else {
+                        report::say(&format!("Patched {file} in {seconds:.1} s."));
+                    }
+                }
+                DxLine::Failed(why) => report::warn(&why),
+                DxLine::Exited if restarting.is_none() => {
+                    report::say(&format!("{} has stopped.", project.package));
+                    crate::hot::stop(&mut dx);
+                    return Ok(ExitCode::SUCCESS);
+                }
+                DxLine::Exited | DxLine::Noise => {}
+            }
+        }
+        if let Some(status) = dx.try_wait().map_err(|e| e.to_string())? {
+            if restarting.is_none() {
+                return Err(format!("the hot-reload engine stopped ({status})"));
+            }
+        }
+        let Some(keys) = keys.as_ref() else {
+            std::thread::sleep(Duration::from_millis(100));
+            continue;
+        };
+        match next_action(keys, Duration::from_millis(100)) {
+            Some(Action::Quit) => {
+                crate::hot::stop(&mut dx);
+                return Ok(ExitCode::SUCCESS);
+            }
+            Some(Action::Help) => report::say(KEYS),
+            Some(Action::Reload) => report::say(
+                "With --hot, saving a file patches it in: there is nothing to press. `R` starts \
+                 the application again, every state afresh.",
+            ),
+            Some(Action::Restart) => {
+                restarting = Some(Instant::now());
+                report::say("Restarting: building…");
+                crate::hot::stop(&mut dx);
+                link.disconnect();
+                dx = start(&link)?;
+            }
+            Some(Action::Detach) => {
+                // dx alone: the application it started goes on.
+                let _ = dx.kill();
+                report::say(&format!("Detached: {} goes on running.", project.package));
+                return Ok(ExitCode::SUCCESS);
+            }
+            Some(Action::Clear) => clear_screen(),
+            Some(Action::Missing(why)) => report::say(why),
+            Some(Action::App(command)) => {
+                if !link.send(&format!("do {command}")) {
+                    report::warn("the application is not connected to frus run");
+                }
+            }
+            Some(Action::Screenshot) => {
+                let path = screenshot_path(&project.root);
+                if link.send(&format!("do screenshot {}", path.display())) {
+                    report_screenshot(&path, Duration::from_secs(10));
+                } else {
+                    report::warn("the application is not connected to frus run");
+                }
+            }
+            None => {}
+        }
+    }
 }
 
 // --- Android ---

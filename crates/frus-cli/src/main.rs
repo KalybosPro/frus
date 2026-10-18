@@ -16,6 +16,7 @@ mod create;
 mod daemon;
 mod devices;
 mod devlink;
+mod hot;
 mod json;
 mod keys;
 mod project;
@@ -58,11 +59,15 @@ Options:
                            or `android`, `web`, `desktop` (default: this computer)
       --release            a release build (default: debug)
       --port <port>        the port the web build is served on (default: 8080)
+      --hot                hot reload (desktop): each saved change is patched into the
+                           running application, every state kept (installs its engine
+                           the first time)
       --machine            JSON lines for an editor instead of text (see `frus daemon`)
   -h, --help               print this
 
 Examples:
   frus run
+  frus run --hot
   frus run -d android
   frus run -d edge --release
 ";
@@ -272,6 +277,7 @@ fn parse_run(args: impl Iterator<Item = OsString>) -> Result<Command, String> {
         port: run::DEFAULT_PORT,
         args: Vec::new(),
         machine: false,
+        hot: false,
     };
     let mut port = None;
     while let Some(arg) = args.next() {
@@ -303,6 +309,7 @@ fn parse_run(args: impl Iterator<Item = OsString>) -> Result<Command, String> {
             "-d" | "--device" => set_once(&mut options.device, value("--device")?, "--device")?,
             "--release" if inline.is_none() => options.mode = cargo::Mode::Release,
             "--machine" if inline.is_none() => options.machine = true,
+            "--hot" if inline.is_none() => options.hot = true,
             "--port" => {
                 let text = value(&flag)?;
                 let number = text
