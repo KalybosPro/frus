@@ -261,6 +261,7 @@
   },
   "scripts": {
     "compile": "tsc -p .",
+    "vscode:prepublish": "tsc -p .",
     "watch": "tsc -watch -p .",
     "test": "tsc -p . && node --test \"out/test/*.test.js\"",
     "package": "vsce package --no-dependencies",
