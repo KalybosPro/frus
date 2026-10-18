@@ -81,7 +81,7 @@ impl State for CounterState {
                     .on_press(cx.callback(CounterState::decrement)),
             )
             .child(
-                Button::new(if self.auto { "Stop auto" } else { "Start auto" })
+                Button::new(if self.auto { "Stop" } else { "Start auto" })
                     .variant(Variant::Tonal)
                     .on_press(cx.callback(CounterState::toggle_auto)),
             );

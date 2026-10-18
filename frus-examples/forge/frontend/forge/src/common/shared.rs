@@ -45,22 +45,10 @@ pub(crate) fn input_title(title: String) -> Text {
 
 pub(crate) fn input_style() -> TextFieldStyle {
     TextFieldStyle {
-        fill: None,
-        border_color: None,
-        focused_border_color: None,
-        error_color: None,
-        error_hover_color: None,
         text_color: Some(black()),
-        label_color: None,
-        focused_label_color: None,
-        helper_color: None,
-        icon_color: None,
-        handle_color: None,
         radius: Some(12.0),
-        border_width: None,
-        focused_border_width: None,
         icon_size: Some(16.0),
-        padding_x: None,
+        ..Default::default()
     }
 }
 
