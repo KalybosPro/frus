@@ -216,6 +216,146 @@ pub(crate) fn android_sdk(target_sdk: u32) -> Result<PathBuf, String> {
     Ok(home)
 }
 
+/// The system image a new emulator gets when none is installed: a recent Android with Google's
+/// APIs, for this computer's processor.
+fn default_system_image() -> String {
+    let abi = if cfg!(target_arch = "aarch64") {
+        "arm64-v8a"
+    } else {
+        "x86_64"
+    };
+    format!("system-images;android-35;google_apis;{abi}")
+}
+
+/// The newest system image installed in the SDK at `home`, as sdkmanager names it:
+/// `system-images;android-36.1;google_apis_playstore;x86_64`.
+pub(crate) fn installed_system_image(home: &Path) -> Option<String> {
+    let images = home.join("system-images");
+    let mut found = Vec::new();
+    for api in std::fs::read_dir(&images).ok()?.filter_map(Result::ok) {
+        for tag in std::fs::read_dir(api.path())
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+        {
+            for abi in std::fs::read_dir(tag.path())
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+            {
+                if abi.path().join("system.img").is_file() || abi.path().is_dir() {
+                    let name = |e: &std::fs::DirEntry| e.file_name().to_string_lossy().into_owned();
+                    found.push((name(&api), name(&tag), name(&abi)));
+                }
+            }
+        }
+    }
+    found
+        .into_iter()
+        .max_by_key(|(api, tag, _)| {
+            (
+                version_key(api.trim_start_matches("android-")),
+                // Google Play last among equals: the plain Google APIs image is lighter.
+                tag != "google_apis_playstore",
+            )
+        })
+        .map(|(api, tag, abi)| format!("system-images;{api};{tag};{abi}"))
+}
+
+/// A free emulator name: `wanted`, or `frus_emulator`, with a number added if it is taken.
+pub(crate) fn free_avd_name(wanted: Option<&str>, taken: &[String]) -> String {
+    let base = wanted
+        .map(|w| w.trim().replace(' ', "_"))
+        .filter(|w| !w.is_empty())
+        .unwrap_or_else(|| "frus_emulator".to_string());
+    if !taken.contains(&base) {
+        return base;
+    }
+    (2..)
+        .map(|n| format!("{base}_{n}"))
+        .find(|name| !taken.contains(name))
+        .unwrap_or(base)
+}
+
+/// Creates an Android emulator (an AVD) and gives its name. What it needs is installed first:
+/// the SDK's tools, the emulator, a system image if none is there.
+pub(crate) fn create_avd(wanted: Option<&str>, taken: &[String]) -> Result<String, String> {
+    let home = match existing_sdk() {
+        Some(home) => home,
+        None => {
+            let home = sdk_candidates()
+                .pop()
+                .unwrap_or_else(|| frus_home().join("android-sdk"));
+            install_command_line_tools(&home)?;
+            home
+        }
+    };
+    let mut missing = Vec::new();
+    if !home.join("emulator").is_dir() {
+        missing.push("emulator".to_string());
+    }
+    if !home.join("platform-tools").is_dir() {
+        missing.push("platform-tools".to_string());
+    }
+    let image = match installed_system_image(&home) {
+        Some(image) => image,
+        None => {
+            let image = default_system_image();
+            missing.push(image.clone());
+            image
+        }
+    };
+    if !missing.is_empty() {
+        sdkmanager(&home, &missing)?;
+    }
+    let script = if cfg!(windows) {
+        "avdmanager.bat"
+    } else {
+        "avdmanager"
+    };
+    let avdmanager = home
+        .join("cmdline-tools")
+        .join("latest")
+        .join("bin")
+        .join(script);
+    if !avdmanager.is_file() {
+        install_command_line_tools(&home)?;
+    }
+    let name = free_avd_name(wanted, taken);
+    crate::report::say(&format!("Creating the {name} emulator ({image})…"));
+    let mut child = Command::new(&avdmanager)
+        .args([
+            "create",
+            "avd",
+            "--name",
+            &name,
+            "--package",
+            &image,
+            "--device",
+            "pixel",
+        ])
+        .env("JAVA_HOME", java()?)
+        .env("ANDROID_HOME", &home)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not run avdmanager: {e}"))?;
+    // It asks whether to make a custom hardware profile.
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = std::io::Write::write_all(&mut stdin, b"no\n");
+    }
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(name)
+    } else {
+        Err(format!(
+            "avdmanager could not create the emulator: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
 /// The highest-versioned directory in `dir` (`ndk/27.0.12077973`, `build-tools/35.0.0`).
 fn newest_version_dir(dir: &Path) -> Option<PathBuf> {
     std::fs::read_dir(dir)
@@ -408,6 +548,41 @@ fn extract(archive: &Path, dir: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_emulator_gets_a_free_name() {
+        assert_eq!(free_avd_name(None, &[]), "frus_emulator");
+        let taken = ["frus_emulator".to_string(), "frus_emulator_2".to_string()];
+        assert_eq!(free_avd_name(None, &taken), "frus_emulator_3");
+        assert_eq!(free_avd_name(Some("My Phone"), &taken), "My_Phone");
+        assert_eq!(free_avd_name(Some("  "), &[]), "frus_emulator");
+    }
+
+    #[test]
+    fn the_newest_system_image_is_chosen() {
+        let home = std::env::temp_dir().join(format!("frus-images-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        for (api, tag) in [
+            ("android-34", "google_apis"),
+            ("android-36.1", "google_apis_playstore"),
+            ("android-36.1", "google_apis"),
+            ("android-9", "default"),
+        ] {
+            std::fs::create_dir_all(
+                home.join("system-images")
+                    .join(api)
+                    .join(tag)
+                    .join("x86_64"),
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            installed_system_image(&home).as_deref(),
+            Some("system-images;android-36.1;google_apis;x86_64")
+        );
+        std::fs::remove_dir_all(&home).unwrap();
+        assert_eq!(installed_system_image(&home), None);
+    }
 
     #[test]
     fn versions_sort_as_numbers() {

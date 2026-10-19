@@ -47,7 +47,12 @@ async function main(): Promise<void> {
     cachePath: process.env.FRUS_VSCODE_CACHE,
     timeout: 120_000,
   });
-  fs.rmSync(isolated, { recursive: true, force: true });
+  // Best effort: a process the test started (an emulator) may still hold the folder.
+  try {
+    fs.rmSync(isolated, { recursive: true, force: true });
+  } catch (error) {
+    console.warn(`could not remove ${isolated}: ${error}`);
+  }
   console.log(fs.readFileSync(result, "utf8"));
 }
 

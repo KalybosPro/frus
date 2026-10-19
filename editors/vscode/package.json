@@ -99,6 +99,16 @@
         "command": "frus.detach",
         "title": "Detach (leave the application running)",
         "category": "frus"
+      },
+      {
+        "command": "frus.launchEmulator",
+        "title": "Launch Emulator",
+        "category": "frus"
+      },
+      {
+        "command": "frus.createEmulator",
+        "title": "Create Emulator",
+        "category": "frus"
       }
     ],
     "keybindings": [
