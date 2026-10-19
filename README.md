@@ -148,36 +148,59 @@ The `frus` command starts a project wired for the desktops, Android and the web,
 
 ```sh
 cargo install frus-cli          # once
+frus doctor                     # what this machine has for each platform, and what it lacks
 frus create my_app
-cd my_app && cargo run
+cd my_app
+frus run                        # on this computer; `frus run -d android`, `-d web`, `-d <device>`
 ```
 
+While it runs, the application's log is in the terminal on every platform, `r` reloads it with
+your change and its state kept, and `R` restarts it afresh. `frus run --hot` patches each saved
+change into the running application instead, on the desktop. Whatever a command needs and the
+machine lacks — a Rust target, the Android SDK, wasm-bindgen — it installs first.
+
 The generated project depends on the published [`frus`](https://crates.io/crates/frus) crate (`frus = "0.3"`). `frus create my_app --frus-path <checkout>` builds it against a checkout of this repository instead; [`docs/getting-started.md`](docs/getting-started.md) has the options.
+
+### The `frus` tool
+
+| command | |
+|---|---|
+| `frus create <dir>` | a new application for the desktops, Android and the web; `frus create .` in one restores the files it is missing |
+| `frus doctor` | the toolchain, part by part: what is ready and what is missing; `--fix` installs it |
+| `frus devices` | this computer, the phones and emulators, the browsers |
+| `frus run [-d <device>]` | build, start, and show the log; `--hot` for hot reload on the desktop |
+| `frus build <apk\|web\|desktop>` | what you ship, in release |
+| `frus emulators` | list, `--launch` and `--create` emulators |
+| `frus clean` | delete the application's builds |
+| `frus daemon` | JSON lines for an editor: devices, emulators, platforms |
+
+While `frus run` runs: `r` reload, `R` restart, `s` screenshot, `w` / `f` / `S` print the widget,
+focus and semantics trees, `i` the inspector, `p` outlines around every widget, `o` another
+platform's behaviour, `b` light or dark, `P` a performance panel with graphs, `d` detach, `q`
+quit. [`crates/frus-cli`](crates/frus-cli) has the details.
+
+**VS Code:** the extension in [`editors/vscode`](editors/vscode) adds a device picker in the
+status bar (and starts or creates emulators from it), F5 with the log in the Debug Console,
+reload on save, and the keys above as commands.
 
 ### Android
 
 ```sh
-cargo install cargo-apk        # once
-cargo apk run -p frus-demo --lib   # build, install, launch
+frus run -d android            # build, install, start, and show logcat
 ```
 
-Requires the Android SDK + NDK with `ANDROID_HOME` / `ANDROID_NDK_ROOT` set and a device visible to `adb devices`.
+The first run installs what is missing: the Android SDK and NDK, Java, the Rust target,
+cargo-apk. Without the tool: `cargo apk run --lib`, with `ANDROID_HOME` / `ANDROID_NDK_ROOT` set.
 
 ### Web
 
 ```sh
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli
-
-cargo build -p frus-hello --target wasm32-unknown-unknown --profile web-release
-wasm-bindgen --target web --no-typescript \
-  --out-dir crates/frus-hello/web/pkg \
-  target/wasm32-unknown-unknown/web-release/frus_hello.wasm
-
-cd crates/frus-hello/web && python3 -m http.server 8080
+frus run -d web                # build, serve, and open the browser; its console shows here
+frus build web                 # the static site, in release
 ```
 
-Needs a WebGPU-capable browser (Chrome/Edge 113+) on a secure context. Details in [`crates/frus-hello/web/README.md`](crates/frus-hello/web/README.md).
+Needs a WebGPU-capable browser (Chrome/Edge 113+) on a secure context (`localhost` is one).
+The steps without the tool are in [`crates/frus-hello/web/README.md`](crates/frus-hello/web/README.md).
 
 ## Architecture
 
@@ -226,17 +249,18 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 
 | Platform | State | Notes |
 |---|---|---|
-| **Desktop** (Windows / Linux / macOS) | Working | winit + wgpu, clipboard, screen-reader a11y via AccessKit, dev live-reload |
+| **Desktop** (Windows / Linux / macOS) | Working | winit + wgpu, clipboard, screen-reader a11y via AccessKit; hot reload of the running application (`frus run --hot`) |
 | **Android** | Working | Native activity, Vulkan, real IME (composition & swipe), insets, system bars, the system clipboard, lifecycle — validated on device |
-| **Web** (wasm + WebGPU) | Functional | Rendering, input, animation, subscriptions, async effects & `fetch`, the clipboard (`navigator.clipboard`), and accessibility through a DOM bridge. Live-reload is not wired up |
+| **Web** (wasm + WebGPU) | Functional | Rendering, input, animation, subscriptions, async effects & `fetch`, the clipboard (`navigator.clipboard`), and accessibility through a DOM bridge. Reload with the state kept under `frus run` |
 | **iOS / macOS native** | Not started | The shell layer is isolated, so adding a target is a contained job |
 
 **What works today:** flex/grid/wrap layout, 1D & 2D scrolling with fill-then-scroll, text input with IME, drag-and-drop reordering with live reflow, data tables, editable grids, charts, date/time pickers, dropdowns, trees, toasts, modals, drawers, navigation with spring transitions and back-gesture, an overridable theme, RTL and i18n, spring, implicit and explicit animations, a wheel picker, lifecycle, effects and subscriptions, async HTTP with typed JSON, and golden-image testing (169 reference images).
 
 **Known gaps** — these are the best places to help:
 
-- Live-reload on the web.
-- iOS and native macOS shells.
+- Hot reload — the code patched into the running application — on Android ([#286](https://github.com/KalybosPro/frus/issues/286))
+  and the web ([#287](https://github.com/KalybosPro/frus/issues/287)); `r` reloads there, with the state kept.
+- iOS ([#19](https://github.com/KalybosPro/frus/issues/19)) and native macOS ([#60](https://github.com/KalybosPro/frus/issues/60)) shells.
 - Text rendering edge cases, and broader golden coverage.
 - A searchable documentation site built from the design notes.
 
@@ -249,7 +273,8 @@ real, open, and written up with where to look and how to know you are done:
 
 | | |
 |---|---|
-| 🟢 Turn on `missing_docs`, crate by crate | Start with the small crates. **One crate is a whole PR.** |
+| 🟢 [`frus test` and `frus analyze`](https://github.com/KalybosPro/frus/issues/290) | Two thin wrappers over cargo in `crates/frus-cli`: no framework knowledge needed. |
+| 🟡 [Try `frus run --hot` on Linux or macOS](https://github.com/KalybosPro/frus/issues/288) | True hot reload has only been run end to end on Windows. A report of what works is the whole contribution. |
 | 🟡 The overscroll stretch effect | Current Android stretches the content instead of glowing. A render-target effect, and where to start reading is written down. |
 | 🔴 [An iOS shell](https://github.com/KalybosPro/frus/labels/design%20first) | The architecture bets this is a contained job. Nobody has tested the bet. |
 
