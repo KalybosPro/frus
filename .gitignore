@@ -10,6 +10,9 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+editors\vscode\node_modules
+editors\vscode\out
+editors\vscode\frus-0.1.0.vsix
 
 # claude
 .claude/
