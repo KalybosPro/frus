@@ -54,12 +54,17 @@ frus devices
 frus run [-d <device>] [--release] [--hot] [--port <port>] [-- <args for the application>]
 ```
 
-**`--hot`** (desktop): true hot reload. The application keeps running, and each change you save is
+**`--hot`** (desktop and web): true hot reload. The application keeps running, and each change you save is
 compiled into a patch and applied to it in place, with every state where it was, in a few
 seconds. `R` still starts it again afresh. The first run installs the engine (a few minutes,
 once, into `~/.frus/tools`) and builds the application for patching (into `target/frus-hot/`,
 without changing its manifest). A patch cannot change the shape of a state that is alive (a
 field added): `R` for that.
+
+On the web (`frus run --hot -d web`), the page is served by `frus run` as without `--hot`, its
+module built by the engine; each patch is linked into the running page, which does not reload.
+The first patch of a run takes longer (half a minute on a debug build), the next ones a few
+seconds. A page that is reloaded gets the latest patch again as it starts.
 
 On Linux, building the engine needs OpenSSL's headers (`sudo apt install pkg-config
 libssl-dev`); `frus doctor` says whether they are there.

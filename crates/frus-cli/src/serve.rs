@@ -23,6 +23,29 @@ const BUILD_PATH: &str = "/__frus/build";
 const COMMANDS_PATH: &str = "/__frus/commands";
 /// Where the page sends its picture, as a `data:image/png;base64,…` URL (`s`, milestone 675).
 const SCREENSHOT_PATH: &str = "/__frus/screenshot";
+/// Where the page asks for the latest hot-reload patch (`frus run --hot`, milestone 679).
+const PATCH_PATH: &str = "/__frus/patch";
+
+/// The script added to the page under `frus run --hot`: it asks for the latest patch until the
+/// shell can take one (`window.__frusPatch`), then for each newer one. A page that loads asks
+/// from the start, and gets the latest: patches are cumulative.
+const PATCH_BRIDGE: &str = r#"<script>(() => {
+  let after = 0, asking = false;
+  setInterval(() => {
+    if (asking || !window.__frusPatch) return;
+    asking = true;
+    fetch('/__frus/patch?after=' + after, { cache: 'no-store' })
+      .then((answer) => answer.text())
+      .then((text) => {
+        if (!text) return;
+        const at = text.indexOf('\n');
+        after = Number(text.slice(0, at));
+        window.__frusPatch(text.slice(at + 1));
+      })
+      .catch(() => {})
+      .finally(() => { asking = false; });
+  }, 300);
+})();</script>"#;
 
 /// The script added to the page. Each message goes out as soon as it is written, in order.
 const CONSOLE_BRIDGE: &str = r#"<script>(() => {
@@ -78,6 +101,8 @@ pub(crate) struct Server {
     commands: Arc<Mutex<Vec<String>>>,
     /// Where the next picture the page sends is written.
     screenshot_to: Arc<Mutex<Option<PathBuf>>>,
+    /// The latest hot-reload patch (`frus run --hot`).
+    pub patches: PatchSlot,
 }
 
 impl Server {
@@ -103,11 +128,59 @@ impl Server {
     }
 }
 
+/// What is served: `dir`, and under `frus run --hot` (milestone 679) the hot-reload engine's
+/// build mounted in it, with the address of its patch socket given to the page.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Site {
+    pub dir: PathBuf,
+    /// `(prefix, folder)`: a request under `/<prefix>/` is a file of `folder`.
+    pub mounts: Vec<(String, PathBuf)>,
+    /// Under `frus run --hot`: the page is given each patch (see [`PatchSlot`]).
+    pub hot: bool,
+}
+
+/// The latest hot-reload patch, as the engine sent it, and how many there were: what a page
+/// asks `/__frus/patch` for.
+#[derive(Clone, Default)]
+pub(crate) struct PatchSlot(Arc<Mutex<(u64, String)>>);
+
+impl PatchSlot {
+    /// A new patch, unless it is the latest again: the engine sends it to each client that
+    /// connects, in a message of its own. A patch is told by its module (`"lib"`).
+    pub(crate) fn push(&self, message: String) {
+        if let Ok(mut slot) = self.0.lock() {
+            if patch_module(&slot.1) != patch_module(&message) {
+                slot.0 += 1;
+                slot.1 = message;
+            }
+        }
+    }
+
+    /// `<number>\n<patch>` when there is one newer than `after`; nothing otherwise.
+    pub(crate) fn after(&self, after: u64) -> String {
+        match self.0.lock() {
+            Ok(slot) if slot.0 > after => format!("{}\n{}", slot.0, slot.1),
+            _ => String::new(),
+        }
+    }
+}
+
 /// Serves `dir` on `localhost`, on `port` if it is free, on another otherwise.
+pub(crate) fn start(dir: PathBuf, port: u16) -> Result<Server, String> {
+    start_site(
+        Site {
+            dir,
+            ..Site::default()
+        },
+        port,
+    )
+}
+
+/// Serves `site` on `localhost`, on `port` if it is free, on another otherwise.
 ///
 /// `localhost` and not `127.0.0.1`: WebGPU is only offered to secure contexts, and a browser
 /// counts `localhost` as one.
-pub(crate) fn start(dir: PathBuf, port: u16) -> Result<Server, String> {
+pub(crate) fn start_site(site: Site, port: u16) -> Result<Server, String> {
     let listener = TcpListener::bind(("127.0.0.1", port))
         .or_else(|_| TcpListener::bind(("127.0.0.1", 0)))
         .map_err(|e| format!("could not open a port to serve the application on: {e}"))?;
@@ -118,17 +191,20 @@ pub(crate) fn start(dir: PathBuf, port: u16) -> Result<Server, String> {
     let screenshot_to = Arc::new(Mutex::new(None));
     let (served, served_fresh, queued) = (build.clone(), fresh.clone(), commands.clone());
     let shots = screenshot_to.clone();
+    let patches = PatchSlot::default();
+    let patch_slot = patches.clone();
     std::thread::spawn(move || {
         for stream in listener.incoming().map_while(Result::ok) {
-            let dir = dir.clone();
+            let site = site.clone();
             let build = match served.load(Ordering::SeqCst) {
                 n if served_fresh.load(Ordering::SeqCst) => format!("{n} fresh"),
                 n => n.to_string(),
             };
             let queued = queued.clone();
             let shots = shots.clone();
+            let patch_slot = patch_slot.clone();
             std::thread::spawn(move || {
-                let _ = handle(stream, &dir, &build, &queued, &shots);
+                let _ = handle(stream, &site, &build, &queued, &shots, &patch_slot);
             });
         }
     });
@@ -138,16 +214,18 @@ pub(crate) fn start(dir: PathBuf, port: u16) -> Result<Server, String> {
         fresh,
         commands,
         screenshot_to,
+        patches,
     })
 }
 
 /// One request: a file, or a console message.
 fn handle(
     mut stream: TcpStream,
-    dir: &Path,
+    site: &Site,
     build: &str,
     commands: &Mutex<Vec<String>>,
     screenshot_to: &Mutex<Option<PathBuf>>,
+    patches: &PatchSlot,
 ) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
@@ -191,6 +269,15 @@ fn handle(
     if path == BUILD_PATH {
         return respond(&mut stream, "200 OK", "text/plain", build.as_bytes());
     }
+    if path == PATCH_PATH {
+        let after = query_value(query, "after").parse().unwrap_or(0);
+        return respond(
+            &mut stream,
+            "200 OK",
+            "text/plain",
+            patches.after(after).as_bytes(),
+        );
+    }
     if path == COMMANDS_PATH {
         let taken = commands
             .lock()
@@ -206,11 +293,19 @@ fn handle(
     if method != "GET" && method != "HEAD" {
         return respond(&mut stream, "405 Method Not Allowed", "text/plain", b"");
     }
-    match file_for(dir, path) {
+    match site_file(site, path) {
         Some(file) => match std::fs::read(&file) {
             Ok(mut bytes) => {
                 if file.file_name().is_some_and(|name| name == "index.html") {
-                    bytes = with_bridge(&String::from_utf8_lossy(&bytes)).into_bytes();
+                    let mut page = with_bridge(&String::from_utf8_lossy(&bytes));
+                    if site.hot {
+                        page = with_patches(&page);
+                    }
+                    bytes = page.into_bytes();
+                } else if site.hot && file.extension().is_some_and(|e| e == "js") {
+                    if let Some(glue) = loaded_once(&String::from_utf8_lossy(&bytes)) {
+                        bytes = glue.into_bytes();
+                    }
                 }
                 let body: &[u8] = if method == "HEAD" { b"" } else { &bytes };
                 respond(&mut stream, "200 OK", content_type(&file), body)
@@ -263,6 +358,21 @@ fn respond(stream: &mut TcpStream, status: &str, kind: &str, body: &[u8]) -> std
     stream.flush()
 }
 
+/// The file a request path names in `site`: under a mount's folder when it starts with the
+/// mount's prefix, under its `dir` otherwise.
+pub(crate) fn site_file(site: &Site, path: &str) -> Option<PathBuf> {
+    let trimmed = path.trim_start_matches('/');
+    for (prefix, folder) in &site.mounts {
+        if let Some(rest) = trimmed
+            .strip_prefix(prefix.as_str())
+            .and_then(|rest| rest.strip_prefix('/'))
+        {
+            return file_for(folder, rest).filter(|_| !rest.is_empty());
+        }
+    }
+    file_for(&site.dir, path)
+}
+
 /// The file a request path names under `dir`; `/` is `index.html`. Nothing outside `dir`.
 pub(crate) fn file_for(dir: &Path, path: &str) -> Option<PathBuf> {
     let path = path.trim_start_matches('/');
@@ -287,6 +397,43 @@ pub(crate) fn with_bridge(html: &str) -> String {
             format!("{}\n    {CONSOLE_BRIDGE}{}", &html[..at], &html[at..])
         }
         None => format!("{CONSOLE_BRIDGE}\n{html}"),
+    }
+}
+
+/// The hot-reload engine's module glue loads the module itself, as it is imported; the page
+/// then calls its `default()` to load it, which would start a second instance of the
+/// application beside the first (milestone 679). Rewritten so that `default()` waits for the
+/// load already started. `None` when the glue does not load itself.
+pub(crate) fn loaded_once(glue: &str) -> Option<String> {
+    const SELF_LOAD: &str = "__wbg_init({module_or_path:";
+    const EXPORT: &str = "export { initSync, __wbg_init as default };";
+    let at = glue.rfind(SELF_LOAD)?;
+    if !glue.contains(EXPORT) {
+        return None;
+    }
+    let glue = format!("{}const __frusLoaded = {}", &glue[..at], &glue[at..]);
+    Some(glue.replacen(
+        EXPORT,
+        "export { initSync };\nexport default () => __frusLoaded;",
+        1,
+    ))
+}
+
+/// The module a patch message names, without its leading `/` (`wasm\\lib-patch-1.wasm`).
+fn patch_module(message: &str) -> Option<&str> {
+    let at = message.find("\"lib\":\"")? + "\"lib\":\"".len();
+    let rest = &message[at..];
+    Some(rest[..rest.find('"')?].trim_start_matches('/'))
+}
+
+/// The page made to ask for each hot-reload patch, at the top of its `<head>`.
+pub(crate) fn with_patches(page: &str) -> String {
+    match page.find("<head>") {
+        Some(at) => {
+            let at = at + "<head>".len();
+            format!("{}\n    {PATCH_BRIDGE}{}", &page[..at], &page[at..])
+        }
+        None => format!("{PATCH_BRIDGE}\n{page}"),
     }
 }
 
@@ -355,6 +502,74 @@ mod tests {
         assert_eq!(file_for(&dir, "/../secret"), None);
         assert_eq!(file_for(&dir, "/pkg/../../secret"), None);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_hot_build_is_served_from_its_own_folder() {
+        let root = std::env::temp_dir().join(format!("frus-serve-hot-{}", std::process::id()));
+        let (web, built) = (root.join("web"), root.join("dx").join("wasm"));
+        std::fs::create_dir_all(&web).unwrap();
+        std::fs::create_dir_all(&built).unwrap();
+        std::fs::write(web.join("index.html"), "page").unwrap();
+        std::fs::write(built.join("app.js"), "glue").unwrap();
+        let site = Site {
+            dir: web.clone(),
+            mounts: vec![
+                ("pkg".into(), built.clone()),
+                ("wasm".into(), built.clone()),
+            ],
+            hot: true,
+        };
+        assert_eq!(site_file(&site, "/"), Some(web.join("index.html")));
+        assert_eq!(site_file(&site, "/pkg/app.js"), Some(built.join("app.js")));
+        assert_eq!(site_file(&site, "/wasm/app.js"), Some(built.join("app.js")));
+        assert_eq!(site_file(&site, "/pkg/../index.html"), None);
+        assert_eq!(site_file(&site, "/pkg/"), None);
+        let page = with_patches("<html><head><title>x</title>");
+        assert!(page.starts_with("<html><head>\n    <script>"), "{page}");
+        assert!(page.contains("/__frus/patch?after="), "{page}");
+        assert!(page.ends_with("</script><title>x</title>"), "{page}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_page_gets_the_latest_patch_once() {
+        let slot = PatchSlot::default();
+        assert_eq!(slot.after(0), "");
+        let one = r#"{"HotReload":{"ms_elapsed":4000,"jump_table":{"lib":"/wasm\\a.wasm"}}}"#;
+        // The engine sends the latest again to each client that connects: not a new patch.
+        let again = r#"{"HotReload":{"ms_elapsed":0,"jump_table":{"lib":"/wasm\\a.wasm"}}}"#;
+        let two = r#"{"HotReload":{"ms_elapsed":3000,"jump_table":{"lib":"/wasm\\b.wasm"}}}"#;
+        slot.push(one.into());
+        slot.push(again.into());
+        assert_eq!(slot.after(0), format!("1\n{one}"));
+        assert_eq!(slot.after(1), "");
+        slot.push(two.into());
+        // A page that has the first gets the second; a page that loads now, the latest.
+        assert_eq!(slot.after(1), format!("2\n{two}"));
+        assert_eq!(slot.after(0), format!("2\n{two}"));
+    }
+
+    #[test]
+    fn the_engine_glue_loads_the_module_once() {
+        let glue = "async function __wbg_init(module_or_path) {}\n\
+                    export { initSync, __wbg_init as default };\n\
+                    __wbg_init({module_or_path: \"/./wasm/app_bg.wasm\"}).then((wasm) => {});\n";
+        let served = loaded_once(glue).unwrap();
+        assert!(
+            served.contains("const __frusLoaded = __wbg_init({module_or_path:"),
+            "{served}"
+        );
+        assert!(
+            served.contains("export default () => __frusLoaded;"),
+            "{served}"
+        );
+        assert!(!served.contains("__wbg_init as default"), "{served}");
+        // wasm-bindgen's own glue, which loads nothing by itself, is served as it is.
+        assert_eq!(
+            loaded_once("export { initSync, __wbg_init as default };"),
+            None
+        );
     }
 
     #[test]

@@ -39,7 +39,7 @@ pub(crate) struct RunOptions {
     pub args: Vec<String>,
     /// `--machine`: JSON lines for an editor instead of text for a person (see `report`).
     pub machine: bool,
-    /// `--hot`: true hot reload, the code patched into the running application (desktop).
+    /// `--hot`: true hot reload, the code patched into the running application (desktop, web).
     pub hot: bool,
 }
 
@@ -185,10 +185,14 @@ fn run_session(options: &RunOptions) -> Result<ExitCode, String> {
             device.name
         ));
     }
-    if options.hot && device.kind != Kind::Host {
+    let hot_here = matches!(
+        device.kind,
+        Kind::Host | Kind::Browser { .. } | Kind::WebServer
+    );
+    if options.hot && !hot_here {
         return Err(format!(
-            "--hot patches the code of a running application on the desktop only, for now; on \
-             {} use `r`, which reloads with the state kept",
+            "--hot patches the code of a running application on the desktop and the web only, \
+             for now; on {} use `r`, which reloads with the state kept",
             device.name
         ));
     }
@@ -205,7 +209,9 @@ fn run_session(options: &RunOptions) -> Result<ExitCode, String> {
              exist (ROADMAP, issue #19). `frus run` will start iOS applications once it does.",
             device.name
         )),
+        Kind::Browser { exe } if options.hot => run_web_hot(&project, Some(exe), options),
         Kind::Browser { exe } => run_web(&project, Some(exe), options),
+        Kind::WebServer if options.hot => run_web_hot(&project, None, options),
         Kind::WebServer => run_web(&project, None, options),
     };
     result
@@ -435,23 +441,7 @@ pub(crate) fn is_error_line(line: &str) -> bool {
 fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> {
     let engine = crate::hot::engine()?;
     let shadow = crate::hot::shadow(project)?;
-    // The sources, copied into the shadow and kept in step while the run lasts.
-    let mut mirror = crate::hot::Mirror::new(project.root.join("src"), shadow.join("src"));
-    mirror
-        .sync()
-        .map_err(|e| format!("could not copy the sources: {e}"))?;
-    let mirror = std::sync::Arc::new(std::sync::Mutex::new(mirror));
-    {
-        let mirror = mirror.clone();
-        std::thread::spawn(move || loop {
-            std::thread::sleep(Duration::from_millis(250));
-            if let Ok(mut mirror) = mirror.lock() {
-                if let Err(error) = mirror.sync() {
-                    report::warn(&format!("could not copy a changed source: {error}"));
-                }
-            }
-        });
-    }
+    let mirror = mirror_sources(project, &shadow)?;
     let link = DevLink::open()?;
     // A build of its own: the program a patch replaces is linked with everything kept.
     let target = project.target_dir()?.join("frus-hot").join("target");
@@ -465,7 +455,7 @@ fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> 
                 crate::hot::platform_flag(),
                 "--hot-patch",
                 "--bin",
-                &project.package,
+                &project.lib,
                 "--features",
                 "frus/hot-reload",
                 "--interactive",
@@ -477,45 +467,8 @@ fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> 
             .current_dir(&shadow)
             .env("CARGO_TARGET_DIR", &target)
             // The application dx starts inherits it, and reports to this run as under `r`.
-            .env("FRUS_DEV", link.address())
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        // A process group of its own, so that stopping it stops the application it started.
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            command.process_group(0);
-        }
-        let mut dx = command
-            .spawn()
-            .map_err(|e| format!("could not start the hot-reload engine: {e}"))?;
-        for stream in [
-            dx.stdout
-                .take()
-                .map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
-            dx.stderr
-                .take()
-                .map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            let send = lines_in.clone();
-            // `FRUS_HOT_TRACE=1`: every line the engine prints, as it prints it, on standard error.
-            let trace = std::env::var_os("FRUS_HOT_TRACE").is_some();
-            std::thread::spawn(move || {
-                for line in BufReader::new(stream).lines().map_while(Result::ok) {
-                    if trace {
-                        eprintln!("[dx] {line}");
-                    }
-                    if send.send(crate::hot::dx_line(&line)).is_err() {
-                        break;
-                    }
-                }
-            });
-        }
-        Ok(dx)
+            .env("FRUS_DEV", link.address());
+        spawn_engine(&mut command, &lines_in)
     };
 
     report::say("Building for hot reload (the first build takes longer)…");
@@ -619,6 +572,78 @@ fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> 
     }
 }
 
+/// The application's sources, copied into the shadow package and kept in step while the run
+/// lasts (see `hot::Mirror`).
+fn mirror_sources(
+    project: &Project,
+    shadow: &Path,
+) -> Result<std::sync::Arc<std::sync::Mutex<crate::hot::Mirror>>, String> {
+    let mut mirror = crate::hot::Mirror::new(project.root.join("src"), shadow.join("src"));
+    mirror
+        .sync()
+        .map_err(|e| format!("could not copy the sources: {e}"))?;
+    let mirror = std::sync::Arc::new(std::sync::Mutex::new(mirror));
+    {
+        let mirror = mirror.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_millis(250));
+            if let Ok(mut mirror) = mirror.lock() {
+                if let Err(error) = mirror.sync() {
+                    report::warn(&format!("could not copy a changed source: {error}"));
+                }
+            }
+        });
+    }
+    Ok(mirror)
+}
+
+/// Starts the engine, each line it prints read into `lines`.
+fn spawn_engine(
+    command: &mut Command,
+    lines: &std::sync::mpsc::Sender<crate::hot::DxLine>,
+) -> Result<Child, String> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // A process group of its own, so that stopping it stops the application it started too
+    // (see `hot::stop`).
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut dx = command
+        .spawn()
+        .map_err(|e| format!("could not start the hot-reload engine: {e}"))?;
+    for stream in [
+        dx.stdout
+            .take()
+            .map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
+        dx.stderr
+            .take()
+            .map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let send = lines.clone();
+        // `FRUS_HOT_TRACE=1`: every line the engine prints, as it prints it, on standard error.
+        let trace = std::env::var_os("FRUS_HOT_TRACE").is_some();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stream).lines().map_while(Result::ok) {
+                if trace {
+                    eprintln!("[dx] {line}");
+                }
+                if send.send(crate::hot::dx_line(&line)).is_err() {
+                    break;
+                }
+            }
+        });
+    }
+    Ok(dx)
+}
+
 /// The application is up: after a restart, how long it took; the first time, the keys.
 fn on_launch(
     keys: &mut Option<Receiver<char>>,
@@ -646,7 +671,7 @@ fn locate_errors(project: &Project, shadow: &Path, target: &Path) {
             "check",
             "--message-format=short",
             "--bin",
-            &project.package,
+            &project.lib,
             "--features",
             "frus/hot-reload",
         ])
@@ -962,28 +987,7 @@ fn run_web(
     let site = cargo::build_web(project, options.mode)?;
     let server = serve::start(site, options.port)?;
     let url = server.url.clone();
-
-    // A profile of its own: the browser is a fresh instance this run owns and can close, not a
-    // tab in the developer's own windows.
-    let profile = std::env::temp_dir().join(format!("frus-run-{}", std::process::id()));
-    let mut browser_process = match browser {
-        Some(browser) => Some(
-            Command::new(browser)
-                .arg(format!("--user-data-dir={}", profile.display()))
-                .args([
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--new-window",
-                ])
-                .arg(&url)
-                // The browser's own diagnostics are not the application's log.
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .map_err(|e| format!("could not open {}: {e}", browser.display()))?,
-        ),
-        None => None,
-    };
+    let (mut browser_process, profile) = open_browser(browser, &url)?;
     let keys = attach(&match browser_process {
         Some(_) => {
             format!("{url} is open; its console shows here, and closing the browser ends the run")
@@ -1040,6 +1044,238 @@ fn run_web(
             None => {}
         }
     };
+    let _ = std::fs::remove_dir_all(&profile);
+    Ok(end)
+}
+
+/// The browser opened on `url`, with a profile of its own: a fresh instance this run owns and
+/// can close, not a tab in the developer's own windows. Without a browser (`web-server`),
+/// nothing is opened.
+fn open_browser(
+    browser: Option<&Path>,
+    url: &str,
+) -> Result<(Option<Child>, std::path::PathBuf), String> {
+    let profile = std::env::temp_dir().join(format!("frus-run-{}", std::process::id()));
+    let process = match browser {
+        Some(browser) => Some(
+            Command::new(browser)
+                .arg(format!("--user-data-dir={}", profile.display()))
+                .args([
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--new-window",
+                ])
+                .arg(url)
+                // The browser's own diagnostics are not the application's log.
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("could not open {}: {e}", browser.display()))?,
+        ),
+        None => None,
+    };
+    Ok((process, profile))
+}
+
+// --- Web, hot ---
+
+/// `frus run --hot -d web` (milestone 679): the engine builds the page's module and a patch for
+/// each saved change; this run's own server serves the page with the engine's build in it and
+/// hands each patch to the page, which links it into the running module, its state
+/// kept. A page that loads or reloads is given the latest patch as it starts.
+fn run_web_hot(
+    project: &Project,
+    browser: Option<&Path>,
+    options: &RunOptions,
+) -> Result<ExitCode, String> {
+    let web = project.web_dir();
+    if !web.join("index.html").is_file() {
+        return Err(format!(
+            "{} has no web/index.html: the page the application runs in (`frus create` writes one)",
+            project.package
+        ));
+    }
+    crate::setup::rust_target("wasm32-unknown-unknown")?;
+    let engine = crate::hot::engine()?;
+    let shadow = crate::hot::shadow(project)?;
+    let mirror = mirror_sources(project, &shadow)?;
+    let target = project.target_dir()?.join("frus-hot").join("target");
+    // The engine's own server: only its socket is used, by this run.
+    let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .and_then(|listener| listener.local_addr())
+        .map(|address| address.port())
+        .map_err(|e| format!("could not find a free port for the hot-reload engine: {e}"))?;
+    let (lines_in, lines) = std::sync::mpsc::channel::<crate::hot::DxLine>();
+    let port_text = port.to_string();
+    let start = || -> Result<Child, String> {
+        crate::hot::clear_dependency_archives(&target);
+        let mut command = Command::new(&engine);
+        command
+            .args([
+                "serve",
+                "--web",
+                "--hot-patch",
+                "--bin",
+                &project.lib,
+                "--features",
+                "frus/hot-reload",
+                "--interactive",
+                "false",
+                "--open",
+                "false",
+                "--port",
+                &port_text,
+            ])
+            .args(options.mode.eq(&Mode::Release).then_some("--release"))
+            .current_dir(&shadow)
+            .env("CARGO_TARGET_DIR", &target);
+        spawn_engine(&mut command, &lines_in)
+    };
+
+    report::say("Building for hot reload on the web (the first build takes longer)…");
+    let mut dx = start()?;
+    // The first build: the page is served once there is a module to serve.
+    loop {
+        if let Some(status) = dx.try_wait().map_err(|e| e.to_string())? {
+            return Err(format!("the hot-reload engine stopped ({status})"));
+        }
+        match lines.recv_timeout(Duration::from_millis(200)) {
+            Ok(crate::hot::DxLine::Launched) => break,
+            Ok(crate::hot::DxLine::Failed(why)) => {
+                report::warn(&format!("{why}: save a fix and it is built again"));
+                locate_errors(project, &shadow, &target);
+            }
+            _ => {}
+        }
+    }
+    let launched_at = std::time::SystemTime::now();
+    let Some(built) = crate::hot::web_build_dir(&target, &project.lib) else {
+        crate::hot::stop(&mut dx);
+        return Err(format!(
+            "the hot-reload engine built no {}.js under {}",
+            project.lib,
+            target.join("dx").display()
+        ));
+    };
+    let server = serve::start_site(
+        serve::Site {
+            dir: web,
+            // The page loads `pkg/<library>.js`; a patch is fetched from `/wasm/<patch>.wasm`.
+            mounts: vec![("pkg".into(), built.clone()), ("wasm".into(), built)],
+            hot: true,
+        },
+        options.port,
+    )?;
+    // The engine's socket, read by this run: each patch is kept for the pages, which ask for it
+    // (see `serve::PatchSlot`). The engine sends a patch to each client connected when it is
+    // made, and the latest one to a client that connects — but not reliably to every page that
+    // connects later, as a reloaded one does.
+    {
+        let patches = server.patches.clone();
+        let address = format!("ws://127.0.0.1:{port}/_dioxus?build_id=0");
+        std::thread::spawn(move || loop {
+            let _ = crate::socket::read_messages(&address, |message| {
+                if message.starts_with("{\"HotReload\"") && message.contains("\"jump_table\":{") {
+                    patches.push(message);
+                }
+            });
+            std::thread::sleep(Duration::from_secs(1));
+        });
+    }
+    let url = server.url.clone();
+    let (mut browser_process, profile) = open_browser(browser, &url)?;
+    let keys = attach(&match browser_process {
+        Some(_) => format!(
+            "{url} is open with hot reload: save a file and the change is patched into the page, \
+             its state kept; its console shows here"
+        ),
+        None => format!(
+            "{} is served at {url} with hot reload: open it in a browser with WebGPU; save a \
+             file and the change is patched into the page",
+            project.package
+        ),
+    });
+
+    let mut retouched = false;
+    let end = loop {
+        while let Ok(line) = lines.try_recv() {
+            use crate::hot::DxLine;
+            match line {
+                DxLine::Patched { file, millis } => {
+                    let seconds = millis as f64 / 1000.0;
+                    if report::is_machine() {
+                        report::event(
+                            "app.restarted",
+                            object([("fullRestart", false.into()), ("seconds", seconds.into())]),
+                        );
+                    } else {
+                        report::say(&format!("Patched {file} in {seconds:.1} s."));
+                    }
+                }
+                DxLine::Failed(why) => {
+                    report::warn(&why);
+                    locate_errors(project, &shadow, &target);
+                }
+                // A change no patch can carry was built in full: the page reloads onto it, its
+                // states kept.
+                DxLine::Launched => {
+                    server.rebuilt(false);
+                    report::say("Rebuilt in full: the page reloads, its state kept.");
+                }
+                DxLine::App(text, true) => report::warn(&text),
+                DxLine::App(..) | DxLine::Exited | DxLine::Noise => {}
+            }
+        }
+        // The engine watches the files a few seconds after it starts: edits made before are
+        // handed on again (see `Mirror::retouch_since`).
+        if !retouched && launched_at.elapsed().unwrap_or_default() > Duration::from_secs(8) {
+            retouched = true;
+            if let Ok(mirror) = mirror.lock() {
+                let _ = mirror.retouch_since(launched_at);
+            }
+        }
+        if let Some(status) = dx.try_wait().map_err(|e| e.to_string())? {
+            report::warn(&format!("the hot-reload engine stopped ({status})"));
+            break ExitCode::FAILURE;
+        }
+        if let Some(process) = browser_process.as_mut() {
+            if process.try_wait().map_err(|e| e.to_string())?.is_some() {
+                break ExitCode::SUCCESS;
+            }
+        }
+        match next_action(&keys, Duration::from_millis(100)) {
+            Some(Action::Quit) => {
+                if let Some(process) = browser_process.as_mut() {
+                    let _ = process.kill();
+                }
+                break ExitCode::SUCCESS;
+            }
+            Some(Action::Help) => report::say(KEYS),
+            Some(Action::Reload) => report::say(
+                "With --hot, saving a file patches it in: there is nothing to press. `R` starts \
+                 the application again, every state afresh.",
+            ),
+            // The page reloads afresh; the engine hands it the latest patch as it connects.
+            Some(Action::Restart) => {
+                server.rebuilt(true);
+                report::say("Restarting: the page reloads, every state afresh.");
+            }
+            Some(Action::Detach) => report::say(
+                "The page is served by frus run: it cannot go on without it. `q` ends both.",
+            ),
+            Some(Action::Clear) => clear_screen(),
+            Some(Action::Missing(why)) => report::say(why),
+            Some(Action::App(command)) => server.command(command),
+            Some(Action::Screenshot) => {
+                let path = screenshot_path(&project.root);
+                server.expect_screenshot(path.clone());
+                server.command("screenshot page");
+                report_screenshot(&path, Duration::from_secs(10));
+            }
+            None => {}
+        }
+    };
+    crate::hot::stop(&mut dx);
     let _ = std::fs::remove_dir_all(&profile);
     Ok(end)
 }

@@ -1,4 +1,5 @@
-//! `frus run --hot`: **true hot reload** on the desktop (milestone 670). The application keeps
+//! `frus run --hot`: **true hot reload** on the desktop (milestone 670) and the web (milestone
+//! 679). The application keeps
 //! running; each saved change is compiled into a patch and applied to it in place, with every
 //! state where it was.
 //!
@@ -148,7 +149,7 @@ pub(crate) fn shadow(project: &Project) -> Result<PathBuf, String> {
         .map_err(|e| format!("Cargo.toml: {e}"))?;
     write_if_changed(
         &dir.join("Cargo.toml"),
-        &shadow_manifest(&manifest, &project.root, &project.package),
+        &shadow_manifest(&manifest, &project.root, &project.lib),
     )?;
     if let Ok(lock) = std::fs::read(project.root.join("Cargo.lock")) {
         let _ = std::fs::write(dir.join("Cargo.lock"), lock);
@@ -277,10 +278,11 @@ fn write_if_changed(path: &Path, text: &str) -> Result<(), String> {
 fn link_dir(target: &Path, link: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
     {
+        // `cmd` reads `D:/a/src` as `D:` and an option `/src`: backslashes only.
         let status = Command::new("cmd")
             .args(["/C", "mklink", "/J"])
-            .arg(link)
-            .arg(target)
+            .arg(backslashed(link))
+            .arg(backslashed(target))
             .stdout(std::process::Stdio::null())
             .status()?;
         if status.success() {
@@ -295,9 +297,17 @@ fn link_dir(target: &Path, link: &Path) -> std::io::Result<()> {
     }
 }
 
+/// `path` with every `/` a `\`, for the Windows commands that take `/` for an option.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn backslashed(path: &Path) -> String {
+    path.display().to_string().replace('/', "\\")
+}
+
 /// The shadow package's manifest, from the application's: its `[lib]` and binaries replaced by one
 /// program built from `src/lib.rs`, and its relative paths made absolute from `root`.
-pub(crate) fn shadow_manifest(manifest: &str, root: &Path, package: &str) -> String {
+/// The program is named after the library (`my_app`, not `my-app`): on the web the engine names
+/// the page's module after it, and the page loads `pkg/<library>.js`.
+pub(crate) fn shadow_manifest(manifest: &str, root: &Path, bin: &str) -> String {
     let mut out = String::from(
         "# Written by `frus run --hot` (milestone 670) from the application's own manifest:\n\
          # its library compiled as the program a hot-reload patch replaces.\n",
@@ -320,7 +330,7 @@ pub(crate) fn shadow_manifest(manifest: &str, root: &Path, package: &str) -> Str
         out.push_str("\n[workspace]\n");
     }
     out.push_str(&format!(
-        "\n[[bin]]\nname = \"{package}\"\npath = \"src/lib.rs\"\n"
+        "\n[[bin]]\nname = \"{bin}\"\npath = \"src/lib.rs\"\n"
     ));
     out
 }
@@ -488,6 +498,33 @@ pub(crate) fn dx_line(line: &str) -> DxLine {
     DxLine::Noise
 }
 
+/// Where the engine wrote the page's module for the web: the folder of `<library>.js`, under
+/// `<target>/dx/<package>/<debug|release>/web/public/wasm`. The newest when there are several.
+pub(crate) fn web_build_dir(target: &Path, library: &str) -> Option<PathBuf> {
+    let glue = format!("{library}.js");
+    let mut found: Option<(std::time::SystemTime, PathBuf)> = None;
+    for package in std::fs::read_dir(target.join("dx"))
+        .ok()?
+        .filter_map(Result::ok)
+    {
+        for mode in ["debug", "release"] {
+            let dir = package
+                .path()
+                .join(mode)
+                .join("web")
+                .join("public")
+                .join("wasm");
+            let Ok(modified) = dir.join(&glue).metadata().and_then(|m| m.modified()) else {
+                continue;
+            };
+            if found.as_ref().is_none_or(|(newest, _)| modified > *newest) {
+                found = Some((modified, dir));
+            }
+        }
+    }
+    found.map(|(_, dir)| dir)
+}
+
 /// Stops `dx` and the application it started.
 pub(crate) fn stop(dx: &mut Child) {
     // Elsewhere `dx` leads a process group of its own (see `run_hot`): the group goes, the
@@ -526,6 +563,14 @@ pub(crate) fn platform_flag() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_link_is_made_with_backslashes() {
+        assert_eq!(
+            backslashed(Path::new(r"D:/src/app/target\frus-hot")),
+            r"D:\src\app\target\frus-hot"
+        );
+    }
 
     #[test]
     fn the_shadow_manifest_builds_the_library_as_the_program() {

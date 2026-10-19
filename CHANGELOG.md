@@ -13,6 +13,12 @@ any release may break.
 
 ## [Unreleased]
 
+- **`frus run --hot` on the web** (J679, #287): each saved change is patched into the running
+  page, which does not reload, with every state kept. The engine builds the page's module and
+  its patches; `frus run` serves the page as without `--hot`, and the page links each patch in.
+  A reloaded page gets the latest patch again as it starts. Also: `frus run --hot` no longer
+  stops at once when `CARGO_TARGET_DIR` is written with forward slashes on Windows.
+
 - **`frus test` and `frus analyze`** (J678, #290): `frus test` runs the tests and says them
   briefly, the counts then each failure at the place it panicked with its message (`-v` for
   cargo's own output); `frus analyze` lists clippy's lints at their places and the files rustfmt
