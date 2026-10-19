@@ -374,7 +374,7 @@ Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` a
 
   - `frus create` (and `frus create .`, which restores the files a project is missing),
     `frus doctor` (the toolchain part by part; `--fix` installs what is missing), `frus devices`,
-    `frus run -d <device>`, `frus build <apk|web|desktop>`, `frus emulators`, `frus clean`.
+    `frus run -d <device>`, `frus build <apk|web|desktop>`, `frus emulators`, `frus clean`, `frus test` and `frus analyze` (milestone 678).
   - **Under `frus run`**: the application's log in the terminal on every platform; `r` reloads
     with the state of every component that keeps one, `R` restarts afresh; the keys that look
     into the running application (widget, focus and semantics trees, inspector, debug paint,
@@ -397,7 +397,6 @@ Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` a
     but the code is not patched in place.
   - 🟡 `frus run --hot` run end to end on Linux and macOS (#288).
   - 🟡 Publishing the VS Code extension (#289).
-  - 🟢 `frus test` and `frus analyze` (#290).
 
 ---
 
