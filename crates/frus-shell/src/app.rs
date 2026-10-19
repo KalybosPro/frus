@@ -2902,7 +2902,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     let costs = self.debug.last_costs.as_ref().map(|(costs, _)| costs);
                     // Below the status bar, where the system draws its own.
                     let top = self.last_insets.padding.top * scale;
-                    paint_performance(&mut scene, costs, self.debug.fps, width * scale, top, scale);
+                    paint_performance(
+                        &mut scene,
+                        costs,
+                        &self.debug.history,
+                        self.debug.fps,
+                        width * scale,
+                        top,
+                        scale,
+                    );
                     scene
                 } else {
                     scene
@@ -3131,6 +3139,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                             self.request_redraw();
                         }
                         self.debug.last_costs = Some((self.frame_costs, start));
+                        self.debug.history.push(&self.frame_costs);
                     }
                 }
                 // The title bar's line, shared with the content when it asks (milestone 640).
@@ -3158,6 +3167,8 @@ struct DebugAsks {
     performance: bool,
     /// The last frame's costs and when it began, for the panel.
     last_costs: Option<(crate::frame_stats::FrameCosts, Instant)>,
+    /// The latest frames' costs, oldest first, for the panel's graphs (milestone 676).
+    history: FrameHistory,
     /// Frames per second, from the gap between the last two.
     fps: f32,
     /// Where to write the next frame as a PNG (`s`).
@@ -3246,9 +3257,11 @@ fn dump_semantics(nodes: &[(WidgetId, Rect, frus_widgets::SemanticsProperties)])
 
 /// The performance panel, in the top right corner of a `width`×`height` frame drawn at
 /// `scale`: the last frame's costs and the rate of frames.
+#[allow(clippy::too_many_arguments)]
 fn paint_performance(
     scene: &mut frus_widgets::Scene,
     costs: Option<&crate::frame_stats::FrameCosts>,
+    history: &FrameHistory,
     fps: f32,
     width: f32,
     top: f32,
@@ -3258,7 +3271,43 @@ fn paint_performance(
         Some(costs) => performance_lines(costs, fps),
         None => vec!["measuring…".to_string()],
     };
-    paint_panel(scene, lines, width, top, scale);
+    paint_panel(scene, lines, history, width, top, scale);
+}
+
+/// How many frames the graphs show.
+const HISTORY: usize = 90;
+/// A frame's budget at 60 Hz, in milliseconds: the line the bars are measured against.
+const BUDGET_MS: f32 = 1000.0 / 60.0;
+/// The height of a graph, in milliseconds: two budgets.
+const GRAPH_MS: f32 = BUDGET_MS * 2.0;
+
+/// The latest frames' costs for the performance panel: what the interface took (build, layout,
+/// paint) and what drawing took (encoding, submitting, waiting for the GPU and the display).
+#[derive(Default)]
+struct FrameHistory {
+    ui: std::collections::VecDeque<f32>,
+    render: std::collections::VecDeque<f32>,
+}
+
+impl FrameHistory {
+    fn push(&mut self, costs: &crate::frame_stats::FrameCosts) {
+        let ui = costs.build.unwrap_or(0.0) + costs.layout_paint;
+        for (list, value) in [(&mut self.ui, ui), (&mut self.render, costs.render)] {
+            if list.len() == HISTORY {
+                list.pop_front();
+            }
+            list.push_back(value);
+        }
+    }
+
+    /// The bars of one graph, `height` high: for each frame its height, and whether it was
+    /// over budget. A frame over the graph's top fills it.
+    fn bars(values: &std::collections::VecDeque<f32>, height: f32) -> Vec<(f32, bool)> {
+        values
+            .iter()
+            .map(|ms| ((ms / GRAPH_MS).min(1.0) * height, *ms > BUDGET_MS))
+            .collect()
+    }
 }
 
 /// A scene holding `scene` as one layer, for something to be painted over all of it: within a
@@ -3303,6 +3352,7 @@ fn performance_lines(costs: &crate::frame_stats::FrameCosts, fps: f32) -> Vec<St
 fn paint_panel(
     scene: &mut frus_widgets::Scene,
     lines: Vec<String>,
+    history: &FrameHistory,
     width: f32,
     top: f32,
     scale: f32,
@@ -3318,12 +3368,21 @@ fn paint_panel(
         .map(|line| line.chars().count())
         .max()
         .unwrap_or(0);
-    let text_w = longest as f32 * size * 0.6;
+    // Two graphs under the text, one bar a frame.
+    let bar_w = 2.0 * scale;
+    let graph_w = HISTORY as f32 * bar_w;
+    let graph_h = 36.0 * scale;
+    let graphs_h = if history.ui.is_empty() {
+        0.0
+    } else {
+        2.0 * (graph_h + line_h) + pad
+    };
+    let text_w = (longest as f32 * size * 0.6).max(graph_w);
     let panel = Rect::new(
         (width - text_w - pad * 3.0).max(0.0),
         top + pad,
         text_w + pad * 2.0,
-        line_h * lines.len() as f32 + pad * 2.0,
+        line_h * lines.len() as f32 + pad * 2.0 + graphs_h,
     );
     scene.set_clip(Rect::UNBOUNDED);
     scene.set_owner(0);
@@ -3335,6 +3394,7 @@ fn paint_panel(
         0.0,
         frus_widgets::Color::TRANSPARENT,
     );
+    let count = lines.len();
     for (i, line) in lines.into_iter().enumerate() {
         scene.text(
             frus_widgets::Point::new(panel.x + pad, panel.y + pad + line_h * i as f32),
@@ -3342,6 +3402,59 @@ fn paint_panel(
             &style,
             frus_widgets::Color::rgb(0.55, 1.0, 0.55),
         );
+    }
+    if history.ui.is_empty() {
+        return;
+    }
+    let mut y = panel.y + pad + line_h * count as f32 + pad;
+    for (title, values) in [
+        ("interface (build, layout, paint)", &history.ui),
+        ("drawing (encode, submit, present)", &history.render),
+    ] {
+        scene.text(
+            frus_widgets::Point::new(panel.x + pad, y),
+            title.to_string(),
+            &style,
+            frus_widgets::Color::rgb(0.75, 0.75, 0.75),
+        );
+        y += line_h;
+        let area = Rect::new(panel.x + pad, y, graph_w, graph_h);
+        scene.draw_rect(
+            area,
+            frus_widgets::Color::rgb(0.12, 0.12, 0.12),
+            0.0,
+            0.0,
+            frus_widgets::Color::TRANSPARENT,
+        );
+        // The bars, the newest on the right.
+        let bars = FrameHistory::bars(values, graph_h);
+        let start = area.x + area.width - bars.len() as f32 * bar_w;
+        for (i, (h, over)) in bars.into_iter().enumerate() {
+            if h <= 0.0 {
+                continue;
+            }
+            let color = if over {
+                frus_widgets::Color::rgb(1.0, 0.35, 0.3)
+            } else {
+                frus_widgets::Color::rgb(0.4, 0.85, 0.45)
+            };
+            scene.fill_rect(
+                Rect::new(
+                    start + i as f32 * bar_w,
+                    area.y + area.height - h,
+                    bar_w * 0.8,
+                    h,
+                ),
+                color,
+            );
+        }
+        // The budget: a frame drawn at 60 Hz stays under this line.
+        let budget_y = area.y + area.height * (1.0 - BUDGET_MS / GRAPH_MS);
+        scene.fill_rect(
+            Rect::new(area.x, budget_y, area.width, scale.max(1.0)),
+            frus_widgets::Color::rgb(0.95, 0.95, 0.95),
+        );
+        y += graph_h + pad / 2.0;
     }
 }
 
@@ -3416,6 +3529,7 @@ impl<A: Application> App<A> {
                 "performance" => {
                     self.debug.performance = !self.debug.performance;
                     self.debug.last_costs = None;
+                    self.debug.history = FrameHistory::default();
                     self.frame_stats.set_enabled(self.debug.performance);
                     // This frame began unmeasured: the next one is, and shows its figures.
                     self.request_redraw();
@@ -8576,6 +8690,35 @@ fn fetch_image_bytes(
 #[cfg(test)]
 mod debug_keys_tests {
     use super::*;
+
+    #[test]
+    fn the_graphs_keep_the_latest_frames_and_mark_the_late_ones() {
+        let mut history = FrameHistory::default();
+        for i in 0..100 {
+            history.push(&crate::frame_stats::FrameCosts {
+                build: Some(1.0),
+                layout_paint: i as f32,
+                render: 5.0,
+                ..Default::default()
+            });
+        }
+        assert_eq!(history.ui.len(), HISTORY, "the oldest frames go");
+        assert_eq!(
+            history.ui.back().copied(),
+            Some(100.0),
+            "the newest is last"
+        );
+        let bars = FrameHistory::bars(&history.render, 36.0);
+        assert!(bars.iter().all(|(_, over)| !over), "5 ms is within budget");
+        let ui = FrameHistory::bars(&history.ui, 36.0);
+        assert_eq!(
+            ui.last().copied(),
+            Some((36.0, true)),
+            "over the top fills the graph"
+        );
+        let half = FrameHistory::bars(&[BUDGET_MS].into_iter().collect(), 36.0);
+        assert!((half[0].0 - 18.0).abs() < 0.01 && !half[0].1, "{half:?}");
+    }
 
     #[test]
     fn the_platform_goes_round_as_the_reference_does() {
