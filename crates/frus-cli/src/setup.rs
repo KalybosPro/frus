@@ -442,12 +442,21 @@ fn sdkmanager(home: &Path, packages: &[String]) -> Result<(), String> {
         "Installing Android {} (sdkmanager; the NDK alone is about 1 GB)…",
         packages.join(", ")
     ));
-    let run = |args: &[String]| -> Result<(), String> {
-        let mut child = Command::new(&tool)
+    let run = |args: &[String], quiet: bool| -> Result<(), String> {
+        let mut command = Command::new(&tool);
+        command
             .arg(format!("--sdk_root={}", home.display()))
             .args(args)
             .env("JAVA_HOME", &java_home)
-            .stdin(Stdio::piped())
+            .stdin(Stdio::piped());
+        if quiet {
+            // The licences' full texts: pages nobody reads in a terminal.
+            command.stdout(Stdio::null());
+        } else if crate::report::is_machine() {
+            // An editor reads standard output as JSON: the progress goes to standard error.
+            command.stdout(std::io::stderr());
+        }
+        let mut child = command
             .spawn()
             .map_err(|e| format!("could not run sdkmanager: {e}"))?;
         if let Some(mut stdin) = child.stdin.take() {
@@ -462,8 +471,9 @@ fn sdkmanager(home: &Path, packages: &[String]) -> Result<(), String> {
             Err(format!("sdkmanager failed ({status})"))
         }
     };
-    run(&["--licenses".to_string()])?;
-    run(packages)
+    crate::report::say("Accepting the Android SDK's licences (sdkmanager --licenses)…");
+    run(&["--licenses".to_string()], true)?;
+    run(packages, false)
 }
 
 /// A `JAVA_HOME` for sdkmanager: the machine's, or a JDK fetched into `~/.frus/jdk`.
