@@ -260,9 +260,9 @@ Lisez [ARCHITECTURE.md](ARCHITECTURE.md) avant votre première modification non 
 
 **Manques connus** — les meilleurs points d'entrée pour aider :
 
-- Le hot reload — le code appliqué à l'application en cours d'exécution — sur Android et le web
-  (`r` y recharge, en gardant l'état).
-- Shells iOS et macOS natif.
+- Le hot reload — le code appliqué à l'application en cours d'exécution — sur Android
+  ([#286](https://github.com/KalybosPro/frus/issues/286)) et le web ([#287](https://github.com/KalybosPro/frus/issues/287)) ; `r` y recharge, en gardant l'état.
+- Shells iOS ([#19](https://github.com/KalybosPro/frus/issues/19)) et macOS natif ([#60](https://github.com/KalybosPro/frus/issues/60)).
 - Cas limites du rendu de texte, et couverture golden plus large.
 - Un site de documentation navigable, construit à partir des notes de conception.
 
@@ -276,7 +276,8 @@ c'est fini :
 
 | | |
 |---|---|
-| 🟢 Activer `missing_docs`, crate par crate | Commencer par les petites crates. **Une seule crate fait une PR entière.** |
+| 🟢 [`frus test` et `frus analyze`](https://github.com/KalybosPro/frus/issues/290) | Deux fines surcouches de cargo dans `crates/frus-cli` : aucune connaissance du framework nécessaire. |
+| 🟡 [Essayer `frus run --hot` sur Linux ou macOS](https://github.com/KalybosPro/frus/issues/288) | Le vrai hot reload n'a été lancé de bout en bout que sous Windows. Un compte rendu de ce qui marche est toute la contribution. |
 | 🟡 L'effet d'étirement en bout de défilement | Les Android récents étirent le contenu au lieu de le faire luire. Un effet par rendu vers texture, et le point de départ est écrit. |
 | 🔴 [Une couche iOS](https://github.com/KalybosPro/frus/labels/design%20first) | L'architecture parie que c'est un travail circonscrit. Personne n'a testé le pari. |
 

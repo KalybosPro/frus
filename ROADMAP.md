@@ -365,46 +365,39 @@ Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` a
 
 ### Developer experience
 
-- 🔴 **DevTools.** `inspector.rs` can already dump the widget tree. A live inspector — tree view, layout overlay, rebuild counts, frame timing — is a large but very high-leverage project.
+- 🔴 **DevTools.** Under `frus run`, the application already prints its widget, focus and semantics trees, draws the inspector and debug paint, and shows a performance panel with graphs (milestones 668, 676). A live inspector of its own — tree view, layout overlay, rebuild counts, a timeline — is a large but very high-leverage project, and the channel `frus run` speaks to the application is its natural transport.
 - 🟡 **Better error messages.** Layout and constraint failures should say what went wrong and what to change, not just produce a wrong-looking screen.
-- 🔴 **A `frus` command-line tool, and hot reload under it.** The architecture below is
-  recorded here **before any of it is written**, so that the shape is argued once rather
-  than discovered halfway through.
+- 🟢 **The `frus` command-line tool, and hot reload under it — done, milestones 653 and 661 to
+  677 (#59).** One command for the whole loop, a thin wrapper over the tools that already work
+  (cargo, cargo-apk, wasm-bindgen, `dx`), which installs whatever a step needs and the machine
+  lacks:
 
-  **What already exists.** `crates/frus-shell/src/reload.rs`: in a debug build, under
-  `FRUS_WATCH=1`, the shell watches the mtime of its own executable; when it changes, it
-  asks the application for its state (`Application::save_state`), relaunches, and hands the
-  bytes back (`restore_state`). That is a **full restart with state preserved**, and it is
-  the rung every other rung falls back to. It needs no stable ABI and no tooling of ours:
-  `FRUS_WATCH=1 cargo watch -x build` and the running app replaces itself.
+  - `frus create` (and `frus create .`, which restores the files a project is missing),
+    `frus doctor` (the toolchain part by part; `--fix` installs what is missing), `frus devices`,
+    `frus run -d <device>`, `frus build <apk|web|desktop>`, `frus emulators`, `frus clean`.
+  - **Under `frus run`**: the application's log in the terminal on every platform; `r` reloads
+    with the state of every component that keeps one, `R` restarts afresh; the keys that look
+    into the running application (widget, focus and semantics trees, inspector, debug paint,
+    platform and brightness, a performance panel with graphs, screenshots). The tool talks to
+    the application over a channel of its own on each platform — a loopback socket on the
+    desktop, the log and a file on Android, the page's script on the web.
+  - **True hot reload on the desktop**: `frus run --hot` patches each saved change into the
+    running application, its state kept (milestones 669, 670). The engine is subsecond, through
+    `dx`; frus's thread-locals are reached only through functions compiled once in frus, and a
+    shadow package builds the application's library as the program a patch replaces. The crash
+    that stopped it in milestone 663 was in the engine's Windows stubs, fixed upstream
+    (DioxusLabs/dioxus#5967) and in the engine frus installs until a release has it.
+  - **For editors**: `frus daemon` (devices, emulators, platforms, screenshots, messages) and
+    `frus run --machine`, both JSON lines; a VS Code extension in `editors/vscode` (device
+    picker, F5, the log in the Debug Console, reload on save, the keys as commands).
 
-  What is missing, in the order it should be built:
+  **Left**, each with its issue:
 
-  - 🟡 **A `frus` binary.** The framework has no command of its own; everything is
-    `cargo` plus environment variables that a newcomer has to be told about. `frus run`,
-    `frus dev`, `frus build`, `frus release`, `frus test`, `frus analyze`, `frus doctor` —
-    each a thin, honest wrapper that shells out to what already works, and `doctor`
-    checking the toolchain, the Android SDK/NDK, `adb`, and the wasm target.
-  - 🟡 **A source watcher.** The exe watch reacts only *after* a build someone else
-    started. Watching `src/**` and the asset directories, debounced, is what turns two
-    commands into one. It belongs in the tool, not in the shell.
-  - 🟡 **A `Compiler` abstraction, with `CargoCompiler` as its only implementation.**
-    `cargo build --message-format=json` gives structured diagnostics; parsing them is what
-    lets the tool report a build failure without a wall of text, and lets the dev loop know
-    whether to restart at all.
-  - 🔴 **A typed dev protocol.** A `DevCommand` / `DevEvent` channel between the tool
-    and the running application over a **loopback-only** socket, so the tool can ask for a
-    restart, a state dump, or a widget tree instead of only killing a process. This is also
-    DevTools' transport; it should be designed once, for both, or it will be designed twice.
-  - 🔴 **Hot reload proper, as three rungs.** Full restart (exists) → **hot restart**
-    (same process, fresh state, tree rebuilt from the root) → hot reload (code swapped,
-    state kept). The framework half of the third rung is small — the reference locks the
-    event queue, flushes its caches and rebuilds from the root (`binding.dart:701`) — and
-    the hard half is entirely the code swap, which **has no safe answer in Rust today**:
-    there is no stable dynamic ABI, so a `dylib` swap is sound only when both sides come
-    from the same compiler with the same flags in the same run. Debug-only, opt-in, and
-    never promised as a supported feature. **Hot restart is the honest next rung**, and it
-    is worth having on its own.
+  - 🔴 Hot reload on Android (#286) and on the web (#287): `r` reloads there with the state kept,
+    but the code is not patched in place.
+  - 🟡 `frus run --hot` run end to end on Linux and macOS (#288).
+  - 🟡 Publishing the VS Code extension (#289).
+  - 🟢 `frus test` and `frus analyze` (#290).
 
 ---
 
@@ -425,7 +418,7 @@ The original brief aims at a full framework, not just a UI toolkit. These are re
 Stated so nobody spends a weekend on them:
 
 - **A DSL or markup language.** Rust with builder methods and the `column!`/`row!` macros is the API. No `.frus` files, no macro that reinvents syntax.
-- **A CLI that wraps cargo.** `frus create` starts a project (milestone 653) and steps aside; after it, `cargo`, `cargo apk` and `wasm-bindgen` are the tools. No `frus run`, no `frus build`, no `frus doctor`.
+- **A CLI that replaces cargo.** `frus` wraps the tools that already work — cargo, cargo-apk, wasm-bindgen, `dx` — and never stands in for them: everything it does, they still do by hand, and a frus application is an ordinary cargo package.
 - **A software rasterizer.** `wgpu` covers every target we care about.
 - **Framework logic in another language.** Non-Rust code is limited to thin platform adapters with no logic of their own.
 - **Cloning another framework's API surface verbatim.** We port what works and fix what doesn't. "Framework X does it this way" is a starting point in a discussion, not an argument that ends one.

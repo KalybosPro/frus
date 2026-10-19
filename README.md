@@ -258,9 +258,9 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 
 **Known gaps** — these are the best places to help:
 
-- Hot reload — the code patched into the running application — on Android and the web
-  (`r` reloads there, with the state kept).
-- iOS and native macOS shells.
+- Hot reload — the code patched into the running application — on Android ([#286](https://github.com/KalybosPro/frus/issues/286))
+  and the web ([#287](https://github.com/KalybosPro/frus/issues/287)); `r` reloads there, with the state kept.
+- iOS ([#19](https://github.com/KalybosPro/frus/issues/19)) and native macOS ([#60](https://github.com/KalybosPro/frus/issues/60)) shells.
 - Text rendering edge cases, and broader golden coverage.
 - A searchable documentation site built from the design notes.
 
@@ -273,7 +273,8 @@ real, open, and written up with where to look and how to know you are done:
 
 | | |
 |---|---|
-| 🟢 Turn on `missing_docs`, crate by crate | Start with the small crates. **One crate is a whole PR.** |
+| 🟢 [`frus test` and `frus analyze`](https://github.com/KalybosPro/frus/issues/290) | Two thin wrappers over cargo in `crates/frus-cli`: no framework knowledge needed. |
+| 🟡 [Try `frus run --hot` on Linux or macOS](https://github.com/KalybosPro/frus/issues/288) | True hot reload has only been run end to end on Windows. A report of what works is the whole contribution. |
 | 🟡 The overscroll stretch effect | Current Android stretches the content instead of glowing. A render-target effect, and where to start reading is written down. |
 | 🔴 [An iOS shell](https://github.com/KalybosPro/frus/labels/design%20first) | The architecture bets this is a contained job. Nobody has tested the bet. |
 
