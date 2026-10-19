@@ -9,12 +9,15 @@
 //!   installed once into `~/.frus/tools` until a release has the fix.
 //! - **A shadow package** in `target/frus-hot/`: a patch replaces the program's own crate, and a
 //!   frus application keeps its code in its library. The shadow is a package whose program *is*
-//!   `src/lib.rs`, with links to the application's folders, so that `dx` watches the
-//!   application's sources as its own. The application's manifest is never touched.
+//!   `src/lib.rs`. Its `src` is a copy of the application's, kept in step while the run lasts
+//!   ([`Mirror`]): `dx` watches it as its own, which it does not do through a link. The other
+//!   folders are linked. The application's manifest is never touched.
 //! - **The `hot-reload` feature** of frus (milestone 669), turned on for that build only.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
+use std::time::SystemTime;
 
 use crate::project::Project;
 
@@ -49,7 +52,10 @@ pub(crate) fn engine() -> Result<PathBuf, String> {
             ])
             .arg("--root")
             .arg(&root)
-            .arg("dioxus-cli"),
+            .arg("dioxus-cli")
+            // Through the `git` program: the repository is large, and cargo's own client gives
+            // up on a connection that drops for a moment.
+            .env("CARGO_NET_GIT_FETCH_WITH_CLI", "true"),
     )?;
     if exe.is_file() {
         Ok(exe)
@@ -82,6 +88,18 @@ pub(crate) fn shadow(project: &Project) -> Result<PathBuf, String> {
             continue;
         }
         let link = dir.join(&name);
+        // The sources are copied, not linked (see `Mirror`). A link left by an earlier version
+        // is taken away — the link alone, never what it points to.
+        if name == "src" {
+            if link
+                .symlink_metadata()
+                .is_ok_and(|meta| meta.file_type().is_symlink() || is_junction(&link))
+            {
+                std::fs::remove_dir(&link)
+                    .map_err(|e| format!("could not unlink {}: {e}", link.display()))?;
+            }
+            continue;
+        }
         if link.exists() || link.symlink_metadata().is_ok() {
             continue;
         }
@@ -104,6 +122,95 @@ pub(crate) fn shadow(project: &Project) -> Result<PathBuf, String> {
         let _ = std::fs::write(dir.join("Cargo.lock"), lock);
     }
     Ok(dir)
+}
+
+/// Whether `path` is a directory junction (Windows): a link `is_symlink` does not always report.
+fn is_junction(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        path.symlink_metadata()
+            .is_ok_and(|meta| meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+/// The application's sources, copied into the shadow package and kept in step: each file whose
+/// size or time changed is copied again, each one gone is removed. `dx` sees the copy change as
+/// the developer saves, and patches.
+pub(crate) struct Mirror {
+    from: PathBuf,
+    to: PathBuf,
+    /// What each source file was when it was last copied.
+    copied: HashMap<PathBuf, (u64, Option<SystemTime>)>,
+}
+
+impl Mirror {
+    pub(crate) fn new(from: PathBuf, to: PathBuf) -> Self {
+        Self {
+            from,
+            to,
+            copied: HashMap::new(),
+        }
+    }
+
+    /// Brings the copy in step. Returns how many files it changed.
+    pub(crate) fn sync(&mut self) -> std::io::Result<usize> {
+        let mut found = HashMap::new();
+        list(&self.from, Path::new(""), &mut found)?;
+        let mut changed = 0;
+        for (relative, stamp) in &found {
+            if self.copied.get(relative) == Some(stamp) {
+                continue;
+            }
+            let source = self.from.join(relative);
+            let copy = self.to.join(relative);
+            // The first time, a copy with the same bytes is kept: no change for `dx` to see.
+            let same = std::fs::read(&copy).ok() == Some(std::fs::read(&source)?);
+            if !same {
+                if let Some(parent) = copy.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(&source, &copy)?;
+                changed += 1;
+            }
+        }
+        // Files the copy has and the sources no longer do.
+        let mut held = HashMap::new();
+        if self.to.is_dir() {
+            list(&self.to, Path::new(""), &mut held)?;
+        }
+        for relative in held.keys().filter(|r| !found.contains_key(*r)) {
+            std::fs::remove_file(self.to.join(relative))?;
+            changed += 1;
+        }
+        self.copied = found;
+        Ok(changed)
+    }
+}
+
+/// Every file under `dir`, by its path relative to the starting directory, with its size and
+/// time.
+fn list(
+    dir: &Path,
+    relative: &Path,
+    out: &mut HashMap<PathBuf, (u64, Option<SystemTime>)>,
+) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir.join(relative))?.filter_map(Result::ok) {
+        let path = relative.join(entry.file_name());
+        let meta = entry.metadata()?;
+        if meta.is_dir() {
+            list(dir, &path, out)?;
+        } else {
+            out.insert(path, (meta.len(), meta.modified().ok()));
+        }
+    }
+    Ok(())
 }
 
 fn write_if_changed(path: &Path, text: &str) -> Result<(), String> {
@@ -202,6 +309,29 @@ fn absolute_paths(line: &str, root: &Path) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// Removes the archives `dx` links the program's dependencies into (`libdeps-*.a`), wherever
+/// they are under `target`. One being written when `dx` was stopped is left half-written, and the
+/// next build fails on it ("unknown file type"); `dx` writes it again in seconds.
+pub(crate) fn clear_dependency_archives(target: &Path) {
+    fn walk(dir: &Path, depth: u32) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if path.is_dir() {
+                if depth < 3 {
+                    walk(&path, depth + 1);
+                }
+            } else if name.starts_with("libdeps-") && name.ends_with(".a") {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+    walk(target, 0);
 }
 
 /// What one line of `dx`'s output says.
@@ -356,6 +486,52 @@ resources = "res"
         assert!(out.contains("serde = \"1\""), "{out}");
         assert!(out.contains("resources = \"res\""), "{out}");
         assert_eq!(out.matches("[workspace]").count(), 1, "{out}");
+    }
+
+    #[test]
+    fn the_mirror_follows_the_sources() {
+        let base = std::env::temp_dir().join(format!("frus-hot-mirror-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (from, to) = (base.join("src"), base.join("copy"));
+        std::fs::create_dir_all(from.join("features")).unwrap();
+        std::fs::write(from.join("lib.rs"), "mod features;").unwrap();
+        std::fs::write(from.join("features").join("a.rs"), "// a").unwrap();
+        let mut mirror = Mirror::new(from.clone(), to.clone());
+        assert_eq!(mirror.sync().unwrap(), 2);
+        assert_eq!(mirror.sync().unwrap(), 0, "nothing changed");
+        assert_eq!(
+            std::fs::read_to_string(to.join("features").join("a.rs")).unwrap(),
+            "// a"
+        );
+
+        std::fs::write(from.join("features").join("a.rs"), "// a, changed").unwrap();
+        std::fs::write(from.join("features").join("b.rs"), "// b").unwrap();
+        std::fs::remove_file(from.join("lib.rs")).unwrap();
+        assert_eq!(mirror.sync().unwrap(), 3);
+        assert_eq!(
+            std::fs::read_to_string(to.join("features").join("a.rs")).unwrap(),
+            "// a, changed"
+        );
+        assert!(to.join("features").join("b.rs").is_file());
+        assert!(!to.join("lib.rs").exists());
+
+        // A fresh run over a copy already in step changes nothing.
+        let mut again = Mirror::new(from, to);
+        assert_eq!(again.sync().unwrap(), 0);
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn half_written_archives_are_cleared() {
+        let target = std::env::temp_dir().join(format!("frus-hot-archives-{}", std::process::id()));
+        let dev = target.join("x86_64-pc-windows-msvc").join("desktop-dev");
+        std::fs::create_dir_all(&dev).unwrap();
+        std::fs::write(dev.join("libdeps-064f36d8.a"), b"half").unwrap();
+        std::fs::write(dev.join("counter.exe"), b"keep").unwrap();
+        clear_dependency_archives(&target);
+        assert!(!dev.join("libdeps-064f36d8.a").exists());
+        assert!(dev.join("counter.exe").exists());
+        std::fs::remove_dir_all(&target).unwrap();
     }
 
     #[test]

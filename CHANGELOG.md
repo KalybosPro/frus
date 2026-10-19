@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 669 so far, each documenting the objective, the alternatives
+> record — one per step, 670 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`frus run --hot`** (J670): true hot reload on the desktop. Each saved change is patched into
+  the running application in a few seconds, every state kept. frus installs the patching engine
+  itself the first time (`dx` 0.7.10 with the fix of DioxusLabs/dioxus#5966, into
+  `~/.frus/tools`), and builds the application's library as the program a patch replaces in a
+  shadow package under `target/frus-hot/`, without touching its manifest. The keys work as in a
+  normal run; VS Code takes `"hot": true` in a launch configuration.
 
 - **frus can be hot-patched** (J669): the code of a running application replaced in place, its
   state kept. Behind the `hot-reload` feature, each component's `build` is looked up in the

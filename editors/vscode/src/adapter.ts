@@ -21,6 +21,8 @@ export interface LaunchArguments {
   cwd: string;
   deviceId?: string;
   release?: boolean;
+  /** True hot reload (desktop): each saved change patched into the running application. */
+  hot?: boolean;
   args?: string[];
   /** The `frus` program. */
   frus: string;
@@ -123,6 +125,7 @@ export class FrusDebugAdapter {
     const command = ["run", "--machine"];
     if (args.deviceId) command.push("-d", args.deviceId);
     if (args.release) command.push("--release");
+    if (args.hot) command.push("--hot");
     if (args.args?.length) command.push("--", ...args.args);
     this.output(`frus ${command.join(" ")}\n`, "console");
     const run = this.spawner(args.frus, command, args.cwd);

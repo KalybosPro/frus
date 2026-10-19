@@ -435,11 +435,29 @@ pub(crate) fn is_error_line(line: &str) -> bool {
 fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> {
     let engine = crate::hot::engine()?;
     let shadow = crate::hot::shadow(project)?;
+    // The sources, copied into the shadow and kept in step while the run lasts.
+    let mut mirror = crate::hot::Mirror::new(project.root.join("src"), shadow.join("src"));
+    mirror
+        .sync()
+        .map_err(|e| format!("could not copy the sources: {e}"))?;
+    let mirror = std::sync::Arc::new(std::sync::Mutex::new(mirror));
+    {
+        let mirror = mirror.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_millis(250));
+            if let Ok(mut mirror) = mirror.lock() {
+                if let Err(error) = mirror.sync() {
+                    report::warn(&format!("could not copy a changed source: {error}"));
+                }
+            }
+        });
+    }
     let link = DevLink::open()?;
     // A build of its own: the program a patch replaces is linked with everything kept.
     let target = project.target_dir()?.join("frus-hot").join("target");
     let (lines_in, lines) = std::sync::mpsc::channel::<crate::hot::DxLine>();
     let start = |link: &DevLink| -> Result<Child, String> {
+        crate::hot::clear_dependency_archives(&target);
         let mut command = Command::new(&engine);
         command
             .args([
