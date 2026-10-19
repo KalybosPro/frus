@@ -61,6 +61,9 @@ once, into `~/.frus/tools`) and builds the application for patching (into `targe
 without changing its manifest). A patch cannot change the shape of a state that is alive (a
 field added): `R` for that.
 
+On Linux, building the engine needs OpenSSL's headers (`sudo apt install pkg-config
+libssl-dev`); `frus doctor` says whether they are there.
+
 A change that does not compile is said with its place in your own files
 (`src/x.rs:40:34: error[E0425]: …`), and the application goes on running the code it had.
 `FRUS_HOT_TRACE=1` shows every line the engine prints, for when something looks wrong.

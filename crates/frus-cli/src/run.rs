@@ -481,6 +481,12 @@ fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> 
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // A process group of its own, so that stopping it stops the application it started.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
         let mut dx = command
             .spawn()
             .map_err(|e| format!("could not start the hot-reload engine: {e}"))?;

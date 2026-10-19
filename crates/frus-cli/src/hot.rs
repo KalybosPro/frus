@@ -26,6 +26,25 @@ use crate::project::Project;
 const ENGINE_REPO: &str = "https://github.com/KalybosPro/dioxus";
 const ENGINE_REV: &str = "7d966a3053ba4eec8c6366718227a4d953670e97";
 
+/// What building the engine needs and this machine lacks, as what to do about it: on Linux it
+/// links OpenSSL, whose headers a package manager installs, which frus cannot do without the
+/// administrator's password.
+pub(crate) fn missing_build_requirement() -> Option<String> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    let found = Command::new("pkg-config")
+        .args(["--exists", "openssl"])
+        .status()
+        .is_ok_and(|s| s.success());
+    (!found).then(|| {
+        "building the hot-reload engine needs OpenSSL's headers and pkg-config: \
+         `sudo apt install pkg-config libssl-dev` (Fedora: `sudo dnf install pkgconf \
+         openssl-devel`), then run again"
+            .to_string()
+    })
+}
+
 /// Where the patch engine is installed: `~/.frus/tools/dx-<commit>/`.
 fn engine_root() -> PathBuf {
     crate::setup::frus_home()
@@ -46,6 +65,9 @@ pub(crate) fn engine() -> Result<PathBuf, String> {
     let exe = engine_path();
     if exe.is_file() {
         return Ok(exe);
+    }
+    if let Some(missing) = missing_build_requirement() {
+        return Err(missing);
     }
     crate::report::say(
         "Installing the hot-reload engine (dx 0.7.10 with a fix; cargo install, a few minutes, once)…",
@@ -468,6 +490,16 @@ pub(crate) fn dx_line(line: &str) -> DxLine {
 
 /// Stops `dx` and the application it started.
 pub(crate) fn stop(dx: &mut Child) {
+    // Elsewhere `dx` leads a process group of its own (see `run_hot`): the group goes, the
+    // application with it.
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .args(["-TERM", &format!("-{}", dx.id())])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
     #[cfg(windows)]
     {
         let _ = Command::new("taskkill")
