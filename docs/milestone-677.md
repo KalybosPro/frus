@@ -30,6 +30,20 @@ milestone runs it on Linux (in WSL, with its own display) and looks at what diff
   listed the missing headers with the command; `frus run --hot` stopped with the same line.
   frus-cli's tests and clippy, on Linux and on Windows.
 
+## Also: an emulator made from nothing
+
+`frus emulators --create` was tried on an SDK folder made empty for it (`FRUS_ANDROID_SDK`, and
+a scratch `ANDROID_AVD_HOME`): it installed the command-line tools, accepted the licences, got
+the emulator and an Android 35 system image (about 2 GB), and made the emulator. Two things
+showed:
+
+- accepting the licences printed each licence's whole text: they are accepted quietly now, said
+  in one line;
+- in the daemon or `--machine`, `sdkmanager` wrote its progress to standard output, which an
+  editor reads as JSON — `emulator.create` could break the stream. It goes to standard error
+  there, as cargo's output does. Checked: the daemon's standard output stayed JSON only, with a
+  `daemon.logMessage` for each step, while it installed platform-tools and made an emulator.
+
 ## Left
 
 - **The full hot reload on Linux was not run**: it needs the headers installed, which takes the
