@@ -13,6 +13,12 @@ any release may break.
 
 ## [Unreleased]
 
+- **`frus run --hot` on the web** (J679, #287): each saved change is patched into the running
+  page, which does not reload, with every state kept. The engine builds the page's module and
+  its patches; `frus run` serves the page as without `--hot`, and the page links each patch in.
+  A reloaded page gets the latest patch again as it starts. Also: `frus run --hot` no longer
+  stops at once when `CARGO_TARGET_DIR` is written with forward slashes on Windows.
+
 - **`frus run --hot` on Linux and macOS** (J677): `q` and `R` stop the application with the engine
   (it led a process group of its own; only the engine was stopped). On Linux, building the engine
   needs OpenSSL's headers: `frus run --hot` and `frus doctor` say so, with the command that

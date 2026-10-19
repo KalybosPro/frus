@@ -32,7 +32,57 @@ pub(crate) fn connect() {
             }
         }
     }));
+    #[cfg(not(target_arch = "wasm32"))]
     dioxus_devtools::connect_subsecond();
+    #[cfg(target_arch = "wasm32")]
+    connect_page();
+}
+
+/// On the web, `frus run --hot` hands each patch to the page (milestone 679), which calls
+/// `window.__frusPatch` with it: defined here. Each patch is a module the page fetches, compiles
+/// and links into the running one.
+#[cfg(target_arch = "wasm32")]
+fn connect_page() {
+    use wasm_bindgen::closure::Closure;
+
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let apply = Closure::<dyn FnMut(String)>::new(apply_message);
+    let _ = js_sys::Reflect::set(&window, &"__frusPatch".into(), apply.as_ref());
+    apply.forget();
+}
+
+/// One message of the engine's, as `frus run` passed it on: a patch is applied, anything else
+/// left alone.
+#[cfg(target_arch = "wasm32")]
+fn apply_message(text: String) {
+    use dioxus_devtools::DevserverMsg;
+
+    // The messages borrow `&'static str`s from the text they are read from.
+    let text: &'static str = Box::leak(text.into_boxed_str());
+    let Ok(DevserverMsg::HotReload(message)) = serde_json::from_str::<DevserverMsg>(text) else {
+        return;
+    };
+    // The page's build is the engine's first (a wasm module has no build id of its own).
+    if message.for_build_id.is_some_and(|id| id != 0) {
+        return;
+    }
+    if let Some(table) = message.jump_table {
+        // A patch already linked into this page is not linked again.
+        static APPLIED: Mutex<Vec<std::path::PathBuf>> = Mutex::new(Vec::new());
+        if let Ok(mut applied) = APPLIED.lock() {
+            if applied.contains(&table.lib) {
+                return;
+            }
+            applied.push(table.lib.clone());
+        }
+        // SAFETY: the table was built by the engine for this very module, which it linked;
+        // applying it is what the engine's own web client does.
+        if let Err(error) = unsafe { dioxus_devtools::subsecond::apply_patch(table) } {
+            log::warn!("hot reload: the patch could not be applied: {error:?}");
+        }
+    }
 }
 
 /// The window a patch wakes.

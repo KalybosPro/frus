@@ -1904,6 +1904,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 if let Some(states) = crate::web_dev::start() {
                     self.runtime.states.restore_from(&states);
                 }
+                #[cfg(feature = "hot-reload")]
+                {
+                    crate::hot::set_window(window.clone());
+                    crate::hot::connect();
+                }
             }
             let slot = self.pending_renderer.clone();
             let win = window.clone();
@@ -1975,7 +1980,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         self.open_launch_link();
                         #[cfg(any(android, desktop))]
                         self.connect_dev();
-                        #[cfg(all(feature = "hot-reload", any(android, desktop)))]
+                        #[cfg(feature = "hot-reload")]
                         {
                             crate::hot::set_window(window.clone());
                             crate::hot::connect();
@@ -2563,7 +2568,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // Work a component started brought something: build again to show it.
                 let arrived = self.take_task_arrivals();
                 // A hot-reload patch changed what the components build.
-                #[cfg(all(feature = "hot-reload", any(android, desktop)))]
+                #[cfg(feature = "hot-reload")]
                 let arrived = crate::hot::take_patched() || arrived;
                 if frus_widgets::take_rebuild_request() || arrived {
                     self.build_dirty = true;

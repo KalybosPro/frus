@@ -21,7 +21,7 @@ export interface LaunchArguments {
   cwd: string;
   deviceId?: string;
   release?: boolean;
-  /** True hot reload (desktop): each saved change patched into the running application. */
+  /** True hot reload (desktop, web): each saved change patched into the running application. */
   hot?: boolean;
   args?: string[];
   /** The `frus` program. */

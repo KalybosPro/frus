@@ -26,7 +26,7 @@ categories = ["gui", "wasm"]
 testing = []
 # Hot reload under `frus run`: connects to the patch server it starts, applies each patch, and
 # rebuilds the interface. Development only; `frus run` turns it on.
-hot-reload = ["dep:dioxus-devtools", "frus-widgets/hot-reload"]
+hot-reload = ["dep:dioxus-devtools", "dep:serde_json", "frus-widgets/hot-reload"]
 net = ["dep:ureq"]
 json = ["net", "dep:serde", "dep:serde_json"]
 default = ["frus-gpu/default", "frus-widgets/default"]

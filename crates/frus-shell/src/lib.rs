@@ -61,7 +61,7 @@ mod reload;
 #[cfg(web)]
 mod web_dev;
 // Hot reload: patches applied while the application runs (the `hot-reload` feature).
-#[cfg(all(feature = "hot-reload", any(desktop, android)))]
+#[cfg(feature = "hot-reload")]
 mod hot;
 // The channel `frus run` restarts an application through.
 #[cfg(any(desktop, android))]
@@ -142,13 +142,22 @@ macro_rules! __hot_main {
     };
 }
 
+/// On the web, the program a patch replaces is a binary too, which must have a `main`; the
+/// application still starts from its `#[wasm_bindgen(start)]` function.
+#[doc(hidden)]
+#[macro_export]
+#[cfg(all(feature = "hot-reload", target_arch = "wasm32"))]
+macro_rules! __hot_main {
+    () => {
+        #[allow(dead_code)]
+        fn main() {}
+    };
+}
+
 /// Without the `hot-reload` feature, nothing.
 #[doc(hidden)]
 #[macro_export]
-#[cfg(not(all(
-    feature = "hot-reload",
-    not(any(target_os = "android", target_arch = "wasm32"))
-)))]
+#[cfg(not(all(feature = "hot-reload", not(target_os = "android"))))]
 macro_rules! __hot_main {
     () => {};
 }

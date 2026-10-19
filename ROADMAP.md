@@ -368,7 +368,7 @@ Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` a
 - 🔴 **DevTools.** Under `frus run`, the application already prints its widget, focus and semantics trees, draws the inspector and debug paint, and shows a performance panel with graphs (milestones 668, 676). A live inspector of its own — tree view, layout overlay, rebuild counts, a timeline — is a large but very high-leverage project, and the channel `frus run` speaks to the application is its natural transport.
 - 🟡 **Better error messages.** Layout and constraint failures should say what went wrong and what to change, not just produce a wrong-looking screen.
 - 🟢 **The `frus` command-line tool, and hot reload under it — done, milestones 653 and 661 to
-  677 (#59).** One command for the whole loop, a thin wrapper over the tools that already work
+  679 (#59).** One command for the whole loop, a thin wrapper over the tools that already work
   (cargo, cargo-apk, wasm-bindgen, `dx`), which installs whatever a step needs and the machine
   lacks:
 
@@ -387,14 +387,16 @@ Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` a
     shadow package builds the application's library as the program a patch replaces. The crash
     that stopped it in milestone 663 was in the engine's Windows stubs, fixed upstream
     (DioxusLabs/dioxus#5967) and in the engine frus installs until a release has it.
+  - **True hot reload on the web** (milestone 679, #287): `frus run --hot -d web` serves the
+    page with the engine's build in it, and the page links each patch into the running module.
   - **For editors**: `frus daemon` (devices, emulators, platforms, screenshots, messages) and
     `frus run --machine`, both JSON lines; a VS Code extension in `editors/vscode` (device
     picker, F5, the log in the Debug Console, reload on save, the keys as commands).
 
   **Left**, each with its issue:
 
-  - 🔴 Hot reload on Android (#286) and on the web (#287): `r` reloads there with the state kept,
-    but the code is not patched in place.
+  - 🔴 Hot reload on Android (#286): `r` reloads there with the state kept, but the code is not
+    patched in place.
   - 🟡 `frus run --hot` run end to end on Linux and macOS (#288).
   - 🟡 Publishing the VS Code extension (#289).
   - 🟢 `frus test` and `frus analyze` (#290).
