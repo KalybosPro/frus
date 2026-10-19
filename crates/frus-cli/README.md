@@ -94,7 +94,7 @@ While it runs, keys drive it:
 | `p` | **debug paint**: outlines around every widget |
 | `o` | **switch the platform** the widgets behave as: Android, iOS, Windows, macOS, Linux, Fuchsia (debug builds) |
 | `b` | **switch the brightness**: light or dark, for an application with a theme for each |
-| `P` | the **performance panel**: what the last frame cost, building, laying out and painting, rendering, on the GPU; and the frame statistics in the log |
+| `P` | the **performance panel**: what the last frame cost, building, laying out and painting, rendering, on the GPU, and two graphs of the last 90 frames — the interface and the drawing — against a 60 Hz frame's budget, late frames in red; the frame statistics in the log |
 
 The keys that look into the application reach it through the channel it reports on, and it
 carries them out on its next frame: a socket on a desktop, a file in its own storage on Android
