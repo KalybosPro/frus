@@ -496,8 +496,13 @@ fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> 
         .flatten()
         {
             let send = lines_in.clone();
+            // `FRUS_HOT_TRACE=1`: every line the engine prints, as it prints it, on standard error.
+            let trace = std::env::var_os("FRUS_HOT_TRACE").is_some();
             std::thread::spawn(move || {
                 for line in BufReader::new(stream).lines().map_while(Result::ok) {
+                    if trace {
+                        eprintln!("[dx] {line}");
+                    }
                     if send.send(crate::hot::dx_line(&line)).is_err() {
                         break;
                     }
@@ -509,6 +514,10 @@ fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> 
 
     report::say("Building for hot reload (the first build takes longer)…");
     let mut dx = start(&link)?;
+    // When the application came up, and whether the edits made just after have been handed on
+    // again (see `Mirror::retouch_since`).
+    let mut launched_at: Option<std::time::SystemTime> = None;
+    let mut retouched = false;
     let mut keys: Option<Receiver<char>> = None;
     let mut restarting: Option<Instant> = None;
     loop {
@@ -516,17 +525,10 @@ fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> 
             use crate::hot::DxLine;
             match line {
                 DxLine::App(text, error) => report::app_log(&text, error),
-                DxLine::Launched => match restarting.take() {
-                    Some(started) => restarted(Action::Restart, started, ""),
-                    None if keys.is_none() => {
-                        keys = Some(attach(&format!(
-                            "{} is running with hot reload: save a file and the change is \
-                             patched into it, its state kept",
-                            project.package
-                        )));
-                    }
-                    None => {}
-                },
+                DxLine::Launched => {
+                    launched_at.get_or_insert_with(std::time::SystemTime::now);
+                    on_launch(&mut keys, project, &mut restarting);
+                }
                 DxLine::Patched { file, millis } => {
                     let seconds = millis as f64 / 1000.0;
                     if report::is_machine() {
@@ -538,13 +540,25 @@ fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> 
                         report::say(&format!("Patched {file} in {seconds:.1} s."));
                     }
                 }
-                DxLine::Failed(why) => report::warn(&why),
+                DxLine::Failed(why) => {
+                    report::warn(&why);
+                    // The engine says what is wrong but not where: the compiler, asked again, does.
+                    locate_errors(project, &shadow, &target);
+                }
                 DxLine::Exited if restarting.is_none() => {
                     report::say(&format!("{} has stopped.", project.package));
                     crate::hot::stop(&mut dx);
                     return Ok(ExitCode::SUCCESS);
                 }
                 DxLine::Exited | DxLine::Noise => {}
+            }
+        }
+        if let Some(at) = launched_at.filter(|_| !retouched) {
+            if at.elapsed().unwrap_or_default() > Duration::from_secs(8) {
+                retouched = true;
+                if let Ok(mirror) = mirror.lock() {
+                    let _ = mirror.retouch_since(at);
+                }
             }
         }
         if let Some(status) = dx.try_wait().map_err(|e| e.to_string())? {
@@ -596,6 +610,54 @@ fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> 
             }
             None => {}
         }
+    }
+}
+
+/// The application is up: after a restart, how long it took; the first time, the keys.
+fn on_launch(
+    keys: &mut Option<Receiver<char>>,
+    project: &Project,
+    restarting: &mut Option<Instant>,
+) {
+    match restarting.take() {
+        Some(started) => restarted(Action::Restart, started, ""),
+        None if keys.is_none() => {
+            *keys = Some(attach(&format!(
+                "{} is running with hot reload: save a file and the change is patched into it, \
+                 its state kept",
+                project.package
+            )));
+        }
+        None => {}
+    }
+}
+
+/// After a failed patch: `cargo check` on the shadow package, and each error it finds said with
+/// its place in the application's own files — the engine names the error, not where it is.
+fn locate_errors(project: &Project, shadow: &Path, target: &Path) {
+    let output = Command::new("cargo")
+        .args([
+            "check",
+            "--message-format=short",
+            "--bin",
+            &project.package,
+            "--features",
+            "frus/hot-reload",
+        ])
+        .current_dir(shadow)
+        .env("CARGO_TARGET_DIR", target)
+        .stdin(Stdio::null())
+        .output();
+    let Ok(output) = output else {
+        return;
+    };
+    let text = String::from_utf8_lossy(&output.stderr);
+    let located: Vec<String> = text
+        .lines()
+        .filter_map(|line| crate::hot::located_error(line, shadow, &project.root))
+        .collect();
+    for line in &located {
+        report::warn(line);
     }
 }
 

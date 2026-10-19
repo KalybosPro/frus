@@ -61,6 +61,10 @@ once, into `~/.frus/tools`) and builds the application for patching (into `targe
 without changing its manifest). A patch cannot change the shape of a state that is alive (a
 field added): `R` for that.
 
+A change that does not compile is said with its place in your own files
+(`src/x.rs:40:34: error[E0425]: …`), and the application goes on running the code it had.
+`FRUS_HOT_TRACE=1` shows every line the engine prints, for when something looks wrong.
+
 `frus devices` lists this computer, the Android devices `adb` sees (USB debugging on) and the
 emulators that can be started, the iOS simulators on a Mac, the browsers installed here, and a
 bare web server. `-d` takes a device's id or name, or `android`, `web`, `desktop`; without it the
