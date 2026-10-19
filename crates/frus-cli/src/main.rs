@@ -10,6 +10,7 @@
 //! It drives the tools an application already uses — cargo, cargo-apk, adb, wasm-bindgen — and
 //! adds no build system of its own: everything it does can be done by hand.
 
+mod analyze;
 mod build;
 mod cargo;
 mod clean;
@@ -28,6 +29,7 @@ mod run;
 mod serve;
 mod setup;
 mod template;
+mod testing;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -46,6 +48,8 @@ Usage:
   frus doctor [-v] [--fix]            what this machine has for frus, and what it lacks
   frus emulators [--launch <id>|--create]  the emulators: list, start, make
   frus clean                          delete the application's builds
+  frus test [<filter>] [-v]           the tests, said briefly: a summary, each failure at its place
+  frus analyze [--fix]                clippy and rustfmt, everything to fix listed together
   frus daemon                         JSON lines for an editor: devices, as they come and go
   frus help [<command>]               print this, or a command's options
   frus --version                      print the version
@@ -174,6 +178,13 @@ enum Command {
     Emulators(emulators::Action),
     EmulatorsHelp,
     Clean,
+    Test {
+        filter: Option<String>,
+        verbose: bool,
+    },
+    Analyze {
+        fix: bool,
+    },
     Run(run::RunOptions),
     Build(build::Target, cargo::Mode),
 }
@@ -216,6 +227,8 @@ fn main() -> ExitCode {
         Ok(Command::Doctor(options)) => doctor::doctor(options),
         Ok(Command::Emulators(action)) => outcome(emulators::emulators(action)),
         Ok(Command::Clean) => outcome(clean::clean()),
+        Ok(Command::Test { filter, verbose }) => outcome(testing::test(filter.as_deref(), verbose)),
+        Ok(Command::Analyze { fix }) => outcome(analyze::analyze(fix)),
         Ok(Command::EmulatorsHelp) => {
             print!("{EMULATORS_USAGE}");
             ExitCode::SUCCESS
@@ -270,6 +283,30 @@ fn parse(args: Vec<OsString>) -> Result<Command, String> {
         Some("daemon") => Ok(Command::Daemon),
         Some("doctor") => parse_doctor(args),
         Some("emulators") => parse_emulators(args),
+        Some("test") => {
+            let mut filter = None;
+            let mut verbose = false;
+            for arg in args {
+                match arg.to_str() {
+                    Some("-v" | "--verbose") => verbose = true,
+                    Some(text) if !text.starts_with('-') && filter.is_none() => {
+                        filter = Some(text.to_string())
+                    }
+                    _ => {
+                        return Err(format!(
+                            "frus test has no option `{}`",
+                            arg.to_string_lossy()
+                        ))
+                    }
+                }
+            }
+            Ok(Command::Test { filter, verbose })
+        }
+        Some("analyze") => match args.next().as_ref().and_then(|a| a.to_str()) {
+            None => Ok(Command::Analyze { fix: false }),
+            Some("--fix") => Ok(Command::Analyze { fix: true }),
+            Some(other) => Err(format!("frus analyze has no option `{other}`")),
+        },
         Some("clean") => match args.next().as_ref().and_then(|a| a.to_str()) {
             None => Ok(Command::Clean),
             Some(other) => Err(format!("frus clean takes no `{other}`")),
@@ -672,6 +709,27 @@ mod tests {
         assert_eq!(parse(args("emulators --help")), Ok(Command::EmulatorsHelp));
         assert_eq!(parse(args("help emulators")), Ok(Command::EmulatorsHelp));
         assert_eq!(parse(args("clean")), Ok(Command::Clean));
+        assert_eq!(
+            parse(args("test")),
+            Ok(Command::Test {
+                filter: None,
+                verbose: false
+            })
+        );
+        assert_eq!(
+            parse(args("test adds -v")),
+            Ok(Command::Test {
+                filter: Some("adds".into()),
+                verbose: true
+            })
+        );
+        assert!(parse(args("test --what")).is_err());
+        assert_eq!(parse(args("analyze")), Ok(Command::Analyze { fix: false }));
+        assert_eq!(
+            parse(args("analyze --fix")),
+            Ok(Command::Analyze { fix: true })
+        );
+        assert!(parse(args("analyze --all")).is_err());
         assert!(parse(args("clean --all")).is_err());
     }
 

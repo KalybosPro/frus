@@ -193,6 +193,34 @@ all of it; when the folder is shared with other projects (`CARGO_TARGET_DIR`, a 
 this application's builds, for each platform, and the other projects' are left alone. The web
 build's generated `web/pkg` and `frus run --hot`'s shadow package go too.
 
+## Tests and lints: `frus test`, `frus analyze`
+
+```text
+frus test [<filter>] [-v]
+frus analyze [--fix]
+```
+
+`frus test` runs `cargo test` and says it briefly: the counts, then each failed test with the
+place it panicked and its message.
+
+```text
+✗ Tests: 3 passed, 1 failed.
+
+✗ counter::tests::adds
+    src/counter.rs:40:9
+    assertion `left == right` failed
+      left: 1
+     right: 2
+```
+
+A build that does not compile is said the same way, each error at its place; `-v` shows
+cargo's own output instead.
+
+`frus analyze` runs clippy on every target and rustfmt's check, and lists what to fix — each
+lint at its place, then the files that are not formatted. `--fix` formats them and applies
+clippy's own suggestions first. Both commands exit with a failure while anything is left, for a
+CI step or a pre-commit hook; clippy and rustfmt are installed if the toolchain lacks them.
+
 ## Checking the machine: `frus doctor`
 
 ```text
