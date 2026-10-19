@@ -37,6 +37,36 @@ function reloadOnSave(): ReloadOnSave {
 
 export function activate(context: vscode.ExtensionContext): void {
   const devices = new Devices();
+  // What the daemon says on its way (installing, creating, starting), and what it wants seen.
+  const output = vscode.window.createOutputChannel("frus");
+  context.subscriptions.push(
+    output,
+    devices.onMessage((said) => {
+      output.appendLine(said.message);
+      if (said.kind === "show") {
+        const show =
+          said.level === "error"
+            ? vscode.window.showErrorMessage
+            : said.level === "warning"
+              ? vscode.window.showWarningMessage
+              : vscode.window.showInformationMessage;
+        show(`frus: ${said.message}`);
+      }
+    }),
+  );
+  // An emulator started from the picker is selected once it is up: by its name, which a running
+  // emulator takes from its AVD.
+  let awaitedEmulator: string | undefined;
+  const launch = async (id: string, name: string) => {
+    awaitedEmulator = name;
+    try {
+      await devices.launchEmulator(id);
+      vscode.window.setStatusBarMessage(`frus: starting ${name}…`, 15000);
+    } catch (error: any) {
+      awaitedEmulator = undefined;
+      vscode.window.showErrorMessage(`frus: ${error.message}`);
+    }
+  };
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   status.command = "frus.selectDevice";
   status.tooltip = "frus: the device F5 runs the application on";
@@ -49,7 +79,17 @@ export function activate(context: vscode.ExtensionContext): void {
     status.text = `$(device-mobile) ${device ? device.name : "No device"}`;
     status.show();
   };
-  devices.onDidChange(refresh);
+  devices.onDidChange(() => {
+    if (awaitedEmulator) {
+      const up = devices.list().find((d) => d.emulator && d.available && d.name === awaitedEmulator && d.id.startsWith("emulator-"));
+      if (up) {
+        awaitedEmulator = undefined;
+        void context.workspaceState.update(SELECTED, up.id).then(refresh);
+        vscode.window.showInformationMessage(`frus: ${up.name} is running and selected.`);
+      }
+    }
+    refresh();
+  });
 
   // The program the extension runs, daemon and F5 alike: a copy of the installed `frus`, so a
   // `cargo install frus-cli` can replace that one while the window is open.
@@ -80,20 +120,35 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("frus.selectDevice", async () => {
-      const items = devices.list().map((device) => ({
-        label: device.name,
-        description: `${device.id} • ${device.detail}`,
-        detail: device.available ? undefined : `$(warning) ${device.unavailableReason}`,
-        id: device.id,
-      }));
-      const picked = await vscode.window.showQuickPick(items, {
+      const picked = await vscode.window.showQuickPick(pickerItems(devices, context), {
         placeHolder: "Where should frus run the application?",
       });
-      if (picked) {
+      if (!picked) return;
+      if (picked.action === "device") {
         await context.workspaceState.update(SELECTED, picked.id);
         refresh();
+      } else if (picked.action === "start") {
+        await launch(picked.id!, picked.name!);
+      } else if (picked.action === "create") {
+        await createEmulator(devices, (name) => (awaitedEmulator = name));
       }
     }),
+    // The emulators on their own, as commands: the picker's entries do the same.
+    vscode.commands.registerCommand("frus.launchEmulator", async (emulatorId?: string) => {
+      const emulators = await devices.emulators().catch(() => []);
+      let chosen = emulators.find((e) => e.id === emulatorId);
+      if (!chosen) {
+        const picked = await vscode.window.showQuickPick(
+          emulators.map((e) => ({ label: e.name, description: `${e.platformType} emulator`, emulator: e })),
+          { placeHolder: emulators.length ? "Which emulator should start?" : "No emulator: create one first" },
+        );
+        chosen = picked?.emulator;
+      }
+      if (chosen) await launch(chosen.id, chosen.name);
+    }),
+    vscode.commands.registerCommand("frus.createEmulator", () =>
+      createEmulator(devices, (name) => (awaitedEmulator = name)),
+    ),
     vscode.commands.registerCommand("frus.reload", () => customRequest("hotReload")),
     vscode.commands.registerCommand("frus.restart", () => customRequest("hotRestart")),
     ...KEY_COMMANDS.map(([command, key]) =>
@@ -145,6 +200,85 @@ export function deactivate(): void {}
 
 /** How each Rust file being saved is saved, from `onWillSave` to `onDidSave`. */
 const saving = new Map<string, { manual: boolean; dirty: boolean }>();
+
+/** An entry of the device picker: a device to select, an emulator to start, or the one that
+ *  makes an emulator. */
+interface PickerItem extends vscode.QuickPickItem {
+  action?: "device" | "start" | "create";
+  id?: string;
+  name?: string;
+}
+
+/** The picker: the devices that can run the application now, then the emulators that can be
+ *  started, then the one that makes a new emulator. A device whose platform the application does
+ *  not build for says why. */
+async function pickerItems(devices: Devices, context: vscode.ExtensionContext): Promise<PickerItem[]> {
+  const root = context.workspaceState.get<string>(APP) ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const support = root && isApplication(root) ? await devices.supportedPlatforms(root).catch(() => undefined) : undefined;
+  const running = devices.list().filter((d) => !(d.emulator && !d.id.startsWith("emulator-") && d.platform === "android"));
+  const items: PickerItem[] = running.map((device) => {
+    const unsupported = support?.platformTypes[device.platform];
+    const why = unsupported && !unsupported.isSupported ? unsupported.reasons?.[0]?.reasonText : undefined;
+    return {
+      label: device.name,
+      description: `${device.id} • ${device.detail}`,
+      detail: !device.available
+        ? `$(warning) ${device.unavailableReason}`
+        : why
+          ? `$(warning) not for this application: ${why}`
+          : undefined,
+      action: "device",
+      id: device.id,
+    };
+  });
+  const emulators = await devices.emulators().catch(() => []);
+  const up = new Set(devices.list().filter((d) => d.id.startsWith("emulator-")).map((d) => d.name));
+  const startable = emulators.filter((e) => !up.has(e.name));
+  items.push({ label: "Emulators", kind: vscode.QuickPickItemKind.Separator });
+  for (const emulator of startable) {
+    items.push({
+      label: `$(play) Start ${emulator.name}`,
+      description: `${emulator.platformType} emulator`,
+      action: "start",
+      id: emulator.id,
+      name: emulator.name,
+    });
+  }
+  items.push({
+    label: "$(add) Create an Android emulator",
+    description: "installs what it needs",
+    action: "create",
+  });
+  return items;
+}
+
+/** Makes an emulator with the name asked for, and offers to start it. */
+async function createEmulator(devices: Devices, awaiting: (name: string) => void): Promise<void> {
+  const name = await vscode.window.showInputBox({
+    prompt: "A name for the new Android emulator",
+    placeHolder: "frus_emulator",
+  });
+  if (name === undefined) return;
+  const result = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "frus: creating an Android emulator (the first one may download a system image)…",
+    },
+    () => devices.createEmulator(name.trim() || undefined).catch((error: Error) => ({ success: false, emulatorName: null, error: error.message })),
+  );
+  if (!result.success || !result.emulatorName) {
+    vscode.window.showErrorMessage(`frus: the emulator was not created: ${result.error}`);
+    return;
+  }
+  const start = await vscode.window.showInformationMessage(`frus: ${result.emulatorName} was created.`, "Start it");
+  if (start) {
+    const shown = result.emulatorName.replace(/_/g, " ");
+    awaiting(shown);
+    await devices.launchEmulator(result.emulatorName).catch((error: Error) =>
+      vscode.window.showErrorMessage(`frus: ${error.message}`),
+    );
+  }
+}
 
 /** A request to every running frus session. */
 function customRequest(command: string, args?: object): void {

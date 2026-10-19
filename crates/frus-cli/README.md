@@ -133,6 +133,14 @@ output; the tools `frus` runs (cargo, cargo-apk, wasm-bindgen) write to standard
 | `daemon.shutdown` | `true`, and the daemon ends |
 | `device.getDevices` | the devices, as `frus devices` lists them |
 | `device.enable` / `device.disable` | `true`; `device.added` and `device.removed` events while enabled |
+| `device.takeScreenshot` | the screen of an Android device (`deviceId`), a PNG in base64 |
+| `daemon.getSupportedPlatforms` | for the application in `projectRoot`: `platforms`, and in `platformTypes` each platform with `isSupported` and, if not, `reasons` (`reasonText`, `fixText`) |
+| `emulator.getEmulators` | the emulators that can be started: `id`, `name`, `category`, `platformType` |
+| `emulator.launch` | starts `emulatorId` (`coldBoot`: without its saved state); it arrives as `device.added` once up |
+| `emulator.create` | makes an Android emulator named `name` (or `frus_emulator`), installing a system image if none is there: `success`, `emulatorName`, `error` |
+
+On the way, the daemon says what it does as `daemon.logMessage` events (`level`, `message`), and
+what the developer should see now as `daemon.showMessage` (`level`, `title`, `message`).
 
 `frus run --machine -d <device>` is one run, with every event carrying its `appId`:
 

@@ -9,6 +9,7 @@
 //! editor shows them as they are.
 
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use crate::json::{object, Value};
@@ -17,14 +18,59 @@ use crate::json::{object, Value};
 static MACHINE: OnceLock<String> = OnceLock::new();
 /// One line at a time on standard output, whatever thread writes it.
 static STDOUT: Mutex<()> = Mutex::new(());
+/// `frus daemon`: what the tool says goes out as `daemon.logMessage` events (milestone 671).
+static DAEMON: AtomicBool = AtomicBool::new(false);
+
+/// Switches to the daemon's JSON lines: no run, so no `appId`; the tool's messages are
+/// `daemon.logMessage` events, and the programs it runs write to standard error.
+pub(crate) fn daemon() {
+    DAEMON.store(true, Ordering::SeqCst);
+}
+
+fn is_daemon() -> bool {
+    DAEMON.load(Ordering::SeqCst)
+}
+
+/// A message for the developer to see now, in the editor's own notifications: `level` is
+/// `info`, `warning` or `error` (daemon only; elsewhere it is said or warned as usual).
+pub(crate) fn show(level: &str, message: &str) {
+    if is_daemon() {
+        line(&object([
+            ("event", "daemon.showMessage".into()),
+            (
+                "params",
+                object([
+                    ("level", level.into()),
+                    ("title", "frus".into()),
+                    ("message", message.into()),
+                ]),
+            ),
+        ]));
+    } else if level == "error" {
+        warn(message);
+    } else {
+        say(message);
+    }
+}
+
+fn daemon_log(level: &str, message: &str) {
+    line(&object([
+        ("event", "daemon.logMessage".into()),
+        (
+            "params",
+            object([("level", level.into()), ("message", message.into())]),
+        ),
+    ]));
+}
 
 /// Switches the run to JSON lines; `app_id` names it in every event.
 pub(crate) fn machine(app_id: String) {
     let _ = MACHINE.set(app_id);
 }
 
+/// Whether standard output is an editor's: `--machine`, or the daemon.
 pub(crate) fn is_machine() -> bool {
-    MACHINE.get().is_some()
+    MACHINE.get().is_some() || is_daemon()
 }
 
 /// An event, with the run's `appId` among its parameters (machine mode only).
@@ -52,7 +98,9 @@ pub(crate) fn line(value: &Value) {
 
 /// What the tool tells the developer: where it is, what it does.
 pub(crate) fn say(message: &str) {
-    if is_machine() {
+    if is_daemon() {
+        daemon_log("status", message);
+    } else if is_machine() {
         event("app.progress", object([("message", message.into())]));
     } else {
         println!("{message}");
@@ -61,7 +109,9 @@ pub(crate) fn say(message: &str) {
 
 /// Something that went wrong without ending the run.
 pub(crate) fn warn(message: &str) {
-    if is_machine() {
+    if is_daemon() {
+        daemon_log("error", message);
+    } else if is_machine() {
         event(
             "app.progress",
             object([("message", message.into()), ("error", true.into())]),

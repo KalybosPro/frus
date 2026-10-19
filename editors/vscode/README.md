@@ -3,7 +3,11 @@
 Run [frus](https://github.com/KalybosPro/frus) applications from VS Code, on any device.
 
 - **A device picker** in the status bar: this computer, the connected phones and emulators, the
-  browsers. It follows phones as they are plugged in and out.
+  browsers. It follows phones as they are plugged in and out. Below them, the emulators that can
+  be started (**Start …**: once up, the emulator is selected) and **Create an Android emulator**,
+  which installs what it needs. A device the application does not build for says why. The
+  commands **frus: Launch Emulator** and **frus: Create Emulator** do the same from the palette,
+  and what frus does on the way is in the **frus** output channel.
 - **F5** builds the application for the selected device, starts it there and shows **its log in
   the Debug Console**: the desktop program's output, the phone's logcat, the browser's console.
   Errors are shown as errors.

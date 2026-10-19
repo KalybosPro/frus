@@ -40,6 +40,40 @@ export async function run(): Promise<void> {
     }
     step("its commands are registered");
 
+    // The device picker and the status bar, looked at: with FRUS_INTEGRATION_SHOTS set, the picker
+    // is opened, a marker file asks the runner's watcher for a picture, and it is closed again.
+    const shots = process.env.FRUS_INTEGRATION_SHOTS;
+    if (shots) {
+      await new Promise((r) => setTimeout(r, 6000)); // the daemon's first device list
+      void vscode.commands.executeCommand("frus.selectDevice");
+      await new Promise((r) => setTimeout(r, 4000));
+      const marker = `${shots}/picker-open`;
+      fs.writeFileSync(marker, "");
+      await until("the picture of the picker", () => fs.existsSync(`${shots}/picker-done`), 60_000);
+      step("the device picker was opened for a picture");
+      if (process.env.FRUS_INTEGRATION_EMULATOR) {
+        // "Start …": the command the picker's entry runs, with the emulator it names.
+        await vscode.commands.executeCommand("workbench.action.closeQuickOpen");
+        void vscode.commands.executeCommand("frus.launchEmulator", process.env.FRUS_INTEGRATION_AVD);
+        const { execFileSync } = require("child_process") as typeof import("child_process");
+        const booted = () => {
+          try {
+            return execFileSync(process.env.FRUS_INTEGRATION_EMULATOR!, ["devices"]).toString().includes("emulator-");
+          } catch {
+            return false;
+          }
+        };
+        await until("the emulator", booted, 420_000);
+        // The daemon looks every few seconds; then the extension selects it.
+        await new Promise((r) => setTimeout(r, 20_000));
+        fs.writeFileSync(`${shots}/selected-open`, "");
+        await until("the picture of the status bar", () => fs.existsSync(`${shots}/selected-done`), 60_000);
+        step("an emulator started from the picker came up");
+      } else {
+        await vscode.commands.executeCommand("workbench.action.closeQuickOpen");
+      }
+    }
+
     vscode.debug.registerDebugAdapterTrackerFactory("frus", {
       createDebugAdapterTracker: () => ({ onDidSendMessage: (m: any) => seen.push(m) }),
     });

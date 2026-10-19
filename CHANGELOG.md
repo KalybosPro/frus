@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 670 so far, each documenting the objective, the alternatives
+> record — one per step, 671 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Emulators and more in `frus daemon`** (J671): `emulator.getEmulators`, `emulator.launch`
+  and `emulator.create` (which installs a system image if none is there),
+  `daemon.getSupportedPlatforms`, `device.takeScreenshot`, and `daemon.logMessage` /
+  `daemon.showMessage` events. In VS Code, the device picker starts an emulator and selects it
+  once it is up, creates one, and says which devices the application does not build for; **frus:
+  Launch Emulator** and **frus: Create Emulator** are commands of their own.
 
 - **`frus run --hot`** (J670): true hot reload on the desktop. Each saved change is patched into
   the running application in a few seconds, every state kept. frus installs the patching engine
