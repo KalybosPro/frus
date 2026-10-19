@@ -148,36 +148,61 @@ La commande `frus` crée un projet câblé pour le bureau, Android et le web, av
 
 ```sh
 cargo install frus-cli          # une fois
+frus doctor                     # ce que cette machine a pour chaque plateforme, et ce qui manque
 frus create my_app
-cd my_app && cargo run
+cd my_app
+frus run                        # sur cet ordinateur ; `frus run -d android`, `-d web`, `-d <appareil>`
 ```
 
+Pendant l'exécution, le journal de l'application s'affiche dans le terminal sur toutes les
+plateformes, `r` la recharge avec votre modification en gardant son état, et `R` la redémarre à
+neuf. `frus run --hot` applique plutôt chaque modification enregistrée à l'application en cours
+d'exécution, sur le bureau. Ce qu'une commande requiert et qui manque à la machine — une cible
+Rust, le SDK Android, wasm-bindgen — elle l'installe d'abord.
+
 Le projet généré dépend de la crate publiée [`frus`](https://crates.io/crates/frus) (`frus = "0.3"`). `frus create my_app --frus-path <checkout>` le construit contre un checkout de ce dépôt à la place ; [`docs/getting-started.md`](docs/getting-started.md) détaille les options.
+
+### L'outil `frus`
+
+| commande | |
+|---|---|
+| `frus create <dossier>` | une nouvelle application pour le bureau, Android et le web ; `frus create .` dans une application existante restaure les fichiers qui lui manquent |
+| `frus doctor` | la chaîne d'outils, partie par partie : ce qui est prêt et ce qui manque ; `--fix` l'installe |
+| `frus devices` | cet ordinateur, les téléphones et émulateurs, les navigateurs |
+| `frus run [-d <appareil>]` | construire, lancer, afficher le journal ; `--hot` pour le hot reload sur le bureau |
+| `frus build <apk\|web\|desktop>` | ce que vous livrez, en release |
+| `frus emulators` | lister, lancer (`--launch`) et créer (`--create`) des émulateurs |
+| `frus clean` | supprimer les builds de l'application |
+| `frus daemon` | des lignes JSON pour un éditeur : appareils, émulateurs, plateformes |
+
+Pendant `frus run` : `r` recharger, `R` redémarrer, `s` capture d'écran, `w` / `f` / `S` afficher
+l'arbre des widgets, du focus et de la sémantique, `i` l'inspecteur, `p` le contour de chaque
+widget, `o` le comportement d'une autre plateforme, `b` clair ou sombre, `P` un panneau de
+performance avec graphiques, `d` se détacher, `q` quitter. [`crates/frus-cli`](crates/frus-cli)
+détaille tout.
+
+**VS Code :** l'extension de [`editors/vscode`](editors/vscode) ajoute un sélecteur d'appareil dans
+la barre d'état (qui lance ou crée aussi des émulateurs), F5 avec le journal dans la Debug
+Console, le rechargement à l'enregistrement, et les touches ci-dessus en commandes.
 
 ### Android
 
 ```sh
-cargo install cargo-apk        # une fois
-cargo apk run -p frus-demo --lib   # build, installe, lance
+frus run -d android            # construit, installe, lance et affiche logcat
 ```
 
-Nécessite le SDK + NDK Android avec `ANDROID_HOME` / `ANDROID_NDK_ROOT` définis et un appareil visible par `adb devices`.
+La première exécution installe ce qui manque : le SDK et le NDK Android, Java, la cible Rust,
+cargo-apk. Sans l'outil : `cargo apk run --lib`, avec `ANDROID_HOME` / `ANDROID_NDK_ROOT` définis.
 
 ### Web
 
 ```sh
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli
-
-cargo build -p frus-hello --target wasm32-unknown-unknown --profile web-release
-wasm-bindgen --target web --no-typescript \
-  --out-dir crates/frus-hello/web/pkg \
-  target/wasm32-unknown-unknown/web-release/frus_hello.wasm
-
-cd crates/frus-hello/web && python3 -m http.server 8080
+frus run -d web                # construit, sert la page et ouvre le navigateur ; sa console s'affiche ici
+frus build web                 # le site statique, en release
 ```
 
-Nécessite un navigateur WebGPU (Chrome/Edge 113+) sur un contexte sécurisé. Détails dans [`crates/frus-hello/web/README.md`](crates/frus-hello/web/README.md).
+Nécessite un navigateur WebGPU (Chrome/Edge 113+) sur un contexte sécurisé (`localhost` en est
+un). Les étapes sans l'outil sont dans [`crates/frus-hello/web/README.md`](crates/frus-hello/web/README.md).
 
 ## Architecture
 
@@ -226,16 +251,17 @@ Lisez [ARCHITECTURE.md](ARCHITECTURE.md) avant votre première modification non 
 
 | Plateforme | État | Notes |
 |---|---|---|
-| **Bureau** (Windows / Linux / macOS) | Fonctionnel | winit + wgpu, presse-papier, accessibilité lecteur d'écran via AccessKit, live-reload en dev |
+| **Bureau** (Windows / Linux / macOS) | Fonctionnel | winit + wgpu, presse-papier, accessibilité lecteur d'écran via AccessKit ; hot reload de l'application en cours d'exécution (`frus run --hot`) |
 | **Android** | Fonctionnel | Activité native, Vulkan, IME réel (composition et swipe), insets, cycle de vie — validé sur appareil |
-| **Web** (wasm + WebGPU) | Fonctionnel | Rendu, entrée, animations, souscriptions, effets async et `fetch`, presse-papiers (`navigator.clipboard`) et accessibilité par un pont DOM. Le live-reload n'est pas câblé |
+| **Web** (wasm + WebGPU) | Fonctionnel | Rendu, entrée, animations, souscriptions, effets async et `fetch`, presse-papiers (`navigator.clipboard`) et accessibilité par un pont DOM. Rechargement avec l'état conservé sous `frus run` |
 | **iOS / macOS natif** | Non démarré | La couche shell est isolée : ajouter une cible reste un chantier circonscrit |
 
 **Ce qui marche aujourd'hui :** mise en page flex/grille/wrap, défilement 1D et 2D avec fill-then-scroll, saisie de texte avec IME, glisser-déposer avec reflow en direct, tables de données, grilles éditables, graphiques, sélecteurs de date/heure, listes déroulantes, arbres, toasts, modales, tiroirs, navigation à transitions ressort et geste de retour, thème surchargeable, RTL et i18n, animations à ressort, implicites et explicites, un sélecteur à roue, cycle de vie, effets et souscriptions, HTTP asynchrone avec JSON typé, et tests par images de référence (169 images).
 
 **Manques connus** — les meilleurs points d'entrée pour aider :
 
-- Live-reload sur le Web.
+- Le hot reload — le code appliqué à l'application en cours d'exécution — sur Android et le web
+  (`r` y recharge, en gardant l'état).
 - Shells iOS et macOS natif.
 - Cas limites du rendu de texte, et couverture golden plus large.
 - Un site de documentation navigable, construit à partir des notes de conception.
