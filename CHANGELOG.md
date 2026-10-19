@@ -8,10 +8,20 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 672 so far, each documenting the objective, the alternatives
+> record — one per step, 674 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`frus run --hot` says where an error is** (J674): the engine names a compile error but not its
+  place; frus asks the compiler again (`cargo check`) and says each error at its line in the
+  application's own files. An edit saved in the moment before the engine starts watching is no
+  longer missed. `FRUS_HOT_TRACE=1` shows the engine's own lines.
+
+- **`frus emulators`** (J673): list the emulators, `--launch <id>` one (`--cold`), `--create` one
+  (installing a system image if none is there). **`frus clean`**: the application's builds
+  deleted — all of `target/` when it is its own, only this application's part when the folder is
+  shared — with `web/pkg` and the hot-reload shadow package.
 
 - **`frus doctor`** (J672): what the machine has for building frus applications and what it lacks —
   Rust and its targets, Visual Studio's C++ tools, the Android SDK and its tools, the web build,

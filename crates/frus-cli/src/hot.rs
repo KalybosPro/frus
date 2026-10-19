@@ -169,6 +169,26 @@ impl Mirror {
         }
     }
 
+    /// Writes again, unchanged, every copied file changed since `since`: the engine starts watching
+    /// a moment after the application is up, and an edit saved in that moment would otherwise
+    /// never reach it. Returns how many it wrote.
+    pub(crate) fn retouch_since(&self, since: SystemTime) -> std::io::Result<usize> {
+        let mut held = HashMap::new();
+        if self.to.is_dir() {
+            list(&self.to, Path::new(""), &mut held)?;
+        }
+        let mut touched = 0;
+        for (relative, (_, modified)) in held {
+            if modified.is_some_and(|m| m > since) {
+                let copy = self.to.join(&relative);
+                let bytes = std::fs::read(&copy)?;
+                std::fs::write(&copy, bytes)?;
+                touched += 1;
+            }
+        }
+        Ok(touched)
+    }
+
     /// Brings the copy in step. Returns how many files it changed.
     pub(crate) fn sync(&mut self) -> std::io::Result<usize> {
         let mut found = HashMap::new();
@@ -342,6 +362,29 @@ pub(crate) fn clear_dependency_archives(target: &Path) {
         }
     }
     walk(target, 0);
+}
+
+/// One located diagnostic of `cargo check --message-format=short`, with its path made the
+/// application's: `src/x.rs:40:28: error[E0425]: …` → `<root>/src/x.rs:40:28: error[E0425]: …`.
+/// `None` for any other line, and for warnings.
+pub(crate) fn located_error(line: &str, shadow: &Path, root: &Path) -> Option<String> {
+    let at = line.find(": error")?;
+    let (place, rest) = line.split_at(at);
+    // `path:line:column`, the path possibly with a drive's colon in it.
+    let mut parts = place.rsplitn(3, ':');
+    let column = parts.next()?;
+    let row = parts.next()?;
+    let path = parts.next()?;
+    if column.parse::<u32>().is_err() || row.parse::<u32>().is_err() {
+        return None;
+    }
+    let path = Path::new(path);
+    let in_app = match path.strip_prefix(shadow) {
+        Ok(relative) => root.join(relative),
+        Err(_) if path.is_relative() => root.join(path),
+        Err(_) => path.to_path_buf(),
+    };
+    Some(format!("{}:{row}:{column}{rest}", in_app.display()))
 }
 
 /// What one line of `dx`'s output says.
@@ -528,6 +571,83 @@ resources = "res"
         // A fresh run over a copy already in step changes nothing.
         let mut again = Mirror::new(from, to);
         assert_eq!(again.sync().unwrap(), 0);
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn errors_point_at_the_applications_files() {
+        let shadow = Path::new("/apps/shop/target/frus-hot/shop");
+        let root = Path::new("/apps/shop");
+        assert_eq!(
+            located_error(
+                "src/features/a.rs:40:28: error[E0425]: cannot find value `x` in this scope",
+                shadow,
+                root
+            )
+            .as_deref(),
+            Some(
+                format!(
+                    "{}:40:28: error[E0425]: cannot find value `x` in this scope",
+                    root.join("src/features/a.rs").display()
+                )
+                .as_str()
+            )
+        );
+        assert_eq!(
+            located_error(
+                "/apps/shop/target/frus-hot/shop/src/lib.rs:3:1: error: expected item",
+                shadow,
+                root
+            )
+            .as_deref(),
+            Some(
+                format!(
+                    "{}:3:1: error: expected item",
+                    root.join("src/lib.rs").display()
+                )
+                .as_str()
+            )
+        );
+        // A path outside the shadow is left as it is: an absolute one, on each system.
+        let elsewhere = if cfg!(windows) {
+            r"C:\a\src\lib.rs"
+        } else {
+            "/elsewhere/src/lib.rs"
+        };
+        assert_eq!(
+            located_error(&format!("{elsewhere}:3:1: error: x"), shadow, root),
+            Some(format!("{elsewhere}:3:1: error: x"))
+        );
+        assert_eq!(
+            located_error("src/a.rs:1:2: warning: unused", shadow, root),
+            None
+        );
+        assert_eq!(
+            located_error("error: could not compile `shop`", shadow, root),
+            None
+        );
+    }
+
+    #[test]
+    fn an_edit_in_the_engines_blind_moment_is_written_again() {
+        let base = std::env::temp_dir().join(format!("frus-hot-retouch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (from, to) = (base.join("src"), base.join("copy"));
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::write(from.join("a.rs"), "// a").unwrap();
+        std::fs::write(from.join("b.rs"), "// b").unwrap();
+        let mut mirror = Mirror::new(from.clone(), to.clone());
+        mirror.sync().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let launched = SystemTime::now();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(from.join("a.rs"), "// a, edited").unwrap();
+        mirror.sync().unwrap();
+        assert_eq!(mirror.retouch_since(launched).unwrap(), 1);
+        assert_eq!(
+            std::fs::read_to_string(to.join("a.rs")).unwrap(),
+            "// a, edited"
+        );
         std::fs::remove_dir_all(&base).unwrap();
     }
 
