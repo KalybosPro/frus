@@ -8,10 +8,14 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 674 so far, each documenting the objective, the alternatives
+> record — one per step, 675 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`s` saves a screenshot on the web too** (J675): the application reads its canvas in the frame
+  it drew, the page sends it to `frus run`, and it is written as `frus_01.png` beside the
+  application, as on the desktop and Android.
 
 - **`frus run --hot` says where an error is** (J674): the engine names a compile error but not its
   place; frus asks the compiler again (`cargo check`) and says each error at its line in the

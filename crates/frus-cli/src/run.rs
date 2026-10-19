@@ -1009,10 +1009,13 @@ fn run_web(
             Some(Action::Missing(why)) => report::say(why),
             // The page asks for them, as it asks which build is served.
             Some(Action::App(command)) => server.command(command),
-            Some(Action::Screenshot) => report::say(
-                "A page cannot hand its picture over yet: the browser's own tools take one \
-                 (its developer tools, then Capture screenshot).",
-            ),
+            // The application reads its canvas on its next frame and the page sends it here.
+            Some(Action::Screenshot) => {
+                let path = screenshot_path(&project.root);
+                server.expect_screenshot(path.clone());
+                server.command("screenshot page");
+                report_screenshot(&path, Duration::from_secs(10));
+            }
             Some(action @ (Action::Restart | Action::Reload)) => {
                 restarting(action, None);
                 let started = Instant::now();

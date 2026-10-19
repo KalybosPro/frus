@@ -86,7 +86,7 @@ While it runs, keys drive it:
 | `d` | **detach**: `frus run` ends and the application goes on running (desktop, Android) |
 | `c` | clear the terminal |
 | `q` | quit: the application is stopped |
-| `s` | **screenshot**, saved beside the application as `frus_01.png`, `frus_02.png`… (desktop: the application's frame; Android: the device's screen) |
+| `s` | **screenshot**, saved beside the application as `frus_01.png`, `frus_02.png`… (desktop: the application's frame; Android: the device's screen; web: the page's canvas) |
 | `w` | print the **widget tree**, every widget with its box |
 | `f` | print the **focus tree**: the focusable widgets in tab order, the focused one marked |
 | `S` | print the **semantics tree**: what a screen reader is told, in reading order |

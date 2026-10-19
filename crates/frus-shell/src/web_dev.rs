@@ -72,6 +72,32 @@ pub(crate) fn start() -> Option<String> {
     states
 }
 
+/// The canvas as a PNG, handed to the page's `window.__frusScreenshot`, which sends it to `frus
+/// run` (`s`, milestone 675). Called right after a frame is drawn: a WebGPU canvas's picture
+/// can be read until the task that drew it ends.
+pub(crate) fn send_screenshot(window: &winit::window::Window) {
+    use winit::platform::web::WindowExtWebSys;
+    let Some(canvas) = window.canvas() else {
+        return;
+    };
+    let Ok(data) = canvas.to_data_url() else {
+        log::warn!(target: "frus::dev", "the page's picture could not be read");
+        return;
+    };
+    let Some(page) = web_sys::window() else {
+        return;
+    };
+    let send = js_sys::Reflect::get(&page, &"__frusScreenshot".into())
+        .ok()
+        .and_then(|f| f.dyn_into::<js_sys::Function>().ok());
+    match send {
+        Some(send) => {
+            let _ = send.call1(&page, &data.into());
+        }
+        None => log::warn!(target: "frus::dev", "this page is not served by frus run"),
+    }
+}
+
 /// After a frame: the states as they are now, for the reload that may come.
 pub(crate) fn keep(snapshot: impl FnOnce() -> String) {
     if watched() {
