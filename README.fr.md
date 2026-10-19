@@ -276,7 +276,6 @@ c'est fini :
 
 | | |
 |---|---|
-| 🟢 [`frus test` et `frus analyze`](https://github.com/KalybosPro/frus/issues/290) | Deux fines surcouches de cargo dans `crates/frus-cli` : aucune connaissance du framework nécessaire. |
 | 🟡 [Essayer `frus run --hot` sur Linux ou macOS](https://github.com/KalybosPro/frus/issues/288) | Le vrai hot reload n'a été lancé de bout en bout que sous Windows. Un compte rendu de ce qui marche est toute la contribution. |
 | 🟡 L'effet d'étirement en bout de défilement | Les Android récents étirent le contenu au lieu de le faire luire. Un effet par rendu vers texture, et le point de départ est écrit. |
 | 🔴 [Une couche iOS](https://github.com/KalybosPro/frus/labels/design%20first) | L'architecture parie que c'est un travail circonscrit. Personne n'a testé le pari. |

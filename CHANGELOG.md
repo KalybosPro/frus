@@ -19,6 +19,11 @@ any release may break.
   A reloaded page gets the latest patch again as it starts. Also: `frus run --hot` no longer
   stops at once when `CARGO_TARGET_DIR` is written with forward slashes on Windows.
 
+- **`frus test` and `frus analyze`** (J678, #290): `frus test` runs the tests and says them
+  briefly, the counts then each failure at the place it panicked with its message (`-v` for
+  cargo's own output); `frus analyze` lists clippy's lints at their places and the files rustfmt
+  would change, and `--fix` applies both. Each exits with a failure while anything is left.
+
 - **`frus run --hot` on Linux and macOS** (J677): `q` and `R` stop the application with the engine
   (it led a process group of its own; only the engine was stopped). On Linux, building the engine
   needs OpenSSL's headers: `frus run --hot` and `frus doctor` say so, with the command that

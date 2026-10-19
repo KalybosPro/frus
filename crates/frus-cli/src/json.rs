@@ -32,6 +32,20 @@ impl Value {
         }
     }
 
+    pub(crate) fn as_array(&self) -> Option<&[Value]> {
+        match self {
+            Value::Array(items) => Some(items),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn as_f64(&self) -> Option<f64> {
+        match self {
+            Value::Number(n) => Some(*n),
+            _ => None,
+        }
+    }
+
     pub(crate) fn as_bool(&self) -> Option<bool> {
         match self {
             Value::Bool(b) => Some(*b),

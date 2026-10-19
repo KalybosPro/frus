@@ -172,6 +172,8 @@ The generated project depends on the published [`frus`](https://crates.io/crates
 | `frus build <apk\|web\|desktop>` | what you ship, in release |
 | `frus emulators` | list, `--launch` and `--create` emulators |
 | `frus clean` | delete the application's builds |
+| `frus test` | the tests: a summary, each failure at its place |
+| `frus analyze` | clippy and rustfmt, everything to fix listed together |
 | `frus daemon` | JSON lines for an editor: devices, emulators, platforms |
 
 While `frus run` runs: `r` reload, `R` restart, `s` screenshot, `w` / `f` / `S` print the widget,
@@ -273,7 +275,6 @@ real, open, and written up with where to look and how to know you are done:
 
 | | |
 |---|---|
-| 🟢 [`frus test` and `frus analyze`](https://github.com/KalybosPro/frus/issues/290) | Two thin wrappers over cargo in `crates/frus-cli`: no framework knowledge needed. |
 | 🟡 [Try `frus run --hot` on Linux or macOS](https://github.com/KalybosPro/frus/issues/288) | True hot reload has only been run end to end on Windows. A report of what works is the whole contribution. |
 | 🟡 The overscroll stretch effect | Current Android stretches the content instead of glowing. A render-target effect, and where to start reading is written down. |
 | 🔴 [An iOS shell](https://github.com/KalybosPro/frus/labels/design%20first) | The architecture bets this is a contained job. Nobody has tested the bet. |
