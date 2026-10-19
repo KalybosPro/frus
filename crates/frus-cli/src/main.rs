@@ -12,11 +12,13 @@
 
 mod build;
 mod cargo;
+mod clean;
 mod create;
 mod daemon;
 mod devices;
 mod devlink;
 mod doctor;
+mod emulators;
 mod hot;
 mod json;
 mod keys;
@@ -42,6 +44,8 @@ Usage:
   frus run [options] [-- <args>]      build it, start it on a device, show its log
   frus build <apk|web|desktop>        build what you ship, in release
   frus doctor [-v] [--fix]            what this machine has for frus, and what it lacks
+  frus emulators [--launch <id>|--create]  the emulators: list, start, make
+  frus clean                          delete the application's builds
   frus daemon                         JSON lines for an editor: devices, as they come and go
   frus help [<command>]               print this, or a command's options
   frus --version                      print the version
@@ -72,6 +76,16 @@ Examples:
   frus run --hot
   frus run -d android
   frus run -d edge --release
+";
+
+const EMULATORS_USAGE: &str = "\
+frus emulators — the emulators that can be started, starting one, making one
+
+Usage:
+  frus emulators                          list them
+  frus emulators --launch <id> [--cold]   start one (--cold: without its saved state)
+  frus emulators --create [--name <name>] make an Android emulator, installing what it
+                                          needs (a system image if none is there)
 ";
 
 const DOCTOR_USAGE: &str = "\
@@ -157,6 +171,9 @@ enum Command {
     Daemon,
     Doctor(doctor::Options),
     DoctorHelp,
+    Emulators(emulators::Action),
+    EmulatorsHelp,
+    Clean,
     Run(run::RunOptions),
     Build(build::Target, cargo::Mode),
 }
@@ -197,6 +214,12 @@ fn main() -> ExitCode {
         Ok(Command::Run(options)) => outcome(run::run(&options)),
         Ok(Command::Daemon) => outcome(daemon::daemon()),
         Ok(Command::Doctor(options)) => doctor::doctor(options),
+        Ok(Command::Emulators(action)) => outcome(emulators::emulators(action)),
+        Ok(Command::Clean) => outcome(clean::clean()),
+        Ok(Command::EmulatorsHelp) => {
+            print!("{EMULATORS_USAGE}");
+            ExitCode::SUCCESS
+        }
         Ok(Command::DoctorHelp) => {
             print!("{DOCTOR_USAGE}");
             ExitCode::SUCCESS
@@ -233,6 +256,7 @@ fn parse(args: Vec<OsString>) -> Result<Command, String> {
             Some("build") => Ok(Command::BuildHelp),
             Some("devices") => Ok(Command::DevicesHelp),
             Some("doctor") => Ok(Command::DoctorHelp),
+            Some("emulators") => Ok(Command::EmulatorsHelp),
             Some(other) => Err(format!("no command `{other}`")),
         },
         Some("-V" | "--version" | "version") => Ok(Command::Version),
@@ -245,8 +269,54 @@ fn parse(args: Vec<OsString>) -> Result<Command, String> {
         Some("run") => parse_run(args),
         Some("daemon") => Ok(Command::Daemon),
         Some("doctor") => parse_doctor(args),
+        Some("emulators") => parse_emulators(args),
+        Some("clean") => match args.next().as_ref().and_then(|a| a.to_str()) {
+            None => Ok(Command::Clean),
+            Some(other) => Err(format!("frus clean takes no `{other}`")),
+        },
         Some("build") => parse_build(args),
         _ => Err(format!("no command `{}`", command.to_string_lossy())),
+    }
+}
+
+fn parse_emulators(args: impl Iterator<Item = OsString>) -> Result<Command, String> {
+    let mut args = args.peekable();
+    let mut launch = None;
+    let mut cold = false;
+    let mut create = false;
+    let mut name = None;
+    while let Some(arg) = args.next() {
+        let text = arg.to_string_lossy().into_owned();
+        let (flag, inline) = match text.split_once('=') {
+            Some((flag, value)) if flag.starts_with("--") => {
+                (flag.to_string(), Some(value.to_string()))
+            }
+            _ => (text.clone(), None),
+        };
+        let mut value = |flag: &str| match &inline {
+            Some(value) => Ok(value.clone()),
+            None => args
+                .next()
+                .and_then(|v| v.into_string().ok())
+                .ok_or_else(|| format!("{flag} needs a value")),
+        };
+        match flag.as_str() {
+            "--launch" => set_once(&mut launch, value("--launch")?, "--launch")?,
+            "--cold" if inline.is_none() => cold = true,
+            "--create" if inline.is_none() => create = true,
+            "--name" => set_once(&mut name, value("--name")?, "--name")?,
+            "-h" | "--help" => return Ok(Command::EmulatorsHelp),
+            _ => return Err(format!("frus emulators has no option `{text}`")),
+        }
+    }
+    match (launch, create) {
+        (Some(_), true) => Err("--launch and --create: one at a time".into()),
+        (Some(id), false) => Ok(Command::Emulators(emulators::Action::Launch { id, cold })),
+        (None, true) => Ok(Command::Emulators(emulators::Action::Create { name })),
+        (None, false) if name.is_some() || cold => {
+            Err("--name goes with --create, --cold with --launch".into())
+        }
+        (None, false) => Ok(Command::Emulators(emulators::Action::List)),
     }
 }
 
@@ -575,6 +645,34 @@ mod tests {
         assert!(error("build").contains("needs a target"));
         assert!(error("build apk web").contains("given twice"));
         assert!(error("build ios").contains("not `ios`"));
+    }
+
+    #[test]
+    fn emulators_and_clean_are_read() {
+        use emulators::Action;
+        assert_eq!(
+            parse(args("emulators")),
+            Ok(Command::Emulators(Action::List))
+        );
+        assert_eq!(
+            parse(args("emulators --launch pixel_7 --cold")),
+            Ok(Command::Emulators(Action::Launch {
+                id: "pixel_7".into(),
+                cold: true
+            }))
+        );
+        assert_eq!(
+            parse(args("emulators --create --name=mine")),
+            Ok(Command::Emulators(Action::Create {
+                name: Some("mine".into())
+            }))
+        );
+        assert!(parse(args("emulators --launch a --create")).is_err());
+        assert!(parse(args("emulators --name x")).is_err());
+        assert_eq!(parse(args("emulators --help")), Ok(Command::EmulatorsHelp));
+        assert_eq!(parse(args("help emulators")), Ok(Command::EmulatorsHelp));
+        assert_eq!(parse(args("clean")), Ok(Command::Clean));
+        assert!(parse(args("clean --all")).is_err());
     }
 
     #[test]

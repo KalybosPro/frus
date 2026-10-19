@@ -167,6 +167,25 @@ frus build desktop    # the program for this computer
 
 Release by default; `--debug` for a debug build.
 
+## Emulators: `frus emulators`
+
+```text
+frus emulators                          the emulators that can be started
+frus emulators --launch <id> [--cold]   start one (--cold: without its saved state)
+frus emulators --create [--name <name>] make an Android emulator
+```
+
+`--create` installs what it needs first: the emulator, and a system image if none is
+installed (the newest installed one is used otherwise). A started emulator shows in `frus
+devices` once it is up, and `frus run -d <its id>` runs on it.
+
+## Starting over: `frus clean`
+
+`frus clean` deletes the application's builds. When its build folder is its own (`target/`),
+all of it; when the folder is shared with other projects (`CARGO_TARGET_DIR`, a workspace), only
+this application's builds, for each platform, and the other projects' are left alone. The web
+build's generated `web/pkg` and `frus run --hot`'s shadow package go too.
+
 ## Checking the machine: `frus doctor`
 
 ```text

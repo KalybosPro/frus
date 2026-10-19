@@ -115,7 +115,7 @@ fn param(command: &Value, name: &str) -> Option<String> {
 }
 
 /// The emulators that can be started: every Android AVD, and the iOS simulators on a Mac.
-fn emulators() -> Vec<Value> {
+pub(crate) fn emulators() -> Vec<Value> {
     let mut found = Vec::new();
     if let Some(emulator) = devices::emulator() {
         if let Ok(output) = std::process::Command::new(emulator)
@@ -145,7 +145,7 @@ fn emulator_json(id: &str, name: &str, platform: &str) -> Value {
 }
 
 /// Starts an emulator and answers at once: it shows up as `device.added` when it is up.
-fn launch_emulator(id: Option<String>, cold: bool) -> Result<Value, String> {
+pub(crate) fn launch_emulator(id: Option<String>, cold: bool) -> Result<Value, String> {
     let id = id.ok_or("emulatorId is missing")?;
     let known = emulators();
     let found = known
@@ -184,7 +184,7 @@ fn launch_emulator(id: Option<String>, cold: bool) -> Result<Value, String> {
 
 /// `emulator.create`, answered as the reference's daemon does: never an error, a result saying
 /// whether it worked.
-fn create_emulator(name: Option<&str>) -> Value {
+pub(crate) fn create_emulator(name: Option<&str>) -> Value {
     let taken: Vec<String> = emulators()
         .iter()
         .filter_map(|e| e.get("id").and_then(Value::as_str).map(str::to_string))
