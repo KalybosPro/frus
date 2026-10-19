@@ -21,6 +21,8 @@ const LOG_PATH: &str = "/__frus/log";
 const BUILD_PATH: &str = "/__frus/build";
 /// Where the page asks what the keys of `frus run` asked of it since it last asked.
 const COMMANDS_PATH: &str = "/__frus/commands";
+/// Where the page sends its picture, as a `data:image/png;base64,…` URL (`s`, milestone 675).
+const SCREENSHOT_PATH: &str = "/__frus/screenshot";
 
 /// The script added to the page. Each message goes out as soon as it is written, in order.
 const CONSOLE_BRIDGE: &str = r#"<script>(() => {
@@ -56,6 +58,9 @@ const CONSOLE_BRIDGE: &str = r#"<script>(() => {
       }
     })
     .catch(() => {}), 1000);
+  // The page's picture, which the application reads from its canvas on `s`.
+  window.__frusScreenshot = (data) =>
+    fetch('/__frus/screenshot', { method: 'POST', body: data }).catch(() => {});
   // What the keys of `frus run` ask: the inspector, debug paint, a tree printed… The shell
   // defines `__frusCommand` once the application has started.
   setInterval(() => fetch('/__frus/commands', { cache: 'no-store' })
@@ -71,6 +76,8 @@ pub(crate) struct Server {
     build: Arc<AtomicU64>,
     fresh: Arc<AtomicBool>,
     commands: Arc<Mutex<Vec<String>>>,
+    /// Where the next picture the page sends is written.
+    screenshot_to: Arc<Mutex<Option<PathBuf>>>,
 }
 
 impl Server {
@@ -79,6 +86,13 @@ impl Server {
     pub(crate) fn rebuilt(&self, fresh: bool) {
         self.fresh.store(fresh, Ordering::SeqCst);
         self.build.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// The next picture the page sends is written to `path`.
+    pub(crate) fn expect_screenshot(&self, path: PathBuf) {
+        if let Ok(mut slot) = self.screenshot_to.lock() {
+            *slot = Some(path);
+        }
     }
 
     /// A command for the page, which it picks up the next time it asks (within a moment).
@@ -101,7 +115,9 @@ pub(crate) fn start(dir: PathBuf, port: u16) -> Result<Server, String> {
     let build = Arc::new(AtomicU64::new(0));
     let fresh = Arc::new(AtomicBool::new(false));
     let commands = Arc::new(Mutex::new(Vec::new()));
+    let screenshot_to = Arc::new(Mutex::new(None));
     let (served, served_fresh, queued) = (build.clone(), fresh.clone(), commands.clone());
+    let shots = screenshot_to.clone();
     std::thread::spawn(move || {
         for stream in listener.incoming().map_while(Result::ok) {
             let dir = dir.clone();
@@ -110,8 +126,9 @@ pub(crate) fn start(dir: PathBuf, port: u16) -> Result<Server, String> {
                 n => n.to_string(),
             };
             let queued = queued.clone();
+            let shots = shots.clone();
             std::thread::spawn(move || {
-                let _ = handle(stream, &dir, &build, &queued);
+                let _ = handle(stream, &dir, &build, &queued, &shots);
             });
         }
     });
@@ -120,6 +137,7 @@ pub(crate) fn start(dir: PathBuf, port: u16) -> Result<Server, String> {
         build,
         fresh,
         commands,
+        screenshot_to,
     })
 }
 
@@ -129,6 +147,7 @@ fn handle(
     dir: &Path,
     build: &str,
     commands: &Mutex<Vec<String>>,
+    screenshot_to: &Mutex<Option<PathBuf>>,
 ) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
@@ -154,6 +173,19 @@ fn handle(
         let mut body = vec![0; length.min(1 << 20)];
         reader.read_exact(&mut body)?;
         print_console(query_value(query, "level"), &String::from_utf8_lossy(&body));
+        return respond(&mut stream, "204 No Content", "text/plain", b"");
+    }
+    if method == "POST" && path == SCREENSHOT_PATH {
+        // A picture of a large window is a few megabytes as base64.
+        let mut body = vec![0; length.min(64 << 20)];
+        reader.read_exact(&mut body)?;
+        let png = String::from_utf8_lossy(&body)
+            .split_once("base64,")
+            .and_then(|(_, data)| decode_base64(data.trim()));
+        let target = screenshot_to.lock().ok().and_then(|mut slot| slot.take());
+        if let (Some(png), Some(target)) = (png, target) {
+            std::fs::write(&target, png)?;
+        }
         return respond(&mut stream, "204 No Content", "text/plain", b"");
     }
     if path == BUILD_PATH {
@@ -187,6 +219,36 @@ fn handle(
         },
         None => respond(&mut stream, "404 Not Found", "text/plain", b"not found"),
     }
+}
+
+/// Standard base64, padding allowed; `None` on anything else.
+pub(crate) fn decode_base64(text: &str) -> Option<Vec<u8>> {
+    let value = |c: u8| -> Option<u32> {
+        Some(match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        } as u32)
+    };
+    let bytes: Vec<u8> = text.bytes().filter(|b| *b != b'=').collect();
+    let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
+    for chunk in bytes.chunks(4) {
+        let mut n = 0u32;
+        for (i, b) in chunk.iter().enumerate() {
+            n |= value(*b)? << (18 - 6 * i);
+        }
+        out.push((n >> 16) as u8);
+        if chunk.len() > 2 {
+            out.push((n >> 8) as u8);
+        }
+        if chunk.len() > 3 {
+            out.push(n as u8);
+        }
+    }
+    Some(out)
 }
 
 fn respond(stream: &mut TcpStream, status: &str, kind: &str, body: &[u8]) -> std::io::Result<()> {
@@ -346,6 +408,16 @@ mod tests {
         );
         assert!(ask("GET /__frus/commands HTTP/1.1\r\n\r\n").ends_with("\r\n\r\n"));
         assert!(page.contains("__frusCommand"), "{page}");
+        // The page's picture, written where the run asked.
+        let shot = dir.join("shot.png");
+        server.expect_screenshot(shot.clone());
+        let body = "data:image/png;base64,iVBORw0KGgo=";
+        let posted = ask(&format!(
+            "POST /__frus/screenshot HTTP/1.1\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        ));
+        assert!(posted.starts_with("HTTP/1.1 204"), "{posted}");
+        assert_eq!(std::fs::read(&shot).unwrap(), b"\x89PNG\r\n\x1a\n");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

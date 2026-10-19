@@ -2920,6 +2920,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         }
                         frus_gpu::RenderOutcome::Skipped => {}
                     }
+                    // The page's picture, read in the task that drew it: a WebGPU canvas keeps
+                    // what was drawn only until the task ends.
+                    #[cfg(web)]
+                    if std::mem::take(&mut self.debug.page_screenshot) {
+                        if let Some(window) = self.window.as_ref() {
+                            crate::web_dev::send_screenshot(window);
+                        }
+                    }
                     if let Some(at) = render_start {
                         self.frame_costs.render = at.elapsed().as_secs_f32() * 1000.0;
                         let timings = renderer.last_timings();
@@ -3155,6 +3163,9 @@ struct DebugAsks {
     /// Where to write the next frame as a PNG (`s`).
     #[cfg_attr(not(desktop), allow(dead_code))]
     screenshot: Option<std::path::PathBuf>,
+    /// The page's next frame to send to `frus run` as a PNG (`s` on the web, milestone 675).
+    #[cfg_attr(not(web), allow(dead_code))]
+    page_screenshot: bool,
 }
 
 /// The order `o` goes through the platforms in.
@@ -3415,7 +3426,11 @@ impl<A: Application> App<A> {
                     {
                         self.debug.screenshot = Some(std::path::PathBuf::from(argument));
                     }
-                    #[cfg(not(desktop))]
+                    #[cfg(web)]
+                    {
+                        self.debug.page_screenshot = true;
+                    }
+                    #[cfg(android)]
                     log::warn!(target: "frus::dev", "the application takes no screenshot of itself here");
                 }
                 _ => {
