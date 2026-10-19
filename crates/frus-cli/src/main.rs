@@ -16,6 +16,7 @@ mod create;
 mod daemon;
 mod devices;
 mod devlink;
+mod doctor;
 mod hot;
 mod json;
 mod keys;
@@ -40,6 +41,7 @@ Usage:
   frus devices                        list what the application can run on
   frus run [options] [-- <args>]      build it, start it on a device, show its log
   frus build <apk|web|desktop>        build what you ship, in release
+  frus doctor [-v] [--fix]            what this machine has for frus, and what it lacks
   frus daemon                         JSON lines for an editor: devices, as they come and go
   frus help [<command>]               print this, or a command's options
   frus --version                      print the version
@@ -70,6 +72,24 @@ Examples:
   frus run --hot
   frus run -d android
   frus run -d edge --release
+";
+
+const DOCTOR_USAGE: &str = "\
+frus doctor — what this machine has for building frus applications, and what it lacks
+
+Usage:
+  frus doctor [options]
+
+Looks at Rust and its targets, what the desktop build needs, the Android SDK and its
+tools, the web build, the hot-reload engine, iOS, VS Code and the devices. Changes
+nothing unless --fix is given.
+
+Options:
+  -v, --verbose            everything that was found, not only what is wrong
+      --fix                install what is missing (Rust targets, the Android SDK and
+                           its tools, cargo-apk, the hot-reload engine)
+      --machine            JSON, for an editor
+  -h, --help               print this
 ";
 
 const BUILD_USAGE: &str = "\
@@ -135,6 +155,8 @@ enum Command {
     Create(Options),
     Devices,
     Daemon,
+    Doctor(doctor::Options),
+    DoctorHelp,
     Run(run::RunOptions),
     Build(build::Target, cargo::Mode),
 }
@@ -174,6 +196,11 @@ fn main() -> ExitCode {
         }
         Ok(Command::Run(options)) => outcome(run::run(&options)),
         Ok(Command::Daemon) => outcome(daemon::daemon()),
+        Ok(Command::Doctor(options)) => doctor::doctor(options),
+        Ok(Command::DoctorHelp) => {
+            print!("{DOCTOR_USAGE}");
+            ExitCode::SUCCESS
+        }
         Ok(Command::Build(target, mode)) => outcome(build::build(target, mode)),
         Ok(Command::Create(options)) => match create::create(&options) {
             Ok(created) => {
@@ -205,6 +232,7 @@ fn parse(args: Vec<OsString>) -> Result<Command, String> {
             Some("run") => Ok(Command::RunHelp),
             Some("build") => Ok(Command::BuildHelp),
             Some("devices") => Ok(Command::DevicesHelp),
+            Some("doctor") => Ok(Command::DoctorHelp),
             Some(other) => Err(format!("no command `{other}`")),
         },
         Some("-V" | "--version" | "version") => Ok(Command::Version),
@@ -216,9 +244,29 @@ fn parse(args: Vec<OsString>) -> Result<Command, String> {
         },
         Some("run") => parse_run(args),
         Some("daemon") => Ok(Command::Daemon),
+        Some("doctor") => parse_doctor(args),
         Some("build") => parse_build(args),
         _ => Err(format!("no command `{}`", command.to_string_lossy())),
     }
+}
+
+fn parse_doctor(args: impl Iterator<Item = OsString>) -> Result<Command, String> {
+    let mut options = doctor::Options::default();
+    for arg in args {
+        match arg.to_str() {
+            Some("-v" | "--verbose") => options.verbose = true,
+            Some("--fix") => options.fix = true,
+            Some("--machine") => options.machine = true,
+            Some("-h" | "--help") => return Ok(Command::DoctorHelp),
+            _ => {
+                return Err(format!(
+                    "frus doctor has no option `{}`",
+                    arg.to_string_lossy()
+                ))
+            }
+        }
+    }
+    Ok(Command::Doctor(options))
 }
 
 fn parse_create(args: impl Iterator<Item = OsString>) -> Result<Command, String> {

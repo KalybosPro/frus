@@ -167,6 +167,35 @@ frus build desktop    # the program for this computer
 
 Release by default; `--debug` for a debug build.
 
+## Checking the machine: `frus doctor`
+
+```text
+frus doctor [-v] [--fix] [--machine]
+```
+
+One line for each part of the toolchain — `[✓]` ready, `[!]` usable but incomplete, `[✗]`
+missing — and under it what is wrong, with what to do:
+
+```text
+[✓] frus (0.4.0)
+[✓] Rust (1.96.1, x86_64-pc-windows-msvc)
+[✓] Desktop (windows)
+[!] Android toolchain (android-36.1)
+    ✗ cargo-apk is not installed: `frus doctor --fix`
+[✓] Web (Edge)
+[✓] Hot reload (frus run --hot)
+[!] iOS
+    ✗ frus cannot run on iOS yet: its shell does not exist (ROADMAP, issue #19)
+[✓] VS Code (1.142.0)
+[✓] Connected devices (3 available)
+```
+
+It looks at Rust and its targets, Visual Studio's C++ tools on Windows, the Android SDK (its
+platform, build-tools, NDK, Java, the Rust target, cargo-apk, the emulator), the web build
+(the wasm target, wasm-bindgen, the browsers), the hot-reload engine, iOS, VS Code and its frus
+extension, and the devices. It changes nothing: `-v` shows everything it found, `--fix`
+installs what is missing (never what it found fine), `--machine` answers in JSON.
+
 ## What is missing is installed
 
 A command does not stop at "install X first": what it needs and does not find, it installs, says

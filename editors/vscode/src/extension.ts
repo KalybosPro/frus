@@ -146,6 +146,17 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       if (chosen) await launch(chosen.id, chosen.name);
     }),
+    // `frus doctor -v` in a terminal of its own: what this machine has, and what it lacks.
+    vscode.commands.registerCommand("frus.runDoctor", async () => {
+      try {
+        const frus = await runnable();
+        vscode.window
+          .createTerminal({ name: "frus doctor", shellPath: frus, shellArgs: ["doctor", "-v"] })
+          .show();
+      } catch (error: any) {
+        vscode.window.showErrorMessage(`frus: ${error.message}`);
+      }
+    }),
     vscode.commands.registerCommand("frus.createEmulator", () =>
       createEmulator(devices, (name) => (awaitedEmulator = name)),
     ),
