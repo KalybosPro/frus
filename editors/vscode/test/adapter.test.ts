@@ -62,6 +62,13 @@ test("launch runs frus run --machine on the device, with its options", () => {
   assert.equal(messages.find((m) => m.command === "launch").success, true);
 });
 
+test("a hot launch asks frus run for hot reload", () => {
+  const spawned: { args?: string[] } = {};
+  const { request } = session(spawned);
+  request("launch", { frus: "frus", cwd: ".", hot: true });
+  assert.deepEqual(spawned.args, ["run", "--machine", "--hot"]);
+});
+
 test("the application's log reaches the Debug Console, errors as errors", async () => {
   const { frus, messages, request } = session();
   request("launch", { frus: "frus", cwd: "." });

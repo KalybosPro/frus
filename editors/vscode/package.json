@@ -235,6 +235,11 @@
                 "description": "A release build.",
                 "default": false
               },
+              "hot": {
+                "type": "boolean",
+                "description": "True hot reload, on the desktop: each saved change is patched into the running application, every state kept (frus run --hot).",
+                "default": false
+              },
               "args": {
                 "type": "array",
                 "items": {

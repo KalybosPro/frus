@@ -41,6 +41,9 @@ device or pass arguments, add a configuration:
 }
 ```
 
+`"hot": true` runs it with true hot reload on the desktop (`frus run --hot`): each save is patched
+into the running application, its state kept.
+
 ## Requirements
 
 The extension drives the `frus` command-line tool (`frus daemon` and `frus run --machine`). If it is

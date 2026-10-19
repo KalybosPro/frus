@@ -20,6 +20,13 @@ any release may break.
   once it is up, creates one, and says which devices the application does not build for; **frus:
   Launch Emulator** and **frus: Create Emulator** are commands of their own.
 
+- **`frus run --hot`** (J670): true hot reload on the desktop. Each saved change is patched into
+  the running application in a few seconds, every state kept. frus installs the patching engine
+  itself the first time (`dx` 0.7.10 with the fix of DioxusLabs/dioxus#5966, into
+  `~/.frus/tools`), and builds the application's library as the program a patch replaces in a
+  shadow package under `target/frus-hot/`, without touching its manifest. The keys work as in a
+  normal run; VS Code takes `"hot": true` in a launch configuration.
+
 - **frus can be hot-patched** (J669): the code of a running application replaced in place, its
   state kept. Behind the `hot-reload` feature, each component's `build` is looked up in the
   patch table by the method itself, the application's library can be compiled as the program

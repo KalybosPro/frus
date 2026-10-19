@@ -51,8 +51,15 @@ The template is built into the program, so `frus create` needs no network. Its f
 
 ```text
 frus devices
-frus run [-d <device>] [--release] [--port <port>] [-- <args for the application>]
+frus run [-d <device>] [--release] [--hot] [--port <port>] [-- <args for the application>]
 ```
+
+**`--hot`** (desktop): true hot reload. The application keeps running, and each change you save is
+compiled into a patch and applied to it in place, with every state where it was, in a few
+seconds. `R` still starts it again afresh. The first run installs the engine (a few minutes,
+once, into `~/.frus/tools`) and builds the application for patching (into `target/frus-hot/`,
+without changing its manifest). A patch cannot change the shape of a state that is alive (a
+field added): `R` for that.
 
 `frus devices` lists this computer, the Android devices `adb` sees (USB debugging on) and the
 emulators that can be started, the iOS simulators on a Mac, the browsers installed here, and a
