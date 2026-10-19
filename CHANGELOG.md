@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 671 so far, each documenting the objective, the alternatives
+> record — one per step, 672 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`frus doctor`** (J672): what the machine has for building frus applications and what it lacks —
+  Rust and its targets, Visual Studio's C++ tools, the Android SDK and its tools, the web build,
+  the hot-reload engine, iOS, VS Code and its extension, the devices — one line each, `-v` for
+  everything, `--fix` to install what is missing, `--machine` for JSON. **frus: Run Doctor** in
+  VS Code.
 
 - **Emulators and more in `frus daemon`** (J671): `emulator.getEmulators`, `emulator.launch`
   and `emulator.create` (which installs a system image if none is there),

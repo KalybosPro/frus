@@ -218,6 +218,9 @@ frus-widgets = { path = "../frus/crates/frus-widgets" }
 
 ## Running on a device (`frus run`)
 
+`frus doctor` says first what this machine has for each platform and what it lacks; `frus doctor
+--fix` installs what is missing.
+
 From an application's directory, the `frus` tool builds it for a device, starts it there, and
 shows its log in the terminal until it ends:
 

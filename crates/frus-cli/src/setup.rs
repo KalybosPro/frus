@@ -356,6 +356,22 @@ pub(crate) fn create_avd(wanted: Option<&str>, taken: &[String]) -> Result<Strin
     }
 }
 
+/// [`newest_version_dir`], for the doctor.
+pub(crate) fn newest_in(dir: &Path) -> Option<PathBuf> {
+    newest_version_dir(dir)
+}
+
+/// A JDK already here, without installing one: `JAVA_HOME`, then frus's own.
+pub(crate) fn find_java() -> Option<PathBuf> {
+    let java_exe = if cfg!(windows) { "java.exe" } else { "java" };
+    if let Some(home) = std::env::var_os("JAVA_HOME").map(PathBuf::from) {
+        if home.join("bin").join(java_exe).is_file() {
+            return Some(home);
+        }
+    }
+    jdk_in(&frus_home().join("jdk"), java_exe)
+}
+
 /// The highest-versioned directory in `dir` (`ndk/27.0.12077973`, `build-tools/35.0.0`).
 fn newest_version_dir(dir: &Path) -> Option<PathBuf> {
     std::fs::read_dir(dir)

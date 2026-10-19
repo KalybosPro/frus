@@ -2,6 +2,8 @@
 
 Run [frus](https://github.com/KalybosPro/frus) applications from VS Code, on any device.
 
+- **frus: Run Doctor** opens `frus doctor -v` in a terminal: what this machine has for each
+  platform, and what it lacks.
 - **A device picker** in the status bar: this computer, the connected phones and emulators, the
   browsers. It follows phones as they are plugged in and out. Below them, the emulators that can
   be started (**Start …**: once up, the emulator is selected) and **Create an Android emulator**,

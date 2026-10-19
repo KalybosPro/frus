@@ -109,6 +109,11 @@
         "command": "frus.createEmulator",
         "title": "Create Emulator",
         "category": "frus"
+      },
+      {
+        "command": "frus.runDoctor",
+        "title": "Run Doctor",
+        "category": "frus"
       }
     ],
     "keybindings": [

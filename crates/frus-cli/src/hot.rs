@@ -26,14 +26,24 @@ use crate::project::Project;
 const ENGINE_REPO: &str = "https://github.com/KalybosPro/dioxus";
 const ENGINE_REV: &str = "7d966a3053ba4eec8c6366718227a4d953670e97";
 
+/// Where the patch engine is installed: `~/.frus/tools/dx-<commit>/`.
+fn engine_root() -> PathBuf {
+    crate::setup::frus_home()
+        .join("tools")
+        .join(format!("dx-{}", &ENGINE_REV[..7]))
+}
+
+/// The patch engine's program, installed or not.
+pub(crate) fn engine_path() -> PathBuf {
+    engine_root()
+        .join("bin")
+        .join(if cfg!(windows) { "dx.exe" } else { "dx" })
+}
+
 /// The patch engine, installed first if it is missing (a few minutes, once).
 pub(crate) fn engine() -> Result<PathBuf, String> {
-    let root = crate::setup::frus_home()
-        .join("tools")
-        .join(format!("dx-{}", &ENGINE_REV[..7]));
-    let exe = root
-        .join("bin")
-        .join(if cfg!(windows) { "dx.exe" } else { "dx" });
+    let root = engine_root();
+    let exe = engine_path();
     if exe.is_file() {
         return Ok(exe);
     }
