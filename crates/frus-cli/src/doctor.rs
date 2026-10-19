@@ -507,10 +507,16 @@ fn hot_reload() -> Check {
              once; so does `frus doctor --fix`)",
         )
     };
+    let mut findings = vec![finding];
+    if !engine.is_file() {
+        if let Some(missing) = crate::hot::missing_build_requirement() {
+            findings.push(Finding::problem(missing));
+        }
+    }
     Check::from(
         "Hot reload (frus run --hot)",
         String::new(),
-        vec![finding],
+        findings,
         false,
     )
 }

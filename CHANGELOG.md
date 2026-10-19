@@ -8,10 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 676 so far, each documenting the objective, the alternatives
+> record — one per step, 677 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **`frus run --hot` on Linux and macOS** (J677): `q` and `R` stop the application with the engine
+  (it led a process group of its own; only the engine was stopped). On Linux, building the engine
+  needs OpenSSL's headers: `frus run --hot` and `frus doctor` say so, with the command that
+  installs them, instead of a failed build.
 
 - **Graphs in the performance panel** (J676): `P` draws the last 90 frames, the interface
   (build, layout, paint) and the drawing (encode, submit, present), each against the budget of a
