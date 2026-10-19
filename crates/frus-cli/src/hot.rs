@@ -608,9 +608,15 @@ resources = "res"
                 .as_str()
             )
         );
+        // A path outside the shadow is left as it is: an absolute one, on each system.
+        let elsewhere = if cfg!(windows) {
+            r"C:\a\src\lib.rs"
+        } else {
+            "/elsewhere/src/lib.rs"
+        };
         assert_eq!(
-            located_error(r"C:\a\src\lib.rs:3:1: error: x", Path::new(r"C:\b"), root).as_deref(),
-            Some(r"C:\a\src\lib.rs:3:1: error: x")
+            located_error(&format!("{elsewhere}:3:1: error: x"), shadow, root),
+            Some(format!("{elsewhere}:3:1: error: x"))
         );
         assert_eq!(
             located_error("src/a.rs:1:2: warning: unused", shadow, root),
