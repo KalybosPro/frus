@@ -121,6 +121,13 @@ impl Renderer {
             log::info!("the emulator's Vulkan driver fails at the first frame: OpenGL ES instead");
             descriptor.backends = wgpu::Backends::GL;
         }
+        // `WGPU_BACKEND` (`vulkan`, `gl`, `dx12`, `metal`, `webgpu`, comma-separated) decides
+        // over all of the above: a device whose driver frus's choice fails on can be given
+        // another backend without rebuilding the application (milestone 686, #217).
+        if let Some(backends) = wgpu::Backends::from_env() {
+            log::info!("GPU backends from WGPU_BACKEND: {backends:?}");
+            descriptor.backends = backends;
+        }
         let instance = wgpu::Instance::new(descriptor);
 
         let surface = instance.create_surface(target)?;

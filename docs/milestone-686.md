@@ -17,6 +17,11 @@ asking a dead device for frames, and the window stayed as it was.
   the desktop and on Android, asynchronously on the web as at the start. The interface is
   rebuilt and drawn again; the application's state is untouched, since it never lived on the
   GPU.
+- **A backend can be forced**: `WGPU_BACKEND` (`vulkan`, `gl`, `dx12`, `metal`, `webgpu`,
+  comma-separated) decides over frus's own choice — the primary backends, the emulator's
+  OpenGL ES — so a device whose driver misbehaves under frus's choice can be given another one
+  without rebuilding the application. frus had been setting the backends itself, and the
+  variable did nothing.
 - **A test hook**: `frus run`'s dev channel takes `lose-gpu`, which destroys the device as a
   driver reset would (`Renderer::lose_device_for_testing`, hidden from the documentation).
 
@@ -25,5 +30,6 @@ asking a dead device for frames, and the window stayed as it was.
 The counter on Windows, its auto-increment running, driven through its `FRUS_DEV` channel by a
 script standing in for `frus run`: `lose-gpu` → `the GPU device was lost (Destroyed)` → `the
 GPU device was lost: drawing again with a new one` → a new adapter; the window, captured before
-and after, was drawn again correctly with the count still going. clippy for `frus-gpu` and
+and after, was drawn again correctly with the count still going. `WGPU_BACKEND=vulkan` and
+`=dx12` each gave that backend on Windows, said in the log. clippy for `frus-gpu` and
 `frus-shell` on Windows, wasm32 and Android.
