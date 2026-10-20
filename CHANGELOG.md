@@ -13,6 +13,11 @@ any release may break.
 
 ## [Unreleased]
 
+- **The pipelines kept between launches** (J685, #217): where the GPU can keep compiled
+  pipelines (Vulkan: Android, Linux), the renderer reads them from the previous launch instead
+  of compiling them again. On the test phone the counter's first frame went from 1.15 s to
+  0.33 s from the second start on.
+
 - **How long the first frame takes** (J683, #211): every application logs, once, when its
   first frame was presented after launch, with where the time went — the window, the GPU's
   adapter, device, pipelines and warm-up, the fonts, the first layout; `frus run` shows it on

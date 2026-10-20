@@ -43,4 +43,6 @@ pub fn draw_calls(scene: &Scene) -> usize {
 // The data types — geometry, colour, scene — come from the shared foundation.
 pub use frus_core::{Color, Rect, Scene};
 pub use offscreen::{render_offscreen, OffscreenFrame};
-pub use renderer::{backdrop, RenderOutcome, RenderTimings, Renderer, StartupTimes};
+pub use renderer::{
+    backdrop, set_pipeline_cache_dir, RenderOutcome, RenderTimings, Renderer, StartupTimes,
+};

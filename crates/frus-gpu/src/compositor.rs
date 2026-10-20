@@ -424,6 +424,7 @@ impl CompositePainter {
         queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
         sample_count: u32,
+        cache: Option<&wgpu::PipelineCache>,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("frus.composite.shader"),
@@ -566,7 +567,7 @@ impl CompositePainter {
                 alpha_to_coverage_enabled: false,
             },
             multiview_mask: None,
-            cache: None,
+            cache,
         });
 
         let pipeline_src = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -600,7 +601,7 @@ impl CompositePainter {
                 alpha_to_coverage_enabled: false,
             },
             multiview_mask: None,
-            cache: None,
+            cache,
         });
 
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -868,19 +869,22 @@ pub(crate) struct Painters {
 }
 
 impl Painters {
+    /// `cache`, where the device keeps compiled pipelines between launches (Vulkan): the
+    /// pipelines are built through it (milestone 685, #217).
     pub(crate) fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
         sample_count: u32,
+        cache: Option<&wgpu::PipelineCache>,
     ) -> Self {
         Self {
-            rect: Painter::new(device, format, sample_count),
-            image: ImagePainter::new(device, format, sample_count),
-            path: PathPainter::new(device, format, sample_count),
+            rect: Painter::new(device, format, sample_count, cache),
+            image: ImagePainter::new(device, format, sample_count, cache),
+            path: PathPainter::new(device, format, sample_count, cache),
             text: TextPainter::new(device, queue, format, sample_count),
-            composite: CompositePainter::new(device, queue, format, sample_count),
-            filter: FilterPainter::new(device, format),
+            composite: CompositePainter::new(device, queue, format, sample_count, cache),
+            filter: FilterPainter::new(device, format, cache),
             sample_count,
             msaa: Vec::new(),
             stage: None,
@@ -1780,7 +1784,7 @@ mod tests {
         };
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
         // sample_count 1: the cache does not depend on MSAA.
-        let mut painters = Painters::new(&device, &queue, format, 1);
+        let mut painters = Painters::new(&device, &queue, format, 1, None);
         let tex = target(&device, format, 16);
         let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
         let clear = Some(wgpu::Color::BLACK);

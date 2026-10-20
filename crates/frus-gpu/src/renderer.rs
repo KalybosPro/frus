@@ -26,6 +26,20 @@ pub fn backdrop() -> frus_core::Color {
     .to_srgb()
 }
 
+/// Where the compiled pipelines are kept between launches, where the device can keep them
+/// (Vulkan): set by the shell — on Android the application's own storage — before the
+/// renderer is made (milestone 685, #217).
+static PIPELINE_CACHE_DIR: std::sync::Mutex<Option<std::path::PathBuf>> =
+    std::sync::Mutex::new(None);
+
+/// Keeps the renderer's compiled pipelines in `dir` between launches, where the device can: the
+/// next start reads them instead of compiling them again (Vulkan; nothing elsewhere).
+pub fn set_pipeline_cache_dir(dir: std::path::PathBuf) {
+    if let Ok(mut slot) = PIPELINE_CACHE_DIR.lock() {
+        *slot = Some(dir);
+    }
+}
+
 /// Holds the GPU state bound to a surface and presents the frames.
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
@@ -164,7 +178,8 @@ impl Renderer {
                 label: Some("frus.device"),
                 // The GPU's own clock where it has one, for the frame statistics
                 // (milestone 612). Nothing is asked of a device that has not.
-                required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+                required_features: adapter.features()
+                    & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::PIPELINE_CACHE),
                 required_limits,
                 memory_hints: wgpu::MemoryHints::Performance,
                 ..Default::default()
@@ -235,11 +250,21 @@ impl Renderer {
         log::info!("MSAA: {sample_count}×");
 
         let pipelines_started = web_time::Instant::now();
-        let mut painters = Painters::new(&device, &queue, render_format, sample_count);
+        let (pipeline_cache, cache_file, cached) = open_pipeline_cache(&adapter, &device);
+        let mut painters = Painters::new(
+            &device,
+            &queue,
+            render_format,
+            sample_count,
+            pipeline_cache.as_ref(),
+        );
         let pipelines = pipelines_started.elapsed();
         // Warms every pipeline before the first real frame, to avoid jank.
         let warm_up_started = web_time::Instant::now();
         painters.warm_up(&device, &queue, render_format);
+        if let (Some(cache), Some(file)) = (pipeline_cache.as_ref(), cache_file.as_ref()) {
+            keep_pipeline_cache(cache, file, cached.as_deref());
+        }
         let startup = StartupTimes {
             adapter: adapter_time,
             device: device_time,
@@ -424,6 +449,66 @@ pub enum RenderOutcome {
     Skipped,
     /// The surface is lost or outdated: call [`Renderer::reconfigure`] before retrying.
     NeedsReconfigure,
+}
+
+/// The device's pipeline cache, filled from the file a previous launch wrote for this adapter
+/// and driver, where the device has one and a folder was given: the cache, its file, and what
+/// was read from it.
+fn open_pipeline_cache(
+    adapter: &wgpu::Adapter,
+    device: &wgpu::Device,
+) -> (
+    Option<wgpu::PipelineCache>,
+    Option<std::path::PathBuf>,
+    Option<Vec<u8>>,
+) {
+    if !device.features().contains(wgpu::Features::PIPELINE_CACHE) {
+        return (None, None, None);
+    }
+    let dir = PIPELINE_CACHE_DIR.lock().ok().and_then(|slot| slot.clone());
+    let Some(file) = dir
+        .zip(wgpu::util::pipeline_cache_key(&adapter.get_info()))
+        .map(|(dir, key)| dir.join(format!("frus-{key}")))
+    else {
+        return (None, None, None);
+    };
+    let cached = std::fs::read(&file).ok();
+    // SAFETY: the data is what `PipelineCache::get_data` gave on a previous launch, kept in a
+    // file named for this adapter and driver; wgpu checks its header against the device, and
+    // `fallback` starts an empty cache when it does not match.
+    let cache = unsafe {
+        device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+            label: Some("frus.pipelines"),
+            data: cached.as_deref(),
+            fallback: true,
+        })
+    };
+    log::info!(
+        "pipeline cache: {}",
+        match &cached {
+            Some(data) => format!("{} KB read from the previous launch", data.len() / 1024),
+            None => "none yet: the pipelines are compiled, and kept for the next launch".into(),
+        }
+    );
+    (Some(cache), Some(file), cached)
+}
+
+/// The cache written back to its file when it holds more than what was read.
+fn keep_pipeline_cache(cache: &wgpu::PipelineCache, file: &std::path::Path, read: Option<&[u8]>) {
+    let Some(data) = cache.get_data() else {
+        return;
+    };
+    if read == Some(data.as_slice()) {
+        return;
+    }
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    // Written aside, then moved over: a launch that stops halfway leaves no half a cache.
+    let partial = file.with_extension("partial");
+    if std::fs::write(&partial, &data).is_ok() {
+        let _ = std::fs::rename(&partial, file);
+    }
 }
 
 /// What making the renderer took, phase by phase (milestone 683, #211): a part of an
