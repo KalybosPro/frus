@@ -13,6 +13,13 @@ any release may break.
 
 ## [Unreleased]
 
+- **The Android emulator** (J681): `frus run` builds the package for the device's processor
+  when the manifest's `build_targets` lack it (an x86_64 emulator ran an arm64 library through
+  translation); no debug names for GPU objects on Android, which the emulator's Vulkan driver
+  crashed on; on the emulator's Vulkan (gfxstream), which crashes at the first frame, OpenGL ES
+  instead, with the limits of a GPU without compute shaders. With the host GPU the emulator still
+  stops at a text shader until wgpu has naga's fix (gfx-rs/wgpu#10229).
+
 - **`frus run --hot` on Android** (J680, #286): each saved change is patched into the
   application running on the device, its state kept. The engine builds the application into an
   Android project of its own, with a plain native activity, installs and starts it; `R` builds

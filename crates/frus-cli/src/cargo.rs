@@ -140,7 +140,15 @@ pub(crate) fn build_web(project: &Project, mode: Mode) -> Result<PathBuf, String
 }
 
 /// The Android package, built with cargo-apk: the path of the `.apk`.
-pub(crate) fn build_apk(project: &Project, mode: Mode) -> Result<PathBuf, String> {
+/// `device_target`, the Rust target of the device the package is for (`frus run`): when the
+/// manifest's `build_targets` do not have it, the package is built for that one alone — an
+/// x86_64 emulator runs an arm64 library only through Android's translation, which some
+/// system images lack and some drivers crash under.
+pub(crate) fn build_apk(
+    project: &Project,
+    mode: Mode,
+    device_target: Option<&str>,
+) -> Result<PathBuf, String> {
     if !project.has_lib {
         return Err(format!(
             "{} has no library: Android loads the application's library (`[lib]` with \
@@ -151,8 +159,14 @@ pub(crate) fn build_apk(project: &Project, mode: Mode) -> Result<PathBuf, String
     // What building for Android needs, installed if it is missing: an SDK with its NDK, the
     // Rust targets the manifest lists, and cargo-apk.
     setup::android_sdk(project.android_target_sdk)?;
-    for target in &project.android_targets {
-        setup::rust_target(target)?;
+    let only = device_target.filter(|target| !project.android_targets.iter().any(|t| t == target));
+    match only {
+        Some(target) => setup::rust_target(target)?,
+        None => {
+            for target in &project.android_targets {
+                setup::rust_target(target)?;
+            }
+        }
     }
     setup::cargo_tool("cargo-apk", "--help", "cargo-apk", None)?;
 
@@ -163,6 +177,9 @@ pub(crate) fn build_apk(project: &Project, mode: Mode) -> Result<PathBuf, String
     command
         .args(["apk", "build", "--lib"])
         .current_dir(&project.root);
+    if let Some(target) = only {
+        command.args(["--target", target]);
+    }
     match mode {
         Mode::Release => {
             command.arg("--release");
