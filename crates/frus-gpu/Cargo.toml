@@ -31,5 +31,7 @@ bytemuck.workspace = true
 lyon.workspace = true
 anyhow.workspace = true
 log.workspace = true
+# A clock on every target, the web's included: the renderer's start-up phases (#211).
+web-time = "1"
 # Blocking wait on device init: offscreen rendering has no async loop.
 pollster.workspace = true

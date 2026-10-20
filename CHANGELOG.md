@@ -18,6 +18,13 @@ any release may break.
   (fetched once). The counter's first frame went from 1.3–2.0 s to 0.6–0.8 s on a Windows
   laptop; without the DLLs a program still runs, with Windows' own compiler.
 
+- **How long the first frame takes** (J683, #211): every application logs, once, when its
+  first frame was presented after launch, with where the time went — the window, the GPU's
+  adapter, device, pipelines and warm-up, the fonts, the first layout; `frus run` shows it on
+  every platform. The web bundle has a size budget in CI, as the Android library has. On a
+  Windows laptop the counter shows its first frame in about one second, three quarters of it
+  building pipelines (#217).
+
 - **The web's colours** (J682, #234): every colour was drawn darker in a browser — the linear
   values the shaders write, shown as if encoded, since a WebGPU canvas offers no sRGB format.
   The frames are drawn through the canvas's sRGB view, and the hardware encodes them, as on the

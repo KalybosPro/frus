@@ -1497,6 +1497,7 @@ dependencies = [
  "log",
  "lyon",
  "pollster",
+ "web-time",
  "wgpu",
 ]
 
@@ -1550,6 +1551,7 @@ dependencies = [
  "env_logger",
  "frus-gpu",
  "frus-image",
+ "frus-text",
  "frus-widgets",
  "futures-lite",
  "jni 0.21.1",
@@ -1586,6 +1588,7 @@ dependencies = [
  "frus-core",
  "log",
  "sys-locale",
+ "web-time",
 ]
 
 [[package]]

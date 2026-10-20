@@ -36,6 +36,8 @@ pub struct Renderer {
     /// (a view of the same image) when the surface offers none, as a WebGPU canvas (#234).
     render_format: wgpu::TextureFormat,
     painters: Painters,
+    /// What making it took, phase by phase.
+    startup: StartupTimes,
     /// Where the last frame's rendering spent its time.
     timings: RenderTimings,
     /// The GPU's own timing of each frame, where the device has a clock (milestone 612).
@@ -91,6 +93,7 @@ impl Renderer {
         if see_through && !cfg!(windows) {
             anyhow::bail!("a see-through window is composed by DirectComposition, on Windows");
         }
+        let started = web_time::Instant::now();
         let mut descriptor = wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -177,6 +180,8 @@ impl Renderer {
         };
         let required_limits = downlevel.using_resolution(adapter.limits());
 
+        let adapter_time = started.elapsed();
+        let device_started = web_time::Instant::now();
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("frus.device"),
@@ -188,6 +193,7 @@ impl Renderer {
                 ..Default::default()
             })
             .await?;
+        let device_time = device_started.elapsed();
 
         let caps = surface.get_capabilities(&adapter);
         let alpha_mode = if see_through {
@@ -251,9 +257,18 @@ impl Renderer {
         let sample_count = preferred_sample_count(&adapter, render_format);
         log::info!("MSAA: {sample_count}×");
 
+        let pipelines_started = web_time::Instant::now();
         let mut painters = Painters::new(&device, &queue, render_format, sample_count);
+        let pipelines = pipelines_started.elapsed();
         // Warms every pipeline before the first real frame, to avoid jank.
+        let warm_up_started = web_time::Instant::now();
         painters.warm_up(&device, &queue, render_format);
+        let startup = StartupTimes {
+            adapter: adapter_time,
+            device: device_time,
+            pipelines,
+            warm_up: warm_up_started.elapsed(),
+        };
 
         let gpu_timer = crate::gpu_timer::GpuTimer::new(&device, &queue);
         log::info!(
@@ -272,9 +287,15 @@ impl Renderer {
             render_format,
             gpu_timer,
             painters,
+            startup,
             timings: RenderTimings::default(),
             see_through,
         })
+    }
+
+    /// What making this renderer took, phase by phase (#211).
+    pub fn startup_times(&self) -> StartupTimes {
+        self.startup
     }
 
     /// Reconfigures the surface after the window is resized. The painters' viewports
@@ -426,4 +447,18 @@ pub enum RenderOutcome {
     Skipped,
     /// The surface is lost or outdated: call [`Renderer::reconfigure`] before retrying.
     NeedsReconfigure,
+}
+
+/// What making the renderer took, phase by phase (milestone 683, #211): a part of an
+/// application's time to its first frame. See [`Renderer::startup_times`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct StartupTimes {
+    /// The GPU instance, the surface and the adapter.
+    pub adapter: std::time::Duration,
+    /// The device and its queue.
+    pub device: std::time::Duration,
+    /// The pipelines and resources every frame draws with.
+    pub pipelines: std::time::Duration,
+    /// A frame drawn before the first real one, which builds what drivers build lazily.
+    pub warm_up: std::time::Duration,
 }
