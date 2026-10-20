@@ -54,7 +54,7 @@ frus devices
 frus run [-d <device>] [--release] [--hot] [--port <port>] [-- <args for the application>]
 ```
 
-**`--hot`** (desktop and web): true hot reload. The application keeps running, and each change you save is
+**`--hot`** (desktop, web and Android): true hot reload. The application keeps running, and each change you save is
 compiled into a patch and applied to it in place, with every state where it was, in a few
 seconds. `R` still starts it again afresh. The first run installs the engine (a few minutes,
 once, into `~/.frus/tools`) and builds the application for patching (into `target/frus-hot/`,
@@ -65,6 +65,15 @@ On the web (`frus run --hot -d web`), the page is served by `frus run` as withou
 module built by the engine; each patch is linked into the running page, which does not reload.
 The first patch of a run takes longer (half a minute on a debug build), the next ones a few
 seconds. A page that is reloaded gets the latest patch again as it starts.
+
+On Android (`frus run --hot -d <device>`), the engine builds the application into an Android
+project of its own (a plain native activity, so nothing about the application changes), installs
+it and starts it; each patch is pushed to the device and loaded into the running application.
+The first build is long — the whole application and the Android project, a quarter of an hour
+on a modest machine — and its package is large, for it keeps every symbol a patch may need.
+Patches then take ten to twenty-five seconds. `R` builds again, installs and starts afresh (a
+minute or two). The package installed by `frus run` without `--hot` is removed first: Android
+will not replace it with the engine's (its data on the device goes with it).
 
 On Linux, building the engine needs OpenSSL's headers (`sudo apt install pkg-config
 libssl-dev`); `frus doctor` says whether they are there.

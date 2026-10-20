@@ -142,11 +142,15 @@ macro_rules! __hot_main {
     };
 }
 
-/// On the web, the program a patch replaces is a binary too, which must have a `main`; the
-/// application still starts from its `#[wasm_bindgen(start)]` function.
+/// On the web and on Android, the program a patch replaces is a binary too, which must have a
+/// `main`; the application still starts from its `#[wasm_bindgen(start)]` function, or from
+/// `android_main` on Android (milestone 680).
 #[doc(hidden)]
 #[macro_export]
-#[cfg(all(feature = "hot-reload", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "hot-reload",
+    any(target_arch = "wasm32", target_os = "android")
+))]
 macro_rules! __hot_main {
     () => {
         #[allow(dead_code)]
@@ -157,7 +161,7 @@ macro_rules! __hot_main {
 /// Without the `hot-reload` feature, nothing.
 #[doc(hidden)]
 #[macro_export]
-#[cfg(not(all(feature = "hot-reload", not(target_os = "android"))))]
+#[cfg(not(feature = "hot-reload"))]
 macro_rules! __hot_main {
     () => {};
 }

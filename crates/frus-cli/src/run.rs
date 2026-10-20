@@ -187,7 +187,11 @@ fn run_session(options: &RunOptions) -> Result<ExitCode, String> {
     }
     let hot_here = matches!(
         device.kind,
-        Kind::Host | Kind::Browser { .. } | Kind::WebServer
+        Kind::Host
+            | Kind::Browser { .. }
+            | Kind::WebServer
+            | Kind::Android { .. }
+            | Kind::Emulator { .. }
     );
     if options.hot && !hot_here {
         return Err(format!(
@@ -199,10 +203,17 @@ fn run_session(options: &RunOptions) -> Result<ExitCode, String> {
     let result = match &device.kind {
         Kind::Host if options.hot => run_hot(&project, options),
         Kind::Host => run_desktop(&project, options),
+        Kind::Android { serial } if options.hot => {
+            run_android_hot(&project, &device, serial, options)
+        }
         Kind::Android { serial } => run_android(&project, &device, serial, options.mode),
         Kind::Emulator { avd } => {
             let serial = start_emulator(avd)?;
-            run_android(&project, &device, &serial, options.mode)
+            if options.hot {
+                run_android_hot(&project, &device, &serial, options)
+            } else {
+                run_android(&project, &device, &serial, options.mode)
+            }
         }
         Kind::IosSimulator { .. } => Err(format!(
             "{} is an iOS simulator, and frus cannot run on iOS yet: the iOS shell does not \
@@ -750,38 +761,7 @@ fn run_android(
         cargo::run(start.stdout(Stdio::null()))
     };
 
-    // The log from this moment on, read before the application starts so its first lines are
-    // there: its own tag (the library's name), and Rust's panics. It goes on across restarts.
-    let since = adb_on(&["shell", "date +'%m-%d %H:%M:%S.000'"])
-        .output()
-        .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|date| !date.is_empty());
-    let mut logcat = adb_on(&["logcat", "-v", "brief"]);
-    if let Some(since) = &since {
-        // `adb logcat` passes its arguments through as they are, unlike `adb shell`.
-        logcat.args(["-T", since]);
-    }
-    let mut logcat = logcat
-        .args([
-            &format!("{}:V", project.lib),
-            "RustPanic:V",
-            "RustStdoutStderr:V",
-            "*:S",
-        ])
-        .stdout(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("could not read the device's log: {e}"))?;
-    if let Some(stdout) = logcat.stdout.take() {
-        let report = link.shared();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                if !DevLink::from_log(&report, &line) {
-                    print_logcat(&line);
-                }
-            }
-        });
-    }
+    let mut logcat = follow_android_log(&adb, serial, project, &link)?;
 
     install(None)?;
     let keys = attach(&format!(
@@ -817,39 +797,8 @@ fn run_android(
             }
             Some(Action::Clear) => clear_screen(),
             Some(Action::Missing(why)) => report::say(why),
-            // Nothing reaches a running application from outside but its own storage, which a
-            // debuggable package lets `run-as` write.
-            Some(Action::App(command)) => {
-                let write = format!(
-                    "run-as {package} sh -c {}",
-                    shell_quote(&format!(
-                        "echo {} >> files/frus-run-commands",
-                        shell_quote(command)
-                    ))
-                );
-                let done = adb_on(&["shell", &write]).output();
-                let refused = done.as_ref().map_or(true, |out| {
-                    !out.status.success() || !String::from_utf8_lossy(&out.stderr).trim().is_empty()
-                });
-                if refused {
-                    report::warn(
-                        "the application could not be told: only a debug build can be (run \
-                         without --release)",
-                    );
-                }
-            }
-            Some(Action::Screenshot) => {
-                let path = screenshot_path(&project.root);
-                match adb_on(&["exec-out", "screencap", "-p"]).output() {
-                    Ok(out) if out.status.success() && out.stdout.starts_with(b"\x89PNG") => {
-                        match std::fs::write(&path, &out.stdout) {
-                            Ok(()) => report_screenshot(&path, Duration::from_secs(1)),
-                            Err(error) => report::warn(&format!("{}: {error}", path.display())),
-                        }
-                    }
-                    _ => report::warn("the device took no screenshot"),
-                }
-            }
+            Some(Action::App(command)) => send_android_command(&adb, serial, package, command),
+            Some(Action::Screenshot) => android_screenshot(&adb, serial, project),
             Some(action @ (Action::Restart | Action::Reload)) => {
                 restarting(action, link.report().location.as_deref());
                 let started = Instant::now();
@@ -897,6 +846,314 @@ pub(crate) fn android_rust_target(abi: &str) -> Option<String> {
         _ => return None,
     };
     Some(target.to_string())
+}
+
+/// The device's log from this moment on, read before the application starts so its first lines
+/// are there: its own tag (the library's name), and Rust's panics. It goes on across restarts.
+fn follow_android_log(
+    adb: &Path,
+    serial: &str,
+    project: &Project,
+    link: &DevLink,
+) -> Result<Child, String> {
+    let since = Command::new(adb)
+        .args(["-s", serial, "shell", "date +'%m-%d %H:%M:%S.000'"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|date| !date.is_empty());
+    let mut logcat = Command::new(adb);
+    logcat.args(["-s", serial, "logcat", "-v", "brief"]);
+    if let Some(since) = &since {
+        // `adb logcat` passes its arguments through as they are, unlike `adb shell`.
+        logcat.args(["-T", since]);
+    }
+    let mut logcat = logcat
+        .args([
+            &format!("{}:V", project.lib),
+            "RustPanic:V",
+            "RustStdoutStderr:V",
+            "*:S",
+        ])
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not read the device's log: {e}"))?;
+    if let Some(stdout) = logcat.stdout.take() {
+        let report = link.shared();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if !DevLink::from_log(&report, &line) {
+                    print_logcat(&line);
+                }
+            }
+        });
+    }
+    Ok(logcat)
+}
+
+// --- Android, hot ---
+
+/// `frus run --hot` on an Android device (milestone 680): the engine builds the application
+/// into an Android project of its own, installs and starts it, and pushes a patch library to the
+/// device for each saved change, which the running application loads, its state kept. The
+/// application's log, the keys and screenshots go as under `frus run` without `--hot`.
+fn run_android_hot(
+    project: &Project,
+    device: &Device,
+    serial: &str,
+    options: &RunOptions,
+) -> Result<ExitCode, String> {
+    let adb = devices::adb().ok_or("adb was not found: install Android's platform-tools")?;
+    let adb_on = |args: &[&str]| {
+        let mut command = Command::new(&adb);
+        command.arg("-s").arg(serial).args(args);
+        command
+    };
+    let package = &project.android_package;
+    // What the engine's build needs and the machine may lack: the Rust targets, the SDK and the
+    // NDK, and a JDK for its Gradle project.
+    for target in &project.android_targets {
+        crate::setup::rust_target(target)?;
+    }
+    let sdk = crate::setup::android_sdk(project.android_target_sdk)?;
+    let java = crate::setup::java()?;
+    let engine = crate::hot::engine()?;
+    let shadow = crate::hot::shadow(project)?;
+    crate::hot::android_project_files(&shadow, package, &project.root.join("res"))?;
+    let mirror = mirror_sources(project, &shadow)?;
+    let link = DevLink::open()?;
+    let target = project.target_dir()?.join("frus-hot").join("target");
+    // The engine's server, which the application reaches through `adb reverse` on this port.
+    let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .and_then(|listener| listener.local_addr())
+        .map(|address| address.port())
+        .map_err(|e| format!("could not find a free port for the hot-reload engine: {e}"))?;
+    let (lines_in, lines) = std::sync::mpsc::channel::<crate::hot::DxLine>();
+    let port_text = port.to_string();
+    let start = || -> Result<Child, String> {
+        crate::hot::clear_dependency_archives(&target);
+        let mut command = Command::new(&engine);
+        command
+            .args([
+                "serve",
+                "--android",
+                "--hot-patch",
+                "--bin",
+                &project.lib,
+                "--features",
+                "frus/hot-reload",
+                "--interactive",
+                "false",
+                "--open",
+                "true",
+                "--device",
+                serial,
+                "--port",
+                &port_text,
+            ])
+            .args(options.mode.eq(&Mode::Release).then_some("--release"))
+            .current_dir(&shadow)
+            .env("CARGO_TARGET_DIR", &target)
+            .env("ANDROID_HOME", &sdk)
+            .env("JAVA_HOME", &java);
+        if let Some(ndk) = std::env::var_os("ANDROID_NDK_ROOT") {
+            command.env("NDK_HOME", ndk);
+        }
+        spawn_engine(&mut command, &lines_in)
+    };
+
+    // The engine's package says version 1; Android refuses it over the one `frus run` installs
+    // without `--hot`, whose version comes from the manifest's. That one goes first.
+    let dumped = adb_on(&["shell", "dumpsys", "package", package])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    if installed_version_code(&dumped).is_some_and(|code| code > 1) {
+        report::say(&format!(
+            "Removing {package} from {}: the hot-reload build cannot replace the one installed \
+             without --hot (its data on the device goes with it).",
+            device.name
+        ));
+        let _ = adb_on(&["uninstall", package]).output();
+    }
+    report::say(&format!(
+        "Building for hot reload on {} (the first build takes long: the whole application, and \
+         an Android project)…",
+        device.name
+    ));
+    let mut logcat = follow_android_log(&adb, serial, project, &link)?;
+    let mut dx = start()?;
+    let alive = || {
+        adb_on(&["shell", "pidof", package])
+            .output()
+            .is_ok_and(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
+    };
+    let mut keys: Option<Receiver<char>> = None;
+    let mut launched_at: Option<std::time::SystemTime> = None;
+    let mut retouched = false;
+    // After `R`: when the engine was started again, until the application runs again.
+    let mut restarting: Option<Instant> = None;
+    let mut watch = Watch::default();
+    let mut next_check = Instant::now();
+    let end =
+        loop {
+            while let Ok(line) = lines.try_recv() {
+                use crate::hot::DxLine;
+                match line {
+                    // The engine installs and starts the package after this; the keys come once
+                    // the application runs.
+                    DxLine::Launched => {
+                        launched_at.get_or_insert_with(std::time::SystemTime::now);
+                    }
+                    DxLine::Patched { file, millis } => {
+                        let seconds = millis as f64 / 1000.0;
+                        if report::is_machine() {
+                            report::event(
+                                "app.restarted",
+                                object([
+                                    ("fullRestart", false.into()),
+                                    ("seconds", seconds.into()),
+                                ]),
+                            );
+                        } else {
+                            report::say(&format!("Patched {file} in {seconds:.1} s."));
+                        }
+                    }
+                    DxLine::Failed(why) => {
+                        report::warn(&why);
+                        locate_errors(project, &shadow, &target);
+                    }
+                    // The application's log is read from the device (above), not from the engine.
+                    DxLine::App(..) | DxLine::Exited | DxLine::Noise => {}
+                }
+            }
+            if let Some(at) = launched_at.filter(|_| !retouched) {
+                if at.elapsed().unwrap_or_default() > Duration::from_secs(8) {
+                    retouched = true;
+                    if let Ok(mirror) = mirror.lock() {
+                        let _ = mirror.retouch_since(at);
+                    }
+                }
+            }
+            if let Some(status) = dx.try_wait().map_err(|e| e.to_string())? {
+                report::warn(&format!("the hot-reload engine stopped ({status})"));
+                break ExitCode::FAILURE;
+            }
+            if launched_at.is_some() && Instant::now() >= next_check {
+                next_check = Instant::now() + Duration::from_secs(1);
+                let running = alive();
+                if running && keys.is_none() {
+                    keys = Some(attach(&format!(
+                        "{} is running on {} with hot reload: save a file and the change is \
+                     patched into it, its state kept",
+                        project.package, device.name
+                    )));
+                }
+                if running {
+                    if let Some(started) = restarting.take() {
+                        restarted(Action::Restart, started, "");
+                    }
+                }
+                // While the engine installs the new build, the application is not there.
+                if keys.is_some() && restarting.is_none() && watch.gone(running) {
+                    report::say(&format!("{} has stopped.", project.package));
+                    break ExitCode::SUCCESS;
+                }
+            }
+            let Some(keys) = keys.as_ref() else {
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            };
+            match next_action(keys, Duration::from_millis(100)) {
+            Some(Action::Quit) => {
+                let _ = adb_on(&["shell", "am", "force-stop", package]).output();
+                break ExitCode::SUCCESS;
+            }
+            Some(Action::Help) => report::say(KEYS),
+            Some(Action::Reload) => report::say(
+                "With --hot, saving a file patches it in: there is nothing to press. `R` starts \
+                 the application again, every state afresh.",
+            ),
+            // A patch is linked against the process the engine started: a process started
+            // again by hand cannot take one (it crashed). So `R` starts the engine again, which
+            // builds what is saved, installs it and starts it, as on the desktop.
+            Some(Action::Restart) => {
+                report::say("Restarting: building again…");
+                crate::hot::stop(&mut dx);
+                let _ = adb_on(&["shell", "run-as", package, "rm", "-f", "files/frus-run-states"])
+                    .output();
+                let _ = adb_on(&["shell", "am", "force-stop", package]).output();
+                launched_at = None;
+                retouched = false;
+                watch = Watch::default();
+                restarting = Some(Instant::now());
+                dx = start()?;
+            }
+            Some(Action::Detach) => {
+                // The engine alone: the application goes on, without patches.
+                let _ = dx.kill();
+                report::say(&format!("Detached: {} goes on running.", project.package));
+                break ExitCode::SUCCESS;
+            }
+            Some(Action::Clear) => clear_screen(),
+            Some(Action::Missing(why)) => report::say(why),
+            Some(Action::App(command)) => send_android_command(&adb, serial, package, command),
+            Some(Action::Screenshot) => android_screenshot(&adb, serial, project),
+            None => {}
+        }
+        };
+    crate::hot::stop(&mut dx);
+    let _ = logcat.kill();
+    Ok(end)
+}
+
+/// The version code of the package `dumpsys package` describes, if one is installed.
+pub(crate) fn installed_version_code(dumpsys: &str) -> Option<u64> {
+    dumpsys
+        .split_whitespace()
+        .find_map(|word| word.strip_prefix("versionCode="))
+        .and_then(|code| code.parse().ok())
+}
+
+/// A key's command for an Android application under `frus run`: nothing reaches a running
+/// application from outside but its own storage, which a debuggable package lets `run-as` write.
+fn send_android_command(adb: &Path, serial: &str, package: &str, command: &str) {
+    let write = format!(
+        "run-as {package} sh -c {}",
+        shell_quote(&format!(
+            "echo {} >> files/frus-run-commands",
+            shell_quote(command)
+        ))
+    );
+    let done = Command::new(adb)
+        .args(["-s", serial, "shell", &write])
+        .output();
+    let refused = done.as_ref().map_or(true, |out| {
+        !out.status.success() || !String::from_utf8_lossy(&out.stderr).trim().is_empty()
+    });
+    if refused {
+        report::warn(
+            "the application could not be told: only a debug build can be (run without \
+             --release)",
+        );
+    }
+}
+
+/// The device's screen, saved beside the application (`s`).
+fn android_screenshot(adb: &Path, serial: &str, project: &Project) {
+    let path = screenshot_path(&project.root);
+    match Command::new(adb)
+        .args(["-s", serial, "exec-out", "screencap", "-p"])
+        .output()
+    {
+        Ok(out) if out.status.success() && out.stdout.starts_with(b"\x89PNG") => {
+            match std::fs::write(&path, &out.stdout) {
+                Ok(()) => report_screenshot(&path, Duration::from_secs(1)),
+                Err(error) => report::warn(&format!("{}: {error}", path.display())),
+            }
+        }
+        _ => report::warn("the device took no screenshot"),
+    }
 }
 
 /// Whether an application on a device has gone, from one look a second: it has to have been
@@ -1334,6 +1591,15 @@ mod tests {
             Some("aarch64-linux-android")
         );
         assert_eq!(android_rust_target("mips"), None);
+    }
+
+    #[test]
+    fn the_installed_version_code_is_read() {
+        let dumped =
+            "Packages:\n  Package [com.example.counter] (8e1c):\n    versionCode=16777472 \
+                      minSdk=24 targetSdk=34\n    versionName=0.1.0\n";
+        assert_eq!(installed_version_code(dumped), Some(16777472));
+        assert_eq!(installed_version_code("Unable to find package: x"), None);
     }
 
     #[test]
