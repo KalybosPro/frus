@@ -13,6 +13,13 @@ any release may break.
 
 ## [Unreleased]
 
+- **How long the first frame takes** (J683, #211): every application logs, once, when its
+  first frame was presented after launch, with where the time went — the window, the GPU's
+  adapter, device, pipelines and warm-up, the fonts, the first layout; `frus run` shows it on
+  every platform. The web bundle has a size budget in CI, as the Android library has. On a
+  Windows laptop the counter shows its first frame in about one second, three quarters of it
+  building pipelines (#217).
+
 - **The Android emulator** (J681): `frus run` builds the package for the device's processor
   when the manifest's `build_targets` lack it (an x86_64 emulator ran an arm64 library through
   translation); no debug names for GPU objects on Android, which the emulator's Vulkan driver

@@ -341,6 +341,38 @@ jobs:
         run: bash scripts/check-size.sh target/aarch64-linux-android/release/libfrus_hello.so
 
   # ---------------------------------------------------------------------------
+  # The size of the smallest application on the web (milestone 683, #211):
+  # `frus-hello` built with the size-first `web-release` profile, passed through
+  # wasm-bindgen at the lockfile's version, its `_bg.wasm` -- what a page downloads --
+  # measured against ci/web-size-budget.toml. Blocking, as the Android budget is.
+  # ---------------------------------------------------------------------------
+  web-size:
+    name: Size budget (web)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+
+      - name: The lockfile's wasm-bindgen version
+        run: |
+          version="$(sed -n '/^name = "wasm-bindgen"$/{n;s/version = "\(.*\)"/\1/p}' Cargo.lock)"
+          echo "WASM_BINDGEN_VERSION=$version" >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ env.WASM_BINDGEN_VERSION }}
+
+      - name: Build frus-hello (web-release, wasm32)
+        run: |
+          cargo build -p frus-hello --lib --target wasm32-unknown-unknown --profile web-release
+          wasm-bindgen --target web --out-dir target/web-size target/wasm32-unknown-unknown/web-release/frus_hello.wasm
+
+      - name: Compare with the budget
+        run: bash scripts/check-size.sh target/web-size/frus_hello_bg.wasm ci/web-size-budget.toml
+
+  # ---------------------------------------------------------------------------
   # iOS target. `frus-shell` has explicit platform cfg aliases (`desktop` /
   # `android` / `ios` / `web`, see its build.rs) so that iOS does not fall into the
   # desktop branch and inherit arboard, env_logger and AccessKit.

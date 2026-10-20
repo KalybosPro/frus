@@ -1167,7 +1167,7 @@ impl<A: Application> App<A> {
         #[cfg(not(web))]
         frus_widgets::set_task_spawner(|task| crate::runtime::spawn(task).detach());
         #[cfg(web)]
-        frus_widgets::set_task_spawner(|task| wasm_bindgen_futures::spawn_local(task));
+        frus_widgets::set_task_spawner(wasm_bindgen_futures::spawn_local);
         Self {
             app,
             proxy,
@@ -1870,7 +1870,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             attributes = attributes.with_append(true);
         }
         let window = match event_loop.create_window(attributes) {
-            Ok(window) => Arc::new(window),
+            Ok(window) => {
+                crate::startup::window_made();
+                Arc::new(window)
+            }
             Err(err) => {
                 log::error!("failed to create the window: {err}");
                 event_loop.exit();
@@ -1916,6 +1919,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             wasm_bindgen_futures::spawn_local(async move {
                 match Renderer::new(win.clone(), size.width.max(1), size.height.max(1)).await {
                     Ok(r) => {
+                        crate::startup::renderer_made(r.startup_times());
                         *slot.borrow_mut() = Some(r);
                         win.request_redraw();
                     }
@@ -1949,6 +1953,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
             match renderer {
                 Ok(renderer) => {
+                    crate::startup::renderer_made(renderer.startup_times());
                     self.scale = window.scale_factor() as f32;
                     // The accessibility bridge (AccessKit), created while the window is
                     // still hidden, after which we reveal it. Inert with no screen reader.
@@ -2882,6 +2887,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // effects it asked for run. An effect that changed something asks for the
                 // frame that shows it.
                 self.runtime.states.end_frame();
+                crate::startup::laid_out();
                 #[cfg(web)]
                 crate::web_dev::keep(|| self.runtime.states.snapshot());
                 if frus_widgets::rebuild_requested() {
@@ -2927,7 +2933,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 if let Some(renderer) = self.renderer.as_mut() {
                     let render_start = measuring.then(Instant::now);
                     match renderer.render(&scene) {
-                        frus_gpu::RenderOutcome::Presented => {}
+                        frus_gpu::RenderOutcome::Presented => crate::startup::presented(),
                         frus_gpu::RenderOutcome::NeedsReconfigure => {
                             renderer.reconfigure();
                         }

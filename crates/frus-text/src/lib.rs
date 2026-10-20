@@ -737,6 +737,28 @@ fn load_platform_sans(db: &mut cosmic_text::fontdb::Database, dir: &std::path::P
 /// as an empty box (milestone 506). The platform's emoji faces are loaded explicitly —
 /// and its sans too, when nothing else loaded can draw text (milestone 626).
 pub fn new_font_system() -> FontSystem {
+    let started = web_time::Instant::now();
+    let font_system = build_font_system();
+    if let Ok(mut loading) = FONT_LOADING.lock() {
+        loading.0 += started.elapsed();
+        loading.1 += 1;
+    }
+    font_system
+}
+
+/// How long building the font systems took, all together, and how many were built — one for
+/// measuring text, one for drawing it: a part of an application's time to its first frame
+/// (milestone 683, #211). The system's fonts are read for each.
+pub fn font_loading() -> (std::time::Duration, u32) {
+    FONT_LOADING
+        .lock()
+        .map(|loading| *loading)
+        .unwrap_or_default()
+}
+
+static FONT_LOADING: Mutex<(std::time::Duration, u32)> = Mutex::new((std::time::Duration::ZERO, 0));
+
+fn build_font_system() -> FontSystem {
     let mut font_system = FontSystem::new();
     let db = font_system.db_mut();
     #[cfg(target_os = "android")]

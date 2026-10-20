@@ -25,6 +25,10 @@ USED=$(( SIZE * 100 / BUDGET ))
 
 echo "library:    $LIB"
 echo "size:       $SIZE bytes ($COMPRESSED compressed)"
+# What a web server sends when it compresses with brotli, where the tool is there (#211).
+if command -v brotli > /dev/null 2>&1; then
+    echo "brotli:     $(brotli -c -q 11 "$LIB" | wc -c | tr -d '[:space:]') bytes"
+fi
 echo "budget:     $BUDGET bytes ($BUDGET_FILE)"
 echo "used:       $USED% of the budget"
 
