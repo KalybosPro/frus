@@ -17,6 +17,10 @@ any release may break.
   pipelines (Vulkan: Android, Linux), the renderer reads them from the previous launch instead
   of compiling them again. On the test phone the counter's first frame went from 1.15 s to
   0.33 s from the second start on.
+- **A faster start on Windows** (J684, #217): DirectX 12 compiles a program's shaders with DXC
+  when its DLLs are beside the program, which `frus run` and `frus build desktop` now arrange
+  (fetched once). The counter's first frame went from 1.3–2.0 s to 0.6–0.8 s on a Windows
+  laptop; without the DLLs a program still runs, with Windows' own compiler.
 
 - **How long the first frame takes** (J683, #211): every application logs, once, when its
   first frame was presented after launch, with where the time went — the window, the GPU's

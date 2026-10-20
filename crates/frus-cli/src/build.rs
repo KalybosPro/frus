@@ -66,6 +66,18 @@ pub(crate) fn build(target: Target, mode: Mode) -> Result<ExitCode, String> {
         Target::Desktop => {
             let exe = cargo::build_desktop(&project, mode)?;
             println!("\nBuilt {} ({}).", exe.display(), size(&exe));
+            // Shipped beside the program, DXC makes it start about half a second faster on
+            // Windows (milestone 684); without them it uses Windows' own compiler.
+            if cfg!(windows) {
+                if let Some(dir) = exe.parent() {
+                    crate::setup::place_dxc(dir);
+                    println!(
+                        "Beside it: {} — DirectX 12's shader compiler; ship them with the \
+                         program for a faster start.",
+                        crate::setup::DXC_FILES.join(", ")
+                    );
+                }
+            }
         }
     }
     Ok(ExitCode::SUCCESS)
