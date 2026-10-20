@@ -13,6 +13,11 @@ any release may break.
 
 ## [Unreleased]
 
+- **The GPU lost, and found again** (J686, #217): when the GPU device is lost — a driver reset,
+  a GPU removed — the renderer says so (`RenderOutcome::DeviceLost`) and the shell makes a new one
+  on the same window; the application goes on with its state. `frus run`'s channel takes
+  `lose-gpu` to test it.
+
 - **How long the first frame takes** (J683, #211): every application logs, once, when its
   first frame was presented after launch, with where the time went — the window, the GPU's
   adapter, device, pipelines and warm-up, the fonts, the first layout; `frus run` shows it on

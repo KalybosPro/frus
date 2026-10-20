@@ -38,6 +38,8 @@ pub struct Renderer {
     painters: Painters,
     /// What making it took, phase by phase.
     startup: StartupTimes,
+    /// Set by the device when it is lost.
+    lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Where the last frame's rendering spent its time.
     timings: RenderTimings,
     /// The GPU's own timing of each frame, where the device has a clock (milestone 612).
@@ -171,6 +173,16 @@ impl Renderer {
             })
             .await?;
         let device_time = device_started.elapsed();
+        // A lost device — a driver reset, a GPU removed — says so here; the renderer then
+        // answers `DeviceLost`, and its owner makes a new one (milestone 686).
+        let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        {
+            let lost = lost.clone();
+            device.set_device_lost_callback(move |reason, message| {
+                log::warn!("the GPU device was lost ({reason:?}): {message}");
+                lost.store(true, std::sync::atomic::Ordering::SeqCst);
+            });
+        }
 
         let caps = surface.get_capabilities(&adapter);
         let alpha_mode = if see_through {
@@ -265,9 +277,22 @@ impl Renderer {
             gpu_timer,
             painters,
             startup,
+            lost,
             timings: RenderTimings::default(),
             see_through,
         })
+    }
+
+    /// Whether the device is gone: see [`RenderOutcome::DeviceLost`].
+    pub fn is_lost(&self) -> bool {
+        self.lost.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Destroys the device as a driver reset would, for testing what follows: the next
+    /// [`Renderer::render`] says [`RenderOutcome::DeviceLost`].
+    #[doc(hidden)]
+    pub fn lose_device_for_testing(&self) {
+        self.device.destroy();
     }
 
     /// What making this renderer took, phase by phase (#211).
@@ -300,6 +325,11 @@ impl Renderer {
 
     /// Draws the scene — rectangles, images, paths, text, layers — and presents it.
     pub fn render(&mut self, scene: &Scene) -> RenderOutcome {
+        // Without waiting: a lost device is reported when the device is polled (milestone 686).
+        let _ = self.device.poll(wgpu::PollType::Poll);
+        if self.lost.load(std::sync::atomic::Ordering::SeqCst) {
+            return RenderOutcome::DeviceLost;
+        }
         let clock = Clock::start();
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
@@ -424,6 +454,9 @@ pub enum RenderOutcome {
     Skipped,
     /// The surface is lost or outdated: call [`Renderer::reconfigure`] before retrying.
     NeedsReconfigure,
+    /// The GPU device is gone — a driver reset, a GPU removed or restarted: this renderer can
+    /// draw nothing more, and a new one is to be made (milestone 686, #217).
+    DeviceLost,
 }
 
 /// What making the renderer took, phase by phase (milestone 683, #211): a part of an
