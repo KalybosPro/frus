@@ -16,7 +16,8 @@ any release may break.
 - **The GPU lost, and found again** (J686, #217): when the GPU device is lost — a driver reset,
   a GPU removed — the renderer says so (`RenderOutcome::DeviceLost`) and the shell makes a new one
   on the same window; the application goes on with its state. `frus run`'s channel takes
-  `lose-gpu` to test it. `WGPU_BACKEND` now chooses the GPU backend over frus's own choice.
+  `lose-gpu` to test it. `WGPU_BACKEND` now chooses the GPU backend over frus's own choice, and Android and Linux fall
+  back to OpenGL ES where there is no Vulkan driver.
 
 - **How long the first frame takes** (J683, #211): every application logs, once, when its
   first frame was presented after launch, with where the time went — the window, the GPU's

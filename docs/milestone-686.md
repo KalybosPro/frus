@@ -22,6 +22,10 @@ asking a dead device for frames, and the window stayed as it was.
   OpenGL ES — so a device whose driver misbehaves under frus's choice can be given another one
   without rebuilding the application. frus had been setting the backends itself, and the
   variable did nothing.
+- **OpenGL ES where Vulkan is missing**: Android and Linux draw through Vulkan alone; a device
+  without a Vulkan driver got an error instead of a picture. Where no Vulkan adapter is found,
+  as where only the emulator's is (milestone 681), the renderer goes through OpenGL ES, and says
+  why.
 - **A test hook**: `frus run`'s dev channel takes `lose-gpu`, which destroys the device as a
   driver reset would (`Renderer::lose_device_for_testing`, hidden from the documentation).
 

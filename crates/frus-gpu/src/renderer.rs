@@ -114,11 +114,13 @@ impl Renderer {
         if std::env::var_os("WGPU_DEBUG").is_none() {
             descriptor.flags.remove(wgpu::InstanceFlags::DEBUG);
         }
-        // The Android emulator's Vulkan driver (gfxstream) crashes in its own code at the first
-        // submission: there, the GPU is reached through OpenGL ES instead.
-        #[cfg(target_os = "android")]
-        if emulator_vulkan(descriptor.flags).await {
-            log::info!("the emulator's Vulkan driver fails at the first frame: OpenGL ES instead");
+        // Android and Linux draw through Vulkan alone. Where there is none — an old device, a
+        // driver missing — or only the Android emulator's (gfxstream, which crashes in its own
+        // code at the first submission), the GPU is reached through OpenGL ES instead
+        // (milestones 681, 686).
+        #[cfg(any(target_os = "android", target_os = "linux"))]
+        if let Some(why) = vulkan_unusable(descriptor.flags).await {
+            log::info!("{why}: OpenGL ES instead");
             descriptor.backends = wgpu::Backends::GL;
         }
         // `WGPU_BACKEND` (`vulkan`, `gl`, `dx12`, `metal`, `webgpu`, comma-separated) decides
@@ -394,13 +396,13 @@ impl Renderer {
     }
 }
 
-/// Whether the only Vulkan this device offers is the Android emulator's (gfxstream, the
-/// "Goldfish" GPU), which crashes in its own code at the first submission. `WGPU_BACKEND`, when
-/// set, decides instead.
-#[cfg(target_os = "android")]
-async fn emulator_vulkan(flags: wgpu::InstanceFlags) -> bool {
+/// Whether the Vulkan this device offers is unusable: only the Android emulator's (gfxstream, the
+/// "Goldfish" GPU), which crashes in its own code at the first submission — or none at all:
+/// why, then. `WGPU_BACKEND`, when set, decides instead.
+#[cfg(any(target_os = "android", target_os = "linux"))]
+async fn vulkan_unusable(flags: wgpu::InstanceFlags) -> Option<&'static str> {
     if std::env::var_os("WGPU_BACKEND").is_some() {
-        return false;
+        return None;
     }
     let probe = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN,
@@ -408,11 +410,17 @@ async fn emulator_vulkan(flags: wgpu::InstanceFlags) -> bool {
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapters = probe.enumerate_adapters(wgpu::Backends::VULKAN).await;
-    !adapters.is_empty()
-        && adapters.iter().all(|adapter| {
-            let info = adapter.get_info();
-            info.driver.eq_ignore_ascii_case("gfxstream") || info.name.contains("Goldfish")
-        })
+    let emulator = |adapter: &wgpu::Adapter| {
+        let info = adapter.get_info();
+        info.driver.eq_ignore_ascii_case("gfxstream") || info.name.contains("Goldfish")
+    };
+    if adapters.is_empty() {
+        Some("no Vulkan driver on this device")
+    } else if adapters.iter().all(emulator) {
+        Some("the emulator's Vulkan driver fails at the first frame")
+    } else {
+        None
+    }
 }
 
 /// Where a frame's rendering spent its time, in milliseconds. See
