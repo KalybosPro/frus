@@ -28,7 +28,6 @@ the web a module to download and compile — and nothing measured it, so nothing
   built with `web-release`, passed through wasm-bindgen at the lockfile's version, its
   `_bg.wasm` against 8,500,000 bytes. `scripts/check-size.sh` prints brotli's size too where
   the tool is there.
-
 - **`frus run --release` on Android** signs the package with the debug key when the manifest
   has no release key: cargo-apk stopped there, and a package one runs is not one one publishes.
   `frus build apk` still asks for a real key.
