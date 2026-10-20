@@ -253,7 +253,7 @@ fn boundable(primitive: &Primitive) -> bool {
             ..
         } => {
             transform.is_none()
-                && !filter.image.is_some_and(|f| !f.is_identity())
+                && filter.image.is_none_or(|f| f.is_identity())
                 && filter.backdrop.is_none()
                 && !matches!(clip_shape, frus_core::ClipShape::Path(_))
                 && primitives.iter().all(boundable)

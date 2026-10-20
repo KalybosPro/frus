@@ -99,6 +99,20 @@ impl Renderer {
             descriptor.backend_options.dx12.presentation_system =
                 wgpu::Dx12SwapchainKind::DxgiFromVisual;
         }
+        // No debug names for GPU objects on Android: a debug build asks for them, and the
+        // emulator's Vulkan driver crashes in `vkSetDebugUtilsObjectNameEXT` as the device is
+        // made (a release build never asks). `WGPU_DEBUG=1` still asks for them on a device.
+        #[cfg(target_os = "android")]
+        if std::env::var_os("WGPU_DEBUG").is_none() {
+            descriptor.flags.remove(wgpu::InstanceFlags::DEBUG);
+        }
+        // The Android emulator's Vulkan driver (gfxstream) crashes in its own code at the first
+        // submission: there, the GPU is reached through OpenGL ES instead.
+        #[cfg(target_os = "android")]
+        if emulator_vulkan(descriptor.flags).await {
+            log::info!("the emulator's Vulkan driver fails at the first frame: OpenGL ES instead");
+            descriptor.backends = wgpu::Backends::GL;
+        }
         let instance = wgpu::Instance::new(descriptor);
 
         let surface = instance.create_surface(target)?;
@@ -124,7 +138,18 @@ impl Renderer {
         // Downlevel limits, for GLES compatibility, but with the adapter's **real**
         // resolution: on mobile a screen of, say, 1080x2340 exceeds the downlevel
         // maximum texture size of 2048, and without this `surface.configure` panics.
-        let required_limits = wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
+        // A GPU without compute shaders (OpenGL ES 3.0, as the Android emulator's) cannot give
+        // even the downlevel compute limits: the WebGL 2 ones, which ask for none.
+        let downlevel = if adapter
+            .get_downlevel_capabilities()
+            .flags
+            .contains(wgpu::DownlevelFlags::COMPUTE_SHADERS)
+        {
+            wgpu::Limits::downlevel_defaults()
+        } else {
+            wgpu::Limits::downlevel_webgl2_defaults()
+        };
+        let required_limits = downlevel.using_resolution(adapter.limits());
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -293,6 +318,27 @@ impl Renderer {
         };
         RenderOutcome::Presented
     }
+}
+
+/// Whether the only Vulkan this device offers is the Android emulator's (gfxstream, the
+/// "Goldfish" GPU), which crashes in its own code at the first submission. `WGPU_BACKEND`, when
+/// set, decides instead.
+#[cfg(target_os = "android")]
+async fn emulator_vulkan(flags: wgpu::InstanceFlags) -> bool {
+    if std::env::var_os("WGPU_BACKEND").is_some() {
+        return false;
+    }
+    let probe = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN,
+        flags,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapters = probe.enumerate_adapters(wgpu::Backends::VULKAN).await;
+    !adapters.is_empty()
+        && adapters.iter().all(|adapter| {
+            let info = adapter.get_info();
+            info.driver.eq_ignore_ascii_case("gfxstream") || info.name.contains("Goldfish")
+        })
 }
 
 /// Where a frame's rendering spent its time, in milliseconds. See

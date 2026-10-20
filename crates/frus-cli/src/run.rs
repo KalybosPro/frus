@@ -710,12 +710,17 @@ fn run_android(
     // needs no network permission to be restarted.
     let link = DevLink::open()?;
     let package = &project.android_package;
+    // The device's processor: the package is built for it (see `cargo::build_apk`).
+    let device_target = adb_on(&["shell", "getprop", "ro.product.cpu.abi"])
+        .output()
+        .ok()
+        .and_then(|o| android_rust_target(String::from_utf8_lossy(&o.stdout).trim()));
 
     // What was installed last: a build that wrote the same package again — nothing in the code
     // changed — is not sent over the cable again, which is most of a restart's time.
     let installed = std::cell::Cell::new(None::<u64>);
     let install = |location: Option<&str>| -> Result<(), String> {
-        let apk = cargo::build_apk(project, mode)?;
+        let apk = cargo::build_apk(project, mode, device_target.as_deref())?;
         let digest = std::fs::read(&apk).ok().map(|bytes| digest(&bytes));
         if digest.is_some() && digest == installed.get() {
             report::say("The package has not changed: starting it again.");
@@ -880,6 +885,18 @@ fn run_android(
     };
     let _ = logcat.kill();
     Ok(end)
+}
+
+/// The Rust target for an Android ABI (`getprop ro.product.cpu.abi`).
+pub(crate) fn android_rust_target(abi: &str) -> Option<String> {
+    let target = match abi {
+        "arm64-v8a" => "aarch64-linux-android",
+        "armeabi-v7a" => "armv7-linux-androideabi",
+        "x86_64" => "x86_64-linux-android",
+        "x86" => "i686-linux-android",
+        _ => return None,
+    };
+    Some(target.to_string())
 }
 
 /// Whether an application on a device has gone, from one look a second: it has to have been
@@ -1305,6 +1322,19 @@ fn file_name(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_device_is_built_for_its_own_processor() {
+        assert_eq!(
+            android_rust_target("x86_64").as_deref(),
+            Some("x86_64-linux-android")
+        );
+        assert_eq!(
+            android_rust_target("arm64-v8a").as_deref(),
+            Some("aarch64-linux-android")
+        );
+        assert_eq!(android_rust_target("mips"), None);
+    }
 
     #[test]
     fn logcat_lines_lose_the_pid() {

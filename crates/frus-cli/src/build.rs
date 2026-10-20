@@ -41,7 +41,7 @@ pub(crate) fn build(target: Target, mode: Mode) -> Result<ExitCode, String> {
     let project = Project::find(&here)?;
     match target {
         Target::Apk => {
-            let apk = cargo::build_apk(&project, mode)?;
+            let apk = cargo::build_apk(&project, mode, None)?;
             println!("\nBuilt {} ({}).", apk.display(), size(&apk));
             if mode == Mode::Release {
                 println!("Install it with `adb install -r <apk>`; a store wants it signed (see README.md, \"Signing\").");
