@@ -1,0 +1,20 @@
+# The size budget for the smallest frus application on the web (milestone 683, #211).
+#
+# What is measured: `frus-hello`, the counter, built for wasm32-unknown-unknown with the
+# workspace's `web-release` profile, then passed through wasm-bindgen (`--target web`) at
+# the lockfile's version -- the `frus_hello_bg.wasm` a page downloads. Checked by the
+# `web-size` job in .github/workflows/ci.yml through scripts/check-size.sh, which prints the
+# size, gzip's (and brotli's where the tool is there) and this budget on every run.
+#
+# Where the number comes from:
+#
+#   milestone 683 (the first measurement)   6,698,359 bytes   (2,892,537 gzip, 1,854,865 brotli)
+#
+# The budget is about 25% over the measurement, as the Android one is: it catches a jump --
+# the size-first profile going missing, a dependency that brings half an ecosystem, a font
+# bundled by default -- not ordinary growth.
+#
+# Raising it is allowed, and meant to be deliberate: in the change that needs it, with the
+# reason in the commit.
+
+budget_bytes = 8500000

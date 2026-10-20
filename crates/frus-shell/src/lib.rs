@@ -57,6 +57,8 @@ mod logging;
 #[cfg(feature = "net")]
 pub mod net;
 mod reload;
+// How long the application takes to show its first frame (milestone 683, #211).
+mod startup;
 // The Web side of a reload under `frus run`: the states kept across the page's reload.
 #[cfg(web)]
 mod web_dev;
@@ -243,6 +245,7 @@ macro_rules! main {
 /// ```
 #[cfg(desktop)]
 pub fn run<A: Application>(mut app: A) -> anyhow::Result<()> {
+    startup::begin();
     // The application's `log` output, in the terminal, with nothing to set up
     // (milestone 604). `RUST_LOG` still decides over the default.
     logging::init::<A>();
@@ -284,6 +287,7 @@ pub fn run<A: Application>(mut app: A) -> anyhow::Result<()> {
 /// keyboard are not wired yet — see the ROADMAP.
 #[cfg(ios)]
 pub fn run<A: Application>(app: A) -> anyhow::Result<()> {
+    startup::begin();
     let event_loop = winit::event_loop::EventLoop::<A::Message>::with_user_event().build()?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
@@ -301,6 +305,7 @@ pub fn run<A: Application>(app: A) -> anyhow::Result<()> {
 #[cfg(web)]
 pub fn run_web<A: Application + 'static>(app: A) -> anyhow::Result<()> {
     use winit::platform::web::EventLoopExtWebSys;
+    startup::begin();
 
     // Panics → the browser console, instead of an opaque "unreachable".
     console_error_panic_hook::set_once();
@@ -336,6 +341,7 @@ pub fn run_web<A: Application + 'static>(app: A) -> anyhow::Result<()> {
 #[cfg(android)]
 pub fn run_android<A: Application>(app: A, android_app: AndroidApp) -> anyhow::Result<()> {
     use winit::platform::android::EventLoopBuilderExtAndroid;
+    startup::begin();
 
     // The application's `log` output, and its panics, in logcat under its crate's name
     // (milestone 604).
