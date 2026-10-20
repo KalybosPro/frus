@@ -188,6 +188,11 @@ frus build desktop    # the program for this computer
 
 Release by default; `--debug` for a debug build.
 
+On Windows, `frus build desktop` puts `dxcompiler.dll` and `dxil.dll` beside the program: DXC,
+DirectX 12's shader compiler, with which the program starts about half a second sooner than with
+Windows' own (fetched once into `~/.frus/tools`, about 32 MB). Ship them with the program; it
+runs without them, starting slower. `frus run` puts them beside the program it starts too.
+
 ## Emulators: `frus emulators`
 
 ```text
