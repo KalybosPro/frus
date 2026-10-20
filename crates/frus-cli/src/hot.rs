@@ -6,9 +6,10 @@
 //! The patching is subsecond's, driven by Dioxus's CLI (`dx serve --hot-patch`). Three things make
 //! it work for a frus application without changing it:
 //!
-//! - **The engine** is `dx` 0.7.10 with two fixes — its Windows stubs (DioxusLabs/dioxus#5966),
-//!   and the linker command files that lost clang's paths on Windows (milestone 680) — installed
-//!   once into `~/.frus/tools` until a release has them.
+//! - **The engine** is `dx` 0.7.10 with frus's changes — the fix for its Windows stubs
+//!   (DioxusLabs/dioxus#5966), the linker command files that lost clang's paths on Windows, and
+//!   `android_res`, which gives its Android project the application's own icons (milestone
+//!   680) — installed once into `~/.frus/tools` until a release has them.
 //! - **A shadow package** in `target/frus-hot/`: a patch replaces the program's own crate, and a
 //!   frus application keeps its code in its library. The shadow is a package whose program *is*
 //!   `src/lib.rs`. Its `src` is a copy of the application's, kept in step while the run lasts
@@ -26,7 +27,7 @@ use crate::project::Project;
 /// Where the fixed `dx` comes from: the fix on top of the 0.7.10 release, which matches the
 /// patch protocol of frus's `hot-reload` feature.
 const ENGINE_REPO: &str = "https://github.com/KalybosPro/dioxus";
-const ENGINE_REV: &str = "7e7d31f0769f7a04dc317ea1da59f5fa4444f7f4";
+const ENGINE_REV: &str = "c5b307e0ead8e50e269531a3fcd96fbc2228df27";
 
 /// What building the engine needs and this machine lacks, as what to do about it: on Linux it
 /// links OpenSSL, whose headers a package manager installs, which frus cannot do without the
@@ -101,13 +102,17 @@ pub(crate) fn engine() -> Result<PathBuf, String> {
     }
 }
 
+/// The folder of the shadow package the application's launcher icons are copied to, for the
+/// engine's Android project (`android_res`).
+const ANDROID_ICONS: &str = "frus-android-res";
+
 /// What the shadow package does not link: the manifest and lock it has its own versions of, the
 /// files of the engine's Android project it writes (see `android_project_files`), the build
 /// output, and the version-control and editor folders.
 fn is_kept_out(name: &str) -> bool {
     matches!(
         name,
-        "Cargo.toml" | "Cargo.lock" | "Dioxus.toml" | "MainActivity.kt" | "target"
+        "Cargo.toml" | "Cargo.lock" | "Dioxus.toml" | "MainActivity.kt" | "target" | ANDROID_ICONS
     ) || name.starts_with('.')
 }
 
@@ -313,12 +318,45 @@ fn backslashed(path: &Path) -> String {
 /// The engine's Android project starts the program through its own activity: the files that
 /// make it a plain native activity, as frus's Android shell expects (milestone 680), and give
 /// the package the application's identifier.
-pub(crate) fn android_project_files(shadow: &Path, package: &str) -> Result<(), String> {
+pub(crate) fn android_project_files(
+    shadow: &Path,
+    package: &str,
+    resources: &Path,
+) -> Result<(), String> {
+    // The application's launcher icons (`res/mipmap-*`), and nothing else of its resources: the
+    // engine's project has its own theme and strings, which the application's would replace.
+    let icons = shadow.join(ANDROID_ICONS);
+    let _ = std::fs::remove_dir_all(&icons);
+    let mut has_icons = false;
+    for dir in std::fs::read_dir(resources).into_iter().flatten().flatten() {
+        let name = dir.file_name().to_string_lossy().into_owned();
+        if !name.starts_with("mipmap-") || !dir.path().is_dir() {
+            continue;
+        }
+        std::fs::create_dir_all(icons.join(&name))
+            .map_err(|e| format!("{}: {e}", icons.display()))?;
+        for file in std::fs::read_dir(dir.path())
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            if file.path().is_file() {
+                std::fs::copy(file.path(), icons.join(&name).join(file.file_name()))
+                    .map_err(|e| format!("{}: {e}", file.path().display()))?;
+                has_icons = true;
+            }
+        }
+    }
+    let android_res = if has_icons {
+        format!("android_res = \"{ANDROID_ICONS}\"\n")
+    } else {
+        String::new()
+    };
     write_if_changed(
         &shadow.join("Dioxus.toml"),
         &format!(
             "# Written by `frus run --hot` for the hot-reload engine's Android build.\n\
-             [application]\nandroid_main_activity = \"MainActivity.kt\"\n\n\
+             [application]\nandroid_main_activity = \"MainActivity.kt\"\n{android_res}\n\
              [bundle]\nidentifier = \"{package}\"\n"
         ),
     )?;

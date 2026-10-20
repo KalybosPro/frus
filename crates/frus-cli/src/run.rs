@@ -902,7 +902,7 @@ fn run_android_hot(
     let java = crate::setup::java()?;
     let engine = crate::hot::engine()?;
     let shadow = crate::hot::shadow(project)?;
-    crate::hot::android_project_files(&shadow, package)?;
+    crate::hot::android_project_files(&shadow, package, &project.root.join("res"))?;
     let mirror = mirror_sources(project, &shadow)?;
     let link = DevLink::open()?;
     let target = project.target_dir()?.join("frus-hot").join("target");

@@ -15,6 +15,10 @@ its states handed back (milestone 663). Issue #286: patch the running applicatio
   `MainActivity.kt` that is a plain `android.app.NativeActivity` — what frus's Android shell
   runs in — and the application's package identifier. The application's own files are not
   touched: those two names are kept out of the shadow's links.
+- **The application's icon**: the engine writes its own launcher icons into its project. frus's
+  fork of it takes `android_res`, a folder copied over its defaults; frus fills one with the
+  application's `res/mipmap-*` and nothing else of its resources (the engine's project keeps its
+  own theme and strings). Without it the hot-reload build showed Android's default icon.
 - **The program**: on Android too the shadow compiles `src/lib.rs` as a binary, so `frus::main!`
   adds an empty `main` under the `hot-reload` feature; the application still starts from
   `android_main`.
@@ -33,7 +37,7 @@ its states handed back (milestone 663). Issue #286: patch the running applicatio
   command file, each one quoted; MSVC's `link.exe` takes backslashes as they are, but clang reads
   the file the GNU way, where a backslash escapes the next character — every path lost its
   separators (`…shadow680/targetaarch64-linux-androidandroid-devlibdeps-….a`). Fixed in frus's
-  fork of the engine (branch `frus/v0.7.10-android-windows`, on top of the stub fix): backslashes
+  fork of the engine (branch `frus/v0.7.10-android-windows`, on top of the stub fix; upstream: DioxusLabs/dioxus#5976, #5977): backslashes
   and quotes are escaped for targets that are not Windows. `ENGINE_REV` names that commit.
 - **The engine's package says version 1**; the one `frus run` installs without `--hot` takes
   its version from the manifest, and Android refuses to replace it with a lower one
@@ -56,7 +60,9 @@ On a Huawei STK-L21 (Android 10, Mali-G51), the counter application, `frus run -
   the same process was patched in too;
 - `R` built, installed and started again in about 100 s, with the patched title and the count
   from the start, and the next change was patched into that process;
-- the application's log came through `frus run` as without `--hot`.
+- the application's log came through `frus run` as without `--hot`;
+- the launcher showed the application's own icon (the frus logo of the template) during the
+  session, not the engine's.
 
 `cargo test -p frus-cli`: 98 tests, on Windows and on Linux (WSL). clippy for the shell with `hot-reload` on Windows, Android
 (`aarch64-linux-android`) and the web. Not run: an emulator, Linux and macOS hosts.
