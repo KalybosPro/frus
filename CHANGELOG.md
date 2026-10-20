@@ -17,8 +17,9 @@ any release may break.
   first frame was presented after launch, with where the time went — the window, the GPU's
   adapter, device, pipelines and warm-up, the fonts, the first layout; `frus run` shows it on
   every platform. The web bundle has a size budget in CI, as the Android library has. On a
-  Windows laptop the counter shows its first frame in about one second, three quarters of it
-  building pipelines (#217).
+  Windows laptop the counter shows its first frame in about one second, on a mid-range Android
+  phone in 1.2–1.4 s, three quarters of it building pipelines (#217). `frus run --release` on
+  Android signs with the debug key when the manifest has no release key.
 
 - **The web's colours** (J682, #234): every colour was drawn darker in a browser — the linear
   values the shaders write, shown as if encoded, since a WebGPU canvas offers no sRGB format.
