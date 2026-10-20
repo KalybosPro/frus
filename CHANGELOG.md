@@ -13,6 +13,11 @@ any release may break.
 
 ## [Unreleased]
 
+- **A faster start on Windows** (J684, #217): DirectX 12 compiles a program's shaders with DXC
+  when its DLLs are beside the program, which `frus run` and `frus build desktop` now arrange
+  (fetched once). The counter's first frame went from 1.3–2.0 s to 0.6–0.8 s on a Windows
+  laptop; without the DLLs a program still runs, with Windows' own compiler.
+
 - **The web's colours** (J682, #234): every colour was drawn darker in a browser — the linear
   values the shaders write, shown as if encoded, since a WebGPU canvas offers no sRGB format.
   The frames are drawn through the canvas's sRGB view, and the hardware encodes them, as on the

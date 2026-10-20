@@ -373,13 +373,20 @@ fn start_desktop(
     states: Option<&Path>,
 ) -> Result<Child, String> {
     std::fs::create_dir_all(runs).map_err(|e| e.to_string())?;
-    // The previous copies, which are no longer running (the states file is the new one's).
+    // The previous copies, which are no longer running (the states file is the new one's;
+    // DXC's DLLs stay, for the next copy).
     if let Ok(entries) = std::fs::read_dir(runs) {
         for entry in entries.filter_map(Result::ok) {
-            if Some(entry.path().as_path()) != states {
+            let dll = entry.path().extension().is_some_and(|e| e == "dll");
+            if Some(entry.path().as_path()) != states && !dll {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
+    }
+    // DirectX 12 compiles the program's shaders with DXC when it is beside the program: a
+    // start about half a second shorter (milestone 684).
+    if cfg!(windows) {
+        crate::setup::place_dxc(runs);
     }
     *generation += 1;
     let name = built
