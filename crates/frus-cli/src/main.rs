@@ -70,7 +70,7 @@ Options:
                            or `android`, `web`, `desktop` (default: this computer)
       --release            a release build (default: debug)
       --port <port>        the port the web build is served on (default: 8080)
-      --hot                hot reload (desktop, web): each saved change is patched into the
+      --hot                hot reload (desktop, web, Android): each saved change is patched into the
                            running application, every state kept (installs its engine
                            the first time)
       --machine            JSON lines for an editor instead of text (see `frus daemon`)

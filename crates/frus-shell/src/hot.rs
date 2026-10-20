@@ -32,6 +32,11 @@ pub(crate) fn connect() {
             }
         }
     }));
+    #[cfg(target_os = "android")]
+    engine_settings();
+    // A patch is linked against the process it was made for — its calls into the rest of the
+    // program are that process's addresses — so the engine's own client, which applies only a
+    // patch addressed to this process, is the one used.
     #[cfg(not(target_arch = "wasm32"))]
     dioxus_devtools::connect_subsecond();
     #[cfg(target_arch = "wasm32")]
@@ -83,6 +88,30 @@ fn apply_message(text: String) {
             log::warn!("hot reload: the patch could not be applied: {error:?}");
         }
     }
+}
+
+/// On Android, the engine cannot hand the application its settings — the patch server's port
+/// among them — as a process's environment: it pushes them to a file on the device, read here
+/// into the environment before connecting (milestone 680).
+#[cfg(target_os = "android")]
+const ENGINE_SETTINGS: &str = "/data/local/tmp/dx/.env";
+
+#[cfg(target_os = "android")]
+fn engine_settings() {
+    let Ok(text) = std::fs::read_to_string(ENGINE_SETTINGS) else {
+        return;
+    };
+    for line in text.lines() {
+        if let Some((key, value)) = line.split_once('=') {
+            std::env::set_var(key.trim(), value.trim());
+        }
+    }
+}
+
+/// Whether the hot-reload engine started this application: it left its settings on the device.
+#[cfg(target_os = "android")]
+pub(crate) fn under_engine() -> bool {
+    std::path::Path::new(ENGINE_SETTINGS).is_file()
 }
 
 /// The window a patch wakes.

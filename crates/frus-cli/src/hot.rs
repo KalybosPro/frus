@@ -1,13 +1,14 @@
-//! `frus run --hot`: **true hot reload** on the desktop (milestone 670) and the web (milestone
-//! 679). The application keeps
+//! `frus run --hot`: **true hot reload** on the desktop (milestone 670), the web (milestone 679)
+//! and Android (milestone 680). The application keeps
 //! running; each saved change is compiled into a patch and applied to it in place, with every
 //! state where it was.
 //!
 //! The patching is subsecond's, driven by Dioxus's CLI (`dx serve --hot-patch`). Three things make
 //! it work for a frus application without changing it:
 //!
-//! - **The engine** is `dx` 0.7.10 with the fix for its Windows stubs (DioxusLabs/dioxus#5966),
-//!   installed once into `~/.frus/tools` until a release has the fix.
+//! - **The engine** is `dx` 0.7.10 with two fixes — its Windows stubs (DioxusLabs/dioxus#5966),
+//!   and the linker command files that lost clang's paths on Windows (milestone 680) — installed
+//!   once into `~/.frus/tools` until a release has them.
 //! - **A shadow package** in `target/frus-hot/`: a patch replaces the program's own crate, and a
 //!   frus application keeps its code in its library. The shadow is a package whose program *is*
 //!   `src/lib.rs`. Its `src` is a copy of the application's, kept in step while the run lasts
@@ -25,7 +26,7 @@ use crate::project::Project;
 /// Where the fixed `dx` comes from: the fix on top of the 0.7.10 release, which matches the
 /// patch protocol of frus's `hot-reload` feature.
 const ENGINE_REPO: &str = "https://github.com/KalybosPro/dioxus";
-const ENGINE_REV: &str = "7d966a3053ba4eec8c6366718227a4d953670e97";
+const ENGINE_REV: &str = "7e7d31f0769f7a04dc317ea1da59f5fa4444f7f4";
 
 /// What building the engine needs and this machine lacks, as what to do about it: on Linux it
 /// links OpenSSL, whose headers a package manager installs, which frus cannot do without the
@@ -71,7 +72,7 @@ pub(crate) fn engine() -> Result<PathBuf, String> {
         return Err(missing);
     }
     crate::report::say(
-        "Installing the hot-reload engine (dx 0.7.10 with a fix; cargo install, a few minutes, once)…",
+        "Installing the hot-reload engine (dx 0.7.10 with fixes; cargo install, a few minutes, once)…",
     );
     crate::cargo::run(
         Command::new("cargo")
@@ -101,9 +102,13 @@ pub(crate) fn engine() -> Result<PathBuf, String> {
 }
 
 /// What the shadow package does not link: the manifest and lock it has its own versions of, the
-/// build output, and the version-control and editor folders.
+/// files of the engine's Android project it writes (see `android_project_files`), the build
+/// output, and the version-control and editor folders.
 fn is_kept_out(name: &str) -> bool {
-    matches!(name, "Cargo.toml" | "Cargo.lock" | "target") || name.starts_with('.')
+    matches!(
+        name,
+        "Cargo.toml" | "Cargo.lock" | "Dioxus.toml" | "MainActivity.kt" | "target"
+    ) || name.starts_with('.')
 }
 
 /// Makes the shadow package for `project` and gives its directory.
@@ -305,6 +310,26 @@ fn backslashed(path: &Path) -> String {
 
 /// The shadow package's manifest, from the application's: its `[lib]` and binaries replaced by one
 /// program built from `src/lib.rs`, and its relative paths made absolute from `root`.
+/// The engine's Android project starts the program through its own activity: the files that
+/// make it a plain native activity, as frus's Android shell expects (milestone 680), and give
+/// the package the application's identifier.
+pub(crate) fn android_project_files(shadow: &Path, package: &str) -> Result<(), String> {
+    write_if_changed(
+        &shadow.join("Dioxus.toml"),
+        &format!(
+            "# Written by `frus run --hot` for the hot-reload engine's Android build.\n\
+             [application]\nandroid_main_activity = \"MainActivity.kt\"\n\n\
+             [bundle]\nidentifier = \"{package}\"\n"
+        ),
+    )?;
+    write_if_changed(
+        &shadow.join("MainActivity.kt"),
+        "package dev.dioxus.main\n\n\
+         // Written by `frus run --hot`: frus's Android shell runs in a native activity.\n\
+         class MainActivity : android.app.NativeActivity()\n",
+    )
+}
+
 /// The program is named after the library (`my_app`, not `my-app`): on the web the engine names
 /// the page's module after it, and the page loads `pkg/<library>.js`.
 pub(crate) fn shadow_manifest(manifest: &str, root: &Path, bin: &str) -> String {
