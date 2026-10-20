@@ -476,8 +476,9 @@ fn sdkmanager(home: &Path, packages: &[String]) -> Result<(), String> {
     run(packages, false)
 }
 
-/// A `JAVA_HOME` for sdkmanager: the machine's, or a JDK fetched into `~/.frus/jdk`.
-fn java() -> Result<PathBuf, String> {
+/// A `JAVA_HOME` for sdkmanager (and the hot-reload engine's Gradle project): the machine's, or
+/// a JDK fetched into `~/.frus/jdk`.
+pub(crate) fn java() -> Result<PathBuf, String> {
     let java_exe = if cfg!(windows) { "java.exe" } else { "java" };
     if let Some(home) = std::env::var_os("JAVA_HOME").map(PathBuf::from) {
         if home.join("bin").join(java_exe).is_file() {

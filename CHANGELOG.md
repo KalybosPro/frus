@@ -13,6 +13,12 @@ any release may break.
 
 ## [Unreleased]
 
+- **`frus run --hot` on Android** (J680, #286): each saved change is patched into the
+  application running on the device, its state kept. The engine builds the application into an
+  Android project of its own, with a plain native activity, installs and starts it; `R` builds
+  again and starts afresh. The engine is now dx 0.7.10 with two fixes: its Windows stubs, and
+  linker command files that kept clang from finding its inputs on Windows.
+
 - **`frus run --hot` on the web** (J679, #287): each saved change is patched into the running
   page, which does not reload, with every state kept. The engine builds the page's module and
   its patches; `frus run` serves the page as without `--hot`, and the page links each patch in.
