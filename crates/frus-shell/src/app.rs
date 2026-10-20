@@ -5263,6 +5263,9 @@ impl<A: Application> App<A> {
                 .android_app
                 .as_ref()
                 .and_then(|app| crate::android_link::launch_extra(app, crate::dev::DEV_EXTRA));
+            // Started by `frus run --hot`'s engine, which cannot add the extra (milestone 680).
+            #[cfg(feature = "hot-reload")]
+            let asked = asked.or_else(|| crate::hot::under_engine().then(String::new));
             self.dev = asked.map(|_| crate::dev::DevChannel::through_log());
             if self.dev.is_some() {
                 let storage = self

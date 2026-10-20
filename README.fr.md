@@ -157,7 +157,7 @@ frus run                        # sur cet ordinateur ; `frus run -d android`, `-
 Pendant l'exécution, le journal de l'application s'affiche dans le terminal sur toutes les
 plateformes, `r` la recharge avec votre modification en gardant son état, et `R` la redémarre à
 neuf. `frus run --hot` applique plutôt chaque modification enregistrée à l'application en cours
-d'exécution, sur le bureau et le web. Ce qu'une commande requiert et qui manque à la machine — une cible
+d'exécution, sur le bureau, le web et Android. Ce qu'une commande requiert et qui manque à la machine — une cible
 Rust, le SDK Android, wasm-bindgen — elle l'installe d'abord.
 
 Le projet généré dépend de la crate publiée [`frus`](https://crates.io/crates/frus) (`frus = "0.3"`). `frus create my_app --frus-path <checkout>` le construit contre un checkout de ce dépôt à la place ; [`docs/getting-started.md`](docs/getting-started.md) détaille les options.
@@ -169,7 +169,7 @@ Le projet généré dépend de la crate publiée [`frus`](https://crates.io/crat
 | `frus create <dossier>` | une nouvelle application pour le bureau, Android et le web ; `frus create .` dans une application existante restaure les fichiers qui lui manquent |
 | `frus doctor` | la chaîne d'outils, partie par partie : ce qui est prêt et ce qui manque ; `--fix` l'installe |
 | `frus devices` | cet ordinateur, les téléphones et émulateurs, les navigateurs |
-| `frus run [-d <appareil>]` | construire, lancer, afficher le journal ; `--hot` pour le hot reload sur le bureau et le web |
+| `frus run [-d <appareil>]` | construire, lancer, afficher le journal ; `--hot` pour le hot reload sur le bureau, le web et Android |
 | `frus build <apk\|web\|desktop>` | ce que vous livrez, en release |
 | `frus emulators` | lister, lancer (`--launch`) et créer (`--create`) des émulateurs |
 | `frus clean` | supprimer les builds de l'application |
@@ -252,7 +252,7 @@ Lisez [ARCHITECTURE.md](ARCHITECTURE.md) avant votre première modification non 
 | Plateforme | État | Notes |
 |---|---|---|
 | **Bureau** (Windows / Linux / macOS) | Fonctionnel | winit + wgpu, presse-papier, accessibilité lecteur d'écran via AccessKit ; hot reload de l'application en cours d'exécution (`frus run --hot`) |
-| **Android** | Fonctionnel | Activité native, Vulkan, IME réel (composition et swipe), insets, cycle de vie — validé sur appareil |
+| **Android** | Fonctionnel | Activité native, Vulkan, IME réel (composition et swipe), insets, cycle de vie — validé sur appareil ; hot reload de l'application en cours d'exécution (`frus run --hot -d <appareil>`) |
 | **Web** (wasm + WebGPU) | Fonctionnel | Rendu, entrée, animations, souscriptions, effets async et `fetch`, presse-papiers (`navigator.clipboard`) et accessibilité par un pont DOM. Rechargement avec l'état conservé sous `frus run` ; hot reload de la page en cours d'exécution (`frus run --hot -d web`) |
 | **iOS / macOS natif** | Non démarré | La couche shell est isolée : ajouter une cible reste un chantier circonscrit |
 
@@ -260,8 +260,6 @@ Lisez [ARCHITECTURE.md](ARCHITECTURE.md) avant votre première modification non 
 
 **Manques connus** — les meilleurs points d'entrée pour aider :
 
-- Le hot reload — le code appliqué à l'application en cours d'exécution — sur Android
-  ([#286](https://github.com/KalybosPro/frus/issues/286)) ; `r` y recharge, en gardant l'état.
 - Shells iOS ([#19](https://github.com/KalybosPro/frus/issues/19)) et macOS natif ([#60](https://github.com/KalybosPro/frus/issues/60)).
 - Cas limites du rendu de texte, et couverture golden plus large.
 - Un site de documentation navigable, construit à partir des notes de conception.
