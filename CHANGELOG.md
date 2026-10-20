@@ -13,6 +13,11 @@ any release may break.
 
 ## [Unreleased]
 
+- **The web's colours** (J682, #234): every colour was drawn darker in a browser — the linear
+  values the shaders write, shown as if encoded, since a WebGPU canvas offers no sRGB format.
+  The frames are drawn through the canvas's sRGB view, and the hardware encodes them, as on the
+  desktop and Android: the template's background is `#F5F6F8` again, not `#E9EBEF`.
+
 - **The Android emulator** (J681): `frus run` builds the package for the device's processor
   when the manifest's `build_targets` lack it (an x86_64 emulator ran an arm64 library through
   translation); no debug names for GPU objects on Android, which the emulator's Vulkan driver

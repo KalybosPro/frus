@@ -32,6 +32,9 @@ pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
+    /// The format the frames are drawn in: the surface's own when it is sRGB, its sRGB twin
+    /// (a view of the same image) when the surface offers none, as a WebGPU canvas (#234).
+    render_format: wgpu::TextureFormat,
     painters: Painters,
     /// Where the last frame's rendering spent its time.
     timings: RenderTimings,
@@ -184,6 +187,17 @@ impl Renderer {
             .copied()
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
+        // The shaders write linear values, which an sRGB target encodes. A WebGPU canvas
+        // offers only plain formats (`bgra8unorm`): drawn as they are, the linear values are
+        // shown as if encoded, and every colour comes out darker (#234). The canvas lets its
+        // image be drawn through an sRGB view: the frames are drawn in that twin, and the
+        // hardware encodes, as everywhere else.
+        let render_format = format.add_srgb_suffix();
+        let view_formats = if render_format == format {
+            vec![]
+        } else {
+            vec![render_format]
+        };
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -200,7 +214,7 @@ impl Renderer {
             // mode every surface supports.
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode,
-            view_formats: vec![],
+            view_formats,
             desired_maximum_frame_latency: 2,
         };
         log::info!(
@@ -211,12 +225,12 @@ impl Renderer {
         surface.configure(&device, &config);
 
         // MSAA when the adapter supports it for this format; otherwise 1, disabled.
-        let sample_count = preferred_sample_count(&adapter, format);
+        let sample_count = preferred_sample_count(&adapter, render_format);
         log::info!("MSAA: {sample_count}×");
 
-        let mut painters = Painters::new(&device, &queue, format, sample_count);
+        let mut painters = Painters::new(&device, &queue, render_format, sample_count);
         // Warms every pipeline before the first real frame, to avoid jank.
-        painters.warm_up(&device, &queue, format);
+        painters.warm_up(&device, &queue, render_format);
 
         let gpu_timer = crate::gpu_timer::GpuTimer::new(&device, &queue);
         log::info!(
@@ -232,6 +246,7 @@ impl Renderer {
             device,
             queue,
             config,
+            render_format,
             gpu_timer,
             painters,
             timings: RenderTimings::default(),
@@ -284,14 +299,15 @@ impl Renderer {
             .gpu_timer
             .as_mut()
             .and_then(|timer| timer.begin(&self.device, &self.queue));
-        let view = frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(self.render_format),
+            ..Default::default()
+        });
 
         self.painters.render(
             &self.device,
             &self.queue,
-            self.config.format,
+            self.render_format,
             &view,
             self.config.width,
             self.config.height,
