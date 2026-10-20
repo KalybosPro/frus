@@ -130,6 +130,29 @@ impl Renderer {
             log::info!("GPU backends from WGPU_BACKEND: {backends:?}");
             descriptor.backends = backends;
         }
+        // DirectX 12 compiles the shaders with DXC when its DLL is beside the program —
+        // `frus run` and `frus build desktop` put it there —, several times faster than
+        // Windows' own compiler (FXC): about half a second of a start (milestone 684, #217).
+        #[cfg(windows)]
+        {
+            let dxc = std::env::current_exe()
+                .ok()
+                .and_then(|exe| Some(exe.parent()?.join("dxcompiler.dll")))
+                .filter(|dll| dll.is_file());
+            match dxc {
+                Some(dll) => {
+                    log::info!("DirectX 12 shaders: DXC ({})", dll.display());
+                    descriptor.backend_options.dx12.shader_compiler =
+                        wgpu::Dx12Compiler::DynamicDxc {
+                            dxc_path: dll.display().to_string(),
+                        };
+                }
+                None => log::info!(
+                    "DirectX 12 shaders: Windows' own compiler (no dxcompiler.dll beside the \
+                     program: a slower start)"
+                ),
+            }
+        }
         let instance = wgpu::Instance::new(descriptor);
 
         let surface = instance.create_surface(target)?;

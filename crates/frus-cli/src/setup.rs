@@ -530,6 +530,76 @@ fn jdk_in(dir: &Path, java_exe: &str) -> Option<PathBuf> {
         })
 }
 
+// --- DXC, DirectX 12's fast shader compiler (Windows) ---
+
+/// The DXC release frus fetches: `dxcompiler.dll` and `dxil.dll`, which DirectX 12 compiles a
+/// program's shaders with in a fraction of the time the system's own compiler (FXC) takes
+/// (milestone 684, #217).
+const DXC_VERSION: &str = "1.9.2609";
+const DXC_URL: &str =
+    "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/dxc_2026_09_29.zip";
+/// The two files a program loads, beside it.
+pub(crate) const DXC_FILES: [&str; 2] = ["dxcompiler.dll", "dxil.dll"];
+
+/// The folder holding DXC's DLLs for this computer's processor, fetched into `~/.frus/tools`
+/// the first time (about 32 MB to download).
+pub(crate) fn dxc_dlls() -> Result<PathBuf, String> {
+    let root = frus_home().join("tools").join(format!("dxc-{DXC_VERSION}"));
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x64"
+    };
+    let dir = root.join("bin").join(arch);
+    if DXC_FILES.iter().all(|f| dir.join(f).is_file()) {
+        return Ok(dir);
+    }
+    crate::report::say(&format!(
+        "Fetching DXC {DXC_VERSION}, the shader compiler that makes a program start faster on \
+         Windows (about 32 MB, once)…"
+    ));
+    let archive = frus_home().join("tools").join("dxc.zip");
+    download(DXC_URL, &archive)?;
+    let _ = std::fs::remove_dir_all(&root);
+    extract(&archive, &root)?;
+    let _ = std::fs::remove_file(&archive);
+    if DXC_FILES.iter().all(|f| dir.join(f).is_file()) {
+        Ok(dir)
+    } else {
+        Err(format!(
+            "DXC was unpacked but {} lacks its DLLs",
+            dir.display()
+        ))
+    }
+}
+
+/// DXC's DLLs beside a Windows program in `dir`, where DirectX 12 finds them; copied only when
+/// missing or different. A failure is said, not fatal: the program starts anyway, with the
+/// slower compiler.
+pub(crate) fn place_dxc(dir: &Path) {
+    let source = match dxc_dlls() {
+        Ok(source) => source,
+        Err(error) => {
+            crate::report::warn(&format!(
+                "{error}: the program uses Windows' own shader compiler, and starts slower"
+            ));
+            return;
+        }
+    };
+    for file in DXC_FILES {
+        let (from, to) = (source.join(file), dir.join(file));
+        let same = |a: &Path, b: &Path| match (std::fs::metadata(a), std::fs::metadata(b)) {
+            (Ok(a), Ok(b)) => a.len() == b.len(),
+            _ => false,
+        };
+        if !same(&from, &to) {
+            if let Err(error) = std::fs::copy(&from, &to) {
+                crate::report::warn(&format!("could not place {file}: {error}"));
+            }
+        }
+    }
+}
+
 // --- Fetching ---
 
 /// `url` to `file`, with curl's progress bar — curl ships with Windows 10 and later, macOS and
