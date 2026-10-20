@@ -13,6 +13,11 @@ any release may break.
 
 ## [Unreleased]
 
+- **The web's colours** (J682, #234): every colour was drawn darker in a browser — the linear
+  values the shaders write, shown as if encoded, since a WebGPU canvas offers no sRGB format.
+  The frames are drawn through the canvas's sRGB view, and the hardware encodes them, as on the
+  desktop and Android: the template's background is `#F5F6F8` again, not `#E9EBEF`.
+
 - **`frus run --hot` on the web** (J679, #287): each saved change is patched into the running
   page, which does not reload, with every state kept. The engine builds the page's module and
   its patches; `frus run` serves the page as without `--hot`, and the page links each patch in.
