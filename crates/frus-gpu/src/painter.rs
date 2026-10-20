@@ -226,6 +226,7 @@ impl Painter {
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         sample_count: u32,
+        cache: Option<&wgpu::PipelineCache>,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("frus.quad.shader"),
@@ -329,7 +330,7 @@ impl Painter {
                 alpha_to_coverage_enabled: false,
             },
             multiview_mask: None,
-            cache: None,
+            cache,
         });
 
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -628,7 +629,7 @@ mod tests {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut painter = Painter::new(&device, format, 1);
+        let mut painter = Painter::new(&device, format, 1, None);
         painter.set_viewport(&queue, SIZE as f32, SIZE as f32);
 
         let mut scene = Scene::new();
@@ -743,7 +744,7 @@ mod tests {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut painter = Painter::new(&device, format, 1);
+        let mut painter = Painter::new(&device, format, 1, None);
         painter.set_viewport(&queue, SIZE as f32, SIZE as f32);
 
         let mut scene = Scene::new();
@@ -859,7 +860,7 @@ mod tests {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut painter = Painter::new(&device, format, 1);
+        let mut painter = Painter::new(&device, format, 1, None);
         painter.set_viewport(&queue, SIZE as f32, SIZE as f32);
 
         let mut scene = Scene::new();
@@ -987,7 +988,7 @@ mod tests {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut painter = Painter::new(&device, format, 1);
+        let mut painter = Painter::new(&device, format, 1, None);
         painter.set_viewport(&queue, SIZE as f32, SIZE as f32);
 
         let mut scene = Scene::new();

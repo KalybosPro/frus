@@ -183,6 +183,25 @@ pub(crate) fn build_apk(
     match mode {
         Mode::Release => {
             command.arg("--release");
+            // `frus run --release` runs the package; it does not publish it. Without a release
+            // key in the manifest, cargo-apk stops at the signing: the package is signed with
+            // the debug key, as a debug build is. `frus build apk` still asks for a real one.
+            if device_target.is_some() && std::env::var_os("CARGO_APK_RELEASE_KEYSTORE").is_none() {
+                let manifest =
+                    std::fs::read_to_string(project.root.join("Cargo.toml")).unwrap_or_default();
+                let debug_key =
+                    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+                        .map(|home| PathBuf::from(home).join(".android").join("debug.keystore"))
+                        .filter(|key| key.is_file());
+                if let (false, Some(key)) = (
+                    manifest.contains("[package.metadata.android.signing.release]"),
+                    debug_key,
+                ) {
+                    command
+                        .env("CARGO_APK_RELEASE_KEYSTORE", key)
+                        .env("CARGO_APK_RELEASE_KEYSTORE_PASSWORD", "android");
+                }
+            }
         }
         // A debug `.so` is mostly debug information nobody reads on a phone: 267 MB of APK for a
         // hello world, against 56 MB without it. Every run and every reload sends the APK over

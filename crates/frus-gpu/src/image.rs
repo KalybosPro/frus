@@ -126,6 +126,7 @@ impl ImagePainter {
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         sample_count: u32,
+        cache: Option<&wgpu::PipelineCache>,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("frus.image.shader"),
@@ -231,7 +232,7 @@ impl ImagePainter {
                 alpha_to_coverage_enabled: false,
             },
             multiview_mask: None,
-            cache: None,
+            cache,
         });
 
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

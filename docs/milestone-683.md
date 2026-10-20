@@ -28,6 +28,9 @@ the web a module to download and compile — and nothing measured it, so nothing
   built with `web-release`, passed through wasm-bindgen at the lockfile's version, its
   `_bg.wasm` against 8,500,000 bytes. `scripts/check-size.sh` prints brotli's size too where
   the tool is there.
+- **`frus run --release` on Android** signs the package with the debug key when the manifest
+  has no release key: cargo-apk stopped there, and a package one runs is not one one publishes.
+  `frus build apk` still asks for a real key.
 
 ## The numbers
 
@@ -52,15 +55,26 @@ The counter (the template's application), release builds.
 The module is 7.2 MB as served (`frus run` does not compress); `frus-hello`'s, measured for
 the budget, is 6,698,359 bytes raw, 2,892,537 gzip, 1,854,865 brotli.
 
-**Android**: to be measured on a device (`am start -W` against the log line); the phone was not
-connected when this was written.
+**Android, Huawei STK-L21 (Android 10, Mali-G51, Vulkan)**, the package installed by `frus run
+--release`, then started cold three times (`am force-stop`, `am start -W`):
+
+| start | first frame | pipelines | fonts | Android's `TotalTime` |
+|---|---|---|---|---|
+| by `frus run` | 1808 ms | 1159 ms | 12 ms | — |
+| cold | 1433 ms | 1057 ms | 6 ms | 394 ms |
+| cold | 1232 ms | 954 ms | 5 ms | 292 ms |
+| cold | 1186 ms | 919 ms | 5 ms | 245 ms |
+
+Android's `TotalTime` is when the activity's window was first drawn — the launch theme's
+colour — not the application's first frame; the log line is what tells the two apart.
 
 ## Where the time goes
 
-- **The pipelines, on the desktop: three quarters of the launch.** Every pipeline is built
+- **The pipelines, on the desktop and on Android: three quarters of the launch.** Every pipeline is built
   — its shaders compiled by DirectX 12 — at every launch, and nothing is kept between runs:
-  issue #217 ("No pipeline cache"). A browser keeps its compiled shaders, and the same step
-  takes 6–20 ms there.
+  issue #217 ("No pipeline cache"). On the phone, Vulkan compiles them in 0.9–1.2 s at every
+  start, which wgpu's pipeline cache would keep. A browser keeps its compiled shaders, and the
+  same step takes 6–20 ms there.
 - **The fonts, on a cold disk**: the system's fonts are read twice (measuring and drawing):
   794 ms on the first launch after a build, 15–20 ms once the system has them cached.
 - **On the web, the module**: downloading and compiling 6.7 MB before the first line of the

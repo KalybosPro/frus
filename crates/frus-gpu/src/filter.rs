@@ -69,7 +69,11 @@ struct Scratch {
 }
 
 impl FilterPainter {
-    pub(crate) fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+    pub(crate) fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        cache: Option<&wgpu::PipelineCache>,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("frus.filter.shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/filter.wgsl").into()),
@@ -147,7 +151,7 @@ impl FilterPainter {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
-            cache: None,
+            cache,
         });
 
         let quad = wgpu::util::DeviceExt::create_buffer_init(
