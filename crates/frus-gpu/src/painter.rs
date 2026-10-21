@@ -114,12 +114,51 @@ pub(crate) struct Painter {
 }
 
 /// How many colours a gradient is baked into.
-const RAMP_WIDTH: u32 = 256;
+pub(crate) const RAMP_WIDTH: u32 = 256;
 /// The most gradients one frame bakes; past it, a gradient paints its first colour.
-const RAMP_MAX_ROWS: u32 = 2048;
+pub(crate) const RAMP_MAX_ROWS: u32 = 2048;
+
+/// The layout of a ramp texture's bind group: the texture and its sampler, read by the
+/// fragment stage.
+pub(crate) fn ramp_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("frus.gradient_ramps.bgl"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    })
+}
+
+/// The ramps' sampler: linear between texels, clamped at the ends (the tile mode is the
+/// shader's).
+pub(crate) fn ramp_sampler(device: &wgpu::Device) -> wgpu::Sampler {
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("frus.gradient_ramps.sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    })
+}
 
 /// A ramp texture `rows` tall, its view bound with `sampler`.
-fn ramp_texture(
+pub(crate) fn ramp_texture(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     sampler: &wgpu::Sampler,
@@ -162,9 +201,14 @@ fn ramp_texture(
 /// A gradient's colours at [`RAMP_WIDTH`] even points from its start to its end, as sRGB
 /// bytes.
 fn bake(gradient: &frus_core::Gradient) -> [u8; RAMP_WIDTH as usize * 4] {
+    bake_with(|t| gradient.sample(t))
+}
+
+/// [`RAMP_WIDTH`] samples of `sample` from `0` to `1`, as sRGB bytes.
+pub(crate) fn bake_with(sample: impl Fn(f32) -> frus_core::Color) -> [u8; RAMP_WIDTH as usize * 4] {
     let mut row = [0u8; RAMP_WIDTH as usize * 4];
     for i in 0..RAMP_WIDTH as usize {
-        let c = gradient.sample(i as f32 / (RAMP_WIDTH - 1) as f32);
+        let c = sample(i as f32 / (RAMP_WIDTH - 1) as f32);
         let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
         row[i * 4..i * 4 + 4].copy_from_slice(&[byte(c.r), byte(c.g), byte(c.b), byte(c.a)]);
     }
@@ -263,35 +307,8 @@ impl Painter {
             }],
         });
 
-        let ramp_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("frus.gradient_ramps.bgl"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-        let ramp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("frus.gradient_ramps.sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
+        let ramp_layout = ramp_layout(device);
+        let ramp_sampler = ramp_sampler(device);
         let (ramp_texture, ramp_bind_group) = ramp_texture(device, &ramp_layout, &ramp_sampler, 1);
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
