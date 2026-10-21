@@ -17,3 +17,8 @@ frus-gpu = { path = "../frus-gpu", version = "0.3" }
 frus-widgets = { path = "../frus-widgets", version = "0.3" }
 # Reading and writing the reference images, that is, the goldens.
 png = "0.17"
+
+[dev-dependencies]
+# SVG pictures, painted by frus and by the reference rasteriser of the parser it uses.
+frus-svg = { path = "../frus-svg" }
+resvg = { version = "0.48", default-features = false }

@@ -1,0 +1,16 @@
+[package]
+name = "frus-svg"
+description = "frus — SVG pictures drawn as the framework's own vector paths"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/frus-svg"
+keywords = ["svg", "vector", "gui"]
+categories = ["graphics", "gui"]
+
+[dependencies]
+frus-core = { path = "../frus-core", version = "0.3" }
+usvg.workspace = true

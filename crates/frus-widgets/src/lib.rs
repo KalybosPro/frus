@@ -180,6 +180,8 @@ mod stack;
 mod stepper;
 mod steps;
 mod stretch;
+#[cfg(feature = "svg")]
+mod svg;
 mod switch;
 mod table;
 mod tabs;
@@ -314,6 +316,9 @@ pub use focus::{
     ExcludeFocus, ExcludeFocusTraversal, Focus, FocusTraversalGroup, FocusTraversalOrder,
 };
 pub use fractional::FractionallySizedBox;
+/// SVG pictures, drawn as vector paths (the `svg` feature).
+#[cfg(feature = "svg")]
+pub use frus_svg::{Svg, SvgError, SvgHandle};
 pub use gesturedetector::{GestureDetector, PanAxis, PanEvent};
 pub use grid::GridView;
 pub use gridtile::{GridTile, GridTileBar, GRID_TILE_BAR_HEIGHT, GRID_TILE_BAR_TWO_LINE_HEIGHT};
@@ -443,6 +448,8 @@ pub use stepper::Stepper;
 pub use steps::Steps;
 pub use sticky::StickyHeader;
 pub use stretch::{OverscrollStretch, ScrollStretch};
+#[cfg(feature = "svg")]
+pub use svg::SvgPicture;
 pub use switch::Switch;
 pub use switcher::AnimatedSwitcher;
 pub use system_ui::{AnnotatedRegion, SystemBars, SystemUiOverlayStyle};
