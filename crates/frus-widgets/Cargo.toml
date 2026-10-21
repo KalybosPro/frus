@@ -23,6 +23,9 @@ hot-reload = ["dep:subsecond"]
 # droppable: without it those two report a missing decoder rather than panicking, exactly
 # as dropping a bundled font leaves text to fall back rather than crash.
 images = ["dep:frus-image"]
+# SVG pictures (`SvgPicture`), drawn as vector paths. Off by default: the parser is weight an
+# application without SVG artwork should not carry.
+svg = ["dep:frus-svg"]
 bundled-sans = ["frus-text/bundled-sans"]
 bundled-italic = ["frus-text/bundled-italic"]
 bundled-mono = ["frus-text/bundled-mono"]
@@ -39,6 +42,7 @@ icons-sharp = []
 subsecond = { version = "0.7", optional = true }
 frus-core = { path = "../frus-core", version = "0.3" }
 frus-image = { path = "../frus-image", version = "0.3", optional = true }
+frus-svg = { path = "../frus-svg", version = "0.3", optional = true }
 frus-layout = { path = "../frus-layout", version = "0.3" }
 frus-text = { path = "../frus-text", version = "0.3", default-features = false }
 typed-arena = { workspace = true }

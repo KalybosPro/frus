@@ -8,11 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 689 so far, each documenting the objective, the alternatives
+> record — one per step, 690 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **SVG pictures** (J690, #303): `SvgPicture::memory(include_bytes!("art.svg"))` and
+  `SvgPicture::string(..)`, behind the new `svg` feature, draw an SVG as vector paths — sharp at
+  any size. Paths and fill rules, strokes (caps, joins, dashes), gradients with stops, group
+  opacity and clip paths are drawn; masks, filters, patterns, bitmaps and text are not yet and
+  are reported. `color` recolours a single-colour icon. The new `frus-svg` crate is underneath.
 - **Paths painted like vector artwork** (J689, #303, #304): a path has a fill rule
   (`FillRule::NonZero` or the default `EvenOdd`), and can be filled with a `GradientRamp` —
   any number of stops, linear or radial with a focal circle, a tile mode and a transform of its

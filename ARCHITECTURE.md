@@ -36,7 +36,7 @@ frus is four layers of crates. **Dependencies only point downward.** Nothing bel
       │  frus-core   geometry, color, paths, animation, Scene      │
       │  frus-layout flexbox (taffy)     frus-text  shaping        │
       │  frus-gpu    wgpu renderer       frus-image decode         │
-      │  frus-l10n   Fluent i18n                                   │
+      │  frus-svg    SVG as paths        frus-l10n  Fluent i18n    │
       └────────────────────────────────────────────────────────────┘
 ```
 
@@ -70,6 +70,8 @@ frus is four layers of crates. **Dependencies only point downward.** Nothing bel
 - `shaders/` — WGSL
 
 **`frus-image`** — PNG/JPEG decode to `ImageData`. Deliberately narrow: fewer formats, smaller dependency tree.
+
+**`frus-svg`** — SVG pictures parsed by usvg and drawn as frus paths (fills, expanded strokes, gradient ramps, clipped layers), so they stay sharp at any size. Behind the `svg` feature, off by default.
 
 **`frus-l10n`** — Fluent bundles and locale negotiation. We use Mozilla's Fluent rather than inventing a message format.
 

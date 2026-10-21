@@ -222,7 +222,7 @@ Quatre couches. Les dépendances ne pointent que vers le bas, et seul `frus-shel
 ├──────────────────────────────────────────────────────────────┤
 │  Fondations      rendu & mesure                              │
 │  frus-core · frus-layout · frus-text · frus-gpu ·            │
-│  frus-image · frus-l10n                                      │
+│  frus-image · frus-svg · frus-l10n                           │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -234,6 +234,7 @@ Quatre couches. Les dépendances ne pointent que vers le bas, et seul `frus-shel
 | [`frus-text`](crates/frus-text) | Shaping et mesure via [`cosmic-text`](https://github.com/pop-os/cosmic-text). |
 | [`frus-gpu`](crates/frus-gpu) | Device `wgpu`, peintre 2D, tessellation de chemins, atlas de glyphes, compositeur, rendu hors écran. |
 | [`frus-image`](crates/frus-image) | Décodage PNG/JPEG vers `ImageData`. |
+| [`frus-svg`](crates/frus-svg) | Images SVG dessinées en chemins vectoriels (feature `svg`). |
 | [`frus-l10n`](crates/frus-l10n) | i18n via bundles Fluent + négociation de locale. |
 | [`frus-widgets`](crates/frus-widgets) | La bibliothèque de widgets et le modèle d'interaction (~150 modules). |
 | [`frus-shell`](crates/frus-shell) | Fenêtre, boucle d'événements, cycle de vie, `Command`/`Subscription`, IME, AccessKit, `fetch`. |
