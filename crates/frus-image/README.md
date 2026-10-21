@@ -10,6 +10,8 @@ and JPEG formats turned on, so nothing else inherits its dependency tree. See
 ## What you reach for
 
 - `decode`: bytes in, sRGB RGBA `ImageData` out, the format detected from the bytes.
+- `decode_at`: the same at a `DecodeSize`, the size the picture is shown at. A JPEG is
+  decoded scaled straight from the file; other formats are downsampled once.
 - `DecodeError`: an unrecognised format or corrupt data.
 
 ## Example

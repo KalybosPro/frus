@@ -545,8 +545,9 @@ pub use frus_core::{
 };
 /// The image stores, for an application that loads its own pictures or sizes the cache.
 pub use frus_core::{
-    cached, fetched, forget_cached_images, forget_fetched_images, image_cache_budget,
-    image_cache_bytes, set_image_cache_budget, Fetched, DEFAULT_IMAGE_CACHE_BYTES,
+    cached, cached_at, fetched, fetched_at, forget_cached_images, forget_fetched_images,
+    image_cache_budget, image_cache_bytes, set_image_cache_budget, trim_image_caches, DecodeSize,
+    Fetched, DEFAULT_IMAGE_CACHE_BYTES,
 };
 /// What a decoration is made of — its shape, its sides, its border's two forms, its
 /// shadows' blur — and the shapes a border can take.

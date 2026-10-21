@@ -24,6 +24,9 @@ cosmic-text = "0.19"
 lyon = "1"
 # Image decoding (PNG/JPEG). The format list is kept short to lighten the dependency tree.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Scaled JPEG decoding (1/2, 1/4, 1/8 in the inverse DCT), which the `image` crate's decoder
+# lacks. No `rayon`: it would bring threads to the Web build.
+jpeg-decoder = { version = "0.3", default-features = false }
 arboard = "3"
 pollster = "0.3"
 bytemuck = { version = "1", features = ["derive"] }

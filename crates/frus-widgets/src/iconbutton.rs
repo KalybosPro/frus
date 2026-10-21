@@ -57,8 +57,9 @@ enum Content {
     /// A pair being crossed, and the end it is heading for — see
     /// [`IconButton::animated`].
     Morph(crate::icons::AnimatedIconData, f32),
-    /// A picture rather than a path — see [`IconButton::image`].
-    Image(crate::ImageIcon),
+    /// A picture rather than a path — see [`IconButton::image`]. Boxed: a picture is
+    /// several times the size of the other three, and every button would carry it.
+    Image(Box<crate::ImageIcon>),
 }
 
 /// A button holding one glyph.
@@ -101,7 +102,7 @@ impl<Msg> IconButton<Msg> {
     /// IconButton::image(ImageIcon::new(Image::memory(MARK))).label("Home").on_press(msg)
     /// ```
     pub fn image(icon: crate::ImageIcon) -> Self {
-        Self::of(Content::Image(icon))
+        Self::of(Content::Image(Box::new(icon)))
     }
 
     /// **A button whose mark crosses between two**, at the end `on` names — a drawer's
