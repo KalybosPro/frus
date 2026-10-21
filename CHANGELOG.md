@@ -13,6 +13,13 @@ any release may break.
 
 ## [Unreleased]
 
+- **The GPU lost, and found again** (J686, #217): when the GPU device is lost — a driver reset,
+  a GPU removed — the renderer says so (`RenderOutcome::DeviceLost`) and the shell makes a new one
+  on the same window; the application goes on with its state. `frus run`'s channel takes
+  `lose-gpu` to test it. `WGPU_BACKEND` now chooses the GPU backend over frus's own choice, and Android and Linux fall
+  back to OpenGL ES where there is no Vulkan driver.
+
+
 - **The pipelines kept between launches** (J685, #217): where the GPU can keep compiled
   pipelines (Vulkan: Android, Linux), the renderer reads them from the previous launch instead
   of compiling them again. On the test phone the counter's first frame went from 1.15 s to

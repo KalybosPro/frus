@@ -52,6 +52,8 @@ pub struct Renderer {
     painters: Painters,
     /// What making it took, phase by phase.
     startup: StartupTimes,
+    /// Set by the device when it is lost.
+    lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Where the last frame's rendering spent its time.
     timings: RenderTimings,
     /// The GPU's own timing of each frame, where the device has a clock (milestone 612).
@@ -126,12 +128,21 @@ impl Renderer {
         if std::env::var_os("WGPU_DEBUG").is_none() {
             descriptor.flags.remove(wgpu::InstanceFlags::DEBUG);
         }
-        // The Android emulator's Vulkan driver (gfxstream) crashes in its own code at the first
-        // submission: there, the GPU is reached through OpenGL ES instead.
-        #[cfg(target_os = "android")]
-        if emulator_vulkan(descriptor.flags).await {
-            log::info!("the emulator's Vulkan driver fails at the first frame: OpenGL ES instead");
+        // Android and Linux draw through Vulkan alone. Where there is none — an old device, a
+        // driver missing — or only the Android emulator's (gfxstream, which crashes in its own
+        // code at the first submission), the GPU is reached through OpenGL ES instead
+        // (milestones 681, 686).
+        #[cfg(any(target_os = "android", target_os = "linux"))]
+        if let Some(why) = vulkan_unusable(descriptor.flags).await {
+            log::info!("{why}: OpenGL ES instead");
             descriptor.backends = wgpu::Backends::GL;
+        }
+        // `WGPU_BACKEND` (`vulkan`, `gl`, `dx12`, `metal`, `webgpu`, comma-separated) decides
+        // over all of the above: a device whose driver frus's choice fails on can be given
+        // another backend without rebuilding the application (milestone 686, #217).
+        if let Some(backends) = wgpu::Backends::from_env() {
+            log::info!("GPU backends from WGPU_BACKEND: {backends:?}");
+            descriptor.backends = backends;
         }
         // DirectX 12 compiles the shaders with DXC when its DLL is beside the program —
         // `frus run` and `frus build desktop` put it there —, several times faster than
@@ -209,6 +220,16 @@ impl Renderer {
             })
             .await?;
         let device_time = device_started.elapsed();
+        // A lost device — a driver reset, a GPU removed — says so here; the renderer then
+        // answers `DeviceLost`, and its owner makes a new one (milestone 686).
+        let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        {
+            let lost = lost.clone();
+            device.set_device_lost_callback(move |reason, message| {
+                log::warn!("the GPU device was lost ({reason:?}): {message}");
+                lost.store(true, std::sync::atomic::Ordering::SeqCst);
+            });
+        }
 
         let caps = surface.get_capabilities(&adapter);
         let alpha_mode = if see_through {
@@ -313,9 +334,22 @@ impl Renderer {
             gpu_timer,
             painters,
             startup,
+            lost,
             timings: RenderTimings::default(),
             see_through,
         })
+    }
+
+    /// Whether the device is gone: see [`RenderOutcome::DeviceLost`].
+    pub fn is_lost(&self) -> bool {
+        self.lost.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Destroys the device as a driver reset would, for testing what follows: the next
+    /// [`Renderer::render`] says [`RenderOutcome::DeviceLost`].
+    #[doc(hidden)]
+    pub fn lose_device_for_testing(&self) {
+        self.device.destroy();
     }
 
     /// What making this renderer took, phase by phase (#211).
@@ -348,6 +382,11 @@ impl Renderer {
 
     /// Draws the scene — rectangles, images, paths, text, layers — and presents it.
     pub fn render(&mut self, scene: &Scene) -> RenderOutcome {
+        // Without waiting: a lost device is reported when the device is polled (milestone 686).
+        let _ = self.device.poll(wgpu::PollType::Poll);
+        if self.lost.load(std::sync::atomic::Ordering::SeqCst) {
+            return RenderOutcome::DeviceLost;
+        }
         let clock = Clock::start();
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
@@ -405,13 +444,13 @@ impl Renderer {
     }
 }
 
-/// Whether the only Vulkan this device offers is the Android emulator's (gfxstream, the
-/// "Goldfish" GPU), which crashes in its own code at the first submission. `WGPU_BACKEND`, when
-/// set, decides instead.
-#[cfg(target_os = "android")]
-async fn emulator_vulkan(flags: wgpu::InstanceFlags) -> bool {
+/// Whether the Vulkan this device offers is unusable: only the Android emulator's (gfxstream, the
+/// "Goldfish" GPU), which crashes in its own code at the first submission — or none at all:
+/// why, then. `WGPU_BACKEND`, when set, decides instead.
+#[cfg(any(target_os = "android", target_os = "linux"))]
+async fn vulkan_unusable(flags: wgpu::InstanceFlags) -> Option<&'static str> {
     if std::env::var_os("WGPU_BACKEND").is_some() {
-        return false;
+        return None;
     }
     let probe = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN,
@@ -419,11 +458,17 @@ async fn emulator_vulkan(flags: wgpu::InstanceFlags) -> bool {
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapters = probe.enumerate_adapters(wgpu::Backends::VULKAN).await;
-    !adapters.is_empty()
-        && adapters.iter().all(|adapter| {
-            let info = adapter.get_info();
-            info.driver.eq_ignore_ascii_case("gfxstream") || info.name.contains("Goldfish")
-        })
+    let emulator = |adapter: &wgpu::Adapter| {
+        let info = adapter.get_info();
+        info.driver.eq_ignore_ascii_case("gfxstream") || info.name.contains("Goldfish")
+    };
+    if adapters.is_empty() {
+        Some("no Vulkan driver on this device")
+    } else if adapters.iter().all(emulator) {
+        Some("the emulator's Vulkan driver fails at the first frame")
+    } else {
+        None
+    }
 }
 
 /// Where a frame's rendering spent its time, in milliseconds. See
@@ -472,6 +517,9 @@ pub enum RenderOutcome {
     Skipped,
     /// The surface is lost or outdated: call [`Renderer::reconfigure`] before retrying.
     NeedsReconfigure,
+    /// The GPU device is gone — a driver reset, a GPU removed or restarted: this renderer can
+    /// draw nothing more, and a new one is to be made (milestone 686, #217).
+    DeviceLost,
 }
 
 /// The device's pipeline cache, filled from the file a previous launch wrote for this adapter

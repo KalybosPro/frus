@@ -879,6 +879,9 @@ pub struct App<A: Application> {
     proxy: Mailbox<A::Message>,
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
+    /// The renderer's GPU device was lost: a new renderer is made at the next frame's start
+    /// (milestone 686).
+    renderer_lost: bool,
     /// A renderer being initialised **asynchronously**, on the Web only: filled in by
     /// the `spawn_local` future and picked up on the first frame, the Web being unable
     /// to block on GPU init.
@@ -1173,6 +1176,7 @@ impl<A: Application> App<A> {
             proxy,
             window: None,
             renderer: None,
+            renderer_lost: false,
             #[cfg(web)]
             pending_renderer: std::rc::Rc::new(std::cell::RefCell::new(None)),
             #[cfg(web)]
@@ -2350,6 +2354,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             }
 
             WindowEvent::RedrawRequested => {
+                // The GPU device was lost on the last frame: a new renderer first.
+                if std::mem::take(&mut self.renderer_lost) {
+                    self.rebuild_renderer();
+                }
                 // Measured only when asked: a clock read per stage is cheap, but not free.
                 let measuring = self.frame_stats.enabled();
                 let frame_start = measuring.then(Instant::now);
@@ -2930,6 +2938,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 if let Some(path) = self.debug.screenshot.take() {
                     write_screenshot(&scene, width * scale, height * scale, &path);
                 }
+                let mut device_lost = false;
                 if let Some(renderer) = self.renderer.as_mut() {
                     let render_start = measuring.then(Instant::now);
                     match renderer.render(&scene) {
@@ -2937,6 +2946,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         frus_gpu::RenderOutcome::NeedsReconfigure => {
                             renderer.reconfigure();
                         }
+                        frus_gpu::RenderOutcome::DeviceLost => device_lost = true,
                         frus_gpu::RenderOutcome::Skipped => {}
                     }
                     // The page's picture, read in the task that drew it: a WebGPU canvas keeps
@@ -2953,6 +2963,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         self.frame_costs.acquire = timings.acquire;
                         self.frame_costs.draw = timings.draw;
                         self.frame_costs.gpu = timings.gpu;
+                    }
+                }
+                // The GPU device is gone: a new renderer on the same window, at the next frame's
+                // start, which draws the interface again (milestone 686, #217).
+                if device_lost {
+                    self.renderer_lost = true;
+                    if let Some(window) = self.window.as_ref() {
+                        window.request_redraw();
                     }
                 }
                 // A continuously animating widget, a spinner say, forces a redraw. So
@@ -3497,6 +3515,56 @@ fn write_screenshot(scene: &Scene, width: f32, height: f32, path: &std::path::Pa
 impl<A: Application> App<A> {
     /// Carries out what the keys of `frus run` asked since the last frame (milestone 668).
     /// Each says what it did in the log, which `frus run` shows.
+    /// A new renderer on the window, after its GPU device was lost — a driver reset, a GPU
+    /// removed or restarted —, of the same kind as the old one: the application goes on, its
+    /// interface drawn again on the next frame (milestone 686, #217).
+    fn rebuild_renderer(&mut self) {
+        let see_through = self.renderer.as_ref().is_some_and(Renderer::sees_through);
+        // The old renderer — its surface on this window among it — goes first.
+        self.renderer = None;
+        let Some(window) = self.window.clone() else {
+            return;
+        };
+        let size = window.inner_size();
+        let (width, height) = (size.width.max(1), size.height.max(1));
+        log::warn!("the GPU device was lost: drawing again with a new one");
+        #[cfg(not(web))]
+        {
+            let made = if see_through {
+                pollster::block_on(Renderer::see_through(window.clone(), width, height))
+            } else {
+                pollster::block_on(Renderer::new(window.clone(), width, height))
+            };
+            match made {
+                Ok(renderer) => self.renderer = Some(renderer),
+                Err(err) => {
+                    log::error!("the GPU device was lost, and no new one could be made: {err:#}")
+                }
+            }
+        }
+        #[cfg(web)]
+        {
+            let _ = see_through;
+            let slot = self.pending_renderer.clone();
+            let win = window.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match Renderer::new(win.clone(), width, height).await {
+                    Ok(renderer) => {
+                        *slot.borrow_mut() = Some(renderer);
+                        win.request_redraw();
+                    }
+                    Err(err) => {
+                        log::error!(
+                            "the GPU device was lost, and no new one could be made: {err:#}"
+                        )
+                    }
+                }
+            });
+        }
+        self.build_dirty = true;
+        window.request_redraw();
+    }
+
     fn take_dev_commands(&mut self) {
         for command in crate::dev_commands::take_commands() {
             let (name, argument) = command
@@ -3545,6 +3613,14 @@ impl<A: Application> App<A> {
                     // This frame began unmeasured: the next one is, and shows its figures.
                     self.request_redraw();
                     log::info!(target: "frus::dev", "performance panel {}", on_off(self.debug.performance));
+                }
+                // A driver reset, on purpose: what follows is the recovery (milestone 686).
+                "lose-gpu" => {
+                    if let Some(renderer) = self.renderer.as_ref() {
+                        log::warn!(target: "frus::dev", "losing the GPU device, as a driver reset would");
+                        renderer.lose_device_for_testing();
+                        self.request_redraw();
+                    }
                 }
                 "screenshot" if !argument.is_empty() => {
                     #[cfg(desktop)]
