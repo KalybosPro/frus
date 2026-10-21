@@ -1818,6 +1818,17 @@ fn platform_locales() -> Vec<frus_widgets::Locale> {
     }
 }
 
+/// Gives back the decoded images nobody is showing, and says how much went.
+fn memory_trimmed() {
+    let before = frus_widgets::image_cache_bytes();
+    frus_widgets::trim_image_caches();
+    log::info!(
+        "memory is low: decoded network images trimmed from {} to {} KB",
+        before / 1024,
+        frus_widgets::image_cache_bytes() / 1024
+    );
+}
+
 impl<A: Application> ApplicationHandler<A::Message> for App<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -2036,6 +2047,13 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
     /// app can persist its state before the process disappears.
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         self.set_lifecycle(Lifecycle::Detached);
+    }
+
+    /// The system is short of memory (Android's low-memory callback, iOS's memory
+    /// warning): the decoded images nobody is showing are given back, rather than left
+    /// for the system to reclaim by ending the process.
+    fn memory_warning(&mut self, _event_loop: &ActiveEventLoop) {
+        memory_trimmed();
     }
 
     /// A message produced by an effect, on a background thread: we apply it and ask
@@ -3614,6 +3632,8 @@ impl<A: Application> App<A> {
                     self.request_redraw();
                     log::info!(target: "frus::dev", "performance panel {}", on_off(self.debug.performance));
                 }
+                // The system's low-memory call, on demand (milestone 687).
+                "trim-memory" => memory_trimmed(),
                 // A driver reset, on purpose: what follows is the recovery (milestone 686).
                 "lose-gpu" => {
                     if let Some(renderer) = self.renderer.as_ref() {

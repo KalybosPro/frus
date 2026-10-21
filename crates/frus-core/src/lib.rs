@@ -57,9 +57,10 @@ pub use geometry::{
 pub use gradient::{tile, Gradient, LinearGradient, RadialGradient, SweepGradient, TileMode};
 pub use hct::{Hct, TonalPalette};
 pub use image::{
-    cached, fetched, forget_cached_images, forget_fetched_images, image_cache_budget,
-    image_cache_bytes, images_in_flight, set_image_cache_budget, set_image_fetcher, BoxFit,
-    Fetched, ImageData, ImageFetcher, ImageHandle, DEFAULT_IMAGE_CACHE_BYTES,
+    cached, cached_at, fetched, fetched_at, forget_cached_images, forget_fetched_images,
+    image_cache_budget, image_cache_bytes, images_in_flight, set_image_cache_budget,
+    set_image_fetcher, trim_image_caches, BoxFit, DecodeSize, Fetched, ImageData, ImageFetcher,
+    ImageHandle, DEFAULT_IMAGE_CACHE_BYTES,
 };
 pub use path::{Path, PathVerb, Stroke, StrokeCap};
 pub use platform::{

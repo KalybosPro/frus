@@ -12,7 +12,11 @@
 //! | one of the two | the other from the image's own ratio |
 //! | neither | the image's own size |
 
-use frus_core::{Alignment, AlignmentGeometry, BoxFit, Color, Curve, ImageHandle, Rect, Scene};
+use std::cell::OnceCell;
+
+use frus_core::{
+    Alignment, AlignmentGeometry, BoxFit, Color, Curve, DecodeSize, ImageHandle, Rect, Scene,
+};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
@@ -20,12 +24,13 @@ use crate::skeleton::Skeleton;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Turns file bytes into pixels, through whichever decoder this build carries — and says
-/// so in the console when it cannot. [`frus_core::cached`] and [`frus_core::fetched`] call
-/// this once per image, so it is said once; an image that paints nothing with no word
-/// anywhere is otherwise found on a device (milestone 626).
-fn decode(bytes: &[u8]) -> Result<frus_core::ImageData, String> {
-    decode_in_this_build(bytes).inspect_err(|why| {
+/// Turns file bytes into pixels at `size`, through whichever decoder this build carries —
+/// and says so in the console when it cannot. [`frus_core::cached_at`] and
+/// [`frus_core::fetched_at`] call this once per image and size, so it is said once; an
+/// image that paints nothing with no word anywhere is otherwise found on a device
+/// (milestone 626).
+fn decode_at(bytes: &[u8], size: DecodeSize) -> Result<frus_core::ImageData, String> {
+    decode_in_this_build(bytes, size).inspect_err(|why| {
         log::warn!(
             "frus: an image of {} bytes could not be decoded: {why}",
             bytes.len()
@@ -34,8 +39,8 @@ fn decode(bytes: &[u8]) -> Result<frus_core::ImageData, String> {
 }
 
 #[cfg(feature = "images")]
-fn decode_in_this_build(bytes: &[u8]) -> Result<frus_core::ImageData, String> {
-    frus_image::decode(bytes).map_err(|e| e.message().to_string())
+fn decode_in_this_build(bytes: &[u8], size: DecodeSize) -> Result<frus_core::ImageData, String> {
+    frus_image::decode_at(bytes, size).map_err(|e| e.message().to_string())
 }
 
 /// Without the `images` feature there is no decoder, and saying so is the whole job.
@@ -44,7 +49,7 @@ fn decode_in_this_build(bytes: &[u8]) -> Result<frus_core::ImageData, String> {
 /// how to get it back, because the usual way to lose it is `default-features = false`,
 /// written to drop the bundled fonts.
 #[cfg(not(feature = "images"))]
-fn decode_in_this_build(_bytes: &[u8]) -> Result<frus_core::ImageData, String> {
+fn decode_in_this_build(_bytes: &[u8], _size: DecodeSize) -> Result<frus_core::ImageData, String> {
     Err(
         "no image decoder: this build dropped the `images` feature, which \
          `default-features = false` turns off; add `features = [\"images\"]` to the frus \
@@ -74,6 +79,16 @@ enum Source {
     Loading,
     Failed(String),
 }
+
+/// Where the bytes of an [`Image`] that has not been resolved yet are.
+enum Origin {
+    Memory(&'static [u8]),
+    Network(String),
+}
+
+/// Physical pixels are asked for in steps of this many, so a picture whose box animates
+/// is decoded a handful of times rather than once per frame of the animation.
+const DECODE_STEP: u32 = 32;
 
 /// How long an image takes to cross over its placeholder — the reference's own figure
 /// for `FadeInImage` (`fade_in_image.dart:37`).
@@ -140,8 +155,16 @@ impl ImagePlaceholder {
 
 /// An image, fitted by `fit` into whatever box it ends up with.
 pub struct Image {
-    /// The pixels, why there are none, or that they are still on their way.
-    source: Source,
+    /// Where the bytes are, for an image decoded by this widget; `None` for one built from
+    /// pixels the application already had.
+    origin: Option<Origin>,
+    /// The pixels, why there are none, or that they are still on their way — resolved
+    /// from `origin` the first time anybody asks, once the size it is decoded at is known.
+    source: OnceCell<Source>,
+    /// The size asked for with [`Image::cache_width`] and [`Image::cache_height`].
+    cache: DecodeSize,
+    /// Whether [`Image::full_resolution`] turned decoding at the shown size off.
+    full_resolution: bool,
     width: Option<f32>,
     height: Option<f32>,
     fit: BoxFit,
@@ -186,13 +209,12 @@ impl Image {
     /// reference's behaviour for an image with no error widget supplied, and
     /// [`Image::error`] is how an application asks what went wrong.
     ///
+    /// **Decoded at the size shown**: see [`Image::cache_width`].
+    ///
     /// Needs the `images` feature, which is on by default. Without it this reports a
     /// missing decoder rather than panicking — the same rule the bundled fonts follow.
     pub fn memory(bytes: &'static [u8]) -> Self {
-        Self::from_source(match frus_core::cached(bytes, decode) {
-            Ok(handle) => Source::Ready(handle),
-            Err(why) => Source::Failed(why),
-        })
+        Self::from_origin(Origin::Memory(bytes))
     }
 
     /// An image **fetched over the network**, decoded and shown when it arrives.
@@ -213,27 +235,79 @@ impl Image {
     /// written anyway.
     ///
     /// ```ignore
-    /// let photo = Image::network(&url);
+    /// let photo = Image::network(&url).width(240.0);
     /// match photo.state() {
     ///     State::Loading => CircularProgressIndicator::new().boxed(),
     ///     State::Failed(why) => text(why).boxed(),
-    ///     State::Ready => photo.width(240.0).boxed(),
+    ///     State::Ready => photo.boxed(),
     /// }
     /// ```
+    ///
+    /// Size it **before** asking: the size is what it is fetched and decoded at, and one
+    /// set after the question is a second request at the new size.
     ///
     /// A closure stored in the widget would say the same thing in a place the
     /// application cannot see it, and would need the widget to carry the message type
     /// for the sake of a branch the view can already take.
     ///
+    /// **The request starts the first time the image is asked about** — laid out,
+    /// painted, or asked its [`state`](Image::state) — since that is when the size to
+    /// decode it at is known (see [`Image::cache_width`]). An image built and dropped
+    /// without any of those fetches nothing.
+    ///
     /// Needs a registered fetcher — [`frus_core::set_image_fetcher`] — which the shell
     /// installs on the way up when built with the `net` feature. Without one this fails
     /// with a message saying so, rather than waiting for ever.
     pub fn network(url: impl AsRef<str>) -> Self {
-        Self::from_source(match frus_core::fetched(url.as_ref(), decode) {
-            frus_core::Fetched::Loading => Source::Loading,
-            frus_core::Fetched::Ready(handle) => Source::Ready(handle),
-            frus_core::Fetched::Failed(why) => Source::Failed(why),
+        Self::from_origin(Origin::Network(url.as_ref().to_string()))
+    }
+
+    /// The pixels, resolving them on the first ask.
+    fn source(&self) -> &Source {
+        self.source.get_or_init(|| {
+            let size = self.decode_size();
+            match &self.origin {
+                Some(Origin::Memory(bytes)) => {
+                    match frus_core::cached_at(bytes, size, |b| decode_at(b, size)) {
+                        Ok(handle) => Source::Ready(handle),
+                        Err(why) => Source::Failed(why),
+                    }
+                }
+                Some(Origin::Network(url)) => match frus_core::fetched_at(url, size, decode_at) {
+                    frus_core::Fetched::Loading => Source::Loading,
+                    frus_core::Fetched::Ready(handle) => Source::Ready(handle),
+                    frus_core::Fetched::Failed(why) => Source::Failed(why),
+                },
+                // Built from pixels, and those were put in the cell at construction.
+                None => Source::Failed("no image".to_string()),
+            }
         })
+    }
+
+    /// The size the bytes are decoded at: what [`Image::cache_width`] and
+    /// [`Image::cache_height`] said, or failing that the size of the box, when the
+    /// application gave one, in physical pixels.
+    fn decode_size(&self) -> DecodeSize {
+        if !self.cache.is_full() {
+            return self.cache;
+        }
+        // `BoxFit::None` paints the picture at its own size, which a smaller decode would
+        // change.
+        if self.full_resolution || self.fit == BoxFit::None {
+            return DecodeSize::FULL;
+        }
+        let ratio = crate::MediaQuery::of().device_pixel_ratio;
+        let ratio = if ratio.is_finite() && ratio > 0.0 {
+            ratio
+        } else {
+            1.0
+        };
+        let physical = |logical: Option<f32>| {
+            let logical = logical.filter(|l| l.is_finite() && *l > 0.0)?;
+            let pixels = (logical * ratio).ceil() as u32;
+            Some(pixels.div_ceil(DECODE_STEP).max(1) * DECODE_STEP)
+        };
+        DecodeSize::new(physical(self.width), physical(self.height))
     }
 
     /// Where this image has got to: here, on its way, or never coming.
@@ -241,7 +315,7 @@ impl Image {
     /// An embedded image is only ever [`State::Ready`] or [`State::Failed`] — there is
     /// nothing to wait for. [`Image::network`] is the one that can be loading.
     pub fn state(&self) -> State<'_> {
-        match &self.source {
+        match self.source() {
             Source::Ready(_) => State::Ready,
             Source::Loading => State::Loading,
             Source::Failed(why) => State::Failed(why),
@@ -258,7 +332,7 @@ impl Image {
     /// An image still **loading** has no error: it has not failed, it has not arrived.
     /// [`Image::state`] is the one that tells the three apart.
     pub fn error(&self) -> Option<&str> {
-        match &self.source {
+        match self.source() {
             Source::Failed(why) => Some(why),
             _ => None,
         }
@@ -269,15 +343,28 @@ impl Image {
     /// `Image::network` is painted by something other than an `Image` — a decoration, an
     /// avatar — with the same loading and the same cache (milestone 647).
     pub fn handle(&self) -> Option<frus_core::ImageHandle> {
-        match &self.source {
+        match self.source() {
             Source::Ready(handle) => Some(handle.clone()),
             _ => None,
         }
     }
 
     fn from_source(source: Source) -> Self {
+        let mut image = Self::blank(None);
+        image.source = OnceCell::from(source);
+        image
+    }
+
+    fn from_origin(origin: Origin) -> Self {
+        Self::blank(Some(origin))
+    }
+
+    fn blank(origin: Option<Origin>) -> Self {
         Self {
-            source,
+            origin,
+            source: OnceCell::new(),
+            cache: DecodeSize::FULL,
+            full_resolution: false,
             width: None,
             height: None,
             fit: BoxFit::Contain,
@@ -297,13 +384,22 @@ impl Image {
     /// image's own ratio.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Some(width);
-        self
+        self.unresolved()
     }
 
     /// Sets the height, in logical pixels. With no width, the width follows from the
     /// image's own ratio.
     pub fn height(mut self, height: f32) -> Self {
         self.height = Some(height);
+        self.unresolved()
+    }
+
+    /// Forgets pixels resolved before the size they are decoded at was changed, so the
+    /// next ask resolves them at the new one. An image built from pixels keeps them.
+    fn unresolved(mut self) -> Self {
+        if self.origin.is_some() {
+            self.source = OnceCell::new();
+        }
         self
     }
 
@@ -312,10 +408,50 @@ impl Image {
         self.width(width).height(height)
     }
 
+    /// **Decodes the picture this many physical pixels wide**, whatever the file's own
+    /// width; the height follows from the image's own ratio unless
+    /// [`cache_height`](Image::cache_height) is given too, in which case the picture is
+    /// decoded at the smallest size, at its own ratio, that covers both. Never larger
+    /// than the file.
+    ///
+    /// A twelve-megapixel photograph shown as a thumbnail does not need 48 MB of pixels,
+    /// and on a phone a grid of them is how an application is killed for memory.
+    ///
+    /// **Without it, an image given a [`width`](Image::width) or a
+    /// [`height`](Image::height) is already decoded at that size** times the screen's
+    /// pixel ratio, rounded up a little; this is for one that is not — sized by its parent
+    /// — or one that wants a different size. An image given neither, and none of these,
+    /// is decoded at the file's own size, which is also its own size on screen: setting
+    /// this on one changes the size it takes.
+    ///
+    /// Only an image this widget decodes — [`Image::memory`], [`Image::network`] — is
+    /// affected. One made with [`Image::new`] is the pixels the application gave it.
+    #[must_use]
+    pub fn cache_width(mut self, pixels: u32) -> Self {
+        self.cache.width = Some(pixels.max(1));
+        self.unresolved()
+    }
+
+    /// [`cache_width`](Image::cache_width), for the height.
+    #[must_use]
+    pub fn cache_height(mut self, pixels: u32) -> Self {
+        self.cache.height = Some(pixels.max(1));
+        self.unresolved()
+    }
+
+    /// **Decodes the file at its own size**, however small the box: for a picture that is
+    /// shown larger than its box says — under a zoom, a scale transform, a hero flight to
+    /// a full-screen view — and must stay sharp there.
+    #[must_use]
+    pub fn full_resolution(mut self) -> Self {
+        self.full_resolution = true;
+        self.unresolved()
+    }
+
     /// Changes the fit mode.
     pub fn fit(mut self, fit: BoxFit) -> Self {
         self.fit = fit;
-        self
+        self.unresolved()
     }
 
     /// Where the image sits in a box it does not fill, and which part of it survives a
@@ -418,7 +554,7 @@ impl Image {
 
     /// Whether the picture is here.
     fn ready(&self) -> bool {
-        matches!(self.source, Source::Ready(_))
+        matches!(self.source(), Source::Ready(_))
     }
 
     /// The box this asks for, given the bitmap's own size.
@@ -426,7 +562,7 @@ impl Image {
         // Nothing decoded: there is no natural size to fall back on, so an image given
         // no measurements takes no room at all. Anything the caller *did* say is still
         // honoured, which is what keeps a layout from jumping when one asset is broken.
-        let Source::Ready(image) = &self.source else {
+        let Source::Ready(image) = self.source() else {
             return Style {
                 width: self.width.map_or(Dimension::Length(0.0), Dimension::Length),
                 height: self
@@ -568,7 +704,7 @@ impl Image {
         // opt-in question below, which is how the reference splits it too.
         // Nothing decoded, nothing drawn: the box stays empty rather than showing a
         // stand-in nobody asked for. `Image::error` is how an application finds out.
-        let Source::Ready(image) = &self.source else {
+        let Source::Ready(image) = self.source() else {
             return;
         };
         let align = self.alignment.resolve(frus_core::TextDirection::Ltr);
@@ -1280,7 +1416,7 @@ mod tests {
         let bytes = png();
         let first = Image::memory(bytes);
         let second = Image::memory(bytes);
-        let handle = |image: &Image| match &image.source {
+        let handle = |image: &Image| match image.source() {
             Source::Ready(handle) => handle.clone(),
             _ => panic!("decoded"),
         };
@@ -1379,7 +1515,7 @@ mod tests {
             frus_core::set_image_fetcher(instant_png);
             // The first ask started the work; this fetcher had already finished by the
             // time it returned, so the second ask has the pixels.
-            let _ = Image::network("https://example.com/a.png");
+            let _ = Image::network("https://example.com/a.png").state();
             let arrived = Image::network("https://example.com/a.png");
             assert_eq!(arrived.state(), State::Ready);
             assert_eq!(Widget::<()>::style(&arrived).width, Dimension::Length(2.0));
@@ -1401,7 +1537,7 @@ mod tests {
         fn a_request_that_fails_says_why_rather_than_waiting_for_ever() {
             let _guard = serialised();
             frus_core::set_image_fetcher(instant_failure);
-            let _ = Image::network("https://example.com/gone.png");
+            let _ = Image::network("https://example.com/gone.png").state();
             let dead = Image::network("https://example.com/gone.png");
             assert_eq!(dead.state(), State::Failed("404"));
             assert_eq!(dead.error(), Some("404"));
@@ -1420,7 +1556,7 @@ mod tests {
             CALLS.store(0, std::sync::atomic::Ordering::Relaxed);
             frus_core::set_image_fetcher(counted);
             for _ in 0..60 {
-                let _ = Image::network("https://example.com/once.png");
+                let _ = Image::network("https://example.com/once.png").state();
             }
             assert_eq!(CALLS.load(std::sync::atomic::Ordering::Relaxed), 1);
         }
@@ -1431,8 +1567,149 @@ mod tests {
         fn the_count_falls_back_to_zero_when_the_work_is_done() {
             let _guard = serialised();
             frus_core::set_image_fetcher(instant_png);
-            let _ = Image::network("https://example.com/settle.png");
+            let _ = Image::network("https://example.com/settle.png").state();
             assert_eq!(frus_core::images_in_flight(), 0);
         }
+
+        /// A large picture fetched into a small box arrives at the box's size.
+        #[test]
+        fn a_fetched_image_is_decoded_at_the_size_it_is_shown() {
+            let _guard = serialised();
+            fn big(_url: &str, deliver: Box<dyn FnOnce(Result<Vec<u8>, String>) + Send>) {
+                deliver(Ok(big_png(1000, 500).to_vec()));
+            }
+            frus_core::set_image_fetcher(big);
+            let thumb = Image::network("https://example.com/big.png").size(40.0, 40.0);
+            let _ = thumb.state();
+            let thumb = Image::network("https://example.com/big.png").size(40.0, 40.0);
+            let handle = thumb.handle().expect("arrived");
+            // 40 logical pixels at a ratio of 1, in steps of 32: 64, covered at 2:1.
+            assert_eq!((handle.width(), handle.height()), (128, 64));
+            // The same address at its own size is another entry, and another fetch.
+            let full = Image::network("https://example.com/big.png");
+            let _ = full.state();
+            let full = Image::network("https://example.com/big.png");
+            assert_eq!(full.handle().map(|h| h.width()), Some(1000));
+        }
+    }
+
+    /// A `width` × `height` PNG, leaked like [`png`].
+    #[cfg(feature = "images")]
+    fn big_png(width: u32, height: u32) -> &'static [u8] {
+        let mut out = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut out, width, height);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().expect("header");
+            writer
+                .write_image_data(&vec![200u8; (width * height * 4) as usize])
+                .expect("pixels");
+        }
+        Vec::leak(out)
+    }
+
+    /// **An image given a size is decoded at that size**, in physical pixels, and the
+    /// picture keeps its own shape on the way.
+    #[cfg(feature = "images")]
+    #[test]
+    fn an_embedded_image_given_a_size_is_decoded_at_it() {
+        let bytes = big_png(600, 300);
+        let at = |image: Image| {
+            let handle = image.handle().expect("decoded");
+            (handle.width(), handle.height())
+        };
+        // At a ratio of 1 the box is 96 logical pixels: 96, covered at 2:1.
+        assert_eq!(at(Image::memory(bytes).size(96.0, 96.0)), (192, 96));
+        // At a ratio of 2, twice that.
+        let dense =
+            crate::MediaQuery::new(frus_core::Size::new(400.0, 800.0)).with_device_pixel_ratio(2.0);
+        assert_eq!(
+            dense.scope(|| at(Image::memory(bytes).size(96.0, 96.0))),
+            (384, 192)
+        );
+        // One side: the other from the ratio, and the layout keeps the ratio too.
+        assert_eq!(at(Image::memory(bytes).width(100.0)), (128, 64));
+        // An explicit cache size wins over the box.
+        assert_eq!(
+            at(Image::memory(bytes).size(96.0, 96.0).cache_width(60)),
+            (60, 30)
+        );
+        // No size at all, a natural-size fit, or the opt-out: the file's own size.
+        assert_eq!(at(Image::memory(bytes)), (600, 300));
+        assert_eq!(
+            at(Image::memory(bytes).size(96.0, 96.0).fit(BoxFit::None)),
+            (600, 300)
+        );
+        assert_eq!(
+            at(Image::memory(bytes).size(96.0, 96.0).full_resolution()),
+            (600, 300)
+        );
+        // Nothing larger than the file.
+        assert_eq!(at(Image::memory(bytes).size(4000.0, 4000.0)), (600, 300));
+    }
+
+    /// Asked before it was sized, an image is resolved again at the size it was given,
+    /// and one built from pixels keeps its own.
+    #[cfg(feature = "images")]
+    #[test]
+    fn sizing_after_asking_decodes_at_the_new_size() {
+        let bytes = big_png(640, 320);
+        let image = Image::memory(bytes);
+        assert_eq!(image.handle().map(|h| h.width()), Some(640));
+        let image = image.width(64.0);
+        assert_eq!(image.handle().map(|h| h.width()), Some(64));
+        let given = frus_core::ImageData::from_rgba(4, 2, vec![0; 32]).into_handle();
+        let image = Image::new(given.clone()).width(2.0);
+        assert!(std::sync::Arc::ptr_eq(&image.handle().unwrap(), &given));
+    }
+
+    /// The decoded size is the shown size, not a new one: an image given only a width
+    /// lays out at the ratio of the file, and an unsized one with a cache size takes the
+    /// size of what was decoded, as the documentation says.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_smaller_decode_keeps_the_layout() {
+        let bytes = big_png(600, 300);
+        let style = Widget::<()>::style(&Image::memory(bytes).width(100.0));
+        assert_eq!(style.width, Dimension::Length(100.0));
+        assert_eq!(style.aspect_ratio, Some(2.0));
+        let style = Widget::<()>::style(&Image::memory(bytes).cache_width(50));
+        assert_eq!(style.width, Dimension::Length(50.0));
+    }
+
+    /// The two sizes of one asset are two entries, each decoded once.
+    #[cfg(feature = "images")]
+    #[test]
+    fn each_size_is_decoded_once() {
+        let bytes = big_png(300, 300);
+        let a = Image::memory(bytes).size(50.0, 50.0).handle().unwrap();
+        let b = Image::memory(bytes).size(50.0, 50.0).handle().unwrap();
+        let c = Image::memory(bytes).size(90.0, 90.0).handle().unwrap();
+        assert!(
+            std::sync::Arc::ptr_eq(&a, &b),
+            "the same size is the same decode"
+        );
+        assert_ne!(a.id(), c.id(), "another size is another");
+        assert_eq!((c.width(), c.height()), (96, 96));
+    }
+
+    /// Low memory gives back what nobody shows, and keeps what is on screen.
+    #[cfg(feature = "images")]
+    #[test]
+    fn trimming_keeps_what_is_shown_and_drops_the_rest() {
+        let bytes = big_png(200, 200);
+        let shown = Image::memory(bytes).handle().unwrap();
+        let unshown = Image::memory(bytes).size(30.0, 30.0).handle().unwrap().id();
+        frus_core::trim_image_caches();
+        assert!(
+            std::sync::Arc::ptr_eq(&shown, &Image::memory(bytes).handle().unwrap()),
+            "the one held is kept"
+        );
+        assert_ne!(
+            Image::memory(bytes).size(30.0, 30.0).handle().unwrap().id(),
+            unshown,
+            "the one nobody held is decoded again"
+        );
     }
 }

@@ -8,11 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 677 so far, each documenting the objective, the alternatives
+> record — one per step, 687 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Pictures decoded at the size they are shown** (J687, #221): an `Image::memory` or
+  `Image::network` given a width or a height is decoded at that size times the screen's pixel
+  ratio, not at the file's: a 4000×3000 photograph shown as an 80×80 thumbnail holds 0.3 MB
+  instead of 46 MB. JPEGs are decoded scaled straight from the file. `cache_width`,
+  `cache_height` and `full_resolution()` choose otherwise; `frus_image::decode_at` and
+  `DecodeSize` are the pieces underneath. On the system's low-memory warning the decoded images
+  nobody is showing are given back (`trim_image_caches`). An `Image::network` now starts its
+  request when it is first laid out or asked its state, not when it is built.
 - **The GPU lost, and found again** (J686, #217): when the GPU device is lost — a driver reset,
   a GPU removed — the renderer says so (`RenderOutcome::DeviceLost`) and the shell makes a new one
   on the same window; the application goes on with its state. `frus run`'s channel takes

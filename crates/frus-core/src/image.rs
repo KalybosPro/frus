@@ -88,6 +88,80 @@ impl Eq for ImageData {}
 /// inside a [`crate::Primitive::Image`].
 pub type ImageHandle = Arc<ImageData>;
 
+/// **The size an image is decoded at**, in physical pixels: the full size of the file, or
+/// a smaller one that the place it is shown at needs.
+///
+/// A twelve-megapixel photograph shown as an 80×80 thumbnail does not need 48 MB of
+/// pixels, and on a phone a gallery of them is what gets an application killed for
+/// memory. Decoding at the size shown keeps the cost to what is on the screen.
+///
+/// - Neither side given: the file's own size ([`DecodeSize::FULL`]).
+/// - One side: that side, and the other from the image's own ratio.
+/// - Both: the smallest size, at the image's own ratio, that **covers** both. The ratio
+///   is never changed, so a picture cropped to a square box keeps its shape, and one
+///   letterboxed into it is not short of pixels either.
+///
+/// An image is **never decoded larger** than the file: asking for more gives the file's
+/// own size.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct DecodeSize {
+    /// The width wanted, in physical pixels.
+    pub width: Option<u32>,
+    /// The height wanted, in physical pixels.
+    pub height: Option<u32>,
+}
+
+impl DecodeSize {
+    /// The file's own size.
+    pub const FULL: Self = Self {
+        width: None,
+        height: None,
+    };
+
+    /// A size with either side, both, or neither.
+    pub fn new(width: Option<u32>, height: Option<u32>) -> Self {
+        Self { width, height }
+    }
+
+    /// Whether this is the file's own size.
+    pub fn is_full(self) -> bool {
+        self.width.is_none() && self.height.is_none()
+    }
+
+    /// The size a `full_width` × `full_height` image is decoded at, by the rules above.
+    ///
+    /// ```
+    /// use frus_core::DecodeSize;
+    /// let photo = (4000, 3000);
+    /// // A square thumbnail covered by the photo, at the photo's own ratio.
+    /// assert_eq!(DecodeSize::new(Some(200), Some(200)).target(photo.0, photo.1), (267, 200));
+    /// // One side: the other follows.
+    /// assert_eq!(DecodeSize::new(Some(400), None).target(photo.0, photo.1), (400, 300));
+    /// // Never larger than the file.
+    /// assert_eq!(DecodeSize::new(Some(8000), None).target(photo.0, photo.1), photo);
+    /// ```
+    pub fn target(self, full_width: u32, full_height: u32) -> (u32, u32) {
+        if full_width == 0 || full_height == 0 {
+            return (full_width, full_height);
+        }
+        let along = |wanted: Option<u32>, full: u32| wanted.map(|w| w as f64 / full as f64);
+        let scale = match (
+            along(self.width, full_width),
+            along(self.height, full_height),
+        ) {
+            (None, None) => return (full_width, full_height),
+            (Some(s), None) | (None, Some(s)) => s,
+            // Covering both is the larger of the two scales.
+            (Some(a), Some(b)) => a.max(b),
+        };
+        if scale >= 1.0 {
+            return (full_width, full_height);
+        }
+        let side = |full: u32| ((full as f64 * scale).round() as u32).clamp(1, full);
+        (side(full_width), side(full_height))
+    }
+}
+
 /// The process-wide store of images already turned into pixels, keyed by where their
 /// bytes live.
 ///
@@ -99,7 +173,10 @@ pub type ImageHandle = Arc<ImageData>;
 /// A failure is cached too. A file that is not a PNG will not become one on the next
 /// frame, and retrying the decode every frame would turn one broken asset into a
 /// permanent cost.
-static CACHE: Mutex<Option<HashMap<usize, Result<ImageHandle, String>>>> = Mutex::new(None);
+static CACHE: Mutex<Option<HashMap<(usize, DecodeSize), Decoded>>> = Mutex::new(None);
+
+/// What one entry of [`CACHE`] remembers: the pixels, or why there are none.
+type Decoded = Result<ImageHandle, String>;
 
 /// Resolves `bytes` to pixels **once**, returning the same handle on every later call.
 ///
@@ -119,7 +196,17 @@ pub fn cached(
     bytes: &'static [u8],
     load: impl FnOnce(&[u8]) -> Result<ImageData, String>,
 ) -> Result<ImageHandle, String> {
-    let key = bytes.as_ptr() as usize;
+    cached_at(bytes, DecodeSize::FULL, load)
+}
+
+/// [`cached`], at a [`DecodeSize`]: the same bytes decoded at two sizes are two entries,
+/// and `load` is the one that decodes at `size`.
+pub fn cached_at(
+    bytes: &'static [u8],
+    size: DecodeSize,
+    load: impl FnOnce(&[u8]) -> Result<ImageData, String>,
+) -> Result<ImageHandle, String> {
+    let key = (bytes.as_ptr() as usize, size);
     let mut guard = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     let cache = guard.get_or_insert_with(HashMap::new);
     if let Some(found) = cache.get(&key) {
@@ -131,11 +218,39 @@ pub fn cached(
 }
 
 /// Empties the store. For tests that want a decode to happen again; an application has
-/// no reason to call it, since the entries are one per embedded asset and bounded by
-/// how many the binary carries.
+/// no reason to call it, since the entries are one per embedded asset and size, and
+/// bounded by how many the binary carries. [`trim_image_caches`] is the one for memory.
 pub fn forget_cached_images() {
     if let Ok(mut guard) = CACHE.lock() {
         *guard = None;
+    }
+}
+
+/// **Gives back every decoded image nobody is showing**: what the system asks for when it
+/// is short of memory.
+///
+/// Both stores are swept — embedded images and fetched ones — and only the pictures held
+/// by nothing but the store go. One on screen stays, since dropping it would only make the
+/// next frame decode it again; one in flight stays, since forgetting it does not cancel it.
+/// What goes comes back, decoded again, the next time it is shown.
+///
+/// The shell calls this when the platform says memory is low (Android's low-memory
+/// callback, iOS's memory warning). An application can call it too — on leaving a screen
+/// full of photographs, say.
+pub fn trim_image_caches() {
+    if let Ok(mut guard) = CACHE.lock() {
+        if let Some(cache) = guard.as_mut() {
+            cache.retain(|_, entry| match entry {
+                Ok(handle) => Arc::strong_count(handle) > 1,
+                // A failure costs a sentence, and remembering it is what keeps a broken
+                // asset from being decoded again on every frame.
+                Err(_) => true,
+            });
+        }
+    }
+    let mut guard = FETCHED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(store) = guard.as_mut() {
+        evict_over_budget(store, 0);
     }
 }
 
@@ -302,10 +417,43 @@ pub fn set_image_fetcher(fetcher: ImageFetcher) {
 /// a URL that 404s will 404 again, and retrying every frame turns one bad link into a
 /// permanent load on somebody's server.
 pub fn fetched(url: &str, decode: fn(&[u8]) -> Result<ImageData, String>) -> Fetched {
+    fetch(url, url, Box::new(decode))
+}
+
+/// [`fetched`], at a [`DecodeSize`]: `decode` is handed the size along with the bytes.
+///
+/// The same address at two sizes is two entries, each fetched on its own: a thumbnail and
+/// the full picture it opens are two downloads, though an HTTP cache usually answers the
+/// second.
+pub fn fetched_at(
+    url: &str,
+    size: DecodeSize,
+    decode: fn(&[u8], DecodeSize) -> Result<ImageData, String>,
+) -> Fetched {
+    if size.is_full() {
+        return fetch(url, url, Box::new(move |bytes| decode(bytes, size)));
+    }
+    let key = sized_key(url, size);
+    fetch(&key, url, Box::new(move |bytes| decode(bytes, size)))
+}
+
+/// The store's key for `url` at a size other than the full one. The full size keeps the
+/// address alone, so [`fetched`] and a full-size [`fetched_at`] share an entry; a NUL
+/// cannot appear in a URL, so no address collides with a sized key.
+fn sized_key(url: &str, size: DecodeSize) -> String {
+    let side = |s: Option<u32>| s.map_or(String::new(), |s| s.to_string());
+    format!("{url}\0{}x{}", side(size.width), side(size.height))
+}
+
+/// What turns the fetched bytes into pixels.
+type Decoder = Box<dyn FnOnce(&[u8]) -> Result<ImageData, String> + Send + 'static>;
+
+/// The store's lookup, and the start of the fetch when `key` is new.
+fn fetch(key: &str, url: &str, decode: Decoder) -> Fetched {
     let mut guard = FETCHED.lock().unwrap_or_else(|e| e.into_inner());
     let store = guard.get_or_insert_with(HashMap::new);
     let now = CLOCK.fetch_add(1, Ordering::Relaxed);
-    if let Some(known) = store.get_mut(url) {
+    if let Some(known) = store.get_mut(key) {
         // Asked for is used: a picture on a screen nobody has scrolled away from is
         // asked for on every frame, which is exactly what keeps it out of the way of
         // the eviction sweep.
@@ -317,7 +465,7 @@ pub fn fetched(url: &str, decode: fn(&[u8]) -> Result<ImageData, String>) -> Fet
         // Saying so is an answer; hanging on `Loading` for ever is not.
         let failed = Fetched::Failed("no image fetcher registered".to_string());
         store.insert(
-            url.to_string(),
+            key.to_string(),
             Entry {
                 state: failed.clone(),
                 used: now,
@@ -326,7 +474,7 @@ pub fn fetched(url: &str, decode: fn(&[u8]) -> Result<ImageData, String>) -> Fet
         return failed;
     };
     store.insert(
-        url.to_string(),
+        key.to_string(),
         Entry {
             state: Fetched::Loading,
             used: now,
@@ -337,7 +485,7 @@ pub fn fetched(url: &str, decode: fn(&[u8]) -> Result<ImageData, String>) -> Fet
     // store, which would be a deadlock against a guard still held here.
     drop(guard);
 
-    let key = url.to_string();
+    let key = key.to_string();
     fetcher(
         url,
         Box::new(move |result| {
