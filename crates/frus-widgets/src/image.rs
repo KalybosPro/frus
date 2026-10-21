@@ -67,7 +67,8 @@ fn decode_in_this_build(_bytes: &[u8], _size: DecodeSize) -> Result<frus_core::I
 pub enum State<'a> {
     /// The pixels are here.
     Ready,
-    /// In flight; a later frame will have them. Only [`Image::network`] reports this.
+    /// In flight, or being decoded; a later frame will have them. [`Image::network`]
+    /// reports this while it fetches, and [`Image::memory`] while a large picture decodes.
     Loading,
     /// They will not arrive, and this is why.
     Failed(&'a str),
@@ -78,6 +79,24 @@ enum Source {
     Ready(ImageHandle),
     Loading,
     Failed(String),
+}
+
+/// The most pixels an embedded picture can have and still be decoded in the frame that
+/// shows it: 256 × 256. Above it, [`Image::memory`] decodes on a background thread.
+pub const QUICK_DECODE_PIXELS: u64 = 256 * 256;
+
+/// Whether `bytes` hold a picture small enough to decode in the frame, from its header. One
+/// whose header cannot be read is decoded at once, which is where its failure is reported.
+#[cfg(feature = "images")]
+fn decodes_quickly(bytes: &[u8]) -> bool {
+    frus_image::dimensions(bytes)
+        .is_none_or(|(w, h)| u64::from(w) * u64::from(h) <= QUICK_DECODE_PIXELS)
+}
+
+/// Without a decoder there is nothing to put on a thread.
+#[cfg(not(feature = "images"))]
+fn decodes_quickly(_bytes: &[u8]) -> bool {
+    true
 }
 
 /// Where the bytes of an [`Image`] that has not been resolved yet are.
@@ -211,6 +230,15 @@ impl Image {
     ///
     /// **Decoded at the size shown**: see [`Image::cache_width`].
     ///
+    /// **A large picture is decoded on a background thread**, so the frame that first
+    /// shows it does not stop for the tens of milliseconds a photograph takes: until it is
+    /// there the image is [`State::Loading`] and shows its
+    /// [`placeholder`](Image::placeholder), as a network image does, and the frames keep
+    /// coming. One of at most [`QUICK_DECODE_PIXELS`] — an icon, a logo, an avatar — is
+    /// decoded at once, since it takes less time than the thread would to pick it up and
+    /// a blink as it came in would be the only difference. The Web, which has no threads,
+    /// decodes every picture at once.
+    ///
     /// Needs the `images` feature, which is on by default. Without it this reports a
     /// missing decoder rather than panicking — the same rule the bundled fonts follow.
     pub fn memory(bytes: &'static [u8]) -> Self {
@@ -268,9 +296,11 @@ impl Image {
             let size = self.decode_size();
             match &self.origin {
                 Some(Origin::Memory(bytes)) => {
-                    match frus_core::cached_at(bytes, size, |b| decode_at(b, size)) {
-                        Ok(handle) => Source::Ready(handle),
-                        Err(why) => Source::Failed(why),
+                    let later = !decodes_quickly(bytes);
+                    match frus_core::decoded_at(bytes, size, decode_at, later) {
+                        frus_core::Fetched::Loading => Source::Loading,
+                        frus_core::Fetched::Ready(handle) => Source::Ready(handle),
+                        frus_core::Fetched::Failed(why) => Source::Failed(why),
                     }
                 }
                 Some(Origin::Network(url)) => match frus_core::fetched_at(url, size, decode_at) {
@@ -312,8 +342,8 @@ impl Image {
 
     /// Where this image has got to: here, on its way, or never coming.
     ///
-    /// An embedded image is only ever [`State::Ready`] or [`State::Failed`] — there is
-    /// nothing to wait for. [`Image::network`] is the one that can be loading.
+    /// An embedded image is [`State::Loading`] only while a large one decodes on its
+    /// thread; [`Image::network`] is loading until its bytes are here and decoded.
     pub fn state(&self) -> State<'_> {
         match self.source() {
             Source::Ready(_) => State::Ready,
@@ -1513,9 +1543,9 @@ mod tests {
         fn a_fetched_image_arrives_and_is_shown() {
             let _guard = serialised();
             frus_core::set_image_fetcher(instant_png);
-            // The first ask started the work; this fetcher had already finished by the
-            // time it returned, so the second ask has the pixels.
-            let _ = Image::network("https://example.com/a.png").state();
+            // The first ask started the work; this fetcher answers at once, and the bytes
+            // are decoded on a decoding thread, so a later ask has the pixels.
+            let _held = decoded(|| Image::network("https://example.com/a.png"));
             let arrived = Image::network("https://example.com/a.png");
             assert_eq!(arrived.state(), State::Ready);
             assert_eq!(Widget::<()>::style(&arrived).width, Dimension::Length(2.0));
@@ -1567,8 +1597,17 @@ mod tests {
         fn the_count_falls_back_to_zero_when_the_work_is_done() {
             let _guard = serialised();
             frus_core::set_image_fetcher(instant_png);
-            let _ = Image::network("https://example.com/settle.png").state();
-            assert_eq!(frus_core::images_in_flight(), 0);
+            let _ = decoded(|| Image::network("https://example.com/settle.png"));
+            // The count is the whole process's, and the tests beside this one decode
+            // pictures of their own: it falls to nought once theirs have landed too.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while frus_core::images_in_flight() > 0 {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "something stays in flight"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
         }
 
         /// A large picture fetched into a small box arrives at the box's size.
@@ -1579,17 +1618,31 @@ mod tests {
                 deliver(Ok(big_png(1000, 500).to_vec()));
             }
             frus_core::set_image_fetcher(big);
-            let thumb = Image::network("https://example.com/big.png").size(40.0, 40.0);
-            let _ = thumb.state();
-            let thumb = Image::network("https://example.com/big.png").size(40.0, 40.0);
-            let handle = thumb.handle().expect("arrived");
+            let handle = decoded(|| Image::network("https://example.com/big.png").size(40.0, 40.0));
             // 40 logical pixels at a ratio of 1, in steps of 32: 64, covered at 2:1.
             assert_eq!((handle.width(), handle.height()), (128, 64));
             // The same address at its own size is another entry, and another fetch.
-            let full = Image::network("https://example.com/big.png");
-            let _ = full.state();
-            let full = Image::network("https://example.com/big.png");
-            assert_eq!(full.handle().map(|h| h.width()), Some(1000));
+            let full = decoded(|| Image::network("https://example.com/big.png"));
+            assert_eq!(full.width(), 1000);
+        }
+    }
+
+    /// The pixels of the image `make` builds, once they are there: a large picture is
+    /// decoded on a thread, so this asks again, as the frames that follow would, until it
+    /// has them.
+    #[cfg(feature = "images")]
+    fn decoded(make: impl Fn() -> Image) -> frus_core::ImageHandle {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let image = make();
+            match image.state() {
+                State::Ready => return image.handle().expect("ready"),
+                State::Failed(why) => panic!("the image failed: {why}"),
+                State::Loading => {
+                    assert!(std::time::Instant::now() < deadline, "never decoded");
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+            }
         }
     }
 
@@ -1615,38 +1668,41 @@ mod tests {
     #[test]
     fn an_embedded_image_given_a_size_is_decoded_at_it() {
         let bytes = big_png(600, 300);
-        let at = |image: Image| {
-            let handle = image.handle().expect("decoded");
+        let at = |make: &dyn Fn() -> Image| {
+            let handle = decoded(make);
             (handle.width(), handle.height())
         };
         // At a ratio of 1 the box is 96 logical pixels: 96, covered at 2:1.
-        assert_eq!(at(Image::memory(bytes).size(96.0, 96.0)), (192, 96));
+        assert_eq!(at(&|| Image::memory(bytes).size(96.0, 96.0)), (192, 96));
         // At a ratio of 2, twice that.
         let dense =
             crate::MediaQuery::new(frus_core::Size::new(400.0, 800.0)).with_device_pixel_ratio(2.0);
         assert_eq!(
-            dense.scope(|| at(Image::memory(bytes).size(96.0, 96.0))),
+            dense.scope(|| at(&|| Image::memory(bytes).size(96.0, 96.0))),
             (384, 192)
         );
         // One side: the other from the ratio, and the layout keeps the ratio too.
-        assert_eq!(at(Image::memory(bytes).width(100.0)), (128, 64));
+        assert_eq!(at(&|| Image::memory(bytes).width(100.0)), (128, 64));
         // An explicit cache size wins over the box.
         assert_eq!(
-            at(Image::memory(bytes).size(96.0, 96.0).cache_width(60)),
+            at(&|| Image::memory(bytes).size(96.0, 96.0).cache_width(60)),
             (60, 30)
         );
         // No size at all, a natural-size fit, or the opt-out: the file's own size.
-        assert_eq!(at(Image::memory(bytes)), (600, 300));
+        assert_eq!(at(&|| Image::memory(bytes)), (600, 300));
         assert_eq!(
-            at(Image::memory(bytes).size(96.0, 96.0).fit(BoxFit::None)),
+            at(&|| Image::memory(bytes).size(96.0, 96.0).fit(BoxFit::None)),
             (600, 300)
         );
         assert_eq!(
-            at(Image::memory(bytes).size(96.0, 96.0).full_resolution()),
+            at(&|| Image::memory(bytes).size(96.0, 96.0).full_resolution()),
             (600, 300)
         );
         // Nothing larger than the file.
-        assert_eq!(at(Image::memory(bytes).size(4000.0, 4000.0)), (600, 300));
+        assert_eq!(
+            at(&|| Image::memory(bytes).size(4000.0, 4000.0)),
+            (600, 300)
+        );
     }
 
     /// Asked before it was sized, an image is resolved again at the size it was given,
@@ -1655,8 +1711,12 @@ mod tests {
     #[test]
     fn sizing_after_asking_decodes_at_the_new_size() {
         let bytes = big_png(640, 320);
+        // Held, so a trim in a test beside this one cannot take them back in between.
+        let full = decoded(|| Image::memory(bytes));
+        assert_eq!(full.width(), 640);
+        let _small = decoded(|| Image::memory(bytes).width(64.0));
         let image = Image::memory(bytes);
-        assert_eq!(image.handle().map(|h| h.width()), Some(640));
+        assert!(image.handle().is_some(), "asked at the file's size");
         let image = image.width(64.0);
         assert_eq!(image.handle().map(|h| h.width()), Some(64));
         let given = frus_core::ImageData::from_rgba(4, 2, vec![0; 32]).into_handle();
@@ -1671,6 +1731,9 @@ mod tests {
     #[test]
     fn a_smaller_decode_keeps_the_layout() {
         let bytes = big_png(600, 300);
+        // Held, so a trim in a test beside this one cannot take them back in between.
+        let _wide = decoded(|| Image::memory(bytes).width(100.0));
+        let _cached = decoded(|| Image::memory(bytes).cache_width(50));
         let style = Widget::<()>::style(&Image::memory(bytes).width(100.0));
         assert_eq!(style.width, Dimension::Length(100.0));
         assert_eq!(style.aspect_ratio, Some(2.0));
@@ -1683,15 +1746,37 @@ mod tests {
     #[test]
     fn each_size_is_decoded_once() {
         let bytes = big_png(300, 300);
-        let a = Image::memory(bytes).size(50.0, 50.0).handle().unwrap();
-        let b = Image::memory(bytes).size(50.0, 50.0).handle().unwrap();
-        let c = Image::memory(bytes).size(90.0, 90.0).handle().unwrap();
+        let a = decoded(|| Image::memory(bytes).size(50.0, 50.0));
+        let b = decoded(|| Image::memory(bytes).size(50.0, 50.0));
+        let c = decoded(|| Image::memory(bytes).size(90.0, 90.0));
         assert!(
             std::sync::Arc::ptr_eq(&a, &b),
             "the same size is the same decode"
         );
         assert_ne!(a.id(), c.id(), "another size is another");
         assert_eq!((c.width(), c.height()), (96, 96));
+    }
+
+    /// **A large embedded picture does not hold the frame up**: it is loading while a
+    /// thread decodes it, shows its placeholder meanwhile, keeps the frames coming, and
+    /// arrives; a small one is there at once.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_large_embedded_picture_is_decoded_on_a_thread() {
+        let bytes = big_png(700, 700);
+        let first = Image::memory(bytes).size(50.0, 50.0);
+        // A decode this size takes longer than the call that started it.
+        if first.state() == State::Loading {
+            assert!(frus_core::images_in_flight() > 0, "the frames keep coming");
+        }
+        let arrived = decoded(|| Image::memory(bytes).size(50.0, 50.0));
+        assert_eq!(arrived.width(), 64);
+        let small = Image::memory(big_png(200, 200));
+        assert_eq!(
+            small.state(),
+            State::Ready,
+            "an icon-sized picture is there at once"
+        );
     }
 
     /// Low memory gives back what nobody shows, and keeps what is on screen.
