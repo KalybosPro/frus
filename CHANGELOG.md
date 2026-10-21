@@ -8,11 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 687 so far, each documenting the objective, the alternatives
+> record — one per step, 688 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Pictures decoded off the interface's thread** (J688, #221): an `Image::memory` larger than
+  256 × 256 is decoded on a background thread and shows its placeholder until it is there, so a
+  photograph no longer stops the frame that first shows it. Fetched pictures are decoded on the
+  same threads (two at most, to bound the memory a burst of decodes takes). `decoded_at` and
+  `frus_image::dimensions` are the pieces underneath. The Web still decodes in place.
 - **Pictures decoded at the size they are shown** (J687, #221): an `Image::memory` or
   `Image::network` given a width or a height is decoded at that size times the screen's pixel
   ratio, not at the file's: a 4000×3000 photograph shown as an 80×80 thumbnail holds 0.3 MB
