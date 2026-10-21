@@ -13,6 +13,36 @@ any release may break.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-21
+
+Tooling, start-up and pictures. The `frus` command grows from creating a project into the
+whole loop, true hot reload on every platform included; applications start faster and survive
+a lost GPU; and pictures are decoded at the size they are shown, off the interface's thread,
+with SVG drawn as vector paths. In short:
+
+- **The `frus` command**: `frus devices`, `frus run` (with `r` to reload keeping the state, `R`
+  to restart, and the keys for the widget tree, the performance graphs and screenshots),
+  `frus build`, `frus test`, `frus analyze`, `frus doctor`, `frus emulators`, `frus daemon` for
+  editors, and a VS Code extension. It installs what it needs and lacks.
+- **`frus run --hot`**: each saved change is patched into the running application, its state
+  kept — on Windows, Linux, macOS, Android and the web.
+- **Start-up and the GPU**: the first frame's time is logged; DXC on Windows (0.6–0.8 s instead
+  of 1.3–2.0 s), pipelines kept between launches where the GPU allows (0.33 s on the test
+  phone from the second start); a lost GPU device is replaced and the application goes on;
+  `WGPU_BACKEND` chooses the backend; the Android emulator and devices without Vulkan draw
+  through OpenGL ES. The web's colours are right.
+- **Pictures**: decoded at the size shown (a photograph's thumbnail holds 0.3 MB, not 46 MB),
+  large ones off the interface's thread, and given back when the system is short of memory.
+  **SVG** pictures (`SvgPicture`, the `svg` feature, the new `frus-svg` crate), and paths with
+  fill rules and gradients of any number of stops.
+- **Widgets**: the text field, the slider and the range slider brought into line with the
+  reference; painting over one's own children; focus changes heard.
+
+**It breaks a few things**, as a pre-alpha release may. An `Image::memory` or `Image::network`
+resolves its pixels when it is first laid out or asked its state, not when it is built, so an
+image built and dropped fetches nothing; a large `Image::memory` is `Loading` for a frame or
+more. `PathGradient` is no longer `Copy`. The entries below say more.
+
 - **SVG pictures** (J690, #303): `SvgPicture::memory(include_bytes!("art.svg"))` and
   `SvgPicture::string(..)`, behind the new `svg` feature, draw an SVG as vector paths — sharp at
   any size. Paths and fill rules, strokes (caps, joins, dashes), gradients with stops, group
@@ -6077,7 +6107,8 @@ For releases, use this shape:
 ### Security
 -->
 
-[Unreleased]: https://github.com/KalybosPro/frus/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/KalybosPro/frus/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/KalybosPro/frus/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/KalybosPro/frus/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/KalybosPro/frus/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/KalybosPro/frus/compare/v0.1.0...v0.2.0

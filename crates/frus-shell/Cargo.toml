@@ -43,10 +43,10 @@ cfg_aliases = "0.2"
 [dependencies]
 # The client of the patch server `frus run` drives (the subsecond protocol).
 dioxus-devtools = { version = "0.7", optional = true }
-frus-gpu = { path = "../frus-gpu", version = "0.3", default-features = false }
+frus-gpu = { path = "../frus-gpu", version = "0.4", default-features = false }
 # How long the fonts took to load, for the start-up report (milestone 683).
-frus-text = { path = "../frus-text", version = "0.3", default-features = false }
-frus-widgets = { path = "../frus-widgets", version = "0.3", default-features = false }
+frus-text = { path = "../frus-text", version = "0.4", default-features = false }
+frus-widgets = { path = "../frus-widgets", version = "0.4", default-features = false }
 winit.workspace = true
 anyhow.workspace = true
 log.workspace = true
@@ -98,7 +98,7 @@ sys-locale = "0.3"
 [target.'cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))'.dependencies]
 # Decodes the application's icon for the window (`AppIcon`); already in the tree through the
 # widgets' `images` feature.
-frus-image = { path = "../frus-image", version = "0.3" }
+frus-image = { path = "../frus-image", version = "0.4" }
 arboard.workspace = true
 env_logger.workspace = true
 accesskit = "0.25"

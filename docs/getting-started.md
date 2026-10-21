@@ -174,7 +174,7 @@ letter. The directory is made if it is not there; `frus create` never writes ove
 | `--frus-path <dir>` | builds against a checkout of frus rather than the published crates (see below) |
 | `--no-git` | no `git init` (it is skipped anyway inside an existing repository) |
 
-The generated `Cargo.toml` has one dependency, the published `frus = "0.3"`. The project
+The generated `Cargo.toml` has one dependency, the published `frus = "0.4"`. The project
 also has:
 
 - a `README.md` with each platform's commands, for running and for shipping;
@@ -455,7 +455,7 @@ Each group is a feature, all on by default. An application that ships its own fa
 or simply never draws italics or Arabic, can turn off what it does not need:
 
 ```toml
-frus = { version = "0.3", default-features = false, features = ["bundled-sans", "images"] }
+frus = { version = "0.4", default-features = false, features = ["bundled-sans", "images"] }
 ```
 
 `default-features = false` turns off **everything** on by default, and that is not only the

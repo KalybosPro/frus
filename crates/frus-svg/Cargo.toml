@@ -12,5 +12,5 @@ keywords = ["svg", "vector", "gui"]
 categories = ["graphics", "gui"]
 
 [dependencies]
-frus-core = { path = "../frus-core", version = "0.3" }
+frus-core = { path = "../frus-core", version = "0.4" }
 usvg.workspace = true

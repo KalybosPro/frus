@@ -13,7 +13,7 @@ categories = ["rendering", "graphics"]
 
 # The **bundled fonts** are forwarded from `frus-text` (milestone 292) so that an
 # application can drop the faces it does not ship through the facade alone:
-#   frus = { version = "0.3", default-features = false, features = ["bundled-sans"] }
+#   frus = { version = "0.4", default-features = false, features = ["bundled-sans"] }
 [features]
 default = ["frus-text/default"]
 bundled-sans = ["frus-text/bundled-sans"]
@@ -22,8 +22,8 @@ bundled-mono = ["frus-text/bundled-mono"]
 bundled-arabic = ["frus-text/bundled-arabic"]
 
 [dependencies]
-frus-core = { path = "../frus-core", version = "0.3" }
-frus-text = { path = "../frus-text", version = "0.3", default-features = false }
+frus-core = { path = "../frus-core", version = "0.4" }
+frus-text = { path = "../frus-text", version = "0.4", default-features = false }
 wgpu.workspace = true
 glyphon.workspace = true
 bytemuck.workspace = true
