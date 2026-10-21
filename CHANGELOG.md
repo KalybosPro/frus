@@ -18,6 +18,11 @@ any release may break.
   any number of stops, linear or radial with a focal circle, a tile mode and a transform of its
   own, drawn exactly however it is turned or skewed (`Scene::fill_path_ramp`,
   `PathGradient::Ramp`). The groundwork for SVG and Lottie.
+- **Pictures decoded off the interface's thread** (J688, #221): an `Image::memory` larger than
+  256 × 256 is decoded on a background thread and shows its placeholder until it is there, so a
+  photograph no longer stops the frame that first shows it. Fetched pictures are decoded on the
+  same threads (two at most, to bound the memory a burst of decodes takes). `decoded_at` and
+  `frus_image::dimensions` are the pieces underneath. The Web still decodes in place.
 - **Pictures decoded at the size they are shown** (J687, #221): an `Image::memory` or
   `Image::network` given a width or a height is decoded at that size times the screen's pixel
   ratio, not at the file's: a 4000×3000 photograph shown as an 80×80 thumbnail holds 0.3 MB

@@ -173,10 +173,81 @@ impl DecodeSize {
 /// A failure is cached too. A file that is not a PNG will not become one on the next
 /// frame, and retrying the decode every frame would turn one broken asset into a
 /// permanent cost.
-static CACHE: Mutex<Option<HashMap<(usize, DecodeSize), Decoded>>> = Mutex::new(None);
+///
+/// An entry is [`Fetched::Loading`] while a decode started by [`decoded_at`] is running
+/// on a decoding thread.
+static CACHE: Mutex<Option<HashMap<(usize, DecodeSize), Fetched>>> = Mutex::new(None);
 
-/// What one entry of [`CACHE`] remembers: the pixels, or why there are none.
-type Decoded = Result<ImageHandle, String>;
+/// How many threads decode images in the background, at most.
+///
+/// Two, whatever the machine: a decode is a burst of memory — a PNG is decoded at the
+/// file's own size before it is brought down — and a gallery asking for forty pictures at
+/// once must not hold forty of those bursts at the same time. Two keep a phone's other
+/// cores for the interface and still overlap one decode with the next.
+#[cfg(not(target_family = "wasm"))]
+const DECODING_THREADS: usize = 2;
+
+/// Work for the decoding threads.
+type Job = Box<dyn FnOnce() + Send + 'static>;
+
+/// Runs `job` on one of the image decoding threads, or right here where there are none.
+///
+/// The threads are started on the first job and live for the process; the queue is first
+/// in, first out. The Web has no threads to start, so there the job runs in place, which
+/// is what every decode did before there were threads.
+fn in_background(job: Job) {
+    #[cfg(target_family = "wasm")]
+    job();
+    #[cfg(not(target_family = "wasm"))]
+    {
+        static QUEUE: std::sync::OnceLock<Option<std::sync::mpsc::Sender<Job>>> =
+            std::sync::OnceLock::new();
+        let queue = QUEUE.get_or_init(|| {
+            let (sender, receiver) = std::sync::mpsc::channel::<Job>();
+            let receiver = Arc::new(Mutex::new(receiver));
+            let workers = std::thread::available_parallelism()
+                .map_or(1, |n| n.get().saturating_sub(1))
+                .clamp(1, DECODING_THREADS);
+            let started = (0..workers)
+                .filter(|i| {
+                    let receiver = Arc::clone(&receiver);
+                    std::thread::Builder::new()
+                        .name(format!("frus-image-{i}"))
+                        .spawn(move || loop {
+                            let next = receiver.lock().unwrap_or_else(|e| e.into_inner()).recv();
+                            match next {
+                                Ok(job) => job(),
+                                Err(_) => return,
+                            }
+                        })
+                        .is_ok()
+                })
+                .count();
+            // A platform that refuses threads decodes in place rather than queueing work
+            // nobody will ever pick up.
+            (started > 0).then_some(sender)
+        });
+        match queue {
+            Some(sender) => {
+                if let Err(refused) = sender.send(job) {
+                    (refused.0)();
+                }
+            }
+            None => job(),
+        }
+    }
+}
+
+/// `decode`, with a panic in it turned into a failure: a decoder that panics on a
+/// decoding thread would otherwise leave its picture loading for ever, and the interface
+/// redrawing for ever with it.
+fn guarded(decode: impl FnOnce() -> Result<ImageData, String>) -> Fetched {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(decode)) {
+        Ok(Ok(data)) => Fetched::Ready(data.into_handle()),
+        Ok(Err(why)) => Fetched::Failed(why),
+        Err(_) => Fetched::Failed("the image decoder panicked".to_string()),
+    }
+}
 
 /// Resolves `bytes` to pixels **once**, returning the same handle on every later call.
 ///
@@ -209,12 +280,65 @@ pub fn cached_at(
     let key = (bytes.as_ptr() as usize, size);
     let mut guard = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     let cache = guard.get_or_insert_with(HashMap::new);
+    match cache.get(&key) {
+        Some(Fetched::Ready(handle)) => return Ok(handle.clone()),
+        Some(Fetched::Failed(why)) => return Err(why.clone()),
+        // Still decoding on a thread, for [`decoded_at`]: the caller of this one wants the
+        // pixels now, so it decodes them itself, and the thread's copy replaces this one
+        // when it lands.
+        Some(Fetched::Loading) | None => {}
+    }
+    let resolved = load(bytes).map(ImageData::into_handle);
+    let state = match &resolved {
+        Ok(handle) => Fetched::Ready(handle.clone()),
+        Err(why) => Fetched::Failed(why.clone()),
+    };
+    cache.insert(key, state);
+    resolved
+}
+
+/// [`cached_at`], **decoding on a background thread** when `in_the_background` says so:
+/// [`Fetched::Loading`] until the pixels are there, and the frames keep coming meanwhile
+/// ([`images_in_flight`] counts it).
+///
+/// A large photograph takes tens of milliseconds to decode on a phone — several frames —
+/// and an interface that decodes it in the frame that first shows it stops for that long.
+/// A small picture decodes in less time than a thread takes to pick it up, and showing it
+/// a frame late would only make it blink in, so the caller says which this is.
+///
+/// On the Web, which has no threads, the decode happens here either way.
+pub fn decoded_at(
+    bytes: &'static [u8],
+    size: DecodeSize,
+    decode: fn(&[u8], DecodeSize) -> Result<ImageData, String>,
+    in_the_background: bool,
+) -> Fetched {
+    let key = (bytes.as_ptr() as usize, size);
+    let mut guard = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let cache = guard.get_or_insert_with(HashMap::new);
     if let Some(found) = cache.get(&key) {
         return found.clone();
     }
-    let resolved = load(bytes).map(ImageData::into_handle);
-    cache.insert(key, resolved.clone());
-    resolved
+    if !in_the_background {
+        let state = guarded(|| decode(bytes, size));
+        cache.insert(key, state.clone());
+        return state;
+    }
+    cache.insert(key, Fetched::Loading);
+    // The lock goes before the job is handed over: where there are no threads, the job
+    // runs on this one and takes the same lock to put its result in.
+    drop(guard);
+    in_background(Box::new(move || {
+        let state = guarded(|| decode(bytes, size));
+        let mut guard = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        guard.get_or_insert_with(HashMap::new).insert(key, state);
+    }));
+    CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .and_then(|cache| cache.get(&key).cloned())
+        .unwrap_or(Fetched::Loading)
 }
 
 /// Empties the store. For tests that want a decode to happen again; an application has
@@ -241,10 +365,11 @@ pub fn trim_image_caches() {
     if let Ok(mut guard) = CACHE.lock() {
         if let Some(cache) = guard.as_mut() {
             cache.retain(|_, entry| match entry {
-                Ok(handle) => Arc::strong_count(handle) > 1,
+                Fetched::Ready(handle) => Arc::strong_count(handle) > 1,
                 // A failure costs a sentence, and remembering it is what keeps a broken
-                // asset from being decoded again on every frame.
-                Err(_) => true,
+                // asset from being decoded again on every frame; one still decoding is on
+                // its way to somebody who asked.
+                Fetched::Failed(_) | Fetched::Loading => true,
             });
         }
     }
@@ -488,31 +613,36 @@ fn fetch(key: &str, url: &str, decode: Decoder) -> Fetched {
     let key = key.to_string();
     fetcher(
         url,
-        Box::new(move |result| {
-            let outcome = match result {
-                Ok(bytes) => match decode(&bytes) {
-                    Ok(data) => Fetched::Ready(data.into_handle()),
-                    Err(why) => Fetched::Failed(why),
-                },
-                Err(why) => Fetched::Failed(why),
-            };
-            if let Ok(mut guard) = FETCHED.lock() {
-                let store = guard.get_or_insert_with(HashMap::new);
-                store.insert(
-                    key,
-                    Entry {
-                        state: outcome,
-                        used: CLOCK.fetch_add(1, Ordering::Relaxed),
-                    },
-                );
-                // The one moment the store grows. Sweeping here rather than on every
-                // ask means the cost is paid once per picture that arrives, not once
-                // per frame per picture on screen.
-                evict_over_budget(store, BUDGET.load(Ordering::Relaxed));
-            }
+        Box::new(move |result| match result {
+            // The bytes are decoded on the decoding threads, not on whichever thread the
+            // fetcher answered on: that one is the network's, and a picture is a burst of
+            // memory that has to be counted with the others.
+            Ok(bytes) => in_background(Box::new(move || {
+                let outcome = guarded(|| decode(&bytes));
+                land(key, outcome);
+            })),
+            Err(why) => land(key, Fetched::Failed(why)),
         }),
     );
     Fetched::Loading
+}
+
+/// Puts what became of a fetch in the store.
+fn land(key: String, outcome: Fetched) {
+    if let Ok(mut guard) = FETCHED.lock() {
+        let store = guard.get_or_insert_with(HashMap::new);
+        store.insert(
+            key,
+            Entry {
+                state: outcome,
+                used: CLOCK.fetch_add(1, Ordering::Relaxed),
+            },
+        );
+        // The one moment the store grows. Sweeping here rather than on every ask means
+        // the cost is paid once per picture that arrives, not once per frame per picture
+        // on screen.
+        evict_over_budget(store, BUDGET.load(Ordering::Relaxed));
+    }
 }
 
 /// How many images are in flight right now.
@@ -530,7 +660,7 @@ fn fetch(key: &str, url: &str, decode: Decoder) -> Fetched {
 /// store already knows — the entries that say `Loading` **are** the ones in flight —
 /// and there are only ever as many entries as the application has network images.
 pub fn images_in_flight() -> usize {
-    FETCHED
+    let fetched = FETCHED
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
@@ -539,7 +669,19 @@ pub fn images_in_flight() -> usize {
                 .values()
                 .filter(|entry| matches!(entry.state, Fetched::Loading))
                 .count()
-        })
+        });
+    // And the embedded pictures still decoding on a thread.
+    let decoding = CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .map_or(0, |cache| {
+            cache
+                .values()
+                .filter(|state| matches!(state, Fetched::Loading))
+                .count()
+        });
+    fetched + decoding
 }
 
 /// Forgets every fetched image and every remembered failure. For tests; see

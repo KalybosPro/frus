@@ -59,6 +59,26 @@ pub fn decode(bytes: &[u8]) -> Result<ImageData, DecodeError> {
     Ok(ImageData::from_rgba(width, height, rgba.into_raw()))
 }
 
+/// The width and height of the image in `bytes`, read from its header without decoding
+/// it: `None` when the format is not one this crate reads, or the header is broken.
+///
+/// ```
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let src = image::RgbaImage::new(40, 30);
+/// let mut png = Vec::new();
+/// image::DynamicImage::ImageRgba8(src)
+///     .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)?;
+/// assert_eq!(frus_image::dimensions(&png), Some((40, 30)));
+/// # Ok(()) }
+/// ```
+pub fn dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()
+}
+
 /// Decodes image bytes **at a size**, smaller than the file's when the place it is shown
 /// at needs less: see [`DecodeSize`] for how the size is chosen.
 ///
@@ -360,6 +380,15 @@ mod tests {
         let p = &data.rgba()[(4 * 8 + 3) * 4..][..4];
         assert!(p[3] > 0 && p[3] < 255, "{p:?}");
         assert!(p[0] >= 250, "a darkened edge: {p:?}");
+    }
+
+    #[test]
+    fn dimensions_come_from_the_header() {
+        let png = encode(&card(64, 48), image::ImageFormat::Png);
+        assert_eq!(dimensions(&png), Some((64, 48)));
+        let jpeg = encode(&card(64, 48), image::ImageFormat::Jpeg);
+        assert_eq!(dimensions(&jpeg), Some((64, 48)));
+        assert_eq!(dimensions(b"not an image"), None);
     }
 
     #[test]
