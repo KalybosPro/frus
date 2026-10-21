@@ -1,7 +1,7 @@
 use std::ops::Sub;
 
 use frus::{
-    Align, Border, BorderRadius, BoxDecoration, BuildContext, ClipRRect, Color, Colors, Column,
+    Align, Border, BorderRadius, BoxDecoration, BoxShadow, BuildContext, Color, Colors, Column,
     Container, Expanded, FontWeight, LinearProgressIndicator, MediaQuery, Positioned, Row,
     SizedBox, Stack, StatelessWidget, Text, Widget,
 };
@@ -93,28 +93,24 @@ impl StatelessWidget for ProjectTile {
         .height(35.0)
         .width(width.sub(100.0));
 
-        let content = ClipRRect::new(12.0).child(
-            Row::new()
-                .child(Container::new().width(4.0).height(135.0).color(gray()))
-                .child(Expanded::new(
-                    Container::new()
-                        .height(146.0)
-                        .decoration(
-                            BoxDecoration::filled(Colors::WHITE)
-                                .radius(BorderRadius::uniform(12.0))
-                                .border(Border::new(1.0, gray())),
-                        )
-                        .padding(16.0)
-                        .child(
-                            Column::new()
-                                .spacing(16.0)
-                                .cross_axis_alignment(Align::Start)
-                                .child(_title)
-                                .child(progress_bar)
-                                .child(members),
-                        ),
-                )),
-        );
+        let content = Container::new()
+            .height(146.0)
+            .decoration(
+                BoxDecoration::filled(Colors::WHITE)
+                    .radius(BorderRadius::uniform(12.0))
+                    .border(Border::new(1.0, gray()))
+                    .radius(BorderRadius::uniform(12.0))
+                    .shadow(BoxShadow::new(-4.0, 0.0, 0.0, gray())),
+            )
+            .padding(16.0)
+            .child(
+                Column::new()
+                    .spacing(16.0)
+                    .cross_axis_alignment(Align::Start)
+                    .child(_title)
+                    .child(progress_bar)
+                    .child(members),
+            );
 
         Box::new(content)
     }

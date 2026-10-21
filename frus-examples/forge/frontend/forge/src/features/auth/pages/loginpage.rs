@@ -9,7 +9,7 @@ use frus::{
 
 use crate::{
     common::{
-        auth::Auth, colors::{black, gray, grey, primary_color, white}, routes::{FORGET_PASSWORD, HOME, REGISTER}, shared::{app_logo, card, input_style, input_title},
+        auth::Auth, colors::{black, gray, grey, primary_color, white}, routes::{FORGET_PASSWORD, HOME, REGISTER}, shared::{app_logo, card, input_style, input_title, on},
     }, features::auth::states::loginstate::LoginState,
 };
 
@@ -67,7 +67,7 @@ impl State for LoginState {
 
         let go_to = |path: &'static str| -> Callback {
             let r = router.clone();
-            cx.callback(move |_| {
+            on(move || {
                 r.push(path);
             })
         };

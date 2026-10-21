@@ -1,0 +1,154 @@
+# forge
+
+A [frus](https://github.com/KalybosPro/frus) application. The same code runs on Windows,
+macOS, Linux, Android and the web.
+
+| platform | try it | ship it |
+|---|---|---|
+| Desktop | `frus run` | `frus build desktop` |
+| Android | `frus run -d android` | `frus build apk` |
+| Web | `frus run -d web` | `frus build web` |
+| Every platform at once | | push a `v*` tag: see [Releases](#releases) |
+
+`cargo test` runs the tests in `tests/`. They need no window and no GPU.
+
+## Running it: `frus run`
+
+The `frus` tool (`cargo install frus-cli`) builds the application for a device, starts it there and
+shows its log in this terminal, whatever the platform:
+
+```sh
+frus devices              # this computer, the connected phones, the browsers
+frus run                  # on this computer
+frus run -d android       # on the connected phone (or an emulator)
+frus run -d web           # in a browser; its console shows here
+frus build apk            # what you ship: apk, web or desktop
+```
+
+What it needs and does not find — a Rust target, wasm-bindgen, cargo-apk, the Android SDK — it
+installs. The sections below are the same steps by hand.
+
+## Desktop
+
+```sh
+cargo run              # debug, with the log in the console
+cargo build --release  # target/release/forge(.exe)
+```
+
+On Linux the build needs the windowing headers:
+
+```sh
+sudo apt-get install libxkbcommon-dev libwayland-dev libxkbcommon-x11-dev \
+    libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+```
+
+A release build on Windows opens no console window; a debug build does, and logs to it.
+
+## Android
+
+Once:
+
+```sh
+cargo install cargo-apk
+rustup target add aarch64-linux-android
+```
+
+and an Android SDK and NDK, with `ANDROID_HOME` and `ANDROID_NDK_ROOT` set.
+
+```sh
+cargo apk run --lib                  # build, install and start on the connected device
+cargo apk build --lib --release      # target/release/apk/forge.apk
+```
+
+`--lib` is required. A debug APK is about 300 MB because it carries every symbol; the release
+one is about 5 MB. A release APK has to be signed with your key: the comment on signing in
+`Cargo.toml` says how.
+
+- **The icon** is the five `res/mipmap-*/ic_launcher.png` files.
+- **The colour shown while the application opens** is `launch_background` in
+  `res/values/styles.xml`. Make it your first frame's background colour.
+- **The package name**, `com.example.forge`, is `package` in `Cargo.toml`. Settle it
+  before your first release: a store knows the application by it.
+- **The version code** comes from `version` in `Cargo.toml` (each part at most 255).
+
+## Web
+
+Once:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version <the wasm-bindgen version in Cargo.lock>
+```
+
+Then build, generate the JavaScript glue into `web/pkg/`, and serve `web/`:
+
+```sh
+cargo build --lib --target wasm32-unknown-unknown --profile web-release
+wasm-bindgen --target web --no-typescript --out-dir web/pkg target/wasm32-unknown-unknown/web-release/forge.wasm
+python3 -m http.server 8080 --directory web     # http://localhost:8080
+```
+
+frus draws through WebGPU, which browsers only offer on `https` pages and on `localhost`.
+`web/` is the whole site: put it on any static host, and serve the `.wasm` compressed.
+
+## Releases
+
+`.github/workflows/release.yml` builds everything in release when you push a tag that matches
+the version in `Cargo.toml`:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+and publishes a GitHub release with:
+
+| file | what it is |
+|---|---|
+| `forge-0.1.0-x86_64-pc-windows-msvc.zip` | the Windows program |
+| `forge-0.1.0-x86_64-unknown-linux-gnu.tar.gz` | the Linux program (x64) |
+| `forge-0.1.0-aarch64-apple-darwin.tar.gz` | the macOS program, Apple silicon |
+| `forge-0.1.0-x86_64-apple-darwin.tar.gz` | the macOS program, Intel |
+| `forge-0.1.0.apk` | the Android application, signed with your key |
+| `forge-0.1.0-web.zip` | the web site |
+
+For the APK, give the repository two secrets (Settings → Secrets and variables → Actions):
+`ANDROID_KEYSTORE`, your keystore as base64 (`base64 -w0 release.keystore`), and
+`ANDROID_KEYSTORE_PASSWORD`. Without them the release has no APK, and the run says so.
+
+What the workflow does not do: sign the desktop programs (Windows SmartScreen and macOS
+Gatekeeper warn about an unsigned program the first time it opens), make a macOS `.app` or an
+installer, or build an Android App Bundle (`.aab`) for Google Play.
+
+`.github/workflows/ci.yml` checks every push: formatting, clippy, the tests, and a build for
+the desktops, the web and Android.
+
+## The icon
+
+The frus logo is the icon until you change it. On the desktop and the web:
+
+```rust
+// use frus::AppIcon;
+frus::main!(FrusApp::stateful(Counter).icon(AppIcon::from_png(include_bytes!("../assets/icon.png"))));
+```
+
+On Android, the five `res/mipmap-*/ic_launcher.png` files.
+
+## Building against a checkout
+
+To try a change to frus itself, point every frus crate at your checkout. They are versioned
+together:
+
+```toml
+[patch.crates-io]
+frus         = { path = "../frus/crates/frus" }
+frus-core    = { path = "../frus/crates/frus-core" }
+frus-gpu     = { path = "../frus/crates/frus-gpu" }
+frus-image   = { path = "../frus/crates/frus-image" }
+frus-l10n    = { path = "../frus/crates/frus-l10n" }
+frus-layout  = { path = "../frus/crates/frus-layout" }
+frus-shell   = { path = "../frus/crates/frus-shell" }
+frus-test    = { path = "../frus/crates/frus-test" }
+frus-text    = { path = "../frus/crates/frus-text" }
+frus-widgets = { path = "../frus/crates/frus-widgets" }
+```
