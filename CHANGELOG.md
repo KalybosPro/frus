@@ -8,11 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 687 so far, each documenting the objective, the alternatives
+> record — one per step, 689 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Paths painted like vector artwork** (J689, #303, #304): a path has a fill rule
+  (`FillRule::NonZero` or the default `EvenOdd`), and can be filled with a `GradientRamp` —
+  any number of stops, linear or radial with a focal circle, a tile mode and a transform of its
+  own, drawn exactly however it is turned or skewed (`Scene::fill_path_ramp`,
+  `PathGradient::Ramp`). The groundwork for SVG and Lottie.
 - **Pictures decoded at the size they are shown** (J687, #221): an `Image::memory` or
   `Image::network` given a width or a height is decoded at that size times the screen's pixel
   ratio, not at the file's: a 4000×3000 photograph shown as an 80×80 thumbnail holds 0.3 MB

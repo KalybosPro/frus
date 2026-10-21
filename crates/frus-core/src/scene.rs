@@ -7,9 +7,12 @@
 //! Every primitive carries a **clip rectangle**, set through
 //! [`Scene::set_clip`] before primitives are added.
 
+use std::sync::Arc;
+
 use crate::{
     Affine, BorderRadius, Color, FontWeight, ImageHandle, LayerFilter, Path, PathVerb, Point, Rect,
     ResolvedTextStyle, ShaderMask, ShapeBorder, Size, Stroke, TextAlign, TextDecoration, TextRun,
+    TileMode,
 };
 
 /// The transform applied to a **layer** ([`Primitive::Layer`]) at compositing time:
@@ -61,12 +64,150 @@ impl LayerTransform {
     }
 }
 
+/// **A gradient with any number of stops**, for a path: its shape, its colours, what it
+/// does past its ends, and where it sits.
+///
+/// The shape is in the gradient's own space and `transform` takes it to the path's, so a
+/// gradient that is turned, skewed or squashed — an SVG `gradientTransform`, a bounding
+/// box's units — is drawn exactly: the renderer maps each pixel back into the gradient's
+/// space, where the shape is simple.
+///
+/// ```
+/// use frus_core::{Affine, Color, GradientRamp, Point, RampShape, TileMode};
+/// let ramp = GradientRamp {
+///     shape: RampShape::Linear { from: Point::new(0.0, 0.0), to: Point::new(100.0, 0.0) },
+///     stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)],
+///     tile: TileMode::Clamp,
+///     transform: Affine::default(),
+/// };
+/// assert_eq!(ramp.t_at(Point::new(25.0, 40.0)), Some(0.25));
+/// ```
+#[derive(Clone, Debug, PartialEq)]
+pub struct GradientRamp {
+    /// Where the colours run, in the gradient's own space.
+    pub shape: RampShape,
+    /// `(offset, colour)` pairs, offsets from `0` to `1` in order. A colour holds before
+    /// the first stop and after the last.
+    pub stops: Vec<(f32, Color)>,
+    /// What happens past the ends of the shape.
+    pub tile: TileMode,
+    /// The gradient's space to the path's.
+    pub transform: Affine,
+}
+
+/// Where a [`GradientRamp`]'s colours run.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RampShape {
+    /// The first stop at `from`, the last at `to`, constant across the line.
+    Linear {
+        /// Where offset `0` is.
+        from: Point,
+        /// Where offset `1` is.
+        to: Point,
+    },
+    /// Offset `0` on the circle about `focal` of radius `focal_radius`, offset `1` on the
+    /// circle about `center` of radius `radius`, and the circles between them for the
+    /// offsets between. With the focal point at the centre and no focal radius, it is the
+    /// plain outward fade.
+    Radial {
+        /// The centre of the outer circle.
+        center: Point,
+        /// The radius of the outer circle.
+        radius: f32,
+        /// The centre of the inner circle.
+        focal: Point,
+        /// The radius of the inner circle.
+        focal_radius: f32,
+    },
+}
+
+impl GradientRamp {
+    /// How far through the gradient the point `p` (in the path's space) is, tiled; `None`
+    /// where nothing is drawn — past the ends of a [`TileMode::Decal`] one, or outside
+    /// both circles' reach. What the renderer computes for every pixel.
+    pub fn t_at(&self, p: Point) -> Option<f32> {
+        let p = self.transform.inverse().apply(p);
+        let t = match self.shape {
+            RampShape::Linear { from, to } => {
+                let (dx, dy) = (to.x - from.x, to.y - from.y);
+                ((p.x - from.x) * dx + (p.y - from.y) * dy) / (dx * dx + dy * dy).max(1e-6)
+            }
+            RampShape::Radial {
+                center,
+                radius,
+                focal,
+                focal_radius,
+            } => {
+                // The largest t whose circle — centre and radius moving from the focal
+                // circle's to the outer one's — passes through p.
+                let (cdx, cdy) = (center.x - focal.x, center.y - focal.y);
+                let dr = radius - focal_radius;
+                let (pdx, pdy) = (p.x - focal.x, p.y - focal.y);
+                let a = cdx * cdx + cdy * cdy - dr * dr;
+                let b = pdx * cdx + pdy * cdy + focal_radius * dr;
+                let c = pdx * pdx + pdy * pdy - focal_radius * focal_radius;
+                if a.abs() < 1e-4 {
+                    c / (2.0 * b).max(1e-6)
+                } else {
+                    let disc = b * b - a * c;
+                    if disc < 0.0 {
+                        return None;
+                    }
+                    let root = disc.sqrt();
+                    let t = (b + root) / a;
+                    if focal_radius + t * dr < 0.0 {
+                        (b - root) / a
+                    } else {
+                        t
+                    }
+                }
+            }
+        };
+        crate::tile(t, self.tile)
+    }
+
+    /// The colour at offset `t`, between the stops either side of it.
+    pub fn sample(&self, t: f32) -> Color {
+        match self.stops.as_slice() {
+            [] => Color::TRANSPARENT,
+            [(_, only)] => *only,
+            stops => {
+                if t <= stops[0].0 {
+                    return stops[0].1;
+                }
+                for pair in stops.windows(2) {
+                    let ((a, from), (b, to)) = (pair[0], pair[1]);
+                    if t <= b {
+                        let k = if b > a { (t - a) / (b - a) } else { 1.0 };
+                        return from.lerp(to, k);
+                    }
+                }
+                stops[stops.len() - 1].1
+            }
+        }
+    }
+
+    /// The colour at the point `p`, in the path's space: transparent where nothing is
+    /// drawn.
+    pub fn color_at(&self, p: Point) -> Color {
+        self.t_at(p).map_or(Color::TRANSPARENT, |t| self.sample(t))
+    }
+
+    /// The same gradient after its path is moved by `then`.
+    fn followed_by(&self, then: Affine) -> GradientRamp {
+        GradientRamp {
+            transform: self.transform.then(then),
+            ..self.clone()
+        }
+    }
+}
+
 /// How a path's fill **fades**: along a line, or outwards from a centre.
 ///
 /// The geometry is in the same space as the path, deliberately, so a fade can be
 /// aimed at something real — the edge a glow springs from, the ellipse whose cap is
 /// the glow — rather than at whatever bounding box the geometry happens to have.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PathGradient {
     /// The fill colour at `from`, `to_color` at `to`, clamped outside that span.
     Linear {
@@ -95,6 +236,10 @@ pub enum PathGradient {
         /// centre outwards; a value near `1` confines it to a thin rind.
         inner: f32,
     },
+    /// **Any number of colour stops**, along a line or between two circles, in a space of
+    /// its own — what vector artwork's gradients are. The primitive's fill colour
+    /// multiplies it: white leaves it as it is, and a faded white fades it.
+    Ramp(Arc<GradientRamp>),
 }
 
 impl PathGradient {
@@ -117,6 +262,7 @@ impl PathGradient {
                 radii: Size::new(radii.width * sx, radii.height * sy),
                 inner,
             },
+            Self::Ramp(ramp) => Self::Ramp(Arc::new(ramp.followed_by(Affine::scale(sx, sy)))),
         }
     }
 
@@ -139,6 +285,7 @@ impl PathGradient {
                 radii,
                 inner,
             },
+            Self::Ramp(ramp) => Self::Ramp(Arc::new(ramp.followed_by(Affine::translation(dx, dy)))),
         }
     }
 
@@ -146,6 +293,7 @@ impl PathGradient {
     pub fn to_color(self) -> Color {
         match self {
             Self::Linear { to_color, .. } | Self::Radial { to_color, .. } => to_color,
+            Self::Ramp(ramp) => ramp.stops.last().map_or(Color::TRANSPARENT, |(_, c)| *c),
         }
     }
 
@@ -168,6 +316,8 @@ impl PathGradient {
                 radii,
                 inner,
             },
+            // The fill colour multiplies a ramp, and the fill is faded with it.
+            Self::Ramp(ramp) => Self::Ramp(ramp),
         }
     }
 }
@@ -1418,6 +1568,19 @@ impl Scene {
         });
     }
 
+    /// Fills a path with a [`GradientRamp`] — any number of stops, along a line or between
+    /// two circles, turned or skewed by its own transform.
+    pub fn fill_path_ramp(&mut self, path: &Path, ramp: GradientRamp, opacity: f32) {
+        self.primitives.push(Primitive::Path {
+            path: path.clone(),
+            fill: Some(Color::WHITE.fade(opacity)),
+            gradient: Some(PathGradient::Ramp(Arc::new(ramp))),
+            stroke: None,
+            clip: self.current_clip,
+            owner: self.current_owner,
+        });
+    }
+
     /// Strokes a path's outline (colour plus width), with no fill.
     pub fn stroke_path(&mut self, path: &Path, color: Color, width: f32) {
         self.primitives.push(Primitive::Path {
@@ -1769,6 +1932,138 @@ impl Scene {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn close(a: Option<f32>, b: f32) -> bool {
+        a.is_some_and(|a| (a - b).abs() < 1e-4)
+    }
+
+    fn ramp(shape: RampShape, tile: TileMode) -> GradientRamp {
+        GradientRamp {
+            shape,
+            stops: vec![
+                (0.0, Color::rgb(1.0, 0.0, 0.0)),
+                (0.5, Color::rgb(0.0, 1.0, 0.0)),
+                (1.0, Color::rgb(0.0, 0.0, 1.0)),
+            ],
+            tile,
+            transform: Affine::default(),
+        }
+    }
+
+    const LINE: RampShape = RampShape::Linear {
+        from: Point::new(10.0, 0.0),
+        to: Point::new(30.0, 0.0),
+    };
+
+    /// **Along a line**: the offset is the distance along it, the same across it, and the
+    /// ends do what the tile mode says.
+    #[test]
+    fn a_linear_ramp_runs_along_its_line_and_tiles_past_it() {
+        let clamp = ramp(LINE, TileMode::Clamp);
+        assert!(close(clamp.t_at(Point::new(15.0, 0.0)), 0.25));
+        assert!(
+            close(clamp.t_at(Point::new(15.0, 99.0)), 0.25),
+            "constant across"
+        );
+        assert!(close(clamp.t_at(Point::new(50.0, 0.0)), 1.0));
+        let repeat = ramp(LINE, TileMode::Repeated);
+        assert!(close(repeat.t_at(Point::new(35.0, 0.0)), 0.25));
+        let mirror = ramp(LINE, TileMode::Mirror);
+        assert!(close(mirror.t_at(Point::new(35.0, 0.0)), 0.75));
+        let decal = ramp(LINE, TileMode::Decal);
+        assert_eq!(
+            decal.t_at(Point::new(35.0, 0.0)),
+            None,
+            "nothing past a decal's end"
+        );
+        assert_eq!(decal.color_at(Point::new(35.0, 0.0)), Color::TRANSPARENT);
+    }
+
+    /// **Between the stops**, the mix of the two either side; before and after, the end
+    /// colours.
+    #[test]
+    fn a_ramp_mixes_the_stops_either_side() {
+        let r = ramp(LINE, TileMode::Clamp);
+        assert_eq!(r.sample(-1.0), Color::rgb(1.0, 0.0, 0.0));
+        assert_eq!(r.sample(0.5), Color::rgb(0.0, 1.0, 0.0));
+        let quarter = r.sample(0.25);
+        assert!((quarter.r - 0.5).abs() < 1e-6 && (quarter.g - 0.5).abs() < 1e-6);
+        assert_eq!(r.sample(2.0), Color::rgb(0.0, 0.0, 1.0));
+    }
+
+    /// **Radial**: the distance from the centre in radii, and, with a focal point off the
+    /// centre, the circle through the point — nearer on the focal side.
+    #[test]
+    fn a_radial_ramp_runs_outward_and_bends_towards_its_focal_point() {
+        let centred = ramp(
+            RampShape::Radial {
+                center: Point::new(0.0, 0.0),
+                radius: 10.0,
+                focal: Point::new(0.0, 0.0),
+                focal_radius: 0.0,
+            },
+            TileMode::Clamp,
+        );
+        assert!(close(centred.t_at(Point::new(5.0, 0.0)), 0.5));
+        assert!(
+            close(centred.t_at(Point::new(0.0, -5.0)), 0.5),
+            "the same all round"
+        );
+        let focal = ramp(
+            RampShape::Radial {
+                center: Point::new(0.0, 0.0),
+                radius: 10.0,
+                focal: Point::new(5.0, 0.0),
+                focal_radius: 0.0,
+            },
+            TileMode::Clamp,
+        );
+        // At the focal point, the start; on the outer circle, the end, either side.
+        assert!(close(focal.t_at(Point::new(5.0, 0.0)), 0.0));
+        assert!(close(focal.t_at(Point::new(10.0, 0.0)), 1.0));
+        assert!(close(focal.t_at(Point::new(-10.0, 0.0)), 1.0));
+        // Halfway from the focal point to each side's edge is halfway through.
+        assert!(close(focal.t_at(Point::new(7.5, 0.0)), 0.5));
+        assert!(close(focal.t_at(Point::new(-2.5, 0.0)), 0.5));
+    }
+
+    /// **A transformed gradient is drawn exactly**: the point is mapped back into the
+    /// gradient's own space, so a turned line runs the turned way.
+    #[test]
+    fn a_ramp_follows_its_transform() {
+        let mut turned = ramp(LINE, TileMode::Clamp);
+        // A quarter turn about the origin: the line now runs down the y axis.
+        turned.transform = Affine::rotation(std::f32::consts::FRAC_PI_2);
+        assert!(close(turned.t_at(Point::new(0.0, 15.0)), 0.25));
+        assert!(
+            close(turned.t_at(Point::new(40.0, 15.0)), 0.25),
+            "constant across it"
+        );
+    }
+
+    /// **A scaled or moved path takes its gradient with it**: the colour at a point of the
+    /// moved shape is the colour the same point had before.
+    #[test]
+    fn a_ramp_moves_and_scales_with_its_primitive() {
+        let mut scene = Scene::new();
+        let shape = Path::rect(Rect::new(10.0, 0.0, 20.0, 10.0));
+        scene.fill_path_ramp(&shape, ramp(LINE, TileMode::Clamp), 1.0);
+        let gradient_of = |p: &Primitive| match p {
+            Primitive::Path {
+                gradient: Some(PathGradient::Ramp(r)),
+                ..
+            } => r.clone(),
+            _ => panic!("a ramp"),
+        };
+        let before = gradient_of(&scene.primitives()[0]);
+        let scaled = gradient_of(&scene.primitives()[0].scaled_xy(2.0, 3.0));
+        assert!(close(
+            scaled.t_at(Point::new(30.0, 6.0)),
+            before.t_at(Point::new(15.0, 2.0)).unwrap()
+        ));
+        let moved = gradient_of(&scene.primitives()[0].translated(5.0, 7.0));
+        assert!(close(moved.t_at(Point::new(20.0, 7.0)), 0.25));
+    }
     use crate::{Color, Rect};
 
     #[test]

@@ -158,6 +158,25 @@ impl Stroke {
     }
 }
 
+/// **Which points a filled path covers**, where its contours cross or nest.
+///
+/// A point is inside when a ray from it crosses the outline an odd number of times
+/// ([`EvenOdd`](FillRule::EvenOdd)), or when the outline winds round it on balance
+/// ([`NonZero`](FillRule::NonZero)). The two agree on a simple shape and differ on a
+/// self-crossing one or on nested contours drawn the same way round: even-odd makes a hole
+/// of every second one, non-zero fills them unless they turn the other way.
+///
+/// Even-odd is the default because it is what every path here has always been filled
+/// with. Vector artwork (SVG, Lottie) says which it wants, and is mostly non-zero.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FillRule {
+    /// Inside where a ray from the point crosses the outline an odd number of times.
+    #[default]
+    EvenOdd,
+    /// Inside where the outline winds round the point on balance.
+    NonZero,
+}
+
 /// A vector path: a sequence of [`PathVerb`]. Built in *builder* style (chainable),
 /// and consumed at render time.
 ///
@@ -173,9 +192,21 @@ impl Stroke {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Path {
     verbs: Vec<PathVerb>,
+    fill_rule: FillRule,
 }
 
 impl Path {
+    /// The same path, filled by `rule`.
+    pub fn with_fill_rule(mut self, rule: FillRule) -> Self {
+        self.fill_rule = rule;
+        self
+    }
+
+    /// How the path is filled where its contours cross or nest.
+    pub fn fill_rule(&self) -> FillRule {
+        self.fill_rule
+    }
+
     /// An empty path.
     pub fn new() -> Self {
         Self::default()
@@ -346,6 +377,7 @@ impl Path {
     pub fn scaled(&self, factor: f32) -> Path {
         Path {
             verbs: self.verbs.iter().map(|v| v.scaled(factor)).collect(),
+            fill_rule: self.fill_rule,
         }
     }
 
@@ -353,6 +385,7 @@ impl Path {
     pub fn translated(&self, dx: f32, dy: f32) -> Path {
         Path {
             verbs: self.verbs.iter().map(|v| v.translated(dx, dy)).collect(),
+            fill_rule: self.fill_rule,
         }
     }
 
@@ -366,6 +399,7 @@ impl Path {
     pub fn mirrored_x(&self, axis: f32) -> Path {
         Path {
             verbs: self.verbs.iter().map(|v| v.mirrored_x(axis)).collect(),
+            fill_rule: self.fill_rule,
         }
     }
 
@@ -386,6 +420,7 @@ impl Path {
                 .iter()
                 .map(|v| v.rotated(center, sin, cos))
                 .collect(),
+            fill_rule: self.fill_rule,
         }
     }
 }
@@ -393,6 +428,24 @@ impl Path {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The fill rule is the path's, and every copy of it keeps it.
+    #[test]
+    fn a_fill_rule_survives_every_transform() {
+        let p = Path::rect(Rect::new(0.0, 0.0, 4.0, 4.0)).with_fill_rule(FillRule::NonZero);
+        assert_eq!(
+            Path::new().fill_rule(),
+            FillRule::EvenOdd,
+            "even-odd by default"
+        );
+        assert_eq!(p.scaled(2.0).fill_rule(), FillRule::NonZero);
+        assert_eq!(p.translated(1.0, 1.0).fill_rule(), FillRule::NonZero);
+        assert_eq!(p.mirrored_x(2.0).fill_rule(), FillRule::NonZero);
+        assert_eq!(
+            p.rotated(Point::new(0.0, 0.0), 1.0).fill_rule(),
+            FillRule::NonZero
+        );
+    }
 
     /// A reflection is its own inverse, moves nothing on the axis, and leaves y alone.
     /// Those three together are the whole definition, and each one is a mistake somebody

@@ -561,10 +561,13 @@ pub use frus_core::{
     Animatable, Animation, BouncingScrollSimulation, ClampingScrollSimulation, Curved,
     PolynomialFit, TweenSequence, BOUNCING_DRAG, CLAMPING_FRICTION, MAX_SPRING_TRANSFER_VELOCITY,
 };
+/// What a layer does at compositing, for painting a scene by hand.
+pub use frus_core::{
+    FillRule, GradientRamp, LayerFilter, LayerTransform, MaskShader, PathGradient, RampShape,
+    Stroke, TextBlock,
+};
 /// The three gradients and how they tile.
 pub use frus_core::{Gradient, RadialGradient, SweepGradient, TileMode};
-/// What a layer does at compositing, for painting a scene by hand.
-pub use frus_core::{LayerFilter, LayerTransform, MaskShader, PathGradient, Stroke, TextBlock};
 // `frus_core::ShaderMask`, a layer's mask, is renamed so it does not shadow the
 // `ShaderMask` widget.
 pub use frus_core::ShaderMask as LayerShaderMask;

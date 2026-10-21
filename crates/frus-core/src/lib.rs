@@ -62,14 +62,17 @@ pub use image::{
     set_image_fetcher, trim_image_caches, BoxFit, DecodeSize, Fetched, ImageData, ImageFetcher,
     ImageHandle, DEFAULT_IMAGE_CACHE_BYTES,
 };
-pub use path::{Path, PathVerb, Stroke, StrokeCap};
+pub use path::{FillRule, Path, PathVerb, Stroke, StrokeCap};
 pub use platform::{
     __set_detected_target_platform, debug_default_target_platform_override,
     default_target_platform, set_debug_default_target_platform_override, Platform, TargetPlatform,
     IS_WEB,
 };
 pub use responsive::{Orientation, SizeClass};
-pub use scene::{BlurStyle, ClipShape, LayerTransform, PathGradient, Primitive, Scene, TextBlock};
+pub use scene::{
+    BlurStyle, ClipShape, GradientRamp, LayerTransform, PathGradient, Primitive, RampShape, Scene,
+    TextBlock,
+};
 pub use semantics::{Role, SemanticsProperties, Toggled};
 pub use shape::{BorderSide, ShapeBorder};
 pub use text_style::{

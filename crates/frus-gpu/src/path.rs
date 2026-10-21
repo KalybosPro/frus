@@ -10,10 +10,16 @@
 //! at the target's `sample_count`.
 
 use bytemuck::{Pod, Zeroable};
-use frus_core::{Path, PathGradient, PathVerb, Primitive, Scene};
+use frus_core::{
+    Affine, FillRule, GradientRamp, Path, PathGradient, PathVerb, Primitive, RampShape, Scene,
+    TileMode,
+};
 use std::ops::Range;
 
 use crate::batch::{Batch, Kind};
+use crate::painter::{
+    bake_with, ramp_layout, ramp_sampler, ramp_texture, RAMP_MAX_ROWS, RAMP_WIDTH,
+};
 use lyon::math::point;
 use lyon::path::Path as LyonPath;
 use lyon::tessellation::{
@@ -33,21 +39,28 @@ struct PathVertex {
     /// The gradient's geometry, in the same pixel space as `pos`: `(from, to)` for a
     /// straight fade, `(centre, radii)` for a radial one.
     geometry: [f32; 4],
-    /// `(kind, inner)`: kind `0` flat, `1` straight, `2` radial. `inner` is where a
-    /// radial fade starts, as a fraction of the radii.
+    /// `(kind, inner)`: kind `0` flat, `1` straight, `2` radial, `3` a ramp. `inner` is
+    /// where a radial fade starts, as a fraction of the radii; for a ramp, its row.
     kind: [f32; 2],
     clip: [f32; 4],
+    /// Where the vertex is in the ramp's own space: its position mapped back through the
+    /// ramp's transform. Interpolated, which is exact, the map being affine.
+    grad_pos: [f32; 2],
+    /// For a ramp: the focal point, then `shape + 4 × tile`.
+    extra: [f32; 4],
 }
 
 impl PathVertex {
     fn layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
+        const ATTRS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
             0 => Float32x2,
             1 => Float32x4,
             2 => Float32x4,
             3 => Float32x4,
             4 => Float32x2,
             5 => Float32x4,
+            6 => Float32x2,
+            7 => Float32x4,
         ];
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<PathVertex>() as wgpu::BufferAddress,
@@ -72,6 +85,9 @@ struct Ctor {
     geometry: [f32; 4],
     kind: [f32; 2],
     clip: [f32; 4],
+    /// The path's space to a ramp's, for a ramp.
+    to_ramp: Option<Affine>,
+    extra: [f32; 4],
 }
 
 impl Ctor {
@@ -84,10 +100,51 @@ impl Ctor {
             geometry: [0.0; 4],
             kind: [0.0, 0.0],
             clip,
+            to_ramp: None,
+            extra: [0.0; 4],
+        }
+    }
+
+    /// A ramp fill, `tint` multiplying it, its colours in ramp row `row`.
+    fn ramp(ramp: &GradientRamp, tint: [f32; 4], row: f32, clip: [f32; 4]) -> Self {
+        let tile = match ramp.tile {
+            TileMode::Clamp => 0.0,
+            TileMode::Repeated => 1.0,
+            TileMode::Mirror => 2.0,
+            TileMode::Decal => 3.0,
+        };
+        let (shape, geometry, focal) = match ramp.shape {
+            RampShape::Linear { from, to } => (1.0, [from.x, from.y, to.x, to.y], [0.0, 0.0]),
+            RampShape::Radial {
+                center,
+                radius,
+                focal,
+                focal_radius,
+            } => (
+                2.0,
+                [center.x, center.y, radius, focal_radius],
+                [focal.x, focal.y],
+            ),
+        };
+        Self {
+            color: tint,
+            color2: tint,
+            geometry,
+            kind: [3.0, row],
+            clip,
+            to_ramp: Some(ramp.transform.inverse()),
+            extra: [focal[0], focal[1], shape + 4.0 * tile, 0.0],
         }
     }
 
     fn vertex(&self, x: f32, y: f32) -> PathVertex {
+        let grad_pos = match self.to_ramp {
+            Some(map) => {
+                let p = map.apply(frus_core::Point::new(x, y));
+                [p.x, p.y]
+            }
+            None => [x, y],
+        };
         PathVertex {
             pos: [x, y],
             color: self.color,
@@ -95,6 +152,8 @@ impl Ctor {
             geometry: self.geometry,
             kind: self.kind,
             clip: self.clip,
+            grad_pos,
+            extra: self.extra,
         }
     }
 }
@@ -137,6 +196,12 @@ pub(crate) struct PathPainter {
     geometry: VertexBuffers<PathVertex, u32>,
     fill_tess: FillTessellator,
     stroke_tess: StrokeTessellator,
+    /// The ramps' colours, one row per ramp in this frame, and where they go.
+    ramp_layout: wgpu::BindGroupLayout,
+    ramp_sampler: wgpu::Sampler,
+    ramp_texture: wgpu::Texture,
+    ramp_bind_group: wgpu::BindGroup,
+    ramp_rows: Vec<[u8; RAMP_WIDTH as usize * 4]>,
 }
 
 impl PathPainter {
@@ -183,9 +248,13 @@ impl PathPainter {
             }],
         });
 
+        let ramp_layout = ramp_layout(device);
+        let ramp_sampler = ramp_sampler(device);
+        let (ramp_texture, ramp_bind_group) = ramp_texture(device, &ramp_layout, &ramp_sampler, 1);
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("frus.path.pipeline_layout"),
-            bind_group_layouts: &[Some(&bind_group_layout)],
+            bind_group_layouts: &[Some(&bind_group_layout), Some(&ramp_layout)],
             immediate_size: 0,
         });
 
@@ -247,6 +316,11 @@ impl PathPainter {
             geometry: VertexBuffers::new(),
             fill_tess: FillTessellator::new(),
             stroke_tess: StrokeTessellator::new(),
+            ramp_layout,
+            ramp_sampler,
+            ramp_texture,
+            ramp_bind_group,
+            ramp_rows: Vec::new(),
         }
     }
 
@@ -270,6 +344,7 @@ impl PathPainter {
     ) -> Vec<Range<u32>> {
         self.geometry.vertices.clear();
         self.geometry.indices.clear();
+        self.ramp_rows.clear();
 
         // Tessellated **in batch order**, so a batch is one contiguous index range
         // and one indexed draw. Scene order survives inside a batch.
@@ -296,12 +371,24 @@ impl PathPainter {
                         let color = color.to_array();
                         let ctor = match gradient {
                             None => Ctor::flat(color, clip),
+                            // Baked into the next row; past the last one, the fill colour
+                            // stands in, as a box's gradient does.
+                            Some(PathGradient::Ramp(ramp))
+                                if (self.ramp_rows.len() as u32) < RAMP_MAX_ROWS =>
+                            {
+                                let row = self.ramp_rows.len() as f32;
+                                self.ramp_rows.push(bake_with(|t| ramp.sample(t)));
+                                Ctor::ramp(ramp, color, row, clip)
+                            }
+                            Some(PathGradient::Ramp(_)) => Ctor::flat(color, clip),
                             Some(PathGradient::Linear { to_color, from, to }) => Ctor {
                                 color,
                                 color2: to_color.to_array(),
                                 geometry: [from.x, from.y, to.x, to.y],
                                 kind: [1.0, 0.0],
                                 clip,
+                                to_ramp: None,
+                                extra: [0.0; 4],
                             },
                             Some(PathGradient::Radial {
                                 to_color,
@@ -314,11 +401,17 @@ impl PathPainter {
                                 geometry: [center.x, center.y, radii.width, radii.height],
                                 kind: [2.0, *inner],
                                 clip,
+                                to_ramp: None,
+                                extra: [0.0; 4],
                             },
+                        };
+                        let rule = match path.fill_rule() {
+                            FillRule::EvenOdd => lyon::tessellation::FillRule::EvenOdd,
+                            FillRule::NonZero => lyon::tessellation::FillRule::NonZero,
                         };
                         let _ = self.fill_tess.tessellate_path(
                             &lyon_path,
-                            &FillOptions::default(),
+                            &FillOptions::default().with_fill_rule(rule),
                             &mut BuffersBuilder::new(&mut self.geometry, ctor),
                         );
                     }
@@ -381,6 +474,39 @@ impl PathPainter {
             0,
             bytemuck::cast_slice(&self.geometry.indices),
         );
+        // The frame's ramps, uploaded in one go; the texture grows to hold them.
+        if !self.ramp_rows.is_empty() {
+            let rows = self.ramp_rows.len() as u32;
+            if rows > self.ramp_texture.height() {
+                let (texture, bind_group) = ramp_texture(
+                    device,
+                    &self.ramp_layout,
+                    &self.ramp_sampler,
+                    rows.next_power_of_two(),
+                );
+                self.ramp_texture = texture;
+                self.ramp_bind_group = bind_group;
+            }
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.ramp_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                bytemuck::cast_slice(&self.ramp_rows),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(RAMP_WIDTH * 4),
+                    rows_per_image: Some(rows),
+                },
+                wgpu::Extent3d {
+                    width: RAMP_WIDTH,
+                    height: rows,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
         ranges
     }
 
@@ -391,6 +517,7 @@ impl PathPainter {
         }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.viewport_bind_group, &[]);
+        pass.set_bind_group(1, &self.ramp_bind_group, &[]);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         pass.draw_indexed(range, 0, 0..1);
