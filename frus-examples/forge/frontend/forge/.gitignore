@@ -18,3 +18,6 @@ CLAUDE.md
 
 # Build outputs
 *.apk
+
+# The Web build's generated JavaScript glue and wasm
+/web/pkg/

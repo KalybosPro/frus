@@ -1,5 +1,5 @@
 use frus::{
-    Align, Callback, Colors, Column, MenuPath, Scaffold, SingleChildScrollView, SizedBox, State,
+    Align, Callback, Colors, Column, Scaffold, SingleChildScrollView, SizedBox, State,
     StateContext, StatefulWidget, StatelessWidget, Widget,
 };
 
@@ -28,9 +28,7 @@ impl StatefulWidget for HomePage {
     type State = HomeState;
 
     fn create_state(&self) -> HomeState {
-        HomeState {
-            menu: MenuPath::closed(),
-        }
+        HomeState {}
     }
 }
 
