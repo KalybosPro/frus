@@ -55,7 +55,7 @@ pub fn render_offscreen(
     // The same pipeline as `Renderer::render`, through the compositor, layers
     // included. The clear colour is authored in sRGB, and an sRGB target wants linear.
     let clear_linear = clear.to_linear();
-    let mut painters = Painters::new(&device, &queue, format, sample_count);
+    let mut painters = Painters::new(&device, &queue, format, sample_count, None);
     painters.render(
         &device,
         &queue,

@@ -146,6 +146,7 @@ impl PathPainter {
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         sample_count: u32,
+        cache: Option<&wgpu::PipelineCache>,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("frus.path.shader"),
@@ -218,7 +219,7 @@ impl PathPainter {
                 alpha_to_coverage_enabled: false,
             },
             multiview_mask: None,
-            cache: None,
+            cache,
         });
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {

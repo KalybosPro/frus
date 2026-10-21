@@ -19,6 +19,11 @@ any release may break.
   `lose-gpu` to test it. `WGPU_BACKEND` now chooses the GPU backend over frus's own choice, and Android and Linux fall
   back to OpenGL ES where there is no Vulkan driver.
 
+
+- **The pipelines kept between launches** (J685, #217): where the GPU can keep compiled
+  pipelines (Vulkan: Android, Linux), the renderer reads them from the previous launch instead
+  of compiling them again. On the test phone the counter's first frame went from 1.15 s to
+  0.33 s from the second start on.
 - **A faster start on Windows** (J684, #217): DirectX 12 compiles a program's shaders with DXC
   when its DLLs are beside the program, which `frus run` and `frus build desktop` now arrange
   (fetched once). The counter's first frame went from 1.3–2.0 s to 0.6–0.8 s on a Windows
@@ -28,8 +33,9 @@ any release may break.
   first frame was presented after launch, with where the time went — the window, the GPU's
   adapter, device, pipelines and warm-up, the fonts, the first layout; `frus run` shows it on
   every platform. The web bundle has a size budget in CI, as the Android library has. On a
-  Windows laptop the counter shows its first frame in about one second, three quarters of it
-  building pipelines (#217).
+  Windows laptop the counter shows its first frame in about one second, on a mid-range Android
+  phone in 1.2–1.4 s, three quarters of it building pipelines (#217). `frus run --release` on
+  Android signs with the debug key when the manifest has no release key.
 
 - **The web's colours** (J682, #234): every colour was drawn darker in a browser — the linear
   values the shaders write, shown as if encoded, since a WebGPU canvas offers no sRGB format.

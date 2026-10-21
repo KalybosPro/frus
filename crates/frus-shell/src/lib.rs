@@ -231,6 +231,18 @@ macro_rules! main {
     };
 }
 
+/// `$XDG_CACHE_HOME/frus/<program>`, or `~/.cache/frus/<program>`.
+#[cfg(target_os = "linux")]
+fn linux_cache_dir() -> Option<std::path::PathBuf> {
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".cache"))
+        })?;
+    let program = std::env::current_exe().ok()?.file_stem()?.to_os_string();
+    Some(base.join("frus").join(program))
+}
+
 /// Runs an application: opens the window and drives the event loop.
 ///
 /// ```no_run
@@ -246,6 +258,12 @@ macro_rules! main {
 #[cfg(desktop)]
 pub fn run<A: Application>(mut app: A) -> anyhow::Result<()> {
     startup::begin();
+    // On Linux the renderer draws through Vulkan, which can keep its compiled pipelines between
+    // launches: in the user's cache folder, under the program's name (milestone 685, #217).
+    #[cfg(target_os = "linux")]
+    if let Some(dir) = linux_cache_dir() {
+        frus_gpu::set_pipeline_cache_dir(dir);
+    }
     // The application's `log` output, in the terminal, with nothing to set up
     // (milestone 604). `RUST_LOG` still decides over the default.
     logging::init::<A>();
@@ -342,6 +360,11 @@ pub fn run_web<A: Application + 'static>(app: A) -> anyhow::Result<()> {
 pub fn run_android<A: Application>(app: A, android_app: AndroidApp) -> anyhow::Result<()> {
     use winit::platform::android::EventLoopBuilderExtAndroid;
     startup::begin();
+    // The renderer's compiled pipelines, kept in the application's storage between launches:
+    // the next start reads them instead of compiling them again (milestone 685, #217).
+    if let Some(dir) = android_app.internal_data_path() {
+        frus_gpu::set_pipeline_cache_dir(dir.join("frus-pipelines"));
+    }
 
     // The application's `log` output, and its panics, in logcat under its crate's name
     // (milestone 604).
