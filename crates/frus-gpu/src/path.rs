@@ -1,7 +1,9 @@
 //! The `PathPainter`: rendering of vector paths ([`Primitive::Path`]).
 //!
 //! Paths are **tessellated on the CPU** by lyon (fill and/or stroke) into an
-//! indexed triangle list, then drawn in a single pass. Each vertex carries its own
+//! indexed triangle list, then drawn in a single pass. The triangles are kept from frame
+//! to frame by outline ([`MeshCache`](crate::mesh::MeshCache)), so a path that comes back
+//! is not tessellated again. Each vertex carries its own
 //! colour (sRGB) and clip rectangle, mirroring the rectangle `Painter` — the
 //! `path.wgsl` shader projects and clips.
 //!
@@ -10,21 +12,13 @@
 //! at the target's `sample_count`.
 
 use bytemuck::{Pod, Zeroable};
-use frus_core::{
-    Affine, FillRule, GradientRamp, Path, PathGradient, PathVerb, Primitive, RampShape, Scene,
-    TileMode,
-};
+use frus_core::{Affine, GradientRamp, PathGradient, Point, Primitive, RampShape, Scene, TileMode};
 use std::ops::Range;
 
 use crate::batch::{Batch, Kind};
+use crate::mesh::{Mesh, MeshCache, Op};
 use crate::painter::{
     bake_with, ramp_layout, ramp_sampler, ramp_texture, RAMP_MAX_ROWS, RAMP_WIDTH,
-};
-use lyon::math::point;
-use lyon::path::Path as LyonPath;
-use lyon::tessellation::{
-    BuffersBuilder, FillOptions, FillTessellator, FillVertex, FillVertexConstructor, StrokeOptions,
-    StrokeTessellator, StrokeVertex, StrokeVertexConstructor, VertexBuffers,
 };
 
 /// A tessellated vertex: position (px), colour (sRGB), gradient, clip.
@@ -70,7 +64,7 @@ impl PathVertex {
     }
 }
 
-/// The vertex constructor handed to lyon. Everything it injects — colour, clip,
+/// What a path's vertices are made of. Everything it injects — colour, clip,
 /// gradient — is constant over a whole path, so the vertices differ only in position
 /// and the fragment shader resolves the fade from that.
 ///
@@ -158,17 +152,23 @@ impl Ctor {
     }
 }
 
-impl FillVertexConstructor<PathVertex> for Ctor {
-    fn new_vertex(&mut self, vertex: FillVertex) -> PathVertex {
-        let p = vertex.position();
-        self.vertex(p.x, p.y)
-    }
+/// A frame's paths, as one indexed triangle list.
+#[derive(Default)]
+struct Geometry {
+    vertices: Vec<PathVertex>,
+    indices: Vec<u32>,
 }
 
-impl StrokeVertexConstructor<PathVertex> for Ctor {
-    fn new_vertex(&mut self, vertex: StrokeVertex) -> PathVertex {
-        let p = vertex.position();
-        self.vertex(p.x, p.y)
+impl Geometry {
+    /// Appends `mesh`, moved to `origin`, its vertices made by `ctor`.
+    fn append(&mut self, mesh: &Mesh, origin: Point, ctor: &Ctor) {
+        let base = self.vertices.len() as u32;
+        self.vertices.extend(
+            mesh.positions
+                .iter()
+                .map(|p| ctor.vertex(p[0] + origin.x, p[1] + origin.y)),
+        );
+        self.indices.extend(mesh.indices.iter().map(|i| base + i));
     }
 }
 
@@ -193,9 +193,8 @@ pub(crate) struct PathPainter {
     index_buffer: wgpu::Buffer,
     index_capacity: usize,
     /// CPU geometry reused from frame to frame, with fill and stroke merged.
-    geometry: VertexBuffers<PathVertex, u32>,
-    fill_tess: FillTessellator,
-    stroke_tess: StrokeTessellator,
+    geometry: Geometry,
+    meshes: MeshCache,
     /// The ramps' colours, one row per ramp in this frame, and where they go.
     ramp_layout: wgpu::BindGroupLayout,
     ramp_sampler: wgpu::Sampler,
@@ -313,9 +312,8 @@ impl PathPainter {
             vertex_capacity: INITIAL_VERTEX_CAPACITY,
             index_buffer,
             index_capacity: INITIAL_INDEX_CAPACITY,
-            geometry: VertexBuffers::new(),
-            fill_tess: FillTessellator::new(),
-            stroke_tess: StrokeTessellator::new(),
+            geometry: Geometry::default(),
+            meshes: MeshCache::default(),
             ramp_layout,
             ramp_sampler,
             ramp_texture,
@@ -365,7 +363,6 @@ impl PathPainter {
                     ..
                 } = &scene.primitives()[member]
                 {
-                    let lyon_path = to_lyon(path);
                     let clip = clip.to_array();
                     if let Some(color) = fill {
                         let color = color.to_array();
@@ -405,32 +402,20 @@ impl PathPainter {
                                 extra: [0.0; 4],
                             },
                         };
-                        let rule = match path.fill_rule() {
-                            FillRule::EvenOdd => lyon::tessellation::FillRule::EvenOdd,
-                            FillRule::NonZero => lyon::tessellation::FillRule::NonZero,
-                        };
-                        let _ = self.fill_tess.tessellate_path(
-                            &lyon_path,
-                            &FillOptions::default().with_fill_rule(rule),
-                            &mut BuffersBuilder::new(&mut self.geometry, ctor),
-                        );
+                        if let Some((mesh, origin)) =
+                            self.meshes.get(path, Op::Fill(path.fill_rule()))
+                        {
+                            self.geometry.append(&mesh, origin, &ctor);
+                        }
                     }
                     if let Some(s) = stroke {
                         // A stroke is never given a gradient today.
                         let ctor = Ctor::flat(s.color.to_array(), clip);
-                        let cap = match s.cap {
-                            frus_core::StrokeCap::Butt => lyon::tessellation::LineCap::Butt,
-                            frus_core::StrokeCap::Square => lyon::tessellation::LineCap::Square,
-                            frus_core::StrokeCap::Round => lyon::tessellation::LineCap::Round,
-                        };
-                        let options = StrokeOptions::default()
-                            .with_line_width(s.width)
-                            .with_line_cap(cap);
-                        let _ = self.stroke_tess.tessellate_path(
-                            &lyon_path,
-                            &options,
-                            &mut BuffersBuilder::new(&mut self.geometry, ctor),
-                        );
+                        if let Some((mesh, origin)) =
+                            self.meshes.get(path, Op::stroke(s.width, s.cap))
+                        {
+                            self.geometry.append(&mesh, origin, &ctor);
+                        }
                     }
                 }
             }
@@ -510,6 +495,12 @@ impl PathPainter {
         ranges
     }
 
+    /// Ends a frame for the kept triangles. Called once a frame, after the frame's last
+    /// `prepare_frame` — layers prepare their own paths first, several times a frame.
+    pub(crate) fn end_frame(&mut self) {
+        self.meshes.end_frame();
+    }
+
     /// Draws one batch's paths into an already-open render pass.
     pub(crate) fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>, range: Range<u32>) {
         if range.is_empty() {
@@ -522,51 +513,4 @@ impl PathPainter {
         pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         pass.draw_indexed(range, 0, 0..1);
     }
-}
-
-/// Converts a frus [`Path`] into a lyon path, handling sub-path opening and
-/// closing — lyon requires `begin`/`end` around every contour.
-fn to_lyon(path: &Path) -> LyonPath {
-    let mut builder = LyonPath::builder();
-    let mut open = false;
-    for verb in path.verbs() {
-        match verb {
-            PathVerb::MoveTo(p) => {
-                if open {
-                    builder.end(false);
-                }
-                builder.begin(point(p.x, p.y));
-                open = true;
-            }
-            PathVerb::LineTo(p) => {
-                if open {
-                    builder.line_to(point(p.x, p.y));
-                }
-            }
-            PathVerb::QuadTo { ctrl, to } => {
-                if open {
-                    builder.quadratic_bezier_to(point(ctrl.x, ctrl.y), point(to.x, to.y));
-                }
-            }
-            PathVerb::CubicTo { c1, c2, to } => {
-                if open {
-                    builder.cubic_bezier_to(
-                        point(c1.x, c1.y),
-                        point(c2.x, c2.y),
-                        point(to.x, to.y),
-                    );
-                }
-            }
-            PathVerb::Close => {
-                if open {
-                    builder.end(true);
-                    open = false;
-                }
-            }
-        }
-    }
-    if open {
-        builder.end(false);
-    }
-    builder.build()
 }

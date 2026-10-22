@@ -64,6 +64,7 @@ frus is four layers of crates. **Dependencies only point downward.** Nothing bel
 - `renderer.rs` — the `wgpu` device, surface, and frame loop
 - `painter.rs` — primitive → draw-call translation, batching
 - `path.rs` — [`lyon`](https://github.com/nical/lyon) tessellation of fills and strokes into triangles
+- `mesh.rs` — those triangles kept from frame to frame, keyed by the outline relative to its first point
 - `text.rs` — glyph atlas and text draw via `glyphon`
 - `compositor.rs` — layers, clips, transforms
 - `offscreen.rs` — headless rendering to a buffer; this is what makes golden tests possible

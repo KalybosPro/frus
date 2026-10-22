@@ -23,6 +23,7 @@ mod compositor;
 mod filter;
 mod gpu_timer;
 mod image;
+mod mesh;
 mod offscreen;
 mod painter;
 mod path;

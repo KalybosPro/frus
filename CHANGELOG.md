@@ -8,11 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 691 so far, each documenting the objective, the alternatives
+> record — one per step, 692 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Paths are not tessellated again when they come back** (J692): the renderer keeps each
+  path's triangles from frame to frame, keyed by its outline relative to its first point, so an
+  icon, an SVG picture or a list scrolled draws without redoing the work, and an animation's
+  shapes that only move are found again. Over 134 sample Lottie animations the path work of a
+  frame fell by 4.6×. Entries unused for two seconds are dropped, and the cache has a size
+  budget.
 - **Lottie animations** (J691, #304): `Lottie::memory(include_bytes!("success.json"))`, behind
   the new `lottie` feature, plays an animation as vector paths — once from its start when it
   appears, or with `repeat`, `reverse`, `speed`, or at a `progress` the application drives.
