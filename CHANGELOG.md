@@ -8,11 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 690 so far, each documenting the objective, the alternatives
+> record — one per step, 691 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Lottie animations** (J691, #304): `Lottie::memory(include_bytes!("success.json"))`, behind
+  the new `lottie` feature, plays an animation as vector paths — once from its start when it
+  appears, or with `repeat`, `reverse`, `speed`, or at a `progress` the application drives.
+  Shapes, strokes, gradients, masks and mattes are drawn; files from older exporters are read,
+  text layers and image assets are left out and reported. The new `frus-lottie` crate is
+  underneath, and `Widget::anim_initial` lets a widget's animated value start somewhere other
+  than its target when it appears.
 - **New emulators get 4 GB of memory**: `frus emulators --create` (and the editor's Create
   Emulator) kept avdmanager's 2 GB, in which Android 16 with Google Play stops answering ("System
   UI isn't responding"). The figure is written in megabytes, the form the emulator reads.

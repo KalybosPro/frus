@@ -222,7 +222,7 @@ Four layers. Dependencies only ever point downward, and only `frus-shell` knows 
 ├──────────────────────────────────────────────────────────────┤
 │  Foundations     render & measure                            │
 │  frus-core · frus-layout · frus-text · frus-gpu ·            │
-│  frus-image · frus-svg · frus-l10n                           │
+│  frus-image · frus-svg · frus-lottie · frus-l10n             │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -235,6 +235,7 @@ Four layers. Dependencies only ever point downward, and only `frus-shell` knows 
 | [`frus-gpu`](crates/frus-gpu) | `wgpu` device, 2D painter, path tessellation, glyph atlas, compositor, offscreen rendering. |
 | [`frus-image`](crates/frus-image) | PNG/JPEG decoding to `ImageData`. |
 | [`frus-svg`](crates/frus-svg) | SVG pictures drawn as vector paths (`svg` feature). |
+| [`frus-lottie`](crates/frus-lottie) | Lottie animations drawn as vector paths (`lottie` feature). |
 | [`frus-l10n`](crates/frus-l10n) | i18n via Fluent bundles + locale negotiation. |
 | [`frus-widgets`](crates/frus-widgets) | The widget library and interaction model (~150 modules). |
 | [`frus-shell`](crates/frus-shell) | Window, event loop, lifecycle, `Command`/`Subscription`, IME, AccessKit, `fetch`. |

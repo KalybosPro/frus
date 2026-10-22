@@ -1,0 +1,20 @@
+[package]
+name = "frus-lottie"
+description = "frus — Lottie animations drawn as the framework's own vector paths"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/frus-lottie"
+keywords = ["lottie", "animation", "vector", "gui"]
+categories = ["graphics", "gui"]
+
+[dependencies]
+frus-core = { path = "../frus-core", version = "0.4" }
+velato.workspace = true
+kurbo.workspace = true
+peniko.workspace = true
+# Read first, to bring older files to the form velato reads (normalize.rs).
+serde_json = "1"

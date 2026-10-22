@@ -1165,6 +1165,15 @@ pub trait Widget<Msg = crate::callback::Callback> {
         frus_core::Curve::Linear
     }
 
+    /// Where the animated value **starts when the widget appears**. `None`, the default: at
+    /// its target, with no transition, so a switch shown on is simply on. A widget that
+    /// plays something from its start when it appears — an animation — says `Some(0.0)`,
+    /// and the value travels to its target in `anim_duration` from the first frame
+    /// (milestone 691).
+    fn anim_initial(&self) -> Option<f32> {
+        None
+    }
+
     /// If the widget is an **opacity group**, returns the (target) opacity `[0,1]`
     /// applied to its whole subtree **as one**: the paint walk wraps its primitives
     /// in a composited layer at that opacity — no double-blending where they
@@ -2344,6 +2353,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn anim_duration(&self) -> f32 {
         (**self).anim_duration()
+    }
+    fn anim_initial(&self) -> Option<f32> {
+        (**self).anim_initial()
     }
     fn anim_curve(&self) -> frus_core::Curve {
         (**self).anim_curve()
