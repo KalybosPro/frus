@@ -13,6 +13,11 @@ any release may break.
 
 ## [Unreleased]
 
+- **Text is drawn on OpenGL ES** (the Android emulator, devices without Vulkan): glyphon's shader
+  marked the position `@invariant` in what its fragment stage reads, which OpenGL ES refuses
+  once translated, so no frus application could draw there. frus now uses its own copy of
+  glyphon 0.12 (`frus-glyphon`, imported as `glyphon`) whose fragment shader has an input of its
+  own; the same change is proposed upstream, and frus returns to glyphon when it is released.
 ## [0.4.0] - 2026-10-21
 
 Tooling, start-up and pictures. The `frus` command grows from creating a project into the
