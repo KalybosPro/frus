@@ -1498,14 +1498,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "frus-glyphon"
+version = "0.4.0"
+dependencies = [
+ "cosmic-text",
+ "etagere",
+ "lru",
+ "rustc-hash 2.1.3",
+ "wgpu",
+]
+
+[[package]]
 name = "frus-gpu"
 version = "0.4.0"
 dependencies = [
  "anyhow",
  "bytemuck",
  "frus-core",
+ "frus-glyphon",
  "frus-text",
- "glyphon",
  "log",
  "lyon",
  "pollster",
@@ -1808,19 +1819,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c4ee00b289aba7a9e5306d57c2d05499b2e5dc427f84ac708bd2c090212cf3e"
 dependencies = [
  "gl_generator",
-]
-
-[[package]]
-name = "glyphon"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faea0bba2b305a172098adfc17f1a34a30282361903957da8c7a51049b4fae7b"
-dependencies = [
- "cosmic-text",
- "etagere",
- "lru",
- "rustc-hash 2.1.3",
- "wgpu",
 ]
 
 [[package]]
