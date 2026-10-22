@@ -13,6 +13,9 @@ any release may break.
 
 ## [Unreleased]
 
+- **New emulators get 4 GB of memory**: `frus emulators --create` (and the editor's Create
+  Emulator) kept avdmanager's 2 GB, in which Android 16 with Google Play stops answering ("System
+  UI isn't responding"). The figure is written in megabytes, the form the emulator reads.
 - **Text is drawn on OpenGL ES** (the Android emulator, devices without Vulkan): glyphon's shader
   marked the position `@invariant` in what its fragment stage reads, which OpenGL ES refuses
   once translated, so no frus application could draw there. frus now uses its own copy of
