@@ -7,7 +7,8 @@
 #
 #   - to the Visual Studio Marketplace, with the repository secret VSCE_PAT (an Azure DevOps
 #     personal access token with the Marketplace "Manage" scope, for the `kalybospro`
-#     publisher);
+#     publisher). Without it, the run says so and goes on: the .vsix it releases on GitHub
+#     can be uploaded by hand at https://marketplace.visualstudio.com/manage;
 #   - to Open VSX (VSCodium, Gitpod, Cursor and others), with OVSX_PAT, when that secret is
 #     set; without it, that step says so and is skipped;
 #   - and as a GitHub release, the .vsix attached, for installing by hand.
@@ -78,8 +79,8 @@ jobs:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
           if [ -z "$VSCE_PAT" ]; then
-            echo "::error::no VSCE_PAT secret: see the top of .github/workflows/vscode.yml"
-            exit 1
+            echo "::warning::no VSCE_PAT secret: not published to the Marketplace. Upload the .vsix of this run's GitHub release at https://marketplace.visualstudio.com/manage (the extension's Update)."
+            exit 0
           fi
           npx --yes @vscode/vsce@3 publish --packagePath "frus-${{ needs.package.outputs.version }}.vsix"
       - name: Open VSX
