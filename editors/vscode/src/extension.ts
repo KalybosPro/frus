@@ -1,7 +1,8 @@
 // The frus extension: a device picker in the status bar, F5 to run on it with the
 // application's log in the Debug Console, and a reload on save.
 
-import { spawn } from "child_process";
+import { execFile, spawn } from "child_process";
+import * as https from "https";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
@@ -12,6 +13,7 @@ import { Devices } from "./daemon";
 import { ReloadOnSave, savesReload } from "./save";
 import { frusProgram } from "./frus";
 import { createArgs, DEFAULT_ORG, nameProblem, orgProblem } from "./project";
+import { isOlder, UPDATE_ARGS, versionOf } from "./update";
 
 const SELECTED = "frus.device";
 const APP = "frus.application";
@@ -167,19 +169,11 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showErrorMessage(`frus: ${error.message}`),
       ),
     ),
-    // `cargo install frus-cli`, in a terminal: the newest `frus` from crates.io. The copy the
-    // extension runs follows when the install lands (the watch above).
-    vscode.commands.registerCommand("frus.update", () => {
-      const configured = vscode.workspace.getConfiguration("frus").get<string>("path")?.trim();
-      if (configured) {
-        vscode.window.showInformationMessage(
-          `frus: this updates the frus that cargo installs; frus.path names ${configured}, which stays as it is.`,
-        );
-      }
-      vscode.window
-        .createTerminal({ name: "frus update", shellPath: "cargo", shellArgs: ["install", "frus-cli", "--locked"] })
-        .show();
-    }),
+    // The newest `frus` from crates.io, `cargo install`ed in a terminal when the one here is
+    // older. The copy the extension runs follows when the install lands (the watch above).
+    vscode.commands.registerCommand("frus.update", () =>
+      updateFrus().catch((error: Error) => vscode.window.showErrorMessage(`frus: ${error.message}`)),
+    ),
     vscode.commands.registerCommand("frus.createEmulator", () =>
       createEmulator(devices, (name) => (awaitedEmulator = name)),
     ),
@@ -287,6 +281,66 @@ async function pickerItems(devices: Devices, context: vscode.ExtensionContext): 
 }
 
 /** Makes an emulator with the name asked for, and offers to start it. */
+/**
+ * Brings `frus` to the newest version on crates.io: nothing to do when it is there already;
+ * otherwise `cargo install frus-cli --force` in a terminal, which replaces the one installed
+ * however it was installed. crates.io out of reach, it installs anyway.
+ */
+async function updateFrus(): Promise<void> {
+  const configured = vscode.workspace.getConfiguration("frus").get<string>("path")?.trim();
+  if (configured) {
+    vscode.window.showInformationMessage(
+      `frus: this updates the frus that cargo installs; frus.path names ${configured}, which stays as it is.`,
+    );
+  }
+  const [installed, latest] = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Window, title: "frus: checking for a newer version…" },
+    () => Promise.all([installedVersion(), latestVersion()]),
+  );
+  if (installed && latest && !isOlder(installed, latest)) {
+    vscode.window.showInformationMessage(`frus: ${installed} is the newest version.`);
+    return;
+  }
+  const what = installed && latest ? `${installed} → ${latest}` : latest ?? "the newest version";
+  vscode.window.showInformationMessage(`frus: updating (${what}); cargo builds it, a few minutes.`);
+  vscode.window
+    .createTerminal({ name: "frus update", shellPath: "cargo", shellArgs: UPDATE_ARGS })
+    .show();
+}
+
+/** The version of the `frus` on the PATH, or `undefined` when there is none. */
+function installedVersion(): Promise<string | undefined> {
+  return new Promise((resolve) =>
+    execFile("frus", ["--version"], { windowsHide: true }, (error, out) =>
+      resolve(error ? undefined : versionOf(out)),
+    ),
+  );
+}
+
+/** The newest `frus-cli` on crates.io, or `undefined` when it cannot be asked. */
+function latestVersion(): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const request = https.get(
+      "https://crates.io/api/v1/crates/frus-cli",
+      // crates.io refuses a request that does not say who makes it.
+      { headers: { "User-Agent": "frus-vscode (https://github.com/KalybosPro/frus)" }, timeout: 10_000 },
+      (response) => {
+        let body = "";
+        response.on("data", (chunk) => (body += chunk));
+        response.on("end", () => {
+          try {
+            resolve(JSON.parse(body)?.crate?.max_stable_version ?? JSON.parse(body)?.crate?.max_version);
+          } catch {
+            resolve(undefined);
+          }
+        });
+      },
+    );
+    request.on("timeout", () => request.destroy());
+    request.on("error", () => resolve(undefined));
+  });
+}
+
 /**
  * A new frus application: where, what it is called, and the organisation its Android package
  * starts with; then `frus create`, and the new folder opened — in a window of its own when this

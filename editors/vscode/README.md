@@ -106,8 +106,10 @@ optimised, and `args` are passed on to `frus run`.
 
 ## Keeping frus up to date
 
-**frus: Run Frus Update** runs `cargo install frus-cli` in a terminal: the newest `frus` from
-crates.io, or nothing to do when you have it. The extension picks the new one up by itself.
+**frus: Run Frus Update** compares your `frus` with the newest on crates.io and, when yours is
+older, runs `cargo install frus-cli --force` in a terminal — which replaces it however it was
+installed. New projects then depend on the newest frus. The extension picks the new `frus` up
+by itself.
 **frus: Run Frus Doctor** runs `frus doctor -v`: what this machine has for each platform, and
 what it lacks.
 

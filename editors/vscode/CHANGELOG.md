@@ -4,7 +4,9 @@
 
 - **frus: Create New Project**: a folder, a name and an organisation, then `frus create`, and
   the new project opened. Also a **Create frus Project** button in an empty window.
-- **frus: Run Frus Update**: `cargo install frus-cli` in a terminal, the newest `frus`.
+- **frus: Run Frus Update**: says when `frus` is the newest already; otherwise
+  `cargo install frus-cli --force` in a terminal, which also replaces a `frus` installed from a
+  checkout (cargo refuses that without `--force`).
 - **frus: Run Doctor** is now **frus: Run Frus Doctor**.
 
 ## 0.1.1
