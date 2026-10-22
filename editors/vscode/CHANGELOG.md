@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- A clearer Marketplace page: how to start in three steps, what the extension does, its keys
+  and settings, and links to frus.
+
 ## 0.1.0
 
 The first release on the Marketplace.
