@@ -30,6 +30,12 @@ jpeg-decoder = { version = "0.3", default-features = false }
 # SVG parsing into a simple tree (CSS, `use`, units and transforms resolved). No default
 # features: they bring text shaping and the system's fonts, which frus has its own of.
 usvg = { version = "0.48", default-features = false }
+# Lottie animations: velato parses them and evaluates a frame, drawing through a trait frus
+# implements over its own scene. No default features: they bring vello, a renderer of its own.
+velato = { version = "0.12", default-features = false }
+# velato's geometry and paint types, at the versions it uses.
+kurbo = "0.13"
+peniko = "0.6"
 arboard = "3"
 pollster = "0.3"
 bytemuck = { version = "1", features = ["derive"] }

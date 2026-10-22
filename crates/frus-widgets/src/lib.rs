@@ -117,6 +117,8 @@ mod listtile;
 pub mod locale;
 /// The words the framework itself says: [`localizations::Localizations`] and [`localizations::of`].
 pub mod localizations;
+#[cfg(feature = "lottie")]
+mod lottie;
 mod media;
 mod mediascope;
 mod menu;
@@ -316,6 +318,9 @@ pub use focus::{
     ExcludeFocus, ExcludeFocusTraversal, Focus, FocusTraversalGroup, FocusTraversalOrder,
 };
 pub use fractional::FractionallySizedBox;
+/// Lottie animations, drawn as vector paths (the `lottie` feature).
+#[cfg(feature = "lottie")]
+pub use frus_lottie::{Animation as LottieAnimation, AnimationHandle as LottieHandle, LottieError};
 /// SVG pictures, drawn as vector paths (the `svg` feature).
 #[cfg(feature = "svg")]
 pub use frus_svg::{Svg, SvgError, SvgHandle};
@@ -351,6 +356,8 @@ pub use listtile::{
 };
 pub use locale::Locale;
 pub use localizations::{English, French, Localizations};
+#[cfg(feature = "lottie")]
+pub use lottie::Lottie;
 pub use media::{
     Accessibility, AccessibilityOverrides, Brightness, Edges, MediaQuery, SurfaceGuard,
 };

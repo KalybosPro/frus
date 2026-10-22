@@ -884,7 +884,7 @@ impl Runtime {
             widget: &dyn crate::widget::Widget<Msg>,
             id: WidgetId,
             still: bool,
-            out: &mut Vec<(WidgetId, f32, f32, Curve)>,
+            out: &mut Vec<(WidgetId, f32, f32, Curve, Option<f32>)>,
         ) {
             if let Some(target) = widget.anim_target() {
                 out.push((
@@ -896,6 +896,7 @@ impl Runtime {
                         widget.anim_duration().max(0.0)
                     },
                     widget.anim_curve(),
+                    widget.anim_initial(),
                 ));
             }
             for (index, child) in widget.children().iter().enumerate() {
@@ -907,7 +908,7 @@ impl Runtime {
                 );
             }
         }
-        let mut targets: Vec<(WidgetId, f32, f32, Curve)> = Vec::new();
+        let mut targets: Vec<(WidgetId, f32, f32, Curve, Option<f32>)> = Vec::new();
         collect(root, WidgetId::ROOT, self.still, &mut targets);
 
         // Forget the values of widgets that have gone.
@@ -918,7 +919,7 @@ impl Runtime {
         self.placed_values.retain(|id| present.contains(id));
 
         let mut animating = false;
-        for (id, target, duration, curve) in targets {
+        for (id, target, duration, curve, initial) in targets {
             // A finger holds it: nothing moves it until it lets go.
             if self.held_values.contains(&id) {
                 continue;
@@ -962,10 +963,24 @@ impl Runtime {
                         self.placed_values.remove(&id);
                     }
                 }
-                std::collections::hash_map::Entry::Vacant(e) => {
+                std::collections::hash_map::Entry::Vacant(e) => match initial {
+                    // Mount, for a widget that plays from a start (`anim_initial`): the
+                    // value sets off from there, this frame counted as the first.
+                    Some(start) if start != target && duration > 0.0 => {
+                        let t = (dt / duration).clamp(0.0, 1.0);
+                        e.insert(ValueAnim {
+                            current: start + (target - start) * curve.transform(t),
+                            from: start,
+                            to: target,
+                            elapsed: dt,
+                        });
+                        animating |= t < 1.0;
+                    }
                     // Mount: adopts the target with no transition.
-                    e.insert(ValueAnim::settled(target));
-                }
+                    _ => {
+                        e.insert(ValueAnim::settled(target));
+                    }
+                },
             }
         }
         animating
@@ -3704,5 +3719,68 @@ mod tests {
         assert!(rt.advance_leaving(0.06)); // ~0.5, still running
         assert!(!rt.advance_leaving(0.06)); // reaches 0 → cleared
         assert!(rt.leaving.is_empty());
+    }
+
+    /// **A widget that plays from a start sets off from it when it appears** (milestone 691):
+    /// `anim_initial` is where the value is on the first frame, and that frame counts.
+    /// Without it, a widget appears at its target, as a switch does.
+    #[test]
+    fn a_value_with_a_start_plays_from_it_on_mount() {
+        struct Playing(Option<f32>);
+        impl crate::widget::Widget<()> for Playing {
+            fn style(&self) -> frus_layout::Style {
+                frus_layout::Style::default()
+            }
+            fn children(&self) -> &[Box<dyn crate::widget::Widget<()>>] {
+                &[]
+            }
+            fn paint(
+                &self,
+                _: frus_core::Rect,
+                _: crate::interaction::Status,
+                _: &crate::theme::Theme,
+                _: &mut frus_core::Scene,
+            ) {
+            }
+            fn on_click(&self) -> Option<()> {
+                None
+            }
+            fn anim_target(&self) -> Option<f32> {
+                Some(1.0)
+            }
+            fn anim_initial(&self) -> Option<f32> {
+                self.0
+            }
+            fn anim_duration(&self) -> f32 {
+                2.0
+            }
+        }
+        let mut rt = Runtime::default();
+        assert!(rt.advance_values(&Playing(Some(0.0)), 0.5), "still playing");
+        assert!(
+            (rt.value(WidgetId::ROOT) - 0.25).abs() < 1e-6,
+            "a quarter in"
+        );
+        assert!(rt.advance_values(&Playing(Some(0.0)), 0.5));
+        assert!((rt.value(WidgetId::ROOT) - 0.5).abs() < 1e-6, "half way");
+
+        let mut plain = Runtime::default();
+        assert!(!plain.advance_values(&Playing(None), 0.5));
+        assert_eq!(
+            plain.value(WidgetId::ROOT),
+            1.0,
+            "no start: at the target at once"
+        );
+
+        let mut still = Runtime {
+            still: true,
+            ..Default::default()
+        };
+        assert!(!still.advance_values(&Playing(Some(0.0)), 0.5));
+        assert_eq!(
+            still.value(WidgetId::ROOT),
+            1.0,
+            "motion off: at the end at once"
+        );
     }
 }

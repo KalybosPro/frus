@@ -71,6 +71,8 @@ frus is four layers of crates. **Dependencies only point downward.** Nothing bel
 
 **`frus-image`** — PNG/JPEG decode to `ImageData`. Deliberately narrow: fewer formats, smaller dependency tree.
 
+**`frus-lottie`** — Lottie animations evaluated by velato (no vello) and drawn as frus paths through its `RenderSink`; older files normalised first. Behind the `lottie` feature, off by default.
+
 **`frus-svg`** — SVG pictures parsed by usvg and drawn as frus paths (fills, expanded strokes, gradient ramps, clipped layers), so they stay sharp at any size. Behind the `svg` feature, off by default.
 
 **`frus-l10n`** — Fluent bundles and locale negotiation. We use Mozilla's Fluent rather than inventing a message format.

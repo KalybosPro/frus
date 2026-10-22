@@ -628,6 +628,10 @@ macro_rules! forward_transparent {
                 self.inner.anim_target()
             }
 
+            fn anim_initial(&self) -> Option<f32> {
+                self.inner.anim_initial()
+            }
+
             fn anim_duration(&self) -> f32 {
                 self.inner.anim_duration()
             }

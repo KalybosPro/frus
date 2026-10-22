@@ -22,3 +22,5 @@ png = "0.17"
 # SVG pictures, painted by frus and by the reference rasteriser of the parser it uses.
 frus-svg = { path = "../frus-svg" }
 resvg = { version = "0.48", default-features = false }
+# Lottie animations, drawn on the GPU.
+frus-lottie = { path = "../frus-lottie" }

@@ -13,6 +13,13 @@ any release may break.
 
 ## [Unreleased]
 
+- **Lottie animations** (J691, #304): `Lottie::memory(include_bytes!("success.json"))`, behind
+  the new `lottie` feature, plays an animation as vector paths — once from its start when it
+  appears, or with `repeat`, `reverse`, `speed`, or at a `progress` the application drives.
+  Shapes, strokes, gradients, masks and mattes are drawn; files from older exporters are read,
+  text layers and image assets are left out and reported. The new `frus-lottie` crate is
+  underneath, and `Widget::anim_initial` lets a widget's animated value start somewhere other
+  than its target when it appears.
 - **The Android emulator no longer closes frus applications as they open**: on a surface with
   no sRGB format that cannot be viewed as one (the emulator's OpenGL ES), the renderer asked for
   an sRGB view anyway, which wgpu treats as fatal. It now draws in the surface's own format

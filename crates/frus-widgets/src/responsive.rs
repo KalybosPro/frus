@@ -531,6 +531,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.anim_target())
     }
 
+    fn anim_initial(&self) -> Option<f32> {
+        self.inner.as_ref().and_then(|w| w.anim_initial())
+    }
+
     fn anim_duration(&self) -> f32 {
         self.inner
             .as_ref()
