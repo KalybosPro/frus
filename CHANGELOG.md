@@ -13,6 +13,9 @@ any release may break.
 
 ## [Unreleased]
 
+- **New emulators get 4 GB of memory**: `frus emulators --create` (and the editor's Create
+  Emulator) kept avdmanager's 2 GB, in which Android 16 with Google Play stops answering ("System
+  UI isn't responding"). The figure is written in megabytes, the form the emulator reads.
 ## [0.4.0] - 2026-10-21
 
 Tooling, start-up and pictures. The `frus` command grows from creating a project into the

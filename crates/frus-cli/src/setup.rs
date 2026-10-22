@@ -347,6 +347,7 @@ pub(crate) fn create_avd(wanted: Option<&str>, taken: &[String]) -> Result<Strin
     }
     let output = child.wait_with_output().map_err(|e| e.to_string())?;
     if output.status.success() {
+        give_memory(&name);
         Ok(name)
     } else {
         Err(format!(
@@ -354,6 +355,82 @@ pub(crate) fn create_avd(wanted: Option<&str>, taken: &[String]) -> Result<Strin
             String::from_utf8_lossy(&output.stderr).trim()
         ))
     }
+}
+
+/// The memory a new emulator gets, in megabytes.
+///
+/// avdmanager's profile gives 2 GB, and a recent Android with Google's services does not run in
+/// it: on Android 16 with Google Play, the system interface stopped answering ("System UI isn't
+/// responding") with 74 MB free, before any application was installed. 4 GB leaves it half free.
+const EMULATOR_RAM_MB: u32 = 4096;
+
+/// Gives the emulator `name` [`EMULATOR_RAM_MB`] of memory, in its `config.ini`. Best effort: an
+/// emulator whose files are not where avdmanager puts them keeps avdmanager's figure.
+fn give_memory(name: &str) {
+    let Some(config) = avd_dir(name).map(|dir| dir.join("config.ini")) else {
+        return;
+    };
+    if let Ok(text) = std::fs::read_to_string(&config) {
+        // In megabytes, a bare number: the emulator reads `4G` as nothing and starts with its
+        // minimum, 2048 MB (emulator 36.4).
+        let changed = with_setting(&text, "hw.ramSize", &EMULATOR_RAM_MB.to_string());
+        if std::fs::write(&config, changed).is_ok() {
+            crate::report::say(&format!(
+                "Gave the emulator {} GB of memory.",
+                EMULATOR_RAM_MB / 1024
+            ));
+        }
+    }
+}
+
+/// Where avdmanager keeps the emulators: `ANDROID_AVD_HOME`, else `ANDROID_USER_HOME/avd`, else
+/// `.android/avd` in the home folder.
+fn avd_home() -> Option<PathBuf> {
+    if let Some(home) = std::env::var_os("ANDROID_AVD_HOME") {
+        return Some(PathBuf::from(home));
+    }
+    if let Some(user) = std::env::var_os("ANDROID_USER_HOME") {
+        return Some(PathBuf::from(user).join("avd"));
+    }
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(|home| PathBuf::from(home).join(".android").join("avd"))
+}
+
+/// The folder of the emulator `name`: the `path=` its `<name>.ini` names, else `<name>.avd`
+/// beside it.
+fn avd_dir(name: &str) -> Option<PathBuf> {
+    let home = avd_home()?;
+    let named = std::fs::read_to_string(home.join(format!("{name}.ini")))
+        .ok()
+        .and_then(|ini| {
+            ini.lines()
+                .find_map(|line| line.trim().strip_prefix("path="))
+                .map(|path| PathBuf::from(path.trim()))
+        });
+    Some(named.unwrap_or_else(|| home.join(format!("{name}.avd"))))
+}
+
+/// `text`, an emulator's `config.ini`, with `key` set to `value`: its line rewritten where it is
+/// one, added at the end where it is not. Every other line, and the line endings, kept.
+pub(crate) fn with_setting(text: &str, key: &str, value: &str) -> String {
+    let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut found = false;
+    let mut lines: Vec<String> = text
+        .lines()
+        .map(|line| match line.split_once('=') {
+            Some((k, _)) if k.trim() == key => {
+                found = true;
+                format!("{key}={value}")
+            }
+            _ => line.to_string(),
+        })
+        .collect();
+    if !found {
+        lines.push(format!("{key}={value}"));
+    }
+    let mut out = lines.join(newline);
+    out.push_str(newline);
+    out
 }
 
 /// [`newest_version_dir`], for the doctor.
@@ -645,6 +722,33 @@ fn extract(archive: &Path, dir: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_setting_is_rewritten_where_it_is_and_added_where_it_is_not() {
+        let config = "avd.ini.encoding=UTF-8\nhw.ramSize=2G\nhw.lcd.density=420\n";
+        assert_eq!(
+            with_setting(config, "hw.ramSize", "4096"),
+            "avd.ini.encoding=UTF-8\nhw.ramSize=4096\nhw.lcd.density=420\n"
+        );
+        assert_eq!(
+            with_setting("hw.lcd.density=420\n", "hw.ramSize", "4096"),
+            "hw.lcd.density=420\nhw.ramSize=4096\n"
+        );
+        // Spaces around `=`, and Windows line endings, as an edited file may have them.
+        assert_eq!(
+            with_setting(
+                "hw.ramSize = 2048\r\nvm.heapSize=512\r\n",
+                "hw.ramSize",
+                "4096"
+            ),
+            "hw.ramSize=4096\r\nvm.heapSize=512\r\n"
+        );
+        // A key that merely starts the same is another key.
+        assert_eq!(
+            with_setting("hw.ramSizeMax=1\n", "hw.ramSize", "4096"),
+            "hw.ramSizeMax=1\nhw.ramSize=4096\n"
+        );
+    }
 
     #[test]
     fn a_new_emulator_gets_a_free_name() {
