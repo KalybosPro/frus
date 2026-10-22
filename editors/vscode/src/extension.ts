@@ -1,6 +1,8 @@
 // The frus extension: a device picker in the status bar, F5 to run on it with the
 // application's log in the Debug Console, and a reload on save.
 
+import { spawn } from "child_process";
+import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
@@ -9,9 +11,12 @@ import { resolveProgram, runnableCopy, watchProgram } from "./copy";
 import { Devices } from "./daemon";
 import { ReloadOnSave, savesReload } from "./save";
 import { frusProgram } from "./frus";
+import { createArgs, DEFAULT_ORG, nameProblem, orgProblem } from "./project";
 
 const SELECTED = "frus.device";
 const APP = "frus.application";
+/** The organisation the last project was created with, offered for the next one. */
+const ORG = "frus.organization";
 
 /** The commands that press a key of `frus run`'s, as its terminal does. */
 const KEY_COMMANDS: Array<[string, string]> = [
@@ -157,6 +162,24 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showErrorMessage(`frus: ${error.message}`);
       }
     }),
+    vscode.commands.registerCommand("frus.createProject", () =>
+      createProject(context, output).catch((error: Error) =>
+        vscode.window.showErrorMessage(`frus: ${error.message}`),
+      ),
+    ),
+    // `cargo install frus-cli`, in a terminal: the newest `frus` from crates.io. The copy the
+    // extension runs follows when the install lands (the watch above).
+    vscode.commands.registerCommand("frus.update", () => {
+      const configured = vscode.workspace.getConfiguration("frus").get<string>("path")?.trim();
+      if (configured) {
+        vscode.window.showInformationMessage(
+          `frus: this updates the frus that cargo installs; frus.path names ${configured}, which stays as it is.`,
+        );
+      }
+      vscode.window
+        .createTerminal({ name: "frus update", shellPath: "cargo", shellArgs: ["install", "frus-cli", "--locked"] })
+        .show();
+    }),
     vscode.commands.registerCommand("frus.createEmulator", () =>
       createEmulator(devices, (name) => (awaitedEmulator = name)),
     ),
@@ -264,6 +287,74 @@ async function pickerItems(devices: Devices, context: vscode.ExtensionContext): 
 }
 
 /** Makes an emulator with the name asked for, and offers to start it. */
+/**
+ * A new frus application: where, what it is called, and the organisation its Android package
+ * starts with; then `frus create`, and the new folder opened — in a window of its own when this
+ * one already has a folder.
+ */
+async function createProject(context: vscode.ExtensionContext, output: vscode.OutputChannel): Promise<void> {
+  const open = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const picked = await vscode.window.showOpenDialog({
+    title: "frus: the folder the new project goes in",
+    openLabel: "Create the project here",
+    canSelectFolders: true,
+    canSelectFiles: false,
+    canSelectMany: false,
+    defaultUri: vscode.Uri.file(open ? path.dirname(open) : os.homedir()),
+  });
+  const parent = picked?.[0]?.fsPath;
+  if (!parent) return;
+
+  const name = (
+    await vscode.window.showInputBox({
+      title: "frus: the new project's name",
+      prompt: `Its folder in ${parent}, and its package: lowercase letters, digits, _ and -`,
+      value: "my_app",
+      validateInput: (value) => nameProblem(value.trim(), parent),
+    })
+  )?.trim();
+  if (!name) return;
+
+  const org = (
+    await vscode.window.showInputBox({
+      title: "frus: the organisation",
+      prompt: `The reverse domain the Android package starts with: <organisation>.${name}`,
+      value: context.globalState.get<string>(ORG) ?? DEFAULT_ORG,
+      validateInput: (value) => orgProblem(value.trim()),
+    })
+  )?.trim();
+  if (!org) return;
+  await context.globalState.update(ORG, org);
+
+  const frus = await frusProgram();
+  const args = createArgs(parent, name, org);
+  output.appendLine(`> ${frus} ${args.join(" ")}`);
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: `frus: creating ${name}…` },
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const child = spawn(frus, args, { windowsHide: true });
+        let said = "";
+        const take = (chunk: Buffer) => {
+          said += chunk.toString();
+          output.append(chunk.toString());
+        };
+        child.stdout.on("data", take);
+        child.stderr.on("data", take);
+        child.on("error", reject);
+        child.on("close", (code) =>
+          code === 0
+            ? resolve()
+            : reject(new Error(`frus create failed:\n${said.trim() || `exit code ${code}`}`)),
+        );
+      }),
+  );
+  const target = vscode.Uri.file(path.join(parent, name));
+  await vscode.commands.executeCommand("vscode.openFolder", target, {
+    forceNewWindow: (vscode.workspace.workspaceFolders?.length ?? 0) > 0,
+  });
+}
+
 async function createEmulator(devices: Devices, awaiting: (name: string) => void): Promise<void> {
   const name = await vscode.window.showInputBox({
     prompt: "A name for the new Android emulator",

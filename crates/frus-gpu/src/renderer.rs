@@ -257,12 +257,20 @@ impl Renderer {
         // shown as if encoded, and every colour comes out darker (#234). The canvas lets its
         // image be drawn through an sRGB view: the frames are drawn in that twin, and the
         // hardware encodes, as everywhere else.
-        let render_format = format.add_srgb_suffix();
-        let view_formats = if render_format == format {
-            vec![]
-        } else {
-            vec![render_format]
-        };
+        let can_view = adapter
+            .get_downlevel_capabilities()
+            .flags
+            .contains(wgpu::DownlevelFlags::SURFACE_VIEW_FORMATS);
+        let (render_format, view_formats) = surface_formats(format, can_view);
+        if render_format != format.add_srgb_suffix() {
+            // Asking for the view anyway is a validation error, which wgpu treats as fatal: the
+            // Android emulator's OpenGL ES offers neither an sRGB surface nor views of one, and
+            // every application closed as it opened there. Drawn plain, it runs, a little dark.
+            log::warn!(
+                "this surface has no sRGB format ({format:?}) and cannot be viewed as one: \
+                 colours are drawn a little dark here"
+            );
+        }
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -594,4 +602,43 @@ pub struct StartupTimes {
     pub pipelines: std::time::Duration,
     /// A frame drawn before the first real one, which builds what drivers build lazily.
     pub warm_up: std::time::Duration,
+}
+
+/// The format the frames are drawn in, and the view formats the surface is configured with:
+/// the surface's own format when it is sRGB; its sRGB twin, through a view, when the device can
+/// view a surface in another format (the Web); and the plain format itself when it cannot.
+fn surface_formats(
+    format: wgpu::TextureFormat,
+    can_view: bool,
+) -> (wgpu::TextureFormat, Vec<wgpu::TextureFormat>) {
+    let srgb = format.add_srgb_suffix();
+    if srgb == format {
+        (format, vec![])
+    } else if can_view {
+        (srgb, vec![srgb])
+    } else {
+        (format, vec![])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An sRGB surface is drawn as it is; a plain one through its sRGB twin where views are
+    /// supported, and plain where they are not (the emulator's OpenGL ES), rather than asking
+    /// for a view the device refuses.
+    #[test]
+    fn a_surface_is_drawn_in_srgb_when_it_can_be() {
+        use wgpu::TextureFormat::*;
+        assert_eq!(
+            surface_formats(Bgra8UnormSrgb, false),
+            (Bgra8UnormSrgb, vec![])
+        );
+        assert_eq!(
+            surface_formats(Bgra8Unorm, true),
+            (Bgra8UnormSrgb, vec![Bgra8UnormSrgb])
+        );
+        assert_eq!(surface_formats(Rgba8Unorm, false), (Rgba8Unorm, vec![]));
+    }
 }

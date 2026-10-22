@@ -1,0 +1,102 @@
+# The VS Code extension in editors/vscode.
+#
+# Every change to it is tested and packaged. A tag `vscode-v<version>`, matching the
+# `version` in editors/vscode/package.json, publishes that package:
+#
+#     git tag vscode-v0.1.0 && git push origin vscode-v0.1.0
+#
+#   - to the Visual Studio Marketplace, with the repository secret VSCE_PAT (an Azure DevOps
+#     personal access token with the Marketplace "Manage" scope, for the `kalybospro`
+#     publisher). Without it, the run says so and goes on: the .vsix it releases on GitHub
+#     can be uploaded by hand at https://marketplace.visualstudio.com/manage;
+#   - to Open VSX (VSCodium, Gitpod, Cursor and others), with OVSX_PAT, when that secret is
+#     set; without it, that step says so and is skipped;
+#   - and as a GitHub release, the .vsix attached, for installing by hand.
+name: VS Code extension
+
+on:
+  push:
+    branches: [master]
+    paths: ["editors/vscode/**", ".github/workflows/vscode.yml"]
+    tags: ["vscode-v*"]
+  pull_request:
+    paths: ["editors/vscode/**", ".github/workflows/vscode.yml"]
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: editors/vscode
+
+jobs:
+  package:
+    name: Test and package
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - id: meta
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      # A tag that disagrees with package.json stops here: the Marketplace keeps every version
+      # it is given, and one published by mistake cannot be taken back.
+      - if: github.ref_type == 'tag'
+        run: |
+          if [ "$GITHUB_REF_NAME" != "vscode-v${{ steps.meta.outputs.version }}" ]; then
+            echo "::error::the tag is $GITHUB_REF_NAME but package.json says ${{ steps.meta.outputs.version }}"
+            exit 1
+          fi
+      - run: npx vsce package --no-dependencies -o "frus-${{ steps.meta.outputs.version }}.vsix"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: editors/vscode/*.vsix
+
+  publish:
+    name: Publish
+    if: github.ref_type == 'tag'
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: editors/vscode
+      - name: Visual Studio Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "::warning::no VSCE_PAT secret: not published to the Marketplace. Upload the .vsix of this run's GitHub release at https://marketplace.visualstudio.com/manage (the extension's Update)."
+            exit 0
+          fi
+          npx --yes @vscode/vsce@3 publish --packagePath "frus-${{ needs.package.outputs.version }}.vsix"
+      - name: Open VSX
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -z "$OVSX_PAT" ]; then
+            echo "::warning::no OVSX_PAT secret: not published to Open VSX"
+            exit 0
+          fi
+          npx --yes ovsx@0 publish "frus-${{ needs.package.outputs.version }}.vsix" -p "$OVSX_PAT"
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "frus-${{ needs.package.outputs.version }}.vsix" \
+            --repo "$GITHUB_REPOSITORY" --title "frus for VS Code ${{ needs.package.outputs.version }}" \
+            --notes "The VS Code extension, also on the Visual Studio Marketplace (search \"frus\"). To install this file by hand: Extensions view → ⋯ → Install from VSIX." \
+            --latest=false

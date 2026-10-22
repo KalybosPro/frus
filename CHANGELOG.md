@@ -18,6 +18,10 @@ any release may break.
   once translated, so no frus application could draw there. frus now uses its own copy of
   glyphon 0.12 (`frus-glyphon`, imported as `glyphon`) whose fragment shader has an input of its
   own; the same change is proposed upstream, and frus returns to glyphon when it is released.
+- **The Android emulator no longer closes frus applications as they open**: on a surface with
+  no sRGB format that cannot be viewed as one (the emulator's OpenGL ES), the renderer asked for
+  an sRGB view anyway, which wgpu treats as fatal. It now draws in the surface's own format
+  there, and says in the log that colours may be a little dark.
 ## [0.4.0] - 2026-10-21
 
 Tooling, start-up and pictures. The `frus` command grows from creating a project into the
