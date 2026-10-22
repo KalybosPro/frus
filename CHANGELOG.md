@@ -13,6 +13,10 @@ any release may break.
 
 ## [Unreleased]
 
+- **The Android emulator no longer closes frus applications as they open**: on a surface with
+  no sRGB format that cannot be viewed as one (the emulator's OpenGL ES), the renderer asked for
+  an sRGB view anyway, which wgpu treats as fatal. It now draws in the surface's own format
+  there, and says in the log that colours may be a little dark.
 ## [0.4.0] - 2026-10-21
 
 Tooling, start-up and pictures. The `frus` command grows from creating a project into the
