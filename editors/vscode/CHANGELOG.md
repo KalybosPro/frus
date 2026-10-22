@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- **frus: Create New Project**: a folder, a name and an organisation, then `frus create`, and
+  the new project opened. Also a **Create frus Project** button in an empty window.
+- **frus: Run Frus Update**: `cargo install frus-cli` in a terminal, the newest `frus`.
+- **frus: Run Doctor** is now **frus: Run Frus Doctor**.
+
 ## 0.1.1
 
 - A clearer Marketplace page: how to start in three steps, what the extension does, its keys

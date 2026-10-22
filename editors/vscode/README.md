@@ -17,19 +17,25 @@ the change appear with your application's state intact.
 1. **Install Rust** from [rustup.rs](https://rustup.rs). That is the only thing to install by
    hand: the extension fetches the `frus` tool, and `frus` fetches what each platform needs
    (Rust targets, the Android SDK, wasm-bindgen).
-2. **Create an application** in a terminal, then open its folder in VS Code:
-   ```sh
-   cargo install frus-cli
-   frus create my_app
-   code my_app
-   ```
+2. **Create an application**: **frus: Create New Project** in the command palette
+   (Ctrl+Shift+P), or the **Create frus Project** button of an empty window. Pick a folder, a
+   name and your organisation, and the new project opens. From a terminal it is
+   `frus create my_app`.
 3. **Press F5.** The application starts on the device shown in the status bar, its log in the
    Debug Console. Change some code, press **Ctrl+S**, and it comes back on the same page.
 
-Not sure your machine is ready? **frus: Run Doctor** lists what it has for each platform and
-what it lacks.
+Not sure your machine is ready? **frus: Run Frus Doctor** lists what it has for each platform
+and what it lacks. **frus: Run Frus Update** brings the `frus` tool to its latest version.
 
 ## What it does
+
+### A new project in a few clicks
+
+**frus: Create New Project** asks where, the name (a Rust package name: lowercase letters,
+digits, `_` and `-`) and the organisation the Android package starts with (`com.example` unless
+you say otherwise; the last one is remembered), runs `frus create`, and opens the new project —
+in a new window when this one already has a folder. The project builds for the desktop,
+Android and the web as it is, with its tests in `tests/`.
 
 ### Every device, one picker
 
@@ -97,6 +103,13 @@ optimised, and `args` are passed on to `frus run`.
 |---|---|
 | `frus.path` | the `frus` program to use; empty for the one on the PATH |
 | `frus.reloadOnSave` | when saving a Rust file reloads: `manual` (a save you make, the default), `manualIfDirty` (only with changes), `all` (auto save too), `never` |
+
+## Keeping frus up to date
+
+**frus: Run Frus Update** runs `cargo install frus-cli` in a terminal: the newest `frus` from
+crates.io, or nothing to do when you have it. The extension picks the new one up by itself.
+**frus: Run Frus Doctor** runs `frus doctor -v`: what this machine has for each platform, and
+what it lacks.
 
 ## How it works
 

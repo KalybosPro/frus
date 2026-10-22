@@ -2,7 +2,7 @@
   "name": "frus",
   "displayName": "frus",
   "description": "Build, run and reload frus applications on any device — desktop, Android, the web — from VS Code: a device picker, F5 with the log in the Debug Console, and reload on save with the state kept.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "kalybospro",
   "license": "MIT OR Apache-2.0",
   "icon": "icon.png",
@@ -48,6 +48,11 @@
   ],
   "contributes": {
     "commands": [
+      {
+        "command": "frus.createProject",
+        "title": "Create New Project",
+        "category": "frus"
+      },
       {
         "command": "frus.selectDevice",
         "title": "Select Device",
@@ -127,7 +132,12 @@
       },
       {
         "command": "frus.runDoctor",
-        "title": "Run Doctor",
+        "title": "Run Frus Doctor",
+        "category": "frus"
+      },
+      {
+        "command": "frus.update",
+        "title": "Run Frus Update",
         "category": "frus"
       }
     ],
@@ -291,6 +301,13 @@
             }
           }
         ]
+      }
+    ],
+    "viewsWelcome": [
+      {
+        "view": "explorer",
+        "contents": "Start a frus application: one codebase for the desktop, Android and the web.\n[Create frus Project](command:frus.createProject)",
+        "when": "workbenchState == empty"
       }
     ]
   },

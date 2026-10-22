@@ -35,10 +35,68 @@ export async function run(): Promise<void> {
     step("the extension activates");
 
     const commands = await vscode.commands.getCommands(true);
-    for (const command of ["frus.selectDevice", "frus.reload", "frus.restart"]) {
+    for (const command of [
+      "frus.selectDevice",
+      "frus.reload",
+      "frus.restart",
+      "frus.createProject",
+      "frus.runDoctor",
+      "frus.update",
+    ]) {
       if (!commands.includes(command)) throw new Error(`no command ${command}`);
     }
     step("its commands are registered");
+
+    // frus: Create New Project, with the developer's answers given for them: the folder, the
+    // name, the organisation; the new folder is caught on its way to being opened.
+    const createIn = process.env.FRUS_INTEGRATION_CREATE;
+    if (createIn) {
+      const window = vscode.window as any;
+      const commandsApi = vscode.commands as any;
+      const answers = ["probe_app", "com.acme"];
+      const asked: string[] = [];
+      let opened: vscode.Uri | undefined;
+      const saved = {
+        open: window.showOpenDialog,
+        input: window.showInputBox,
+        execute: commandsApi.executeCommand,
+      };
+      window.showOpenDialog = async () => [vscode.Uri.file(createIn)];
+      window.showInputBox = async (options: vscode.InputBoxOptions) => {
+        const answer = answers.shift()!;
+        asked.push(`${options.title}: ${answer}`);
+        const problem = await options.validateInput?.(answer);
+        if (problem) throw new Error(`${answer} refused: ${problem}`);
+        return answer;
+      };
+      commandsApi.executeCommand = async (command: string, ...rest: any[]) => {
+        if (command === "vscode.openFolder") {
+          opened = rest[0];
+          return;
+        }
+        return saved.execute.call(vscode.commands, command, ...rest);
+      };
+      try {
+        await vscode.commands.executeCommand("frus.createProject");
+      } finally {
+        window.showOpenDialog = saved.open;
+        window.showInputBox = saved.input;
+        commandsApi.executeCommand = saved.execute;
+      }
+      const made = `${createIn}/probe_app`;
+      const manifest = fs.readFileSync(`${made}/Cargo.toml`, "utf8");
+      if (!manifest.includes('name = "probe_app"')) throw new Error(`no probe_app package:\n${manifest}`);
+      if (!manifest.includes("com.acme.probe_app")) throw new Error(`not com.acme's:\n${manifest}`);
+      const same = (a: string) => a.replace(/\\/g, "/").toLowerCase();
+      if (!opened || same(opened.fsPath) !== same(made)) {
+        throw new Error(`opened ${opened?.fsPath}, not ${made}`);
+      }
+      step(`frus.createProject asks ${asked.join(", ")}, writes the project and opens it`);
+      if (process.env.FRUS_INTEGRATION_ONLY === "create") {
+        report();
+        return;
+      }
+    }
 
     // The device picker and the status bar, looked at: with FRUS_INTEGRATION_SHOTS set, the picker
     // is opened, a marker file asks the runner's watcher for a picture, and it is closed again.
