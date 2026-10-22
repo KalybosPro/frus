@@ -1,0 +1,24 @@
+[package]
+name = "frus-glyphon"
+description = "frus's copy of glyphon (2D text rendering for wgpu), its shader made to build on OpenGL ES"
+edition = "2021"
+rust-version.workspace = true
+version.workspace = true
+# glyphon's own licence, kept as it is.
+license = "MIT OR Apache-2.0 OR Zlib"
+repository.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/frus-glyphon"
+keywords = ["text", "wgpu", "gui"]
+categories = ["gui", "rendering"]
+
+[lib]
+# Imported as `glyphon`, so the code that uses it reads as it would with the original.
+name = "glyphon"
+
+[dependencies]
+cosmic-text = "0.19"
+etagere = "0.3.0"
+lru = { version = "0.16.2", default-features = false }
+rustc-hash = "2.1.1"
+wgpu = { version = "30.0.0", default-features = false, features = ["wgsl"] }

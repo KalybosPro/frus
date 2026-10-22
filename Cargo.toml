@@ -19,7 +19,9 @@ repository = "https://github.com/KalybosPro/frus"
 wgpu = "30"
 winit = "0.30"
 taffy = "0.7"
-glyphon = "0.12"
+# frus's copy of glyphon 0.12, its shader made to build on OpenGL ES (the Android emulator,
+# devices without Vulkan): see crates/frus-glyphon/README.md. Imported as `glyphon`.
+glyphon = { package = "frus-glyphon", path = "crates/frus-glyphon", version = "0.4" }
 cosmic-text = "0.19"
 lyon = "1"
 # Image decoding (PNG/JPEG). The format list is kept short to lighten the dependency tree.
