@@ -29,7 +29,7 @@ bundled-mono = []
 bundled-arabic = []
 
 [dependencies]
-frus-core = { path = "../frus-core", version = "0.3" }
+frus-core = { path = "../frus-core", version = "0.4" }
 cosmic-text.workspace = true
 # A family name that matches no loaded face is resolved, and the console is told so.
 log.workspace = true

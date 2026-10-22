@@ -160,7 +160,7 @@ neuf. `frus run --hot` applique plutôt chaque modification enregistrée à l'ap
 d'exécution, sur le bureau, le web et Android. Ce qu'une commande requiert et qui manque à la machine — une cible
 Rust, le SDK Android, wasm-bindgen — elle l'installe d'abord.
 
-Le projet généré dépend de la crate publiée [`frus`](https://crates.io/crates/frus) (`frus = "0.3"`). `frus create my_app --frus-path <checkout>` le construit contre un checkout de ce dépôt à la place ; [`docs/getting-started.md`](docs/getting-started.md) détaille les options.
+Le projet généré dépend de la crate publiée [`frus`](https://crates.io/crates/frus) (`frus = "0.4"`). `frus create my_app --frus-path <checkout>` le construit contre un checkout de ce dépôt à la place ; [`docs/getting-started.md`](docs/getting-started.md) détaille les options.
 
 ### L'outil `frus`
 
