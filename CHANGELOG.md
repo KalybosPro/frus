@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 690 so far, each documenting the objective, the alternatives
+> record — one per step, 691 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -20,6 +20,14 @@ any release may break.
   text layers and image assets are left out and reported. The new `frus-lottie` crate is
   underneath, and `Widget::anim_initial` lets a widget's animated value start somewhere other
   than its target when it appears.
+- **New emulators get 4 GB of memory**: `frus emulators --create` (and the editor's Create
+  Emulator) kept avdmanager's 2 GB, in which Android 16 with Google Play stops answering ("System
+  UI isn't responding"). The figure is written in megabytes, the form the emulator reads.
+- **Text is drawn on OpenGL ES** (the Android emulator, devices without Vulkan): glyphon's shader
+  marked the position `@invariant` in what its fragment stage reads, which OpenGL ES refuses
+  once translated, so no frus application could draw there. frus now uses its own copy of
+  glyphon 0.12 (`frus-glyphon`, imported as `glyphon`) whose fragment shader has an input of its
+  own; the same change is proposed upstream, and frus returns to glyphon when it is released.
 - **The Android emulator no longer closes frus applications as they open**: on a surface with
   no sRGB format that cannot be viewed as one (the emulator's OpenGL ES), the renderer asked for
   an sRGB view anyway, which wgpu treats as fatal. It now draws in the surface's own format
