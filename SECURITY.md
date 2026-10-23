@@ -10,7 +10,7 @@ Once versioned releases exist, this table will be filled in.
 
 **Please do not open a public issue for a security problem.**
 
-Report it privately through GitHub's [private vulnerability reporting](https://github.com/KalybosPro/frus/security/advisories/new) on this repository. If that is unavailable to you, email **mitoaboudou@gmail.com** with `[frus security]` in the subject line.
+Report it privately through GitHub's [private vulnerability reporting](https://github.com/KalybosPro/frus/security/advisories/new) on this repository. If that is unavailable to you, email **kalyboskokou1@gmail.com** with `[frus security]` in the subject line.
 
 Please include:
 
