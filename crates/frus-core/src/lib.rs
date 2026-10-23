@@ -58,7 +58,7 @@ pub use gradient::{tile, Gradient, LinearGradient, RadialGradient, SweepGradient
 pub use hct::{Hct, TonalPalette};
 pub use image::{
     cached, cached_at, decoded_at, fetched, fetched_at, forget_cached_images,
-    forget_fetched_images, image_cache_budget, image_cache_bytes, images_in_flight,
+    forget_fetched_images, image_cache_budget, image_cache_bytes, image_fetcher, images_in_flight,
     set_image_cache_budget, set_image_fetcher, trim_image_caches, BoxFit, DecodeSize, Fetched,
     ImageData, ImageFetcher, ImageHandle, DEFAULT_IMAGE_CACHE_BYTES,
 };

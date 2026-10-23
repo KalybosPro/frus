@@ -531,6 +531,13 @@ pub fn set_image_fetcher(fetcher: ImageFetcher) {
     }
 }
 
+/// The fetcher [`set_image_fetcher`] registered, if one was: for the other documents an
+/// application shows from an address — a picture drawn as paths, an animation — which go
+/// through the same network the images do.
+pub fn image_fetcher() -> Option<ImageFetcher> {
+    *FETCHER.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// What is known about the image at `url`, starting the fetch if this is the first ask.
 ///
 /// Called from a view, which runs every frame: the **first** call starts the work and

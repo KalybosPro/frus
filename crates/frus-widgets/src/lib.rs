@@ -148,6 +148,8 @@ mod rating;
 pub mod refresh;
 mod region;
 mod relayout;
+#[cfg_attr(not(any(feature = "svg", feature = "lottie")), allow(dead_code))]
+mod remote;
 mod reorder;
 mod reorderable;
 mod responsive;
@@ -595,5 +597,6 @@ pub use frus_core::{ResolvedTextStyle, TextRun, DEFAULT_LINE_HEIGHT, DEFAULT_TEX
 /// The image stores and the two things a host has to name: a decoder is chosen by the
 /// `images` feature, and the **fetcher** is registered by whoever has a network. See
 /// [`Image::network`].
-pub use frus_core::{images_in_flight, set_image_fetcher, ImageFetcher};
+pub use frus_core::{image_fetcher, set_image_fetcher, ImageFetcher};
 pub use frus_layout::{Align, AlignContent, FlexDirection, Justify, Overflowing, Side};
+pub use remote::images_in_flight;

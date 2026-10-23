@@ -8,11 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 692 so far, each documenting the objective, the alternatives
+> record — one per step, 693 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **SVG pictures and Lottie animations from an address** (J693): `SvgPicture::network(url)`
+  and `Lottie::network(url)` fetch through the same fetcher as `Image::network`, once per
+  address, and say where they are with `state()`; frames keep coming until they land, and a
+  fetched animation plays from its first frame when it arrives.
 - **Paths are not tessellated again when they come back** (J692): the renderer keeps each
   path's triangles from frame to frame, keyed by its outline relative to its first point, so an
   icon, an SVG picture or a list scrolled draws without redoing the work, and an animation's

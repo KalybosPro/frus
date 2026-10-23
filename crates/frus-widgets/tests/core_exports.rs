@@ -36,6 +36,10 @@ const INTERNAL: &[(&str, &str)] = &[
         "the gradient shader's tiling, mirrored on the CPU for tests",
     ),
     ("__set_detected_target_platform", "set by the shell"),
+    (
+        "images_in_flight",
+        "wrapped by the widget crate's own, which counts fetched pictures and animations too",
+    ),
 ];
 
 /// The names a `lib.rs` exports with `pub use krate::path::{..}` or `pub use krate::Name`,
