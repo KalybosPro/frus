@@ -8,9 +8,14 @@
 //! What is drawn: paths, with their fill rule; strokes, with their width, caps, joins,
 //! miter limit and dashes (expanded into outlines, which is also what lets a stroke take a
 //! gradient); flat colours, linear and radial gradients with any number of stops, their
-//! spread method and their own transform; group opacity; clip paths. What is not yet:
-//! masks, filters, patterns, embedded bitmaps and text — each is skipped, and named in
-//! [`Svg::unsupported`], so an application can say why a picture looks incomplete.
+//! spread method and their own transform; group opacity; clip paths; embedded PNG and
+//! JPEG bitmaps, decoded once, when the picture is parsed, and embedded SVG pictures, drawn
+//! as vectors like the rest. What is not yet: masks, filters, patterns, GIF and WebP
+//! bitmaps, and text — each is skipped, and named in [`Svg::unsupported`], so an
+//! application can say why a picture looks incomplete.
+//!
+//! A bitmap is read only from the picture itself, as a `data:` address: a picture never
+//! makes the application open a file it names.
 //!
 //! Parsing is [`usvg`]'s, which resolves CSS, `<use>`, units, `objectBoundingBox`
 //! gradients and the rest into a simple tree.
@@ -21,8 +26,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use frus_core::{
-    Affine, AlignmentGeometry, BoxFit, ClipShape, Color, FillRule, GradientRamp, LayerFilter, Path,
-    Point, Primitive, RampShape, Rect, Scene, Size, TextDirection, TileMode,
+    Affine, AlignmentGeometry, BoxFit, ClipShape, Color, FillRule, GradientRamp, ImageHandle,
+    LayerFilter, Path, Point, Primitive, RampShape, Rect, Scene, Size, TextDirection, TileMode,
 };
 use usvg::tiny_skia_path;
 
@@ -68,6 +73,47 @@ enum Item {
         clip: Option<Path>,
         items: Vec<Item>,
     },
+    /// A bitmap, its pixels taken to the picture's coordinates by `transform`.
+    Image {
+        image: ImageHandle,
+        transform: Affine,
+    },
+}
+
+impl Item {
+    /// The item moved into another picture by `map` — an SVG drawn inside an SVG.
+    fn mapped(self, map: Affine) -> Item {
+        match self {
+            Item::Shape {
+                path,
+                paint,
+                opacity,
+            } => Item::Shape {
+                path: mapped(&path, map),
+                paint: match paint {
+                    Paint::Ramp(ramp) => Paint::Ramp(GradientRamp {
+                        transform: ramp.transform.then(map),
+                        ..ramp
+                    }),
+                    solid => solid,
+                },
+                opacity,
+            },
+            Item::Group {
+                opacity,
+                clip,
+                items,
+            } => Item::Group {
+                opacity,
+                clip: clip.map(|clip| mapped(&clip, map)),
+                items: items.into_iter().map(|item| item.mapped(map)).collect(),
+            },
+            Item::Image { image, transform } => Item::Image {
+                image,
+                transform: transform.then(map),
+            },
+        }
+    }
 }
 
 /// **A parsed SVG picture**, ready to paint at any size.
@@ -93,8 +139,15 @@ pub type SvgHandle = Arc<Svg>;
 impl Svg {
     /// Parses SVG source — bytes of an `.svg` file, UTF-8.
     pub fn parse(bytes: &[u8]) -> Result<Svg, SvgError> {
-        let tree = usvg::Tree::from_data(bytes, &usvg::Options::default())
-            .map_err(|e| SvgError(e.to_string()))?;
+        let options = usvg::Options {
+            image_href_resolver: usvg::ImageHrefResolver {
+                resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
+                // An address that is not `data:` would be read from the disk.
+                resolve_string: Box::new(|_, _| None),
+            },
+            ..usvg::Options::default()
+        };
+        let tree = usvg::Tree::from_data(bytes, &options).map_err(|e| SvgError(e.to_string()))?;
         let mut unsupported = Vec::new();
         let items = group_items(tree.root(), &mut unsupported);
         unsupported.sort_unstable();
@@ -113,8 +166,8 @@ impl Svg {
     }
 
     /// The SVG features this picture uses that are not drawn yet, by name (`"mask"`,
-    /// `"filter"`, `"pattern"`, `"image"`, `"text"`, `"blend mode"`): empty when the whole
-    /// picture is drawn.
+    /// `"filter"`, `"pattern"`, `"image"` — a GIF, a WebP or a broken bitmap —, `"text"`,
+    /// `"blend mode"`): empty when the whole picture is drawn.
     pub fn unsupported(&self) -> &[&'static str] {
         &self.unsupported
     }
@@ -127,6 +180,7 @@ impl Svg {
                 .map(|item| match item {
                     Item::Shape { .. } => 1,
                     Item::Group { items, .. } => count(items),
+                    Item::Image { .. } => 0,
                 })
                 .sum()
         }
@@ -135,7 +189,8 @@ impl Svg {
 
     /// **Paints the picture into `bounds`**, fitted by `fit` and placed by `alignment`
     /// as an image is, at `opacity`. With `tint`, every shape takes that colour, keeping
-    /// its own transparency — a single-colour icon recoloured to the theme.
+    /// its own transparency — a single-colour icon recoloured to the theme; a bitmap in
+    /// the picture keeps its own colours.
     pub fn paint(
         &self,
         scene: &mut Scene,
@@ -236,6 +291,9 @@ fn paint_items(scene: &mut Scene, items: &[Item], place: Affine, tint: Option<Co
                     None => ClipShape::Rect,
                 };
                 wrap(scene, start, *opacity, clip_shape);
+            }
+            Item::Image { image, transform } => {
+                scene.draw_image_mapped(image, transform.then(place), Color::WHITE)
             }
         }
     }
@@ -378,11 +436,45 @@ fn group_items(group: &usvg::Group, unsupported: &mut Vec<&'static str>) -> Vec<
                 }
             }
             usvg::Node::Path(path) => path_items(path, &mut items, unsupported),
-            usvg::Node::Image(_) => unsupported.push("image"),
+            usvg::Node::Image(image) => image_items(image, &mut items, unsupported),
             usvg::Node::Text(_) => unsupported.push("text"),
         }
     }
     items
+}
+
+/// An embedded picture: a PNG or a JPEG decoded now, once, or an SVG drawn as vectors.
+fn image_items(image: &usvg::Image, items: &mut Vec<Item>, unsupported: &mut Vec<&'static str>) {
+    if !image.is_visible() {
+        return;
+    }
+    // The picture fills `(0, 0)` to its size, in the space `abs_transform` takes to ours.
+    let to_root = affine(image.abs_transform());
+    let bytes = match image.kind() {
+        usvg::ImageKind::PNG(bytes) | usvg::ImageKind::JPEG(bytes) => bytes,
+        usvg::ImageKind::SVG(tree) => {
+            let inner = group_items(tree.root(), unsupported);
+            items.extend(inner.into_iter().map(|item| item.mapped(to_root)));
+            return;
+        }
+        usvg::ImageKind::GIF(_) | usvg::ImageKind::WEBP(_) => {
+            unsupported.push("image");
+            return;
+        }
+    };
+    let Ok(data) = frus_image::decode(bytes) else {
+        unsupported.push("image");
+        return;
+    };
+    let (pixels, size) = (data.size(), image.size());
+    if pixels.width == 0.0 || pixels.height == 0.0 {
+        return;
+    }
+    items.push(Item::Image {
+        transform: Affine::scale(size.width() / pixels.width, size.height() / pixels.height)
+            .then(to_root),
+        image: data.into_handle(),
+    });
 }
 
 /// A path's fill and stroke, in its paint order.
@@ -740,6 +832,119 @@ mod tests {
             Rect::new(0.0, 0.0, 500.0, 500.0),
             "restored"
         );
+    }
+
+    /// A 2×1 PNG: a red pixel, then a blue one.
+    const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAADklEQVR4nGP4z8AAQv8BD/kD/YURmXYAAAAASUVORK5CYII=";
+
+    #[test]
+    fn an_embedded_png_is_decoded_once_and_drawn_where_the_picture_puts_it() {
+        let svg = parse(&format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
+            <image x="2" y="3" width="4" height="2" href="data:image/png;base64,{PNG}"/></svg>"##
+        ));
+        assert!(svg.unsupported().is_empty(), "{:?}", svg.unsupported());
+        let drawn = painted(&svg, Rect::new(0.0, 0.0, 100.0, 100.0), BoxFit::Fill);
+        let Primitive::Image {
+            image, rect, tint, ..
+        } = &drawn[0]
+        else {
+            panic!("{drawn:?}")
+        };
+        assert_eq!((image.width(), image.height()), (2, 1));
+        assert_eq!(&image.rgba()[..4], &[255, 0, 0, 255]);
+        let near = |a: Rect, b: Rect| {
+            (a.x - b.x).abs() < 1e-3
+                && (a.y - b.y).abs() < 1e-3
+                && (a.width - b.width).abs() < 1e-3
+                && (a.height - b.height).abs() < 1e-3
+        };
+        assert!(near(*rect, Rect::new(20.0, 30.0, 40.0, 20.0)), "{rect:?}");
+        assert_eq!(*tint, Color::WHITE);
+        // Painted again, the same pixels: decoded once, when parsed.
+        let again = painted(&svg, Rect::new(0.0, 0.0, 50.0, 50.0), BoxFit::Fill);
+        let Primitive::Image { image: second, .. } = &again[0] else {
+            panic!()
+        };
+        assert_eq!(second.id(), image.id());
+    }
+
+    #[test]
+    fn a_turned_bitmap_is_turned_by_its_layer() {
+        let svg = parse(&format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
+            <image width="4" height="2" transform="rotate(30 5 5)"
+                   href="data:image/png;base64,{PNG}"/></svg>"##
+        ));
+        let drawn = painted(&svg, Rect::new(0.0, 0.0, 100.0, 100.0), BoxFit::Fill);
+        let Primitive::Layer {
+            transform: Some(_),
+            primitives,
+            ..
+        } = &drawn[0]
+        else {
+            panic!("{drawn:?}")
+        };
+        assert!(matches!(&primitives[0], Primitive::Image { rect, .. }
+            if (rect.width - 40.0).abs() < 1e-3 && (rect.height - 20.0).abs() < 1e-3));
+    }
+
+    #[test]
+    fn an_embedded_svg_is_drawn_as_vectors_in_its_place() {
+        let svg = parse(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10">
+            <image x="10" width="10" height="10"
+                   href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMCIgaGVpZ2h0PSIxMCIgdmlld0JveD0iMCAwIDEwIDEwIj48cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iNSIgaGVpZ2h0PSIxMCIgZmlsbD0iI2YwMCIvPjwvc3ZnPg=="/></svg>"##,
+        );
+        assert_eq!(svg.shape_count(), 1);
+        let drawn = painted(&svg, Rect::new(0.0, 0.0, 200.0, 100.0), BoxFit::Fill);
+        let p = first_point(&drawn[0]);
+        assert!((p.x - 100.0).abs() < 1e-3 && p.y.abs() < 1e-3, "{p:?}");
+    }
+
+    #[test]
+    fn a_picture_does_not_open_the_files_it_names() {
+        let file = std::env::temp_dir().join("frus-svg-embedded.png");
+        std::fs::write(&file, base64_decode(PNG)).unwrap();
+        let svg = parse(&format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
+            <image width="4" height="2" href="{}"/></svg>"##,
+            file.display()
+        ));
+        let _ = std::fs::remove_file(&file);
+        assert!(painted(&svg, Rect::new(0.0, 0.0, 10.0, 10.0), BoxFit::Fill).is_empty());
+    }
+
+    #[test]
+    fn a_gif_is_named_and_not_drawn() {
+        let svg = parse(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
+            <image width="4" height="4"
+                   href="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"/></svg>"##,
+        );
+        assert_eq!(svg.unsupported(), &["image"]);
+        assert!(painted(&svg, Rect::new(0.0, 0.0, 10.0, 10.0), BoxFit::Fill).is_empty());
+    }
+
+    /// Standard base64, for writing the test PNG out as a file.
+    fn base64_decode(text: &str) -> Vec<u8> {
+        let value = |c: u8| match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            _ => 63,
+        };
+        let digits: Vec<u8> = text.bytes().filter(|&c| c != b'=').map(value).collect();
+        let mut out = Vec::new();
+        for chunk in digits.chunks(4) {
+            let mut n = 0u32;
+            for (i, d) in chunk.iter().enumerate() {
+                n |= u32::from(*d) << (18 - 6 * i);
+            }
+            out.extend(&n.to_be_bytes()[1..chunk.len()]);
+        }
+        out
     }
 
     #[test]

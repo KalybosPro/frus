@@ -61,3 +61,49 @@ fn the_square_is_where_the_moment_puts_it() {
     );
     assert!(!red(end.pixel(40, 100)), "and gone from the start");
 }
+
+/// A 2×1 PNG — a red pixel, then a blue one — shown 40×20 at (30, 40) and turned a quarter
+/// about that corner, over a 100-unit animation.
+const TURNED_IMAGE: &str = r#"{"v":"5.7.4","fr":30,"ip":0,"op":60,"w":100,"h":100,"nm":"t",
+  "ddd":0,"assets":[{"id":"image_0","w":40,"h":20,"u":"","e":1,
+    "p":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAADklEQVR4nGP4z8AAQv8BD/kD/YURmXYAAAAASUVORK5CYII="}],
+  "layers":[{"ddd":0,"ind":1,"ty":2,"nm":"picture","refId":"image_0","sr":1,"ip":0,"op":60,
+    "st":0,"bm":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":90},"p":{"a":0,"k":[50,30,0]},
+    "a":{"a":0,"k":[0,0,0]},"s":{"a":0,"k":[100,100,100]}}}]}"#;
+
+#[test]
+fn an_image_layer_is_drawn_turned_with_its_layer() {
+    let animation = Animation::parse(TURNED_IMAGE.as_bytes()).unwrap();
+    let mut scene = Scene::new();
+    scene.set_clip(Rect::new(0.0, 0.0, SIZE as f32, SIZE as f32));
+    animation.paint(
+        &mut scene,
+        Rect::new(0.0, 0.0, SIZE as f32, SIZE as f32),
+        BoxFit::Contain,
+        AlignmentGeometry::Physical(Alignment::CENTER),
+        0.0,
+        1.0,
+    );
+    let Some(shot) = render_scene(&scene, SIZE, SIZE, Color::WHITE) else {
+        return;
+    };
+    assert!(
+        animation.unsupported().is_empty(),
+        "{:?}",
+        animation.unsupported()
+    );
+    // Turned a quarter about (50, 30): it spans x 30..50, y 30..70, its left at the top.
+    // Twice the animation's units on screen.
+    let blue = |p: [u8; 4]| p[2] > 200 && p[0] < 40 && p[1] < 40;
+    assert!(red(shot.pixel(80, 70)), "left: {:?}", shot.pixel(80, 70));
+    assert!(
+        blue(shot.pixel(80, 130)),
+        "right: {:?}",
+        shot.pixel(80, 130)
+    );
+    let white = |p: [u8; 4]| p[0] > 245 && p[1] > 245 && p[2] > 245;
+    assert!(
+        white(shot.pixel(50, 100)) && white(shot.pixel(110, 100)),
+        "nothing beside it"
+    );
+}

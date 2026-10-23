@@ -188,6 +188,92 @@ fn a_faded_layer_is_painted_faded() {
     assert!((fill.a - 0.5).abs() < 0.01, "{fill:?}");
 }
 
+/// A 2×1 PNG: a red pixel, then a blue one.
+const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAADklEQVR4nGP4z8AAQv8BD/kD/YURmXYAAAAASUVORK5CYII=";
+
+/// One image layer at (30, 40), at `opacity` (0..100), showing a 40×20 asset that the file
+/// gives at `location` — its folder, then its file name or a `data:` address.
+fn image_layer(folder: &str, file: &str, opacity: f32) -> String {
+    format!(
+        r#"{{"v":"5.7.4","fr":30,"ip":0,"op":60,"w":100,"h":100,"nm":"t","ddd":0,
+        "assets":[{{"id":"image_0","w":40,"h":20,"u":"{folder}","p":"{file}","e":0}}],
+        "layers":[{{"ddd":0,"ind":1,"ty":2,"nm":"picture","refId":"image_0","sr":1,"ip":0,
+          "op":60,"st":0,"bm":0,
+          "ks":{{"o":{{"a":0,"k":{opacity}}},"r":{{"a":0,"k":0}},"p":{{"a":0,"k":[30,40,0]}},
+                "a":{{"a":0,"k":[0,0,0]}},"s":{{"a":0,"k":[100,100,100]}}}}}}]}}"#
+    )
+}
+
+/// Every image in `primitives`, layers opened.
+fn images(primitives: &[Primitive]) -> Vec<Primitive> {
+    let mut out = Vec::new();
+    for p in primitives {
+        match p {
+            Primitive::Image { .. } => out.push(p.clone()),
+            Primitive::Layer { primitives, .. } => out.extend(images(primitives)),
+            _ => {}
+        }
+    }
+    out
+}
+
+#[test]
+fn an_embedded_image_is_decoded_and_drawn_where_its_layer_puts_it() {
+    let data = format!("data:image/png;base64,{PNG}");
+    let a = Animation::parse(image_layer("", &data, 50.0).as_bytes()).unwrap();
+    assert!(a.missing_images().is_empty());
+    let drawn = images(&painted(&a, 0.0));
+    let Primitive::Image {
+        image, rect, tint, ..
+    } = &drawn[0]
+    else {
+        panic!("{drawn:?}")
+    };
+    assert_eq!((image.width(), image.height()), (2, 1));
+    let want = Rect::new(30.0, 40.0, 40.0, 20.0);
+    assert!(
+        (rect.x - want.x).abs() < 1e-3
+            && (rect.y - want.y).abs() < 1e-3
+            && (rect.width - want.width).abs() < 1e-3
+            && (rect.height - want.height).abs() < 1e-3,
+        "{rect:?}"
+    );
+    assert!((tint.a - 0.5).abs() < 0.01, "the layer's opacity: {tint:?}");
+    assert!(a.unsupported().is_empty(), "{:?}", a.unsupported());
+}
+
+#[test]
+fn an_image_the_file_names_is_drawn_once_the_application_gives_it() {
+    let a = Animation::parse(image_layer("images/", "img_0.png", 100.0).as_bytes()).unwrap();
+    assert_eq!(
+        a.missing_images(),
+        [("image_0".to_string(), "images/img_0.png".to_string())]
+    );
+    assert!(images(&painted(&a, 0.0)).is_empty());
+    assert_eq!(a.unsupported(), ["image"]);
+
+    // Pixels of another shape than the asset's: fitted whole into it, centred.
+    let square = frus_core::ImageData::from_rgba(2, 2, vec![255; 16]).into_handle();
+    let a = a.with_image("image_0", square);
+    let drawn = images(&painted(&a, 0.0));
+    let Primitive::Image { rect, .. } = &drawn[0] else {
+        panic!("{drawn:?}")
+    };
+    // 20×20 in the middle of the 40×20 asset at (30, 40).
+    assert!(
+        (rect.x - 40.0).abs() < 1e-3 && (rect.width - 20.0).abs() < 1e-3,
+        "{rect:?}"
+    );
+}
+
+#[test]
+fn a_broken_embedded_image_is_named() {
+    let a =
+        Animation::parse(image_layer("", "data:image/png;base64,AAAA", 100.0).as_bytes()).unwrap();
+    assert_eq!(a.unsupported(), ["image"]);
+    assert!(images(&painted(&a, 0.0)).is_empty());
+}
+
 #[test]
 fn garbage_is_an_error() {
     assert!(Animation::parse(b"not a lottie").is_err());

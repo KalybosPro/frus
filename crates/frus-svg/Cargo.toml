@@ -13,4 +13,5 @@ categories = ["graphics", "gui"]
 
 [dependencies]
 frus-core = { path = "../frus-core", version = "0.4" }
+frus-image = { path = "../frus-image", version = "0.4" }
 usvg.workspace = true

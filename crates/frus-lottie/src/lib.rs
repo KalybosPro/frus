@@ -7,20 +7,24 @@
 //! [velato] reads the file and evaluates a frame — the layers, their transforms, the shapes and
 //! their animated properties — and draws it through a trait this crate implements over the
 //! scene: fills, strokes (expanded into outlines: widths, caps, joins, dashes), flat colours and
-//! linear and radial gradients, layer opacity, clips and masks, and the blend modes of mattes.
-//! Image assets and sweep gradients are not drawn yet; [`Animation::unsupported`] names what an
-//! animation uses that is not.
+//! linear and radial gradients, layer opacity, clips and masks, and the blend modes of mattes,
+//! and image layers: a PNG or JPEG embedded in the file is decoded once, when it is parsed, and
+//! one the file names beside it is the application's to give ([`Animation::with_image`]).
+//! Sweep gradients are not drawn yet; [`Animation::unsupported`] names what an animation uses
+//! that is not.
 
 #![deny(missing_docs)]
 
 mod normalize;
 
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use frus_core::{
     Affine, AlignmentGeometry, BlendMode, BoxFit, ClipShape, Color, FillRule, GradientRamp,
-    LayerFilter, Path, Point, Primitive, RampShape, Rect, Scene, Size, TextDirection, TileMode,
+    ImageHandle, LayerFilter, Path, Point, Primitive, RampShape, Rect, Scene, Size, TextDirection,
+    TileMode,
 };
 use kurbo::Shape;
 use velato::{model::fixed, Composition, RenderSink, Renderer};
@@ -47,6 +51,8 @@ impl std::error::Error for LottieError {}
 /// **A parsed Lottie animation**, ready to paint at any moment and any size.
 pub struct Animation {
     composition: Composition,
+    /// The image assets' pixels, by asset id: decoded from the file, or given.
+    images: HashMap<String, ImageHandle>,
     /// velato's working buffers, kept between frames. Behind a lock because painting takes the
     /// animation by shared reference, and the widget layer shares it between threads.
     renderer: Mutex<Renderer>,
@@ -78,11 +84,58 @@ impl Animation {
         let mut notes = Vec::new();
         normalize::normalize(&mut value, &mut notes).map_err(LottieError)?;
         let composition = Composition::from_json(value).map_err(|e| LottieError(e.to_string()))?;
+        let mut images = HashMap::new();
+        for (id, asset) in &composition.images {
+            if !asset.is_data_url() {
+                continue;
+            }
+            match data_url(&asset.file_name).map(|bytes| frus_image::decode(&bytes)) {
+                Some(Ok(image)) => {
+                    images.insert(id.clone(), image.into_handle());
+                }
+                _ => notes.push("image"),
+            }
+        }
         Ok(Animation {
             composition,
+            images,
             renderer: Mutex::new(Renderer::new()),
             unsupported: Mutex::new(notes),
         })
+    }
+
+    /// **Gives the pixels of an image asset** the file names rather than embeds — `id` is
+    /// the asset's, as [`Animation::missing_images`] lists it. An image given for an
+    /// embedded asset replaces it.
+    ///
+    /// ```
+    /// # let json = br#"{"v":"5.7.0","fr":30,"ip":0,"op":30,"w":10,"h":10,"layers":[],
+    /// #   "assets":[{"id":"image_0","w":10,"h":10,"u":"images/","p":"img_0.png","e":0}]}"#;
+    /// let animation = frus_lottie::Animation::parse(json).unwrap();
+    /// let wanted = ("image_0".to_string(), "images/img_0.png".to_string());
+    /// assert_eq!(animation.missing_images(), [wanted]);
+    /// let pixels = frus_core::ImageData::from_rgba(1, 1, vec![255; 4]).into_handle();
+    /// let animation = animation.with_image("image_0", pixels);
+    /// assert!(animation.missing_images().is_empty());
+    /// ```
+    pub fn with_image(mut self, id: impl Into<String>, image: ImageHandle) -> Self {
+        self.images.insert(id.into(), image);
+        self
+    }
+
+    /// The image assets without pixels yet, by id and the location the file gives
+    /// (its folder and file name), in id order: an application loads each and hands it to
+    /// [`Animation::with_image`]. Until then, the layers showing it draw nothing.
+    pub fn missing_images(&self) -> Vec<(String, String)> {
+        let mut missing: Vec<_> = self
+            .composition
+            .images
+            .iter()
+            .filter(|(id, _)| !self.images.contains_key(*id))
+            .map(|(id, asset)| (id.clone(), asset.location()))
+            .collect();
+        missing.sort();
+        missing
     }
 
     /// The animation's own size, in its own units.
@@ -105,8 +158,9 @@ impl Animation {
         self.composition.frame_rate as f32
     }
 
-    /// What the frames painted so far used that is not drawn yet, by name (`"image"`,
-    /// `"sweep gradient"`): empty when everything was drawn.
+    /// What the frames painted so far used that is not drawn yet, by name (`"image"` — an
+    /// asset without pixels, or one that could not be decoded —, `"sweep gradient"`): empty
+    /// when everything was drawn.
     pub fn unsupported(&self) -> Vec<&'static str> {
         self.unsupported
             .lock()
@@ -153,6 +207,7 @@ impl Animation {
         {
             let mut sink = Sink {
                 scene: &mut *scene,
+                images: &self.images,
                 place,
                 layers: Vec::new(),
                 unsupported: Vec::new(),
@@ -183,6 +238,35 @@ impl Animation {
         }
         scene.set_clip(outer);
     }
+}
+
+/// The bytes of a base64 `data:` address; `None` for any other.
+fn data_url(location: &str) -> Option<Vec<u8>> {
+    let (header, payload) = location.strip_prefix("data:")?.split_once(',')?;
+    if !header.ends_with(";base64") {
+        return None;
+    }
+    let mut out = Vec::with_capacity(payload.len() / 4 * 3);
+    let (mut bits, mut count) = (0u32, 0u32);
+    for c in payload.bytes() {
+        let value = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            b'=' => break,
+            c if c.is_ascii_whitespace() => continue,
+            _ => return None,
+        };
+        bits = (bits << 6) | u32::from(value);
+        count += 6;
+        if count >= 8 {
+            count -= 8;
+            out.push((bits >> count) as u8);
+        }
+    }
+    Some(out)
 }
 
 fn intersect(a: Rect, b: Rect) -> Rect {
@@ -236,6 +320,7 @@ enum OpenLayer {
 /// velato's drawing, into a frus scene, every coordinate taken through `place`.
 struct Sink<'a> {
     scene: &'a mut Scene,
+    images: &'a HashMap<String, ImageHandle>,
     place: Affine,
     layers: Vec<OpenLayer>,
     unsupported: Vec<&'static str>,
@@ -474,10 +559,32 @@ impl RenderSink for Sink<'_> {
 
     fn draw_image(
         &mut self,
-        _image: &velato::model::ImageAsset,
-        _transform: kurbo::Affine,
-        _alpha: f64,
+        asset: &velato::model::ImageAsset,
+        mut transform: kurbo::Affine,
+        alpha: f64,
     ) {
-        self.note("image");
+        let Some(image) = self.images.get(&asset.id) else {
+            self.note("image");
+            return;
+        };
+        // Pixels of another size than the asset's are fitted into it, whole and centred.
+        let (width, height) = (f64::from(image.width()), f64::from(image.height()));
+        if let Some((w, h)) = asset.width.zip(asset.height) {
+            if w > 0.0 && h > 0.0 && width > 0.0 && height > 0.0 {
+                let scale = (w / width).min(h / height);
+                let offset = ((w - width * scale) / 2.0, (h - height * scale) / 2.0);
+                transform *= kurbo::Affine::translate(offset) * kurbo::Affine::scale(scale);
+            }
+        }
+        let alpha = if alpha.is_finite() {
+            alpha.clamp(0.0, 1.0) as f32
+        } else {
+            0.0
+        };
+        if alpha > 0.0 {
+            let to_screen = self.to_screen(transform);
+            self.scene
+                .draw_image_mapped(image, to_screen, Color::rgba(1.0, 1.0, 1.0, alpha));
+        }
     }
 }

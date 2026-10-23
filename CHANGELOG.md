@@ -8,11 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 693 so far, each documenting the objective, the alternatives
+> record — one per step, 694 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Bitmaps inside SVG pictures and Lottie animations** (J694): a PNG or JPEG embedded in an
+  SVG is decoded once, when the picture is parsed, and drawn where the picture puts it, turned
+  or slanted with it; an SVG embedded in an SVG is drawn as vectors. A Lottie file's image
+  layers are drawn too — from the file when it embeds them, and from
+  `Animation::with_image` when it names files beside it (`missing_images()` lists them). An
+  SVG never reads a file it names from the disk. `Scene::draw_image_mapped` draws a bitmap
+  through any affine map.
 - **SVG pictures and Lottie animations from an address** (J693): `SvgPicture::network(url)`
   and `Lottie::network(url)` fetch through the same fetcher as `Image::network`, once per
   address, and say where they are with `state()`; frames keep coming until they land, and a

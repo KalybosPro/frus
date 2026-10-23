@@ -61,9 +61,9 @@ fn parse(bytes: &[u8]) -> Result<SvgHandle, String> {
 /// ```
 ///
 /// Parsed once per process for a given source, whatever the number of frames that show
-/// it. Paths, fills, strokes (caps, joins, dashes), gradients, group opacity and clip
-/// paths are drawn; masks, filters, patterns, embedded bitmaps and text are not yet, and
-/// the console says so when a picture uses them.
+/// it. Paths, fills, strokes (caps, joins, dashes), gradients, group opacity, clip paths
+/// and embedded PNG, JPEG and SVG pictures are drawn; masks, filters, patterns, GIF and WebP
+/// bitmaps and text are not yet, and the console says so when a picture uses them.
 ///
 /// Needs the `svg` feature.
 pub struct SvgPicture {
