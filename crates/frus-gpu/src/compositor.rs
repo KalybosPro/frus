@@ -1089,6 +1089,8 @@ impl Painters {
                 .prepare_frame(device, queue, scene, &decorations, &batches);
         let image_ranges = self.image.prepare_frame(device, queue, scene, &batches);
         let path_ranges = self.path.prepare_frame(device, queue, scene, &batches);
+        // The frame's layers were prepared before it: the kept triangles may age now.
+        self.path.end_frame();
         // The text painter keeps one renderer per text batch, in order; a pass drawing
         // batches `a..b` needs to know how many of them came before `a`.
         let mut text_slots = Vec::with_capacity(batches.len());
