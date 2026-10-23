@@ -11,7 +11,9 @@ use frus_core::{Alignment, AlignmentGeometry, BoxFit, Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
 use frus_svg::{Svg, SvgHandle};
 
+use crate::image::State;
 use crate::interaction::Status;
+use crate::remote::{Remote, Store};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -19,6 +21,14 @@ use crate::widget::Widget;
 /// [`frus_core::cached`] keys images) or by their text.
 static BY_ADDRESS: Mutex<Option<HashMap<usize, Result<SvgHandle, String>>>> = Mutex::new(None);
 static BY_TEXT: Mutex<Option<HashMap<u64, Result<SvgHandle, String>>>> = Mutex::new(None);
+
+/// Pictures fetched from an address.
+static FETCHED: Store<SvgHandle> = Store::new();
+
+/// Fetches of pictures still on their way.
+pub(crate) fn in_flight() -> usize {
+    FETCHED.in_flight()
+}
 
 /// The most pictures parsed from text that are remembered. Text built at run time could
 /// otherwise grow the store without end; past this, it starts again.
@@ -47,6 +57,7 @@ fn parse(bytes: &[u8]) -> Result<SvgHandle, String> {
 ///
 /// ```ignore
 /// SvgPicture::memory(include_bytes!("../assets/empty-inbox.svg")).width(160.0)
+/// SvgPicture::network("https://example.com/logo.svg").height(32.0)
 /// ```
 ///
 /// Parsed once per process for a given source, whatever the number of frames that show
@@ -56,7 +67,7 @@ fn parse(bytes: &[u8]) -> Result<SvgHandle, String> {
 ///
 /// Needs the `svg` feature.
 pub struct SvgPicture {
-    source: Result<SvgHandle, String>,
+    source: Remote<SvgHandle>,
     width: Option<f32>,
     height: Option<f32>,
     fit: BoxFit,
@@ -70,7 +81,7 @@ pub struct SvgPicture {
 impl SvgPicture {
     /// A picture already parsed.
     pub fn new(svg: SvgHandle) -> Self {
-        Self::from_source(Ok(svg))
+        Self::from_remote(Remote::Ready(svg))
     }
 
     /// A picture from embedded bytes — what `include_bytes!` gives. Parsed once per
@@ -102,7 +113,33 @@ impl SvgPicture {
         Self::from_source(source)
     }
 
+    /// **A picture fetched from `url`**, through the fetcher images use
+    /// ([`frus_core::set_image_fetcher`], which the shell installs with the `net` feature).
+    ///
+    /// Fetched and parsed once per process for an address, whatever the number of frames
+    /// that ask; a failure is remembered too. While it is on its way the widget takes the
+    /// room given it and draws nothing, and [`state`](SvgPicture::state) says so — an
+    /// application that wants a placeholder puts one there itself:
+    ///
+    /// ```ignore
+    /// let logo = SvgPicture::network(url).height(32.0);
+    /// match logo.state() {
+    ///     ImageState::Ready => logo.boxed(),
+    ///     _ => Skeleton::new().width(32.0).height(32.0).boxed(),
+    /// }
+    /// ```
+    pub fn network(url: impl AsRef<str>) -> Self {
+        Self::from_remote(FETCHED.get(url.as_ref(), parse))
+    }
+
     fn from_source(source: Result<SvgHandle, String>) -> Self {
+        Self::from_remote(match source {
+            Ok(svg) => Remote::Ready(svg),
+            Err(why) => Remote::Failed(why),
+        })
+    }
+
+    fn from_remote(source: Remote<SvgHandle>) -> Self {
         Self {
             source,
             width: None,
@@ -182,22 +219,37 @@ impl SvgPicture {
         self
     }
 
-    /// Why there is no picture, when the source could not be parsed.
+    /// Why there is no picture, when the source could not be fetched or parsed.
     pub fn error(&self) -> Option<&str> {
-        self.source.as_ref().err().map(String::as_str)
+        match &self.source {
+            Remote::Failed(why) => Some(why),
+            _ => None,
+        }
     }
 
     /// The parsed picture, when there is one.
     pub fn svg(&self) -> Option<&SvgHandle> {
-        self.source.as_ref().ok()
+        match &self.source {
+            Remote::Ready(svg) => Some(svg),
+            _ => None,
+        }
+    }
+
+    /// Whether the picture is here, on its way ([`SvgPicture::network`]), or will not come.
+    pub fn state(&self) -> State<'_> {
+        match &self.source {
+            Remote::Ready(_) => State::Ready,
+            Remote::Loading => State::Loading,
+            Remote::Failed(why) => State::Failed(why),
+        }
     }
 }
 
 impl<Msg> Widget<Msg> for SvgPicture {
     fn style(&self) -> Style {
         let length = |v: Option<f32>| v.map_or(Dimension::Auto, Dimension::Length);
-        let Ok(svg) = &self.source else {
-            // Nothing parsed: no natural size, and only what the caller said.
+        let Some(svg) = self.svg() else {
+            // Nothing parsed (yet): no natural size, and only what the caller said.
             return Style {
                 width: Dimension::Length(self.width.unwrap_or(0.0)),
                 height: Dimension::Length(self.height.unwrap_or(0.0)),
@@ -230,7 +282,7 @@ impl<Msg> Widget<Msg> for SvgPicture {
     }
 
     fn paint(&self, bounds: Rect, status: Status, _theme: &Theme, scene: &mut Scene) {
-        if let Ok(svg) = &self.source {
+        if let Some(svg) = self.svg() {
             svg.paint(
                 scene,
                 bounds,
@@ -311,6 +363,49 @@ mod tests {
             panic!("a path: {:?}", scene.primitives())
         };
         assert_eq!((fill.r, fill.g, fill.b), (0.0, 0.0, 1.0));
+    }
+
+    #[test]
+    fn a_fetched_picture_takes_the_room_given_until_it_lands() {
+        use std::sync::Mutex as StdMutex;
+        type Deliver = Box<dyn FnOnce(Result<Vec<u8>, String>) + Send>;
+        static PENDING: StdMutex<Vec<Deliver>> = StdMutex::new(Vec::new());
+        fn held(_: &str, deliver: Deliver) {
+            PENDING.lock().unwrap().push(deliver);
+        }
+        let _guard = crate::remote::fetcher_lock();
+        frus_core::set_image_fetcher(held);
+        let url = "https://example.com/flag.svg";
+
+        let waiting = SvgPicture::network(url).height(30.0);
+        assert_eq!(waiting.state(), State::Loading);
+        assert!(crate::images_in_flight() > 0, "the frames keep coming");
+        let _ = SvgPicture::network(url);
+        assert_eq!(PENDING.lock().unwrap().len(), 1, "asked once");
+        let style = Widget::<()>::style(&waiting);
+        assert_eq!(style.height, Dimension::Length(30.0));
+
+        let deliver = PENDING.lock().unwrap().pop().unwrap();
+        deliver(Ok(ICON.to_vec()));
+        let arrived = SvgPicture::network(url).height(30.0);
+        assert_eq!(arrived.state(), State::Ready);
+        let style = Widget::<()>::style(&arrived);
+        assert_eq!(
+            style.aspect_ratio,
+            Some(2.0),
+            "now with the picture's ratio"
+        );
+
+        let missing = "https://example.com/missing.svg";
+        let _ = SvgPicture::network(missing);
+        let deliver = PENDING.lock().unwrap().pop().unwrap();
+        deliver(Err("404".to_string()));
+        assert_eq!(SvgPicture::network(missing).error(), Some("404"));
+        let broken = "https://example.com/broken.svg";
+        let _ = SvgPicture::network(broken);
+        let deliver = PENDING.lock().unwrap().pop().unwrap();
+        deliver(Ok(b"<svg".to_vec()));
+        assert!(SvgPicture::network(broken).error().is_some(), "not an SVG");
     }
 
     #[test]

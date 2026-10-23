@@ -1512,12 +1512,10 @@ mod tests {
     #[cfg(feature = "images")]
     mod network {
         use super::*;
-        use std::sync::{Mutex, MutexGuard, OnceLock};
+        use std::sync::MutexGuard;
 
         pub(super) fn serialised() -> MutexGuard<'static, ()> {
-            static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-            let lock = LOCK.get_or_init(|| Mutex::new(()));
-            let guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+            let guard = crate::remote::fetcher_lock();
             frus_core::forget_fetched_images();
             guard
         }

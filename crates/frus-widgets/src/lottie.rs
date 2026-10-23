@@ -11,7 +11,9 @@ use frus_core::{Alignment, AlignmentGeometry, BoxFit, Curve, Rect, Scene};
 use frus_layout::{Dimension, Style};
 use frus_lottie::{Animation, AnimationHandle};
 
+use crate::image::State;
 use crate::interaction::Status;
+use crate::remote::{Remote, Store};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -19,6 +21,14 @@ use crate::widget::Widget;
 static BY_ADDRESS: Mutex<Option<HashMap<usize, Result<AnimationHandle, String>>>> =
     Mutex::new(None);
 static BY_TEXT: Mutex<Option<HashMap<u64, Result<AnimationHandle, String>>>> = Mutex::new(None);
+
+/// Animations fetched from an address.
+static FETCHED: Store<AnimationHandle> = Store::new();
+
+/// Fetches of animations still on their way.
+pub(crate) fn in_flight() -> usize {
+    FETCHED.in_flight()
+}
 
 /// The most animations parsed from text that are remembered; past this, it starts again.
 const TEXT_ENTRIES: usize = 64;
@@ -43,6 +53,7 @@ fn parse(bytes: &[u8]) -> Result<AnimationHandle, String> {
 /// ```ignore
 /// Lottie::memory(include_bytes!("../assets/success.json")).size(120.0, 120.0)
 /// Lottie::memory(LOADER).repeat(true)
+/// Lottie::network("https://example.com/confetti.json")
 /// ```
 ///
 /// Parsed once per process for a given source. Shapes, fills, strokes, gradients, layer
@@ -62,7 +73,7 @@ fn parse(bytes: &[u8]) -> Result<AnimationHandle, String> {
 /// [`animate`]: Lottie::animate
 /// [`progress`]: Lottie::progress
 pub struct Lottie {
-    source: Result<AnimationHandle, String>,
+    source: Remote<AnimationHandle>,
     width: Option<f32>,
     height: Option<f32>,
     fit: BoxFit,
@@ -80,7 +91,7 @@ pub struct Lottie {
 impl Lottie {
     /// An animation already parsed.
     pub fn new(animation: AnimationHandle) -> Self {
-        Self::from_source(Ok(animation))
+        Self::from_remote(Remote::Ready(animation))
     }
 
     /// An animation from embedded bytes — what `include_bytes!` gives a `.json` Lottie file.
@@ -112,7 +123,26 @@ impl Lottie {
         Self::from_source(source)
     }
 
+    /// **An animation fetched from `url`**, through the fetcher images use
+    /// ([`frus_core::set_image_fetcher`], which the shell installs with the `net` feature).
+    ///
+    /// Fetched and parsed once per process for an address; a failure is remembered too.
+    /// While it is on its way the widget takes the room given it and draws nothing, and
+    /// [`state`](Lottie::state) says so. It **plays from its first frame when it arrives**,
+    /// not from when the widget appeared: a fetch that took longer than the animation does
+    /// not skip it.
+    pub fn network(url: impl AsRef<str>) -> Self {
+        Self::from_remote(FETCHED.get(url.as_ref(), parse))
+    }
+
     fn from_source(source: Result<AnimationHandle, String>) -> Self {
+        Self::from_remote(match source {
+            Ok(animation) => Remote::Ready(animation),
+            Err(why) => Remote::Failed(why),
+        })
+    }
+
+    fn from_remote(source: Remote<AnimationHandle>) -> Self {
         Self {
             source,
             width: None,
@@ -226,14 +256,29 @@ impl Lottie {
         self
     }
 
-    /// Why there is no animation, when the source could not be parsed.
+    /// Why there is no animation, when the source could not be fetched or parsed.
     pub fn error(&self) -> Option<&str> {
-        self.source.as_ref().err().map(String::as_str)
+        match &self.source {
+            Remote::Failed(why) => Some(why),
+            _ => None,
+        }
     }
 
     /// The parsed animation, when there is one.
     pub fn animation(&self) -> Option<&AnimationHandle> {
-        self.source.as_ref().ok()
+        match &self.source {
+            Remote::Ready(animation) => Some(animation),
+            _ => None,
+        }
+    }
+
+    /// Whether the animation is here, on its way ([`Lottie::network`]), or will not come.
+    pub fn state(&self) -> State<'_> {
+        match &self.source {
+            Remote::Ready(_) => State::Ready,
+            Remote::Loading => State::Loading,
+            Remote::Failed(why) => State::Failed(why),
+        }
     }
 
     /// Whether the widget plays by itself, with something to play.
@@ -241,9 +286,8 @@ impl Lottie {
         self.progress.is_none()
             && self.animate
             && self
-                .source
-                .as_ref()
-                .is_ok_and(|animation| animation.duration() > 0.0)
+                .animation()
+                .is_some_and(|animation| animation.duration() > 0.0)
     }
 
     /// The moment shown, from the played value `value` (plays from `0`, one per play).
@@ -277,7 +321,7 @@ impl Lottie {
 impl<Msg> Widget<Msg> for Lottie {
     fn style(&self) -> Style {
         let length = |v: Option<f32>| v.map_or(Dimension::Auto, Dimension::Length);
-        let Ok(animation) = &self.source else {
+        let Some(animation) = self.animation() else {
             return Style {
                 width: Dimension::Length(self.width.unwrap_or(0.0)),
                 height: Dimension::Length(self.height.unwrap_or(0.0)),
@@ -322,8 +366,7 @@ impl<Msg> Widget<Msg> for Lottie {
 
     fn anim_duration(&self) -> f32 {
         let one = self
-            .source
-            .as_ref()
+            .animation()
             .map_or(0.0, |animation| animation.duration())
             / self.speed;
         if self.repeat {
@@ -339,7 +382,7 @@ impl<Msg> Widget<Msg> for Lottie {
     }
 
     fn paint(&self, bounds: Rect, status: Status, _theme: &Theme, scene: &mut Scene) {
-        if let Ok(animation) = &self.source {
+        if let Some(animation) = self.animation() {
             animation.paint(
                 scene,
                 bounds,
@@ -469,6 +512,52 @@ mod tests {
         let still = Lottie::string(MOVING).animate(false);
         assert_eq!(Widget::<()>::anim_target(&still), None);
         assert!((left_at(&still, 0.0) - 10.0).abs() < 0.5);
+    }
+
+    /// **A fetched animation waits, then plays from its start when it lands**: nothing
+    /// plays while it is on its way, so a fetch longer than the animation does not skip it.
+    #[test]
+    fn a_fetched_animation_plays_from_its_start_when_it_arrives() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Mutex as StdMutex;
+        type Deliver = Box<dyn FnOnce(Result<Vec<u8>, String>) + Send>;
+        static PENDING: StdMutex<Option<Deliver>> = StdMutex::new(None);
+        static ASKED: AtomicBool = AtomicBool::new(false);
+        fn held(_: &str, deliver: Deliver) {
+            ASKED.store(true, Ordering::SeqCst);
+            *PENDING.lock().unwrap() = Some(deliver);
+        }
+        let _guard = crate::remote::fetcher_lock();
+        frus_core::set_image_fetcher(held);
+        let url = "https://example.com/moving.json";
+
+        let mut rt = crate::runtime::Runtime::default();
+        let waiting = Lottie::network(url).size(100.0, 100.0);
+        assert!(ASKED.load(Ordering::SeqCst));
+        assert_eq!(waiting.state(), State::Loading);
+        assert!(crate::images_in_flight() > 0, "the frames keep coming");
+        // Three seconds on its way: longer than the animation's two.
+        for _ in 0..6 {
+            rt.advance_values::<()>(&waiting, 0.5);
+        }
+        let style = Widget::<()>::style(&waiting);
+        assert_eq!(
+            style.width,
+            Dimension::Length(100.0),
+            "the room it was given"
+        );
+
+        let deliver = PENDING.lock().unwrap().take().unwrap();
+        deliver(Ok(MOVING.as_bytes().to_vec()));
+        let arrived = Lottie::network(url).size(100.0, 100.0);
+        assert_eq!(arrived.state(), State::Ready);
+        assert!(rt.advance_values::<()>(&arrived, 0.5), "playing");
+        let value = rt.value(crate::WidgetId::ROOT);
+        assert!(
+            (value - 0.25).abs() < 1e-6,
+            "a quarter in, not at the end: {value}"
+        );
+        assert!((left_at(&arrived, value) - 24.75).abs() < 1.0);
     }
 
     #[test]
