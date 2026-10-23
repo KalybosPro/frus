@@ -1631,6 +1631,40 @@ impl Scene {
         });
     }
 
+    /// Draws a whole image **through an affine map** from its pixels — `(0, 0)` to
+    /// `(width, height)` — to the screen, tinted by `tint`: a bitmap inside vector
+    /// artwork, which may be turned, slanted or mirrored with it (milestone 694).
+    ///
+    /// A map that only scales and moves is one image primitive. Any other draws the image
+    /// upright at its size on screen, at the origin, in a [transformed
+    /// layer](Scene::transformed) that turns it into place, so it is sampled once at the
+    /// resolution it is shown at. Like any transformed layer, an image larger than the
+    /// window once on screen loses what lies past the window's size.
+    pub fn draw_image_mapped(&mut self, image: &ImageHandle, to_screen: Affine, tint: Color) {
+        let (w, h) = (image.width() as f32, image.height() as f32);
+        let [a, b, c, d, e, f] = to_screen.m;
+        if w == 0.0 || h == 0.0 || !to_screen.m.iter().all(|v| v.is_finite()) {
+            return;
+        }
+        let whole = Rect::new(0.0, 0.0, 1.0, 1.0);
+        if b == 0.0 && c == 0.0 && a > 0.0 && d > 0.0 {
+            self.draw_image(image, Rect::new(e, f, a * w, d * h), whole, tint);
+            return;
+        }
+        // The length each pixel's sides take on screen.
+        let (sx, sy) = (a.hypot(b), c.hypot(d));
+        if sx == 0.0 || sy == 0.0 {
+            return;
+        }
+        let flat = Rect::new(0.0, 0.0, w * sx, h * sy);
+        let turn = Affine::scale(1.0 / sx, 1.0 / sy).then(to_screen);
+        self.transformed(LayerTransform::new(turn), |scene| {
+            // The clip around it is the screen's; flat, the image is its own.
+            scene.set_clip(flat);
+            scene.draw_image(image, flat, whole, tint);
+        });
+    }
+
     /// Draws an image fitted into `rect` per `fit` (aspect preserved, letterboxed
     /// or cropped), untinted.
     pub fn image(&mut self, image: &ImageHandle, rect: Rect, fit: crate::BoxFit) {
@@ -2302,5 +2336,58 @@ mod tests {
             panic!("the mask is kept")
         };
         assert_eq!((from, to), (Point::new(0.0, 5.0), Point::new(100.0, 5.0)));
+    }
+
+    /// A bitmap only moved and scaled is one image; a turned one is drawn upright at
+    /// its size on screen and turned by its layer.
+    #[test]
+    fn an_image_is_drawn_through_its_map() {
+        let image = crate::ImageData::from_rgba(4, 2, vec![255; 32]).into_handle();
+        let mut scene = Scene::new();
+        scene.set_clip(Rect::new(0.0, 0.0, 500.0, 500.0));
+        let placed = Affine::scale(10.0, 5.0).then(Affine::translation(30.0, 40.0));
+        scene.draw_image_mapped(&image, placed, Color::WHITE);
+        let Primitive::Image { rect, uv, .. } = &scene.primitives()[0] else {
+            panic!("{:?}", scene.primitives()[0])
+        };
+        assert_eq!(*rect, Rect::new(30.0, 40.0, 40.0, 10.0));
+        assert_eq!(*uv, Rect::new(0.0, 0.0, 1.0, 1.0));
+
+        let mut scene = Scene::new();
+        scene.set_clip(Rect::new(0.0, 0.0, 500.0, 500.0));
+        let turned = Affine::scale(10.0, 10.0)
+            .then(Affine::rotation(std::f32::consts::FRAC_PI_2))
+            .then(Affine::translation(200.0, 100.0));
+        scene.draw_image_mapped(&image, turned, Color::WHITE);
+        let Primitive::Layer {
+            primitives,
+            transform: Some(transform),
+            clip,
+            ..
+        } = &scene.primitives()[0]
+        else {
+            panic!("{:?}", scene.primitives()[0])
+        };
+        assert_eq!(*clip, Rect::new(0.0, 0.0, 500.0, 500.0), "the screen's");
+        let Primitive::Image { rect, clip, .. } = &primitives[0] else {
+            panic!()
+        };
+        assert_eq!(
+            *rect,
+            Rect::new(0.0, 0.0, 40.0, 20.0),
+            "upright, on-screen size"
+        );
+        assert_eq!(*clip, *rect);
+        // The flat image's far corner lands where the map sends the pixels' corner.
+        let far = transform.affine.apply(Point::new(40.0, 20.0));
+        let want = turned.apply(Point::new(4.0, 2.0));
+        assert!(
+            (far.x - want.x).abs() < 1e-3 && (far.y - want.y).abs() < 1e-3,
+            "{far:?}"
+        );
+
+        let mut scene = Scene::new();
+        scene.draw_image_mapped(&image, Affine::scale(0.0, 1.0), Color::WHITE);
+        assert!(scene.primitives().is_empty(), "flattened to nothing");
     }
 }

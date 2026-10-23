@@ -57,8 +57,11 @@ fn parse(bytes: &[u8]) -> Result<AnimationHandle, String> {
 /// ```
 ///
 /// Parsed once per process for a given source. Shapes, fills, strokes, gradients, layer
-/// opacity, masks and mattes are drawn; image assets and sweep gradients are not yet, and the
-/// console says so when an animation uses them.
+/// opacity, masks, mattes and the images a file embeds are drawn; sweep gradients are not
+/// yet, and the console says so when an animation uses them. An animation whose images sit
+/// beside it rather than inside it is parsed by the application, given its images
+/// ([`LottieAnimation::with_image`](crate::LottieAnimation::with_image)) and shown with
+/// [`Lottie::new`].
 ///
 /// It plays once from its first frame when it appears, then rests on its last: [`repeat`]
 /// loops it, [`reverse`] plays it backwards (back and forth when repeating), [`speed`] scales

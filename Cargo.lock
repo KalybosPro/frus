@@ -1568,6 +1568,7 @@ name = "frus-lottie"
 version = "0.4.0"
 dependencies = [
  "frus-core",
+ "frus-image",
  "kurbo",
  "peniko",
  "serde_json",
@@ -1616,6 +1617,7 @@ name = "frus-svg"
 version = "0.4.0"
 dependencies = [
  "frus-core",
+ "frus-image",
  "usvg",
 ]
 

@@ -184,3 +184,57 @@ fn group_opacity_fades_the_group_as_one_in_linear_light() {
         "overlap: {overlap:?}"
     );
 }
+
+/// A 2×1 PNG: a red pixel, then a blue one.
+const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAADklEQVR4nGP4z8AAQv8BD/kD/YURmXYAAAAASUVORK5CYII=";
+
+/// A 20-unit SVG — a circle with a gradient, a green square — as a `data:` address.
+const NESTED: &str = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgdmlld0JveD0iMCAwIDIwIDIwIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciPjxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI2U1MzkzNSIvPjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzFlODhlNSIvPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxjaXJjbGUgY3g9IjEwIiBjeT0iMTAiIHI9IjgiIGZpbGw9InVybCgjZykiLz48cmVjdCB4PSIyIiB5PSIyIiB3aWR0aD0iNiIgaGVpZ2h0PSI2IiBmaWxsPSIjNDNhMDQ3Ii8+PC9zdmc+";
+
+#[test]
+fn an_embedded_svg_is_drawn_like_the_reference_straight_and_turned() {
+    matches_the_reference(
+        "nested",
+        &format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+              <image x="5" y="5" width="40" height="40" href="{NESTED}"/>
+              <image x="50" y="40" width="40" height="40" transform="rotate(30 70 60)"
+                     href="{NESTED}"/></svg>"##
+        ),
+    );
+}
+
+/// The reference is built without its bitmap decoder, so a bitmap is checked by its colours:
+/// red on the left of the picture, blue on its right, wherever the picture turns it.
+#[test]
+fn an_embedded_bitmap_is_drawn_straight_and_turned() {
+    let Some(ours) = painted(&format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+          <image x="10" y="10" width="40" height="20" href="data:image/png;base64,{PNG}"/>
+          <image x="50" y="50" width="40" height="20" transform="rotate(90 50 50)"
+                 href="data:image/png;base64,{PNG}"/></svg>"##
+    )) else {
+        return;
+    };
+    let at = |x: f32, y: f32| {
+        let scale = SIZE as f32 / 100.0;
+        ours.pixel((x * scale) as u32, (y * scale) as u32)
+    };
+    let red = |p: [u8; 4]| p[0] > 200 && p[1] < 40 && p[2] < 40;
+    let blue = |p: [u8; 4]| p[2] > 200 && p[0] < 40 && p[1] < 40;
+    let white = |p: [u8; 4]| p[0] > 245 && p[1] > 245 && p[2] > 245;
+    assert!(red(at(15.0, 20.0)), "straight, left: {:?}", at(15.0, 20.0));
+    assert!(
+        blue(at(45.0, 20.0)),
+        "straight, right: {:?}",
+        at(45.0, 20.0)
+    );
+    // Turned a quarter about its corner: it spans x 30..50, y 50..90, its left at the top.
+    assert!(red(at(40.0, 55.0)), "turned, left: {:?}", at(40.0, 55.0));
+    assert!(blue(at(40.0, 85.0)), "turned, right: {:?}", at(40.0, 85.0));
+    assert!(
+        white(at(25.0, 70.0)) && white(at(55.0, 70.0)),
+        "nothing beside it"
+    );
+    assert!(white(at(40.0, 95.0)), "nothing past it");
+}
