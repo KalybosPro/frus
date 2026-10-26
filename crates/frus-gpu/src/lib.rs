@@ -27,6 +27,7 @@ mod mesh;
 mod offscreen;
 mod painter;
 mod path;
+mod pipeline_cache;
 mod renderer;
 mod text;
 
@@ -44,6 +45,5 @@ pub fn draw_calls(scene: &Scene) -> usize {
 // The data types — geometry, colour, scene — come from the shared foundation.
 pub use frus_core::{Color, Rect, Scene};
 pub use offscreen::{render_offscreen, OffscreenFrame};
-pub use renderer::{
-    backdrop, set_pipeline_cache_dir, RenderOutcome, RenderTimings, Renderer, StartupTimes,
-};
+pub use pipeline_cache::set_pipeline_cache_dir;
+pub use renderer::{backdrop, RenderOutcome, RenderTimings, Renderer, StartupTimes};

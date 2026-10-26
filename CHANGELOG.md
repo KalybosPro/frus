@@ -8,11 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 694 so far, each documenting the objective, the alternatives
+> record — one per step, 697 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The pipeline cache, hardened and on every desktop** (J697, #217): the file a launch keeps
+  its compiled pipelines in is now named for frus's version and the driver's version as well
+  as the adapter, so a new driver or a new frus starts clean, and the files they leave are
+  removed. It is sealed with its length and a digest: a file cut short or damaged on the disk
+  is ignored and removed, and the pipelines are compiled again. On Android it moved to the
+  application's cache folder, which "Clear cache" empties; every desktop now has a folder for
+  it (`%LOCALAPPDATA%\frus\<program>` on Windows, `~/Library/Caches/frus/<program>` on macOS),
+  used wherever the renderer draws through Vulkan.
 - **Bitmaps inside SVG pictures and Lottie animations** (J694): a PNG or JPEG embedded in an
   SVG is decoded once, when the picture is parsed, and drawn where the picture puts it, turned
   or slanted with it; an SVG embedded in an SVG is drawn as vectors. A Lottie file's image
