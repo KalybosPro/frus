@@ -39,6 +39,7 @@ mod app;
 mod application;
 #[cfg(any(android, test))]
 mod autofill;
+mod cache_dir;
 mod caret;
 mod command;
 mod file_drop;
@@ -232,18 +233,6 @@ macro_rules! main {
     };
 }
 
-/// `$XDG_CACHE_HOME/frus/<program>`, or `~/.cache/frus/<program>`.
-#[cfg(target_os = "linux")]
-fn linux_cache_dir() -> Option<std::path::PathBuf> {
-    let base = std::env::var_os("XDG_CACHE_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".cache"))
-        })?;
-    let program = std::env::current_exe().ok()?.file_stem()?.to_os_string();
-    Some(base.join("frus").join(program))
-}
-
 /// Runs an application: opens the window and drives the event loop.
 ///
 /// ```no_run
@@ -259,10 +248,16 @@ fn linux_cache_dir() -> Option<std::path::PathBuf> {
 #[cfg(desktop)]
 pub fn run<A: Application>(mut app: A) -> anyhow::Result<()> {
     startup::begin();
-    // On Linux the renderer draws through Vulkan, which can keep its compiled pipelines between
-    // launches: in the user's cache folder, under the program's name (milestone 685, #217).
-    #[cfg(target_os = "linux")]
-    if let Some(dir) = linux_cache_dir() {
+    // Where the renderer draws through Vulkan — Linux, or any desktop given `WGPU_BACKEND=vulkan`
+    // — it keeps its compiled pipelines between launches: in the user's cache folder, under the
+    // program's name (milestones 685 and 697, #217). Nothing is written elsewhere.
+    if let Some(dir) = std::env::current_exe().ok().and_then(|exe| {
+        cache_dir::desktop(
+            std::env::consts::OS,
+            |name| std::env::var_os(name),
+            exe.file_stem()?,
+        )
+    }) {
         frus_gpu::set_pipeline_cache_dir(dir);
     }
     // The application's `log` output, in the terminal, with nothing to set up
@@ -361,10 +356,19 @@ pub fn run_web<A: Application + 'static>(app: A) -> anyhow::Result<()> {
 pub fn run_android<A: Application>(app: A, android_app: AndroidApp) -> anyhow::Result<()> {
     use winit::platform::android::EventLoopBuilderExtAndroid;
     startup::begin();
-    // The renderer's compiled pipelines, kept in the application's storage between launches:
-    // the next start reads them instead of compiling them again (milestone 685, #217).
-    if let Some(dir) = android_app.internal_data_path() {
-        frus_gpu::set_pipeline_cache_dir(dir.join("frus-pipelines"));
+    // The renderer's compiled pipelines, kept in the application's cache folder between
+    // launches: the next start reads them instead of compiling them again (milestones 685 and
+    // 697, #217). The folder milestone 685 used inside `files` is removed.
+    if let Some(files) = android_app.internal_data_path() {
+        let (now, before) = (
+            cache_dir::android(&files),
+            cache_dir::android_before_697(&files),
+        );
+        // Not when they are the same folder: the cache would be wiped at every start.
+        if before != now {
+            let _ = std::fs::remove_dir_all(before);
+        }
+        frus_gpu::set_pipeline_cache_dir(now);
     }
 
     // The application's `log` output, and its panics, in logcat under its crate's name
