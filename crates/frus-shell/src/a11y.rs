@@ -10,8 +10,9 @@
 use std::sync::{Arc, Mutex};
 
 use accesskit::{
-    Action, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, Live, Node,
-    NodeId, Rect as AkRect, Role as AkRole, Toggled as AkToggled, TreeId, TreeInfo, TreeUpdate,
+    Action, ActionHandler, ActionRequest, ActivationHandler, Affine, DeactivationHandler, Live,
+    Node, NodeId, Rect as AkRect, Role as AkRole, Toggled as AkToggled, TreeId, TreeInfo,
+    TreeUpdate,
 };
 use accesskit_winit::Adapter;
 use winit::event::WindowEvent;
@@ -106,11 +107,17 @@ fn live_node(message: &str) -> Node {
 /// frame's semantic nodes, paint order being reading order. `focus` is the focused
 /// widget, when it is in the tree. A non-empty `announce` adds a **live region** that
 /// is spoken aloud.
+///
+/// The nodes' bounds are the layout's, in **logical** pixels, and the system reads
+/// **physical** ones: `scale` (the window's scale factor) goes on the root as a transform,
+/// which AccessKit applies to every node under it. Without it a reader's highlight and a
+/// magnifier were drawn at two thirds of the size, off their place, on a 150 % screen.
 pub(crate) fn build_tree_update(
     nodes: &[(WidgetId, Rect, SemanticsProperties)],
     focus: Option<WidgetId>,
     title: &str,
     announce: &str,
+    scale: f64,
 ) -> TreeUpdate {
     let mut updates: Vec<(NodeId, Node)> = Vec::with_capacity(nodes.len() + 2);
 
@@ -122,6 +129,11 @@ pub(crate) fn build_tree_update(
     let mut root = Node::new(AkRole::Window);
     root.set_label(title.to_string());
     root.set_children(children);
+    // None at 1, as AccessKit asks of an identity; a scale not yet known (0) is taken as 1
+    // rather than collapsing the tree to a point.
+    if scale > 0.0 && scale != 1.0 {
+        root.set_transform(Affine::scale(scale));
+    }
     updates.push((ROOT_ID, root));
 
     for (id, rect, sem) in nodes {
@@ -162,11 +174,19 @@ struct Snapshot {
     /// The last announcement message, for the live region. It persists as is:
     /// AccessKit re-speaks it only on a **change**, so unchanged text does not repeat.
     announce: String,
+    /// The window's scale factor: logical pixels to physical ones.
+    scale: f64,
 }
 
 impl Snapshot {
     fn to_update(&self) -> TreeUpdate {
-        build_tree_update(&self.nodes, self.focus, &self.title, &self.announce)
+        build_tree_update(
+            &self.nodes,
+            self.focus,
+            &self.title,
+            &self.announce,
+            self.scale,
+        )
     }
 }
 
@@ -246,14 +266,15 @@ impl A11y {
         self.adapter.process_event(window, event);
     }
 
-    /// Publishes the frame's semantic tree; the adapter pushes it only when an AT is
-    /// running.
+    /// Publishes the frame's semantic tree, laid out at `scale` physical pixels to the
+    /// logical one; the adapter pushes it only when an AT is running.
     pub(crate) fn update(
         &mut self,
         nodes: &[(WidgetId, Rect, SemanticsProperties)],
         focus: Option<WidgetId>,
         title: &str,
         announce: &str,
+        scale: f64,
     ) {
         {
             let mut s = self.snapshot.lock().unwrap();
@@ -261,6 +282,7 @@ impl A11y {
             s.focus = focus;
             s.title = title.to_string();
             s.announce = announce.to_string();
+            s.scale = scale;
         }
         let snapshot = self.snapshot.clone();
         self.adapter
@@ -307,7 +329,7 @@ mod tests {
                 sem(Role::CheckBox).toggled(true),
             ),
         ];
-        let update = build_tree_update(&nodes, None, "frus", "");
+        let update = build_tree_update(&nodes, None, "frus", "", 1.0);
         // The root plus two nodes.
         assert_eq!(update.nodes.len(), 3);
         assert_eq!(update.nodes[0].0, ROOT_ID);
@@ -320,13 +342,13 @@ mod tests {
     fn announcement_adds_a_polite_live_region() {
         let nodes = vec![(wid(10), Rect::new(0.0, 0.0, 40.0, 20.0), sem(Role::Button))];
         // With no announcement there is no live node.
-        let quiet = build_tree_update(&nodes, None, "frus", "");
+        let quiet = build_tree_update(&nodes, None, "frus", "", 1.0);
         assert!(
             quiet.nodes.iter().all(|(id, _)| *id != LIVE_ID),
             "no live region"
         );
         // With one: a polite live node carrying the message, a child of the root.
-        let loud = build_tree_update(&nodes, None, "frus", "Column moved to position 2");
+        let loud = build_tree_update(&nodes, None, "frus", "Column moved to position 2", 1.0);
         let live = loud
             .nodes
             .iter()
@@ -345,11 +367,11 @@ mod tests {
     fn focus_points_at_a_present_node() {
         let focused = wid(10);
         let nodes = vec![(focused, Rect::new(0.0, 0.0, 40.0, 20.0), sem(Role::Button))];
-        let update = build_tree_update(&nodes, Some(focused), "frus", "");
+        let update = build_tree_update(&nodes, Some(focused), "frus", "", 1.0);
         assert_eq!(update.focus, node_id(focused));
         // A focus outside the tree falls back to the root.
         let absent = wid(999);
-        let update2 = build_tree_update(&nodes, Some(absent), "frus", "");
+        let update2 = build_tree_update(&nodes, Some(absent), "frus", "", 1.0);
         assert_eq!(update2.focus, ROOT_ID);
     }
 
@@ -358,5 +380,49 @@ mod tests {
         let id = wid(70);
         assert_eq!(widget_for(node_id(id)), Some(id));
         assert_eq!(widget_for(ROOT_ID), None);
+    }
+
+    /// **The tree is handed over in physical pixels**: the layout's logical bounds stay on
+    /// the nodes, and the window's scale goes on the root, so a 56 px button at 150 % is
+    /// 84 px where the system draws its highlight.
+    #[test]
+    fn the_root_scales_logical_bounds_to_physical_ones() {
+        let nodes = vec![(
+            wid(10),
+            Rect::new(461.0, 307.5, 56.0, 56.0),
+            sem(Role::Button).label("Done"),
+        )];
+        let root = |update: &TreeUpdate| update.nodes[0].1.clone();
+        let button = |update: &TreeUpdate| update.nodes[1].1.clone();
+
+        let scaled = build_tree_update(&nodes, None, "frus", "", 1.5);
+        let transform = *root(&scaled).transform().expect("a scale on the root");
+        let physical = transform.transform_rect_bbox(button(&scaled).bounds().unwrap());
+        assert_eq!(
+            (physical.x0, physical.y0, physical.x1, physical.y1),
+            (691.5, 461.25, 775.5, 545.25)
+        );
+        assert_eq!(
+            button(&scaled).transform(),
+            None,
+            "only the root carries it"
+        );
+
+        // The snapshot the adapter reads carries the scale it was last given to the tree.
+        let snapshot = Snapshot {
+            nodes: nodes.clone(),
+            scale: 1.5,
+            ..Snapshot::default()
+        };
+        assert_eq!(
+            root(&snapshot.to_update()).transform(),
+            Some(&Affine::scale(1.5))
+        );
+
+        // At 1 — and before the scale is known — no transform: the identity is left unset.
+        for scale in [1.0, 0.0] {
+            let update = build_tree_update(&nodes, None, "frus", "", scale);
+            assert_eq!(root(&update).transform(), None, "scale {scale}");
+        }
     }
 }
