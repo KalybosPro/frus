@@ -556,6 +556,14 @@ macro_rules! forward_transparent {
                 self.inner.on_drop(payload)
             }
 
+            fn accepts_files(&self, paths: &[std::path::PathBuf]) -> bool {
+                self.inner.accepts_files(paths)
+            }
+
+            fn on_files_dropped(&self, paths: Vec<std::path::PathBuf>) -> Option<Msg> {
+                self.inner.on_files_dropped(paths)
+            }
+
             fn on_page_changed(&self, page: usize) -> Option<Msg> {
                 self.inner.on_page_changed(page)
             }

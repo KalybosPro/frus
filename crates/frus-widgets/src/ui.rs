@@ -1479,6 +1479,11 @@ impl<Msg: Clone> Ui<Msg> {
             .copied()
     }
 
+    /// Every **drop target** of the frame, in paint order: the last one is on top.
+    pub fn drop_zones(&self) -> &[DropZone] {
+        &self.drop_zones
+    }
+
     /// Topmost **drop target** under `point`.
     pub fn drop_zone_at(&self, point: Point) -> Option<DropZone> {
         self.drop_zones

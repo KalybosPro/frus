@@ -415,6 +415,14 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_drop(payload))
     }
 
+    fn accepts_files(&self, paths: &[std::path::PathBuf]) -> bool {
+        self.inner.as_ref().is_some_and(|w| w.accepts_files(paths))
+    }
+
+    fn on_files_dropped(&self, paths: Vec<std::path::PathBuf>) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_files_dropped(paths))
+    }
+
     fn on_page_changed(&self, page: usize) -> Option<Msg> {
         self.inner.as_ref().and_then(|w| w.on_page_changed(page))
     }
