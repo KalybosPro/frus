@@ -20,6 +20,13 @@
 //! hundred times an hour. So inside a scrollable, the way to lift is
 //! [`Draggable::long_press`] — a gesture the scroll cannot claim, because a finger
 //! that holds still is not scrolling. Outside one, a plain drag lifts straight away.
+//!
+//! **Files from outside the application land on the same targets.** On the desktop,
+//! files dragged onto the window from the system's file manager are offered to the
+//! target under the pointer, which lights up as it does for an item from inside and
+//! receives their paths on the drop — see [`DragTarget::on_files`].
+
+use std::path::PathBuf;
 
 use frus_core::{Color, Rect, Scene};
 use frus_layout::Style;
@@ -177,15 +184,29 @@ impl<Msg: Clone> Widget<Msg> for Draggable<Msg> {
     }
 }
 
+/// Which sets of dropped files a target takes; see [`DragTarget::accepts_files`].
+type FilesPredicate = Box<dyn Fn(&[PathBuf]) -> bool>;
+
 /// A widget that can be **dropped onto**.
 ///
 /// By default it takes anything. `accepts` narrows that — a column that only takes
 /// tasks of its own project, say — and a target that refuses is not highlighted and
 /// not offered the drop, so the answer is visible before the finger lifts rather
 /// than after.
+///
+/// It can also take **files dragged onto the window** from outside the application —
+/// from the system's file manager, say — once it is given [`DragTarget::on_files`]:
+///
+/// ```ignore
+/// DragTarget::new(drop_area)
+///     .on_files(Msg::Attach)
+///     .accepts_files(|paths| paths.iter().all(|p| p.extension().is_some_and(|e| e == "png")))
+/// ```
 pub struct DragTarget<Msg = crate::callback::Callback> {
     accepts: Option<Box<dyn Fn(u64) -> bool>>,
     on_drop: Option<Box<dyn Fn(u64) -> Msg>>,
+    accepts_files: Option<FilesPredicate>,
+    on_files: Option<Box<dyn Fn(Vec<PathBuf>) -> Msg>>,
     highlight: Option<Color>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -196,6 +217,8 @@ impl<Msg> DragTarget<Msg> {
         Self {
             accepts: None,
             on_drop: None,
+            accepts_files: None,
+            on_files: None,
             highlight: None,
             children: vec![Box::new(child)],
         }
@@ -213,6 +236,35 @@ impl<Msg> DragTarget<Msg> {
     /// Which payloads this target takes; everything, by default.
     pub fn accepts(mut self, predicate: impl Fn(u64) -> bool + 'static) -> Self {
         self.accepts = Some(Box::new(predicate));
+        self
+    }
+
+    /// The message sent when **files** dragged onto the window from outside the
+    /// application are dropped here, given their paths, in the order the system
+    /// listed them.
+    ///
+    /// While the files are held over this target it shows the same "drop it here"
+    /// highlight as for an item from inside. A target given this and neither
+    /// [`DragTarget::on_drop`] nor [`DragTarget::accepts`] takes **only** files: it is
+    /// a place for files, and lighting up under a card being moved would say
+    /// otherwise.
+    ///
+    /// Files are delivered on the desktop. On the web and on mobile, where nothing is
+    /// dragged onto the window this way, the message is never sent.
+    pub fn on_files<R: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        message: impl Fn(Vec<PathBuf>) -> R + 'static,
+    ) -> Self {
+        self.on_files = Some(Box::new(crate::callback::handler1(message)));
+        self
+    }
+
+    /// Which sets of files this target takes; every set, by default, once it has
+    /// [`DragTarget::on_files`]. The predicate sees every path being dragged, so a
+    /// target that wants images can refuse a drag that holds anything else — and is
+    /// then not highlighted, so the answer shows before the button is let go.
+    pub fn accepts_files(mut self, predicate: impl Fn(&[PathBuf]) -> bool + 'static) -> Self {
+        self.accepts_files = Some(Box::new(predicate));
         self
     }
 
@@ -286,12 +338,27 @@ impl<Msg: Clone> Widget<Msg> for DragTarget<Msg> {
     fn accepts_drag(&self, payload: u64) -> bool {
         match &self.accepts {
             Some(predicate) => predicate(payload),
-            None => true,
+            // A place for files only, unless it said it takes items too.
+            None => self.on_drop.is_some() || self.on_files.is_none(),
         }
     }
 
     fn on_drop(&self, payload: u64) -> Option<Msg> {
         self.on_drop.as_ref().map(|make| make(payload))
+    }
+
+    fn accepts_files(&self, paths: &[PathBuf]) -> bool {
+        if self.on_files.is_none() || paths.is_empty() {
+            return false;
+        }
+        match &self.accepts_files {
+            Some(predicate) => predicate(paths),
+            None => true,
+        }
+    }
+
+    fn on_files_dropped(&self, paths: Vec<PathBuf>) -> Option<Msg> {
+        self.on_files.as_ref().map(|make| make(paths))
     }
 }
 
@@ -305,6 +372,7 @@ mod tests {
     enum Msg {
         Dropped(u64),
         Ended(bool),
+        Files(Vec<PathBuf>),
     }
 
     fn tree() -> Flex<Msg> {
@@ -478,5 +546,70 @@ mod tests {
             .next()
             .expect("the highlight");
         assert!((highlight.width - 200.0).abs() < 0.5, "{highlight:?}");
+    }
+    #[test]
+    fn a_target_takes_no_files_unless_it_says_so() {
+        let paths = vec![PathBuf::from("a.txt")];
+        let plain = DragTarget::new(Container::new()).on_drop(Msg::Dropped);
+        assert!(!Widget::<Msg>::accepts_files(&plain, &paths));
+        assert_eq!(Widget::<Msg>::on_files_dropped(&plain, paths.clone()), None);
+        let files = DragTarget::new(Container::new()).on_files(Msg::Files);
+        assert!(Widget::<Msg>::accepts_files(&files, &paths));
+        // Nothing dragged is nothing to take.
+        assert!(!Widget::<Msg>::accepts_files(&files, &[]));
+    }
+
+    #[test]
+    fn the_paths_reach_the_drop_untouched_and_in_order() {
+        let paths = vec![PathBuf::from("b.png"), PathBuf::from("a.png")];
+        let target = DragTarget::new(Container::new()).on_files(Msg::Files);
+        assert_eq!(
+            Widget::<Msg>::on_files_dropped(&target, paths.clone()),
+            Some(Msg::Files(paths))
+        );
+    }
+
+    #[test]
+    fn a_target_refuses_the_files_it_says_it_refuses() {
+        let images = DragTarget::new(Container::new())
+            .on_files(Msg::Files)
+            .accepts_files(|paths| {
+                paths
+                    .iter()
+                    .all(|p| p.extension().is_some_and(|e| e == "png"))
+            });
+        let png = [PathBuf::from("a.png"), PathBuf::from("b.png")];
+        let mixed = [PathBuf::from("a.png"), PathBuf::from("b.txt")];
+        assert!(Widget::<Msg>::accepts_files(&images, &png));
+        assert!(!Widget::<Msg>::accepts_files(&images, &mixed));
+    }
+
+    #[test]
+    fn a_target_for_files_only_turns_items_away() {
+        let files = DragTarget::new(Container::new()).on_files(Msg::Files);
+        assert!(!Widget::<Msg>::accepts_drag(&files, 7));
+        // Unless it takes items as well, or says which.
+        let both = DragTarget::new(Container::new())
+            .on_files(Msg::Files)
+            .on_drop(Msg::Dropped);
+        assert!(Widget::<Msg>::accepts_drag(&both, 7));
+        let picky = DragTarget::new(Container::new())
+            .on_files(Msg::Files)
+            .accepts(|payload| payload == 7);
+        assert!(Widget::<Msg>::accepts_drag(&picky, 7));
+        // And a target with neither handler stays what it was: open to anything.
+        let open = DragTarget::<Msg>::new(Container::new());
+        assert!(Widget::<Msg>::accepts_drag(&open, 7));
+    }
+
+    #[test]
+    fn a_wrapped_target_still_takes_files() {
+        let paths = vec![PathBuf::from("a.txt")];
+        let wrapped = crate::keyed(1u64, DragTarget::new(Container::new()).on_files(Msg::Files));
+        assert!(Widget::<Msg>::accepts_files(&wrapped, &paths));
+        assert_eq!(
+            Widget::<Msg>::on_files_dropped(&wrapped, paths.clone()),
+            Some(Msg::Files(paths))
+        );
     }
 }

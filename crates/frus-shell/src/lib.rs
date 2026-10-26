@@ -42,6 +42,7 @@ mod autofill;
 mod cache_dir;
 mod caret;
 mod command;
+mod file_drop;
 mod frame_stats;
 mod gesture;
 #[cfg(any(web, test))]
