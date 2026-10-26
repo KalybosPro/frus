@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 694 so far, each documenting the objective, the alternatives
+> record — one per step, 695 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Files dropped onto the window** (J695, part of #219): on the desktop, files dragged from the
+  system's file manager land on a `DragTarget` given `DragTarget::on_files(|paths| …)`, which
+  receives every path in one message; `accepts_files` says which sets it takes. The target
+  under the pointer shows its usual "drop it here" highlight while the files are held over it —
+  following the pointer on Windows, where the shell reads the cursor during the system's drag.
+  A target given only `on_files` takes files and no in-app items.
 
 - **Bitmaps inside SVG pictures and Lottie animations** (J694): a PNG or JPEG embedded in an
   SVG is decoded once, when the picture is parsed, and drawn where the picture puts it, turned
