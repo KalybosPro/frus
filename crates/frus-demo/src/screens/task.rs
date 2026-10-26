@@ -3,6 +3,14 @@
 use crate::prelude::*;
 use frus_widgets::{column, AnnotatedRegion, SystemUiOverlayStyle};
 
+/// Whether the system can show a file dialog here, and files can be dropped on the window:
+/// the desktop.
+const FILE_DIALOGS: bool = cfg!(not(any(
+    target_os = "android",
+    target_os = "ios",
+    target_arch = "wasm32"
+)));
+
 /// One task on its own screen (milestone 286): which one, and how far in the screen is.
 ///
 /// `entering` is the route's own progress — the number the transition is driven by, which the
@@ -72,14 +80,66 @@ impl StatelessWidget for TaskPage {
         // The avatar is deliberately **not** in there: it is a shared element, and the
         // framework is already flying it from the row this screen was opened from. A second
         // animation on top would be two hands on the same object.
-        let body = column![avatar, words]
+        // The files attached to the task (milestone 698): dropped onto the screen, or chosen
+        // with "Attach…" where the system has a file dialog. By name; the demo reads nothing.
+        let attached = self.demo.attachments(id);
+        let mut files = Flex::column().gap(6.0).align(Align::Center);
+        if attached.is_empty() && FILE_DIALOGS {
+            files = files.child(
+                text("Drop files here to attach them")
+                    .size(13.0)
+                    .color(theme.muted),
+            );
+        }
+        for name in attached {
+            files = files.child(text(name).size(14.0).color(theme.muted));
+        }
+        let body = column![avatar, words, files]
             .gap(18.0)
             .align(Align::Center)
             .justify(Justify::Center)
             .flex(1.0);
 
         let (pop, delete, toggle) = (router.clone(), self.demo.clone(), self.demo.clone());
-        let back = router.clone();
+        let (back, dropped) = (router.clone(), self.demo.clone());
+        let actions = Flex::row().align(Align::Center).gap(16.0).child(
+            Container::new()
+                .padding(8.0)
+                .on_click(on(move || delete.delete(id)))
+                .child(text("Delete").size(15.0).color(theme.error)),
+        );
+        #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
+        let actions = {
+            let attach = self.demo.clone();
+            actions.child(
+                Container::new()
+                    .padding(8.0)
+                    .on_click(on(move || {
+                        let attach = attach.clone();
+                        // The dialog waits for the person, so it is shown off the interface's
+                        // thread; what they chose comes back here.
+                        frus_widgets::host::spawn(
+                            || {
+                                frus_shell::FileDialog::new()
+                                    .title("Attach files")
+                                    .pick_files()
+                            },
+                            move |paths| attach.attach(id, &paths),
+                        );
+                    }))
+                    .child(text("Attach…").size(15.0).color(theme.primary)),
+            )
+        };
+        let actions = actions
+            .child(
+                Container::new()
+                    .padding(8.0)
+                    .on_click(on(move || {
+                        back.pop();
+                    }))
+                    .child(text("Back").size(15.0).color(theme.muted)),
+            )
+            .child(bar_spacer());
         // A bottom app bar and a **docked** button (milestone 291): the screen's own
         // actions along the bottom, and the one that matters most astride the bar's top
         // edge, in a notch cut to receive it.
@@ -96,33 +156,17 @@ impl StatelessWidget for TaskPage {
                 // No width: the body **is** the slot the Scaffold hands it, and a lone child
                 // is bounded by the box it is given (milestone 392). `flex(1)` is the height
                 // — the slot's, so that the centring below has something to centre within.
-                Container::new().flex(1.0).padding(24.0).child(body),
+                // The whole of it takes files dropped from the system, and lights up while
+                // they are held over it.
+                DragTarget::new(Container::new().flex(1.0).padding(24.0).child(body))
+                    .on_files(move |paths| dropped.attach(id, &paths)),
             )
             .bottom_app_bar(
                 // Unfilled actions, as a bottom app bar carries: icons and words, not
                 // filled buttons. Also the only thing that works today — see the renderer
                 // note in milestone 291: a filled button on a **notched** bar is painted
                 // over by the bar's own outline.
-                BottomAppBar::new().color(theme.surface).child(
-                    Flex::row()
-                        .align(Align::Center)
-                        .gap(16.0)
-                        .child(
-                            Container::new()
-                                .padding(8.0)
-                                .on_click(on(move || delete.delete(id)))
-                                .child(text("Delete").size(15.0).color(theme.error)),
-                        )
-                        .child(
-                            Container::new()
-                                .padding(8.0)
-                                .on_click(on(move || {
-                                    back.pop();
-                                }))
-                                .child(text("Back").size(15.0).color(theme.muted)),
-                        )
-                        .child(bar_spacer()),
-                ),
+                BottomAppBar::new().color(theme.surface).child(actions),
             )
             .fab_location(FabLocation::EndDocked)
             .fab(fab_button(

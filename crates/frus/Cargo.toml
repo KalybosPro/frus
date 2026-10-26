@@ -35,6 +35,8 @@ categories = ["gui", "graphics", "wasm"]
 # Hot reload under `frus run`, which turns it on: development only, never shipped.
 hot-reload = ["frus-shell/hot-reload", "frus-widgets/hot-reload"]
 net = ["frus-shell/net"]
+# The system's file dialogs: `FileDialog`. Desktop only; off by default.
+file-dialogs = ["frus-shell/file-dialogs"]
 json = ["frus-shell/json"]
 default = ["frus-shell/default", "frus-widgets/default", "frus-text/default"]
 # Decoding embedded PNG/JPEG: `Image::memory` and `asset!`. Part of `default`;

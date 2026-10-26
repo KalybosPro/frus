@@ -1789,8 +1789,8 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
         // yet accented.
         let float_t = self.float_progress(fp, theme);
         // A label that never floats is a hint: gone once the field holds something.
-        let label_shown = !(self.floating_behavior(theme) == FloatingLabelBehavior::Never
-            && !self.value.is_empty());
+        let label_shown =
+            self.floating_behavior(theme) != FloatingLabelBehavior::Never || self.value.is_empty();
         let content_left = bounds.x + self.lead();
         // The label at rest sits where the value starts, after the prefix icon; the prefix
         // text, hidden while it rests, is no part of it.

@@ -404,6 +404,41 @@ fn a_task_screen_shows_its_task_and_survives_its_deletion() {
         .any(|w| w == "This task no longer exists."));
 }
 
+/// **Files attached to a task are named on its screen** (milestone 698), under its state;
+/// before any, the desktop says files can be dropped there.
+///
+/// Two benches, each building the screen once from what is attached when it opens: in the
+/// first version, attaching on the open screen, one run in about fifteen saw a frame carrying
+/// both the names and the hint, which no single build of the screen can produce (see the
+/// milestone's notes).
+#[test]
+fn a_task_screen_names_its_attached_files() {
+    let mut bench = Bench::new(400.0, 800.0).with_tasks(&["Water the plants"]);
+    let id = bench.demo.todos()[0].id;
+    bench.go(&format!("/task/{id}"));
+    let words = bench.words();
+    assert!(
+        words.iter().any(|w| w == "Drop files here to attach them"),
+        "{words:?}"
+    );
+    assert!(words.iter().any(|w| w == "Attach…"), "{words:?}");
+
+    let mut bench = Bench::new(400.0, 800.0).with_tasks(&["Water the plants"]);
+    let id = bench.demo.todos()[0].id;
+    bench.demo.attach(
+        id,
+        &[PathBuf::from("/tmp/schedule.pdf"), "photo.png".into()],
+    );
+    bench.go(&format!("/task/{id}"));
+    let words = bench.words();
+    assert!(words.iter().any(|w| w == "schedule.pdf"), "{words:?}");
+    assert!(words.iter().any(|w| w == "photo.png"), "{words:?}");
+    assert!(
+        !words.iter().any(|w| w == "Drop files here to attach them"),
+        "{words:?}"
+    );
+}
+
 /// **The task screen's bottom bar continues into the system's navigation bar** (#46): the
 /// screen asks for the navigation bar in its bottom app bar's colour, and says nothing of the
 /// status bar, which stays the theme's.
