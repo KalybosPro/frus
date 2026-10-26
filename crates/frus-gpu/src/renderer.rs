@@ -206,6 +206,7 @@ impl Renderer {
             })
             .await?;
         let device_time = device_started.elapsed();
+        let surface_started = web_time::Instant::now();
         // A lost device — a driver reset, a GPU removed — says so here; the renderer then
         // answers `DeviceLost`, and its owner makes a new one (milestone 686).
         let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -287,6 +288,7 @@ impl Renderer {
         let sample_count = preferred_sample_count(&adapter, render_format);
         log::info!("MSAA: {sample_count}×");
 
+        let surface_time = surface_started.elapsed();
         let pipelines_started = web_time::Instant::now();
         let pipeline_cache =
             crate::pipeline_cache::open(&adapter, &device, crate::pipeline_cache::cache_dir());
@@ -309,6 +311,7 @@ impl Renderer {
         let startup = StartupTimes {
             adapter: adapter_time,
             device: device_time,
+            surface: surface_time,
             pipelines,
             warm_up: warm_up_started.elapsed(),
         };
@@ -527,6 +530,9 @@ pub struct StartupTimes {
     pub adapter: std::time::Duration,
     /// The device and its queue.
     pub device: std::time::Duration,
+    /// The surface's capabilities read, and the surface configured for the device
+    /// (milestone 696).
+    pub surface: std::time::Duration,
     /// The pipelines and resources every frame draws with.
     pub pipelines: std::time::Duration,
     /// A frame drawn before the first real one, which builds what drivers build lazily.

@@ -97,6 +97,19 @@ asked: `FRUS_FRAME_STATS=1` on desktop, `adb shell setprop debug.frus.frames 1` 
 the application on Android. A line goes to the log every two seconds of drawing (see
 `crates/frus-shell/src/frame_stats.rs`).
 
+How long the application took to show its **first frame** is logged at every launch, with
+nothing to turn on: one line, from the process's start to the first frame presented, broken
+into the window, the GPU (adapter, device, surface, pipelines, warm-up), the fonts, the first
+build, layout and presentation (`crates/frus-shell/src/startup.rs`). For a number rather than
+one launch's luck, `scripts/first-frame.sh` launches a built program several times — each
+launch ends at its first frame (`FRUS_EXIT_AFTER_FIRST_FRAME=1`) — and prints the fewest, the
+median and the most milliseconds of each stage:
+
+```sh
+cargo build --release -p frus-hello
+bash scripts/first-frame.sh -n 10 target/release/frus-hello
+```
+
 ## The workflow
 
 frus is built in **milestones**. Each one is a single coherent step: a feature, its tests, and a design note in `docs/milestone-N.md` ([index](docs/README.md)). There are 277 of them, and together they are the project's real memory — they record not just what was built but which alternatives were rejected and why.

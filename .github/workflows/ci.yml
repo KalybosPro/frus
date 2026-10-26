@@ -205,6 +205,39 @@ jobs:
           path: "**/*.actual.png"
           if-no-files-found: ignore
 
+      # The time to the first frame (milestone 696, #211): the counter launched seven times
+      # under Xvfb on lavapipe, each launch ending at its first frame, the median against
+      # ci/first-frame-budget.toml. **Advisory** (`continue-on-error`): on lavapipe every stage
+      # is CPU work on a shared runner, and the same commit can take twice as long from one
+      # run to the next — a hard gate would fail changes that did nothing. Over budget, the
+      # step turns orange and leaves a warning; the numbers are in the job's summary either
+      # way. Last in the job, so that Xvfb, installed here, cannot touch the pinned mesa
+      # before the goldens have run.
+      - name: Time to the first frame (advisory, see the comment)
+        continue-on-error: true
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          sudo apt-get install -y --no-install-recommends xvfb xauth
+          cargo build -p frus-hello
+          budget="$(sed -n 's/^[[:space:]]*budget_ms[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' ci/first-frame-budget.toml | head -n 1)"
+          set +e
+          xvfb-run -a -s "-screen 0 1280x800x24" \
+            bash scripts/first-frame.sh -n 7 -b "$budget" target/debug/frus-hello > first-frame.txt 2>&1
+          status=$?
+          set -e
+          cat first-frame.txt
+          {
+            echo "### Time to the first frame (frus-hello, dev profile, lavapipe under Xvfb)"
+            echo '```'
+            cat first-frame.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::time to the first frame: over budget or not measured (see the step's output); advisory, see ci/first-frame-budget.toml"
+          fi
+          exit "$status"
+
   # ---------------------------------------------------------------------------
   # Web target — must keep compiling for wasm32.
   # ---------------------------------------------------------------------------
