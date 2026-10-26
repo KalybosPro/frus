@@ -1,0 +1,21 @@
+# The budget for the time to the first frame on CI (milestone 696, #211).
+#
+# What is measured: `frus-hello`, the counter, as the GPU job builds it (the dev profile,
+# whose dependencies are optimised), launched seven times under Xvfb with lavapipe -- a
+# Vulkan driver that runs on the CPU -- by scripts/first-frame.sh. The median launch, from
+# the process's start to the first frame presented, against `budget_ms`.
+#
+# **Advisory, not a gate.** The step in .github/workflows/ci.yml is `continue-on-error`:
+# a hosted runner's CPU is shared and its model changes from run to run, and on lavapipe
+# every stage of a launch -- compiling the pipelines above all -- is CPU work, so the same
+# commit can take twice as long on two runs. A hard gate on that would fail changes that did
+# nothing. Over budget, the step turns orange and says so; the job stays green.
+#
+# The budget is set to catch a jump -- a launch that doubles, a stage that appears -- not a
+# few percent. Measured under WSL's lavapipe (llvmpipe, 16 threads), see
+# docs/milestone-696.md; a runner has 4 threads.
+#
+# Raising it is allowed, and meant to be deliberate: in the change that needs it, with the
+# reason in the commit.
+
+budget_ms = 3000

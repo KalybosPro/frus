@@ -2417,6 +2417,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // Measured only when asked: a clock read per stage is cheap, but not free.
                 let measuring = self.frame_stats.enabled();
                 let frame_start = measuring.then(Instant::now);
+                // The stages are timed for the first frame too, whose line breaks the launch
+                // down (milestone 696); after it, one atomic load.
+                let timed = measuring || crate::startup::pending();
                 self.frame_costs = crate::frame_stats::FrameCosts::default();
                 // Web: pick up the asynchronously initialised renderer as soon as it
                 // is ready; until then, nothing is painted.
@@ -2656,10 +2659,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     // the layout pass has been down it, so an unprepared tree would report
                     // no identities at all inside a deferred subtree — and everything in an
                     // `AppBar` would silently never mount, never fade in and never fade out.
-                    let build_start = measuring.then(Instant::now);
+                    let build_start = timed.then(Instant::now);
                     let tree = build_view(&self.app, &theme, &self.runtime);
                     if let Some(at) = build_start {
-                        self.frame_costs.build = Some(at.elapsed().as_secs_f32() * 1000.0);
+                        let took = at.elapsed();
+                        self.frame_costs.build = Some(took.as_secs_f32() * 1000.0);
+                        crate::startup::built(took);
                     }
                     let ids = collect_ids(tree.as_ref());
                     let present: std::collections::HashSet<_> = ids.iter().copied().collect();
@@ -2882,7 +2887,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // With the inspector on, the same build collects the observed nodes,
                 // and the overlay — outlines plus a card for the hovered widget — is
                 // painted on top of a copy of the scene.
-                let layout_start = measuring.then(Instant::now);
+                let layout_start = timed.then(Instant::now);
                 // So do debug paint (outlines alone, no card) and the dumps `frus run` asks
                 // for (milestone 668).
                 let inspected = self.inspector
@@ -2942,8 +2947,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     };
                     (ui, scene)
                 };
-                if let Some(at) = layout_start {
-                    self.frame_costs.layout_paint = at.elapsed().as_secs_f32() * 1000.0;
+                let layout_took = layout_start.map(|at| at.elapsed());
+                if let Some(took) = layout_took {
+                    self.frame_costs.layout_paint = took.as_secs_f32() * 1000.0;
                     self.frame_costs.layers = count_layers(scene.primitives());
                 }
                 self.report_overflows(&ui);
@@ -2951,7 +2957,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // effects it asked for run. An effect that changed something asks for the
                 // frame that shows it.
                 self.runtime.states.end_frame();
-                crate::startup::laid_out();
+                crate::startup::laid_out(layout_took);
                 #[cfg(web)]
                 crate::web_dev::keep(|| self.runtime.states.snapshot());
                 if frus_widgets::rebuild_requested() {
@@ -2996,9 +3002,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 }
                 let mut device_lost = false;
                 if let Some(renderer) = self.renderer.as_mut() {
-                    let render_start = measuring.then(Instant::now);
+                    let render_start = timed.then(Instant::now);
                     match renderer.render(&scene) {
-                        frus_gpu::RenderOutcome::Presented => crate::startup::presented(),
+                        frus_gpu::RenderOutcome::Presented => {
+                            crate::startup::presented(render_start.map(|at| at.elapsed()))
+                        }
                         frus_gpu::RenderOutcome::NeedsReconfigure => {
                             renderer.reconfigure();
                         }

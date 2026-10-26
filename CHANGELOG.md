@@ -8,11 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 695 so far, each documenting the objective, the alternatives
+> record — one per step, 696 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The time to the first frame, measured again and again** (J696, #211): the line every
+  application logs at its first frame now names every stage — when the framework's code began,
+  the window, the GPU (adapter, device, surface, pipelines, warm-up), the fonts, and the first
+  build, layout and presentation. `FRUS_EXIT_AFTER_FIRST_FRAME=1` ends the program once it is
+  logged, and `scripts/first-frame.sh` launches a program several times and prints the fewest,
+  the median and the most milliseconds of each stage. CI measures the counter at every push
+  on lavapipe, against an advisory budget. Once the first frame is shown, measuring it costs
+  one atomic load a frame (it took a lock at every frame before).
 - **Files dropped onto the window** (J695, part of #219): on the desktop, files dragged from the
   system's file manager land on a `DragTarget` given `DragTarget::on_files(|paths| …)`, which
   receives every path in one message; `accepts_files` says which sets it takes. The target
