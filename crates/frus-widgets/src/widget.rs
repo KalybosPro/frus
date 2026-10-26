@@ -841,6 +841,18 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// Would this target take these **files**, dragged onto the window from outside
+    /// the application? Only asked of a drop target; none takes files unless it says
+    /// so. See [`crate::DragTarget::on_files`].
+    fn accepts_files(&self, _paths: &[std::path::PathBuf]) -> bool {
+        false
+    }
+
+    /// Message sent when accepted files are dropped on this target.
+    fn on_files_dropped(&self, _paths: Vec<std::path::PathBuf>) -> Option<Msg> {
+        None
+    }
+
     /// If this widget is a **reorderable header**, its column index. The shell uses
     /// it to identify the **source** column (on press) and the **target** column
     /// (under the pointer on release) of a reordering drag.
@@ -2302,6 +2314,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_drop(&self, payload: u64) -> Option<Msg> {
         (**self).on_drop(payload)
+    }
+    fn accepts_files(&self, paths: &[std::path::PathBuf]) -> bool {
+        (**self).accepts_files(paths)
+    }
+    fn on_files_dropped(&self, paths: Vec<std::path::PathBuf>) -> Option<Msg> {
+        (**self).on_files_dropped(paths)
     }
     fn on_page_changed(&self, page: usize) -> Option<Msg> {
         (**self).on_page_changed(page)

@@ -21,6 +21,13 @@ any release may break.
   the median and the most milliseconds of each stage. CI measures the counter at every push
   on lavapipe, against an advisory budget. Once the first frame is shown, measuring it costs
   one atomic load a frame (it took a lock at every frame before).
+- **Files dropped onto the window** (J695, part of #219): on the desktop, files dragged from the
+  system's file manager land on a `DragTarget` given `DragTarget::on_files(|paths| …)`, which
+  receives every path in one message; `accepts_files` says which sets it takes. The target
+  under the pointer shows its usual "drop it here" highlight while the files are held over it —
+  following the pointer on Windows, where the shell reads the cursor during the system's drag.
+  A target given only `on_files` takes files and no in-app items.
+
 - **Bitmaps inside SVG pictures and Lottie animations** (J694): a PNG or JPEG embedded in an
   SVG is decoded once, when the picture is parsed, and drawn where the picture puts it, turned
   or slanted with it; an SVG embedded in an SVG is drawn as vectors. A Lottie file's image

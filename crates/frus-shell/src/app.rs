@@ -153,6 +153,11 @@ const REGION_DOUBLE_CLICK_SLOP: f32 = 8.0;
 /// `kDoubleTapTimeout`.
 const DOUBLE_TAP_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(300);
 
+/// How often the system's cursor is read while files from outside the application are
+/// held over the window, where it can be read (milestone 695): the window hears nothing
+/// else of their movement. Thirty times a second keeps the highlight on the pointer.
+const FILE_DRAG_POLL: std::time::Duration = std::time::Duration::from_millis(33);
+
 /// How far apart two taps may be and still be a double tap, in logical pixels: the reference's
 /// `kDoubleTapSlop`.
 const DOUBLE_TAP_SLOP: f32 = 100.0;
@@ -965,6 +970,9 @@ pub struct App<A: Application> {
     app_was_animating: bool,
     /// The mouse drag under way.
     drag: Option<Drag>,
+    /// Files from outside the application, held over the window or just dropped on it
+    /// (milestone 695). Apart from `drag`: the system runs that drag, not the pointer.
+    file_drag: Option<crate::file_drop::FileDrag>,
     /// Was the pointer that started the drag under way a finger? A mouse is
     /// precise and needs almost no slop; a finger needs a lot.
     pointer_touch: bool,
@@ -1213,6 +1221,7 @@ impl<A: Application> App<A> {
             build_dirty: true,
             app_was_animating: false,
             drag: None,
+            file_drag: None,
             pointer_touch: false,
             gesture_velocity: VelocityTracker::default(),
             gesture_clock: None,
@@ -2063,6 +2072,21 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         self.request_redraw();
     }
 
+    /// The loop has run out of events: dropped files are handed over now that every one
+    /// of them has arrived, and files still held over the window are looked for where
+    /// the system can say (milestone 695).
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.file_drag.is_none() {
+            return;
+        }
+        self.deliver_dropped_files();
+        if self.file_drag.is_some() {
+            let at = self.system_cursor();
+            self.files_moved(at);
+        }
+        event_loop.set_control_flow(self.idle_control_flow());
+    }
+
     /// The loop woke up: if the long-press deadline has been reached the recogniser
     /// **accepts eagerly** — the message is emitted and the release to come will be
     /// swallowed, the long press having evicted the tap.
@@ -2186,6 +2210,20 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     },
                 );
             }
+
+            // Files dragged onto the window from outside the application, one event per
+            // file, held or dropped — and taken away again (milestone 695). They land on a
+            // `DragTarget`, like an item carried from inside.
+            WindowEvent::HoveredFile(path) => {
+                let at = self.system_cursor();
+                self.file_event(path, false, at);
+                event_loop.set_control_flow(self.idle_control_flow());
+            }
+            WindowEvent::DroppedFile(path) => {
+                let at = self.system_cursor();
+                self.file_event(path, true, at);
+            }
+            WindowEvent::HoveredFileCancelled => self.files_left(),
 
             // The mouse left the window: nothing in it is under the pointer any more.
             WindowEvent::CursorLeft { .. } => {
@@ -3863,6 +3901,83 @@ impl<A: Application> App<A> {
         }
     }
 
+    /// Where the system's cursor is, read from the system: while it runs a drag of files
+    /// the window hears no pointer movement. `None` where it cannot be read.
+    fn system_cursor(&self) -> Option<Point> {
+        let window = self.window.as_ref()?;
+        crate::file_drop::cursor_in(window, self.total_scale())
+    }
+
+    /// One file of a drag from outside the application, held over the window or dropped
+    /// on it, the cursor at `at` when that is known.
+    fn file_event(&mut self, path: std::path::PathBuf, dropping: bool, at: Option<Point>) {
+        self.file_drag
+            .get_or_insert_with(Default::default)
+            .add(path, dropping);
+        self.files_moved(at);
+    }
+
+    /// Files held over the window, the cursor at `at` when that is known: the target
+    /// they would land on lights up, as one does under an item carried from inside.
+    fn files_moved(&mut self, at: Option<Point>) {
+        let Some(drag) = self.file_drag.as_ref() else {
+            return;
+        };
+        let over = match (self.ui.as_ref(), self.tree.as_ref()) {
+            (Some(ui), Some(tree)) => {
+                crate::file_drop::target(ui, tree.as_ref(), &drag.paths, at, self.cursor)
+            }
+            _ => None,
+        };
+        if drag.over != over {
+            if let Some(drag) = self.file_drag.as_mut() {
+                drag.over = over;
+            }
+            self.runtime.drag_over = over;
+            self.request_redraw();
+        }
+    }
+
+    /// The files were taken away again without being dropped.
+    fn files_left(&mut self) {
+        if let Some(drag) = self.file_drag.take() {
+            if drag.over.is_some() {
+                self.runtime.drag_over = None;
+                self.request_redraw();
+            }
+        }
+    }
+
+    /// Hands dropped files to the target they landed on, all together: the system names
+    /// them one event at a time, and this runs once the loop has had every one.
+    fn deliver_dropped_files(&mut self) {
+        if !self.file_drag.as_ref().is_some_and(|drag| drag.dropped) {
+            return;
+        }
+        let Some(drag) = self.file_drag.take() else {
+            return;
+        };
+        if drag.over.is_some() {
+            self.runtime.drag_over = None;
+        }
+        let message = drag.over.and_then(|id| {
+            self.tree
+                .as_ref()
+                .and_then(|tree| find_widget(tree.as_ref(), id))
+                .and_then(|widget| widget.on_files_dropped(drag.paths.clone()))
+        });
+        if message.is_none() {
+            log::debug!(
+                "{} file(s) dropped where nothing takes them",
+                drag.paths.len()
+            );
+        }
+        if let Some(message) = message {
+            self.dispatch(message);
+        }
+        self.request_redraw();
+    }
+
     /// The **normalised** pointer input (gesture tier 0): mouse and touch converge
     /// here, with an explicit `Cancel`. The long-press recogniser is fed along the way,
     /// and the loop is woken at its deadline.
@@ -4074,7 +4189,8 @@ impl<A: Application> App<A> {
     }
 
     /// The loop's idle policy: wake at the **nearest** deadline — the long press, the
-    /// live-reload poll, the caret's next turn — and otherwise wait outright.
+    /// live-reload poll, the caret's next turn, the next look at where files being
+    /// dragged over the window are — and otherwise wait outright.
     fn idle_control_flow(&self) -> ControlFlow {
         let press = self.press.deadline();
         let reload = self.reload.as_ref().map(|w| w.deadline());
@@ -4085,7 +4201,15 @@ impl<A: Application> App<A> {
             .flatten();
         // A first tap that may still become a double tap is sent when its wait is over.
         let tap = self.pending_tap.as_ref().map(|p| p.at + DOUBLE_TAP_TIMEOUT);
-        match [press, reload, caret, tap].into_iter().flatten().min() {
+        // Files held over the window, where the system's cursor can be read: nothing else
+        // says when they move from one target to another (milestone 695).
+        let files =
+            (cfg!(windows) && self.file_drag.is_some()).then(|| Instant::now() + FILE_DRAG_POLL);
+        match [press, reload, caret, tap, files]
+            .into_iter()
+            .flatten()
+            .min()
+        {
             Some(at) => ControlFlow::WaitUntil(at),
             None => ControlFlow::Wait,
         }
@@ -10661,6 +10785,38 @@ pub mod testing {
             }
         }
 
+        /// Files from outside the application held over the window, as the system names
+        /// them, the cursor at `at` — or nowhere known, as on the systems that do not say.
+        pub fn hover_files(&mut self, paths: &[std::path::PathBuf], at: Option<Point>) {
+            for path in paths {
+                self.shell.file_event(path.clone(), false, at);
+            }
+        }
+
+        /// The files held over the window moved, to `at`.
+        pub fn move_files(&mut self, at: Option<Point>) {
+            self.shell.files_moved(at);
+        }
+
+        /// The files dropped at `at`, then handed over as the loop does once it has had
+        /// every one of them.
+        pub fn drop_files(&mut self, paths: &[std::path::PathBuf], at: Option<Point>) {
+            for path in paths {
+                self.shell.file_event(path.clone(), true, at);
+            }
+            self.shell.deliver_dropped_files();
+        }
+
+        /// The files were taken away again.
+        pub fn cancel_files(&mut self) {
+            self.shell.files_left();
+        }
+
+        /// The target something carried — an item or files — would land on now.
+        pub fn drag_over(&self) -> Option<WidgetId> {
+            self.shell.runtime.drag_over
+        }
+
         /// A finger down at `at`.
         pub fn press(&mut self, at: Point) {
             self.pointer(PointerKind::Down, at);
@@ -14141,5 +14297,164 @@ mod focus_change_tests {
             "the other field holds no `on_tap_outside`: {:?}",
             d.app().heard
         );
+    }
+}
+
+#[cfg(test)]
+mod file_drop_tests {
+    use std::path::PathBuf;
+
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{Container, DragTarget, Flex, Point, Primitive, Theme, Widget};
+
+    const W: f32 = 300.0;
+    const H: f32 = 300.0;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Files(&'static str, Vec<PathBuf>),
+    }
+
+    #[derive(Default)]
+    struct Page {
+        heard: Vec<Msg>,
+    }
+
+    impl Application for Page {
+        type Message = Msg;
+
+        fn update(&mut self, message: Msg) -> Command<Msg> {
+            self.heard.push(message);
+            Command::none()
+        }
+
+        /// Two targets for files, 100 px tall each, and 100 px of nothing under them; the
+        /// second takes text files only.
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            Box::new(
+                Flex::column()
+                    .width(W)
+                    .height(H)
+                    .child(
+                        DragTarget::new(Container::new().width(W).height(100.0))
+                            .on_files(|paths| Msg::Files("top", paths)),
+                    )
+                    .child(
+                        DragTarget::new(Container::new().width(W).height(100.0))
+                            .on_files(|paths| Msg::Files("text", paths))
+                            .accepts_files(|paths| {
+                                paths
+                                    .iter()
+                                    .all(|p| p.extension().is_some_and(|e| e == "txt"))
+                            }),
+                    ),
+            )
+        }
+    }
+
+    fn driver() -> Driver<Page> {
+        let mut d = Driver::new(Page::default(), W, H);
+        d.run(0.2);
+        d
+    }
+
+    fn paths(names: &[&str]) -> Vec<PathBuf> {
+        names.iter().map(PathBuf::from).collect()
+    }
+
+    /// The outlines the last frame drew: the "drop it here" highlight is the one with a
+    /// border, everything else here being plain boxes.
+    fn highlights(d: &Driver<Page>) -> Vec<frus_widgets::Rect> {
+        let (ui, _) = d.frame_parts().expect("a frame");
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect {
+                    rect, border_width, ..
+                } if *border_width > 0.0 => Some(*rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn files_held_over_a_target_light_it_up_and_land_on_it() {
+        let mut d = driver();
+        assert!(highlights(&d).is_empty());
+        let files = paths(&["notes.txt", "photo.png"]);
+        d.hover_files(&files, Some(Point::new(50.0, 50.0)));
+        assert!(d.drag_over().is_some());
+        d.run(0.05);
+        let lit = highlights(&d);
+        assert_eq!(lit.len(), 1, "{lit:?}");
+        assert!(
+            lit[0].y < 1.0 && (lit[0].height - 100.0).abs() < 0.5,
+            "{lit:?}"
+        );
+
+        d.drop_files(&files, Some(Point::new(50.0, 50.0)));
+        assert_eq!(d.app().heard, [Msg::Files("top", files)]);
+        assert_eq!(d.drag_over(), None);
+        d.run(0.05);
+        assert!(
+            highlights(&d).is_empty(),
+            "the highlight went with the drop"
+        );
+    }
+
+    #[test]
+    fn the_highlight_follows_the_files_and_a_refusing_target_stays_dark() {
+        let mut d = driver();
+        let text = paths(&["a.txt"]);
+        d.hover_files(&text, Some(Point::new(50.0, 50.0)));
+        let top = d.drag_over().expect("over the top target");
+        d.move_files(Some(Point::new(50.0, 150.0)));
+        let second = d.drag_over().expect("over the second target");
+        assert_ne!(top, second);
+        d.move_files(Some(Point::new(50.0, 250.0)));
+        assert_eq!(d.drag_over(), None, "under both targets");
+        d.cancel_files();
+
+        // A picture is not text: the second target does not light up for it, and a drop
+        // there sends nothing.
+        let picture = paths(&["a.png"]);
+        d.hover_files(&picture, Some(Point::new(50.0, 150.0)));
+        assert_eq!(d.drag_over(), None);
+        d.drop_files(&picture, Some(Point::new(50.0, 150.0)));
+        assert!(d.app().heard.is_empty(), "{:?}", d.app().heard);
+    }
+
+    #[test]
+    fn files_taken_away_leave_nothing_lit_and_send_nothing() {
+        let mut d = driver();
+        d.hover_files(&paths(&["a.txt"]), Some(Point::new(50.0, 150.0)));
+        assert!(d.drag_over().is_some());
+        d.cancel_files();
+        assert_eq!(d.drag_over(), None);
+        d.run(0.05);
+        assert!(highlights(&d).is_empty());
+        assert!(d.app().heard.is_empty());
+    }
+
+    #[test]
+    fn a_drop_hands_over_what_was_dropped_not_what_was_hovered() {
+        let mut d = driver();
+        d.hover_files(&paths(&["old.txt"]), Some(Point::new(50.0, 150.0)));
+        let dropped = paths(&["b.txt", "a.txt"]);
+        d.drop_files(&dropped, Some(Point::new(50.0, 150.0)));
+        assert_eq!(d.app().heard, [Msg::Files("text", dropped)]);
+    }
+
+    #[test]
+    fn where_the_system_does_not_say_the_only_taker_takes_them() {
+        let mut d = driver();
+        // Only the top target takes a picture, so it is the one, wherever the pointer is.
+        let picture = paths(&["a.png"]);
+        d.hover_files(&picture, None);
+        assert!(d.drag_over().is_some());
+        d.drop_files(&picture, None);
+        assert_eq!(d.app().heard, [Msg::Files("top", picture)]);
     }
 }

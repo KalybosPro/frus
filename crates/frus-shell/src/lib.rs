@@ -41,6 +41,7 @@ mod application;
 mod autofill;
 mod caret;
 mod command;
+mod file_drop;
 mod frame_stats;
 mod gesture;
 #[cfg(any(web, test))]
