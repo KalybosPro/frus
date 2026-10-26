@@ -8,11 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 694 so far, each documenting the objective, the alternatives
+> record — one per step, 696 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The time to the first frame, measured again and again** (J696, #211): the line every
+  application logs at its first frame now names every stage — when the framework's code began,
+  the window, the GPU (adapter, device, surface, pipelines, warm-up), the fonts, and the first
+  build, layout and presentation. `FRUS_EXIT_AFTER_FIRST_FRAME=1` ends the program once it is
+  logged, and `scripts/first-frame.sh` launches a program several times and prints the fewest,
+  the median and the most milliseconds of each stage. CI measures the counter at every push
+  on lavapipe, against an advisory budget. Once the first frame is shown, measuring it costs
+  one atomic load a frame (it took a lock at every frame before).
 - **Bitmaps inside SVG pictures and Lottie animations** (J694): a PNG or JPEG embedded in an
   SVG is decoded once, when the picture is parsed, and drawn where the picture puts it, turned
   or slanted with it; an SVG embedded in an SVG is drawn as vectors. A Lottie file's image
