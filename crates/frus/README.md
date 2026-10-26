@@ -49,7 +49,8 @@ and `frus create my_app` (`cargo install frus-cli`) starts a project from it.
 
 ## Features
 
-`net` and `json` add HTTP and typed JSON. The `bundled-*` features (all on by default)
+`net` and `json` add HTTP and typed JSON, and `file-dialogs` the system's open, save and
+folder dialogs on the desktop (`FileDialog`). The `bundled-*` features (all on by default)
 choose the fonts compiled in, and `icons-outlined`, `icons-rounded` and `icons-sharp` add
 icon styles. `images` (default) decodes embedded PNG and JPEG.
 

@@ -8,10 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 697 so far, each documenting the objective, the alternatives
+> record — one per step, 698 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The system's file dialogs** (J698, part of #219): `FileDialog` — open a file or several,
+  choose a folder, choose where to save — behind the new `file-dialogs` feature, on Windows,
+  macOS and Linux (through the desktop portal). The dialog belongs to the application's window.
+  The calls wait for the person, so they are made from `Command::perform` or a component's
+  `spawn`; on the interface's thread, where the dialog would stop every frame, one is refused
+  and an error says where to call it from. The demo's task screen takes dropped files and has
+  an **Attach…** action, and lists the names.
 
 - **The pipeline cache, hardened and on every desktop** (J697, #217): the file a launch keeps
   its compiled pipelines in is now named for frus's version and the driver's version as well

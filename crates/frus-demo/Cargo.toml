@@ -32,7 +32,8 @@ required-features = ["shots"]
 shots = ["dep:frus-test", "dep:gif"]
 
 [dependencies]
-frus-shell = { path = "../frus-shell" }
+# The system's file dialogs, for attaching files to a task (desktop only).
+frus-shell = { path = "../frus-shell", features = ["file-dialogs"] }
 frus-widgets = { path = "../frus-widgets" }
 frus-l10n = { path = "../frus-l10n" }
 frus-image = { path = "../frus-image" }

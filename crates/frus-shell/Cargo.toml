@@ -27,6 +27,9 @@ testing = []
 # Hot reload under `frus run`: connects to the patch server it starts, applies each patch, and
 # rebuilds the interface. Development only; `frus run` turns it on.
 hot-reload = ["dep:dioxus-devtools", "dep:serde_json", "frus-widgets/hot-reload"]
+# The system's file dialogs: `FileDialog` (milestone 698). Desktop only; off by default, as it
+# brings the desktop portal's D-Bus client on Linux.
+file-dialogs = ["dep:rfd"]
 net = ["dep:ureq"]
 json = ["net", "dep:serde", "dep:serde_json"]
 default = ["frus-gpu/default", "frus-widgets/default"]
@@ -103,6 +106,9 @@ arboard.workspace = true
 env_logger.workspace = true
 accesskit = "0.25"
 accesskit_winit = "0.34"
+# The system's file dialogs (feature `file-dialogs`): the Windows and macOS dialogs, and the
+# desktop portal on Linux, which needs no system library to build against.
+rfd = { version = "0.17.2", optional = true }
 
 # Web (wasm32 + WebGPU): the browser entry point, JS futures, console logs.
 # The application's content on the title bar's line (milestone 640): the frame and the

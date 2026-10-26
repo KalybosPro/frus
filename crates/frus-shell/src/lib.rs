@@ -42,6 +42,8 @@ mod autofill;
 mod cache_dir;
 mod caret;
 mod command;
+#[cfg(all(desktop, feature = "file-dialogs"))]
+mod file_dialog;
 mod file_drop;
 mod frame_stats;
 mod gesture;
@@ -97,6 +99,8 @@ pub use app::testing;
 pub use app::App;
 pub use application::{Application, Lifecycle, LocationStrategy};
 pub use command::Command;
+#[cfg(all(desktop, feature = "file-dialogs"))]
+pub use file_dialog::FileDialog;
 pub use icon::AppIcon;
 pub use link::{link_among, location_of_link};
 pub use remote::RemoteData;

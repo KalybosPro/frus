@@ -11,6 +11,8 @@
 //! testing directly.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -75,6 +77,10 @@ pub(crate) struct Demo {
     /// Whether the "clear completed" confirmation is up: the home screen's footer and sheet
     /// ask for it, and so does the window's menu bar.
     asking_clear: Cell<bool>,
+    /// The files attached to each task, by name: dropped onto its screen or chosen in the
+    /// system's dialog (milestone 698). Names only, and only while the demo runs — it reads
+    /// nothing from them.
+    attachments: RefCell<HashMap<u64, Vec<String>>>,
 }
 
 impl Default for Demo {
@@ -88,6 +94,7 @@ impl Default for Demo {
             restored: Cell::new(false),
             section: Cell::new(0),
             asking_clear: Cell::new(false),
+            attachments: RefCell::default(),
         }
     }
 }
@@ -156,7 +163,34 @@ impl Demo {
     /// Deletes a task.
     pub(crate) fn delete(&self, id: u64) {
         self.todos.borrow_mut().retain(|t| t.id != id);
+        self.attachments.borrow_mut().remove(&id);
         request_rebuild();
+    }
+
+    /// Attaches files to a task, by name, in the order given; a name it already has is not
+    /// added again.
+    pub(crate) fn attach(&self, id: u64, paths: &[PathBuf]) {
+        let mut attachments = self.attachments.borrow_mut();
+        let names = attachments.entry(id).or_default();
+        for path in paths {
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.display().to_string());
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        request_rebuild();
+    }
+
+    /// The names of the files attached to a task, oldest first.
+    pub(crate) fn attachments(&self, id: u64) -> Vec<String> {
+        self.attachments
+            .borrow()
+            .get(&id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Deletes every task that is done.
@@ -486,6 +520,23 @@ mod tests {
         assert_eq!(texts(&demo), ["c"]);
         demo.delete(99);
         assert_eq!(demo.len(), 1, "deleting what is not there does nothing");
+    }
+
+    /// **Files are attached by name**, each once, and go with their task.
+    #[test]
+    fn attachments_are_named_once_and_go_with_their_task() {
+        let demo = Demo::new();
+        demo.add("a");
+        demo.add("b");
+        demo.attach(
+            0,
+            &[PathBuf::from("/home/ada/notes.txt"), "plan.pdf".into()],
+        );
+        demo.attach(0, &["/elsewhere/notes.txt".into(), "photo.png".into()]);
+        assert_eq!(demo.attachments(0), ["notes.txt", "plan.pdf", "photo.png"]);
+        assert!(demo.attachments(1).is_empty(), "another task's are its own");
+        demo.delete(0);
+        assert!(demo.attachments(0).is_empty());
     }
 
     #[test]
