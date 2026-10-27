@@ -8,11 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 699 so far, each documenting the objective, the alternatives
+> record — one per step, 700 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **A screen reader finds the words and the things to press** (J700): every plain text was
+  in the accessibility tree with no words on the desktop (a label node is read from its value,
+  and its words were given as its label), and so was every live announcement; a `Container`
+  or detector with `on_click` had no node at all. Texts now speak; a tappable area is a button
+  named by the words inside it, which leave the tree so they are read once; a button holding a
+  widget is named by it; the navigation bar's title is the screen's heading. On the demo's task
+  screen, what a reader could reach went from two buttons to every word and every action.
 - **Screen readers and magnifiers find each widget where it is drawn** (J699): the
   accessibility tree reached the system in logical pixels where it reads physical ones, so on a
   scaled screen every highlight was too small and off its place (two thirds of the size at

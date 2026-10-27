@@ -232,6 +232,15 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
     fn on_click(&self) -> Option<Msg> {
         None
     }
+
+    /// The bar's title is the **screen's heading**, what a screen reader's user moves
+    /// between, as an app bar's is. The bar paints it itself, so no text below says it, and
+    /// until milestone 700 the screen had no name at all.
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
+        (!self.title.is_empty()).then(|| {
+            frus_core::SemanticsProperties::new(frus_core::Role::Heading).label(self.title.clone())
+        })
+    }
 }
 
 #[cfg(test)]
@@ -244,6 +253,26 @@ mod tests {
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         Back,
+    }
+
+    /// **The title is the screen's heading** in the accessibility tree; the back button is
+    /// a button of its own beside it.
+    #[test]
+    fn the_title_is_the_screens_heading() {
+        let bar: NavigationBar<Msg> = NavigationBar::new("Task").on_back(Msg::Back);
+        let ui = build_ui(
+            &bar,
+            Size::new(400.0, 56.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let heading = ui
+            .semantics()
+            .iter()
+            .find(|(_, _, s)| s.role == frus_core::Role::Heading)
+            .map(|(_, _, s)| s.label.clone());
+        assert_eq!(heading, Some(Some("Task".to_string())));
+        assert!(Widget::semantics(&NavigationBar::<Msg>::new("")).is_none());
     }
 
     #[test]

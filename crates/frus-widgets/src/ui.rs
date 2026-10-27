@@ -3206,6 +3206,75 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         }
     }
 
+    /// Gives a **tappable area** its accessibility node, from the entries its subtree added
+    /// since `base` (milestone 700).
+    ///
+    /// The reference gives anything with a tap handler a node carrying the tap, and a screen
+    /// reader names it from the words inside. The tree here is flat, so the words are taken
+    /// in: the plain texts, headings and described images under the area — the entries that
+    /// only *say* something — become its label, one line each, and leave the tree, so they
+    /// are not read a second time. What can be operated on its own (a checkbox, a field, a
+    /// button, another tappable area) keeps its entry, after this one.
+    ///
+    /// A widget that describes itself without a name — a `Button::with_child(..)` — keeps its
+    /// own entry and role and takes the words as its label, as the reference's button reads
+    /// the text inside it. One with no entry at all gets a button node: the role that says
+    /// "this can be pressed" on every platform, where a generic container with a click action
+    /// is dropped from the tree by some of them.
+    ///
+    /// An area with no entry of its own and no words, whose subtree holds exactly one
+    /// clickable entry, gets nothing: that entry already answers for the press, and a second,
+    /// unnamed "button" around it would only be noise.
+    fn apply_tap_area(&mut self, base: usize, id: WidgetId, own: Rect) {
+        let mut words: Option<String> = None;
+        let mut kept = Vec::new();
+        let mut clickables = 0;
+        let mut entries = self.semantics.drain(base..).collect::<Vec<_>>();
+        // The widget's own entry, when it has one, is the first: registered before its
+        // children are walked.
+        let described =
+            (entries.first().is_some_and(|(first, _, _)| *first == id)).then(|| entries.remove(0));
+        for entry in entries {
+            let (_, _, ref sem) = entry;
+            let says_only = !sem.clickable
+                && matches!(
+                    sem.role,
+                    frus_core::Role::Label
+                        | frus_core::Role::Heading
+                        | frus_core::Role::Image
+                        | frus_core::Role::None
+                );
+            match (&sem.label, says_only) {
+                (Some(label), true) => {
+                    words = Some(match words {
+                        Some(before) => format!("{before}\n{label}"),
+                        None => label.clone(),
+                    });
+                }
+                _ => {
+                    clickables += usize::from(sem.clickable);
+                    kept.push(entry);
+                }
+            }
+        }
+        if let Some((own_id, rect, mut props)) = described {
+            if props.label.is_none() {
+                props.label = words;
+            }
+            self.semantics.push((own_id, rect, props));
+            self.semantics.extend(kept);
+            return;
+        }
+        let silent_wrapper = words.is_none() && clickables == 1;
+        if !silent_wrapper && own.width > 0.0 && own.height > 0.0 {
+            let mut props = frus_core::SemanticsProperties::new(frus_core::Role::Button);
+            props.label = words;
+            props.clickable = true;
+            self.semantics.push((id, own, props));
+        }
+        self.semantics.extend(kept);
+    }
+
     fn apply_barrier(
         &mut self,
         barrier: ModalBarrier,
@@ -3845,7 +3914,16 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
             _ => None,
         };
+        // A **tappable area** that does not name itself — a `Container` or a detector with
+        // `on_click`, a button holding a widget — is named by the words inside it once its
+        // subtree is walked (milestone 700): see `apply_tap_area`.
+        let tap_area = (widget.on_click().is_some()
+            && widget.semantics().is_none_or(|own| own.label.is_none()))
+        .then_some(self.semantics.len());
         self.walk_node_themed(widget, id, translation, clip, rects, index);
+        if let (Some(base), Some(whole)) = (tap_area, over) {
+            self.apply_tap_area(base, id, whole.intersect(clip));
+        }
         if let Some(parent) = outer_hover {
             self.hover_parent = parent;
         }
@@ -6967,6 +7045,156 @@ mod tests {
             .find(|(_, _, s)| s.role == Role::CheckBox)
             .unwrap();
         assert_eq!(check.2.toggled, crate::Toggled::True);
+    }
+
+    /// **A tappable area is something to press** (milestone 700): a `Container` with
+    /// `on_click` gets a button node named by the words inside it, which leave the tree so
+    /// they are not read twice, and an assistive technology's "activate" reaches its message.
+    #[test]
+    fn a_tappable_area_is_a_button_named_by_its_words() {
+        use crate::{Role, Text};
+        let rt = Runtime::default();
+        let tree = Flex::<Msg>::column().child(Text::new("Plain")).child(
+            Container::<Msg>::new()
+                .on_click(Msg::A)
+                .padding(8.0)
+                .child(Text::new("Attach…")),
+        );
+        let ui = build_ui(&tree, Size::new(300.0, 200.0), &rt, &Theme::default());
+        let sem = ui.semantics();
+        let found: Vec<(Role, Option<&str>, bool)> = sem
+            .iter()
+            .map(|(_, _, s)| (s.role, s.label.as_deref(), s.clickable))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (Role::Label, Some("Plain"), false),
+                (Role::Button, Some("Attach…"), true),
+            ]
+        );
+        let (id, rect, _) = sem[1];
+        assert!(rect.width > 0.0 && rect.height > 0.0);
+        assert_eq!(ui.msg_for(id), Some(Msg::A), "activation reaches the area");
+    }
+
+    /// **What can be operated on its own keeps its node** inside a tappable area, after the
+    /// area's; several words are joined one per line.
+    #[test]
+    fn a_tappable_area_keeps_its_controls() {
+        use crate::{Checkbox, Role, Text};
+        let rt = Runtime::default();
+        let tree = Container::<Msg>::new().on_click(Msg::A).child(
+            Flex::<Msg>::column()
+                .child(Text::new("Notifications"))
+                .child(Text::new("Daily summary"))
+                .child(Checkbox::new(true).on_toggle(|_| Msg::B)),
+        );
+        let ui = build_ui(&tree, Size::new(300.0, 200.0), &rt, &Theme::default());
+        let found: Vec<(Role, Option<&str>)> = ui
+            .semantics()
+            .iter()
+            .map(|(_, _, s)| (s.role, s.label.as_deref()))
+            .collect();
+        assert_eq!(
+            found[0],
+            (Role::Button, Some("Notifications\nDaily summary"))
+        );
+        assert_eq!(found[1].0, Role::CheckBox);
+        assert_eq!(found.len(), 2);
+    }
+
+    /// **A wordless area around one control adds nothing**: the control already answers for
+    /// the press, and nested areas each name themselves from their own words.
+    #[test]
+    fn a_wordless_area_around_one_control_adds_nothing() {
+        use crate::{Button, Role, Text};
+        let rt = Runtime::default();
+        let around_button = Container::<Msg>::new()
+            .on_click(Msg::A)
+            .child(Button::new("Submit").on_press(Msg::B));
+        let ui = build_ui(
+            &around_button,
+            Size::new(300.0, 200.0),
+            &rt,
+            &Theme::default(),
+        );
+        let roles: Vec<(Role, Option<&str>)> = ui
+            .semantics()
+            .iter()
+            .map(|(_, _, s)| (s.role, s.label.as_deref()))
+            .collect();
+        assert_eq!(roles, [(Role::Button, Some("Submit"))]);
+
+        let nested = Container::<Msg>::new().on_click(Msg::A).child(
+            Flex::<Msg>::column().child(Text::new("Card")).child(
+                Container::<Msg>::new()
+                    .on_click(Msg::B)
+                    .child(Text::new("Open")),
+            ),
+        );
+        let ui = build_ui(&nested, Size::new(300.0, 200.0), &rt, &Theme::default());
+        let found: Vec<(Option<&str>, Option<Msg>)> = ui
+            .semantics()
+            .iter()
+            .map(|(id, _, s)| (s.label.as_deref(), ui.msg_for(*id)))
+            .collect();
+        assert_eq!(
+            found,
+            [(Some("Card"), Some(Msg::A)), (Some("Open"), Some(Msg::B))]
+        );
+    }
+
+    /// **A button holding a widget is named by the words in it**, in its own entry: one node,
+    /// the button's role, the text's words — where it used to be an unnamed button beside a
+    /// separate text. A named button keeps its name.
+    #[test]
+    fn a_button_holding_a_text_is_named_by_it() {
+        use crate::{Button, Role, Text};
+        let rt = Runtime::default();
+        let tree = Flex::<Msg>::column()
+            .child(Button::with_child(Text::new("Save")).on_press(Msg::A))
+            .child(Button::new("Submit").on_press(Msg::B));
+        let ui = build_ui(&tree, Size::new(300.0, 200.0), &rt, &Theme::default());
+        let found: Vec<(Role, Option<&str>, Option<Msg>)> = ui
+            .semantics()
+            .iter()
+            .map(|(id, _, s)| (s.role, s.label.as_deref(), ui.msg_for(*id)))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (Role::Button, Some("Save"), Some(Msg::A)),
+                (Role::Button, Some("Submit"), Some(Msg::B)),
+            ]
+        );
+    }
+
+    /// **Something clickable inside an area keeps its entry**, whatever its role: only what
+    /// merely says something is taken into the area's name.
+    #[test]
+    fn a_clickable_entry_inside_an_area_is_not_taken_as_words() {
+        use crate::{Role, Semantics, Text};
+        let rt = Runtime::default();
+        let inner = Semantics::new(
+            frus_core::SemanticsProperties::default(),
+            Container::<Msg>::new().width(20.0).height(20.0),
+        )
+        .label("More")
+        .clickable(true);
+        let tree = Container::<Msg>::new()
+            .on_click(Msg::A)
+            .child(Flex::<Msg>::column().child(Text::new("Card")).child(inner));
+        let ui = build_ui(&tree, Size::new(300.0, 200.0), &rt, &Theme::default());
+        let found: Vec<(Role, Option<&str>)> = ui
+            .semantics()
+            .iter()
+            .map(|(_, _, s)| (s.role, s.label.as_deref()))
+            .collect();
+        assert_eq!(
+            found,
+            [(Role::Button, Some("Card")), (Role::None, Some("More"))]
+        );
     }
 
     fn clickable_sample() -> Flex<Msg> {
