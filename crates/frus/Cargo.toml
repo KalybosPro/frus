@@ -37,6 +37,8 @@ hot-reload = ["frus-shell/hot-reload", "frus-widgets/hot-reload"]
 net = ["frus-shell/net"]
 # The system's file dialogs: `FileDialog`. Desktop only; off by default.
 file-dialogs = ["frus-shell/file-dialogs"]
+# The system's notifications: `SystemNotification`. Desktop only; off by default.
+notifications = ["frus-shell/notifications"]
 json = ["frus-shell/json"]
 default = ["frus-shell/default", "frus-widgets/default", "frus-text/default"]
 # Decoding embedded PNG/JPEG: `Image::memory` and `asset!`. Part of `default`;

@@ -1896,8 +1896,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         let window = match event_loop.create_window(attributes) {
             Ok(window) => {
                 crate::startup::window_made();
+                #[cfg(all(desktop, any(feature = "file-dialogs", feature = "notifications")))]
+                crate::interface_thread::window_made();
                 #[cfg(all(desktop, feature = "file-dialogs"))]
                 crate::file_dialog::window_made(&window);
+                #[cfg(all(desktop, feature = "notifications"))]
+                crate::notification::window_made(&self.app.title(), self.app.icon().png());
                 Arc::new(window)
             }
             Err(err) => {
@@ -2070,6 +2074,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
     /// A message produced by an effect, on a background thread: we apply it and ask
     /// for another frame.
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, message: A::Message) {
+        // A click on a notification brings the window forward with its message.
+        #[cfg(all(desktop, feature = "notifications"))]
+        if crate::notification::take_raise() {
+            if let Some(window) = &self.window {
+                window.set_minimized(false);
+                window.focus_window();
+            }
+        }
         self.dispatch(message);
         self.request_redraw();
     }

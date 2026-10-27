@@ -130,6 +130,33 @@ impl StatelessWidget for TaskPage {
                     .child(text("Attach…").size(15.0).color(theme.primary)),
             )
         };
+        // A reminder from the system (milestone 701): the task as a notification, which
+        // opens the task when it is clicked, wherever the demo is by then.
+        #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
+        let actions = {
+            let remind = router.clone();
+            let title = self.demo.todo(id).map(|todo| todo.text).unwrap_or_default();
+            actions.child(
+                Container::new()
+                    .padding(8.0)
+                    .on_click(on(move || {
+                        let (open, title) = (remind.clone(), title.clone());
+                        frus_widgets::host::spawn(
+                            move || {
+                                frus_shell::SystemNotification::new(title)
+                                    .body(state)
+                                    .show()
+                            },
+                            move |response| {
+                                if response == Ok(frus_shell::NotificationResponse::Clicked) {
+                                    open.go(format!("/task/{id}"));
+                                }
+                            },
+                        );
+                    }))
+                    .child(text("Remind me").size(15.0).color(theme.primary)),
+            )
+        };
         let actions = actions
             .child(
                 Container::new()

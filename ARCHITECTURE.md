@@ -118,13 +118,15 @@ Everything else in the crate is widgets — `button.rs`, `scroll.rs`, `datatable
 - `android_ime.rs` — real Android IME: composition, swipe input, insets
 - `net.rs` — `fetch` / `Request` behind the `net` feature; `ureq` natively, browser `fetch` on wasm. `json` adds serde-typed bodies and responses.
 - `file_dialog.rs` — `FileDialog`, the system's open / save / folder dialogs behind the `file-dialogs` feature (desktop: rfd, owned by the application's window); refused on the interface's thread
+- `notification.rs` — `SystemNotification`, the system's notifications behind the `notifications` feature (desktop: notify-rust; Windows records the application under the current user); waits for a click, refused on the interface's thread, a click brings the window forward
+- `interface_thread.rs` — which thread is the interface's, for the calls that must not run there
 - `reload.rs` — dev live-reload
 - `remote.rs` — remote/debug channel
 - `lib.rs` — the **`main!` macro**, which generates the desktop `main`, the Android `android_main`, and the wasm `#[wasm_bindgen(start)]` from one declaration
 
 ### Application layer
 
-**`frus`** — the facade. Re-exports shell + widgets + `main!` so an app declares exactly one dependency. Features `net`, `json` and `file-dialogs` propagate downward. It contains no logic; keep it that way.
+**`frus`** — the facade. Re-exports shell + widgets + `main!` so an app declares exactly one dependency. Features `net`, `json`, `file-dialogs` and `notifications` propagate downward. It contains no logic; keep it that way.
 
 **`frus-test`** — headless rendering, `Snapshot`, and `assert_golden` / `assert_golden_with` against reference PNGs.
 

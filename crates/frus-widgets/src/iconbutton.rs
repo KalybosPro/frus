@@ -66,7 +66,8 @@ enum Content {
 pub struct IconButton<Msg = crate::callback::Callback> {
     content: Content,
     variant: IconButtonVariant,
-    selected: bool,
+    /// Whether it is a toggle, and if so whether it is on: `None` for a plain button.
+    selected: Option<bool>,
     enabled: bool,
     label: Option<String>,
     on_press: Option<Msg>,
@@ -129,7 +130,7 @@ impl<Msg> IconButton<Msg> {
         Self {
             content,
             variant: IconButtonVariant::default(),
-            selected: false,
+            selected: None,
             enabled: true,
             label: None,
             on_press: None,
@@ -157,9 +158,10 @@ impl<Msg> IconButton<Msg> {
         self
     }
 
-    /// Marks it **on** — a toggle that is currently pressed in. The glyph takes the accent.
+    /// Makes it a **toggle**, on or off; on, the glyph takes the accent. A button never told
+    /// is a plain button, and assistive technology offers it as one to press, not to switch.
     pub fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
+        self.selected = Some(selected);
         self
     }
 
@@ -288,7 +290,7 @@ impl<Msg> IconButton<Msg> {
         let (surface, glyph, outline) = match self.variant {
             IconButtonVariant::Standard => (
                 Color::TRANSPARENT,
-                if self.selected {
+                if self.selected == Some(true) {
                     theme.scheme.primary
                 } else {
                     theme.scheme.on_surface_variant
@@ -303,7 +305,7 @@ impl<Msg> IconButton<Msg> {
             ),
             IconButtonVariant::Outlined => (
                 Color::TRANSPARENT,
-                if self.selected {
+                if self.selected == Some(true) {
                     theme.scheme.primary
                 } else {
                     theme.scheme.on_surface_variant
@@ -475,7 +477,11 @@ impl<Msg: Clone> Widget<Msg> for IconButton<Msg> {
             },
         };
         Some(if self.enabled {
-            semantics.toggled(self.selected).clickable()
+            match self.selected {
+                Some(on) => semantics.toggled(on),
+                None => semantics,
+            }
+            .clickable()
         } else {
             semantics.disabled(true)
         })
@@ -664,6 +670,28 @@ mod tests {
                 .iter()
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text == "\u{2190}")),
             "the glyph is drawn"
+        );
+    }
+
+    /// **Only a button told it is selected is a toggle.** A plain one — a back arrow, a
+    /// menu — was described as a toggle switched off, so assistive technology offered to
+    /// switch it rather than press it (found on the desktop, milestone 701).
+    #[test]
+    fn only_a_selected_button_is_a_toggle() {
+        use frus_core::Toggled;
+        let toggled = |button: IconButton<Msg>| {
+            Widget::semantics(&button.on_press(Msg::Pressed))
+                .expect("an enabled button describes itself")
+                .toggled
+        };
+        assert_eq!(toggled(IconButton::new(Icons::STAR)), Toggled::None);
+        assert_eq!(
+            toggled(IconButton::new(Icons::STAR).selected(false)),
+            Toggled::False
+        );
+        assert_eq!(
+            toggled(IconButton::new(Icons::STAR).selected(true)),
+            Toggled::True
         );
     }
 

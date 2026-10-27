@@ -55,11 +55,15 @@ mod icon;
 mod ime;
 #[cfg(desktop)]
 mod instance;
+#[cfg(all(desktop, any(feature = "file-dialogs", feature = "notifications")))]
+mod interface_thread;
 mod link;
 mod logging;
 /// Cross-platform `fetch` HTTP helper (behind the `net` feature).
 #[cfg(feature = "net")]
 pub mod net;
+#[cfg(all(desktop, feature = "notifications"))]
+mod notification;
 mod reload;
 // How long the application takes to show its first frame (milestone 683, #211).
 mod startup;
@@ -103,6 +107,8 @@ pub use command::Command;
 pub use file_dialog::FileDialog;
 pub use icon::AppIcon;
 pub use link::{link_among, location_of_link};
+#[cfg(all(desktop, feature = "notifications"))]
+pub use notification::{NotificationError, NotificationResponse, SystemNotification};
 pub use remote::RemoteData;
 pub use subscription::Subscription;
 pub use widget_app::FrusApp;

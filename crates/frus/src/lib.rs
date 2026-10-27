@@ -72,6 +72,13 @@ pub mod fonts {
 ))]
 pub use frus_shell::FileDialog;
 
+// The system's notifications (feature `notifications`, desktop only): `SystemNotification`.
+#[cfg(all(
+    feature = "notifications",
+    not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
+))]
+pub use frus_shell::{NotificationError, NotificationResponse, SystemNotification};
+
 // Cross-platform HTTP (feature `net`): the `frus::fetch(url).await` shorthand and the
 // `frus::Request` builder (method / headers / body / timeout) — see [`frus::net`].
 #[cfg(feature = "net")]

@@ -34,8 +34,7 @@
 //! applications use too). Behind the `file-dialogs` feature.
 
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
-use std::thread::ThreadId;
+use std::sync::Mutex;
 
 use winit::raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle,
@@ -128,7 +127,7 @@ impl FileDialog {
     /// The system's dialog, set up as described and owned by the application's window; `None`
     /// on the interface's thread, where it must not be shown.
     fn native(self, what: &str) -> Option<rfd::AsyncFileDialog> {
-        if on_interface_thread() {
+        if crate::interface_thread::current() {
             log::error!(
                 "FileDialog::{what} was called on the interface's thread, which it would stop: \
                  call it from Command::perform, or from spawn in a component"
@@ -184,13 +183,8 @@ impl HasDisplayHandle for Parent {
 
 static PARENT: Mutex<Option<Parent>> = Mutex::new(None);
 
-/// The thread the event loop runs on.
-static INTERFACE: OnceLock<ThreadId> = OnceLock::new();
-
-/// The application's window exists: the dialogs will belong to it. Called on the interface's
-/// thread, which is how that thread is known.
+/// The application's window exists: the dialogs will belong to it.
 pub(crate) fn window_made(window: &winit::window::Window) {
-    INTERFACE.get_or_init(|| std::thread::current().id());
     let parent = match (window.window_handle(), window.display_handle()) {
         (Ok(w), Ok(d)) => Some(Parent {
             window: w.as_raw(),
@@ -201,10 +195,6 @@ pub(crate) fn window_made(window: &winit::window::Window) {
     if let Ok(mut slot) = PARENT.lock() {
         *slot = parent;
     }
-}
-
-fn on_interface_thread() -> bool {
-    INTERFACE.get() == Some(&std::thread::current().id())
 }
 
 #[cfg(test)]
@@ -247,17 +237,17 @@ mod tests {
     fn the_interface_thread_is_refused() {
         // The test's own thread plays the interface's; the guard is checked before anything
         // reaches the system, so no dialog opens.
-        let me = std::thread::current().id();
-        let interface = *INTERFACE.get_or_init(|| me);
-        if interface != me {
+        if !crate::interface_thread::claim_for_test() {
             return; // another test claimed it first: nothing to check from here
         }
-        assert!(on_interface_thread());
+        assert!(crate::interface_thread::current());
         assert_eq!(FileDialog::new().pick_file(), None);
         assert!(FileDialog::new().pick_files().is_empty());
         assert_eq!(FileDialog::new().pick_folder(), None);
         assert_eq!(FileDialog::new().save_file(), None);
-        let elsewhere = std::thread::spawn(on_interface_thread).join().unwrap();
+        let elsewhere = std::thread::spawn(crate::interface_thread::current)
+            .join()
+            .unwrap();
         assert!(!elsewhere, "another thread is not the interface's");
     }
 }
