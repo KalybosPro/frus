@@ -43,12 +43,21 @@
 //!   outside a bundle is shown as the Finder, which is how macOS attributes it.
 //! - **Linux**: the desktop's notification server, over D-Bus; with no server running,
 //!   [`show`](SystemNotification::show) returns the error.
+//! - **Android**: the system's notifications, under the application's own name and icon, in a
+//!   channel the person can tune in the settings (milestone 703). A click opens the application.
+//!   From Android 13 the person must allow notifications: the first one asks them, and the
+//!   application's manifest must ask for `android.permission.POST_NOTIFICATIONS` — for
+//!   cargo-apk, `[[package.metadata.android.uses_permission]]` with that name — or the system
+//!   refuses without asking, and `show` says why. A notification stays in the shade until the
+//!   person does something with it, so `show` may wait a long time there.
 //!
-//! Behind the `notifications` feature, on the desktop.
+//! Behind the `notifications` feature, on the desktop and Android.
 
 use std::fmt;
 use std::path::PathBuf;
+#[cfg(desktop)]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(desktop)]
 use std::sync::Mutex;
 
 /// A notification from the application, described: its title, the text under it, its buttons,
@@ -56,12 +65,12 @@ use std::sync::Mutex;
 /// thread.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SystemNotification {
-    title: String,
-    body: String,
+    pub(crate) title: String,
+    pub(crate) body: String,
     /// `(id, label)`, in order.
-    buttons: Vec<(String, String)>,
-    image: Option<PathBuf>,
-    silent: bool,
+    pub(crate) buttons: Vec<(String, String)>,
+    pub(crate) image: Option<PathBuf>,
+    pub(crate) silent: bool,
 }
 
 /// What the person did with a [`SystemNotification`].
@@ -81,7 +90,7 @@ pub enum NotificationResponse {
 /// Why a [`SystemNotification`] could not be shown: the system refused it, there is no
 /// notification server to show it, or it was asked for on the interface's thread.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NotificationError(String);
+pub struct NotificationError(pub(crate) String);
 
 impl fmt::Display for NotificationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -109,8 +118,9 @@ impl SystemNotification {
     /// Adds a button labelled `label`, after any added before; a press answers
     /// [`NotificationResponse::Button`] with its `id`.
     ///
-    /// Windows shows up to five side by side, Linux as many as the desktop's notification
-    /// server offers, and macOS one: with several, a menu of them on its single button.
+    /// Windows shows up to five side by side, Android three, Linux as many as the desktop's
+    /// notification server offers, and macOS one: with several, a menu of them on its single
+    /// button.
     pub fn button(mut self, id: impl Into<String>, label: impl Into<String>) -> Self {
         self.buttons.push((id.into(), label.into()));
         self
@@ -140,6 +150,18 @@ impl SystemNotification {
             log::error!("{error}");
             return Err(NotificationError(error.to_owned()));
         }
+        log::debug!("notification {:?}: showing", self.title);
+        #[cfg(android)]
+        let answer = crate::android_notification::show(&self)?;
+        #[cfg(desktop)]
+        let answer = self.show_desktop()?;
+        log::debug!("notification {:?}: {answer:?}", self.title);
+        Ok(answer)
+    }
+
+    /// Shows it through the desktop's library, and brings the window forward on a click.
+    #[cfg(desktop)]
+    fn show_desktop(&self) -> Result<NotificationResponse, NotificationError> {
         let sender = SENDER.lock().ok().and_then(|sender| sender.clone());
         let mut native = notify_rust::Notification::new();
         native.summary(&self.title).body(&self.body);
@@ -182,7 +204,6 @@ impl SystemNotification {
             }
         }
         let error = |e: notify_rust::error::Error| NotificationError(e.to_string());
-        log::debug!("notification {:?}: showing", self.title);
         let mut answer = NotificationResponse::Closed;
         native
             .show()
@@ -191,7 +212,6 @@ impl SystemNotification {
                 answer = response(platform);
             })
             .map_err(error)?;
-        log::debug!("notification {:?}: {answer:?}", self.title);
         if answer == NotificationResponse::Clicked {
             RAISE.store(true, Ordering::Relaxed);
         }
@@ -203,16 +223,32 @@ impl SystemNotification {
 /// the click on the notification itself, which Linux names `default`.
 const BUTTON: &str = "button:";
 
+/// The button an action names, when it is a marked one.
+pub(crate) fn button(action: &str) -> Option<NotificationResponse> {
+    action
+        .strip_prefix(BUTTON)
+        .map(|id| NotificationResponse::Button(id.to_owned()))
+}
+
+/// What the person did with a notification that left the shade, from what was recorded for it:
+/// a button, a dismissal, or — nothing recorded — a click, which is the one answer Android
+/// sends no word of.
+#[cfg_attr(not(android), allow(dead_code))]
+pub(crate) fn left_the_shade(recorded: Option<&str>) -> NotificationResponse {
+    match recorded {
+        None => NotificationResponse::Clicked,
+        Some(action) => button(action).unwrap_or(NotificationResponse::Closed),
+    }
+}
+
 /// What the person did, from what the system reported: a marked action is a button, a close is a
 /// close, and anything else a click on the notification.
+#[cfg(desktop)]
 fn response(platform: &notify_rust::NotificationResponse) -> NotificationResponse {
     use notify_rust::NotificationResponse as Platform;
     match platform {
         Platform::Closed(_) => NotificationResponse::Closed,
-        Platform::Action(action) => match action.strip_prefix(BUTTON) {
-            Some(id) => NotificationResponse::Button(id.to_owned()),
-            None => NotificationResponse::Clicked,
-        },
+        Platform::Action(action) => button(action).unwrap_or(NotificationResponse::Clicked),
         _ => NotificationResponse::Clicked,
     }
 }
@@ -220,6 +256,7 @@ fn response(platform: &notify_rust::NotificationResponse) -> NotificationRespons
 /// The sound named for a notification: the system's own, or none when it is `silent`. Linux
 /// names none either way — its notification server plays its own, and is told to keep quiet by
 /// a hint — while left unnamed, a Windows toast is silent and a macOS one too.
+#[cfg(desktop)]
 fn sound(silent: bool) -> Option<&'static str> {
     if silent || cfg!(not(any(windows, target_os = "macos"))) {
         None
@@ -231,6 +268,7 @@ fn sound(silent: bool) -> Option<&'static str> {
 }
 
 /// Who sends the notifications: the application, as its window presents it.
+#[cfg(desktop)]
 #[derive(Clone, Debug)]
 struct Sender {
     /// The window's title.
@@ -239,6 +277,7 @@ struct Sender {
     icon: Option<Vec<u8>>,
 }
 
+#[cfg(desktop)]
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 impl Sender {
     /// The icon written to the application's cache folder, where the system can read it; `None`
@@ -261,13 +300,16 @@ impl Sender {
     }
 }
 
+#[cfg(desktop)]
 static SENDER: Mutex<Option<Sender>> = Mutex::new(None);
 
 /// A click asked for the window to come forward, which the interface's thread does when the
-/// click's message arrives.
+/// click's message arrives. On Android the system opens the application itself.
+#[cfg(desktop)]
 static RAISE: AtomicBool = AtomicBool::new(false);
 
 /// The application's window exists: notifications are sent under its title and icon.
+#[cfg(desktop)]
 pub(crate) fn window_made(title: &str, icon: Option<&[u8]>) {
     if let Ok(mut slot) = SENDER.lock() {
         *slot = Some(Sender {
@@ -278,6 +320,7 @@ pub(crate) fn window_made(title: &str, icon: Option<&[u8]>) {
 }
 
 /// Whether a click asked for the window to come forward since the last call.
+#[cfg(desktop)]
 pub(crate) fn take_raise() -> bool {
     RAISE.swap(false, Ordering::Relaxed)
 }
@@ -361,7 +404,7 @@ mod windows {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, desktop))]
 mod tests {
     use super::*;
 
@@ -449,6 +492,19 @@ mod tests {
                 .is_err_and(|e| e.to_string().contains("Command::perform")),
             "{refused:?}"
         );
+    }
+
+    /// **What Android recorded is read**: nothing is a click, `closed` a dismissal, a marked
+    /// id a button, and anything else a dismissal rather than a click it was not.
+    #[test]
+    fn what_left_the_shade_is_read() {
+        assert_eq!(left_the_shade(None), NotificationResponse::Clicked);
+        assert_eq!(left_the_shade(Some("closed")), NotificationResponse::Closed);
+        assert_eq!(
+            left_the_shade(Some(&format!("{BUTTON}done"))),
+            NotificationResponse::Button("done".into())
+        );
+        assert_eq!(left_the_shade(Some("other")), NotificationResponse::Closed);
     }
 
     /// **A notification makes the system's sound unless it is silent**: named on Windows and
