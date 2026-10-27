@@ -8,11 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 700 so far, each documenting the objective, the alternatives
+> record — one per step, 701 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **System notifications** (J701, part of #219): `SystemNotification` — a title and a body,
+  shown by the system outside the window — behind the new `notifications` feature, on Windows,
+  macOS and Linux. `show()` waits for a click or for the notification to go away, so it is
+  called from `Command::perform` or a component's `spawn`, and a click brings the window
+  forward. On Windows the application is recorded under the current user the first time, with
+  its window's title and icon, without which the system shows nothing. The demo's task screen
+  has a **Remind me** action. In passing, `IconButton` is a toggle only once `selected(..)` is
+  called: every icon button was offered to assistive technology as a toggle switched off.
 - **A screen reader finds the words and the things to press** (J700): every plain text was
   in the accessibility tree with no words on the desktop (a label node is read from its value,
   and its words were given as its label), and so was every live announcement; a `Container`
