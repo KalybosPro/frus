@@ -8,11 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 701 so far, each documenting the objective, the alternatives
+> record — one per step, 702 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Buttons, a picture and the system's sound on a notification** (J702): `button(id, label)`
+  answers `NotificationResponse::Button(id)` and leaves the window where it is; `image(path)`
+  shows a picture; every notification now makes the system's sound — those of J701 were silent
+  on Windows — and `silent()` turns it off. The demo's reminder has a **Mark done** button.
 - **System notifications** (J701, part of #219): `SystemNotification` — a title and a body,
   shown by the system outside the window — behind the new `notifications` feature, on Windows,
   macOS and Linux. `show()` waits for a click or for the notification to go away, so it is
