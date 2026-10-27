@@ -8,11 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 698 so far, each documenting the objective, the alternatives
+> record — one per step, 699 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Screen readers and magnifiers find each widget where it is drawn** (J699): the
+  accessibility tree reached the system in logical pixels where it reads physical ones, so on a
+  scaled screen every highlight was too small and off its place (two thirds of the size at
+  150 %). The window's scale now goes on the tree's root.
 - **The system's file dialogs** (J698, part of #219): `FileDialog` — open a file or several,
   choose a folder, choose where to save — behind the new `file-dialogs` feature, on Windows,
   macOS and Linux (through the desktop portal). The dialog belongs to the application's window.
