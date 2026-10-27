@@ -2,23 +2,30 @@
 //! the application's window, where it shows every other application's, and keeps in its list
 //! when the person was away.
 //!
-//! [`SystemNotification`] describes one; [`SystemNotification::show`] shows it and **waits**
-//! for what the person does with it: a click, which brings the window forward, or nothing,
+//! [`SystemNotification`] describes one — a title, a body, buttons, a picture, and whether it
+//! makes the system's sound; [`SystemNotification::show`] shows it and **waits** for what the
+//! person does with it: a click, which brings the window forward, a button pressed, or nothing,
 //! until it is dismissed or the system takes it off the screen. Like the file dialogs, it
 //! belongs on a background thread, and its answer comes back as a message:
 //!
 //! ```no_run
-//! # use frus_shell::{Command, NotificationResponse, SystemNotification};
-//! # enum Msg { Reminded(bool) }
+//! # use frus_shell::{Command, NotificationError, NotificationResponse, SystemNotification};
+//! # enum Msg { Reminded(Result<NotificationResponse, NotificationError>) }
 //! # fn f() -> Command<Msg> {
 //! Command::perform(|| {
-//!     let response = SystemNotification::new("Water the plants")
-//!         .body("Due today")
-//!         .show();
-//!     Msg::Reminded(response == Ok(NotificationResponse::Clicked))
+//!     Msg::Reminded(
+//!         SystemNotification::new("Water the plants")
+//!             .body("Due today")
+//!             .button("done", "Done")
+//!             .button("snooze", "Later")
+//!             .show(),
+//!     )
 //! })
 //! # }
 //! ```
+//!
+//! A notification is for the person who is not looking at the application: Windows shows no
+//! banner for the application whose window is in front.
 //!
 //! and from a component, `frus_widgets::spawn(|| SystemNotification::new("…").show(), …)`.
 //! Asked for on the interface's thread, a notification is **refused** with an error that says
@@ -44,19 +51,29 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-/// A notification from the application, described: its title and the text under it. Shown by
-/// [`show`](Self::show), from a background thread.
+/// A notification from the application, described: its title, the text under it, its buttons,
+/// a picture and whether it makes a sound. Shown by [`show`](Self::show), from a background
+/// thread.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SystemNotification {
     title: String,
     body: String,
+    /// `(id, label)`, in order.
+    buttons: Vec<(String, String)>,
+    image: Option<PathBuf>,
+    silent: bool,
 }
 
 /// What the person did with a [`SystemNotification`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NotificationResponse {
-    /// They clicked it. The application's window has been brought forward.
+    /// They clicked the notification itself. The application's window has been brought
+    /// forward.
     Clicked,
+    /// They pressed one of its [buttons](SystemNotification::button): its id. The window is left
+    /// where it is — a button such as *Snooze* is answered without coming back — and the
+    /// application brings itself forward when the button says to.
+    Button(String),
     /// It went away without a click: dismissed, or taken off the screen by the system.
     Closed,
 }
@@ -79,13 +96,37 @@ impl SystemNotification {
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
-            body: String::new(),
+            ..Self::default()
         }
     }
 
     /// The text under the title.
     pub fn body(mut self, body: impl Into<String>) -> Self {
         self.body = body.into();
+        self
+    }
+
+    /// Adds a button labelled `label`, after any added before; a press answers
+    /// [`NotificationResponse::Button`] with its `id`.
+    ///
+    /// Windows shows up to five side by side, Linux as many as the desktop's notification
+    /// server offers, and macOS one: with several, a menu of them on its single button.
+    pub fn button(mut self, id: impl Into<String>, label: impl Into<String>) -> Self {
+        self.buttons.push((id.into(), label.into()));
+        self
+    }
+
+    /// A picture shown in the notification: the full path of a PNG or JPEG file. Windows shows
+    /// it under the text, macOS beside it, and Linux where its notification server puts one.
+    pub fn image(mut self, path: impl Into<PathBuf>) -> Self {
+        self.image = Some(path.into());
+        self
+    }
+
+    /// Shows it **without a sound**. By default a notification makes the system's own sound for
+    /// one, as every other application's does.
+    pub fn silent(mut self) -> Self {
+        self.silent = true;
         self
     }
 
@@ -102,6 +143,19 @@ impl SystemNotification {
         let sender = SENDER.lock().ok().and_then(|sender| sender.clone());
         let mut native = notify_rust::Notification::new();
         native.summary(&self.title).body(&self.body);
+        for (id, label) in &self.buttons {
+            native.action(&format!("{BUTTON}{id}"), label);
+        }
+        if let Some(image) = &self.image {
+            native.image_path(&image.to_string_lossy());
+        }
+        if let Some(sound) = sound(self.silent) {
+            native.sound_name(sound);
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        if self.silent {
+            native.hint(notify_rust::Hint::SuppressSound(true));
+        }
         #[cfg(windows)]
         if let Some(id) = sender.as_ref().and_then(windows::registered) {
             native.app_id(&id);
@@ -145,12 +199,34 @@ impl SystemNotification {
     }
 }
 
-/// What the person did, from what the system reported: anything but a close is a click on the
-/// notification or on one of its parts.
+/// What a button's id is sent as: marked, so that no id an application chooses can be taken for
+/// the click on the notification itself, which Linux names `default`.
+const BUTTON: &str = "button:";
+
+/// What the person did, from what the system reported: a marked action is a button, a close is a
+/// close, and anything else a click on the notification.
 fn response(platform: &notify_rust::NotificationResponse) -> NotificationResponse {
+    use notify_rust::NotificationResponse as Platform;
     match platform {
-        notify_rust::NotificationResponse::Closed(_) => NotificationResponse::Closed,
+        Platform::Closed(_) => NotificationResponse::Closed,
+        Platform::Action(action) => match action.strip_prefix(BUTTON) {
+            Some(id) => NotificationResponse::Button(id.to_owned()),
+            None => NotificationResponse::Clicked,
+        },
         _ => NotificationResponse::Clicked,
+    }
+}
+
+/// The sound named for a notification: the system's own, or none when it is `silent`. Linux
+/// names none either way — its notification server plays its own, and is told to keep quiet by
+/// a hint — while left unnamed, a Windows toast is silent and a macOS one too.
+fn sound(silent: bool) -> Option<&'static str> {
+    if silent || cfg!(not(any(windows, target_os = "macos"))) {
+        None
+    } else if cfg!(windows) {
+        Some("Default")
+    } else {
+        Some("NSUserNotificationDefaultSoundName")
     }
 }
 
@@ -298,15 +374,49 @@ mod tests {
         assert_eq!(SystemNotification::new("Done").body, "");
     }
 
-    /// **Only a close is not a click**: the notification itself, a button on it and a reply
-    /// are all the person acting on it.
+    /// **Buttons keep their order, and the picture and the silence are kept.**
     #[test]
-    fn anything_but_a_close_is_a_click() {
+    fn buttons_picture_and_silence_are_kept() {
+        let notification = SystemNotification::new("Water the plants")
+            .button("done", "Done")
+            .button("snooze", "Later")
+            .image("/pictures/plant.png")
+            .silent();
+        assert_eq!(
+            notification.buttons,
+            vec![
+                ("done".to_owned(), "Done".to_owned()),
+                ("snooze".to_owned(), "Later".to_owned()),
+            ]
+        );
+        assert_eq!(
+            notification.image,
+            Some(PathBuf::from("/pictures/plant.png"))
+        );
+        assert!(notification.silent);
+        let plain = SystemNotification::new("Done");
+        assert!(plain.buttons.is_empty() && plain.image.is_none() && !plain.silent);
+    }
+
+    /// **A close is a close, a marked action a button, and anything else a click**: the
+    /// notification itself, Linux's `default` action and a reply are all the person acting on
+    /// the notification.
+    #[test]
+    fn what_the_system_reports_is_read() {
         use notify_rust::{CloseReason, NotificationResponse as Platform};
         assert_eq!(response(&Platform::Default), NotificationResponse::Clicked);
         assert_eq!(
-            response(&Platform::Action("open".into())),
+            response(&Platform::Action("default".into())),
             NotificationResponse::Clicked
+        );
+        assert_eq!(
+            response(&Platform::Action(format!("{BUTTON}snooze"))),
+            NotificationResponse::Button("snooze".into())
+        );
+        // An id that looks like the click on the notification is still the button's.
+        assert_eq!(
+            response(&Platform::Action(format!("{BUTTON}default"))),
+            NotificationResponse::Button("default".into())
         );
         assert_eq!(
             response(&Platform::Reply("ok".into())),
@@ -339,6 +449,21 @@ mod tests {
                 .is_err_and(|e| e.to_string().contains("Command::perform")),
             "{refused:?}"
         );
+    }
+
+    /// **A notification makes the system's sound unless it is silent**: named on Windows and
+    /// macOS, where an unnamed one is silent, and left to the server on Linux.
+    #[test]
+    fn the_systems_sound_unless_silent() {
+        assert_eq!(sound(true), None);
+        let expected = if cfg!(windows) {
+            Some("Default")
+        } else if cfg!(target_os = "macos") {
+            Some("NSUserNotificationDefaultSoundName")
+        } else {
+            None
+        };
+        assert_eq!(sound(false), expected);
     }
 
     /// **A raise is taken once.**

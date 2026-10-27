@@ -130,27 +130,39 @@ impl StatelessWidget for TaskPage {
                     .child(text("Attach…").size(15.0).color(theme.primary)),
             )
         };
-        // A reminder from the system (milestone 701): the task as a notification, which
-        // opens the task when it is clicked, wherever the demo is by then.
+        // A reminder from the system (milestones 701 and 702): the task as a notification,
+        // which opens the task when it is clicked, wherever the demo is by then, and marks it
+        // done from its button without coming back.
         #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
         let actions = {
-            let remind = router.clone();
+            let (remind, finish) = (router.clone(), self.demo.clone());
             let title = self.demo.todo(id).map(|todo| todo.text).unwrap_or_default();
             actions.child(
                 Container::new()
                     .padding(8.0)
                     .on_click(on(move || {
-                        let (open, title) = (remind.clone(), title.clone());
+                        let (open, finish, title) = (remind.clone(), finish.clone(), title.clone());
                         frus_widgets::host::spawn(
                             move || {
-                                frus_shell::SystemNotification::new(title)
-                                    .body(state)
-                                    .show()
+                                let reminder =
+                                    frus_shell::SystemNotification::new(title).body(state);
+                                if done {
+                                    reminder
+                                } else {
+                                    reminder.button("done", "Mark done")
+                                }
+                                .show()
                             },
-                            move |response| {
-                                if response == Ok(frus_shell::NotificationResponse::Clicked) {
+                            move |response| match response {
+                                Ok(frus_shell::NotificationResponse::Clicked) => {
                                     open.go(format!("/task/{id}"));
                                 }
+                                Ok(frus_shell::NotificationResponse::Button(button))
+                                    if button == "done" =>
+                                {
+                                    finish.set_done(id, true);
+                                }
+                                _ => {}
                             },
                         );
                     }))
