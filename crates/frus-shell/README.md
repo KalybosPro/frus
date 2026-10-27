@@ -44,8 +44,9 @@ fn main() -> frus_shell::anyhow::Result<()> {
 ## Features
 
 `net` adds the `fetch` helper and `Request` (ureq natively, the browser's `fetch` on the
-web); `json` adds typed bodies through serde. The `bundled-*` features forward the font
-choice.
+web); `json` adds typed bodies through serde. `file-dialogs` adds `FileDialog`, the
+system's open, save and folder dialogs on the desktop. The `bundled-*` features forward the
+font choice.
 
 ## Part of frus
 

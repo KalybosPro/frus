@@ -17,6 +17,14 @@ any release may break.
   accessibility tree reached the system in logical pixels where it reads physical ones, so on a
   scaled screen every highlight was too small and off its place (two thirds of the size at
   150 %). The window's scale now goes on the tree's root.
+- **The system's file dialogs** (J698, part of #219): `FileDialog` — open a file or several,
+  choose a folder, choose where to save — behind the new `file-dialogs` feature, on Windows,
+  macOS and Linux (through the desktop portal). The dialog belongs to the application's window.
+  The calls wait for the person, so they are made from `Command::perform` or a component's
+  `spawn`; on the interface's thread, where the dialog would stop every frame, one is refused
+  and an error says where to call it from. The demo's task screen takes dropped files and has
+  an **Attach…** action, and lists the names.
+
 - **The pipeline cache, hardened and on every desktop** (J697, #217): the file a launch keeps
   its compiled pipelines in is now named for frus's version and the driver's version as well
   as the adapter, so a new driver or a new frus starts clean, and the files they leave are

@@ -1896,6 +1896,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         let window = match event_loop.create_window(attributes) {
             Ok(window) => {
                 crate::startup::window_made();
+                #[cfg(all(desktop, feature = "file-dialogs"))]
+                crate::file_dialog::window_made(&window);
                 Arc::new(window)
             }
             Err(err) => {
