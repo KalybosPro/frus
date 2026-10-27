@@ -3182,10 +3182,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     let focus = self.runtime.input.focused;
                     let title = self.app.title();
                     if let Some(ui) = self.ui.as_ref() {
-                        a11y.update(ui.semantics(), focus, &title, &self.announce);
+                        let scale = f64::from(self.scale);
+                        a11y.update(ui.semantics(), focus, &title, &self.announce, scale);
                     }
                 }
-                // Publish the frame's semantic tree to the DOM bridge (#18).
+                // Publish the frame's semantic tree to the DOM bridge (#18). The page's
+                // coordinates are CSS pixels, the layout's own: no scale to carry.
                 #[cfg(web)]
                 if let Some(a11y) = self.a11y.as_mut() {
                     let focus = self.runtime.input.focused;

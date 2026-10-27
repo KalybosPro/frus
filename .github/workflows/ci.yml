@@ -109,12 +109,24 @@ jobs:
       # sometimes down (502, 503). The key names the mesa version; moving the pin moves the
       # key. The packages are the ones the snapshot served, so a cached install is the same
       # install.
+      #
+      # The key also names the **runner image**. What the snapshot path downloads, and so
+      # what the cache holds, is only what that image lacked; on the next image the cached
+      # install wanted packages the cache did not have, failed, and fell back to the snapshot
+      # every run — while the key still matched, so the cache was never saved again. Every
+      # GPU job depended on the snapshot without saying so, until the day it was down
+      # (2026-10-27). Keyed by image, a new image misses once, goes through the snapshot,
+      # and saves a cache that is complete for it.
+      - name: Read the runner image's version, for the cache key
+        id: image
+        run: echo "version=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+
       - name: Restore the pinned mesa packages
         id: mesa-cache
         uses: actions/cache@v4
         with:
           path: ~/mesa-debs
-          key: mesa-debs-25.2.8-0ubuntu0.24.04.2-${{ runner.os }}-noble-v2
+          key: mesa-debs-25.2.8-0ubuntu0.24.04.2-${{ runner.os }}-noble-${{ steps.image.outputs.version }}-v3
 
       # From the cache, when there is one. It may still fail — the runner image moves, and
       # a dependency it no longer satisfies is not in the cache — in which case the
@@ -125,8 +137,14 @@ jobs:
         continue-on-error: true
         # `--no-download`: a package the cache lacks fails this step rather than coming from
         # the live archive — lavapipe draws with the llvm it brings, so a dependency drifting
-        # is the same as mesa drifting.
-        run: sudo apt-get install -y --no-install-recommends --no-download ~/mesa-debs/*.deb
+        # is the same as mesa drifting. On failure it says which packages it would have had
+        # to fetch, which apt's own message does not.
+        run: |
+          if ! sudo apt-get install -y --no-install-recommends --no-download ~/mesa-debs/*.deb; then
+            echo "::warning::the cached mesa does not install on this image; what it lacks:"
+            sudo apt-get install -s --no-install-recommends ~/mesa-debs/*.deb | grep '^Inst' || true
+            exit 1
+          fi
 
       # Pin apt to a frozen snapshot instead of the live archive, so the mesa
       # version installed below cannot drift out from under the goldens the way
