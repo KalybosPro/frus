@@ -127,6 +127,8 @@ fn try_install(app: &AndroidApp) -> Result<Bridge, jni::errors::Error> {
     crate::android_system_bars::install(&mut env, &loader, &activity);
     // And the clipboard (#22), on the same terms.
     crate::android_clipboard::install(&mut env, &loader, &activity);
+    #[cfg(feature = "notifications")]
+    crate::android_notification::install(&mut env, &loader, &activity);
 
     let name = env.new_string("dev.frus.input.FrusTextBridge")?;
     let class_obj = env

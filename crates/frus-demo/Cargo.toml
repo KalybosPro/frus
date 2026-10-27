@@ -32,7 +32,8 @@ required-features = ["shots"]
 shots = ["dep:frus-test", "dep:gif"]
 
 [dependencies]
-# The system's file dialogs, for attaching files to a task (desktop only).
+# The system's file dialogs, for attaching files to a task (desktop only), and its
+# notifications, for a task's reminder (desktop and Android).
 frus-shell = { path = "../frus-shell", features = ["file-dialogs", "notifications"] }
 frus-widgets = { path = "../frus-widgets" }
 frus-l10n = { path = "../frus-l10n" }
@@ -78,6 +79,11 @@ theme = "@style/LaunchTheme"
 # `frusdemo://task/3` opens the task's screen (milestone 563): a link with the application's own
 # scheme, from a browser, a mail or `adb shell am start -a android.intent.action.VIEW -d ...`.
 # Only the launch is read; a link opened while the demo runs is not forwarded to it.
+# A task's reminder is a notification, which Android 13 and later ask the person to allow; the
+# question is only put to an application that asks for the permission here.
+[[package.metadata.android.uses_permission]]
+name = "android.permission.POST_NOTIFICATIONS"
+
 [[package.metadata.android.application.activity.intent_filter]]
 actions = ["android.intent.action.VIEW"]
 categories = ["android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"]

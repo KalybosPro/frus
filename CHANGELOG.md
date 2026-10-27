@@ -8,11 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 702 so far, each documenting the objective, the alternatives
+> record — one per step, 703 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Notifications on Android** (J703): `SystemNotification` on Android with the same calls and
+  answers — channels, the Android 13 permission (asked for on the first notification; the
+  manifest must request `android.permission.POST_NOTIFICATIONS`), a click that opens the
+  application, buttons and dismissals answered through the bundled dex. The demo's reminder
+  works on Android.
 - **Buttons, a picture and the system's sound on a notification** (J702): `button(id, label)`
   answers `NotificationResponse::Button(id)` and leaves the window where it is; `image(path)`
   shows a picture; every notification now makes the system's sound — those of J701 were silent

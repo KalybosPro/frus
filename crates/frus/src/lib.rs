@@ -72,10 +72,10 @@ pub mod fonts {
 ))]
 pub use frus_shell::FileDialog;
 
-// The system's notifications (feature `notifications`, desktop only): `SystemNotification`.
+// The system's notifications (feature `notifications`, desktop and Android): `SystemNotification`.
 #[cfg(all(
     feature = "notifications",
-    not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
+    not(any(target_os = "ios", target_arch = "wasm32"))
 ))]
 pub use frus_shell::{NotificationError, NotificationResponse, SystemNotification};
 
