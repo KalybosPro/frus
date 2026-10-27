@@ -130,10 +130,10 @@ impl StatelessWidget for TaskPage {
                     .child(text("Attach…").size(15.0).color(theme.primary)),
             )
         };
-        // A reminder from the system (milestones 701 and 702): the task as a notification,
+        // A reminder from the system (milestones 701 to 703): the task as a notification,
         // which opens the task when it is clicked, wherever the demo is by then, and marks it
-        // done from its button without coming back.
-        #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
+        // done from its button without coming back. The desktop and Android.
+        #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
         let actions = {
             let (remind, finish) = (router.clone(), self.demo.clone());
             let title = self.demo.todo(id).map(|todo| todo.text).unwrap_or_default();

@@ -31,6 +31,8 @@ mod android_clipboard;
 mod android_ime;
 #[cfg(android)]
 mod android_link;
+#[cfg(all(android, feature = "notifications"))]
+mod android_notification;
 #[cfg(android)]
 mod android_settings;
 #[cfg(android)]
@@ -55,14 +57,17 @@ mod icon;
 mod ime;
 #[cfg(desktop)]
 mod instance;
-#[cfg(all(desktop, any(feature = "file-dialogs", feature = "notifications")))]
+#[cfg(any(
+    all(desktop, feature = "file-dialogs"),
+    all(any(desktop, android), feature = "notifications")
+))]
 mod interface_thread;
 mod link;
 mod logging;
 /// Cross-platform `fetch` HTTP helper (behind the `net` feature).
 #[cfg(feature = "net")]
 pub mod net;
-#[cfg(all(desktop, feature = "notifications"))]
+#[cfg(all(any(desktop, android), feature = "notifications"))]
 mod notification;
 mod reload;
 // How long the application takes to show its first frame (milestone 683, #211).
@@ -107,7 +112,7 @@ pub use command::Command;
 pub use file_dialog::FileDialog;
 pub use icon::AppIcon;
 pub use link::{link_among, location_of_link};
-#[cfg(all(desktop, feature = "notifications"))]
+#[cfg(all(any(desktop, android), feature = "notifications"))]
 pub use notification::{NotificationError, NotificationResponse, SystemNotification};
 pub use remote::RemoteData;
 pub use subscription::Subscription;
