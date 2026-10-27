@@ -66,11 +66,20 @@ fn to_ak_node(rect: Rect, sem: &SemanticsProperties) -> Node {
         x1: (rect.x + rect.width) as f64,
         y1: (rect.y + rect.height) as f64,
     });
-    if let Some(label) = &sem.label {
-        node.set_label(label.clone());
-    }
-    if let Some(value) = &sem.value {
-        node.set_value(value.clone());
+    if sem.role == Role::Label {
+        // Static text speaks its **value**: that is where AccessKit reads a label node's
+        // words from, on every platform — given as a `label`, the text was there and said
+        // nothing (milestone 700).
+        if let Some(words) = sem.value.as_ref().or(sem.label.as_ref()) {
+            node.set_value(words.clone());
+        }
+    } else {
+        if let Some(label) = &sem.label {
+            node.set_label(label.clone());
+        }
+        if let Some(value) = &sem.value {
+            node.set_value(value.clone());
+        }
     }
     match sem.toggled {
         Toggled::None => {}
@@ -98,7 +107,8 @@ fn to_ak_node(rect: Rect, sem: &SemanticsProperties) -> Node {
 fn live_node(message: &str) -> Node {
     let mut node = Node::new(AkRole::Label);
     node.set_live(Live::Polite);
-    node.set_label(message.to_string());
+    // A label node's words are its value (see `to_ak_node`).
+    node.set_value(message.to_string());
     node
 }
 
@@ -332,7 +342,8 @@ mod tests {
             .iter()
             .find(|(id, _)| *id == LIVE_ID)
             .expect("the live region is present");
-        assert_eq!(live.1.label(), Some("Column moved to position 2"));
+        assert_eq!(live.1.value(), Some("Column moved to position 2"));
+        assert_eq!(live.1.label(), None, "a label node speaks its value");
         assert_eq!(live.1.live(), Some(Live::Polite));
         let (_, root) = &loud.nodes[0];
         assert!(
@@ -358,5 +369,21 @@ mod tests {
         let id = wid(70);
         assert_eq!(widget_for(node_id(id)), Some(id));
         assert_eq!(widget_for(ROOT_ID), None);
+    }
+
+    /// **Static text speaks its value**: AccessKit names a label node from its value, so a
+    /// text's words go there — as a `label` they were in the tree and read as nothing. Every
+    /// other role keeps its words as its label.
+    #[test]
+    fn a_text_node_carries_its_words_as_its_value() {
+        let rect = Rect::new(0.0, 0.0, 80.0, 20.0);
+        let text = to_ak_node(rect, &sem(Role::Label).label("Water the plants"));
+        assert_eq!(text.value(), Some("Water the plants"));
+        assert_eq!(text.label(), None);
+        let button = to_ak_node(rect, &sem(Role::Button).label("Attach…"));
+        assert_eq!(button.label(), Some("Attach…"));
+        assert_eq!(button.value(), None);
+        let heading = to_ak_node(rect, &sem(Role::Heading).label("Task"));
+        assert_eq!(heading.label(), Some("Task"));
     }
 }

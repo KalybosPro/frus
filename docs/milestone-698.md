@@ -78,12 +78,14 @@ system, and work out how to tie the dialog to a window it was never given a hand
   - a `Container` with `on_click` has **no node at all**, so the demo's bottom-bar actions
     ("Delete", "Attach…", "Back") cannot be reached with a screen reader — the reference gives a
     tappable area a node with its tap action — and plain text is not in the tree either.
-- **A frame seen once with two versions of the task's screen.** The first version of the
-  demo's screen test attached the files with the screen already open; in one run out of about
-  fifteen (a full run of three crates, right after a build), the frame read back carried the
-  new names *and* the "drop files here" hint, which one build of the screen cannot produce
-  together. It did not come back in twelve more runs, and the cause was not found; the test now
-  opens the screen after attaching. A lead for whoever next sees a stale subtree in a frame.
+- **Correction (milestone 700): the "frame seen once with two versions of the task's
+  screen" was not a frame.** This note first reported one failed run of the demo's screen test
+  — the attached names *and* the "drop files here" hint read back together — as an unexplained
+  stale subtree. It was a stale **build**: that run came right after the mutation run, whose
+  script put each file back by moving its copy into place, which also put back the copy's
+  older time; cargo then took the last mutant's build — the hint shown whatever is attached —
+  as current. Nothing in the framework was involved. The scripts now refresh the time of the
+  file they restore.
 - The rest of #219: system notifications, the tray icon, taskbar badges and progress, global
   shortcuts.
 
