@@ -34,7 +34,9 @@ pub use frus_widgets::*;
 
 // Framework layer: the [`Application`] trait and its companions (effects, subscriptions,
 // lifecycle).
-pub use frus_shell::{AppIcon, Application, Command, FrusApp, Lifecycle, RemoteData, Subscription};
+pub use frus_shell::{
+    AppIcon, Application, Command, FrusApp, Lifecycle, RemoteData, Subscription, Tray,
+};
 
 // Utility re-exports for the thin binary and for the entry-point macro (so the application
 // does not have to declare `anyhow` / `log` itself).

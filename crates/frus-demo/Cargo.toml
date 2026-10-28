@@ -50,6 +50,11 @@ gif = { version = "0.14", optional = true }
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = ["Window", "Storage"] }
 
+# The tray icon on Windows and macOS (milestone 706). Not on Linux, where it needs GTK 3's
+# development files to build; CI builds it there on its own.
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+frus-shell = { path = "../frus-shell", features = ["file-dialogs", "notifications", "tray"] }
+
 [dev-dependencies]
 # The shell's windowless driver: a gesture seen on a phone, replayed through the shell.
 frus-shell = { path = "../frus-shell", features = ["testing"] }

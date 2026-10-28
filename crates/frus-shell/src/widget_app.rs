@@ -66,6 +66,7 @@ pub struct FrusApp {
     window_size: Option<(f32, f32)>,
     icon: crate::AppIcon,
     on_start: Option<Box<dyn FnOnce()>>,
+    tray: Option<Box<dyn Fn() -> crate::Tray<Callback>>>,
     save: Option<Save>,
     restore: Option<Restore>,
     strategy: LocationStrategy,
@@ -131,6 +132,7 @@ impl FrusApp {
             window_size: None,
             icon: crate::AppIcon::Frus,
             on_start: None,
+            tray: None,
             save: None,
             restore: None,
             strategy: LocationStrategy::Hash,
@@ -265,6 +267,14 @@ impl FrusApp {
         self
     }
 
+    /// The application's **tray icon** (milestone 706): `tray` is asked for it after every
+    /// change, as a component is asked for its tree, and the shell makes the system's tray
+    /// follow. Its items' callbacks run like any other. See [`Tray`](crate::Tray).
+    pub fn tray(mut self, tray: impl Fn() -> crate::Tray<Callback> + 'static) -> Self {
+        self.tray = Some(Box::new(tray));
+        self
+    }
+
     /// The window's initial size, in logical pixels.
     pub fn window_size(mut self, width: f32, height: f32) -> Self {
         self.window_size = Some((width, height));
@@ -333,6 +343,10 @@ impl Application for FrusApp {
                 Box::new(Component::stateless(move |cx: &BuildContext| root(cx)));
             builder(cx, pages)
         }))
+    }
+
+    fn tray(&self) -> Option<crate::Tray<Callback>> {
+        self.tray.as_ref().map(|tray| tray())
     }
 
     fn subscription(&self) -> Subscription<Callback> {
