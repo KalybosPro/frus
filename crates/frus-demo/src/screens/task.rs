@@ -159,6 +159,8 @@ impl StatelessWidget for TaskPage {
                                 {
                                     finish.set_done(id, true);
                                 }
+                                // Not shown — refused, or no notifications here: said, not hidden.
+                                Err(error) => log::warn!("the reminder was not shown: {error}"),
                                 _ => {}
                             }
                         });

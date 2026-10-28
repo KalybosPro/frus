@@ -8,11 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 704 so far, each documenting the objective, the alternatives
+> record — one per step, 705 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **A refused notification answers at once on Android** (J705): from Android 13, a person who
+  said no to notifications left `show` waiting a full minute, and then told it they had not
+  answered — a refusal does not change the permission, so it read as a question still open. The
+  question's dialog going away, or none coming at all, now settles it: refused through the
+  dialog, `show` answers 0.4 s later, and without one about 3.5 s later, saying the person did
+  not allow notifications. The demo logs a reminder that was not shown.
 - **Notifications on the Web, and awaited everywhere** (J704): `SystemNotification::show_async`,
   on every platform, is the one call that works on the Web, where nothing may block — the
   browser's notifications, asking for the page's permission the first time; a click focuses the

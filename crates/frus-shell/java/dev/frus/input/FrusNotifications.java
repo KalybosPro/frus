@@ -115,6 +115,15 @@ public final class FrusNotifications extends BroadcastReceiver {
         return false;
     }
 
+    /**
+     * Whether the activity's window has the focus: lost while the permission's question is up,
+     * given back once it is answered — the one sign of a refusal, which leaves the permission
+     * as it was before the question.
+     */
+    public static boolean focused(Activity activity) {
+        return activity.hasWindowFocus();
+    }
+
     /** Asks the person for the permission to post notifications (Android 13 and later). */
     public static void ask(final Activity activity) {
         if (Build.VERSION.SDK_INT < 33) {
