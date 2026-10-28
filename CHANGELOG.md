@@ -8,11 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 703 so far, each documenting the objective, the alternatives
+> record — one per step, 704 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Notifications on the Web, and awaited everywhere** (J704): `SystemNotification::show_async`,
+  on every platform, is the one call that works on the Web, where nothing may block — the
+  browser's notifications, asking for the page's permission the first time; a click focuses the
+  page. Components get `host::spawn_async` to await it (or any future) and act on the answer.
+  The demo's reminder uses both and works in the browser.
 - **Notifications on Android** (J703): `SystemNotification` on Android with the same calls and
   answers — channels, the Android 13 permission (asked for on the first notification; the
   manifest must request `android.permission.POST_NOTIFICATIONS`), a click that opens the

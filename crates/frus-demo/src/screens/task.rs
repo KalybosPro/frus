@@ -130,10 +130,11 @@ impl StatelessWidget for TaskPage {
                     .child(text("Attach…").size(15.0).color(theme.primary)),
             )
         };
-        // A reminder from the system (milestones 701 to 703): the task as a notification,
+        // A reminder from the system (milestones 701 to 704): the task as a notification,
         // which opens the task when it is clicked, wherever the demo is by then, and marks it
-        // done from its button without coming back. The desktop and Android.
-        #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
+        // done from its button without coming back. Awaited rather than waited for, so the
+        // same code serves the Web, where a page's notification has no buttons.
+        #[cfg(not(target_os = "ios"))]
         let actions = {
             let (remind, finish) = (router.clone(), self.demo.clone());
             let title = self.demo.todo(id).map(|todo| todo.text).unwrap_or_default();
@@ -142,18 +143,14 @@ impl StatelessWidget for TaskPage {
                     .padding(8.0)
                     .on_click(on(move || {
                         let (open, finish, title) = (remind.clone(), finish.clone(), title.clone());
-                        frus_widgets::host::spawn(
-                            move || {
-                                let reminder =
-                                    frus_shell::SystemNotification::new(title).body(state);
-                                if done {
-                                    reminder
-                                } else {
-                                    reminder.button("done", "Mark done")
-                                }
-                                .show()
-                            },
-                            move |response| match response {
+                        let reminder = frus_shell::SystemNotification::new(title).body(state);
+                        let reminder = if done {
+                            reminder
+                        } else {
+                            reminder.button("done", "Mark done")
+                        };
+                        frus_widgets::host::spawn_async(reminder.show_async(), move |response| {
+                            match response {
                                 Ok(frus_shell::NotificationResponse::Clicked) => {
                                     open.go(format!("/task/{id}"));
                                 }
@@ -163,8 +160,8 @@ impl StatelessWidget for TaskPage {
                                     finish.set_done(id, true);
                                 }
                                 _ => {}
-                            },
-                        );
+                            }
+                        });
                     }))
                     .child(text("Remind me").size(15.0).color(theme.primary)),
             )

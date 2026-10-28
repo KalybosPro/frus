@@ -20,7 +20,9 @@
 //! with [`take_effects`] after the frame and runs it as it runs any other effect.
 
 use std::cell::RefCell;
+use std::future::Future;
 use std::hash::{Hash, Hasher};
+use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -167,7 +169,19 @@ pub enum Effect {
     Spawn(Box<dyn FnOnce() -> Option<Callback> + Send>),
     /// Run this callback after a delay.
     After(Duration, Callback),
+    /// Await this; if it answers with a callback, that callback runs on the interface's thread.
+    Async(Task),
 }
+
+/// What [`Effect::Async`] awaits: on the shell's executor natively, where it must be `Send`,
+/// and on the browser's own loop on the Web.
+#[cfg(not(target_arch = "wasm32"))]
+pub type Task = Pin<Box<dyn Future<Output = Option<Callback>> + Send>>;
+
+/// What [`Effect::Async`] awaits: on the shell's executor natively, where it must be `Send`,
+/// and on the browser's own loop on the Web.
+#[cfg(target_arch = "wasm32")]
+pub type Task = Pin<Box<dyn Future<Output = Option<Callback>>>>;
 
 /// The hash a key is known by, the same one `keyed(key, …)` and the shell's commands use.
 pub fn key_hash(key: impl Hash) -> u64 {
@@ -233,6 +247,59 @@ pub fn spawn<R: Send + 'static>(
     })));
 }
 
+/// Awaits `work` — something that **waits** rather than works: an answer from the person, a
+/// response from a server — and then runs `then` with what it gave, on the interface's thread.
+///
+/// The asynchronous counterpart of [`spawn`], and the one that works on the Web, where
+/// nothing may block: a [`spawn`] there runs on the page's only thread. Natively `work` is
+/// driven by the shell's executor, which waits without holding a thread, so it must be `Send`
+/// and must not block — a blocking call is [`spawn`]'s.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn spawn_async<R: Send + 'static>(
+    work: impl Future<Output = R> + Send + 'static,
+    then: impl Fn(R) + 'static,
+) {
+    let (deliver, answer) = delivery(then);
+    push(Effect::Async(Box::pin(async move {
+        let made = work.await;
+        *answer.lock().ok()? = Some(made);
+        Some(deliver)
+    })));
+}
+
+/// Awaits `work` — something that **waits** rather than works: an answer from the person, a
+/// response from a server — and then runs `then` with what it gave, on the interface's thread.
+///
+/// The asynchronous counterpart of [`spawn`], and the one that works on the Web, where
+/// nothing may block: the browser drives `work` on the page's own loop.
+#[cfg(target_arch = "wasm32")]
+pub fn spawn_async<R: 'static>(
+    work: impl Future<Output = R> + 'static,
+    then: impl Fn(R) + 'static,
+) {
+    let (deliver, answer) = delivery(then);
+    push(Effect::Async(Box::pin(async move {
+        let made = work.await;
+        *answer.lock().ok()? = Some(made);
+        Some(deliver)
+    })));
+}
+
+/// A slot for what the work makes, and the callback that hands it to `then` once it is there.
+fn delivery<R: 'static>(then: impl Fn(R) + 'static) -> (Callback, Arc<Mutex<Option<R>>>) {
+    let answer: Arc<Mutex<Option<R>>> = Arc::default();
+    let deliver = {
+        let answer = answer.clone();
+        Callback::new(move || {
+            let made = answer.lock().ok().and_then(|mut slot| slot.take());
+            if let Some(made) = made {
+                then(made);
+            }
+        })
+    };
+    (deliver, answer)
+}
+
 /// Runs `then` on the interface's thread once `delay` has passed.
 pub fn after(delay: Duration, then: impl Fn() + 'static) {
     push(Effect::After(delay, Callback::new(then)));
@@ -241,6 +308,33 @@ pub fn after(delay: Duration, then: impl Fn() + 'static) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **What an awaited work gives reaches `then`, once**, and only through the callback the
+    /// effect answers with — on the interface's thread, where the shell runs it.
+    #[test]
+    fn an_awaited_answer_reaches_then_once() {
+        let _ = take_effects();
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let record = seen.clone();
+        spawn_async(async { 7 }, move |value| record.borrow_mut().push(value));
+        let mut effects = take_effects();
+        assert_eq!(effects.len(), 1);
+        let Some(Effect::Async(mut task)) = effects.pop() else {
+            panic!("spawn_async asks for an awaited effect");
+        };
+        assert!(
+            seen.borrow().is_empty(),
+            "nothing before the work is awaited"
+        );
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        let std::task::Poll::Ready(Some(deliver)) = task.as_mut().poll(&mut context) else {
+            panic!("a ready work answers with its delivery");
+        };
+        assert!(seen.borrow().is_empty(), "nothing before the delivery runs");
+        deliver.call();
+        deliver.call();
+        assert_eq!(*seen.borrow(), vec![7]);
+    }
 
     #[test]
     fn a_setting_is_read_back_and_asks_for_a_rebuild() {

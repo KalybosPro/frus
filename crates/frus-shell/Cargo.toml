@@ -30,8 +30,9 @@ hot-reload = ["dep:dioxus-devtools", "dep:serde_json", "frus-widgets/hot-reload"
 # The system's file dialogs: `FileDialog` (milestone 698). Desktop only; off by default, as it
 # brings the desktop portal's D-Bus client on Linux.
 file-dialogs = ["dep:rfd"]
-# The system's notifications: `SystemNotification` (milestone 701). Desktop only; off by
-# default, as it brings the D-Bus client on Linux and the toast bindings on Windows.
+# The system's notifications: `SystemNotification` (milestones 701 to 704). The desktop,
+# Android and the Web; off by default, as it brings the D-Bus client on Linux and the toast
+# bindings on Windows.
 notifications = ["dep:notify-rust"]
 net = ["dep:ureq"]
 json = ["net", "dep:serde", "dep:serde_json"]
@@ -173,6 +174,10 @@ web-sys = { version = "0.3", features = [
     "Headers",
     "AbortController",
     "AbortSignal",
+    # The page's notifications (milestone 704): `SystemNotification` on the Web.
+    "Notification",
+    "NotificationOptions",
+    "NotificationPermission",
     # The accessibility bridge (milestone 564, #18): the canvas winit attached the
     # window to, and the element type its fallback-content nodes are built as.
     "HtmlCanvasElement",

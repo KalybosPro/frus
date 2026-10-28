@@ -118,7 +118,7 @@ Everything else in the crate is widgets — `button.rs`, `scroll.rs`, `datatable
 - `android_ime.rs` — real Android IME: composition, swipe input, insets
 - `net.rs` — `fetch` / `Request` behind the `net` feature; `ureq` natively, browser `fetch` on wasm. `json` adds serde-typed bodies and responses.
 - `file_dialog.rs` — `FileDialog`, the system's open / save / folder dialogs behind the `file-dialogs` feature (desktop: rfd, owned by the application's window); refused on the interface's thread
-- `notification.rs` — `SystemNotification`, the system's notifications behind the `notifications` feature (desktop: notify-rust; Windows records the application under the current user; Android: `android_notification.rs` and `FrusNotifications` in the bundled dex); waits for a click, refused on the interface's thread, a click brings the window forward
+- `notification.rs` — `SystemNotification`, the system's notifications behind the `notifications` feature (desktop: notify-rust; Windows records the application under the current user; Android: `android_notification.rs` and `FrusNotifications` in the bundled dex; the Web: `notification_web.rs`, the browser's `Notification`, through `show_async`); waits for a click, refused on the interface's thread, a click brings the window forward
 - `interface_thread.rs` — which thread is the interface's, for the calls that must not run there
 - `reload.rs` — dev live-reload
 - `remote.rs` — remote/debug channel
