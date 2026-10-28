@@ -50,8 +50,13 @@
 //!   cargo-apk, `[[package.metadata.android.uses_permission]]` with that name — or the system
 //!   refuses without asking, and `show` says why. A notification stays in the shade until the
 //!   person does something with it, so `show` may wait a long time there.
+//! - **The Web**: the browser's notifications, through [`show_async`](SystemNotification::show_async)
+//!   — a page cannot block (milestone 704). The first asks the person for the page's permission;
+//!   some browsers only put the question after a click of theirs, so show the first from a press.
+//!   A page's notification has no buttons and no picture (those need a service worker): it is
+//!   shown without them, with the tab's icon. A click focuses the page.
 //!
-//! Behind the `notifications` feature, on the desktop and Android.
+//! Behind the `notifications` feature, on the desktop, Android and the Web.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -140,8 +145,28 @@ impl SystemNotification {
         self
     }
 
+    /// Shows the notification and waits for its answer **without blocking**: the call for the
+    /// Web, where nothing may block, and for `Command::perform_async` or a component's
+    /// `spawn_async` on every platform. Natively it is [`show`](Self::show), moved to a thread
+    /// made for waiting.
+    pub async fn show_async(self) -> Result<NotificationResponse, NotificationError> {
+        #[cfg(web)]
+        {
+            log::debug!("notification {:?}: showing", self.title);
+            let answer = crate::notification_web::show(&self).await;
+            log::debug!("notification {:?}: {answer:?}", self.title);
+            answer
+        }
+        #[cfg(not(web))]
+        {
+            blocking::unblock(move || self.show()).await
+        }
+    }
+
     /// Shows the notification and **waits** until the person clicks it or it goes away. A
-    /// click also brings the application's window forward.
+    /// click also brings the application's window forward. Not on the Web, where nothing may
+    /// block: [`show_async`](Self::show_async) is the call there.
+    #[cfg(not(web))]
     pub fn show(self) -> Result<NotificationResponse, NotificationError> {
         if crate::interface_thread::current() {
             let error = "SystemNotification::show was called on the interface's thread, which \
@@ -219,11 +244,13 @@ impl SystemNotification {
     }
 }
 
+#[cfg_attr(web, allow(dead_code))]
 /// What a button's id is sent as: marked, so that no id an application chooses can be taken for
 /// the click on the notification itself, which Linux names `default`.
 const BUTTON: &str = "button:";
 
 /// The button an action names, when it is a marked one.
+#[cfg_attr(web, allow(dead_code))]
 pub(crate) fn button(action: &str) -> Option<NotificationResponse> {
     action
         .strip_prefix(BUTTON)

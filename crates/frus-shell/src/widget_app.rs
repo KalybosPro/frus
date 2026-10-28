@@ -300,6 +300,7 @@ impl Application for FrusApp {
             Effect::Sheet(key, to) => Command::sheet_hashed(key, to),
             Effect::Spawn(task) => Command::run(task),
             Effect::After(delay, callback) => Command::after(delay, callback),
+            Effect::Async(task) => Command::run_async(task),
         }))
     }
 
@@ -862,6 +863,18 @@ mod host_tests {
         host::spawn(|| 1 + 1, |_| {});
         assert!(!app.effects().is_empty());
         assert!(app.effects().is_empty(), "and taken once");
+    }
+
+    /// **An awaited work a component asks for is awaited by the shell**: one future, run like
+    /// any `Command::run_async`, not a blocking task and not dropped.
+    #[test]
+    fn an_awaited_work_becomes_an_awaited_command() {
+        let mut app = quiet();
+        let _ = host::take_effects();
+        host::spawn_async(async { 1 + 1 }, |_| {});
+        let parts = app.effects().into_parts();
+        assert_eq!(parts.async_tasks.len(), 1);
+        assert!(parts.tasks.is_empty(), "not a blocking task");
     }
 
     #[test]

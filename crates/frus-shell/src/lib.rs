@@ -67,8 +67,10 @@ mod logging;
 /// Cross-platform `fetch` HTTP helper (behind the `net` feature).
 #[cfg(feature = "net")]
 pub mod net;
-#[cfg(all(any(desktop, android), feature = "notifications"))]
+#[cfg(all(any(desktop, android, web), feature = "notifications"))]
 mod notification;
+#[cfg(all(web, feature = "notifications"))]
+mod notification_web;
 mod reload;
 // How long the application takes to show its first frame (milestone 683, #211).
 mod startup;
@@ -112,7 +114,7 @@ pub use command::Command;
 pub use file_dialog::FileDialog;
 pub use icon::AppIcon;
 pub use link::{link_among, location_of_link};
-#[cfg(all(any(desktop, android), feature = "notifications"))]
+#[cfg(all(any(desktop, android, web), feature = "notifications"))]
 pub use notification::{NotificationError, NotificationResponse, SystemNotification};
 pub use remote::RemoteData;
 pub use subscription::Subscription;
