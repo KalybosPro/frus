@@ -34,6 +34,9 @@ file-dialogs = ["dep:rfd"]
 # Android and the Web; off by default, as it brings the D-Bus client on Linux and the toast
 # bindings on Windows.
 notifications = ["dep:notify-rust"]
+# The tray icon: `Tray` (milestone 706). The desktop; off by default. On Linux it needs GTK 3's
+# development files to build (`libgtk-3-dev`), the menus being made with it.
+tray = ["dep:tray-icon"]
 net = ["dep:ureq"]
 json = ["net", "dep:serde", "dep:serde_json"]
 default = ["frus-gpu/default", "frus-widgets/default"]
@@ -116,10 +119,18 @@ rfd = { version = "0.17.2", optional = true }
 # The system's notifications (feature `notifications`): Windows toasts, macOS notifications,
 # and the desktop's notification server over D-Bus on Linux, in pure Rust.
 notify-rust = { version = "4.18.2", optional = true }
+# The tray icon (feature `tray`): the notification area on Windows, the menu bar on macOS, and
+# the desktop's status area over D-Bus on Linux (below, with its `ksni` feature).
+tray-icon = { version = "0.26.1", optional = true, default-features = false }
 
 # Web (wasm32 + WebGPU): the browser entry point, JS futures, console logs.
 # The application's content on the title bar's line (milestone 640): the frame and the
 # window procedure, which winit does not reach. Already in the tree.
+# The tray icon on Linux and the BSDs: the desktop's status area through D-Bus (`ksni`), not the
+# older indicator library a desktop may not have.
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "android", target_os = "ios"))))'.dependencies]
+tray-icon = { version = "0.26.1", optional = true, default-features = false, features = ["ksni"] }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",

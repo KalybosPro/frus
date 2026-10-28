@@ -133,6 +133,14 @@ pub trait Application {
         Subscription::none()
     }
 
+    /// The application's **tray icon**, declared from the state like its subscriptions: built
+    /// when one is declared, changed when the description changes, taken away when there is
+    /// none. See [`Tray`](crate::Tray). Acted on on the desktop with the `tray` feature;
+    /// ignored elsewhere.
+    fn tray(&self) -> Option<crate::Tray<Self::Message>> {
+        None
+    }
+
     /// Builds the widget tree for the current theme.
     ///
     /// **It is not told the size.** The framework installs a description of the surface

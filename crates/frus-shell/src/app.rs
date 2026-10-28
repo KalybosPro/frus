@@ -1111,6 +1111,12 @@ pub struct App<A: Application> {
     #[cfg_attr(not(windows), allow(dead_code))]
     title_bar_on: bool,
     title_bar: Option<frus_widgets::TitleBar>,
+    /// The tray icon as the system has it (milestone 706).
+    #[cfg(all(desktop, feature = "tray"))]
+    tray: Option<crate::tray::native::Live>,
+    /// Whether closing the window leaves the application running in its tray.
+    #[cfg(all(desktop, feature = "tray"))]
+    tray_keeps_running: bool,
     /// The application's icon, kept for the life of the program, to paint on the line.
     #[cfg_attr(not(windows), allow(dead_code))]
     window_icon: Option<&'static [u8]>,
@@ -1269,6 +1275,10 @@ impl<A: Application> App<A> {
             last_insets: WindowInsets::ZERO,
             title_bar_on: false,
             title_bar: None,
+            #[cfg(all(desktop, feature = "tray"))]
+            tray: None,
+            #[cfg(all(desktop, feature = "tray"))]
+            tray_keeps_running: false,
             window_icon: None,
             reveal_after_keyboard: false,
             platform: PlatformSettings::default(),
@@ -2093,6 +2103,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
     /// of them has arrived, and files still held over the window are looked for where
     /// the system can say (milestone 695).
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(all(desktop, feature = "tray"))]
+        self.tray_events(event_loop);
         if self.file_drag.is_none() {
             return;
         }
@@ -2161,7 +2173,18 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         }
 
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                // A tray that keeps the application running: the window goes, the
+                // application stays, until a quit item (milestone 706).
+                #[cfg(all(desktop, feature = "tray"))]
+                if self.tray.is_some() && self.tray_keeps_running {
+                    if let Some(window) = &self.window {
+                        window.set_visible(false);
+                    }
+                    return;
+                }
+                event_loop.exit()
+            }
 
             // Gaining or losing focus **in the foreground**: `Resumed` ⇄ `Inactive`. We
             // leave `Paused`/`Detached` — background and closing — alone; those are
@@ -5708,6 +5731,51 @@ impl<A: Application> App<A> {
             }
             let handle = self.start_subscription(entry.kind);
             self.running_subs.insert(entry.id, handle);
+        }
+        // The tray is declared from the state too, and follows it at the same moment.
+        #[cfg(all(desktop, feature = "tray"))]
+        self.sync_tray();
+    }
+
+    /// Makes the system's tray follow what the application declares (milestone 706).
+    #[cfg(all(desktop, feature = "tray"))]
+    fn sync_tray(&mut self) {
+        match self.app.tray() {
+            None => {
+                self.tray = None;
+                self.tray_keeps_running = false;
+            }
+            Some(tray) => {
+                self.tray_keeps_running = tray.keep_running;
+                let shape = tray.shape(&self.app.icon());
+                crate::tray::native::sync(&mut self.tray, shape, self.window.as_ref());
+            }
+        }
+    }
+
+    /// Acts on what the person did with the tray since the last look (milestone 706): the
+    /// description is asked for again, and the item at that place does what it says now.
+    #[cfg(all(desktop, feature = "tray"))]
+    fn tray_events(&mut self, event_loop: &ActiveEventLoop) {
+        for event in crate::tray::native::take_events() {
+            let Some(action) = self.app.tray().and_then(|tray| tray.action(event)) else {
+                continue;
+            };
+            match action {
+                crate::tray::TrayAction::Message(message) => {
+                    self.dispatch(message);
+                    self.request_redraw();
+                }
+                crate::tray::TrayAction::ShowWindow => {
+                    if let Some(window) = &self.window {
+                        window.set_visible(true);
+                        window.set_minimized(false);
+                        window.focus_window();
+                        window.request_redraw();
+                    }
+                }
+                crate::tray::TrayAction::Quit => event_loop.exit(),
+            }
         }
     }
 

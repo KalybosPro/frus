@@ -55,6 +55,16 @@ jobs:
           cargo test -p frus --features "net json"
           cargo test -p frus-shell --features net
 
+      # The tray icon on Linux (milestone 706): its menus are made with GTK 3, which nothing
+      # else here needs, so it is built on its own rather than through the demo, which leaves
+      # it off on Linux.
+      - name: The tray icon on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y --no-install-recommends libgtk-3-dev
+          cargo build -p frus-shell --features tray
+          cargo test -p frus-shell --features tray --lib tray::
+
       # One iteration of every benchmark, for compile rot rather than for numbers:
       # a bench suite nobody builds decays exactly like an advisory check nobody
       # reads (milestones 294, 298).

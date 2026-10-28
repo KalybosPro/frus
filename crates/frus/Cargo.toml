@@ -39,6 +39,8 @@ net = ["frus-shell/net"]
 file-dialogs = ["frus-shell/file-dialogs"]
 # The system's notifications: `SystemNotification`. Desktop only; off by default.
 notifications = ["frus-shell/notifications"]
+# The tray icon: `Tray`. The desktop; off by default. Linux builds need `libgtk-3-dev`.
+tray = ["frus-shell/tray"]
 json = ["frus-shell/json"]
 default = ["frus-shell/default", "frus-widgets/default", "frus-text/default"]
 # Decoding embedded PNG/JPEG: `Image::memory` and `asset!`. Part of `default`;
