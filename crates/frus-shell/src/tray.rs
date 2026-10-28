@@ -385,6 +385,19 @@ mod tests {
         );
     }
 
+    /// **No system tray without a real window.** An application that declares a tray, run
+    /// through the windowless driver tests use, makes none: on macOS a menu made off the main
+    /// thread is a panic, and every test of such an application would be one.
+    #[cfg(all(desktop, feature = "tray"))]
+    #[test]
+    fn no_system_tray_without_a_window() {
+        let app = crate::FrusApp::from_fn(|_| Box::new(frus_widgets::Spacer::default()))
+            .tray(|| Tray::new("Tasks").quit_item("Quit").keep_running());
+        let mut driver = crate::testing::Driver::new(app, 200.0, 200.0);
+        driver.frame(0.016);
+        assert!(!driver.has_system_tray());
+    }
+
     /// **The shape is what the system sees**: the labels, which are enabled, the separators,
     /// the tooltip and the icon — and not the messages, so two trays that differ only in what
     /// an item sends need nothing changed.

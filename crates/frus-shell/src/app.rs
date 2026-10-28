@@ -5745,6 +5745,10 @@ impl<A: Application> App<A> {
                 self.tray = None;
                 self.tray_keeps_running = false;
             }
+            // The system's tray belongs to a real window, on the thread it was made on: the
+            // windowless driver tests run through has neither, and on macOS the menus may
+            // only be made on the main thread, which a test's is not.
+            Some(_) if self.window.is_none() => {}
             Some(tray) => {
                 self.tray_keeps_running = tray.keep_running;
                 let shape = tray.shape(&self.app.icon());
@@ -10796,6 +10800,12 @@ pub mod testing {
 
         /// The interface the last frame laid out — what a tap is asked about, what the registries
         /// hold — and the tree it was laid out from.
+        /// Whether a system tray icon was made (milestone 706): never, with no window.
+        #[cfg(all(test, desktop, feature = "tray"))]
+        pub(crate) fn has_system_tray(&self) -> bool {
+            self.shell.tray.is_some()
+        }
+
         pub fn frame_parts(&self) -> Option<FrameParts<'_, A::Message>> {
             let s = &self.shell;
             Some((s.ui.as_ref()?, s.tree.as_deref()?))
