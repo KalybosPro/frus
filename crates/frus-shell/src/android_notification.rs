@@ -5,7 +5,10 @@
 //!   can tune in the settings: one for notifications, one for silent ones, made the first time.
 //! - **The permission.** From Android 13 the person must allow notifications. The first one asks
 //!   them, and waits for their answer; the application's manifest must ask for the permission
-//!   (`android.permission.POST_NOTIFICATIONS`), or the system answers no without asking.
+//!   (`android.permission.POST_NOTIFICATIONS`), or the system answers no without asking. A
+//!   refusal leaves the permission as it was, so it is read from the question's dialog going
+//!   away — the window getting its focus back — or from no dialog coming at all, which is how
+//!   Android answers once the person has said no twice (milestone 705).
 //! - **The answer.** A click opens the application through its launch intent, which brings the
 //!   running one forward. A button or a dismissal is a broadcast the Java side records. So a
 //!   notification that left the shade with nothing recorded was clicked: this polls for that,
@@ -20,7 +23,7 @@ use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::{JNIEnv, JavaVM};
 
 use crate::notification::{
-    left_the_shade, NotificationError, NotificationResponse, SystemNotification,
+    left_the_shade, question, NotificationError, NotificationResponse, Question, SystemNotification,
 };
 
 struct Handle {
@@ -37,9 +40,6 @@ static HANDLE: OnceLock<Handle> = OnceLock::new();
 
 /// How often the shade is looked at while a notification waits for its answer.
 const POLL: Duration = Duration::from_millis(250);
-
-/// How long the person is given to answer the question about notifications.
-const ASKING: Duration = Duration::from_secs(60);
 
 /// Loads `FrusNotifications` from the bundled dex, through the loader the input bridge made. A
 /// failure costs the notifications only.
@@ -121,7 +121,18 @@ fn run(
         )
         .and_then(|value| value.i())
     };
-    // Android 13 and later: ask, then wait for the person's answer.
+    let focused = |env: &mut JNIEnv| {
+        env.call_static_method(
+            class,
+            "focused",
+            "(Landroid/app/Activity;)Z",
+            &[JValue::Object(activity)],
+        )
+        .and_then(|value| value.z())
+    };
+    // Android 13 and later: ask, then wait for the person's answer — which a refusal does not
+    // show in the permission, only in the dialog going away (see `question`).
+    let mut unanswered = false;
     if allowed(env).map_err(jni)? == 0 {
         env.call_static_method(
             class,
@@ -131,13 +142,29 @@ fn run(
         )
         .map_err(jni)?;
         let asked = Instant::now();
-        while allowed(env).map_err(jni)? == 0 && asked.elapsed() < ASKING {
-            std::thread::sleep(POLL);
+        let mut was_away = false;
+        loop {
+            let has_focus = focused(env).map_err(jni)?;
+            was_away |= !has_focus;
+            match question(
+                allowed(env).map_err(jni)?,
+                has_focus,
+                was_away,
+                asked.elapsed(),
+            ) {
+                Question::Open => std::thread::sleep(POLL),
+                Question::Settled => break,
+                Question::Unanswered => {
+                    unanswered = true;
+                    break;
+                }
+            }
         }
     }
     match allowed(env).map_err(jni)? {
         1 => {}
-        0 => return Err(failed("the person did not answer whether it may")),
+        0 if unanswered => return Err(failed("the person did not answer whether it may")),
+        0 => return Err(failed("the person did not allow notifications")),
         _ => {
             return Err(failed(
                 "notifications are turned off for the application, or its manifest does not \
