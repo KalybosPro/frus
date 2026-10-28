@@ -257,6 +257,51 @@ pub(crate) fn button(action: &str) -> Option<NotificationResponse> {
         .map(|id| NotificationResponse::Button(id.to_owned()))
 }
 
+/// Where Android's question about notifications stands (milestone 705), from what is seen while
+/// it is asked: `allowed` as `FrusNotifications.allowed` says it (1 yes, -1 no, 0 not yet),
+/// whether the application's window has the focus, whether it lost it since the question was
+/// put, and how long ago that was.
+///
+/// A refusal reads exactly like a question not yet answered — the permission is simply not
+/// granted — so the focus tells them apart: the question is a dialog over the window, which
+/// takes the focus while it is up and gives it back once answered. A focus never lost means no
+/// dialog came: Android refuses without asking once the person has said no twice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(android), allow(dead_code))]
+pub(crate) enum Question {
+    /// Still being asked.
+    Open,
+    /// Answered, or refused without asking: what `allowed` now says is the answer.
+    Settled,
+    /// No answer in the time given.
+    Unanswered,
+}
+
+/// How long a question that put up no dialog is given before it is taken as refused.
+#[cfg_attr(not(android), allow(dead_code))]
+pub(crate) const NO_DIALOG: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How long the person is given to answer the question.
+#[cfg_attr(not(android), allow(dead_code))]
+pub(crate) const ASKING: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// See [`Question`].
+#[cfg_attr(not(android), allow(dead_code))]
+pub(crate) fn question(
+    allowed: i32,
+    focused: bool,
+    was_away: bool,
+    elapsed: std::time::Duration,
+) -> Question {
+    if allowed != 0 || (was_away && focused) || (!was_away && elapsed >= NO_DIALOG) {
+        Question::Settled
+    } else if elapsed >= ASKING {
+        Question::Unanswered
+    } else {
+        Question::Open
+    }
+}
+
 /// What the person did with a notification that left the shade, from what was recorded for it:
 /// a button, a dismissal, or — nothing recorded — a click, which is the one answer Android
 /// sends no word of.
@@ -519,6 +564,30 @@ mod tests {
                 .is_err_and(|e| e.to_string().contains("Command::perform")),
             "{refused:?}"
         );
+    }
+
+    /// **Android's question is settled by an answer, by the focus coming back, or by no dialog
+    /// at all** — a refusal reads like no answer yet, and the focus is what tells them apart.
+    #[test]
+    fn the_question_is_settled_by_the_focus_coming_back() {
+        use std::time::Duration;
+        let soon = Duration::from_millis(500);
+        // Allowed or refused outright: settled at once.
+        assert_eq!(question(1, true, false, soon), Question::Settled);
+        assert_eq!(question(-1, true, false, soon), Question::Settled);
+        // The dialog is up: the window has lost the focus.
+        assert_eq!(question(0, false, true, soon), Question::Open);
+        assert_eq!(
+            question(0, false, true, Duration::from_secs(30)),
+            Question::Open
+        );
+        // The focus is back and the permission still not granted: the person said no.
+        assert_eq!(question(0, true, true, soon), Question::Settled);
+        // No dialog came: open for a moment, then refused without asking.
+        assert_eq!(question(0, true, false, soon), Question::Open);
+        assert_eq!(question(0, true, false, NO_DIALOG), Question::Settled);
+        // A dialog left unanswered: given up on.
+        assert_eq!(question(0, false, true, ASKING), Question::Unanswered);
     }
 
     /// **What Android recorded is read**: nothing is a click, `closed` a dismissal, a marked
