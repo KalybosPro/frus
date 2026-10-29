@@ -73,6 +73,8 @@ mod notification;
 mod notification_web;
 mod reload;
 // How long the application takes to show its first frame (milestone 683, #211).
+// Global shortcuts (milestone 709).
+mod shortcuts;
 mod startup;
 // The tray icon (milestone 706): its description everywhere, the system's own on the desktop.
 mod tray;
@@ -119,6 +121,7 @@ pub use link::{link_among, location_of_link};
 #[cfg(all(any(desktop, android, web), feature = "notifications"))]
 pub use notification::{NotificationError, NotificationResponse, SystemNotification};
 pub use remote::RemoteData;
+pub use shortcuts::GlobalShortcut;
 pub use subscription::Subscription;
 pub use tray::Tray;
 pub use widget_app::FrusApp;

@@ -8,11 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 707 so far, each documenting the objective, the alternatives
+> record — one per step, 709 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Global shortcuts** (J709, the last part of #219): `GlobalShortcut` — a combination that
+  reaches the application from any window, sending a message or bringing the window forward —
+  declared from the state (`Application::global_shortcuts`, `FrusApp::global_shortcuts`).
+  `Primary` is `Cmd` on macOS and `Ctrl` elsewhere. A combination without `Ctrl`, `Alt` or
+  `Super` is refused, as it would take typing from every other application; the module states
+  what a global shortcut can and cannot do. Windows, macOS, X11; behind the new
+  `global-shortcuts` feature. The demo's Ctrl+Alt+Shift+D brings it back.
 - **The badge, as the reference has it** (J707): `Badge::on(child)` pins a badge to a child's
   top-end corner (`alignment`, `offset`, mirrored for right-to-left, and from the theme
   otherwise); `Badge::count(n)` writes `999+` past `max_count`; `label_visible(false)` now

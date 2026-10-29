@@ -75,6 +75,13 @@ pub(crate) fn build() -> (FrusApp, GoRouter, Rc<Demo>) {
             move || Some(save.snapshot()),
             move |bytes| restore.restore(bytes),
         );
+    // **A global shortcut** (milestone 709): Ctrl+Alt+Shift+D — Cmd for Ctrl on macOS — brings
+    // the demo forward from any window, the tray's hidden window included.
+    let app = app.global_shortcuts(|| {
+        vec![frus_shell::GlobalShortcut::show_window(
+            "Primary+Alt+Shift+D",
+        )]
+    });
     // **A tray icon** on Windows and macOS (milestone 706): how many tasks are left, kept up to
     // date; the completed ones cleared from it; and the demo running on in it once its window
     // is closed, until Quit.

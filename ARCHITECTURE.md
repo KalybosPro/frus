@@ -119,6 +119,7 @@ Everything else in the crate is widgets — `button.rs`, `scroll.rs`, `datatable
 - `net.rs` — `fetch` / `Request` behind the `net` feature; `ureq` natively, browser `fetch` on wasm. `json` adds serde-typed bodies and responses.
 - `file_dialog.rs` — `FileDialog`, the system's open / save / folder dialogs behind the `file-dialogs` feature (desktop: rfd, owned by the application's window); refused on the interface's thread
 - `notification.rs` — `SystemNotification`, the system's notifications behind the `notifications` feature (desktop: notify-rust; Windows records the application under the current user; Android: `android_notification.rs` and `FrusNotifications` in the bundled dex; the Web: `notification_web.rs`, the browser's `Notification`, through `show_async`); waits for a click, refused on the interface's thread, a click brings the window forward
+- `shortcuts.rs` — `GlobalShortcut`, combinations reaching the application from any window, declared from the state; behind the `global-shortcuts` feature (global-hotkey: Windows, macOS, X11)
 - `tray.rs` — `Tray`, the tray icon, declared from the state; behind the `tray` feature on the desktop (tray-icon, with `ksni` on Linux): the shell builds it, changes what differs, acts on its events in `about_to_wait`
 - `interface_thread.rs` — which thread is the interface's, for the calls that must not run there
 - `reload.rs` — dev live-reload
@@ -127,7 +128,7 @@ Everything else in the crate is widgets — `button.rs`, `scroll.rs`, `datatable
 
 ### Application layer
 
-**`frus`** — the facade. Re-exports shell + widgets + `main!` so an app declares exactly one dependency. Features `net`, `json`, `file-dialogs`, `notifications` and `tray` propagate downward. It contains no logic; keep it that way.
+**`frus`** — the facade. Re-exports shell + widgets + `main!` so an app declares exactly one dependency. Features `net`, `json`, `file-dialogs`, `notifications`, `tray` and `global-shortcuts` propagate downward. It contains no logic; keep it that way.
 
 **`frus-test`** — headless rendering, `Snapshot`, and `assert_golden` / `assert_golden_with` against reference PNGs.
 

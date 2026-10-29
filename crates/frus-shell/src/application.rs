@@ -141,6 +141,14 @@ pub trait Application {
         None
     }
 
+    /// The application's **global shortcuts** — combinations that reach it from any window —
+    /// declared from the state: registered when declared, given back when withdrawn. See
+    /// [`GlobalShortcut`](crate::GlobalShortcut). Acted on on the desktop with the
+    /// `global-shortcuts` feature; ignored elsewhere.
+    fn global_shortcuts(&self) -> Vec<crate::GlobalShortcut<Self::Message>> {
+        Vec::new()
+    }
+
     /// Builds the widget tree for the current theme.
     ///
     /// **It is not told the size.** The framework installs a description of the surface
