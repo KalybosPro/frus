@@ -8,11 +8,22 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 710 so far, each documenting the objective, the alternatives
+> record — one per step, 711 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **A text field on the Web is edited through a real one** (J711): the canvas had nothing a
+  browser could type into, so a field on the web had no software keyboard, no composition (no
+  Chinese, Japanese or Korean), no dictation or password manager, and nothing an assistive
+  technology could set. While a field has the focus, the shell now keeps an `<input>` (a
+  `<textarea>` for several lines) over it, transparent, with its text, selection, name and
+  keyboard (`Ime::web`: `inputmode`, `enterkeyhint`, `autocapitalize`, a password input for a
+  secret), and puts what the browser does to it back in the field through the message typing
+  produces. The browser keeps typing, deletion, composition and the clipboard's keys; the
+  arrows, Enter, Tab, Escape, undo and the application's shortcuts reach the shell as before.
+  The window no longer reads as inactive when the canvas hands the focus to the page's own
+  elements. Checked in a browser by `scripts/web-text-editing-check.py`; not yet on a phone.
 - **A screen reader can tick a box and fill a field** (J710): an action an assistive technology
   asked for waited for the next frame something else caused, so on a still window a checkbox's
   toggle did nothing; the bridge now wakes the loop. Fields offer *set value*, which goes

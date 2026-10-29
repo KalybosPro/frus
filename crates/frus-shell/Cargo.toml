@@ -214,6 +214,13 @@ web-sys = { version = "0.3", features = [
     # window to, and the element type its fallback-content nodes are built as.
     "HtmlCanvasElement",
     "HtmlElement",
+    # The element a text field is edited through (milestone 711): the two kinds, the keys it
+    # hands to the canvas, a composition's text, and where the canvas is on the page.
+    "HtmlInputElement",
+    "HtmlTextAreaElement",
+    "KeyboardEventInit",
+    "CompositionEvent",
+    "DomRect",
     # The browser's console, a method per log level (milestone 604).
     "console",
     # The page's clock, which counts from the navigation (milestone 683).

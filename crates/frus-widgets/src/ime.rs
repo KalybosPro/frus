@@ -288,9 +288,155 @@ impl TextInputAction {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The browser's words
+// ---------------------------------------------------------------------------
+
+/// What a browser is told about the field being edited (milestone 711): the attributes of
+/// the `<input>` or `<textarea>` the web shell edits it through.
+///
+/// Here rather than in the shell for the reason Android's numbers are: the shell's half
+/// runs only in a browser, and this half is checked on every push.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WebInput {
+    /// A `<textarea>` rather than an `<input>`: the field takes more than one line.
+    pub multiline: bool,
+    /// The input's `type`: `password` for a secret the field masks, which is what keeps
+    /// it out of the browser's suggestions and offers it to a password manager; `text`
+    /// otherwise. A `<textarea>` has none.
+    pub input_type: &'static str,
+    /// `inputmode`: which keys a software keyboard offers.
+    pub inputmode: &'static str,
+    /// `enterkeyhint`: what the action key says, or `None` for the browser's own.
+    pub enterkeyhint: Option<&'static str>,
+    /// `autocapitalize`: which letters a software keyboard capitalises by itself.
+    pub autocapitalize: &'static str,
+    /// `autocorrect` and `spellcheck`: off for what is not prose — an address, a number,
+    /// a secret — where a correction is a mistake.
+    pub corrects: bool,
+}
+
+impl Ime {
+    /// The attributes a browser is given for this field.
+    pub const fn web(self) -> WebInput {
+        use KeyboardType as K;
+        let k = self.keyboard;
+        let multiline =
+            matches!(k, K::Multiline) || matches!(self.action, TextInputAction::Newline);
+        let auto = match k {
+            K::Text | K::Multiline => "sentences",
+            K::Name | K::StreetAddress => "words",
+            _ => "off",
+        };
+        WebInput {
+            multiline,
+            input_type: if matches!(k, K::Password) && !multiline {
+                "password"
+            } else {
+                "text"
+            },
+            inputmode: match k {
+                K::Number => "numeric",
+                K::Decimal => "decimal",
+                K::Phone => "tel",
+                K::Email => "email",
+                K::Url => "url",
+                K::None => "none",
+                _ => "text",
+            },
+            enterkeyhint: match self.action {
+                TextInputAction::Done => Some("done"),
+                TextInputAction::Go => Some("go"),
+                TextInputAction::Search => Some("search"),
+                TextInputAction::Send => Some("send"),
+                TextInputAction::Next => Some("next"),
+                TextInputAction::Previous => Some("previous"),
+                TextInputAction::Newline => Some("enter"),
+                TextInputAction::Unspecified => None,
+            },
+            autocapitalize: match self.capitalization {
+                Capitalization::Auto => auto,
+                Capitalization::None => "off",
+                Capitalization::Sentences => "sentences",
+                Capitalization::Words => "words",
+                Capitalization::Characters => "characters",
+            },
+            corrects: matches!(k, K::Text | K::Multiline),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A field that says nothing is a single line of prose with a *Done* key, as on Android.
+    #[test]
+    fn the_web_default_is_a_line_of_prose() {
+        let web = Ime::default().web();
+        assert!(!web.multiline);
+        assert_eq!(web.input_type, "text");
+        assert_eq!(web.inputmode, "text");
+        assert_eq!(web.enterkeyhint, Some("done"));
+        assert_eq!(web.autocapitalize, "sentences");
+        assert!(web.corrects);
+    }
+
+    /// A secret is a password input, never corrected nor capitalised; one shown in the clear
+    /// is not a password input — the browser would mask it — but is still not corrected.
+    #[test]
+    fn a_secret_is_a_password_input_on_the_web() {
+        let web = Ime::new(KeyboardType::Password).web();
+        assert_eq!(web.input_type, "password");
+        assert_eq!(web.autocapitalize, "off");
+        assert!(!web.corrects);
+        let shown = Ime::new(KeyboardType::VisiblePassword).web();
+        assert_eq!(shown.input_type, "text");
+        assert!(!shown.corrects);
+    }
+
+    /// The keypads: each keyboard type is its `inputmode`.
+    #[test]
+    fn each_keyboard_is_its_inputmode() {
+        for (keyboard, mode) in [
+            (KeyboardType::Number, "numeric"),
+            (KeyboardType::Decimal, "decimal"),
+            (KeyboardType::Phone, "tel"),
+            (KeyboardType::Email, "email"),
+            (KeyboardType::Url, "url"),
+            (KeyboardType::None, "none"),
+            (KeyboardType::Name, "text"),
+        ] {
+            assert_eq!(Ime::new(keyboard).web().inputmode, mode, "{keyboard:?}");
+        }
+    }
+
+    /// Several lines are a textarea whose key is a newline, and a capitalisation asked for
+    /// wins over the type's.
+    #[test]
+    fn several_lines_are_a_textarea() {
+        let web = Ime::new(KeyboardType::Multiline)
+            .action(TextInputAction::Newline)
+            .web();
+        assert!(web.multiline);
+        assert_eq!(web.enterkeyhint, Some("enter"));
+        let named = Ime::new(KeyboardType::Name).web();
+        assert_eq!(named.autocapitalize, "words");
+        let shouting = Ime::new(KeyboardType::Text)
+            .capitalization(Capitalization::Characters)
+            .web();
+        assert_eq!(shouting.autocapitalize, "characters");
+        // And none at all, on a field whose type would capitalise sentences.
+        let quiet = Ime::default().capitalization(Capitalization::None).web();
+        assert_eq!(quiet.autocapitalize, "off");
+        assert_eq!(
+            Ime::default()
+                .action(TextInputAction::Unspecified)
+                .web()
+                .enterkeyhint,
+            None
+        );
+    }
 
     /// The pair a field with nothing said is what the bridge used to hardcode for
     /// every field: sentence-cased text, a *Done* key, no fullscreen editor. Nothing
