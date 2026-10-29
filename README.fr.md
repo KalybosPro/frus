@@ -249,16 +249,16 @@ Lisez [ARCHITECTURE.md](ARCHITECTURE.md) avant votre première modification non 
 
 ## État du projet
 
-**Pré-alpha.** Le cœur est réel et exercé par trois applications d'exemple, mais l'API n'est pas stable. Les crates sont sur [crates.io](https://crates.io/crates/frus) (0.3), et toute version peut casser.
+**Pré-alpha.** Le cœur est réel et exercé par trois applications d'exemple, mais l'API n'est pas stable. Les crates sont sur [crates.io](https://crates.io/crates/frus) (0.4), et toute version peut casser.
 
 | Plateforme | État | Notes |
 |---|---|---|
-| **Bureau** (Windows / Linux / macOS) | Fonctionnel | winit + wgpu, presse-papier, accessibilité lecteur d'écran via AccessKit ; hot reload de l'application en cours d'exécution (`frus run --hot`) |
-| **Android** | Fonctionnel | Activité native, Vulkan, IME réel (composition et swipe), insets, cycle de vie — validé sur appareil ; hot reload de l'application en cours d'exécution (`frus run --hot -d <appareil>`) |
-| **Web** (wasm + WebGPU) | Fonctionnel | Rendu, entrée, animations, souscriptions, effets async et `fetch`, presse-papiers (`navigator.clipboard`) et accessibilité par un pont DOM. Rechargement avec l'état conservé sous `frus run` ; hot reload de la page en cours d'exécution (`frus run --hot -d web`) |
+| **Bureau** (Windows / Linux / macOS) | Fonctionnel | winit + wgpu, presse-papier, lecteurs d'écran et autres technologies d'assistance via AccessKit (activer, focaliser, remplir un champ), notifications système, icône de zone de notification avec son menu, badge et progression dans la barre des tâches, boîtes de dialogue de fichiers du système, fichiers déposés sur la fenêtre ; hot reload de l'application en cours d'exécution (`frus run --hot`) |
+| **Android** | Fonctionnel | Activité native, Vulkan, IME réel (composition et swipe), insets, notifications avec leur permission, cycle de vie — validé sur appareil ; hot reload de l'application en cours d'exécution (`frus run --hot -d <appareil>`) |
+| **Web** (wasm + WebGPU) | Fonctionnel | Rendu, entrée, animations, souscriptions, effets async et `fetch`, presse-papiers (`navigator.clipboard`), notifications du navigateur et accessibilité par un pont DOM. Rechargement avec l'état conservé sous `frus run` ; hot reload de la page en cours d'exécution (`frus run --hot -d web`) |
 | **iOS / macOS natif** | Non démarré | La couche shell est isolée : ajouter une cible reste un chantier circonscrit |
 
-**Ce qui marche aujourd'hui :** mise en page flex/grille/wrap, défilement 1D et 2D avec fill-then-scroll, saisie de texte avec IME, glisser-déposer avec reflow en direct, tables de données, grilles éditables, graphiques, sélecteurs de date/heure, listes déroulantes, arbres, toasts, modales, tiroirs, navigation à transitions ressort et geste de retour, thème surchargeable, RTL et i18n, animations à ressort, implicites et explicites, un sélecteur à roue, cycle de vie, effets et souscriptions, HTTP asynchrone avec JSON typé, et tests par images de référence (169 images).
+**Ce qui marche aujourd'hui :** mise en page flex/grille/wrap, défilement 1D et 2D avec fill-then-scroll, saisie de texte avec IME, glisser-déposer avec reflow en direct, tables de données, grilles éditables, graphiques, sélecteurs de date/heure, listes déroulantes, arbres, toasts, modales, tiroirs, navigation à transitions ressort et geste de retour, thème surchargeable, RTL et i18n, animations à ressort, implicites et explicites, un sélecteur à roue, cycle de vie, effets et souscriptions, HTTP asynchrone avec JSON typé, images SVG et animations Lottie dessinées en chemins vectoriels, badges, et tests par images de référence (184 images).
 
 **Manques connus** — les meilleurs points d'entrée pour aider :
 
