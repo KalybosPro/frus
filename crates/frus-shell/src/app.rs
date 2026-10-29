@@ -1329,6 +1329,31 @@ impl<A: Application> App<A> {
         }
     }
 
+    /// Puts `value` in the field `id`, for an assistive technology that set it (milestone 710):
+    /// through the message typing it would have produced, as an autofill or an undo does — so
+    /// a field that refuses typing refuses this too — with the caret after what arrived.
+    #[cfg(any(desktop, test, feature = "testing"))]
+    fn set_value_for_assistive_tech(&mut self, id: WidgetId, value: String) {
+        let message = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.replace_value(value.clone()));
+        let Some(message) = message else {
+            return;
+        };
+        self.runtime.edits.insert(
+            id,
+            Edit {
+                cursor: value.chars().count(),
+                anchor: None,
+                composing: None,
+            },
+        );
+        self.dispatch_edit(message);
+        self.request_redraw();
+    }
+
     /// Replays the actions an assistive technology asked for: an AT click activates
     /// the widget, exactly as a pointer click would, and an AT focus focuses it.
     #[cfg(desktop)]
@@ -1341,6 +1366,7 @@ impl<A: Application> App<A> {
         for action in actions {
             match action {
                 A11yAction::Click(id) => self.activate_for_assistive_tech(id),
+                A11yAction::SetValue(id, value) => self.set_value_for_assistive_tech(id, value),
                 A11yAction::Focus(id) => {
                     // A button of the selection bar takes no focus: the bar acts on the
                     // field, and a focus that left it would end the very selection the bar
@@ -10894,6 +10920,38 @@ pub mod testing {
             self.shell.tray.is_some()
         }
 
+        /// What an assistive technology's **activate** does on the node labelled `label` —
+        /// the path a screen reader's press takes (milestone 710). Whether there was one.
+        pub fn assistive_click(&mut self, label: &str) -> bool {
+            let Some(id) = self.node_labelled(label) else {
+                return false;
+            };
+            self.shell.activate_for_assistive_tech(id);
+            true
+        }
+
+        /// What an assistive technology's **set value** does on the node labelled `label`
+        /// (milestone 710). Whether there was one.
+        pub fn assistive_set_value(&mut self, label: &str, value: &str) -> bool {
+            let Some(id) = self.node_labelled(label) else {
+                return false;
+            };
+            self.shell
+                .set_value_for_assistive_tech(id, value.to_owned());
+            true
+        }
+
+        /// The node an assistive technology knows by `label`.
+        fn node_labelled(&self, label: &str) -> Option<WidgetId> {
+            self.shell
+                .ui
+                .as_ref()?
+                .semantics()
+                .iter()
+                .find(|(_, _, sem)| sem.label.as_deref() == Some(label))
+                .map(|(id, _, _)| *id)
+        }
+
         pub fn frame_parts(&self) -> Option<FrameParts<'_, A::Message>> {
             let s = &self.shell;
             Some((s.ui.as_ref()?, s.tree.as_deref()?))
@@ -14641,5 +14699,114 @@ mod file_drop_tests {
         assert!(d.drag_over().is_some());
         d.drop_files(&picture, None);
         assert_eq!(d.app().heard, [Msg::Files("top", picture)]);
+    }
+}
+
+/// **What an assistive technology asks of a checkbox and a field is done** (milestone 710).
+///
+/// Through Windows' UI Automation, a task's checkbox stayed ticked after a Toggle and the
+/// new-task field stayed empty after a SetValue, while an Invoke on a button worked. These
+/// drive the shell's own path for those requests, on a checkbox and a field that say what they
+/// are.
+#[cfg(test)]
+mod assistive_tech_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{column, Checkbox, TextField, Theme, Widget};
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Ticked(bool),
+        Typed(String),
+    }
+
+    #[derive(Default)]
+    struct Form {
+        done: bool,
+        name: String,
+    }
+
+    impl Application for Form {
+        type Message = Msg;
+
+        fn update(&mut self, message: Msg) -> Command<Msg> {
+            match message {
+                Msg::Ticked(done) => self.done = done,
+                Msg::Typed(name) => self.name = name,
+            }
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            Box::new(column![
+                Checkbox::new(self.done)
+                    .label("Done")
+                    .on_toggle(Msg::Ticked),
+                TextField::new(self.name.clone())
+                    .label("Name")
+                    .on_input(Msg::Typed),
+            ])
+        }
+    }
+
+    /// **Activate ticks a checkbox**, and again unticks it.
+    #[test]
+    fn activate_ticks_a_checkbox() {
+        let mut driver = Driver::new(Form::default(), 400.0, 300.0);
+        driver.frame(0.016);
+        assert!(
+            driver.assistive_click("Done"),
+            "the checkbox is in the tree"
+        );
+        driver.frame(0.016);
+        assert!(driver.app().done, "ticked");
+        assert!(driver.assistive_click("Done"));
+        driver.frame(0.016);
+        assert!(!driver.app().done, "unticked");
+    }
+
+    /// **Activate ticks a checkbox merged with its caption** — the shape a list row has,
+    /// where the reader is to hear which task the box is for: the merged node is the
+    /// wrapper's, which has no click of its own, and the press has to reach the checkbox in
+    /// it.
+    #[test]
+    fn activate_ticks_a_checkbox_merged_with_its_caption() {
+        struct Row(bool);
+        impl Application for Row {
+            type Message = Msg;
+            fn update(&mut self, message: Msg) -> Command<Msg> {
+                if let Msg::Ticked(done) = message {
+                    self.0 = done;
+                }
+                Command::none()
+            }
+            fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+                Box::new(frus_widgets::Semantics::merge(frus_widgets::row![
+                    Checkbox::new(self.0).on_toggle(Msg::Ticked),
+                    frus_widgets::text("Water the plants"),
+                ]))
+            }
+        }
+        let mut driver = Driver::new(Row(false), 400.0, 300.0);
+        driver.frame(0.016);
+        assert!(
+            driver.assistive_click("Water the plants"),
+            "the merged node is in the tree"
+        );
+        driver.frame(0.016);
+        assert!(driver.app().0, "ticked");
+    }
+
+    /// **Set value fills a field**, through the message typing it would have produced.
+    #[test]
+    fn set_value_fills_a_field() {
+        let mut driver = Driver::new(Form::default(), 400.0, 300.0);
+        driver.frame(0.016);
+        assert!(
+            driver.assistive_set_value("Name", "Ada"),
+            "the field is in the tree"
+        );
+        driver.frame(0.016);
+        assert_eq!(driver.app().name, "Ada");
     }
 }

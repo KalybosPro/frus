@@ -249,16 +249,16 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 
 ## Project status
 
-**Pre-alpha.** The core is real and exercised by three sample apps, but the API is not stable. The crates are on [crates.io](https://crates.io/crates/frus) (0.3), and any release may break.
+**Pre-alpha.** The core is real and exercised by three sample apps, but the API is not stable. The crates are on [crates.io](https://crates.io/crates/frus) (0.4), and any release may break.
 
 | Platform | State | Notes |
 |---|---|---|
-| **Desktop** (Windows / Linux / macOS) | Working | winit + wgpu, clipboard, screen-reader a11y via AccessKit; hot reload of the running application (`frus run --hot`) |
-| **Android** | Working | Native activity, Vulkan, real IME (composition & swipe), insets, system bars, the system clipboard, lifecycle — validated on device; hot reload of the running application (`frus run --hot -d <device>`) |
-| **Web** (wasm + WebGPU) | Functional | Rendering, input, animation, subscriptions, async effects & `fetch`, the clipboard (`navigator.clipboard`), and accessibility through a DOM bridge. Reload with the state kept under `frus run`; hot reload of the running page (`frus run --hot -d web`) |
+| **Desktop** (Windows / Linux / macOS) | Working | winit + wgpu, clipboard, screen readers and other assistive technology via AccessKit (activate, focus, fill a field), system notifications, a tray icon with its menu, the taskbar's badge and progress, global shortcuts, the system's file dialogs, files dropped onto the window; hot reload of the running application (`frus run --hot`) |
+| **Android** | Working | Native activity, Vulkan, real IME (composition & swipe), insets, system bars, the system clipboard, notifications with their permission, lifecycle — validated on device; hot reload of the running application (`frus run --hot -d <device>`) |
+| **Web** (wasm + WebGPU) | Functional | Rendering, input, animation, subscriptions, async effects & `fetch`, the clipboard (`navigator.clipboard`), the browser's notifications, and accessibility through a DOM bridge. Reload with the state kept under `frus run`; hot reload of the running page (`frus run --hot -d web`) |
 | **iOS / macOS native** | Not started | The shell layer is isolated, so adding a target is a contained job |
 
-**What works today:** flex/grid/wrap layout, 1D & 2D scrolling with fill-then-scroll, text input with IME, drag-and-drop reordering with live reflow, data tables, editable grids, charts, date/time pickers, dropdowns, trees, toasts, modals, drawers, navigation with spring transitions and back-gesture, an overridable theme, RTL and i18n, spring, implicit and explicit animations, a wheel picker, lifecycle, effects and subscriptions, async HTTP with typed JSON, and golden-image testing (169 reference images).
+**What works today:** flex/grid/wrap layout, 1D & 2D scrolling with fill-then-scroll, text input with IME, drag-and-drop reordering with live reflow, data tables, editable grids, charts, date/time pickers, dropdowns, trees, toasts, modals, drawers, navigation with spring transitions and back-gesture, an overridable theme, RTL and i18n, spring, implicit and explicit animations, a wheel picker, lifecycle, effects and subscriptions, async HTTP with typed JSON, SVG pictures and Lottie animations drawn as vector paths, badges, and golden-image testing (184 reference images).
 
 **Known gaps** — these are the best places to help:
 

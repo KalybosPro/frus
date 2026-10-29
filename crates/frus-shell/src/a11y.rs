@@ -10,9 +10,9 @@
 use std::sync::{Arc, Mutex};
 
 use accesskit::{
-    Action, ActionHandler, ActionRequest, ActivationHandler, Affine, DeactivationHandler, Live,
-    Node, NodeId, Rect as AkRect, Role as AkRole, Toggled as AkToggled, TreeId, TreeInfo,
-    TreeUpdate,
+    Action, ActionData, ActionHandler, ActionRequest, ActivationHandler, Affine,
+    DeactivationHandler, Live, Node, NodeId, Rect as AkRect, Role as AkRole, Toggled as AkToggled,
+    TreeId, TreeInfo, TreeUpdate,
 };
 use accesskit_winit::Adapter;
 use winit::event::WindowEvent;
@@ -97,6 +97,12 @@ fn to_ak_node(rect: Rect, sem: &SemanticsProperties) -> Node {
         // The screen reader may offer "activate"; the action comes back to the
         // shell, which maps it to a synthetic click on the widget.
         node.add_action(Action::Click);
+    }
+    if sem.role == Role::TextInput && !sem.disabled {
+        // And a field can be **filled**: dictation, a reader's own editing commands, a tool
+        // that types for the person (milestone 710). It goes through the message typing
+        // would have produced, so a field that refuses typing refuses this too.
+        node.add_action(Action::SetValue);
     }
     node.add_action(Action::Focus);
     node
@@ -202,12 +208,14 @@ impl Snapshot {
 
 /// An action the assistive technology asked for — activate or focus a widget — to be
 /// replayed in the main loop.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum A11yAction {
     /// Activate the widget, that is, click it.
     Click(WidgetId),
     /// Give the widget focus.
     Focus(WidgetId),
+    /// Put this text in the field (milestone 710).
+    SetValue(WidgetId, String),
 }
 
 type Shared = Arc<Mutex<Snapshot>>;
@@ -221,20 +229,34 @@ impl ActivationHandler for Activation {
     }
 }
 
-/// Turns an AT action into an [`A11yAction`] queued for the loop.
-struct ActionForwarder(Actions);
+/// Turns an AT action into an [`A11yAction`] queued for the loop, and wakes the loop.
+///
+/// The adapter calls this whenever the assistive technology asks, outside the event loop's
+/// own events: an action only queued waited for the next frame something else asked for, so
+/// on an idle window a screen reader's press did nothing (milestone 710). A redraw asked of
+/// the window brings the loop round, and the queue is drained at its start.
+struct ActionForwarder(Actions, Arc<Window>);
 impl ActionHandler for ActionForwarder {
     fn do_action(&mut self, request: ActionRequest) {
-        let Some(id) = widget_for(request.target_node) else {
+        let Some(action) = forwarded(request) else {
             return;
         };
-        let action = match request.action {
-            Action::Click => A11yAction::Click(id),
-            Action::Focus => A11yAction::Focus(id),
-            _ => return,
-        };
         self.0.lock().unwrap().push(action);
+        self.1.request_redraw();
     }
+}
+
+/// The [`A11yAction`] an AT's request is, if it is one the shell answers.
+fn forwarded(request: ActionRequest) -> Option<A11yAction> {
+    let id = widget_for(request.target_node)?;
+    Some(match (request.action, request.data) {
+        (Action::Click, _) => A11yAction::Click(id),
+        (Action::Focus, _) => A11yAction::Focus(id),
+        (Action::SetValue, Some(ActionData::Value(value))) => {
+            A11yAction::SetValue(id, value.to_string())
+        }
+        _ => return None,
+    })
 }
 
 /// Nothing to release: the snapshot rebuilds itself on the next frame.
@@ -254,14 +276,14 @@ pub(crate) struct A11y {
 impl A11y {
     /// Creates the bridge for a window. With no screen reader running the adapter
     /// stays inert: no cost, no crash.
-    pub(crate) fn new(event_loop: &ActiveEventLoop, window: &Window) -> Self {
+    pub(crate) fn new(event_loop: &ActiveEventLoop, window: &Arc<Window>) -> Self {
         let snapshot: Shared = Arc::new(Mutex::new(Snapshot::default()));
         let actions: Actions = Arc::new(Mutex::new(Vec::new()));
         let adapter = Adapter::with_direct_handlers(
             event_loop,
             window,
             Activation(snapshot.clone()),
-            ActionForwarder(actions.clone()),
+            ActionForwarder(actions.clone(), window.clone()),
             Deactivation,
         );
         Self {
@@ -407,6 +429,57 @@ mod tests {
         assert_eq!(button.value(), None);
         let heading = to_ak_node(rect, &sem(Role::Heading).label("Task"));
         assert_eq!(heading.label(), Some("Task"));
+    }
+
+    /// **An editable field can be filled; nothing else can** (milestone 710): a field offers
+    /// set value, a disabled one does not, and a label or a button never does.
+    #[test]
+    fn an_editable_field_offers_set_value() {
+        let rect = Rect::new(0.0, 0.0, 120.0, 30.0);
+        let field = to_ak_node(rect, &sem(Role::TextInput).label("Name"));
+        assert!(field.supports_action(Action::SetValue));
+        let disabled = to_ak_node(rect, &sem(Role::TextInput).disabled(true));
+        assert!(!disabled.supports_action(Action::SetValue));
+        for role in [Role::Label, Role::Button, Role::CheckBox] {
+            assert!(!to_ak_node(rect, &sem(role)).supports_action(Action::SetValue));
+        }
+    }
+
+    fn request(action: Action, data: Option<ActionData>) -> ActionRequest {
+        ActionRequest {
+            action,
+            target_tree: TreeId::ROOT,
+            target_node: node_id(WidgetId::from_u64(41)),
+            data,
+        }
+    }
+
+    /// **A request becomes the shell's action**: activate a click, focus a focus, set value
+    /// with its text the text — and set value with no text, the root, or an action the shell
+    /// does not answer, nothing.
+    #[test]
+    fn a_request_becomes_the_shells_action() {
+        let id = WidgetId::from_u64(41);
+        assert_eq!(
+            forwarded(request(Action::Click, None)),
+            Some(A11yAction::Click(id))
+        );
+        assert_eq!(
+            forwarded(request(Action::Focus, None)),
+            Some(A11yAction::Focus(id))
+        );
+        assert_eq!(
+            forwarded(request(
+                Action::SetValue,
+                Some(ActionData::Value("Ada".into()))
+            )),
+            Some(A11yAction::SetValue(id, "Ada".into()))
+        );
+        assert_eq!(forwarded(request(Action::SetValue, None)), None);
+        assert_eq!(forwarded(request(Action::ScrollDown, None)), None);
+        let mut at_root = request(Action::Click, None);
+        at_root.target_node = ROOT_ID;
+        assert_eq!(forwarded(at_root), None);
     }
 
     /// **The tree is handed over in physical pixels**: the layout's logical bounds stay on
