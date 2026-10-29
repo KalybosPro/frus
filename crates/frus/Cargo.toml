@@ -41,6 +41,8 @@ file-dialogs = ["frus-shell/file-dialogs"]
 notifications = ["frus-shell/notifications"]
 # The tray icon: `Tray`. The desktop; off by default. Linux builds need `libgtk-3-dev`.
 tray = ["frus-shell/tray"]
+# The taskbar's badge and progress: `Taskbar`. The desktop; off by default.
+taskbar = ["frus-shell/taskbar"]
 json = ["frus-shell/json"]
 default = ["frus-shell/default", "frus-widgets/default", "frus-text/default"]
 # Decoding embedded PNG/JPEG: `Image::memory` and `asset!`. Part of `default`;

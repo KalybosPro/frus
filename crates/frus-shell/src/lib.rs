@@ -74,6 +74,8 @@ mod notification_web;
 mod reload;
 // How long the application takes to show its first frame (milestone 683, #211).
 mod startup;
+// The taskbar's badge and progress (milestone 708).
+mod taskbar;
 // The tray icon (milestone 706): its description everywhere, the system's own on the desktop.
 mod tray;
 // The Web side of a reload under `frus run`: the states kept across the page's reload.
@@ -120,6 +122,7 @@ pub use link::{link_among, location_of_link};
 pub use notification::{NotificationError, NotificationResponse, SystemNotification};
 pub use remote::RemoteData;
 pub use subscription::Subscription;
+pub use taskbar::{Taskbar, TaskbarProgress};
 pub use tray::Tray;
 pub use widget_app::FrusApp;
 

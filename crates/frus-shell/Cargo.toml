@@ -37,6 +37,8 @@ notifications = ["dep:notify-rust"]
 # The tray icon: `Tray` (milestone 706). The desktop; off by default. On Linux it needs GTK 3's
 # development files to build (`libgtk-3-dev`), the menus being made with it.
 tray = ["dep:tray-icon"]
+# The taskbar's badge and progress: `Taskbar` (milestone 708). The desktop; off by default.
+taskbar = ["dep:windows", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:zbus"]
 net = ["dep:ureq"]
 json = ["net", "dep:serde", "dep:serde_json"]
 default = ["frus-gpu/default", "frus-widgets/default"]
@@ -131,7 +133,21 @@ tray-icon = { version = "0.26.1", optional = true, default-features = false }
 [target.'cfg(all(unix, not(any(target_os = "macos", target_os = "android", target_os = "ios"))))'.dependencies]
 tray-icon = { version = "0.26.1", optional = true, default-features = false, features = ["ksni"] }
 
+# The taskbar (feature `taskbar`) on Linux: the launcher entry signal, over D-Bus.
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "android", target_os = "ios"))))'.dependencies.zbus]
+version = "5"
+optional = true
+
+# The taskbar (feature `taskbar`) on macOS: the Dock tile's badge.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "NSApplication", "NSDockTile", "NSResponder"] }
+objc2-foundation = { version = "0.3", optional = true, default-features = false, features = ["std", "NSString"] }
+
 [target.'cfg(windows)'.dependencies]
+# The taskbar (feature `taskbar`): its button's progress and overlay, a COM interface the raw
+# bindings below do not carry. Already in the tree through the tray and the notifications.
+windows = { version = "0.62", optional = true, features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",

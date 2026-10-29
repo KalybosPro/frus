@@ -1635,6 +1635,9 @@ dependencies = [
  "js-sys",
  "log",
  "notify-rust",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "pollster 0.3.0",
  "rfd",
  "serde",
@@ -1646,8 +1649,10 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "web-time",
+ "windows",
  "windows-sys 0.59.0",
  "winit",
+ "zbus",
 ]
 
 [[package]]
