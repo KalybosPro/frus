@@ -54,12 +54,73 @@ def key(p, name, code, vk):
     p.call("Input.dispatchKeyEvent", type="keyUp", key=name, code=code, windowsVirtualKeyCode=vk)
 
 
+# A phone's browser, for the page to take itself for Android (`TargetPlatform::from_browser`).
+ANDROID = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) "
+           "Chrome/130.0.0.0 Mobile Safari/537.36", "Linux armv8l")
+
+
+def scenario(base, phone):
+    """The bar opened from the keyboard and its Select all activated through the tree. A
+    desktop's menu closes after a Select all and a phone's bar stays (milestone 625): the
+    browser this runs in is a desktop, and is told it is a phone for the second run."""
+    user_agent, platform = ANDROID if phone else (None, None)
+    p = a11y.open_at(base, user_agent=user_agent, platform=platform)
+    p.wait(7)
+
+    print("a field with text in it, its caret at the end")
+    field = p.find(p.ax_tree(), role="textbox")
+    expect_true("the add field is exposed as a textbox", field is not None)
+    if field:
+        p.focus_backend_node(field["backendDOMNodeId"])
+        p.wait(0.5)
+    typed(p, "hello world")
+    p.wait(1)
+    expect_true("no bar before it is asked for", bar(p.ax_tree()) == [])
+
+    print("the context-menu key opens the bar")
+    key(p, "ContextMenu", "ContextMenu", 93)
+    p.wait(1.5)
+    opened = bar(p.ax_tree())
+    expect_true("Paste is offered (the web cannot tell the clipboard is empty)", "Paste" in opened)
+    expect_true("Select all is offered (nothing is selected yet)", "Select all" in opened)
+    expect_true("Cut and Copy are not (no selection)", "Cut" not in opened and "Copy" not in opened)
+
+    print("activating Select all through the accessibility tree")
+    node = p.find(p.ax_tree(), role="button", name_contains="Select all")
+    if node:
+        p.focus_backend_node(node["backendDOMNodeId"])
+        p.wait(0.3)
+        p.activate()
+        p.wait(1.5)
+    after = bar(p.ax_tree())
+    if phone:
+        expect_true("the bar stays open, now on everything selected", "Copy" in after)
+    else:
+        expect_true("the menu is put away, as a desktop's is", after == [])
+        print("the context-menu key again")
+        key(p, "ContextMenu", "ContextMenu", 93)
+        p.wait(1.5)
+        after = bar(p.ax_tree())
+    expect_true("...offering Cut, Copy and Paste", all(name in after for name in ("Cut", "Copy", "Paste")))
+    expect_true("...and no longer Select all (the text is still all selected)", "Select all" not in after)
+    typed_after = p.find(p.ax_tree(), role="textbox")
+    expect_true("the field was not submitted by the Enter that pressed the button",
+                typed_after is not None and "hello world" in json_text(typed_after))
+
+    print("Escape puts the bar away")
+    key(p, "Escape", "Escape", 27)
+    p.wait(1.2)
+    expect_true("no bar after Escape (the keys still reach the application)", bar(p.ax_tree()) == [])
+    expect_true("(the page stayed in the foreground)", p.js("document.visibilityState") == "visible")
+    p.call("Page.close")
+
+
 def main(base):
     profile = tempfile.mkdtemp(prefix="frus-bar-check-")
     browser = subprocess.Popen([
         a11y.find_browser(), "--headless=new", f"--remote-debugging-port={a11y.PORT}", f"--user-data-dir={profile}",
         "--no-first-run", "--enable-unsafe-webgpu", "--enable-features=Vulkan,WebGPU", "--ignore-gpu-blocklist",
-        "--force-renderer-accessibility", "--window-size=420,800", "about:blank",
+        "--force-renderer-accessibility", "--window-size=420,800", *a11y.FOREGROUND, "about:blank",
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         for _ in range(50):
@@ -68,46 +129,10 @@ def main(base):
                 break
             except Exception:
                 time.sleep(0.2)
-        p = a11y.open_at(base)
-        p.wait(7)
-
-        print("a field with text in it, its caret at the end")
-        field = p.find(p.ax_tree(), role="textbox")
-        expect_true("the add field is exposed as a textbox", field is not None)
-        if field:
-            p.focus_backend_node(field["backendDOMNodeId"])
-            p.wait(0.5)
-        typed(p, "hello world")
-        p.wait(1)
-        expect_true("no bar before it is asked for", bar(p.ax_tree()) == [])
-
-        print("the context-menu key opens the bar")
-        key(p, "ContextMenu", "ContextMenu", 93)
-        p.wait(1.5)
-        opened = bar(p.ax_tree())
-        expect_true("Paste is offered (the web cannot tell the clipboard is empty)", "Paste" in opened)
-        expect_true("Select all is offered (nothing is selected yet)", "Select all" in opened)
-        expect_true("Cut and Copy are not (no selection)", "Cut" not in opened and "Copy" not in opened)
-
-        print("activating Select all through the accessibility tree")
-        node = p.find(p.ax_tree(), role="button", name_contains="Select all")
-        if node:
-            p.focus_backend_node(node["backendDOMNodeId"])
-            p.wait(0.3)
-            p.activate()
-            p.wait(1.5)
-        after = bar(p.ax_tree())
-        expect_true("the bar stays open, now on everything selected", "Copy" in after)
-        expect_true("...offering Cut, Copy and Paste", all(name in after for name in ("Cut", "Copy", "Paste")))
-        expect_true("...and no longer Select all", "Select all" not in after)
-        typed_after = p.find(p.ax_tree(), role="textbox")
-        expect_true("the field was not submitted by the Enter that pressed the button",
-                    typed_after is not None and "hello world" in json_text(typed_after))
-
-        print("Escape puts the bar away")
-        key(p, "Escape", "Escape", 27)
-        p.wait(1.2)
-        expect_true("no bar after Escape (the keys still reach the application)", bar(p.ax_tree()) == [])
+        print("== on the desktop the browser runs on")
+        scenario(base, phone=False)
+        print("== told it is a phone")
+        scenario(base, phone=True)
     finally:
         browser.kill()
         shutil.rmtree(profile, ignore_errors=True)
