@@ -67,6 +67,7 @@ pub struct FrusApp {
     icon: crate::AppIcon,
     on_start: Option<Box<dyn FnOnce()>>,
     tray: Option<Box<dyn Fn() -> crate::Tray<Callback>>>,
+    taskbar: Option<Box<dyn Fn() -> crate::Taskbar>>,
     shortcuts: Option<Box<dyn Fn() -> Vec<crate::GlobalShortcut<Callback>>>>,
     save: Option<Save>,
     restore: Option<Restore>,
@@ -134,6 +135,7 @@ impl FrusApp {
             icon: crate::AppIcon::Frus,
             on_start: None,
             tray: None,
+            taskbar: None,
             shortcuts: None,
             save: None,
             restore: None,
@@ -277,6 +279,14 @@ impl FrusApp {
         self
     }
 
+    /// What the application's **taskbar button** shows (milestone 708): `taskbar` is asked
+    /// after every change, and the shell makes the button follow. See
+    /// [`Taskbar`](crate::Taskbar).
+    pub fn taskbar(mut self, taskbar: impl Fn() -> crate::Taskbar + 'static) -> Self {
+        self.taskbar = Some(Box::new(taskbar));
+        self
+    }
+
     /// The application's **global shortcuts** (milestone 709): `shortcuts` is asked after every
     /// change, and the shell registers what it declares. See
     /// [`GlobalShortcut`](crate::GlobalShortcut).
@@ -356,6 +366,13 @@ impl Application for FrusApp {
                 Box::new(Component::stateless(move |cx: &BuildContext| root(cx)));
             builder(cx, pages)
         }))
+    }
+
+    fn taskbar(&self) -> crate::Taskbar {
+        self.taskbar
+            .as_ref()
+            .map(|taskbar| taskbar())
+            .unwrap_or_default()
     }
 
     fn global_shortcuts(&self) -> Vec<crate::GlobalShortcut<Callback>> {

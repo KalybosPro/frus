@@ -141,6 +141,13 @@ pub trait Application {
         None
     }
 
+    /// What the application's **taskbar button** shows — a count, a progress — declared from
+    /// the state and followed by the shell. See [`Taskbar`](crate::Taskbar). Acted on on the
+    /// desktop with the `taskbar` feature; ignored elsewhere.
+    fn taskbar(&self) -> crate::Taskbar {
+        crate::Taskbar::new()
+    }
+
     /// The application's **global shortcuts** — combinations that reach it from any window —
     /// declared from the state: registered when declared, given back when withdrawn. See
     /// [`GlobalShortcut`](crate::GlobalShortcut). Acted on on the desktop with the

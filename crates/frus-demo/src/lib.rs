@@ -75,6 +75,21 @@ pub(crate) fn build() -> (FrusApp, GoRouter, Rc<Demo>) {
             move || Some(save.snapshot()),
             move |bytes| restore.restore(bytes),
         );
+    // **The taskbar button** (milestone 708): how many tasks are left, and — while the list is
+    // partly done — how much of it is.
+    let app = {
+        let taskbar = demo.clone();
+        app.taskbar(move || {
+            let todos = taskbar.todos();
+            let done = todos.iter().filter(|todo| todo.done).count();
+            let bar = frus_shell::Taskbar::new().count((todos.len() - done) as u32);
+            if done > 0 && done < todos.len() {
+                bar.progress(done as f32 / todos.len() as f32)
+            } else {
+                bar
+            }
+        })
+    };
     // **A global shortcut** (milestone 709): Ctrl+Alt+Shift+D — Cmd for Ctrl on macOS — brings
     // the demo forward from any window, the tray's hidden window included.
     let app = app.global_shortcuts(|| {

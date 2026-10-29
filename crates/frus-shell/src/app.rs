@@ -1117,6 +1117,9 @@ pub struct App<A: Application> {
     /// Whether closing the window leaves the application running in its tray.
     #[cfg(all(desktop, feature = "tray"))]
     tray_keeps_running: bool,
+    /// What the taskbar button shows of the application's (milestone 708).
+    #[cfg(all(desktop, feature = "taskbar"))]
+    taskbar: crate::Taskbar,
     /// The global shortcuts the system holds for the application (milestone 709).
     #[cfg(all(desktop, feature = "global-shortcuts"))]
     shortcuts: crate::shortcuts::native::Registered,
@@ -1285,6 +1288,8 @@ impl<A: Application> App<A> {
             tray: None,
             #[cfg(all(desktop, feature = "tray"))]
             tray_keeps_running: false,
+            #[cfg(all(desktop, feature = "taskbar"))]
+            taskbar: crate::Taskbar::new(),
             #[cfg(all(desktop, feature = "global-shortcuts"))]
             shortcuts: Default::default(),
             #[cfg(all(desktop, feature = "global-shortcuts"))]
@@ -5747,6 +5752,12 @@ impl<A: Application> App<A> {
         // The tray is declared from the state too, and follows it at the same moment.
         #[cfg(all(desktop, feature = "tray"))]
         self.sync_tray();
+        // And the taskbar button (milestone 708) — only a real window has one.
+        #[cfg(all(desktop, feature = "taskbar"))]
+        if let Some(window) = &self.window {
+            let wanted = self.app.taskbar();
+            self.taskbar = crate::taskbar::native::apply(window, &self.taskbar, &wanted);
+        }
         // And the global shortcuts (milestone 709).
         #[cfg(all(desktop, feature = "global-shortcuts"))]
         self.sync_shortcuts();
