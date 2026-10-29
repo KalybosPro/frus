@@ -8,11 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 707 so far, each documenting the objective, the alternatives
+> record — one per step, 708 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The taskbar's badge and progress** (J708, part of #219): `Taskbar` — a count and a progress
+  (a fraction, indeterminate, paused, error) on the application's button, declared from the
+  state (`Application::taskbar`, `FrusApp::taskbar`). Windows: the button's own progress bar
+  and a drawn count overlay; macOS: the Dock badge; Linux: the launcher entry signal. Behind
+  the new `taskbar` feature. The demo's button shows the tasks left and how much is done.
 - **The badge, as the reference has it** (J707): `Badge::on(child)` pins a badge to a child's
   top-end corner (`alignment`, `offset`, mirrored for right-to-left, and from the theme
   otherwise); `Badge::count(n)` writes `999+` past `max_count`; `label_visible(false)` now

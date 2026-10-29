@@ -67,6 +67,7 @@ pub struct FrusApp {
     icon: crate::AppIcon,
     on_start: Option<Box<dyn FnOnce()>>,
     tray: Option<Box<dyn Fn() -> crate::Tray<Callback>>>,
+    taskbar: Option<Box<dyn Fn() -> crate::Taskbar>>,
     save: Option<Save>,
     restore: Option<Restore>,
     strategy: LocationStrategy,
@@ -133,6 +134,7 @@ impl FrusApp {
             icon: crate::AppIcon::Frus,
             on_start: None,
             tray: None,
+            taskbar: None,
             save: None,
             restore: None,
             strategy: LocationStrategy::Hash,
@@ -275,6 +277,14 @@ impl FrusApp {
         self
     }
 
+    /// What the application's **taskbar button** shows (milestone 708): `taskbar` is asked
+    /// after every change, and the shell makes the button follow. See
+    /// [`Taskbar`](crate::Taskbar).
+    pub fn taskbar(mut self, taskbar: impl Fn() -> crate::Taskbar + 'static) -> Self {
+        self.taskbar = Some(Box::new(taskbar));
+        self
+    }
+
     /// The window's initial size, in logical pixels.
     pub fn window_size(mut self, width: f32, height: f32) -> Self {
         self.window_size = Some((width, height));
@@ -343,6 +353,13 @@ impl Application for FrusApp {
                 Box::new(Component::stateless(move |cx: &BuildContext| root(cx)));
             builder(cx, pages)
         }))
+    }
+
+    fn taskbar(&self) -> crate::Taskbar {
+        self.taskbar
+            .as_ref()
+            .map(|taskbar| taskbar())
+            .unwrap_or_default()
     }
 
     fn tray(&self) -> Option<crate::Tray<Callback>> {

@@ -75,6 +75,21 @@ pub(crate) fn build() -> (FrusApp, GoRouter, Rc<Demo>) {
             move || Some(save.snapshot()),
             move |bytes| restore.restore(bytes),
         );
+    // **The taskbar button** (milestone 708): how many tasks are left, and — while the list is
+    // partly done — how much of it is.
+    let app = {
+        let taskbar = demo.clone();
+        app.taskbar(move || {
+            let todos = taskbar.todos();
+            let done = todos.iter().filter(|todo| todo.done).count();
+            let bar = frus_shell::Taskbar::new().count((todos.len() - done) as u32);
+            if done > 0 && done < todos.len() {
+                bar.progress(done as f32 / todos.len() as f32)
+            } else {
+                bar
+            }
+        })
+    };
     // **A tray icon** on Windows and macOS (milestone 706): how many tasks are left, kept up to
     // date; the completed ones cleared from it; and the demo running on in it once its window
     // is closed, until Quit.
