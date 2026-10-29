@@ -253,7 +253,7 @@ Lisez [ARCHITECTURE.md](ARCHITECTURE.md) avant votre première modification non 
 
 | Plateforme | État | Notes |
 |---|---|---|
-| **Bureau** (Windows / Linux / macOS) | Fonctionnel | winit + wgpu, presse-papier, lecteurs d'écran et autres technologies d'assistance via AccessKit (activer, focaliser, remplir un champ), notifications système, icône de zone de notification avec son menu, badge et progression dans la barre des tâches, boîtes de dialogue de fichiers du système, fichiers déposés sur la fenêtre ; hot reload de l'application en cours d'exécution (`frus run --hot`) |
+| **Bureau** (Windows / Linux / macOS) | Fonctionnel | winit + wgpu, presse-papier, lecteurs d'écran et autres technologies d'assistance via AccessKit (activer, focaliser, remplir un champ), notifications système, icône de zone de notification avec son menu, badge et progression dans la barre des tâches, raccourcis globaux, boîtes de dialogue de fichiers du système, fichiers déposés sur la fenêtre ; hot reload de l'application en cours d'exécution (`frus run --hot`) |
 | **Android** | Fonctionnel | Activité native, Vulkan, IME réel (composition et swipe), insets, notifications avec leur permission, cycle de vie — validé sur appareil ; hot reload de l'application en cours d'exécution (`frus run --hot -d <appareil>`) |
 | **Web** (wasm + WebGPU) | Fonctionnel | Rendu, entrée, animations, souscriptions, effets async et `fetch`, presse-papiers (`navigator.clipboard`), notifications du navigateur et accessibilité par un pont DOM. Rechargement avec l'état conservé sous `frus run` ; hot reload de la page en cours d'exécution (`frus run --hot -d web`) |
 | **iOS / macOS natif** | Non démarré | La couche shell est isolée : ajouter une cible reste un chantier circonscrit |

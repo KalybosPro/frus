@@ -253,7 +253,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 
 | Platform | State | Notes |
 |---|---|---|
-| **Desktop** (Windows / Linux / macOS) | Working | winit + wgpu, clipboard, screen readers and other assistive technology via AccessKit (activate, focus, fill a field), system notifications, a tray icon with its menu, the taskbar's badge and progress, the system's file dialogs, files dropped onto the window; hot reload of the running application (`frus run --hot`) |
+| **Desktop** (Windows / Linux / macOS) | Working | winit + wgpu, clipboard, screen readers and other assistive technology via AccessKit (activate, focus, fill a field), system notifications, a tray icon with its menu, the taskbar's badge and progress, global shortcuts, the system's file dialogs, files dropped onto the window; hot reload of the running application (`frus run --hot`) |
 | **Android** | Working | Native activity, Vulkan, real IME (composition & swipe), insets, system bars, the system clipboard, notifications with their permission, lifecycle — validated on device; hot reload of the running application (`frus run --hot -d <device>`) |
 | **Web** (wasm + WebGPU) | Functional | Rendering, input, animation, subscriptions, async effects & `fetch`, the clipboard (`navigator.clipboard`), the browser's notifications, and accessibility through a DOM bridge. Reload with the state kept under `frus run`; hot reload of the running page (`frus run --hot -d web`) |
 | **iOS / macOS native** | Not started | The shell layer is isolated, so adding a target is a contained job |
