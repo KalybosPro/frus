@@ -19,6 +19,12 @@ any release may break.
   takes the badge away instead of leaving a dot. The rail's and the bottom bar's badges are a
   `Badge` pinned to the glyph — its size, its corner, its count, no longer `99+` — and every
   destination can carry `badge_dot()`.
+- **The tray icon** (J706, part of #219): `Tray` — a tooltip, an icon, a menu of items that send
+  messages, built-in **show** and **quit** items, a click that brings the window forward, and
+  `keep_running`, which hides the window on close and keeps the application in the tray —
+  declared from the state (`Application::tray`, `FrusApp::tray`) and followed by the shell.
+  Behind the new `tray` feature, on the desktop; Linux builds need `libgtk-3-dev`. The demo has
+  one on Windows and macOS.
 - **A refused notification answers at once on Android** (J705): from Android 13, a person who
   said no to notifications left `show` waiting a full minute, and then told it they had not
   answered — a refusal does not change the permission, so it read as a question still open. The

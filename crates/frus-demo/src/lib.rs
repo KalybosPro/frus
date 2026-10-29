@@ -75,6 +75,40 @@ pub(crate) fn build() -> (FrusApp, GoRouter, Rc<Demo>) {
             move || Some(save.snapshot()),
             move |bytes| restore.restore(bytes),
         );
+    // **A tray icon** on Windows and macOS (milestone 706): how many tasks are left, kept up to
+    // date; the completed ones cleared from it; and the demo running on in it once its window
+    // is closed, until Quit.
+    #[cfg(any(windows, target_os = "macos"))]
+    let app = {
+        let tray = demo.clone();
+        app.tray(move || {
+            let todos = tray.todos();
+            let left = todos.iter().filter(|todo| !todo.done).count();
+            let status = match left {
+                0 => "Nothing left to do".to_string(),
+                1 => "1 task to do".to_string(),
+                n => format!("{n} tasks to do"),
+            };
+            let clear = if todos.iter().any(|todo| todo.done) {
+                let tray = tray.clone();
+                frus_shell::Tray::new("frus demo")
+                    .disabled_item(status)
+                    .item(
+                        "Clear completed",
+                        frus_widgets::Callback::new(move || tray.clear_done()),
+                    )
+            } else {
+                frus_shell::Tray::new("frus demo")
+                    .disabled_item(status)
+                    .disabled_item("Clear completed")
+            };
+            clear
+                .separator()
+                .show_item("Open frus demo")
+                .quit_item("Quit")
+                .keep_running()
+        })
+    };
     // `FrusApp` starts from the defaults; how the demo is dressed is `Demo`'s to say, and it
     // says it after, so the builders above cannot undo it.
     demo.apply();
