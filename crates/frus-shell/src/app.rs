@@ -1120,6 +1120,12 @@ pub struct App<A: Application> {
     /// What the taskbar button shows of the application's (milestone 708).
     #[cfg(all(desktop, feature = "taskbar"))]
     taskbar: crate::Taskbar,
+    /// The global shortcuts the system holds for the application (milestone 709).
+    #[cfg(all(desktop, feature = "global-shortcuts"))]
+    shortcuts: crate::shortcuts::native::Registered,
+    /// Combinations already refused for their spelling, so each is told once.
+    #[cfg(all(desktop, feature = "global-shortcuts"))]
+    shortcuts_refused: std::collections::HashSet<String>,
     /// The application's icon, kept for the life of the program, to paint on the line.
     #[cfg_attr(not(windows), allow(dead_code))]
     window_icon: Option<&'static [u8]>,
@@ -1284,6 +1290,10 @@ impl<A: Application> App<A> {
             tray_keeps_running: false,
             #[cfg(all(desktop, feature = "taskbar"))]
             taskbar: crate::Taskbar::new(),
+            #[cfg(all(desktop, feature = "global-shortcuts"))]
+            shortcuts: Default::default(),
+            #[cfg(all(desktop, feature = "global-shortcuts"))]
+            shortcuts_refused: Default::default(),
             window_icon: None,
             reveal_after_keyboard: false,
             platform: PlatformSettings::default(),
@@ -2134,6 +2144,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
     /// of them has arrived, and files still held over the window are looked for where
     /// the system can say (milestone 695).
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(all(desktop, feature = "global-shortcuts"))]
+        self.shortcut_presses();
         #[cfg(all(desktop, feature = "tray"))]
         self.tray_events(event_loop);
         if self.file_drag.is_none() {
@@ -5771,6 +5783,71 @@ impl<A: Application> App<A> {
         if let Some(window) = &self.window {
             let wanted = self.app.taskbar();
             self.taskbar = crate::taskbar::native::apply(window, &self.taskbar, &wanted);
+        }
+        // And the global shortcuts (milestone 709).
+        #[cfg(all(desktop, feature = "global-shortcuts"))]
+        self.sync_shortcuts();
+    }
+
+    /// The canonical spellings of the global shortcuts the application declares; a refused one
+    /// is told once (milestone 709).
+    #[cfg(all(desktop, feature = "global-shortcuts"))]
+    fn declared_shortcuts(&mut self) -> Vec<(String, crate::GlobalShortcut<A::Message>)> {
+        let mut declared = Vec::new();
+        for shortcut in self.app.global_shortcuts() {
+            match crate::shortcuts::canonical(&shortcut.keys, cfg!(target_os = "macos")) {
+                Ok(keys) => declared.push((keys, shortcut)),
+                Err(why) => {
+                    if self.shortcuts_refused.insert(shortcut.keys.clone()) {
+                        log::warn!("global shortcuts: refused {why}");
+                    }
+                }
+            }
+        }
+        declared
+    }
+
+    /// Makes the system hold the global shortcuts the application declares (milestone 709) —
+    /// only with a real window, as the tray.
+    #[cfg(all(desktop, feature = "global-shortcuts"))]
+    fn sync_shortcuts(&mut self) {
+        let Some(window) = self.window.clone() else {
+            return;
+        };
+        let wanted: Vec<String> = self
+            .declared_shortcuts()
+            .into_iter()
+            .map(|(keys, _)| keys)
+            .collect();
+        crate::shortcuts::native::sync(&mut self.shortcuts, &wanted, &window);
+    }
+
+    /// Acts on the global shortcuts pressed since the last look (milestone 709): the
+    /// declaration is asked for again, and the shortcut with those keys does what it says now.
+    #[cfg(all(desktop, feature = "global-shortcuts"))]
+    fn shortcut_presses(&mut self) {
+        for keys in crate::shortcuts::native::take_pressed(&self.shortcuts) {
+            let Some((_, shortcut)) = self
+                .declared_shortcuts()
+                .into_iter()
+                .find(|(declared, _)| *declared == keys)
+            else {
+                continue;
+            };
+            match shortcut.action {
+                crate::shortcuts::ShortcutAction::Message(message) => {
+                    self.dispatch(message);
+                    self.request_redraw();
+                }
+                crate::shortcuts::ShortcutAction::ShowWindow => {
+                    if let Some(window) = &self.window {
+                        window.set_visible(true);
+                        window.set_minimized(false);
+                        window.focus_window();
+                        window.request_redraw();
+                    }
+                }
+            }
         }
     }
 

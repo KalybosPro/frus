@@ -39,6 +39,8 @@ notifications = ["dep:notify-rust"]
 tray = ["dep:tray-icon"]
 # The taskbar's badge and progress: `Taskbar` (milestone 708). The desktop; off by default.
 taskbar = ["dep:windows", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:zbus"]
+# Global shortcuts: `GlobalShortcut` (milestone 709). The desktop (X11 on Linux); off by default.
+global-shortcuts = ["dep:global-hotkey"]
 net = ["dep:ureq"]
 json = ["net", "dep:serde", "dep:serde_json"]
 default = ["frus-gpu/default", "frus-widgets/default"]
@@ -124,6 +126,9 @@ notify-rust = { version = "4.18.2", optional = true }
 # The tray icon (feature `tray`): the notification area on Windows, the menu bar on macOS, and
 # the desktop's status area over D-Bus on Linux (below, with its `ksni` feature).
 tray-icon = { version = "0.26.1", optional = true, default-features = false }
+# Global shortcuts (feature `global-shortcuts`): RegisterHotKey on Windows, the Carbon hot keys on
+# macOS, a key grab on X11 — pure Rust everywhere, no system library to build against.
+global-hotkey = { version = "0.9.0", optional = true }
 
 # Web (wasm32 + WebGPU): the browser entry point, JS futures, console logs.
 # The application's content on the title bar's line (milestone 640): the frame and the

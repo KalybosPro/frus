@@ -73,6 +73,8 @@ mod notification;
 mod notification_web;
 mod reload;
 // How long the application takes to show its first frame (milestone 683, #211).
+// Global shortcuts (milestone 709).
+mod shortcuts;
 mod startup;
 // The taskbar's badge and progress (milestone 708).
 mod taskbar;
@@ -121,6 +123,7 @@ pub use link::{link_among, location_of_link};
 #[cfg(all(any(desktop, android, web), feature = "notifications"))]
 pub use notification::{NotificationError, NotificationResponse, SystemNotification};
 pub use remote::RemoteData;
+pub use shortcuts::GlobalShortcut;
 pub use subscription::Subscription;
 pub use taskbar::{Taskbar, TaskbarProgress};
 pub use tray::Tray;

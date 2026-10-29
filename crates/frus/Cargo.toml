@@ -43,6 +43,8 @@ notifications = ["frus-shell/notifications"]
 tray = ["frus-shell/tray"]
 # The taskbar's badge and progress: `Taskbar`. The desktop; off by default.
 taskbar = ["frus-shell/taskbar"]
+# Global shortcuts: `GlobalShortcut`. The desktop (X11 on Linux); off by default.
+global-shortcuts = ["frus-shell/global-shortcuts"]
 json = ["frus-shell/json"]
 default = ["frus-shell/default", "frus-widgets/default", "frus-text/default"]
 # Decoding embedded PNG/JPEG: `Image::memory` and `asset!`. Part of `default`;
