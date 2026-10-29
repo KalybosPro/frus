@@ -8,11 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 705 so far, each documenting the objective, the alternatives
+> record — one per step, 707 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The badge, as the reference has it** (J707): `Badge::on(child)` pins a badge to a child's
+  top-end corner (`alignment`, `offset`, mirrored for right-to-left, and from the theme
+  otherwise); `Badge::count(n)` writes `999+` past `max_count`; `label_visible(false)` now
+  takes the badge away instead of leaving a dot. The rail's and the bottom bar's badges are a
+  `Badge` pinned to the glyph — its size, its corner, its count, no longer `99+` — and every
+  destination can carry `badge_dot()`.
 - **A refused notification answers at once on Android** (J705): from Android 13, a person who
   said no to notifications left `show` waiting a full minute, and then told it they had not
   answered — a refusal does not change the permission, so it read as a question still open. The
