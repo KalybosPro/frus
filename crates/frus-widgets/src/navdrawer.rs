@@ -111,7 +111,7 @@ enum Entry<Msg> {
 struct DrawerTile<Msg> {
     icon: DestinationIcon,
     label: String,
-    badge: Option<u32>,
+    badge: Option<crate::navrail::DestinationBadge>,
     selected: bool,
     disabled: bool,
     /// Which destination this is, and how many there are — for what a reader hears.
@@ -313,12 +313,31 @@ impl<Msg: Clone> Widget<Msg> for DrawerTile<Msg> {
         // The count, at the trailing end of the row. A rail hangs it off the glyph because
         // an 80-pixel column has nowhere else; here the row is wide and it goes where the
         // eye finishes reading.
-        if let Some(count) = self.badge.filter(|&n| n > 0) {
-            let text = if count > 99 {
-                "99+".to_string()
-            } else {
-                count.to_string()
-            };
+        // A dot is a dot, drawn as the [`Badge`](crate::Badge) draws one, centred on the row
+        // where the count would end (milestone 707).
+        if self.badge == Some(crate::navrail::DestinationBadge::Dot) {
+            let size = theme.widgets.badge.small_size.unwrap_or(6.0);
+            let right = (pill.x + pill.width) - BADGE_TRAIL;
+            let at = Rect::new(
+                right - size,
+                inner.y + (inner.height - size) * 0.5,
+                size,
+                size,
+            );
+            let fill = theme
+                .widgets
+                .badge
+                .background_color
+                .unwrap_or(theme.scheme.error);
+            scene.draw_rect(at, fill.fade(o), size * 0.5, 0.0, Color::TRANSPARENT);
+        }
+        let count = match self.badge {
+            Some(crate::navrail::DestinationBadge::Count(count)) if count > 0 => Some(count),
+            _ => None,
+        };
+        if let Some(count) = count {
+            // Written as a [`Badge`](crate::Badge) writes a count: `999+` past 999.
+            let text = crate::badge::count_label(count, 999);
             let badge_s = badge_style(self.badge_text_style, Some(theme));
             let m = frus_text::measure_resolved(&text, &badge_s);
             let right = (pill.x + pill.width) - BADGE_TRAIL;
@@ -480,7 +499,12 @@ impl<Msg: Clone + 'static> NavigationDrawer<Msg> {
 
     /// A notification count on the **last** destination.
     pub fn badge(self, count: u32) -> Self {
-        self.decorate(|last| last.badge = Some(count))
+        self.decorate(|last| last.badge = Some(crate::navrail::DestinationBadge::Count(count)))
+    }
+
+    /// Adds a dot to the **last** destination (milestone 707).
+    pub fn badge_dot(self) -> Self {
+        self.decorate(|last| last.badge = Some(crate::navrail::DestinationBadge::Dot))
     }
     /// What a pointer resting on the **last** destination is told
     /// (`navigation_rail.dart:1155`).

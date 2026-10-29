@@ -94,12 +94,24 @@ fn label_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextSt
         .resolved()
 }
 
-/// The notification count — `labelSmall`, the step [`crate::Badge`] already reads. See
-/// [`label_style`].
-fn badge_style(over: Option<TextStyle>, theme: Option<&Theme>) -> ResolvedTextStyle {
-    over.or(theme.and_then(|t| t.widgets.nav_rail.badge_text_style))
-        .unwrap_or_else(|| crate::theme::type_scale(theme).label_small)
-        .resolved()
+/// What a destination's glyph carries: a count, or a dot (milestone 707).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DestinationBadge {
+    /// A count; `0` shows nothing, so a count straight out of a model needs no `if`.
+    Count(u32),
+    /// A dot: *something here*, without how much.
+    Dot,
+}
+
+impl DestinationBadge {
+    /// The [`Badge`](crate::Badge) it is drawn as, or `None` for a count of zero.
+    pub(crate) fn badge(self) -> Option<crate::Badge> {
+        match self {
+            Self::Count(0) => None,
+            Self::Count(count) => Some(crate::Badge::count(count)),
+            Self::Dot => Some(crate::Badge::dot()),
+        }
+    }
 }
 
 /// The height an item needs: the constant, unless the icon and a label the reader asked to
@@ -127,8 +139,8 @@ struct NavItem<Msg> {
     icon: DestinationIcon,
     label: String,
     selected: bool,
-    /// Notification count (a dot on the icon). `0`/`None` = nothing.
-    badge: Option<u32>,
+    /// What the glyph carries: a count or a dot. A count of `0`, or `None`, is nothing.
+    badge: Option<DestinationBadge>,
     /// `true` = a rail item (fixed width); `false` = a bar item (flex).
     rail: bool,
     /// Whether this destination says what it is. See [`RailLabels`].
@@ -386,44 +398,24 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             scene.text(position, self.label.clone(), &label_s, label_color.fade(o));
         }
 
-        // Notification dot, anchored to the top-right corner of the icon glyph.
-        if let Some(count) = self.badge.filter(|&n| n > 0) {
-            let text = if count > 99 {
-                "99+".to_string()
-            } else {
-                count.to_string()
+        // The badge, pinned to the glyph exactly as a [`Badge`](crate::Badge) is pinned to
+        // any child (milestone 707): the same size, the same corner, the same colours and
+        // the same count — a badge on a rail used to have a geometry and a `99+` of its own.
+        if let Some(mark) = self.badge.and_then(DestinationBadge::badge) {
+            let mark = match self
+                .badge_text_style
+                .or(theme.widgets.nav_rail.badge_text_style)
+            {
+                Some(style) => mark.text_style(style),
+                None => mark,
             };
-            let badge_s = badge_style(self.badge_text_style, Some(theme));
-            let m = frus_text::measure_resolved(&text, &badge_s);
-            let bw = (m.width + 8.0).max(m.height + 4.0);
-            let bh = m.height + 4.0;
-            let icon_right = bounds.x + (col + icon_m.width) * 0.5;
-            let bx = (icon_right - bw * 0.4).min(bounds.x + bounds.width - bw);
-            let by = top - bh * 0.35;
-            let rect = Rect::new(bx, by, bw, bh);
-            // A badge is a badge. This one used to carry a red of its own, on the
-            // reasoning that an alert dot reads as red whatever the theme — but the
-            // [`Badge`](crate::Badge) widget beside it already answers the same question
-            // from the scheme's `error`, and two badges in one framework painting
-            // different reds is the part that is actually wrong. Same roles, same theme,
-            // so recolouring one recolours both.
-            let fill = theme
-                .widgets
-                .badge
-                .background_color
-                .unwrap_or(theme.scheme.error);
-            let ink = theme
-                .widgets
-                .badge
-                .text_color
-                .unwrap_or(theme.scheme.on_error);
-            scene.draw_rect(rect, fill.fade(o), bh * 0.5, 0.0, Color::TRANSPARENT);
-            scene.text(
-                Point::new(bx + (bw - m.width) * 0.5, by + 2.0),
-                text,
-                &badge_s,
-                ink.fade(o),
+            let glyph = Rect::new(
+                bounds.x + (col - icon_m.width) * 0.5,
+                top,
+                icon_m.width,
+                icon_m.height,
             );
+            mark.paint_pinned(glyph, o, theme, scene);
         }
     }
 
@@ -598,7 +590,7 @@ pub struct NavigationDestination {
     /// (`navigation_rail.dart:1132`).
     pub(crate) selected_icon: Option<DestinationIcon>,
     /// Notification count. `None` or `0` = nothing.
-    pub(crate) badge: Option<u32>,
+    pub(crate) badge: Option<DestinationBadge>,
     /// What a pointer resting on this destination is told. A rail showing glyphs without
     /// labels is the case this exists for (`navigation_rail.dart:1155`).
     pub(crate) tooltip: Option<String>,
@@ -648,11 +640,21 @@ impl NavigationDestination {
         self
     }
 
-    /// A notification count on this destination. `0` shows nothing, so a count straight
-    /// out of a model needs no `if` around it.
+    /// A notification count on this destination, pinned to its glyph as a
+    /// [`Badge`](crate::Badge) is pinned to a child, and written as it writes one (`999+`
+    /// past 999). `0` shows nothing, so a count straight out of a model needs no `if`
+    /// around it.
     #[must_use]
     pub fn badge(mut self, count: u32) -> Self {
-        self.badge = Some(count);
+        self.badge = Some(DestinationBadge::Count(count));
+        self
+    }
+
+    /// A **dot** on this destination's glyph: *something new here*, without how much
+    /// (milestone 707).
+    #[must_use]
+    pub fn badge_dot(mut self) -> Self {
+        self.badge = Some(DestinationBadge::Dot);
         self
     }
 
@@ -1056,7 +1058,12 @@ impl<Msg: Clone + 'static> NavigationRail<Msg> {
 
     /// Adds a notification count to the **last** destination.
     pub fn badge(self, count: u32) -> Self {
-        self.decorate(|last| last.badge = Some(count))
+        self.decorate(|last| last.badge = Some(DestinationBadge::Count(count)))
+    }
+
+    /// Adds a dot to the **last** destination's glyph (milestone 707).
+    pub fn badge_dot(self) -> Self {
+        self.decorate(|last| last.badge = Some(DestinationBadge::Dot))
     }
     /// What a pointer resting on the **last** destination is told
     /// (`navigation_rail.dart:1155`).
@@ -1423,7 +1430,12 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
 
     /// Adds a notification count to the **last** destination.
     pub fn badge(self, count: u32) -> Self {
-        self.decorate(|last| last.badge = Some(count))
+        self.decorate(|last| last.badge = Some(DestinationBadge::Count(count)))
+    }
+
+    /// Adds a dot to the **last** destination's glyph (milestone 707).
+    pub fn badge_dot(self) -> Self {
+        self.decorate(|last| last.badge = Some(DestinationBadge::Dot))
     }
     /// What a pointer resting on the **last** destination is told
     /// (`navigation_rail.dart:1155`).
@@ -1736,7 +1748,7 @@ mod tests {
         Widget::<Msg>::paint(
             &NavItem {
                 selected,
-                badge,
+                badge: badge.map(DestinationBadge::Count),
                 ..item
             },
             Rect::new(0.0, 0.0, width, ITEM_HEIGHT),
@@ -2462,7 +2474,7 @@ mod tests {
             .tooltip("Unread messages")
             .disabled();
         assert_eq!(inbox.label(), "Inbox");
-        assert_eq!(inbox.badge, Some(3));
+        assert_eq!(inbox.badge, Some(DestinationBadge::Count(3)));
         assert_eq!(inbox.tooltip.as_deref(), Some("Unread messages"));
         assert!(inbox.disabled);
         // The resting mark and the selected one are different marks, which is the whole
@@ -3135,9 +3147,7 @@ mod tests {
             .any(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "5")));
     }
 
-    #[test]
-    fn badge_over_99_is_capped() {
-        let bar = BottomBar::new(0, Msg::Go).item("M", "Mail").badge(150);
+    fn first_item_scene(bar: BottomBar<Msg>) -> Scene {
         let children = Widget::<Msg>::children(&bar);
         let mut scene = Scene::new();
         children[0].paint(
@@ -3146,10 +3156,75 @@ mod tests {
             &Theme::default(),
             &mut scene,
         );
-        assert!(scene
+        scene
+    }
+
+    /// **A destination's count is written as a [`Badge`](crate::Badge) writes it**: the
+    /// number up to 999, then `999+` — the reference's `Badge.count` (milestone 707; it used
+    /// to stop at `99+`, which the reference's navigation does not).
+    #[test]
+    fn a_count_is_written_as_the_badge_writes_it() {
+        let text = |count: u32| {
+            first_item_scene(BottomBar::new(0, Msg::Go).item("M", "Mail").badge(count))
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Text { text, .. } if text != "Mail" && text != "M" => {
+                        Some(text.clone())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(text(150), vec!["150"]);
+        assert_eq!(text(1500), vec!["999+"]);
+        assert!(text(0).is_empty(), "a count of 0 shows nothing");
+    }
+
+    /// **A destination can carry a dot**, the size of a [`Badge`](crate::Badge)'s, in the
+    /// glyph's top-end corner — and no text (milestone 707).
+    #[test]
+    fn a_destination_can_carry_a_dot() {
+        let scene = first_item_scene(BottomBar::new(0, Msg::Go).item("M", "Mail").badge_dot());
+        let dots: Vec<Rect> = scene
             .primitives()
             .iter()
-            .any(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "99+")));
+            .filter_map(|p| match p {
+                frus_core::Primitive::Rect { rect, .. }
+                    if rect.width == 6.0 && rect.height == 6.0 =>
+                {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(dots.len(), 1, "one dot");
+        assert!(!scene
+            .primitives()
+            .iter()
+            .any(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text != "Mail" && text != "M")));
+    }
+
+    /// **The pill is a [`Badge`](crate::Badge)'s**: as tall as the theme's large size, and
+    /// pinned where a badge on the glyph would be — its left edge 12 pixels before the
+    /// glyph's end, its top 4 above the glyph's.
+    #[test]
+    fn the_pill_is_the_badges() {
+        let scene = first_item_scene(BottomBar::new(0, Msg::Go).item("M", "Mail").badge(3));
+        let pill = scene
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, color, .. }
+                    if *color == Theme::default().scheme.error =>
+                {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("a pill in the scheme's error");
+        assert_eq!(pill.height, 16.0);
+        assert_eq!(pill.width, 16.0, "one digit: round");
     }
 
     /// **The bar consumes what it is told about** (milestone 418). Its parent used to

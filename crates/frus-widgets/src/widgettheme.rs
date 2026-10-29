@@ -223,6 +223,11 @@ pub struct BadgeTheme {
     pub large_size: Option<f32>,
     /// The label's room either side.
     pub padding: Option<f32>,
+    /// Where on its child a pinned badge goes: the top-end corner otherwise.
+    pub alignment: Option<frus_core::AlignmentGeometry>,
+    /// How far a pinned badge with a label is moved, `(across, down)`: `(4, -4)` otherwise,
+    /// mirrored for a right-to-left reading.
+    pub offset: Option<(f32, f32)>,
 }
 
 /// Defaults for [`Checkbox`](crate::Checkbox).

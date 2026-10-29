@@ -471,7 +471,12 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
 
     /// A notification count on the **last** destination.
     pub fn badge(self, count: u32) -> Self {
-        self.decorate(|last| last.badge = Some(count))
+        self.decorate(|last| last.badge = Some(crate::navrail::DestinationBadge::Count(count)))
+    }
+
+    /// Adds a dot to the **last** destination (milestone 707).
+    pub fn badge_dot(self) -> Self {
+        self.decorate(|last| last.badge = Some(crate::navrail::DestinationBadge::Dot))
     }
 
     /// The glyph the **last** destination shows while it is selected, where that differs
