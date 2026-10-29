@@ -127,7 +127,7 @@ fn opens_selection_bar(logical: &WinitKey, shift: bool) -> bool {
 /// A field that can only be **read** — a read-only one, a selectable paragraph — is a text field
 /// with a caret and a selection and no use for a keyboard, which would slide up over the very
 /// words its reader has come to select.
-#[cfg(any(android, test))]
+#[cfg(any(android, web, test))]
 fn wants_keyboard<M>(widget: &dyn Widget<M>) -> bool {
     is_text_field(widget) && widget.focusable() && widget.takes_typing()
 }
@@ -905,6 +905,9 @@ pub struct App<A: Application> {
     /// The window's accessibility bridge, projected into the canvas's DOM — web only.
     #[cfg(web)]
     a11y: Option<crate::a11y_web::A11y>,
+    /// The element the focused text field is edited through, on the web (milestone 711).
+    #[cfg(web)]
+    web_editor: Option<crate::web_editing::Editor>,
     /// The last interface built, used for hit testing, focus and scrolling.
     ui: Option<Ui<A::Message>>,
     /// The last widget tree built, used for keyboard and editing routing.
@@ -1210,6 +1213,8 @@ impl<A: Application> App<A> {
             a11y: None,
             #[cfg(web)]
             a11y: None,
+            #[cfg(web)]
+            web_editor: None,
             ui: None,
             tree: None,
             cursor: Point::new(0.0, 0.0),
@@ -1380,6 +1385,70 @@ impl<A: Application> App<A> {
                 }
             }
         }
+    }
+
+    /// Keeps the element the focused field is edited through in step with the field
+    /// (milestone 711): there while a field that takes typing has the focus, over it, holding
+    /// its text and selection.
+    #[cfg(web)]
+    fn sync_web_editing(&mut self) {
+        let Some(editor) = self.web_editor.as_mut() else {
+            return;
+        };
+        let field = self.runtime.input.focused.and_then(|id| {
+            let widget = find_widget(self.tree.as_ref()?.as_ref(), id)?;
+            if !wants_keyboard(widget) {
+                return None;
+            }
+            let (_, rect, semantics) = self
+                .ui
+                .as_ref()?
+                .semantics()
+                .iter()
+                .find(|(node, ..)| *node == id)?;
+            Some(crate::web_editing::Field {
+                id,
+                rect: *rect,
+                web: widget.ime().web(),
+                label: semantics.label.as_deref(),
+                text: widget.text_value().unwrap_or_default(),
+                edit: self.runtime.edits.get(&id).copied().unwrap_or_default(),
+            })
+        });
+        editor.sync(field, self.app.density());
+    }
+
+    /// Puts what the browser did to the element into its field (milestone 711): the text
+    /// through the message typing would have produced — so a field that refuses typing
+    /// refuses this too, and the next frame puts the field's own text back in the element —
+    /// and the caret, the selection and the composition as the browser left them.
+    #[cfg(web)]
+    fn drain_web_editing(&mut self) {
+        let changes = match self.web_editor.as_ref() {
+            Some(editor) => editor.take_changes(),
+            None => return,
+        };
+        if changes.is_empty() {
+            return;
+        }
+        for (id, element) in changes {
+            // A change to a field that has lost the focus since is not for it any more.
+            if self.runtime.input.focused != Some(id) {
+                continue;
+            }
+            let (value, edit) = crate::web_editing::read(&element);
+            let message = self
+                .tree
+                .as_ref()
+                .and_then(|tree| find_widget(tree.as_ref(), id))
+                .filter(|widget| widget.text_value() != Some(value.as_str()))
+                .and_then(|widget| widget.replace_value(value));
+            self.runtime.edits.insert(id, edit);
+            if let Some(message) = message {
+                self.dispatch_edit(message);
+            }
+        }
+        self.request_redraw();
     }
 
     /// The web's counterpart to `drain_a11y_actions` above — same replay, the DOM
@@ -1975,6 +2044,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             // The accessibility bridge (#18): the canvas exists as soon as the window
             // does, so there is no "still hidden" step to wait for here.
             self.a11y = crate::a11y_web::A11y::new(&window);
+            // And the element a text field is edited through (milestone 711).
+            self.web_editor = crate::web_editing::Editor::new(&window);
             // The browser keeps reload, the developer tools and the rest of its own shortcuts
             // while the canvas has the focus, instead of winit cancelling them.
             crate::web_keys::let_the_browser_keep_its_shortcuts();
@@ -2192,6 +2263,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         // Actions a screen reader asked for, through the DOM bridge (#18).
         #[cfg(web)]
         self.drain_a11y_actions();
+        // And what the browser did to the field it edits for the application (milestone 711).
+        #[cfg(web)]
+        self.drain_web_editing();
 
         // Live reload, in development: the binary was replaced by a recompilation, so
         // capture the state and relaunch the new binary. This does not return.
@@ -2233,6 +2307,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             // leave `Paused`/`Detached` — background and closing — alone; those are
             // decided by `suspended` and `exiting`.
             WindowEvent::Focused(focused) => {
+                // On the web the "window" is the canvas, and it loses the focus to the page's
+                // own elements — the accessibility bridge's, the field being edited — while
+                // the page keeps it (milestone 711). Only the page losing it is the window's.
+                #[cfg(web)]
+                let focused = focused
+                    || web_sys::window()
+                        .and_then(|window| window.document())
+                        .and_then(|document| document.has_focus().ok())
+                        .unwrap_or(false);
                 if !matches!(self.lifecycle, Lifecycle::Paused | Lifecycle::Detached) {
                     self.set_lifecycle(if focused {
                         Lifecycle::Resumed
@@ -2381,6 +2464,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 self.key_down(&KeyDown::from(&event), Some(event_loop));
+                // And the element hears at once where the key left the field: a letter the
+                // browser types straight after an arrow goes in at the element's caret, and
+                // that caret must not wait for the frame to have moved (milestone 711).
+                #[cfg(web)]
+                self.sync_web_editing();
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
@@ -3277,6 +3365,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         a11y.update(ui.semantics(), focus, &title, &self.announce);
                     }
                 }
+                // The field being edited gets its element — after the bridge, since the
+                // element is what has the browser's focus while it is (milestone 711).
+                #[cfg(web)]
+                self.sync_web_editing();
 
                 // The system bars follow the frame: the regions under them, then the theme.
                 self.sync_system_bars(&theme);
@@ -7329,6 +7421,12 @@ impl<A: Application> App<A> {
     /// winit's event in a window, and with one a test made in the driver (milestone 608).
     /// `event_loop` is what Back quits through; with none, Back that would quit does nothing.
     fn key_down(&mut self, event: &KeyDown, event_loop: Option<&ActiveEventLoop>) {
+        // What the browser typed into the field just before this key comes first: a key it
+        // hands on reaches the shell at once, and the letters before it are still waiting for
+        // the end of the turn — an arrow would move a caret that has not had them yet, and be
+        // undone when they arrived (milestone 711).
+        #[cfg(web)]
+        self.drain_web_editing();
         // A keyboard interaction: the focus ring becomes visible again.
         if !self.runtime.focus_visible {
             self.runtime.focus_visible = true;

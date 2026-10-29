@@ -103,6 +103,8 @@ mod theming;
 mod title_bar;
 #[cfg(web)]
 mod web_clipboard;
+#[cfg(any(web, test))]
+mod web_editing;
 #[cfg(web)]
 mod web_icon;
 #[cfg(any(web, test))]
