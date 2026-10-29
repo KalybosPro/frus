@@ -13,6 +13,14 @@ any release may break.
 
 ## [Unreleased]
 
+- **Device profiles** (J720): the first step towards seeing an application as it will look on a
+  phone, on any development system and without the platform's own tools. `DeviceProfile`
+  describes a device as data: its screen, density and corners, its cutout (notch, island or
+  hole), the areas its system keeps and the height of its keyboard in each orientation, its
+  platform, and the outline drawn around it. It answers what the shell will need: the screen and
+  the `WindowInsets` in either orientation, keyboard up or down, and where the cutout and the
+  screen are. `DeviceProfile::builtin()` holds an iPhone SE, an iPhone 15, an iPhone 15 Pro Max,
+  an iPad and an Android phone. Nothing uses them yet.
 - **A text field on the Web is edited through a real one** (J711): the canvas had nothing a
   browser could type into, so a field on the web had no software keyboard, no composition (no
   Chinese, Japanese or Korean), no dictation or password manager, and nothing an assistive

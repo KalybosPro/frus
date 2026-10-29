@@ -17,6 +17,7 @@ mod color;
 mod colors;
 mod decoration;
 mod decoration_image;
+mod device;
 mod filter;
 mod geometry;
 mod gradient;
@@ -46,6 +47,7 @@ pub use decoration::{
 pub use decoration_image::{
     apply_box_fit, DecorationImage, FittedSizes, ImagePiece, ImageRepeat, MAX_IMAGE_TILES,
 };
+pub use device::{ButtonEdge, Cutout, DeviceFrame, DeviceInsets, DeviceProfile, SideButton};
 pub use filter::{
     Backdrop, BlendMode, ColorFilter, FractionalMask, ImageFilter, LayerFilter, MaskShader,
     ShaderMask,

@@ -554,6 +554,9 @@ pub use frus_core::{
     SpringDescription, SpringSimulation, Tolerance, Tween, Velocity, VelocityEstimate,
     VelocityStrategy, VelocityTracker, BOUNCING_FLING_WEIGHTS, DESKTOP_FLING_WEIGHTS,
 };
+/// Device profiles: what a phone or a tablet looks like to an application, for a desktop
+/// window to stand in for it — see [`frus_core::DeviceProfile`].
+pub use frus_core::{ButtonEdge, Cutout, DeviceFrame, DeviceInsets, DeviceProfile, SideButton};
 // `frus_core::Status`, an animation's progress, is renamed so it does not shadow the
 // interaction `Status`, which is paint state: hover, press, focus and so on.
 pub use frus_core::Status as AnimationStatus;
