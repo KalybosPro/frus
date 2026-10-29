@@ -8,11 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 708 so far, each documenting the objective, the alternatives
+> record — one per step, 709 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Global shortcuts** (J709, the last part of #219): `GlobalShortcut` — a combination that
+  reaches the application from any window, sending a message or bringing the window forward —
+  declared from the state (`Application::global_shortcuts`, `FrusApp::global_shortcuts`).
+  `Primary` is `Cmd` on macOS and `Ctrl` elsewhere. A combination without `Ctrl`, `Alt` or
+  `Super` is refused, as it would take typing from every other application; the module states
+  what a global shortcut can and cannot do. Windows, macOS, X11; behind the new
+  `global-shortcuts` feature. The demo's Ctrl+Alt+Shift+D brings it back.
 - **The taskbar's badge and progress** (J708, part of #219): `Taskbar` — a count and a progress
   (a fraction, indeterminate, paused, error) on the application's button, declared from the
   state (`Application::taskbar`, `FrusApp::taskbar`). Windows: the button's own progress bar

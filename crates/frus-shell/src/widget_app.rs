@@ -68,6 +68,7 @@ pub struct FrusApp {
     on_start: Option<Box<dyn FnOnce()>>,
     tray: Option<Box<dyn Fn() -> crate::Tray<Callback>>>,
     taskbar: Option<Box<dyn Fn() -> crate::Taskbar>>,
+    shortcuts: Option<Box<dyn Fn() -> Vec<crate::GlobalShortcut<Callback>>>>,
     save: Option<Save>,
     restore: Option<Restore>,
     strategy: LocationStrategy,
@@ -135,6 +136,7 @@ impl FrusApp {
             on_start: None,
             tray: None,
             taskbar: None,
+            shortcuts: None,
             save: None,
             restore: None,
             strategy: LocationStrategy::Hash,
@@ -285,6 +287,17 @@ impl FrusApp {
         self
     }
 
+    /// The application's **global shortcuts** (milestone 709): `shortcuts` is asked after every
+    /// change, and the shell registers what it declares. See
+    /// [`GlobalShortcut`](crate::GlobalShortcut).
+    pub fn global_shortcuts(
+        mut self,
+        shortcuts: impl Fn() -> Vec<crate::GlobalShortcut<Callback>> + 'static,
+    ) -> Self {
+        self.shortcuts = Some(Box::new(shortcuts));
+        self
+    }
+
     /// The window's initial size, in logical pixels.
     pub fn window_size(mut self, width: f32, height: f32) -> Self {
         self.window_size = Some((width, height));
@@ -359,6 +372,13 @@ impl Application for FrusApp {
         self.taskbar
             .as_ref()
             .map(|taskbar| taskbar())
+            .unwrap_or_default()
+    }
+
+    fn global_shortcuts(&self) -> Vec<crate::GlobalShortcut<Callback>> {
+        self.shortcuts
+            .as_ref()
+            .map(|shortcuts| shortcuts())
             .unwrap_or_default()
     }
 
