@@ -240,6 +240,9 @@ pub(crate) mod native {
             static LIST: RefCell<Option<ITaskbarList3>> = const { RefCell::new(None) };
         }
 
+        // Not inlined, nor generic: compiled once, in frus, so that a hot patch reaches the same
+        // thread-local as the rest of the program (milestone 669).
+        #[inline(never)]
         fn list() -> windows::core::Result<ITaskbarList3> {
             LIST.with(|slot| {
                 if let Some(list) = slot.borrow().as_ref() {
@@ -325,7 +328,12 @@ pub(crate) mod native {
             unsafe {
                 let colour = CreateDIBSection(None, &info, DIB_RGB_COLORS, &mut bits, None, 0)?;
                 let pixels = std::slice::from_raw_parts_mut(bits as *mut u8, rgba.len());
-                for (to, from) in pixels.chunks_exact_mut(4).zip(rgba.chunks_exact(4)) {
+                for (to, from) in pixels
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
+                    .zip(rgba.as_chunks::<4>().0)
+                {
                     to.copy_from_slice(&[from[2], from[1], from[0], from[3]]);
                 }
                 let mask = CreateBitmap(side, side, 1, 1, None);
@@ -486,15 +494,17 @@ mod tests {
             "the red inside"
         );
         let white = |rgba: &[u8]| {
-            rgba.chunks_exact(4)
-                .filter(|p| *p == [0xFF, 0xFF, 0xFF, 0xFF])
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|p| **p == [0xFF, 0xFF, 0xFF, 0xFF])
                 .count()
         };
         assert!(white(&seven) > 0, "the digit is drawn");
         assert!(white(&badge_rgba("99+")) > white(&seven));
         assert_eq!(white(&badge_rgba("")), 0);
-        for (i, p) in badge_rgba("99+").chunks_exact(4).enumerate() {
-            if p == [0xFF, 0xFF, 0xFF, 0xFF] {
+        for (i, p) in badge_rgba("99+").as_chunks::<4>().0.iter().enumerate() {
+            if *p == [0xFF, 0xFF, 0xFF, 0xFF] {
                 let (x, y) = (i as u32 % BADGE_SIDE, i as u32 / BADGE_SIDE);
                 assert!(x > 2 && x < BADGE_SIDE - 3 && y > 2 && y < BADGE_SIDE - 3);
             }
