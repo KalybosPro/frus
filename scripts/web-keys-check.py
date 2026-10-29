@@ -37,7 +37,7 @@ def main(base):
     browser = subprocess.Popen([
         a11y.find_browser(), "--headless=new", f"--remote-debugging-port={a11y.PORT}", f"--user-data-dir={profile}",
         "--no-first-run", "--enable-unsafe-webgpu", "--enable-features=Vulkan,WebGPU", "--ignore-gpu-blocklist",
-        "--force-renderer-accessibility", "--window-size=1000,800", "about:blank",
+        "--force-renderer-accessibility", "--window-size=1000,800", *a11y.FOREGROUND, "about:blank",
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         for _ in range(50):

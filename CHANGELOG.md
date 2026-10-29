@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 711 so far, each documenting the objective, the alternatives
+> record — one per step, 712 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The web checks check what frus does today** (J712): the selection bar's browser check
+  expected a phone's bar after a Select all, on a desktop browser where frus rightly closes the
+  menu (J625); it now runs on the desktop and again told it is a phone, and expects each one's
+  rule. The address check had failed since the demo changed — it clicked at fixed coordinates —
+  and now finds the widgets by name, one tab at a time. Every web check keeps the page in the
+  foreground through the shared helper. No change to frus itself.
 
 - **A text field on the Web is edited through a real one** (J711): the canvas had nothing a
   browser could type into, so a field on the web had no software keyboard, no composition (no

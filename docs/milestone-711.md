@@ -118,7 +118,8 @@ end.
 
 ## Found on the way
 
-- **The selection bar after Select all**, on the web: see above. Broken on master too.
+- **The selection bar after Select all**, on the web: see above. Broken on master too. (Milestone
+  712 found the check out of date, not frus: on a desktop the menu closes after a Select all.)
 
 ## Left
 
