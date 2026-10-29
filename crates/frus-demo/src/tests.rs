@@ -2018,3 +2018,43 @@ fn the_window_s_menu_works_from_any_page() {
         "and the confirmation is up"
     );
 }
+
+/// **A screen reader ticks a task** (milestone 710): through Windows' UI Automation, a task's
+/// checkbox stayed as it was after a Toggle. The task's row, through the shell's own path for
+/// an assistive technology's press.
+#[test]
+fn a_screen_reader_ticks_a_task() {
+    let (app, _router, demo) = crate::build();
+    let mut driver = Driver::new(app, 500.0, 800.0);
+    driver.run(0.3);
+    demo.add("Water the plants");
+    driver.run(0.3);
+    assert!(
+        driver.assistive_click("Water the plants"),
+        "the task's checkbox is in the tree"
+    );
+    driver.run(0.3);
+    assert!(demo.todos()[0].done, "ticked");
+}
+
+/// **A screen reader adds a task** (milestone 710): it fills the field it knows by its
+/// placeholder, then presses Add — the field used to have no name, and set value went nowhere.
+#[test]
+fn a_screen_reader_adds_a_task() {
+    let (app, _router, demo) = crate::build();
+    let mut driver = Driver::new(app, 500.0, 800.0);
+    driver.run(0.3);
+    assert!(
+        driver.assistive_set_value("New task", "Buy bread"),
+        "the field is named by its placeholder"
+    );
+    driver.run(0.1);
+    assert!(driver.assistive_click("Add"));
+    driver.run(0.3);
+    let todos = demo.todos();
+    assert!(
+        todos.iter().any(|todo| todo.text == "Buy bread"),
+        "{:?}",
+        todos.iter().map(|todo| &todo.text).collect::<Vec<_>>()
+    );
+}

@@ -8,11 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 708 so far, each documenting the objective, the alternatives
+> record — one per step, 710 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **A screen reader can tick a box and fill a field** (J710): an action an assistive technology
+  asked for waited for the next frame something else caused, so on a still window a checkbox's
+  toggle did nothing; the bridge now wakes the loop. Fields offer *set value*, which goes
+  through the message typing would produce. A field with no label is named by its placeholder,
+  so a reader no longer hears only "edit". Checked through Windows' UI Automation on the demo.
 - **The taskbar's badge and progress** (J708, part of #219): `Taskbar` — a count and a progress
   (a fraction, indeterminate, paused, error) on the application's button, declared from the
   state (`Application::taskbar`, `FrusApp::taskbar`). Windows: the button's own progress bar

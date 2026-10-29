@@ -163,6 +163,9 @@ impl State for HomeState {
         };
         let mut draft_input = TextField::new(draft.text())
             .size(18.0)
+            // What the field is for, shown while it is empty — and its name for a screen
+            // reader, which otherwise heard only "edit" (milestone 710).
+            .placeholder("New task")
             .controller(&draft)
             .on_submit(add.clone());
         if !draft.is_empty() {

@@ -1196,7 +1196,8 @@ impl<Msg> TextField<Msg> {
         self
     }
 
-    /// Hint displayed inside the field while it is empty.
+    /// Hint displayed inside the field while it is empty — and, for a field with no
+    /// [`label`](Self::label), the name a screen reader gives it.
     pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
         self.placeholder = Some(placeholder.into());
         self
@@ -2491,8 +2492,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
     fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         let mut s = frus_core::SemanticsProperties::new(frus_core::Role::TextInput)
             .value(self.value.clone());
-        // The label names the field; an error is appended to it so it gets read out.
-        let label = match (&self.label, &self.error) {
+        // The label names the field — the placeholder when there is none, as the reference
+        // reads a hint out for a field that has no label, so a reader is never told only
+        // "edit" (milestone 710); an error is appended so it gets read out.
+        let name = self.label.as_ref().or(self.placeholder.as_ref());
+        let label = match (name, &self.error) {
             (Some(l), Some(e)) => Some(format!("{l}, {e}")),
             (Some(l), None) => Some(l.clone()),
             (None, Some(e)) => Some(e.clone()),
@@ -2593,6 +2597,26 @@ mod tests {
     enum Msg {
         Changed(String),
         Submitted,
+    }
+
+    /// **A field with no label is named by its placeholder** (milestone 710), as the reference
+    /// reads a hint out; a label wins over it, and an error is still appended.
+    #[test]
+    fn a_field_with_no_label_is_named_by_its_placeholder() {
+        let name = |field: TextField<Msg>| Widget::<Msg>::semantics(&field).and_then(|s| s.label);
+        assert_eq!(
+            name(TextField::new("").placeholder("New task")).as_deref(),
+            Some("New task")
+        );
+        assert_eq!(
+            name(TextField::new("").placeholder("e.g. Ada").label("Name")).as_deref(),
+            Some("Name")
+        );
+        assert_eq!(
+            name(TextField::new("").placeholder("New task").error("Required")).as_deref(),
+            Some("New task, Required")
+        );
+        assert_eq!(name(TextField::new("")), None);
     }
 
     fn input(value: &str) -> TextField<Msg> {
