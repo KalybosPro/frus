@@ -13,6 +13,11 @@ any release may break.
 
 ## [Unreleased]
 
+- **A project's own devices** (J727): a phone frus does not know is described once in the
+  application's `Cargo.toml`, as a `[[package.metadata.frus.devices]]` table (id, platform,
+  screen and ratio; corners, safe areas, keyboard and cutout if wanted), and `frus devices`,
+  `frus run -d <id>` and `--web` take it like a built-in one. A wrong or unknown key is named
+  rather than ignored.
 - **A screen reader sees a simulated device where it is drawn** (J726): the accessibility tree
   is moved to the phone's screen and zoomed with it, so a reader's highlight lands on the widget
   it names. The tree is also scaled by the application's density, which a desktop application

@@ -411,29 +411,28 @@ pub(crate) fn with_bridge(html: &str) -> String {
 /// The page told which simulated device it stands in for, at the top of its `<head>`, before
 /// the application's module asks. A property of `window`, not the address: on the web the
 /// address is the router's.
+///
+/// `device` is a built-in device's id or a project's own device's whole description (milestone
+/// 727), written by its developer, names and all: it goes into the script as a JavaScript
+/// string, escaped, and nothing in it can end the string or the script.
 pub(crate) fn with_device(page: &str, device: &str) -> String {
-    // An id from `frus devices`; anything else is not written into a script.
-    if !device
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-    {
-        return page.to_string();
+    let mut quoted = String::with_capacity(device.len());
+    for c in device.chars() {
+        match c {
+            '\\' => quoted.push_str("\\\\"),
+            '\'' => quoted.push_str("\\'"),
+            '<' => quoted.push_str("\\x3c"),
+            '\n' | '\r' | '\u{2028}' | '\u{2029}' => quoted.push(' '),
+            c => quoted.push(c),
+        }
     }
-    let script = format!("<script>window.__frusDevice = '{device}';</script>");
+    let script = format!("<script>window.__frusDevice = '{quoted}';</script>");
     match page.find("<head>") {
         Some(at) => {
             let at = at + "<head>".len();
-            format!(
-                "{}
-    {script}{}",
-                &page[..at],
-                &page[at..]
-            )
+            format!("{}\n    {script}{}", &page[..at], &page[at..])
         }
-        None => format!(
-            "{script}
-{page}"
-        ),
+        None => format!("{script}\n{page}"),
     }
 }
 
@@ -580,9 +579,14 @@ mod tests {
             page,
             "<html><head>\n    <script>window.__frusDevice = 'iphone-15';</script><title>x</title>"
         );
-        let odd = "<html><head><title>x</title>";
-        assert_eq!(with_device(odd, "x';alert(1);'"), odd);
         assert!(with_device("<p>no head</p>", "ipad").starts_with("<script>"));
+        // A project's own device, described in full: its text stays inside the string.
+        let own = with_device("<head>", "id=x;name=Bob's </script> \\ phone");
+        assert!(
+            own.contains(r"window.__frusDevice = 'id=x;name=Bob\'s \x3c/script> \\ phone';"),
+            "{own}"
+        );
+        assert_eq!(own.matches("</script>").count(), 1, "{own}");
     }
 
     #[test]

@@ -27,6 +27,9 @@ pub(crate) struct Project {
     pub android_targets: Vec<String>,
     /// The Android API the APK targets: `[package.metadata.android.sdk] target_sdk_version`.
     pub android_target_sdk: u32,
+    /// The devices the project describes, each a table of `[[package.metadata.frus.devices]]`
+    /// written as `key=value;…`, the way the shell reads one (milestone 727).
+    pub devices: Vec<String>,
 }
 
 impl Project {
@@ -74,10 +77,15 @@ impl Project {
         let mut has_web_release = false;
         let mut android_targets = None;
         let mut android_target_sdk = None;
+        let mut devices: Vec<Vec<String>> = Vec::new();
         for line in text.lines() {
             let line = line.trim();
             if let Some(header) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
                 section = header.trim().to_string();
+                // `[[…]]`, an array of tables: each header starts another.
+                if section == DEVICES {
+                    devices.push(Vec::new());
+                }
                 match section.as_str() {
                     "lib" => has_lib_section = true,
                     "profile.web-release" => has_web_release = true,
@@ -92,6 +100,11 @@ impl Project {
             match (section.as_str(), key) {
                 ("package.metadata.android", "build_targets") => {
                     android_targets = Some(string_list(value));
+                }
+                (DEVICES, _) => {
+                    if let (Some(device), Some(value)) = (devices.last_mut(), spec_value(value)) {
+                        device.push(format!("{key}={value}"));
+                    }
                 }
                 ("package.metadata.android.sdk", "target_sdk_version") => {
                     android_target_sdk = value.split('#').next().unwrap_or("").trim().parse().ok();
@@ -123,6 +136,7 @@ impl Project {
                 .filter(|targets: &Vec<String>| !targets.is_empty())
                 .unwrap_or_else(|| vec!["aarch64-linux-android".to_string()]),
             android_target_sdk: android_target_sdk.unwrap_or(34),
+            devices: devices.into_iter().map(|pairs| pairs.join(";")).collect(),
         })
     }
 
@@ -163,6 +177,28 @@ impl Project {
         }
         None
     }
+}
+
+/// The header of a project's own devices, as `from_manifest` sees `[[package.metadata.frus.devices]]`.
+const DEVICES: &str = "[package.metadata.frus.devices]";
+
+/// A device key's value as a description holds it: a string's text, a list's items joined by
+/// commas, a number as written. `;` and `=` would end the pair early, so they are left out.
+fn spec_value(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let value = if raw.starts_with('"') {
+        string_value(raw)?
+    } else if let Some(list) = raw.strip_prefix('[') {
+        let list = list.split(']').next()?;
+        list.split(',')
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .collect::<Vec<_>>()
+            .join(",")
+    } else {
+        raw.split('#').next()?.trim().to_string()
+    };
+    Some(value.replace([';', '='], " "))
 }
 
 /// `["a", "b"]` → `[a, b]`, on one line.
@@ -301,6 +337,22 @@ target_sdk_version = 33  # the store's minimum
 
 [profile.web-release]
 inherits = "release"
+
+[[package.metadata.frus.devices]]
+id = "pixel-9"
+name = "Pixel 9"   # as it is called
+platform = "android"
+width = 412
+height = 924
+ratio = 2.625
+safe-area = [52, 0, 24, 0]
+
+[[package.metadata.frus.devices]]
+id = "kiosk"
+platform = "ios"
+width = 800
+height = 1280
+ratio = 2  # the second table
 "#;
 
     #[test]
@@ -316,6 +368,30 @@ inherits = "release"
             ["aarch64-linux-android", "x86_64-linux-android"]
         );
         assert_eq!(project.android_target_sdk, 33);
+    }
+
+    /// **A project's own devices are read**, one description a table, as the shell reads them:
+    /// strings as their text, lists joined by commas, comments left out (milestone 727).
+    #[test]
+    fn the_project_s_own_devices_are_read() {
+        let project = Project::from_manifest(Path::new("app"), MANIFEST).unwrap();
+        assert_eq!(
+            project.devices,
+            [
+                "id=pixel-9;name=Pixel 9;platform=android;width=412;height=924;ratio=2.625;\
+                 safe-area=52,0,24,0",
+                "id=kiosk;platform=ios;width=800;height=1280;ratio=2",
+            ]
+        );
+        // And they are the shell's to read: the core takes them whole.
+        for spec in &project.devices {
+            frus_core::DeviceProfile::parse(spec).unwrap();
+        }
+        assert_eq!(
+            spec_value(r#""a;b=c""#).as_deref(),
+            Some("a b c"),
+            "nothing ends a pair early"
+        );
     }
 
     #[test]
