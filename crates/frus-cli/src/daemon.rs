@@ -383,6 +383,8 @@ pub(crate) fn device_json(device: &Device) -> Value {
         Platform::Android => ("android", "mobile"),
         Platform::Ios => ("ios", "mobile"),
         Platform::Web => ("web", "web"),
+        // What runs is the desktop build: an editor asks the application about the desktop.
+        Platform::Simulated => (std::env::consts::OS, "desktop"),
     };
     let emulator = matches!(
         device.kind,

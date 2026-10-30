@@ -434,6 +434,7 @@ fn parse_run(args: impl Iterator<Item = OsString>) -> Result<Command, String> {
         args: Vec::new(),
         machine: false,
         hot: false,
+        simulate: None,
     };
     let mut port = None;
     while let Some(arg) = args.next() {

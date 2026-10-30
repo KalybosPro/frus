@@ -97,6 +97,7 @@ mod remote;
 #[cfg(not(web))]
 pub(crate) mod runtime;
 mod selection;
+mod simulated;
 mod subscription;
 mod theming;
 #[cfg(windows)]

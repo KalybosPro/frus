@@ -41,9 +41,15 @@ pub(crate) struct RunOptions {
     pub machine: bool,
     /// `--hot`: true hot reload, the code patched into the running application (desktop, web).
     pub hot: bool,
+    /// The device profile the desktop window stands in for, when `-d` named a simulated device
+    /// (milestone 723). Not parsed: `run` sets it once the device is known.
+    pub simulate: Option<String>,
 }
 
 pub(crate) const DEFAULT_PORT: u16 = 8080;
+
+/// What tells the shell which device the window stands in for (`frus-shell`'s `simulated`).
+const SIMULATE_ENV: &str = "FRUS_DEVICE";
 
 /// What a key asks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,6 +90,9 @@ pub(crate) fn action(key: char) -> Option<Action> {
         'o' => Action::App("platform"),
         'b' => Action::App("brightness"),
         'P' => Action::App("performance"),
+        'T' => Action::App("text-scale"),
+        'l' => Action::App("rotate"),
+        'K' => Action::App("keyboard"),
         't' => Action::Missing("frus has a single tree: `w` prints it, every widget with its box"),
         'L' => Action::Missing("frus has no layer tree: a frame is one scene, painted in order"),
         'U' => Action::Missing("frus hit-tests one way only: there is no order to invert"),
@@ -112,6 +121,9 @@ const KEYS: &str = "  r  reload: build again, start where it was, with the state
   o  switch the platform the widgets behave as (Android, iOS, Windows…)
   b  switch between light and dark
   P  performance panel: what each frame costs
+  T  text size: 100%, 130%, 200%, 85%, as a reader's settings would
+  l  turn a simulated device on its side and back (frus run -d iphone-15)
+  K  hold a simulated device's keyboard up, or let it go
 ";
 
 /// Clears the terminal, its scrollback too, and puts the cursor at the top.
@@ -192,6 +204,7 @@ fn run_session(options: &RunOptions) -> Result<ExitCode, String> {
             | Kind::WebServer
             | Kind::Android { .. }
             | Kind::Emulator { .. }
+            | Kind::Simulated { .. }
     );
     if options.hot && !hot_here {
         return Err(format!(
@@ -203,6 +216,23 @@ fn run_session(options: &RunOptions) -> Result<ExitCode, String> {
     let result = match &device.kind {
         Kind::Host if options.hot => run_hot(&project, options),
         Kind::Host => run_desktop(&project, options),
+        // A simulation is a debug build's: a released application never stands in for another
+        // device, and the shell ignores `FRUS_DEVICE` there.
+        Kind::Simulated { .. } if options.mode == Mode::Release => Err(format!(
+            "{} is simulated by a debug build: run it without --release",
+            device.name
+        )),
+        Kind::Simulated { profile } => {
+            let options = RunOptions {
+                simulate: Some(profile.clone()),
+                ..options.clone()
+            };
+            if options.hot {
+                run_hot(&project, &options)
+            } else {
+                run_desktop(&project, &options)
+            }
+        }
         Kind::Android { serial } if options.hot => {
             run_android_hot(&project, &device, serial, options)
         }
@@ -404,6 +434,9 @@ fn start_desktop(
         .args(&options.args)
         .current_dir(&project.root)
         .env("FRUS_DEV", link.address());
+    if let Some(profile) = &options.simulate {
+        command.env(SIMULATE_ENV, profile);
+    }
     let Report { location, window } = link.report();
     if let Some(location) = location {
         command.env("FRUS_RESTORE_LOCATION", location);
@@ -486,6 +519,10 @@ fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> 
             .env("CARGO_TARGET_DIR", &target)
             // The application dx starts inherits it, and reports to this run as under `r`.
             .env("FRUS_DEV", link.address());
+        // And the device it stands in for, the same way.
+        if let Some(profile) = &options.simulate {
+            command.env(SIMULATE_ENV, profile);
+        }
         spawn_engine(&mut command, &lines_in)
     };
 
@@ -1642,6 +1679,9 @@ mod tests {
         assert_eq!(action('s'), Some(Action::Screenshot));
         assert_eq!(action('p'), Some(Action::App("outlines")));
         assert_eq!(action('P'), Some(Action::App("performance")));
+        assert_eq!(action('T'), Some(Action::App("text-scale")));
+        assert_eq!(action('l'), Some(Action::App("rotate")));
+        assert_eq!(action('K'), Some(Action::App("keyboard")));
         assert!(matches!(action('v'), Some(Action::Missing(_))));
     }
 

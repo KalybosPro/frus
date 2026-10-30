@@ -13,6 +13,24 @@ any release may break.
 
 ## [Unreleased]
 
+- **`frus run -d iphone-15`** (J723): `frus devices` lists the phones and tablets a desktop
+  window can stand in for (iPhone SE, 15, 15 Pro Max, iPad, an Android phone), on every system,
+  and `frus run -d <id or name>` starts the desktop build as that device — with `r`, `R` and
+  `--hot` as on the desktop. A simulated device is a debug build's: `--release` says so.
+  `frus run --machine` no longer loses its first command behind a byte-order mark (Windows
+  PowerShell writes one), and answers a line that is not a command instead of ignoring it.
+- **Turning, typing and reading on a simulated device** (J722): a focused text field brings the
+  simulated device's keyboard up, drawn in the device's brightness and reported through
+  `view_insets`, as on a phone. `frus run`'s keys: `l` turns the device and its window on their
+  side, `K` holds the keyboard up without a field, `T` steps the text size through 100%, 130%,
+  200% and 85% (on any window), and `b` already switched light and dark.
+- **A window stands in for a phone or a tablet** (J721): with `FRUS_DEVICE=iphone-15` (or any
+  built-in profile, by id or name) a debug build is laid out for that device's screen, safe
+  areas, platform and pixel ratio, and drawn inside its outline: the body and its buttons, the
+  screen's rounded corners, the island, notch or hole, a status bar whose ink follows the
+  application, the home indicator or button. The device is zoomed to fit the window, and the
+  pointer, touch and dropped files are mapped into its screen. The same on Windows, Linux and
+  macOS, since frus paints all of it.
 - **Device profiles** (J720): the first step towards seeing an application as it will look on a
   phone, on any development system and without the platform's own tools. `DeviceProfile`
   describes a device as data: its screen, density and corners, its cutout (notch, island or
