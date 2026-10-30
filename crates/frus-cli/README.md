@@ -250,7 +250,7 @@ One line for each part of the toolchain — `[✓]` ready, `[!]` usable but inco
 missing — and under it what is wrong, with what to do:
 
 ```text
-[✓] frus (0.4.0)
+[✓] frus (0.5.0)
 [✓] Rust (1.96.1, x86_64-pc-windows-msvc)
 [✓] Desktop (windows)
 [!] Android toolchain (android-36.1)

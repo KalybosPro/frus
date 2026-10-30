@@ -13,6 +13,35 @@ any release may break.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-30
+
+The system around the window, screen readers, and phones on any computer. An application
+reaches what a desktop offers beyond its window — notifications, the tray, the taskbar, global
+shortcuts, file dialogs, dropped files; a screen reader can use one, on every platform, the web
+included; and a phone or a tablet can be tried on any computer. In short:
+
+- **The system around the window**: notifications with buttons, a picture and the system's
+  sound, on the desktop, Android (with its permission) and the web; a tray icon with its menu;
+  the taskbar's badge and progress; global shortcuts; the system's file dialogs; files dropped
+  onto the window. Each behind a feature of its own, and declared from the state.
+- **Screen readers**: each widget is found where it is drawn and named by what it shows; a
+  reader can press, tick a box and fill a field. On the web, a text field is edited through a
+  real one — the phone's keyboard, composition (Chinese, Japanese, Korean), dictation — and
+  read once.
+- **Simulated devices**: `frus run -d iphone-15` (or an iPad, an Android phone, or a device a project
+  describes in its `Cargo.toml`) shows the application in a phone's frame on any computer, in
+  a window or `--web` in a browser: its screen, density, safe areas, cutout, keyboard and
+  orientation, for debug builds.
+- **Pictures**: Lottie animations (`Lottie`, the new `frus-lottie` crate); SVG
+  pictures and Lottie animations from an address, with their embedded bitmaps; paths kept
+  tessellated. The pipeline cache is hardened and on every desktop.
+- **Text on OpenGL ES**: frus now ships its copy of glyphon as `frus-glyphon`, so text draws on
+  the Android emulator and devices without Vulkan.
+
+**It breaks a little**, as a pre-alpha release may. `Badge::label_visible(false)` takes the
+badge away instead of leaving a dot, and the navigation bars' counts stop at `999+`, not `99+`.
+The entries below say more.
+
 - **A field being edited is found once** (J713): on the web, while a field was edited through
   its `<input>` (J711), a reader browsing the page found it twice — that element and the
   accessibility bridge's node for the field. The bridge now hides the field's node while the
