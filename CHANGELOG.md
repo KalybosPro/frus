@@ -17,6 +17,8 @@ any release may break.
   window can stand in for (iPhone SE, 15, 15 Pro Max, iPad, an Android phone), on every system,
   and `frus run -d <id or name>` starts the desktop build as that device — with `r`, `R` and
   `--hot` as on the desktop. A simulated device is a debug build's: `--release` says so.
+  `frus run --machine` no longer loses its first command behind a byte-order mark (Windows
+  PowerShell writes one), and answers a line that is not a command instead of ignoring it.
 - **Turning, typing and reading on a simulated device** (J722): a focused text field brings the
   simulated device's keyboard up, drawn in the device's brightness and reported through
   `view_insets`, as on a phone. `frus run`'s keys: `l` turns the device and its window on their

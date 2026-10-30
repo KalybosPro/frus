@@ -46,19 +46,12 @@ pub(crate) fn listen() -> Receiver<char> {
 
 /// An editor's commands, as the keys they stand for.
 fn commands() -> Receiver<char> {
-    use crate::json::{object, parse, Value};
     let (send, receive) = mpsc::channel();
     std::thread::spawn(move || {
         let stdin = std::io::stdin();
         for line in std::io::BufRead::lines(stdin.lock()).map_while(Result::ok) {
-            let Ok(command) = parse(&line) else {
+            let Some((answer, key)) = read_command(&line) else {
                 continue;
-            };
-            let id = command.get("id").cloned().unwrap_or(Value::Null);
-            let key = command_key(&command);
-            let answer = match key {
-                Some(_) => object([("id", id), ("result", true.into())]),
-                None => object([("id", id), ("error", "unknown method".into())]),
             };
             crate::report::line(&answer);
             if let Some(key) = key {
@@ -69,6 +62,32 @@ fn commands() -> Receiver<char> {
         }
     });
     receive
+}
+
+/// An editor's line, read: the answer it gets and the key it stands for, if any. `None` for a
+/// blank line, which asks nothing.
+///
+/// A UTF-8 byte-order mark before the line is not part of it: Windows PowerShell writes one at
+/// the start of what it sends a program, and read as part of the first command it made that
+/// command unreadable. A line that is not a command is answered so, rather than dropped without
+/// a word, which sent the search for the lost command everywhere but here.
+fn read_command(line: &str) -> Option<(crate::json::Value, Option<char>)> {
+    use crate::json::{object, parse, Value};
+    let line = line.trim_start_matches('\u{feff}').trim();
+    if line.is_empty() {
+        return None;
+    }
+    let Ok(command) = parse(line) else {
+        let answer = object([("id", Value::Null), ("error", "not a JSON command".into())]);
+        return Some((answer, None));
+    };
+    let id = command.get("id").cloned().unwrap_or(Value::Null);
+    let key = command_key(&command);
+    let answer = match key {
+        Some(_) => object([("id", id), ("result", true.into())]),
+        None => object([("id", id), ("error", "unknown method".into())]),
+    };
+    Some((answer, key))
 }
 
 /// The key an editor's command stands for.
@@ -228,5 +247,27 @@ mod tests {
             key(r#"{"id":1,"method":"app.restart","params":{"fullRestart":true}}"#),
             Some('R')
         );
+    }
+
+    /// **The first command survives a byte-order mark**, which Windows PowerShell writes before
+    /// the first line it sends a program: it was dropped without an answer, so a first `s`
+    /// wrote no screenshot and the second one's took its name (milestone 723). A line that is
+    /// not a command is answered so; a blank one asks nothing.
+    #[test]
+    fn a_byte_order_mark_does_not_lose_the_first_command() {
+        let first = "\u{feff}{\"id\":1,\"method\":\"app.key\",\"params\":{\"key\":\"s\"}}";
+        let (answer, key) = read_command(first).unwrap();
+        assert_eq!(key, Some('s'));
+        assert_eq!(answer.to_json(), r#"{"id":1,"result":true}"#);
+
+        let (answer, key) = read_command("not json").unwrap();
+        assert_eq!(key, None);
+        assert_eq!(
+            answer.to_json(),
+            r#"{"id":null,"error":"not a JSON command"}"#
+        );
+
+        assert!(read_command("").is_none());
+        assert!(read_command("\u{feff}  ").is_none());
     }
 }

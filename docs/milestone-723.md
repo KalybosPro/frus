@@ -43,12 +43,22 @@ dev-dependency only (left out when the crate is published), keeps it the same as
   wrote the screenshot: the counter on its side, its title clear of the island, the home
   indicator below.
 
-The same run found a bug that is not this milestone's, and is on the plain desktop too
-(`-d windows`): **on an idle application, `s` writes nothing until something else asks for a
-frame.** Two presses wrote one file. The second press's frame carried both requests, and both
-named `frus_01.png`, the first free name when each was sent. The demo always has a frame
-coming, which is why the screenshots of milestones 721 and 722 never met it. Left for its own
-fix.
+### A lost first command
+
+The first runs wrote one screenshot for two presses of `s`, on `-d windows` too. That looked
+like a shell that ignored a request on an idle window. It was not: sent to the application
+directly, one request on an idle window was written in 0.7 s. The timestamped output of
+`frus run` showed the real cause. Command 1 got **no answer at all**, while commands 2 and 3
+did.
+
+The test script was Windows PowerShell, which writes a UTF-8 byte-order mark before the first
+line it sends a program. `frus run --machine` read `\u{feff}{"id":1,…}`, could not parse it,
+and dropped it without a word. A blank first line made both screenshots appear.
+
+So `frus run --machine` now reads past a byte-order mark, and answers a line that is not a
+command (`{"id":null,"error":"not a JSON command"}`) instead of ignoring it. Run again with no
+workaround, `s`, `l`, `s` gave three answers and two screenshots: portrait, its status bar in
+dark ink over the light counter, then landscape.
 
 ## Tests
 
