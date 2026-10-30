@@ -138,6 +138,9 @@ pub struct AppBar<Msg = crate::callback::Callback> {
     actions: Vec<Action<Msg>>,
     action_size: Option<f32>,
     primary: bool,
+    /// What the surface's side intrusions take, left and right, read with the width: a
+    /// primary bar keeps its row clear of them (milestone 728).
+    side_insets: f32,
     gap: f32,
     background: Option<Color>,
     height: Option<f32>,
@@ -208,6 +211,11 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             actions: Vec::new(),
             action_size: None,
             primary: PRIMARY,
+            side_insets: if surface.is_described() {
+                surface.padding.left + surface.padding.right
+            } else {
+                0.0
+            },
             gap: GAP,
             background: None,
             height: None,
@@ -702,6 +710,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             bottom_opacity,
             actions_padding,
             primary,
+            side_insets,
             flexible_space,
             icon_theme,
             actions_icon_theme,
@@ -835,7 +844,13 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             + usize::from(title.is_some())
             + 1;
         let joins = before_actions - 1 + usize::from(actions.is_empty());
+        // A primary bar keeps its row clear of the side intrusions (the `SafeArea` below):
+        // a phone on its side has its cutout and corners there. What it takes is not room
+        // for actions, or they are counted into a row that is narrower than the bar, and the
+        // last ones run off its end (milestone 728).
+        let sides = if primary { side_insets } else { 0.0 };
         let fixed = H_PAD * 2.0
+            + sides
             + leading_w
             + spacer_w
             + gap * joins as f32
@@ -1211,6 +1226,48 @@ mod tests {
         assert!(
             built(1000.0) > built(300.0),
             "a narrow surface folds what a wide one shows"
+        );
+    }
+
+    /// **A bar beside a cutout folds against the room it is left** (milestone 728): a
+    /// phone on its side keeps its cutout and corners at the sides, the bar's row is kept
+    /// clear of them, and the actions are counted into that row — not into the whole width,
+    /// where the last ones ran off its end.
+    #[test]
+    fn a_bar_beside_a_cutout_folds_against_what_is_left() {
+        let built = |width: f32, sides: f32| {
+            let surface = MediaQuery::new(Size::new(width, 80.0)).with_insets(
+                frus_core::WindowInsets::bars(frus_core::Insets::new(0.0, sides, 0.0, sides)),
+            );
+            let bar = surface.scope(|| {
+                AppBar::new()
+                    .title(Text::new("Title"))
+                    .overflow(false, Msg::PopupMenuButton)
+                    .foldable_action("Action One", Msg::A)
+                    .foldable_action("Action Two", Msg::B)
+                    .foldable_action("Action Three", Msg::C)
+                    .build()
+            });
+            texts_of(bar.as_ref(), width)
+                .into_iter()
+                .filter(|t| t.starts_with("Action"))
+                .count()
+        };
+        // The narrowest surface on which all three fit with nothing at the sides…
+        let snug = (300..1000)
+            .step_by(4)
+            .map(|w| w as f32)
+            .find(|&w| built(w, 0.0) == 3)
+            .expect("a width on which all three fit");
+        // …folds one once 59 a side is taken.
+        assert!(
+            built(snug, 59.0) < 3,
+            "at {snug}, the cutouts leave no room for all three"
+        );
+        assert_eq!(
+            built(snug + 2.0 * 59.0, 59.0),
+            3,
+            "given the room back, they fit"
         );
     }
 

@@ -13,6 +13,11 @@ any release may break.
 
 ## [Unreleased]
 
+- **An app bar beside a cutout folds what it cannot fit** (J728): a primary `AppBar` counted its
+  actions into the whole width while its row kept clear of the side intrusions, so on a phone on
+  its side the last actions ran off its end; they now fold into "⋯". The simulated status bar's
+  clock takes each system's size and weight, and the README shows phones and tablets from any
+  computer.
 - **A project's own devices** (J727): a phone frus does not know is described once in the
   application's `Cargo.toml`, as a `[[package.metadata.frus.devices]]` table (id, platform,
   screen and ratio; corners, safe areas, keyboard and cutout if wanted), and `frus devices`,

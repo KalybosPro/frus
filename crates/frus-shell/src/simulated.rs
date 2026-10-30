@@ -437,12 +437,16 @@ fn paint_status_bar(
 ) {
     // Clear of the screen's rounded corners.
     let side = (profile.screen_radius * 0.6).max(16.0) * device;
-    let size = 15.0 * device;
+    // The clock each system draws: iOS's is 17 points, semibold; Android's 14, medium
+    // (milestone 728). At 15 points, bold, the bundled sans drew its stems unevenly at the
+    // sizes a zoomed device gives, and read as another typeface.
+    let (points, weight) = match profile.platform {
+        frus_widgets::TargetPlatform::Ios => (17.0, FontWeight::SemiBold),
+        _ => (14.0, FontWeight::Medium),
+    };
+    let size = points * device;
     let middle = screen.y + height / 2.0;
-    let style = TextStyle::default()
-        .size(size)
-        .weight(FontWeight::SemiBold)
-        .resolved();
+    let style = TextStyle::default().size(size).weight(weight).resolved();
     scene.text(
         Point::new(screen.x + side, middle - size * 0.65),
         "12:30",
