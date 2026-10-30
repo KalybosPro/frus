@@ -168,7 +168,7 @@ Le projet généré dépend de la crate publiée [`frus`](https://crates.io/crat
 |---|---|
 | `frus create <dossier>` | une nouvelle application pour le bureau, Android et le web ; `frus create .` dans une application existante restaure les fichiers qui lui manquent |
 | `frus doctor` | la chaîne d'outils, partie par partie : ce qui est prêt et ce qui manque ; `--fix` l'installe |
-| `frus devices` | cet ordinateur, les téléphones et émulateurs, les navigateurs |
+| `frus devices` | cet ordinateur, les téléphones et émulateurs, les navigateurs, et les téléphones et tablettes simulés |
 | `frus run [-d <appareil>]` | construire, lancer, afficher le journal ; `--hot` pour le hot reload sur le bureau, le web et Android |
 | `frus build <apk\|web\|desktop>` | ce que vous livrez, en release |
 | `frus emulators` | lister, lancer (`--launch`) et créer (`--create`) des émulateurs |
@@ -177,8 +177,9 @@ Le projet généré dépend de la crate publiée [`frus`](https://crates.io/crat
 
 Pendant `frus run` : `r` recharger, `R` redémarrer, `s` capture d'écran, `w` / `f` / `S` afficher
 l'arbre des widgets, du focus et de la sémantique, `i` l'inspecteur, `p` le contour de chaque
-widget, `o` le comportement d'une autre plateforme, `b` clair ou sombre, `P` un panneau de
-performance avec graphiques, `d` se détacher, `q` quitter. [`crates/frus-cli`](crates/frus-cli)
+widget, `o` le comportement d'une autre plateforme, `b` clair ou sombre, `T` la taille du texte,
+`P` un panneau de performance avec graphiques, `l` / `K` faire pivoter un appareil simulé et
+afficher son clavier, `d` se détacher, `q` quitter. [`crates/frus-cli`](crates/frus-cli)
 détaille tout.
 
 **VS Code :** l'extension de [`editors/vscode`](editors/vscode) ajoute un sélecteur d'appareil dans
@@ -203,6 +204,38 @@ frus build web                 # le site statique, en release
 
 Nécessite un navigateur WebGPU (Chrome/Edge 113+) sur un contexte sécurisé (`localhost` en est
 un). Les étapes sans l'outil sont dans [`crates/frus-hello/web/README.md`](crates/frus-hello/web/README.md).
+
+### Téléphones et tablettes, depuis n'importe quel ordinateur
+
+```sh
+frus run -d iphone-15          # l'application sur l'écran d'un iPhone, dans une fenêtre sous Windows, Linux ou macOS
+frus run -d iphone-15 --web    # la même chose, dans un navigateur
+```
+
+Une build debug est mise en page pour l'écran de l'appareil — sa taille et sa densité, ses zones
+sûres, son encoche, son îlot ou son poinçon, son clavier, les conventions de sa plateforme — et
+dessinée dans son contour. `l` le fait pivoter, `K` affiche son clavier (un champ qui prend le
+focus le fait monter de toute façon), `T` change la taille du texte, `b` bascule clair ou sombre,
+et `r` / `--hot` fonctionnent comme sur desktop. Intégrés : iPhone SE, iPhone 15, iPhone 15 Pro
+Max, iPad et un téléphone Android. Un projet décrit les siens dans son `Cargo.toml`, et
+`frus devices` les liste :
+
+```toml
+[[package.metadata.frus.devices]]
+id = "pixel-9"
+name = "Pixel 9"
+platform = "android"            # ou "ios"
+width = 412                     # en pixels logiques, debout
+height = 924
+ratio = 2.625
+safe-area = [52, 0, 24, 0]      # haut, droite, bas, gauche
+cutout = "hole"                 # none, notch, island ou hole
+cutout-size = [34, 34]
+```
+
+C'est un aperçu : la mise en page, les zones sûres et le comportement sont ceux de l'appareil ; ses
+polices, son pilote graphique, ses services natifs et sa vitesse ne le sont pas. Testez sur un vrai
+appareil avant de publier.
 
 ## Architecture
 

@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 713 so far, each documenting the objective, the alternatives
+> record — one per step, 728 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -17,7 +17,11 @@ any release may break.
   its `<input>` (J711), a reader browsing the page found it twice — that element and the
   accessibility bridge's node for the field. The bridge now hides the field's node while the
   element stands for it, and shows it again when the editing ends.
-
+- **An app bar beside a cutout folds what it cannot fit** (J728): a primary `AppBar` counted its
+  actions into the whole width while its row kept clear of the side intrusions, so on a phone on
+  its side the last actions ran off its end; they now fold into "⋯". The simulated status bar's
+  clock takes each system's size and weight, and the README shows phones and tablets from any
+  computer.
 - **A project's own devices** (J727): a phone frus does not know is described once in the
   application's `Cargo.toml`, as a `[[package.metadata.frus.devices]]` table (id, platform,
   screen and ratio; corners, safe areas, keyboard and cutout if wanted), and `frus devices`,
