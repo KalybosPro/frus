@@ -13,6 +13,10 @@ any release may break.
 
 ## [Unreleased]
 
+- **A screen reader sees a simulated device where it is drawn** (J726): the accessibility tree
+  is moved to the phone's screen and zoomed with it, so a reader's highlight lands on the widget
+  it names. The tree is also scaled by the application's density, which a desktop application
+  with a density of its own was described without.
 - **A simulated device in the browser** (J724): `frus run -d iphone-15 --web` serves the web
   build and shows it on the phone's screen in a browser, as `-d iphone-15` does in a desktop
   window, with `r`, `R`, `--hot` and the keys of J722. The page is told the device before the

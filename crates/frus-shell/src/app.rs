@@ -3439,14 +3439,23 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // announcement, so the focus it publishes is current.
                 self.reconcile_focus();
 
-                // Publish the frame's semantic tree to AccessKit.
+                // Publish the frame's semantic tree to AccessKit. The layout's pixels to the
+                // window's: the total scale, the app's density included; a simulated device's
+                // screen also sits at its own place in the window (milestone 726).
+                #[cfg(desktop)]
+                let (scale, origin) = (
+                    f64::from(self.total_scale()),
+                    self.placement().map_or((0.0, 0.0), |at| {
+                        let os = f64::from(self.scale);
+                        (f64::from(at.screen.x) * os, f64::from(at.screen.y) * os)
+                    }),
+                );
                 #[cfg(desktop)]
                 if let Some(a11y) = self.a11y.as_mut() {
                     let focus = self.runtime.input.focused;
                     let title = self.app.title();
                     if let Some(ui) = self.ui.as_ref() {
-                        let scale = f64::from(self.scale);
-                        a11y.update(ui.semantics(), focus, &title, &self.announce, scale);
+                        a11y.update(ui.semantics(), focus, &title, &self.announce, scale, origin);
                     }
                 }
                 // Publish the frame's semantic tree to the DOM bridge (#18). The page's
