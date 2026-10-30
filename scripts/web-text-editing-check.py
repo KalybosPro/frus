@@ -81,6 +81,20 @@ ACTIVE = "(() => { const a = document.activeElement; return a && a.tagName; })()
 ELEMENT = "document.querySelector('[data-frus-field]')"
 
 
+def fields(p):
+    """The nodes a reader browsing the page finds for the add field, each told apart: the
+    editing element, or the accessibility bridge's node in the canvas."""
+    found = []
+    for node in p.ax_tree():
+        if node.get("ignored") or node.get("role", {}).get("value") != "textbox":
+            continue
+        if node.get("name", {}).get("value", "") != "New task":
+            continue
+        attributes = p.call("DOM.describeNode", backendNodeId=node["backendDOMNodeId"])["node"].get("attributes", [])
+        found.append("element" if "data-frus-field" in attributes else "bridge")
+    return found
+
+
 def main(base):
     profile = tempfile.mkdtemp(prefix="frus-editing-check-")
     browser = subprocess.Popen([
@@ -102,8 +116,15 @@ def main(base):
             print("  FAIL no field named 'New task' found")
             return 1
         expect("no editing element before the field has the focus", p.js(f"!!{ELEMENT}"), False)
+        # Every element the focus lands on from here, in order: the field's node, which the
+        # check focuses as a reader would, then the element, and no bounce back to the node.
+        p.js("window.focusLog = []; document.addEventListener('focusin', (e) => focusLog.push("
+             "e.target.hasAttribute('data-frus-field') ? 'element'"
+             " : e.target.closest('canvas') ? 'node' : e.target.tagName), true)")
         p.focus_backend_node(field["backendDOMNodeId"])
         p.wait(0.8)
+        expect("the focus went from the field's node to the element, once (milestone 713)",
+               p.js("focusLog"), ["node", "element"])
 
         print("the element")
         expect("the browser's focus is on an input", p.js(ACTIVE), "INPUT")
@@ -112,6 +133,7 @@ def main(base):
         expect("prose: sentences capitalised", p.js(f"{ELEMENT}.getAttribute('autocapitalize')"), "sentences")
         expect("outside the canvas", p.js(f"{ELEMENT}.closest('canvas') === null"), True)
         expect("laid out", p.js(f"{ELEMENT}.getBoundingClientRect().width > 0"), True)
+        expect("the field is found once, as the element (milestone 713)", fields(p), ["element"])
 
         print("typing, and the keys the shell keeps")
         typed(p, "hello world")
@@ -176,6 +198,7 @@ def main(base):
         p.wait(0.6)
         expect("Tab takes the focus out of the field", p.js(f"{ELEMENT} && {ELEMENT}.getAttribute('aria-label')"), None)
         expect("and the page has an element with the focus", p.js(ACTIVE) not in (None, "BODY"), True)
+        expect("the field is found once again, as the bridge's node", fields(p), ["bridge"])
         expect("(the page stayed in the foreground)", p.js("document.visibilityState"), "visible")
     finally:
         browser.kill()

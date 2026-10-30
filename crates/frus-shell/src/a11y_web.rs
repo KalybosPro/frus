@@ -137,6 +137,9 @@ pub(crate) struct A11y {
     /// listener it fires is not queued back as an assistive-technology request.
     programmatic_focus: Rc<Cell<bool>>,
     focus: Option<WidgetId>,
+    /// The field edited through the page's own element (milestone 711), whose node here is
+    /// hidden: the element is the field's one node while it is.
+    editing: Option<WidgetId>,
     announce: String,
     /// Cloned into every listener, so it can wake the loop (`request_redraw`) — the
     /// web only runs a frame it was asked for, and a screen reader's action is not
@@ -158,6 +161,7 @@ impl A11y {
             actions: Rc::new(RefCell::new(Vec::new())),
             programmatic_focus: Rc::new(Cell::new(false)),
             focus: None,
+            editing: None,
             announce: String::new(),
             window: window.clone(),
         })
@@ -165,10 +169,15 @@ impl A11y {
 
     /// Publishes the frame's semantic tree: creates the elements for new widgets,
     /// updates the ones already there, and removes the ones no longer present.
+    ///
+    /// `editing` is the field edited through the page's own element (milestone 711). Its
+    /// node is hidden for as long as it is: a reader browsing the page would otherwise find
+    /// the field twice, once here and once as the element.
     pub(crate) fn update(
         &mut self,
         nodes: &[(WidgetId, Rect, SemanticsProperties)],
         focus: Option<WidgetId>,
+        editing: Option<WidgetId>,
         title: &str,
         announce: &str,
     ) {
@@ -203,6 +212,7 @@ impl A11y {
             match self.nodes.get(id) {
                 Some(live) if live.clickable == sem.clickable => {
                     apply(&live.el, sem);
+                    live.el.set_hidden(Some(*id) == editing);
                 }
                 _ => {
                     // Either new, or its element was built for the wrong tag (a
@@ -214,14 +224,19 @@ impl A11y {
                     }
                     if let Some(live) = self.spawn(*id, sem) {
                         apply(&live.el, sem);
+                        live.el.set_hidden(Some(*id) == editing);
                         self.nodes.insert(*id, live);
                     }
                 }
             }
         }
 
-        if focus != self.focus || lost_focus {
+        // A field being edited keeps the focus on the element, which the editor gave it: its
+        // node here is hidden, and a hidden element takes no focus. When the editing ends,
+        // the node is shown and gets the focus back.
+        if focus != self.focus || editing != self.editing || lost_focus {
             self.focus = focus;
+            self.editing = editing;
             if let Some(id) = focus {
                 if let Some(live) = self.nodes.get(&id) {
                     self.programmatic_focus.set(true);

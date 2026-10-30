@@ -127,7 +127,8 @@ end.
   `<form>` of every field in the group so that a password manager can fill them all. `autocomplete`
   is `off` for now.
 - **The field's two nodes.** While the field is edited, a reader's browse mode finds it twice:
-  the bridge's node in the canvas, and the element.
+  the bridge's node in the canvas, and the element. (Milestone 713: the node is hidden while the
+  element stands for it.)
 - **The page's keyboard insets.** A phone's keyboard covers the bottom of the page and nothing
   scrolls the field above it.
 - **The composition's underline and candidate window.** The composing range reaches the field's

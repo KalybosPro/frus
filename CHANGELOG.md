@@ -8,10 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 712 so far, each documenting the objective, the alternatives
+> record — one per step, 713 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **A field being edited is found once** (J713): on the web, while a field was edited through
+  its `<input>` (J711), a reader browsing the page found it twice — that element and the
+  accessibility bridge's node for the field. The bridge now hides the field's node while the
+  element stands for it, and shows it again when the editing ends.
 
 - **A project's own devices** (J727): a phone frus does not know is described once in the
   application's `Cargo.toml`, as a `[[package.metadata.frus.devices]]` table (id, platform,
