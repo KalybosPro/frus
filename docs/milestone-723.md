@@ -60,6 +60,28 @@ command (`{"id":null,"error":"not a JSON command"}`) instead of ignoring it. Run
 workaround, `s`, `l`, `s` gave three answers and two screenshots: portrait, its status bar in
 dark ink over the light counter, then landscape.
 
+## The Android phone, measured
+
+Milestone 720 left the Android profile's bars and keyboard as estimates. They are now what
+Android 16 reports for that shape. The `frus_check` emulator was started headless and given
+1080 × 2400 at 420 dpi (`wm size`) and the punch-hole cutout emulation, with gesture
+navigation and Gboard. Its insets were read from `dumpsys window` in physical pixels:
+
+| | estimate | measured |
+|---|---|---|
+| status bar, upright | 48 | 136 px = **51.8 dp**: the band the hole takes |
+| gesture bar | 24 | 63 px = **24 dp** |
+| keyboard, upright | 300 | 883 px = **336.4 dp** (with Gboard's toolbar) |
+| on its side: top / left / bottom | 0 / 48 / 24 | **24 / 51.8 / 24 dp** (the status bar stays) |
+| keyboard, on its side | 220 | 686 px = **261.3 dp** |
+| hole: diameter / top | 24 / 12 | 88 / 39 px = **33.5 / 14.9 dp** |
+
+The emulation puts the hole at the left of the top edge. The profile keeps it in the middle, where
+most phones have it, with the measured size. The profile writes each figure as pixels over
+2.625, so it reads as what was measured. The emulator was put back as it was (size, cutout,
+rotation; the rotation setting outlived the first shutdown and was set back on a second boot)
+and stopped.
+
 ## Tests
 
 - `devices::the_simulated_devices_are_the_core_s`: the same ids, names, platforms, screens and

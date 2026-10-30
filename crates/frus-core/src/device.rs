@@ -214,10 +214,11 @@ impl DeviceProfile {
     /// The devices frus knows without being told: phones and a tablet for iOS, and a
     /// phone for Android.
     ///
-    /// The screens, densities, cutouts and safe areas are the devices' published
-    /// figures. The keyboard heights are typical ones — they change with the keyboard,
-    /// the language and the suggestions bar — and the outlines are frus's own drawing,
-    /// not a picture of any device.
+    /// The iOS screens, densities, cutouts and safe areas are the devices' published
+    /// figures; the Android phone's are what Android reports for its shape, measured. The
+    /// keyboard heights are typical ones — they change with the keyboard, the language and
+    /// the suggestions bar — and the outlines are frus's own drawing, not a picture of any
+    /// device.
     pub fn builtin() -> Vec<DeviceProfile> {
         let island = Cutout::Island {
             width: 126.0,
@@ -367,21 +368,26 @@ impl DeviceProfile {
                 name: "Android phone".into(),
                 platform: TargetPlatform::Android,
                 // 1080 × 2400 physical pixels at 420 dpi: the common shape of a
-                // mid-range phone.
+                // mid-range phone. Its bars, hole and keyboard are what Android 16 reports
+                // for that shape with a punch hole, gesture navigation and Gboard, in
+                // physical pixels (milestone 723); the hole is put in the middle, where most
+                // phones have it.
                 screen: Size::new(1080.0 / 2.625, 2400.0 / 2.625),
                 pixel_ratio: 2.625,
                 screen_radius: 32.0,
                 cutout: Cutout::Hole {
-                    diameter: 24.0,
-                    top: 12.0,
+                    diameter: 88.0 / 2.625,
+                    top: 39.0 / 2.625,
                 },
                 portrait: DeviceInsets {
-                    safe: Insets::new(48.0, 0.0, 24.0, 0.0),
-                    keyboard: 300.0,
+                    // The status bar is as tall as the band the hole takes.
+                    safe: Insets::new(136.0 / 2.625, 0.0, 63.0 / 2.625, 0.0),
+                    keyboard: 883.0 / 2.625,
                 },
                 landscape: DeviceInsets {
-                    safe: Insets::new(0.0, 0.0, 24.0, 48.0),
-                    keyboard: 220.0,
+                    // On its side the status bar stays, the hole's band goes to the left.
+                    safe: Insets::new(63.0 / 2.625, 0.0, 63.0 / 2.625, 136.0 / 2.625),
+                    keyboard: 686.0 / 2.625,
                 },
                 frame: DeviceFrame {
                     bezel: Insets::new(12.0, 12.0, 12.0, 12.0),
