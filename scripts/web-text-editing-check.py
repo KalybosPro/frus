@@ -86,11 +86,7 @@ def main(base):
     browser = subprocess.Popen([
         a11y.find_browser(), "--headless=new", f"--remote-debugging-port={a11y.PORT}", f"--user-data-dir={profile}",
         "--no-first-run", "--enable-unsafe-webgpu", "--enable-features=Vulkan,WebGPU", "--ignore-gpu-blocklist",
-        "--force-renderer-accessibility", "--window-size=1000,800",
-        # A headless page is sometimes put in the background — hidden, its frames stopped — and
-        # a key the shell handles then shows nothing until the next frame, which never comes.
-        "--disable-renderer-backgrounding", "--disable-background-timer-throttling",
-        "--disable-backgrounding-occluded-windows", "about:blank",
+        "--force-renderer-accessibility", "--window-size=1000,800", *a11y.FOREGROUND, "about:blank",
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         for _ in range(50):
@@ -100,7 +96,6 @@ def main(base):
             except Exception:
                 time.sleep(0.2)
         p = a11y.open_at(base)
-        p.call("Emulation.setFocusEmulationEnabled", enabled=True)
         p.wait(7)
         field = p.find(p.ax_tree(), role="textbox", name_contains="New task")
         if not field:
@@ -165,9 +160,15 @@ def main(base):
         p.wait(0.6)
         expect("the value is the field's", field_value(p), "Buy bread")
         press(p, "Enter", 13)
-        p.wait(0.6)
-        tree = p.ax_tree()
-        expect("a task named after it appears", bool(p.find(tree, role="checkbox", name_contains="Buy bread")), True)
+        # The new row reaches the accessibility tree a frame or more after the field empties:
+        # waited for, up to three seconds, rather than read once.
+        appeared = False
+        for _ in range(10):
+            p.wait(0.3)
+            appeared = bool(p.find(p.ax_tree(), role="checkbox", name_contains="Buy bread"))
+            if appeared:
+                break
+        expect("a task named after it appears", appeared, True)
         expect("and the field is empty again", field_value(p), "")
 
         print("leaving")
