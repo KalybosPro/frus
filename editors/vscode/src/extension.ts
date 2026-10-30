@@ -8,7 +8,7 @@ import * as vscode from "vscode";
 
 import { FrusDebugAdapter } from "./adapter";
 import { resolveProgram, runnableCopy, watchProgram } from "./copy";
-import { Devices } from "./daemon";
+import { Device, Devices, isSimulated } from "./daemon";
 import { ReloadOnSave, savesReload } from "./save";
 import { frusProgram } from "./frus";
 import { createArgs, DEFAULT_ORG, nameProblem, orgProblem } from "./project";
@@ -243,14 +243,14 @@ interface PickerItem extends vscode.QuickPickItem {
   name?: string;
 }
 
-/** The picker: the devices that can run the application now, then the emulators that can be
- *  started, then the one that makes a new emulator. A device whose platform the application does
- *  not build for says why. */
+/** The picker: the devices that can run the application now, then the phones and tablets
+ *  simulated on this computer, then the emulators that can be started, then the one that makes a
+ *  new emulator. A device whose platform the application does not build for says why. */
 async function pickerItems(devices: Devices, context: vscode.ExtensionContext): Promise<PickerItem[]> {
   const root = context.workspaceState.get<string>(APP) ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const support = root && isApplication(root) ? await devices.supportedPlatforms(root).catch(() => undefined) : undefined;
   const running = devices.list().filter((d) => !(d.emulator && !d.id.startsWith("emulator-") && d.platform === "android"));
-  const items: PickerItem[] = running.map((device) => {
+  const entry = (device: Device): PickerItem => {
     const unsupported = support?.platformTypes[device.platform];
     const why = unsupported && !unsupported.isSupported ? unsupported.reasons?.[0]?.reasonText : undefined;
     return {
@@ -264,7 +264,13 @@ async function pickerItems(devices: Devices, context: vscode.ExtensionContext): 
       action: "device",
       id: device.id,
     };
-  });
+  };
+  const items: PickerItem[] = running.filter((d) => !isSimulated(d)).map(entry);
+  const simulated = running.filter(isSimulated);
+  if (simulated.length) {
+    items.push({ label: "Simulated", kind: vscode.QuickPickItemKind.Separator });
+    items.push(...simulated.map(entry));
+  }
   const emulators = await devices.emulators().catch(() => []);
   const up = new Set(devices.list().filter((d) => d.id.startsWith("emulator-")).map((d) => d.name));
   const startable = emulators.filter((e) => !up.has(e.name));

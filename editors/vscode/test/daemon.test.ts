@@ -5,7 +5,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 
-import { DaemonMessage, Devices } from "../src/daemon";
+import { DaemonMessage, Devices, isSimulated } from "../src/daemon";
 
 /** A `Devices` talking to a stand-in daemon: what it is sent, and a way to answer. */
 function connected() {
@@ -67,4 +67,15 @@ test("the daemon's messages and device events are handed on", () => {
   );
   assert.equal(changes, 1);
   assert.equal(devices.get("emulator-5554")?.name, "pixel");
+});
+
+test("a simulated phone is told apart from this computer", () => {
+  // This computer: its id is its platform.
+  assert.equal(isSimulated({ id: "windows", platform: "windows", category: "desktop" }), false);
+  // A built-in profile and a project's own device: this computer's platform, an id of their own.
+  assert.equal(isSimulated({ id: "iphone-15", platform: "windows", category: "desktop" }), true);
+  assert.equal(isSimulated({ id: "kiosk-10", platform: "macos", category: "desktop" }), true);
+  // Phones, emulators and browsers are not.
+  assert.equal(isSimulated({ id: "emulator-5554", platform: "android", category: "mobile" }), false);
+  assert.equal(isSimulated({ id: "edge", platform: "web", category: "web" }), false);
 });

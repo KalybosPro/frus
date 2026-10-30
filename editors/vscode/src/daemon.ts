@@ -17,6 +17,13 @@ export interface Device {
   unavailableReason: string | null;
 }
 
+/** Whether `device` is a phone or a tablet simulated in a window of this computer (`frus run
+ *  -d iphone-15`): the daemon gives it this computer's platform and category, and an id of its
+ *  own, where this computer's id is its platform. */
+export function isSimulated(device: Pick<Device, "id" | "platform" | "category">): boolean {
+  return device.category === "desktop" && device.id !== device.platform;
+}
+
 /** An emulator that can be started, as `emulator.getEmulators` lists it. */
 export interface Emulator {
   id: string;

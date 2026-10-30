@@ -40,8 +40,10 @@ Android and the web as it is, with its tests in `tests/`.
 ### Every device, one picker
 
 The status bar shows where your application will run: this computer, the phones plugged in, the
-running emulators, the browsers. The list follows phones as they come and go. From the same menu
-you can **start an emulator** (it is selected once it is up) or **create an Android emulator**,
+running emulators, the browsers, and **simulated phones and tablets** — an iPhone, an iPad, an
+Android phone, or a device your project describes — shown in a window of this computer, with
+their screen, safe areas and keyboard, and no phone needed. The list follows phones as they come
+and go. From the same menu you can **start an emulator** (it is selected once it is up) or **create an Android emulator**,
 which installs whatever is missing. A device your application does not build for says why.
 
 ### F5 runs it, and shows its log
