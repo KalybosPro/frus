@@ -211,6 +211,161 @@ impl DeviceProfile {
             .find(|p| p.id.eq_ignore_ascii_case(wanted) || p.name.eq_ignore_ascii_case(wanted))
     }
 
+    /// A device a developer describes, as `key=value` pairs separated by `;`
+    /// (milestone 727). The keys are those of a project's `[[package.metadata.frus.devices]]`,
+    /// which `frus run` hands over this way; a list is written `a,b,c`.
+    ///
+    /// Required: `id`, `platform` (`ios` or `android`), `width`, `height` (logical, upright)
+    /// and `ratio`. The rest has a default: `name` (the id), `corner-radius` (0), `safe-area`
+    /// (`top,right,bottom,left`, none), `landscape-safe-area` (the upright one turned with the
+    /// device), `keyboard` (two fifths of the height), `landscape-keyboard` (three fifths of
+    /// the width), `cutout` (`none`, `notch`, `island` or `hole`) with `cutout-size`
+    /// (`width,height`) and `cutout-top`. The outline is a plain body around the screen.
+    ///
+    /// An unknown key is an error rather than ignored: a misspelt one would otherwise leave
+    /// its default in place without a word.
+    pub fn parse(spec: &str) -> Result<DeviceProfile, String> {
+        const KEYS: [&str; 14] = [
+            "id",
+            "name",
+            "platform",
+            "width",
+            "height",
+            "ratio",
+            "corner-radius",
+            "safe-area",
+            "landscape-safe-area",
+            "keyboard",
+            "landscape-keyboard",
+            "cutout",
+            "cutout-size",
+            "cutout-top",
+        ];
+        let mut pairs: Vec<(&str, &str)> = Vec::new();
+        for part in spec.split(';').map(str::trim).filter(|p| !p.is_empty()) {
+            let (key, value) = part
+                .split_once('=')
+                .ok_or_else(|| format!("`{part}` is not `key = value`"))?;
+            let key = key.trim();
+            if !KEYS.contains(&key) {
+                return Err(format!(
+                    "`{key}` is not a device key; the keys: {}",
+                    KEYS.join(", ")
+                ));
+            }
+            pairs.push((key, value.trim()));
+        }
+        let get = |key: &str| pairs.iter().rev().find(|(k, _)| *k == key).map(|(_, v)| *v);
+        let id = get("id")
+            .filter(|v| !v.is_empty())
+            .ok_or("a device needs an `id`")?;
+        let numbers = |key: &str, count: usize| -> Result<Option<Vec<f32>>, String> {
+            let Some(value) = get(key) else {
+                return Ok(None);
+            };
+            let parsed: Result<Vec<f32>, _> =
+                value.split(',').map(|n| n.trim().parse::<f32>()).collect();
+            match parsed {
+                Ok(numbers) if numbers.len() == count && numbers.iter().all(|n| n.is_finite()) => {
+                    Ok(Some(numbers))
+                }
+                _ if count == 1 => Err(format!("{id}: `{key}` is {value}, not a number")),
+                _ => Err(format!("{id}: `{key}` is {value}, not {count} numbers")),
+            }
+        };
+        let number = |key: &str| numbers(key, 1).map(|n| n.map(|n| n[0]));
+        let positive = |key: &str| -> Result<f32, String> {
+            match number(key)? {
+                Some(n) if n > 0.0 => Ok(n),
+                Some(n) => Err(format!("{id}: `{key}` is {n}; it must be more than 0")),
+                None => Err(format!("{id}: a device needs a `{key}`")),
+            }
+        };
+        let insets =
+            |key: &str| numbers(key, 4).map(|n| n.map(|n| Insets::new(n[0], n[1], n[2], n[3])));
+
+        if !id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            return Err(format!(
+                "`{id}` is not a device id: lowercase letters, digits and `-` only"
+            ));
+        }
+        let platform = match get("platform").map(str::to_ascii_lowercase).as_deref() {
+            Some("ios") => TargetPlatform::Ios,
+            Some("android") => TargetPlatform::Android,
+            Some(other) => return Err(format!("{id}: `platform` is {other}; ios or android")),
+            None => return Err(format!("{id}: a device needs a `platform`, ios or android")),
+        };
+        let (width, height, pixel_ratio) =
+            (positive("width")?, positive("height")?, positive("ratio")?);
+        let screen_radius = number("corner-radius")?.unwrap_or(0.0).max(0.0);
+        let safe = insets("safe-area")?.unwrap_or(Insets::ZERO);
+        // Turned counter-clockwise, what was at the top is on the left, and so on round.
+        let landscape_safe = insets("landscape-safe-area")?.unwrap_or(Insets::new(
+            safe.right,
+            safe.bottom,
+            safe.left,
+            safe.top,
+        ));
+        let cutout = match get("cutout").unwrap_or("none") {
+            "none" => Cutout::None,
+            kind => {
+                let size = numbers("cutout-size", 2)?
+                    .ok_or_else(|| format!("{id}: a `{kind}` cutout needs a `cutout-size`"))?;
+                let top = number("cutout-top")?.unwrap_or(0.0);
+                match kind {
+                    "notch" => Cutout::Notch {
+                        width: size[0],
+                        height: size[1],
+                        radius: size[1] / 3.0,
+                    },
+                    "island" => Cutout::Island {
+                        width: size[0],
+                        height: size[1],
+                        top,
+                    },
+                    "hole" => Cutout::Hole {
+                        diameter: size[0],
+                        top,
+                    },
+                    other => {
+                        return Err(format!(
+                            "{id}: `cutout` is {other}; none, notch, island or hole"
+                        ))
+                    }
+                }
+            }
+        };
+        Ok(DeviceProfile {
+            id: id.to_string(),
+            name: get("name")
+                .filter(|n| !n.is_empty())
+                .unwrap_or(id)
+                .to_string(),
+            platform,
+            screen: Size::new(width, height),
+            pixel_ratio,
+            screen_radius,
+            cutout,
+            portrait: DeviceInsets {
+                safe,
+                keyboard: number("keyboard")?.unwrap_or(height * 2.0 / 5.0),
+            },
+            landscape: DeviceInsets {
+                safe: landscape_safe,
+                keyboard: number("landscape-keyboard")?.unwrap_or(width * 3.0 / 5.0),
+            },
+            frame: DeviceFrame {
+                bezel: Insets::new(12.0, 12.0, 12.0, 12.0),
+                radius: screen_radius + 12.0,
+                home_button: false,
+                buttons: Vec::new(),
+            },
+        })
+    }
+
     /// The devices frus knows without being told: phones and a tablet for iOS, and a
     /// phone for Android.
     ///
@@ -553,5 +708,88 @@ mod tests {
         let side = p.window_insets(Orientation::Landscape, true);
         assert_eq!(side.view_insets.bottom, 209.0);
         assert_eq!(side.padding, Insets::new(0.0, 59.0, 0.0, 59.0));
+    }
+
+    /// **A developer's own device reads as it is written** (milestone 727): every key, then
+    /// only the required ones with the rest defaulted.
+    #[test]
+    fn a_described_device_is_read() {
+        let full = DeviceProfile::parse(
+            "id=pixel-9; name=Pixel 9; platform=android; width=412; height=924; ratio=2.625; \
+             corner-radius=40; safe-area=52,0,24,0; landscape-safe-area=24,0,24,52; \
+             keyboard=336; landscape-keyboard=260; cutout=hole; cutout-size=34,34; cutout-top=15",
+        )
+        .unwrap();
+        assert_eq!(
+            (full.id.as_str(), full.name.as_str()),
+            ("pixel-9", "Pixel 9")
+        );
+        assert_eq!(full.platform, TargetPlatform::Android);
+        assert_eq!(
+            (full.screen, full.pixel_ratio),
+            (Size::new(412.0, 924.0), 2.625)
+        );
+        assert_eq!(full.portrait.safe, Insets::new(52.0, 0.0, 24.0, 0.0));
+        assert_eq!(full.landscape.safe, Insets::new(24.0, 0.0, 24.0, 52.0));
+        assert_eq!(
+            (full.portrait.keyboard, full.landscape.keyboard),
+            (336.0, 260.0)
+        );
+        assert_eq!(
+            full.cutout,
+            Cutout::Hole {
+                diameter: 34.0,
+                top: 15.0
+            }
+        );
+        assert_eq!(full.frame.radius, 52.0);
+
+        let bare =
+            DeviceProfile::parse("id=tab;platform=IOS;width=800;height=1200;ratio=2").unwrap();
+        assert_eq!(bare.name, "tab");
+        assert_eq!(bare.platform, TargetPlatform::Ios);
+        assert_eq!(bare.cutout, Cutout::None);
+        assert_eq!(bare.portrait.keyboard, 480.0);
+        assert_eq!(bare.landscape.keyboard, 480.0);
+
+        // On its side, the upright safe area turns with the device: its top goes to the left.
+        let turned = DeviceProfile::parse(
+            "id=t;platform=ios;width=390;height=844;ratio=3;safe-area=47,0,34,0",
+        )
+        .unwrap();
+        assert_eq!(turned.landscape.safe, Insets::new(0.0, 34.0, 0.0, 47.0));
+    }
+
+    /// **A mistake is named**, rather than a default quietly taking its place.
+    #[test]
+    fn a_wrong_description_says_what_is_wrong() {
+        let base = "id=p;platform=android;width=400;height=800;ratio=2";
+        let error = |extra: &str| DeviceProfile::parse(&format!("{base};{extra}")).unwrap_err();
+        assert!(error("heigth=900").contains("`heigth` is not a device key"));
+        assert!(error("keyboard=tall").contains("`keyboard` is tall, not a number"));
+        assert!(error("safe-area=1,2,3").contains("not 4 numbers"));
+        assert!(error("cutout=island").contains("needs a `cutout-size`"));
+        assert!(error("cutout=slot;cutout-size=1,1").contains("none, notch, island or hole"));
+        assert!(error("platform=windows").contains("ios or android"));
+        assert!(error("width=0").contains("more than 0"));
+        assert!(
+            DeviceProfile::parse("platform=ios;width=1;height=1;ratio=1")
+                .unwrap_err()
+                .contains("needs an `id`")
+        );
+        assert!(
+            DeviceProfile::parse("id=Big Phone;platform=ios;width=1;height=1;ratio=1")
+                .unwrap_err()
+                .contains("not a device id")
+        );
+        assert!(DeviceProfile::parse("id=p;width=1;height=1;ratio=1")
+            .unwrap_err()
+            .contains("needs a `platform`"));
+        assert!(DeviceProfile::parse("id=p;platform=ios;height=1;ratio=1")
+            .unwrap_err()
+            .contains("needs a `width`"));
+        assert!(DeviceProfile::parse("id=p;nonsense")
+            .unwrap_err()
+            .contains("key = value"));
     }
 }

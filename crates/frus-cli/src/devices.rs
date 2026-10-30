@@ -60,7 +60,8 @@ pub(crate) enum Kind {
     /// No browser: the application is served, and any browser can open it.
     WebServer,
     /// The desktop build, standing in for a device: `frus run` starts it with `FRUS_DEVICE`
-    /// naming this built-in profile.
+    /// set to `profile`, a built-in profile's id or a project's own device's whole description
+    /// (milestone 727).
     Simulated { profile: String },
 }
 
@@ -88,6 +89,71 @@ pub(crate) const SIMULATED: [(&str, &str, &str, f32, f32, f32); 5] = [
         2.625,
     ),
 ];
+
+/// Adds a project's own devices (milestone 727), each a description the shell reads whole. One
+/// with the id of a built-in device takes its place. What the shell would refuse for lack of a
+/// field is listed, with why, rather than left out: the developer is looking for it.
+pub(crate) fn add_own(devices: &mut Vec<Device>, specs: &[String]) {
+    for spec in specs {
+        let field = |key: &str| {
+            spec.split(';')
+                .filter_map(|pair| pair.split_once('='))
+                .find(|(k, _)| k.trim() == key)
+                .map(|(_, v)| v.trim().to_string())
+        };
+        let id = field("id").unwrap_or_default();
+        let name = field("name").unwrap_or_else(|| id.clone());
+        let platform = match field("platform").as_deref().map(str::to_ascii_lowercase) {
+            Some(p) if p == "ios" => "iOS",
+            Some(p) if p == "android" => "Android",
+            _ => "",
+        };
+        let number = |key: &str| field(key).and_then(|v| v.parse::<f32>().ok());
+        let missing: Vec<&str> = [
+            ("id", !id.is_empty()),
+            ("platform", !platform.is_empty()),
+            ("width", number("width").is_some()),
+            ("height", number("height").is_some()),
+            ("ratio", number("ratio").is_some()),
+        ]
+        .iter()
+        .filter(|(_, there)| !there)
+        .map(|(key, _)| *key)
+        .collect();
+        let device = Device {
+            id: if id.is_empty() {
+                "?".into()
+            } else {
+                id.clone()
+            },
+            name: if name.is_empty() {
+                "a device of this project".into()
+            } else {
+                name
+            },
+            platform: Platform::Simulated,
+            kind: Kind::Simulated {
+                profile: spec.clone(),
+            },
+            detail: match (number("width"), number("height"), number("ratio")) {
+                (Some(w), Some(h), Some(r)) => {
+                    format!("{platform}, this project's: {w:.0}×{h:.0} @{r}x")
+                }
+                _ => "this project's".into(),
+            },
+            unavailable: (!missing.is_empty()).then(|| {
+                format!(
+                    "[[package.metadata.frus.devices]] needs {} (ios or android for the platform)",
+                    missing.join(", ")
+                )
+            }),
+        };
+        match devices.iter_mut().find(|d| !id.is_empty() && d.id == id) {
+            Some(builtin) => *builtin = device,
+            None => devices.push(device),
+        }
+    }
+}
 
 /// The simulated devices, always there: they need nothing but the desktop.
 fn simulated() -> Vec<Device> {
@@ -151,6 +217,13 @@ pub(crate) fn discover() -> Vec<Device> {
         unavailable: None,
     });
     devices.extend(simulated());
+    // The devices the application here describes, when `frus` runs in one.
+    if let Some(project) = std::env::current_dir()
+        .ok()
+        .and_then(|here| crate::project::Project::find(&here).ok())
+    {
+        add_own(&mut devices, &project.devices);
+    }
     devices
 }
 
@@ -660,5 +733,42 @@ mod tests {
         // Without `-d`, still the desktop.
         assert_eq!(select(&devices, None).unwrap().kind, Kind::Host);
         assert!(table(&devices).contains("iPhone 15 (simulated)"));
+    }
+
+    /// **A project's own devices are listed and picked like the built-in ones** (milestone
+    /// 727): one with a built-in id takes its place, and one missing a field is listed with
+    /// what it lacks rather than left out.
+    #[test]
+    fn a_project_s_own_devices_join_the_list() {
+        let mut devices = vec![host()];
+        devices.extend(simulated());
+        let pixel = "id=pixel-9;name=Pixel 9;platform=android;width=412;height=924;ratio=2.625";
+        let own_ipad = "id=ipad;name=Our iPad;platform=ios;width=744;height=1133;ratio=2";
+        let broken = "id=watch;platform=wearos;width=200";
+        add_own(
+            &mut devices,
+            &[pixel.into(), own_ipad.into(), broken.into()],
+        );
+
+        let chosen = select(&devices, Some("pixel 9")).unwrap();
+        assert_eq!(
+            chosen.kind,
+            Kind::Simulated {
+                profile: pixel.into()
+            }
+        );
+        assert_eq!(chosen.detail, "Android, this project's: 412×924 @2.625x");
+
+        let ipads: Vec<&Device> = devices.iter().filter(|d| d.id == "ipad").collect();
+        assert_eq!(
+            ipads.len(),
+            1,
+            "the project's iPad replaces the built-in one"
+        );
+        assert_eq!(ipads[0].name, "Our iPad");
+
+        let why = select(&devices, Some("watch")).unwrap_err();
+        assert!(why.contains("needs platform, height, ratio"), "{why}");
+        assert!(table(&devices).contains("Pixel 9 (simulated)"));
     }
 }

@@ -71,7 +71,7 @@ impl Simulated {
             log::warn!("{VARIABLE} is ignored in a release build");
             return None;
         }
-        match Self::named(wanted) {
+        match Self::asked_for(wanted) {
             Ok(simulated) => {
                 log::info!(
                     "simulating {} ({}, {}×{} at {}x)",
@@ -88,6 +88,21 @@ impl Simulated {
                 None
             }
         }
+    }
+
+    /// The device `wanted` asks for, held upright: a whole description (`key=value;…`, a
+    /// project's own device, which `frus run` hands over this way — milestone 727) or the id or
+    /// name of a built-in one.
+    pub(crate) fn asked_for(wanted: &str) -> Result<Self, String> {
+        if !wanted.contains('=') {
+            return Self::named(wanted);
+        }
+        Ok(Simulated {
+            profile: DeviceProfile::parse(wanted)?,
+            orientation: Orientation::Portrait,
+            keyboard: false,
+            keyboard_held: false,
+        })
     }
 
     /// The built-in device called `wanted`, by id or name, held upright.
@@ -499,6 +514,21 @@ mod tests {
             err.contains("iphone-15") && err.contains("android-phone"),
             "{err}"
         );
+    }
+
+    /// **A project's own device arrives whole**, and a built-in one by its name, through the
+    /// same variable (milestone 727); a wrong description says why.
+    #[test]
+    fn a_whole_description_is_a_device_too() {
+        let own = Simulated::asked_for(
+            "id=pixel-9;name=Pixel 9;platform=android;width=412;height=924;ratio=2.625",
+        )
+        .unwrap();
+        assert_eq!(own.profile.name, "Pixel 9");
+        assert_eq!(own.screen_size(), Size::new(412.0, 924.0));
+        assert_eq!(Simulated::asked_for("iphone-15").unwrap(), phone());
+        let err = Simulated::asked_for("id=p;platform=ios;width=1;height=1").unwrap_err();
+        assert!(err.contains("needs a `ratio`"), "{err}");
     }
 
     /// **The application is told the device's screen and insets, not the window's.**
