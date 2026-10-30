@@ -1505,6 +1505,9 @@ dependencies = [
 [[package]]
 name = "frus-cli"
 version = "0.4.0"
+dependencies = [
+ "frus-core",
+]
 
 [[package]]
 name = "frus-core"

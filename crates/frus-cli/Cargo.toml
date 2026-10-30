@@ -26,3 +26,8 @@ doc = false
 # No dependencies, on purpose: a tool installed with `cargo install` is compiled on the
 # developer's machine, and everything it does fits in the standard library.
 [dependencies]
+
+# For the tests only, and left out when published: the simulated devices listed here are
+# checked against the core's own list, which the shell simulates.
+[dev-dependencies]
+frus-core = { path = "../frus-core" }
