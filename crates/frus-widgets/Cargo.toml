@@ -13,7 +13,7 @@ categories = ["gui"]
 
 # The **bundled fonts** are forwarded from `frus-text` (milestone 292) so that an
 # application can drop the faces it does not ship through the facade alone:
-#   frus = { version = "0.4", default-features = false, features = ["bundled-sans"] }
+#   frus = { version = "0.5", default-features = false, features = ["bundled-sans"] }
 [features]
 default = ["frus-text/default", "images"]
 # Hot reload under `frus run`: each component's `build` is called through subsecond's jump
@@ -42,12 +42,12 @@ icons-sharp = []
 
 [dependencies]
 subsecond = { version = "0.7", optional = true }
-frus-core = { path = "../frus-core", version = "0.4" }
-frus-image = { path = "../frus-image", version = "0.4", optional = true }
-frus-svg = { path = "../frus-svg", version = "0.4", optional = true }
-frus-lottie = { path = "../frus-lottie", version = "0.4", optional = true }
-frus-layout = { path = "../frus-layout", version = "0.4" }
-frus-text = { path = "../frus-text", version = "0.4", default-features = false }
+frus-core = { path = "../frus-core", version = "0.5" }
+frus-image = { path = "../frus-image", version = "0.5", optional = true }
+frus-svg = { path = "../frus-svg", version = "0.5", optional = true }
+frus-lottie = { path = "../frus-lottie", version = "0.5", optional = true }
+frus-layout = { path = "../frus-layout", version = "0.5" }
+frus-text = { path = "../frus-text", version = "0.5", default-features = false }
 typed-arena = { workspace = true }
 # An image that cannot be decoded says so in the console, once.
 log.workspace = true

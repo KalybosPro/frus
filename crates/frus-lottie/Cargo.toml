@@ -12,8 +12,8 @@ keywords = ["lottie", "animation", "vector", "gui"]
 categories = ["graphics", "gui"]
 
 [dependencies]
-frus-core = { path = "../frus-core", version = "0.4" }
-frus-image = { path = "../frus-image", version = "0.4" }
+frus-core = { path = "../frus-core", version = "0.5" }
+frus-image = { path = "../frus-image", version = "0.5" }
 velato.workspace = true
 kurbo.workspace = true
 peniko.workspace = true

@@ -159,7 +159,7 @@ your change and its state kept, and `R` restarts it afresh. `frus run --hot` pat
 change into the running application instead, on the desktop, the web and Android. Whatever a command needs and the
 machine lacks — a Rust target, the Android SDK, wasm-bindgen — it installs first.
 
-The generated project depends on the published [`frus`](https://crates.io/crates/frus) crate (`frus = "0.4"`). `frus create my_app --frus-path <checkout>` builds it against a checkout of this repository instead; [`docs/getting-started.md`](docs/getting-started.md) has the options.
+The generated project depends on the published [`frus`](https://crates.io/crates/frus) crate (`frus = "0.5"`). `frus create my_app --frus-path <checkout>` builds it against a checkout of this repository instead; [`docs/getting-started.md`](docs/getting-started.md) has the options.
 
 ### The `frus` tool
 
@@ -279,7 +279,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 
 ## Project status
 
-**Pre-alpha.** The core is real and exercised by three sample apps, but the API is not stable. The crates are on [crates.io](https://crates.io/crates/frus) (0.4), and any release may break.
+**Pre-alpha.** The core is real and exercised by three sample apps, but the API is not stable. The crates are on [crates.io](https://crates.io/crates/frus) (0.5), and any release may break.
 
 | Platform | State | Notes |
 |---|---|---|

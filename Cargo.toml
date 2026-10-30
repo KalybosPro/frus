@@ -11,7 +11,7 @@ edition = "2021"
 # `url` ask for 1.88, and 1.87 refuses the lockfile before compiling anything. Raising
 # it is a decision, made here and in that job together.
 rust-version = "1.90"
-version = "0.4.0"
+version = "0.5.0"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/KalybosPro/frus"
 
@@ -21,7 +21,7 @@ winit = "0.30"
 taffy = "0.7"
 # frus's copy of glyphon 0.12, its shader made to build on OpenGL ES (the Android emulator,
 # devices without Vulkan): see crates/frus-glyphon/README.md. Imported as `glyphon`.
-glyphon = { package = "frus-glyphon", path = "crates/frus-glyphon", version = "0.4" }
+glyphon = { package = "frus-glyphon", path = "crates/frus-glyphon", version = "0.5" }
 cosmic-text = "0.19"
 lyon = "1"
 # Image decoding (PNG/JPEG). The format list is kept short to lighten the dependency tree.
