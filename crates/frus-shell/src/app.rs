@@ -127,7 +127,6 @@ fn opens_selection_bar(logical: &WinitKey, shift: bool) -> bool {
 /// A field that can only be **read** — a read-only one, a selectable paragraph — is a text field
 /// with a caret and a selection and no use for a keyboard, which would slide up over the very
 /// words its reader has come to select.
-#[cfg(any(android, web, test))]
 fn wants_keyboard<M>(widget: &dyn Widget<M>) -> bool {
     is_text_field(widget) && widget.focusable() && widget.takes_typing()
 }
@@ -1529,8 +1528,30 @@ impl<A: Application> App<A> {
     /// a text field (`wants_keyboard`), closed otherwise. Called at the end of a
     /// frame, since any focus change already triggers a redraw.
     fn sync_soft_input(&mut self) {
+        // A simulated device's keyboard comes up the same way, and is the shell's to draw
+        // (milestone 722).
+        if self.simulated.is_some() {
+            let editing = self
+                .runtime
+                .input
+                .focused
+                .and_then(|id| {
+                    self.tree
+                        .as_ref()
+                        .and_then(|tree| find_widget(tree.as_ref(), id))
+                })
+                .is_some_and(wants_keyboard);
+            if let Some(simulated) = self.simulated.as_mut() {
+                if simulated.keyboard != editing {
+                    simulated.keyboard = editing;
+                    self.build_dirty = true;
+                    self.request_redraw();
+                }
+            }
+        }
+        // The device's own keyboard, when the window is not standing in for another.
         #[cfg(android)]
-        {
+        if self.simulated.is_none() {
             let editing = self
                 .runtime
                 .input
@@ -3215,7 +3236,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                             size.width as f32 / self.scale.max(0.1),
                             size.height as f32 / self.scale.max(0.1),
                         );
-                        let framed = simulated.paint(&scene, placement, self.scale, window, icons);
+                        let framed = simulated.paint(
+                            &scene,
+                            placement,
+                            self.scale,
+                            window,
+                            icons,
+                            self.brightness(),
+                        );
                         (framed, (size.width as f32, size.height as f32))
                     }
                     _ => (scene, (width * scale, height * scale)),
@@ -3488,6 +3516,8 @@ struct DebugAsks {
     semantics_dump: bool,
     /// The brightness the theme is resolved with instead of the platform's (`b`).
     brightness: Option<frus_widgets::Brightness>,
+    /// The text size the layout is told instead of the platform's (`T`, milestone 722).
+    text_scale: Option<f32>,
     /// The performance panel: the last frame's costs, over the interface (`P`).
     performance: bool,
     /// The last frame's costs and when it began, for the panel.
@@ -3513,6 +3543,18 @@ const PLATFORM_CYCLE: [frus_widgets::TargetPlatform; 6] = [
     frus_widgets::TargetPlatform::Linux,
     frus_widgets::TargetPlatform::Fuchsia,
 ];
+
+/// The text sizes `T` steps through: the usual one, two larger ones a reader with poor sight
+/// picks, and one smaller.
+const TEXT_SCALE_CYCLE: [f32; 4] = [1.0, 1.3, 2.0, 0.85];
+
+/// The text size after `current` in [`TEXT_SCALE_CYCLE`]; the usual one after any other.
+fn next_text_scale(current: f32) -> f32 {
+    TEXT_SCALE_CYCLE
+        .iter()
+        .position(|s| (s - current).abs() < 1e-3)
+        .map_or(1.0, |i| TEXT_SCALE_CYCLE[(i + 1) % TEXT_SCALE_CYCLE.len()])
+}
 
 /// The platform after `current` in [`PLATFORM_CYCLE`].
 fn next_platform(current: frus_widgets::TargetPlatform) -> frus_widgets::TargetPlatform {
@@ -3910,6 +3952,62 @@ impl<A: Application> App<A> {
                     self.request_redraw();
                     log::info!(target: "frus::dev", "performance panel {}", on_off(self.debug.performance));
                 }
+                // The reader's text size, the steps a phone's settings offer (milestone 722).
+                "text-scale" => {
+                    let now = self.debug.text_scale.unwrap_or(self.platform.text_scaler);
+                    let next = next_text_scale(now);
+                    self.debug.text_scale = Some(next);
+                    log::info!(target: "frus::dev", "text size: {:.0}%", next * 100.0);
+                }
+                // A simulated device's keyboard held up, to see a screen under it without a
+                // field to focus (milestone 722).
+                "keyboard" => match self.simulated.as_mut() {
+                    Some(simulated) => {
+                        simulated.keyboard_held = !simulated.keyboard_held;
+                        log::info!(
+                            target: "frus::dev",
+                            "keyboard held {}",
+                            on_off(simulated.keyboard_held)
+                        );
+                        self.request_redraw();
+                    }
+                    None => log::info!(
+                        target: "frus::dev",
+                        "no keyboard to show: the window is not simulating a device (frus run -d)"
+                    ),
+                },
+                // A simulated device turned on its side and back (milestone 722).
+                "rotate" => match self.simulated.as_mut() {
+                    Some(simulated) => {
+                        simulated.orientation = match simulated.orientation {
+                            frus_widgets::Orientation::Portrait => {
+                                frus_widgets::Orientation::Landscape
+                            }
+                            frus_widgets::Orientation::Landscape => {
+                                frus_widgets::Orientation::Portrait
+                            }
+                        };
+                        log::info!(
+                            target: "frus::dev",
+                            "{} {:?}",
+                            simulated.profile.name,
+                            simulated.orientation
+                        );
+                        // The window turns with the device: its room is the same, transposed.
+                        if let Some(window) = &self.window {
+                            let size = window.inner_size();
+                            let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(
+                                size.height,
+                                size.width,
+                            ));
+                        }
+                        self.request_redraw();
+                    }
+                    None => log::info!(
+                        target: "frus::dev",
+                        "nothing to rotate: the window is not simulating a device (frus run -d)"
+                    ),
+                },
                 // The system's low-memory call, on demand (milestone 687).
                 "trim-memory" => memory_trimmed(),
                 // A driver reset, on purpose: what follows is the recovery (milestone 686).
@@ -4027,7 +4125,7 @@ impl<A: Application> App<A> {
         MediaQuery::new(Size::new(width, height))
             .with_device_pixel_ratio(ratio)
             .with_density(density)
-            .with_text_scaler(self.platform.text_scaler)
+            .with_text_scaler(self.debug.text_scale.unwrap_or(self.platform.text_scaler))
             .with_platform_brightness(self.brightness())
             .with_accessibility(
                 self.platform
@@ -11205,6 +11303,21 @@ pub mod testing {
             self.shell.runtime.input.focused
         }
 
+        /// Makes the shell stand in for a built-in device, as `FRUS_DEVICE` does
+        /// (milestone 722).
+        #[cfg(test)]
+        pub(crate) fn simulate(&mut self, device: &str) {
+            self.shell.simulated = Some(crate::simulated::Simulated::named(device).unwrap());
+        }
+
+        /// Whether the simulated device's keyboard is up, once the end of a frame has
+        /// kept it in step with the focus.
+        #[cfg(test)]
+        pub(crate) fn simulated_keyboard(&mut self) -> bool {
+            self.shell.sync_soft_input();
+            self.shell.simulated.as_ref().is_some_and(|s| s.keyboard)
+        }
+
         /// The modifiers the shell holds as down: Ctrl, Shift, Alt and Meta.
         pub fn shell_modifiers(&self) -> (bool, bool, bool, bool) {
             (
@@ -15013,5 +15126,84 @@ mod assistive_tech_tests {
         );
         driver.frame(0.016);
         assert_eq!(driver.app().name, "Ada");
+    }
+}
+
+/// **A simulated device's keyboard comes up with a field's focus**, as a phone's does, and
+/// goes when the focus leaves (milestone 722) — through the shell's own end-of-frame path.
+#[cfg(test)]
+mod simulated_keyboard_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{Flex, Point, Text, TextField, Theme, Widget};
+
+    struct Form;
+
+    impl Application for Form {
+        type Message = ();
+
+        fn update(&mut self, _message: ()) -> Command<()> {
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<()>> {
+            Box::new(
+                Flex::column()
+                    .child(TextField::new("a field"))
+                    .child(Text::new("some words")),
+            )
+        }
+    }
+
+    #[test]
+    fn the_keyboard_follows_a_field_s_focus() {
+        let mut d = Driver::new(Form, 393.0, 852.0);
+        d.simulate("iphone-15");
+        d.run(0.1);
+        assert!(
+            !d.simulated_keyboard(),
+            "no keyboard before anything is focused"
+        );
+
+        let at = |d: &Driver<Form>, label: &str| {
+            let (_, r) = d
+                .texts()
+                .into_iter()
+                .find(|(t, _)| t.contains(label))
+                .unwrap_or_else(|| panic!("{label}: {:?}", d.texts()));
+            Point::new(r.x + 5.0, r.y + r.height * 0.5)
+        };
+        let field = at(&d, "a field");
+        d.press(field);
+        d.release(field);
+        d.run(0.1);
+        assert!(d.focused().is_some(), "the tap focused the field");
+        assert!(
+            d.simulated_keyboard(),
+            "the keyboard came up with the field's focus"
+        );
+
+        let words = at(&d, "some words");
+        d.press(words);
+        d.release(words);
+        d.run(0.1);
+        assert!(!d.simulated_keyboard(), "the keyboard went with the focus");
+    }
+
+    /// **`T` steps through the reader's text sizes** and comes back to the usual one.
+    #[test]
+    fn the_text_size_cycles() {
+        let mut size = 1.0;
+        let mut seen = vec![size];
+        for _ in 0..4 {
+            size = super::next_text_scale(size);
+            seen.push(size);
+        }
+        assert_eq!(seen, [1.0, 1.3, 2.0, 0.85, 1.0]);
+        assert_eq!(
+            super::next_text_scale(1.15),
+            1.0,
+            "an unusual size goes back to 1"
+        );
     }
 }

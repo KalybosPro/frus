@@ -34,7 +34,10 @@ const BODY_EDGE: Color = Color::rgb(0.30, 0.30, 0.32);
 pub(crate) struct Simulated {
     pub(crate) profile: DeviceProfile,
     pub(crate) orientation: Orientation,
+    /// The keyboard is up because a field that takes typing has the focus.
     pub(crate) keyboard: bool,
+    /// The keyboard is held up by the developer (`K`), focus or not.
+    pub(crate) keyboard_held: bool,
 }
 
 /// Where the device sits in the window, in the window's logical pixels.
@@ -90,6 +93,7 @@ impl Simulated {
                 profile: profile.clone(),
                 orientation: Orientation::Portrait,
                 keyboard: false,
+                keyboard_held: false,
             }),
             None => {
                 let known: Vec<&str> = profiles.iter().map(|p| p.id.as_str()).collect();
@@ -101,6 +105,11 @@ impl Simulated {
         }
     }
 
+    /// Whether the soft keyboard is up: asked for by a field, or held up.
+    pub(crate) fn keyboard_up(&self) -> bool {
+        self.keyboard || self.keyboard_held
+    }
+
     /// The screen the application lays out for, in the device's logical pixels.
     pub(crate) fn screen_size(&self) -> Size {
         self.profile.screen_size(self.orientation)
@@ -108,7 +117,8 @@ impl Simulated {
 
     /// The insets the application is told about.
     pub(crate) fn insets(&self) -> WindowInsets {
-        self.profile.window_insets(self.orientation, self.keyboard)
+        self.profile
+            .window_insets(self.orientation, self.keyboard_up())
     }
 
     /// The window that shows the device at its own size, margin included.
@@ -150,7 +160,8 @@ impl Simulated {
     /// physical pixels at `scale × zoom` with its origin at the screen's corner.
     ///
     /// `scale` is the window's physical pixels per logical one; `window` its logical size;
-    /// `icons` whether the status bar's icons are dark or light, as the application asked.
+    /// `icons` whether the status bar's icons are dark or light, as the application asked;
+    /// `system` the device's own brightness, which the keyboard follows.
     pub(crate) fn paint(
         &self,
         app: &Scene,
@@ -158,6 +169,7 @@ impl Simulated {
         scale: f32,
         window: Size,
         icons: Brightness,
+        system: Brightness,
     ) -> Scene {
         let px = |r: Rect| Rect::new(r.x * scale, r.y * scale, r.width * scale, r.height * scale);
         let device = scale * placement.zoom;
@@ -252,6 +264,22 @@ impl Simulated {
                 };
                 over.draw_rect(cut, Color::BLACK, radius, 0.0, Color::TRANSPARENT);
             }
+            let mut ink = ink;
+            if self.keyboard_up() {
+                let height = profile.insets_in(self.orientation).keyboard * device;
+                let keyboard = Rect::new(
+                    screen.x,
+                    screen.y + screen.height - height,
+                    screen.width,
+                    height,
+                );
+                paint_keyboard(over, keyboard, device, system);
+                // The indicator stands on the keyboard now, so it reads against that.
+                ink = match system {
+                    Brightness::Light => Color::BLACK,
+                    Brightness::Dark => Color::WHITE,
+                };
+            }
             if !profile.frame.home_button && insets.bottom > 0.0 {
                 let (w, h) = (134.0 * device, 5.0 * device);
                 let indicator = Rect::new(
@@ -281,6 +309,72 @@ impl Simulated {
             scene.draw_rect(button, BODY, d / 2.0, 2.0 * scale, BODY_EDGE);
         }
         scene
+    }
+}
+
+/// A soft keyboard in `area`: three rows of letter keys and a row with the space bar, under
+/// any suggestions bar's room. A picture only: typing comes from the desktop's keyboard.
+fn paint_keyboard(scene: &mut Scene, area: Rect, device: f32, system: Brightness) {
+    let (panel, key, wide, label) = match system {
+        Brightness::Light => (
+            Color::rgb(0.82, 0.83, 0.85),
+            Color::WHITE,
+            Color::rgb(0.67, 0.69, 0.73),
+            Color::BLACK,
+        ),
+        Brightness::Dark => (
+            Color::rgb(0.17, 0.17, 0.18),
+            Color::rgb(0.42, 0.42, 0.43),
+            Color::rgb(0.27, 0.27, 0.28),
+            Color::WHITE,
+        ),
+    };
+    scene.fill_rect(area, panel);
+    let gap = 6.0 * device;
+    // Four rows of keys share what is left under a band kept for suggestions.
+    let top = area.y + 44.0 * device;
+    let rows_height = (area.height - 44.0 * device - 2.0 * gap).max(0.0);
+    let row_height = (rows_height / 4.0).min(54.0 * device);
+    let key_height = row_height - gap;
+    let unit = (area.width - gap) / 10.0;
+    let style = TextStyle::default().size(20.0 * device).resolved();
+    let rows: [&str; 3] = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
+    for (r, letters) in rows.iter().enumerate() {
+        let count = letters.chars().count() as f32;
+        let start = area.x + gap / 2.0 + (10.0 - count) * unit / 2.0;
+        let y = top + r as f32 * row_height;
+        for (i, letter) in letters.chars().enumerate() {
+            let x = start + i as f32 * unit;
+            let rect = Rect::new(x + gap / 2.0, y, unit - gap, key_height);
+            scene.draw_rect(rect, key, 5.0 * device, 0.0, Color::TRANSPARENT);
+            scene.text(
+                Point::new(rect.x + rect.width * 0.3, rect.y + key_height * 0.18),
+                letter.to_string(),
+                &style,
+                label,
+            );
+        }
+        if r == 2 {
+            // Shift and delete, either side of the last row.
+            let side = (start - area.x - gap).max(unit);
+            for x in [area.x + gap, area.x + area.width - gap - side] {
+                let rect = Rect::new(x, y, side - gap / 2.0, key_height);
+                scene.draw_rect(rect, wide, 5.0 * device, 0.0, Color::TRANSPARENT);
+            }
+        }
+    }
+    let y = top + 3.0 * row_height;
+    let side = 2.5 * unit;
+    let space = Rect::new(
+        area.x + gap + side,
+        y,
+        area.width - 2.0 * (gap + side) - gap,
+        key_height,
+    );
+    scene.draw_rect(space, key, 5.0 * device, 0.0, Color::TRANSPARENT);
+    for x in [area.x + gap / 2.0, space.x + space.width + gap] {
+        let rect = Rect::new(x + gap / 2.0, y, side - gap, key_height);
+        scene.draw_rect(rect, wide, 5.0 * device, 0.0, Color::TRANSPARENT);
     }
 }
 
@@ -443,7 +537,7 @@ mod tests {
             Rect::new(0.0, 0.0, 393.0 * scale, 852.0 * scale),
             Color::WHITE,
         );
-        let frame = sim.paint(&app, at, scale, window, Brightness::Dark);
+        let frame = sim.paint(&app, at, scale, window, Brightness::Dark, Brightness::Light);
 
         let layer = frame
             .primitives()
@@ -517,7 +611,14 @@ mod tests {
         sim.orientation = Orientation::Landscape;
         let window = Size::new(1000.0, 1000.0);
         let at = sim.place(window);
-        let frame = sim.paint(&Scene::new(), at, 1.0, window, Brightness::Light);
+        let frame = sim.paint(
+            &Scene::new(),
+            at,
+            1.0,
+            window,
+            Brightness::Light,
+            Brightness::Light,
+        );
         let texts = frame
             .primitives()
             .iter()
@@ -530,5 +631,59 @@ mod tests {
             .count();
         assert_eq!(texts, 0);
         assert!(at.screen.width > at.screen.height);
+    }
+
+    /// The panel the keyboard is drawn on, if one is: the widest rectangle in the system's
+    /// layer that touches the bottom of the screen.
+    fn keyboard_panel(frame: &Scene, screen: Rect) -> Option<(Rect, Color)> {
+        frame
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Layer {
+                    primitives,
+                    clip_shape: ClipShape::Rect,
+                    ..
+                } => Some(primitives),
+                _ => None,
+            })
+            .flatten()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. }
+                    if (rect.width - screen.width).abs() < 1e-3
+                        && (rect.y + rect.height - (screen.y + screen.height)).abs() < 1e-3 =>
+                {
+                    Some((*rect, *color))
+                }
+                _ => None,
+            })
+    }
+
+    /// **The keyboard is drawn as high as the profile says, at the bottom of the screen,
+    /// in the device's brightness** — whether a field asked for it or it is held up.
+    #[test]
+    fn the_keyboard_is_drawn_where_the_insets_say() {
+        let mut sim = phone();
+        let window = Size::new(1000.0, 1000.0);
+        let at = sim.place(window);
+        let screen = at.screen;
+        let paint = |sim: &Simulated, system| {
+            sim.paint(&Scene::new(), at, 1.0, window, Brightness::Dark, system)
+        };
+
+        assert!(keyboard_panel(&paint(&sim, Brightness::Light), screen).is_none());
+
+        sim.keyboard = true;
+        let (panel, light) = keyboard_panel(&paint(&sim, Brightness::Light), screen).unwrap();
+        assert_eq!(panel.height, 336.0);
+        assert_eq!(panel.height, sim.insets().view_insets.bottom);
+        let (_, dark) = keyboard_panel(&paint(&sim, Brightness::Dark), screen).unwrap();
+        assert!(light.r > 0.5 && dark.r < 0.5, "{light:?} {dark:?}");
+
+        sim.keyboard = false;
+        sim.keyboard_held = true;
+        assert!(sim.keyboard_up());
+        assert_eq!(sim.insets().view_insets.bottom, 336.0);
+        assert!(keyboard_panel(&paint(&sim, Brightness::Light), screen).is_some());
     }
 }
