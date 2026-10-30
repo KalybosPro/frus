@@ -84,6 +84,9 @@ pub(crate) fn action(key: char) -> Option<Action> {
         'o' => Action::App("platform"),
         'b' => Action::App("brightness"),
         'P' => Action::App("performance"),
+        'T' => Action::App("text-scale"),
+        'l' => Action::App("rotate"),
+        'K' => Action::App("keyboard"),
         't' => Action::Missing("frus has a single tree: `w` prints it, every widget with its box"),
         'L' => Action::Missing("frus has no layer tree: a frame is one scene, painted in order"),
         'U' => Action::Missing("frus hit-tests one way only: there is no order to invert"),
@@ -112,6 +115,9 @@ const KEYS: &str = "  r  reload: build again, start where it was, with the state
   o  switch the platform the widgets behave as (Android, iOS, Windows…)
   b  switch between light and dark
   P  performance panel: what each frame costs
+  T  text size: 100%, 130%, 200%, 85%, as a reader's settings would
+  l  turn a simulated device on its side and back (frus run -d iphone-15)
+  K  hold a simulated device's keyboard up, or let it go
 ";
 
 /// Clears the terminal, its scrollback too, and puts the cursor at the top.
@@ -1642,6 +1648,9 @@ mod tests {
         assert_eq!(action('s'), Some(Action::Screenshot));
         assert_eq!(action('p'), Some(Action::App("outlines")));
         assert_eq!(action('P'), Some(Action::App("performance")));
+        assert_eq!(action('T'), Some(Action::App("text-scale")));
+        assert_eq!(action('l'), Some(Action::App("rotate")));
+        assert_eq!(action('K'), Some(Action::App("keyboard")));
         assert!(matches!(action('v'), Some(Action::Missing(_))));
     }
 

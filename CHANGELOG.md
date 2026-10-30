@@ -13,6 +13,11 @@ any release may break.
 
 ## [Unreleased]
 
+- **Turning, typing and reading on a simulated device** (J722): a focused text field brings the
+  simulated device's keyboard up, drawn in the device's brightness and reported through
+  `view_insets`, as on a phone. `frus run`'s keys: `l` turns the device and its window on their
+  side, `K` holds the keyboard up without a field, `T` steps the text size through 100%, 130%,
+  200% and 85% (on any window), and `b` already switched light and dark.
 - **A window stands in for a phone or a tablet** (J721): with `FRUS_DEVICE=iphone-15` (or any
   built-in profile, by id or name) a debug build is laid out for that device's screen, safe
   areas, platform and pixel ratio, and drawn inside its outline: the body and its buttons, the
