@@ -3458,20 +3458,21 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         a11y.update(ui.semantics(), focus, &title, &self.announce, scale, origin);
                     }
                 }
+                // The field being edited gets its element (milestone 711) — before the
+                // bridge, which hides that field's own node while it is (milestone 713).
+                #[cfg(web)]
+                self.sync_web_editing();
                 // Publish the frame's semantic tree to the DOM bridge (#18). The page's
                 // coordinates are CSS pixels, the layout's own: no scale to carry.
                 #[cfg(web)]
                 if let Some(a11y) = self.a11y.as_mut() {
                     let focus = self.runtime.input.focused;
+                    let editing = self.web_editor.as_ref().and_then(|editor| editor.editing());
                     let title = self.app.title();
                     if let Some(ui) = self.ui.as_ref() {
-                        a11y.update(ui.semantics(), focus, &title, &self.announce);
+                        a11y.update(ui.semantics(), focus, editing, &title, &self.announce);
                     }
                 }
-                // The field being edited gets its element — after the bridge, since the
-                // element is what has the browser's focus while it is (milestone 711).
-                #[cfg(web)]
-                self.sync_web_editing();
 
                 // The system bars follow the frame: the regions under them, then the theme.
                 self.sync_system_bars(&theme);

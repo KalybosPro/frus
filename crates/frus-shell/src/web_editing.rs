@@ -247,6 +247,11 @@ mod web {
             })
         }
 
+        /// The field being edited through the element, if one is.
+        pub(crate) fn editing(&self) -> Option<WidgetId> {
+            self.live.as_ref().map(|live| live.id)
+        }
+
         /// The changes the browser made since the last call, oldest first.
         pub(crate) fn take_changes(&self) -> Vec<(WidgetId, Element)> {
             std::mem::take(&mut self.changes.borrow_mut())
