@@ -279,6 +279,9 @@ struct TitleBarRow<Msg> {
     width: f32,
     height: f32,
     top: f32,
+    /// What the menus keep clear of on the left and the right: a phone's cutout and rounded
+    /// corners on its side. The row's colour still goes under them (milestone 725).
+    sides: (f32, f32),
 }
 
 impl<Msg> Widget<Msg> for TitleBarRow<Msg> {
@@ -288,7 +291,7 @@ impl<Msg> Widget<Msg> for TitleBarRow<Msg> {
             align: frus_layout::Align::Center,
             width: Dimension::Length(self.width),
             height: Dimension::Length(self.top + self.height),
-            padding: Insets::new(self.top, 0.0, 0.0, 0.0),
+            padding: Insets::new(self.top, self.sides.1, 0.0, self.sides.0),
             ..Style::default()
         }
     }
@@ -387,12 +390,15 @@ impl<Msg: Clone + 'static> WindowMenuBar<Msg> {
                 let line = surface.title_bar;
                 // On the title bar's line the system has the window's top: no intrusion
                 // there to start below.
-                let top = if line.is_some() {
-                    0.0
+                let (top, sides) = if line.is_some() {
+                    (0.0, (0.0, 0.0))
                 } else {
-                    surface.padding.top
+                    // Nor anywhere else: the bar keeps clear of every intrusion — a phone on
+                    // its side has its cutout at the left (milestone 725).
+                    let padding = surface.padding;
+                    (padding.top, (padding.left, padding.right))
                 };
-                let row = title_bar_row(bar, line, surface.size.width, top);
+                let row = title_bar_row(bar, line, surface.size.width, top, sides);
                 let taken = row.top + row.height;
                 // The line's colours, for everything on it: resolved under the theme the
                 // walk brings, so the theme's say is the one in force where the bar is.
@@ -553,6 +559,7 @@ fn title_bar_row<Msg: Clone + 'static>(
     line: Option<TitleBar>,
     width: f32,
     top: f32,
+    sides: (f32, f32),
 ) -> TitleBarRow<Msg> {
     let height = line
         .map(|line| line.height)
@@ -594,6 +601,7 @@ fn title_bar_row<Msg: Clone + 'static>(
         width,
         height,
         top,
+        sides,
     }
 }
 
@@ -810,6 +818,40 @@ mod tests {
         assert_eq!(page.padding.top, 0.0, "the status bar is dealt with");
         let title = text_at(&ui, "Title");
         assert!(title.y >= 54.0, "the app bar under both: {title:?}");
+    }
+
+    /// **Beside a cutout** — a phone on its side, its cutout at the left — the menus start
+    /// clear of it and end clear of the right corner, and the bar's colour still goes under
+    /// both (milestone 725).
+    #[test]
+    fn beside_a_cutout_the_menus_keep_clear_of_it() {
+        let seen = Seen::default();
+        let surface = MediaQuery::new(SIZE).with_insets(frus_core::WindowInsets {
+            padding: frus_core::Insets::new(0.0, 40.0, 21.0, 59.0),
+            ..Default::default()
+        });
+        let ui = window(surface, &seen);
+        let file = text_at(&ui, "File");
+        assert!(file.x >= 59.0, "clear of the cutout: {file:?}");
+        let row = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, .. } if rect.y == 0.0 && rect.height == 30.0 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("the bar's surface");
+        assert_eq!(
+            (row.x, row.width),
+            (0.0, SIZE.width),
+            "the colour goes under"
+        );
+        let page = seen.get().expect("the page was built");
+        assert_eq!(page.padding.left, 59.0, "the page still keeps clear of it");
+        assert_eq!(page.padding.right, 40.0);
     }
 
     /// **With no bar** — a narrow window — the page has the whole window, the system gets
