@@ -1,6 +1,7 @@
 //! What an application can run on, right now: this computer, the Android devices `adb` sees
 //! and the emulators that can be started, the iOS simulators on a Mac, the browsers installed
-//! here, and a bare web server for any other browser.
+//! here, a bare web server for any other browser, and the phones and tablets a desktop window
+//! can stand in for.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -14,6 +15,8 @@ pub(crate) enum Platform {
     /// there yet: the iOS shell does not exist (ROADMAP, #19).
     Ios,
     Web,
+    /// A desktop window standing in for a phone or a tablet (milestone 723).
+    Simulated,
 }
 
 impl Platform {
@@ -22,6 +25,7 @@ impl Platform {
             Platform::Desktop => "desktop",
             Platform::Android | Platform::Ios => "mobile",
             Platform::Web => "web",
+            Platform::Simulated => "simulated",
         }
     }
 }
@@ -55,6 +59,51 @@ pub(crate) enum Kind {
     Browser { exe: PathBuf },
     /// No browser: the application is served, and any browser can open it.
     WebServer,
+    /// The desktop build, standing in for a device: `frus run` starts it with `FRUS_DEVICE`
+    /// naming this built-in profile.
+    Simulated { profile: String },
+}
+
+/// The devices a desktop window can stand in for, as frus-core's `DeviceProfile::builtin()`
+/// has them: id, name, platform, logical width and height held upright, pixel ratio. This crate
+/// depends on nothing, so the list is written here, and a test keeps it the same as the core's.
+pub(crate) const SIMULATED: [(&str, &str, &str, f32, f32, f32); 5] = [
+    ("iphone-se", "iPhone SE", "iOS", 375.0, 667.0, 2.0),
+    ("iphone-15", "iPhone 15", "iOS", 393.0, 852.0, 3.0),
+    (
+        "iphone-15-pro-max",
+        "iPhone 15 Pro Max",
+        "iOS",
+        430.0,
+        932.0,
+        3.0,
+    ),
+    ("ipad", "iPad", "iOS", 820.0, 1180.0, 2.0),
+    (
+        "android-phone",
+        "Android phone",
+        "Android",
+        1080.0 / 2.625,
+        2400.0 / 2.625,
+        2.625,
+    ),
+];
+
+/// The simulated devices, always there: they need nothing but the desktop.
+fn simulated() -> Vec<Device> {
+    SIMULATED
+        .iter()
+        .map(|(id, name, platform, width, height, ratio)| Device {
+            id: (*id).into(),
+            name: (*name).into(),
+            platform: Platform::Simulated,
+            kind: Kind::Simulated {
+                profile: (*id).into(),
+            },
+            detail: format!("{platform}, simulated: {width:.0}×{height:.0} @{ratio}x"),
+            unavailable: None,
+        })
+        .collect()
 }
 
 /// Every device there is now, the desktop first.
@@ -101,6 +150,7 @@ pub(crate) fn discover() -> Vec<Device> {
         detail: "web-javascript".into(),
         unavailable: None,
     });
+    devices.extend(simulated());
     devices
 }
 
@@ -385,6 +435,7 @@ pub(crate) fn select(devices: &[Device], wanted: Option<&str>) -> Result<Device,
         "android" => Some(Platform::Android),
         "ios" | "iphone" | "ipad" => Some(Platform::Ios),
         "web" => Some(Platform::Web),
+        "simulated" => Some(Platform::Simulated),
         _ => None,
     };
     let matches: Vec<&Device> = devices
@@ -568,5 +619,46 @@ mod tests {
         );
         assert!(table.contains("STK L21 (mobile)"), "{table}");
         assert!(table.contains("— offline"), "{table}");
+    }
+    /// **The simulated devices are the ones the shell simulates**: the same ids, names,
+    /// platforms, screens and densities as frus-core's `DeviceProfile::builtin()`, in order.
+    #[test]
+    fn the_simulated_devices_are_the_core_s() {
+        let core = frus_core::DeviceProfile::builtin();
+        assert_eq!(core.len(), SIMULATED.len());
+        for (profile, (id, name, platform, width, height, ratio)) in core.iter().zip(SIMULATED) {
+            assert_eq!(profile.id, id);
+            assert_eq!(profile.name, name);
+            assert_eq!(profile.platform.name(), platform);
+            assert_eq!(profile.screen.width, width, "{id}");
+            assert_eq!(profile.screen.height, height, "{id}");
+            assert_eq!(profile.pixel_ratio, ratio, "{id}");
+        }
+    }
+
+    /// **`-d` finds a simulated device by its id or its name**, `simulated` alone is too many,
+    /// and the list says what each one is.
+    #[test]
+    fn simulated_devices_are_picked_like_the_others() {
+        let mut devices = vec![host()];
+        devices.extend(simulated());
+        let phone = select(&devices, Some("iphone-15")).unwrap();
+        assert_eq!(
+            phone.kind,
+            Kind::Simulated {
+                profile: "iphone-15".into()
+            }
+        );
+        assert_eq!(phone.detail, "iOS, simulated: 393×852 @3x");
+        assert_eq!(select(&devices, Some("iPad")).unwrap().id, "ipad");
+        assert_eq!(
+            select(&devices, Some("android phone")).unwrap().detail,
+            "Android, simulated: 411×914 @2.625x"
+        );
+        let several = select(&devices, Some("simulated")).unwrap_err();
+        assert!(several.contains("more than one"), "{several}");
+        // Without `-d`, still the desktop.
+        assert_eq!(select(&devices, None).unwrap().kind, Kind::Host);
+        assert!(table(&devices).contains("iPhone 15 (simulated)"));
     }
 }
