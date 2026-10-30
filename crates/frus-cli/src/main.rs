@@ -73,6 +73,8 @@ Options:
       --hot                hot reload (desktop, web, Android): each saved change is patched into the
                            running application, every state kept (installs its engine
                            the first time)
+      --web                with a simulated device (`-d iphone-15`): in a browser
+                           instead of a desktop window
       --machine            JSON lines for an editor instead of text (see `frus daemon`)
   -h, --help               print this
 
@@ -81,6 +83,8 @@ Examples:
   frus run --hot
   frus run -d android
   frus run -d edge --release
+  frus run -d iphone-15
+  frus run -d iphone-15 --web
 ";
 
 const EMULATORS_USAGE: &str = "\
@@ -435,6 +439,7 @@ fn parse_run(args: impl Iterator<Item = OsString>) -> Result<Command, String> {
         machine: false,
         hot: false,
         simulate: None,
+        web: false,
     };
     let mut port = None;
     while let Some(arg) = args.next() {
@@ -467,6 +472,7 @@ fn parse_run(args: impl Iterator<Item = OsString>) -> Result<Command, String> {
             "--release" if inline.is_none() => options.mode = cargo::Mode::Release,
             "--machine" if inline.is_none() => options.machine = true,
             "--hot" if inline.is_none() => options.hot = true,
+            "--web" if inline.is_none() => options.web = true,
             "--port" => {
                 let text = value(&flag)?;
                 let number = text
@@ -649,6 +655,12 @@ mod tests {
         assert_eq!(plain.device, None);
         assert_eq!(plain.mode, cargo::Mode::Debug);
         assert_eq!(plain.port, run::DEFAULT_PORT);
+        assert!(!plain.web);
+
+        let web = run_options("run -d iphone-15 --web");
+        assert_eq!(web.device.as_deref(), Some("iphone-15"));
+        assert!(web.web);
+        assert_eq!(web.simulate, None, "set by run once the device is known");
 
         let full = run_options("run -d edge --release --port=9000 -- /widget/button --flag");
         assert_eq!(full.device.as_deref(), Some("edge"));

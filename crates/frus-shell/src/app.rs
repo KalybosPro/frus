@@ -1403,6 +1403,14 @@ impl<A: Application> App<A> {
     /// its text and selection.
     #[cfg(web)]
     fn sync_web_editing(&mut self) {
+        // A simulated device's field is in its screen, inside the canvas, and laid out in the
+        // window's own pixels: one CSS pixel each.
+        let placement = self.placement();
+        let css = if self.simulated.is_some() {
+            1.0
+        } else {
+            self.app.density()
+        };
         let Some(editor) = self.web_editor.as_mut() else {
             return;
         };
@@ -1419,14 +1427,17 @@ impl<A: Application> App<A> {
                 .find(|(node, ..)| *node == id)?;
             Some(crate::web_editing::Field {
                 id,
-                rect: *rect,
+                rect: match placement {
+                    Some(placement) => crate::simulated::Simulated::to_window(placement, *rect),
+                    None => *rect,
+                },
                 web: widget.ime().web(),
                 label: semantics.label.as_deref(),
                 text: widget.text_value().unwrap_or_default(),
                 edit: self.runtime.edits.get(&id).copied().unwrap_or_default(),
             })
         });
-        editor.sync(field, self.app.density());
+        editor.sync(field, css);
     }
 
     /// Puts what the browser did to the element into its field (milestone 711): the text
@@ -3994,6 +4005,10 @@ impl<A: Application> App<A> {
                             simulated.orientation
                         );
                         // The window turns with the device: its room is the same, transposed.
+                        // Not a page's canvas, which the page sizes: asked for a size, winit
+                        // writes it on the canvas and the page is turned on its side too
+                        // (milestone 724).
+                        #[cfg(desktop)]
                         if let Some(window) = &self.window {
                             let size = window.inner_size();
                             let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(

@@ -19,8 +19,12 @@ use frus_widgets::{
 /// The room left around the device in the window, in logical pixels.
 const MARGIN: f32 = 24.0;
 
-/// The variable that names the device, as `frus run -d` will set it.
+/// The variable that names the device on a desktop, as `frus run -d` sets it.
 pub(crate) const VARIABLE: &str = "FRUS_DEVICE";
+/// What names it on a page: a property of `window`, which `frus run -d <device> --web` sets
+/// before the application loads (milestone 724). Not the address, which is the router's.
+#[cfg_attr(not(web), allow(dead_code))]
+const PAGE_PROPERTY: &str = "__frusDevice";
 
 /// The window's background around the device.
 const BACKDROP: Color = Color::rgb(0.13, 0.13, 0.14);
@@ -52,12 +56,13 @@ pub(crate) struct Placement {
 }
 
 impl Simulated {
-    /// The device `FRUS_DEVICE` names, if it names one.
+    /// The device asked for, if one is: `FRUS_DEVICE` on a desktop, `window.__frusDevice` on
+    /// a page.
     ///
     /// Debug builds only: a released application is never a simulation. An unknown name
     /// says which ones are known, and the window opens as itself.
     pub(crate) fn from_env() -> Option<Self> {
-        let wanted = std::env::var(VARIABLE).ok()?;
+        let wanted = asked()?;
         let wanted = wanted.trim();
         if wanted.is_empty() {
             return None;
@@ -98,7 +103,7 @@ impl Simulated {
             None => {
                 let known: Vec<&str> = profiles.iter().map(|p| p.id.as_str()).collect();
                 Err(format!(
-                    "{VARIABLE}={wanted}: no such device; known: {}",
+                    "simulated device `{wanted}`: no such device; known: {}",
                     known.join(", ")
                 ))
             }
@@ -153,6 +158,18 @@ impl Simulated {
         Point::new(
             (point.x - placement.screen.x) / placement.zoom,
             (point.y - placement.screen.y) / placement.zoom,
+        )
+    }
+
+    /// Where `rect`, in the application's pixels, is in the window: the reverse of
+    /// [`to_screen`](Self::to_screen), for what the shell puts over the canvas.
+    #[cfg_attr(not(web), allow(dead_code))]
+    pub(crate) fn to_window(placement: Placement, rect: Rect) -> Rect {
+        Rect::new(
+            placement.screen.x + rect.x * placement.zoom,
+            placement.screen.y + rect.y * placement.zoom,
+            rect.width * placement.zoom,
+            rect.height * placement.zoom,
         )
     }
 
@@ -378,6 +395,21 @@ fn paint_keyboard(scene: &mut Scene, area: Rect, device: f32, system: Brightness
     }
 }
 
+/// The name the developer gave the device, if they gave one.
+fn asked() -> Option<String> {
+    #[cfg(web)]
+    {
+        let window = web_sys::window()?;
+        js_sys::Reflect::get(&window, &PAGE_PROPERTY.into())
+            .ok()?
+            .as_string()
+    }
+    #[cfg(not(web))]
+    {
+        std::env::var(VARIABLE).ok()
+    }
+}
+
 /// The status bar: the time on one side, the signal and the battery on the other, centred
 /// in the band of `height` physical pixels at the top of `screen`.
 fn paint_status_bar(
@@ -521,6 +553,30 @@ mod tests {
                 ),
             );
             assert!((far.x - 393.0).abs() < 1e-3 && (far.y - 852.0).abs() < 1e-3);
+        }
+    }
+
+    /// **What the shell puts over a field lands on the field**: a rectangle of the
+    /// application's goes to the window and back unchanged, at any zoom (milestone 724).
+    #[test]
+    fn a_rect_goes_to_the_window_and_back() {
+        let sim = phone();
+        let room = sim.window_size();
+        let field = Rect::new(20.0, 400.0, 300.0, 48.0);
+        for window in [
+            Size::new(1000.0, 1000.0),
+            Size::new(room.width / 2.0, room.height / 2.0),
+        ] {
+            let at = sim.place(window);
+            let there = Simulated::to_window(at, field);
+            assert!((there.width - field.width * at.zoom).abs() < 1e-3);
+            let corner = Simulated::to_screen(at, Point::new(there.x, there.y));
+            let far = Simulated::to_screen(
+                at,
+                Point::new(there.x + there.width, there.y + there.height),
+            );
+            assert!((corner.x - 20.0).abs() < 1e-3 && (corner.y - 400.0).abs() < 1e-3);
+            assert!((far.x - 320.0).abs() < 1e-3 && (far.y - 448.0).abs() < 1e-3);
         }
     }
 

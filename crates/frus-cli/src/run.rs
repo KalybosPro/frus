@@ -44,6 +44,8 @@ pub(crate) struct RunOptions {
     /// The device profile the desktop window stands in for, when `-d` named a simulated device
     /// (milestone 723). Not parsed: `run` sets it once the device is known.
     pub simulate: Option<String>,
+    /// `--web`: a simulated device in a browser instead of a desktop window (milestone 724).
+    pub web: bool,
 }
 
 pub(crate) const DEFAULT_PORT: u16 = 8080;
@@ -213,6 +215,13 @@ fn run_session(options: &RunOptions) -> Result<ExitCode, String> {
             device.name
         ));
     }
+    if options.web && !matches!(device.kind, Kind::Simulated { .. }) {
+        return Err(format!(
+            "--web shows a simulated device in a browser (`frus run -d iphone-15 --web`); \
+             {} is not one: to run in a browser, `frus run -d web`",
+            device.name
+        ));
+    }
     let result = match &device.kind {
         Kind::Host if options.hot => run_hot(&project, options),
         Kind::Host => run_desktop(&project, options),
@@ -227,10 +236,16 @@ fn run_session(options: &RunOptions) -> Result<ExitCode, String> {
                 simulate: Some(profile.clone()),
                 ..options.clone()
             };
-            if options.hot {
-                run_hot(&project, &options)
-            } else {
-                run_desktop(&project, &options)
+            // In a browser: the first one found, or served for any browser if there is none.
+            let browser = devices.iter().find_map(|d| match &d.kind {
+                Kind::Browser { exe } => Some(exe.as_path()),
+                _ => None,
+            });
+            match (options.web, options.hot) {
+                (true, true) => run_web_hot(&project, browser, &options),
+                (true, false) => run_web(&project, browser, &options),
+                (false, true) => run_hot(&project, &options),
+                (false, false) => run_desktop(&project, &options),
             }
         }
         Kind::Android { serial } if options.hot => {
@@ -1303,7 +1318,14 @@ fn run_web(
     options: &RunOptions,
 ) -> Result<ExitCode, String> {
     let site = cargo::build_web(project, options.mode)?;
-    let server = serve::start(site, options.port)?;
+    let server = serve::start_site(
+        serve::Site {
+            dir: site,
+            device: options.simulate.clone(),
+            ..serve::Site::default()
+        },
+        options.port,
+    )?;
     let url = server.url.clone();
     let (mut browser_process, profile) = open_browser(browser, &url)?;
     let keys = attach(&match browser_process {
@@ -1481,6 +1503,7 @@ fn run_web_hot(
             // The page loads `pkg/<library>.js`; a patch is fetched from `/wasm/<patch>.wasm`.
             mounts: vec![("pkg".into(), built.clone()), ("wasm".into(), built)],
             hot: true,
+            device: options.simulate.clone(),
         },
         options.port,
     )?;

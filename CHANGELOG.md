@@ -13,6 +13,11 @@ any release may break.
 
 ## [Unreleased]
 
+- **A simulated device in the browser** (J724): `frus run -d iphone-15 --web` serves the web
+  build and shows it on the phone's screen in a browser, as `-d iphone-15` does in a desktop
+  window, with `r`, `R`, `--hot` and the keys of J722. The page is told the device before the
+  application loads (`window.__frusDevice`), not through the address, which is the router's; the
+  field the browser types into follows the field into the phone's screen.
 - **`frus run -d iphone-15`** (J723): `frus devices` lists the phones and tablets a desktop
   window can stand in for (iPhone SE, 15, 15 Pro Max, iPad, an Android phone), on every system,
   and `frus run -d <id or name>` starts the desktop build as that device — with `r`, `R` and

@@ -137,6 +137,9 @@ pub(crate) struct Site {
     pub mounts: Vec<(String, PathBuf)>,
     /// Under `frus run --hot`: the page is given each patch (see [`PatchSlot`]).
     pub hot: bool,
+    /// The simulated device the page stands in for, under `frus run -d <device> --web`
+    /// (milestone 724): told to the shell before the application loads.
+    pub device: Option<String>,
 }
 
 /// The latest hot-reload patch, as the engine sent it, and how many there were: what a page
@@ -165,7 +168,9 @@ impl PatchSlot {
     }
 }
 
-/// Serves `dir` on `localhost`, on `port` if it is free, on another otherwise.
+/// Serves `dir` on `localhost`, on `port` if it is free, on another otherwise. The runs serve
+/// a [`Site`], which also says whether the page is hot and what device it stands in for.
+#[cfg(test)]
 pub(crate) fn start(dir: PathBuf, port: u16) -> Result<Server, String> {
     start_site(
         Site {
@@ -298,6 +303,9 @@ fn handle(
             Ok(mut bytes) => {
                 if file.file_name().is_some_and(|name| name == "index.html") {
                     let mut page = with_bridge(&String::from_utf8_lossy(&bytes));
+                    if let Some(device) = &site.device {
+                        page = with_device(&page, device);
+                    }
                     if site.hot {
                         page = with_patches(&page);
                     }
@@ -397,6 +405,35 @@ pub(crate) fn with_bridge(html: &str) -> String {
             format!("{}\n    {CONSOLE_BRIDGE}{}", &html[..at], &html[at..])
         }
         None => format!("{CONSOLE_BRIDGE}\n{html}"),
+    }
+}
+
+/// The page told which simulated device it stands in for, at the top of its `<head>`, before
+/// the application's module asks. A property of `window`, not the address: on the web the
+/// address is the router's.
+pub(crate) fn with_device(page: &str, device: &str) -> String {
+    // An id from `frus devices`; anything else is not written into a script.
+    if !device
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return page.to_string();
+    }
+    let script = format!("<script>window.__frusDevice = '{device}';</script>");
+    match page.find("<head>") {
+        Some(at) => {
+            let at = at + "<head>".len();
+            format!(
+                "{}
+    {script}{}",
+                &page[..at],
+                &page[at..]
+            )
+        }
+        None => format!(
+            "{script}
+{page}"
+        ),
     }
 }
 
@@ -519,6 +556,7 @@ mod tests {
                 ("wasm".into(), built.clone()),
             ],
             hot: true,
+            device: None,
         };
         assert_eq!(site_file(&site, "/"), Some(web.join("index.html")));
         assert_eq!(site_file(&site, "/pkg/app.js"), Some(built.join("app.js")));
@@ -530,6 +568,21 @@ mod tests {
         assert!(page.contains("/__frus/patch?after="), "{page}");
         assert!(page.ends_with("</script><title>x</title>"), "{page}");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// **The page is told its simulated device before the application loads**, as a property
+    /// of `window` and not the address, which is the router's; a name that is not a device id
+    /// is not written into a script (milestone 724).
+    #[test]
+    fn a_page_is_told_its_simulated_device() {
+        let page = with_device("<html><head><title>x</title>", "iphone-15");
+        assert_eq!(
+            page,
+            "<html><head>\n    <script>window.__frusDevice = 'iphone-15';</script><title>x</title>"
+        );
+        let odd = "<html><head><title>x</title>";
+        assert_eq!(with_device(odd, "x';alert(1);'"), odd);
+        assert!(with_device("<p>no head</p>", "ipad").starts_with("<script>"));
     }
 
     #[test]
