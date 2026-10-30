@@ -66,9 +66,26 @@ class Page:
         r = json.loads(self.js("JSON.stringify({hash: location.hash, length: history.length, state: history.state})"))
         return r["hash"], r["state"], r["length"]
 
-    def click(self, x, y):
-        for kind in ("mousePressed", "mouseReleased"):
-            self.call("Input.dispatchMouseEvent", type=kind, x=x, y=y, button="left", clickCount=1)
+    def focus(self, role, name):
+        """Gives the browser's focus to the widget the accessibility tree names `name`, as
+        a screen reader would: found by what it is, not by where it was once drawn."""
+        for node in self.call("Accessibility.getFullAXTree")["nodes"]:
+            if (not node.get("ignored") and node.get("role", {}).get("value") == role
+                    and node.get("name", {}).get("value", "") == name):
+                self.call("DOM.focus", backendNodeId=node["backendDOMNodeId"])
+                return True
+        return False
+
+    def press(self, role, name):
+        """Focuses the widget named `name`, then an Enter that carries its character, which
+        is what makes a browser activate a button."""
+        found = self.focus(role, name)
+        if found:
+            self.wait(0.3)
+            self.call("Input.dispatchKeyEvent", type="keyDown", key="Enter", code="Enter",
+                      windowsVirtualKeyCode=13, text="\r")
+            self.call("Input.dispatchKeyEvent", type="keyUp", key="Enter", code="Enter", windowsVirtualKeyCode=13)
+        return found
 
     def type(self, text):
         for ch in text:
@@ -79,9 +96,15 @@ class Page:
 
 
 def open_at(url):
+    """A new tab on `url`, the only one: a page left open beside it competes for the
+    foreground, and a page in the background draws nothing."""
+    for tab in json.load(urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json")):
+        if tab["type"] == "page":
+            urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/close/{tab['id']}")
     tab = json.load(urllib.request.urlopen(urllib.request.Request(
         f"http://127.0.0.1:{PORT}/json/new?about:blank", method="PUT")))
     page = Page(tab["webSocketDebuggerUrl"])
+    page.call("Emulation.setFocusEmulationEnabled", enabled=True)
     page.call("Page.navigate", url=url)
     page.call("Page.bringToFront")
     return page
@@ -102,18 +125,18 @@ def main(base):
     browser = subprocess.Popen([
         find_browser(), "--headless=new", f"--remote-debugging-port={PORT}", f"--user-data-dir={profile}",
         "--no-first-run", "--enable-unsafe-webgpu", "--enable-features=Vulkan,WebGPU", "--ignore-gpu-blocklist",
-        "--window-size=420,800", "about:blank",
+        "--force-renderer-accessibility", "--window-size=420,800",
+        # Kept in the foreground, as the other web checks are (web-accessibility-check.py).
+        "--disable-renderer-backgrounding", "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows", "about:blank",
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         for _ in range(50):
             try:
-                tabs = json.load(urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json", timeout=2))
+                urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json", timeout=2)
                 break
             except Exception:
                 time.sleep(0.2)
-        for tab in tabs:  # the page under test is to be the only one
-            if tab["type"] == "page":
-                urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/close/{tab['id']}")
         # `history.length` counts the blank page the tab started at, so it is not asserted.
 
         print("a bare page: the address is filled in from where the application starts")
@@ -146,16 +169,18 @@ def main(base):
         print("the application's own moves: a push is an entry, its back goes back")
         p = open_at(base)
         p.wait(7)
-        p.click(350, 287); p.wait(1)
+        expect("the new-task field is found", p.focus("textbox", "New task"), True); p.wait(0.5)
         p.type("Buy milk"); p.wait(2)
-        p.click(238, 477); p.wait(2.5)  # the avatar opens the task's own screen
+        # The task's avatar, its initials, opens the task's own screen.
+        expect("the task's avatar is found", p.press("button", "BM"), True); p.wait(2.5)
         hash_, state, length = p.where()
         expect("the task's address", (hash_, state), ("#/task/0", 1))
-        p.click(116, 648); p.wait(2.5)  # its Back button
+        expect("its Back button is found", p.press("button", "Back"), True); p.wait(2.5)
         expect("back goes back in the list", p.where()[:2], ("#/", 0))
         expect("and adds nothing", p.where()[2], length)
         p.js("history.forward()"); p.wait(2.5)
         expect("forward returns to the task", p.where()[:2], ("#/task/0", 1))
+        expect("(the page stayed in the foreground)", p.js("document.visibilityState"), "visible")
     finally:
         browser.kill()
         shutil.rmtree(profile, ignore_errors=True)
