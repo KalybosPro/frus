@@ -13,6 +13,13 @@ any release may break.
 
 ## [Unreleased]
 
+- **A window stands in for a phone or a tablet** (J721): with `FRUS_DEVICE=iphone-15` (or any
+  built-in profile, by id or name) a debug build is laid out for that device's screen, safe
+  areas, platform and pixel ratio, and drawn inside its outline: the body and its buttons, the
+  screen's rounded corners, the island, notch or hole, a status bar whose ink follows the
+  application, the home indicator or button. The device is zoomed to fit the window, and the
+  pointer, touch and dropped files are mapped into its screen. The same on Windows, Linux and
+  macOS, since frus paints all of it.
 - **Device profiles** (J720): the first step towards seeing an application as it will look on a
   phone, on any development system and without the platform's own tools. `DeviceProfile`
   describes a device as data: its screen, density and corners, its cutout (notch, island or

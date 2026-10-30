@@ -1109,6 +1109,8 @@ pub struct App<A: Application> {
     elapsed: f32,
     /// The last window insets handed to the app — padding plus keyboard — in logical px.
     last_insets: WindowInsets,
+    /// The device the window stands in for, when `FRUS_DEVICE` names one (milestone 721).
+    simulated: Option<crate::simulated::Simulated>,
     /// Whether the window's title bar line is shared with the content, and what the content
     /// is told about it (milestone 640).
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -1168,7 +1170,16 @@ pub struct App<A: Application> {
 impl<A: Application> App<A> {
     /// Creates the driver around an application and its message channel.
     pub fn new(app: A, proxy: EventLoopProxy<A::Message>) -> Self {
-        Self::with_mailbox(app, Mailbox(Some(proxy)))
+        let mut shell = Self::with_mailbox(app, Mailbox(Some(proxy)));
+        // A window standing in for a device follows that device's platform (milestone 721).
+        // Only a real window: a test's shell is never a simulation.
+        shell.simulated = crate::simulated::Simulated::from_env();
+        if let Some(simulated) = &shell.simulated {
+            frus_widgets::set_debug_default_target_platform_override(Some(
+                simulated.profile.platform,
+            ));
+        }
+        shell
     }
 
     /// A driver with no event loop behind it, for a test that feeds it input and frames
@@ -1287,6 +1298,7 @@ impl<A: Application> App<A> {
             occluded: false,
             elapsed: 0.0,
             last_insets: WindowInsets::ZERO,
+            simulated: None,
             title_bar_on: false,
             title_bar: None,
             #[cfg(all(desktop, feature = "tray"))]
@@ -2000,6 +2012,25 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         if let Some((w, h)) = self.app.window_size() {
             attributes = attributes.with_inner_size(winit::dpi::LogicalSize::new(w, h));
         }
+        // A simulated device: a window the device's shape, shrunk to fit the monitor
+        // (milestone 721). What the application asked for is the desktop window's size.
+        #[cfg(desktop)]
+        if let Some(simulated) = &self.simulated {
+            let room = simulated.window_size();
+            let fit = event_loop
+                .primary_monitor()
+                .map(|monitor| {
+                    let screen = monitor.size().to_logical::<f32>(monitor.scale_factor());
+                    (0.9 * screen.width / room.width)
+                        .min(0.9 * screen.height / room.height)
+                        .min(1.0)
+                })
+                .unwrap_or(1.0);
+            attributes = attributes.with_inner_size(winit::dpi::LogicalSize::new(
+                room.width * fit,
+                room.height * fit,
+            ));
+        }
         // Restarted by `frus run`: where the window was, as big as it was.
         #[cfg(desktop)]
         if let Some([x, y, w, h]) = crate::dev::restore_window() {
@@ -2365,8 +2396,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             // `Cancel`. winit hands us physical px; we work in logical ones, the total
             // scale being DPI × density.
             WindowEvent::CursorMoved { position, .. } => {
-                let scale = self.total_scale();
-                let position = Point::new(position.x as f32 / scale, position.y as f32 / scale);
+                let position = self.to_logical(position.x, position.y);
                 self.pointer(
                     event_loop,
                     PointerEvent {
@@ -2399,11 +2429,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             }
 
             WindowEvent::Touch(touch) => {
-                let scale = self.total_scale();
-                let position = Point::new(
-                    touch.location.x as f32 / scale,
-                    touch.location.y as f32 / scale,
-                );
+                let position = self.to_logical(touch.location.x, touch.location.y);
                 let kind = match touch.phase {
                     TouchPhase::Started => PointerKind::Down,
                     TouchPhase::Moved => PointerKind::Move,
@@ -2649,7 +2675,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // The interface is described in **logical** pixels; the GPU output is
                 // scaled to physical ones (DPI × density) just before rendering.
                 let scale = self.total_scale();
-                let (width, height) = (size.width as f32 / scale, size.height as f32 / scale);
+                let (width, height) = self.logical_size(size.width, size.height);
 
                 // A logical size change — a resize OR a density change — notifies the
                 // app before the view, so it can react to the breakpoint in its logic.
@@ -2678,7 +2704,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     baseline = raw;
                     self.inset_baseline = Some((raw, phys));
                 }
-                let insets = WindowInsets::from_baseline(baseline, raw);
+                let insets = match &self.simulated {
+                    // A simulated device's bars and keyboard are the profile's.
+                    Some(simulated) => simulated.insets(),
+                    None => WindowInsets::from_baseline(baseline, raw),
+                };
                 if self.last_insets != insets {
                     if insets.view_insets.bottom > self.last_insets.view_insets.bottom {
                         self.reveal_after_keyboard = true;
@@ -3167,10 +3197,35 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 } else {
                     scene
                 };
+                // A simulated device: the application's frame inside the device's screen,
+                // the device around it (milestone 721).
+                let (scene, shot) = match (&self.simulated, self.placement()) {
+                    (Some(simulated), Some(placement)) => {
+                        let edges = self.last_insets.padding;
+                        // The status bar's icons read against what the application has
+                        // under them, as a device's system decides it.
+                        let icons = ui
+                            .system_ui_style(
+                                Point::new(width / 2.0, edges.top + 0.5),
+                                Point::new(width / 2.0, height - edges.bottom - 0.5),
+                            )
+                            .resolve(&theme)
+                            .status_bar_icons;
+                        let window = Size::new(
+                            size.width as f32 / self.scale.max(0.1),
+                            size.height as f32 / self.scale.max(0.1),
+                        );
+                        let framed = simulated.paint(&scene, placement, self.scale, window, icons);
+                        (framed, (size.width as f32, size.height as f32))
+                    }
+                    _ => (scene, (width * scale, height * scale)),
+                };
                 #[cfg(desktop)]
                 if let Some(path) = self.debug.screenshot.take() {
-                    write_screenshot(&scene, width * scale, height * scale, &path);
+                    write_screenshot(&scene, shot.0, shot.1, &path);
                 }
+                #[cfg(not(desktop))]
+                let _ = shot;
                 let mut device_lost = false;
                 if let Some(renderer) = self.renderer.as_mut() {
                     let render_start = timed.then(Instant::now);
@@ -3903,8 +3958,49 @@ impl<A: Application> App<A> {
     }
 
     /// The total scale: system DPI × app density (physical = logical × this).
+    ///
+    /// For a simulated device, system DPI × the zoom that fits the device in the window:
+    /// the device's own size is the application's, and its density is the device's.
     fn total_scale(&self) -> f32 {
+        if let Some(placement) = self.placement() {
+            return (self.scale * placement.zoom).max(0.01);
+        }
         (self.scale * self.app.density()).max(0.1)
+    }
+
+    /// Where the simulated device sits in the window; `None` when there is none.
+    fn placement(&self) -> Option<crate::simulated::Placement> {
+        let simulated = self.simulated.as_ref()?;
+        let size = self.window.as_ref()?.inner_size();
+        let scale = self.scale.max(0.1);
+        Some(simulated.place(Size::new(
+            size.width as f32 / scale,
+            size.height as f32 / scale,
+        )))
+    }
+
+    /// The application's logical point under a physical position in the window.
+    fn to_logical(&self, x: f64, y: f64) -> Point {
+        if let Some(placement) = self.placement() {
+            let scale = self.scale.max(0.1);
+            return crate::simulated::Simulated::to_screen(
+                placement,
+                Point::new(x as f32 / scale, y as f32 / scale),
+            );
+        }
+        let scale = self.total_scale();
+        Point::new(x as f32 / scale, y as f32 / scale)
+    }
+
+    /// The application's logical size for a window of `width` by `height` physical pixels:
+    /// the simulated device's screen when there is one.
+    fn logical_size(&self, width: u32, height: u32) -> (f32, f32) {
+        if let Some(simulated) = &self.simulated {
+            let screen = simulated.screen_size();
+            return (screen.width, screen.height);
+        }
+        let scale = self.total_scale();
+        (width as f32 / scale, height as f32 / scale)
     }
 
     /// The surface description installed around every call to `view`, so that any
@@ -3923,9 +4019,14 @@ impl<A: Application> App<A> {
     /// [`AccessibilityOverrides`] whose fields are all `None` — the default — leaves every
     /// answer to the user, which is what an application that has no settings screen means.
     fn media_query(&self, width: f32, height: f32) -> MediaQuery {
+        // A simulated device reports its own density, as the device would.
+        let (ratio, density) = match &self.simulated {
+            Some(simulated) => (simulated.profile.pixel_ratio, 1.0),
+            None => (self.scale, self.app.density()),
+        };
         MediaQuery::new(Size::new(width, height))
-            .with_device_pixel_ratio(self.scale)
-            .with_density(self.app.density())
+            .with_device_pixel_ratio(ratio)
+            .with_density(density)
             .with_text_scaler(self.platform.text_scaler)
             .with_platform_brightness(self.brightness())
             .with_accessibility(
@@ -3952,7 +4053,9 @@ impl<A: Application> App<A> {
             }
             _ => return,
         };
-        let wants = self.ui.as_ref().is_some_and(|ui| ui.wants_title_bar());
+        // A simulated device has no title bar to share: the window keeps the system's.
+        let wants =
+            self.simulated.is_none() && self.ui.as_ref().is_some_and(|ui| ui.wants_title_bar());
         if wants != self.title_bar_on {
             // SAFETY: the window is alive and was made on this thread.
             unsafe {
@@ -4064,6 +4167,9 @@ impl<A: Application> App<A> {
 
     /// The window's **logical** width, in px, for the edge thresholds.
     fn logical_width(&self) -> f32 {
+        if let Some(simulated) = &self.simulated {
+            return simulated.screen_size().width;
+        }
         let scale = self.total_scale();
         self.window
             .as_ref()
@@ -4082,7 +4188,8 @@ impl<A: Application> App<A> {
     /// the window hears no pointer movement. `None` where it cannot be read.
     fn system_cursor(&self) -> Option<Point> {
         let window = self.window.as_ref()?;
-        crate::file_drop::cursor_in(window, self.total_scale())
+        let physical = crate::file_drop::cursor_in(window, 1.0)?;
+        Some(self.to_logical(physical.x as f64, physical.y as f64))
     }
 
     /// One file of a drag from outside the application, held over the window or dropped
