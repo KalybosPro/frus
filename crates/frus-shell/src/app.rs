@@ -127,7 +127,6 @@ fn opens_selection_bar(logical: &WinitKey, shift: bool) -> bool {
 /// A field that can only be **read** — a read-only one, a selectable paragraph — is a text field
 /// with a caret and a selection and no use for a keyboard, which would slide up over the very
 /// words its reader has come to select.
-#[cfg(any(android, web, desktop, test))]
 fn wants_keyboard<M>(widget: &dyn Widget<M>) -> bool {
     is_text_field(widget) && widget.focusable() && widget.takes_typing()
 }
