@@ -119,21 +119,36 @@ fn live_node(message: &str) -> Node {
     node
 }
 
-/// Builds a complete AccessKit tree update: a `Window` root whose children are the
-/// frame's semantic nodes, paint order being reading order. `focus` is the focused
-/// widget, when it is in the tree. A non-empty `announce` adds a **live region** that
-/// is spoken aloud.
-///
-/// The nodes' bounds are the layout's, in **logical** pixels, and the system reads
-/// **physical** ones: `scale` (the window's scale factor) goes on the root as a transform,
-/// which AccessKit applies to every node under it. Without it a reader's highlight and a
-/// magnifier were drawn at two thirds of the size, off their place, on a 150 % screen.
+/// The tree of an interface drawn from the window's corner, as most are.
+#[cfg(test)]
 pub(crate) fn build_tree_update(
     nodes: &[(WidgetId, Rect, SemanticsProperties)],
     focus: Option<WidgetId>,
     title: &str,
     announce: &str,
     scale: f64,
+) -> TreeUpdate {
+    build_tree_update_at(nodes, focus, title, announce, scale, (0.0, 0.0))
+}
+
+/// Builds a complete AccessKit tree update: a `Window` root whose children are the
+/// frame's semantic nodes, paint order being reading order. `focus` is the focused
+/// widget, when it is in the tree. A non-empty `announce` adds a **live region** that
+/// is spoken aloud.
+///
+/// The nodes' bounds are the layout's, in **logical** pixels, and the system reads
+/// **physical** ones: `scale` goes on the root as a transform, which AccessKit applies to
+/// every node under it. Without it a reader's highlight and a magnifier were drawn at two
+/// thirds of the size, off their place, on a 150 % screen. `origin` is where the interface's
+/// corner is in the window, in physical pixels: the window's own corner, or a simulated
+/// device's screen inside its outline (milestone 726), which the root then moves the tree to.
+pub(crate) fn build_tree_update_at(
+    nodes: &[(WidgetId, Rect, SemanticsProperties)],
+    focus: Option<WidgetId>,
+    title: &str,
+    announce: &str,
+    scale: f64,
+    origin: (f64, f64),
 ) -> TreeUpdate {
     let mut updates: Vec<(NodeId, Node)> = Vec::with_capacity(nodes.len() + 2);
 
@@ -147,8 +162,9 @@ pub(crate) fn build_tree_update(
     root.set_children(children);
     // None at 1, as AccessKit asks of an identity; a scale not yet known (0) is taken as 1
     // rather than collapsing the tree to a point.
-    if scale > 0.0 && scale != 1.0 {
-        root.set_transform(Affine::scale(scale));
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+    if scale != 1.0 || origin != (0.0, 0.0) {
+        root.set_transform(Affine::translate(origin) * Affine::scale(scale));
     }
     updates.push((ROOT_ID, root));
 
@@ -192,16 +208,19 @@ struct Snapshot {
     announce: String,
     /// The window's scale factor: logical pixels to physical ones.
     scale: f64,
+    /// Where the interface's origin is in the window, in physical pixels.
+    origin: (f64, f64),
 }
 
 impl Snapshot {
     fn to_update(&self) -> TreeUpdate {
-        build_tree_update(
+        build_tree_update_at(
             &self.nodes,
             self.focus,
             &self.title,
             &self.announce,
             self.scale,
+            self.origin,
         )
     }
 }
@@ -299,7 +318,8 @@ impl A11y {
     }
 
     /// Publishes the frame's semantic tree, laid out at `scale` physical pixels to the
-    /// logical one; the adapter pushes it only when an AT is running.
+    /// logical one, its origin at `origin` physical pixels in the window; the adapter pushes it
+    /// only when an AT is running.
     pub(crate) fn update(
         &mut self,
         nodes: &[(WidgetId, Rect, SemanticsProperties)],
@@ -307,6 +327,7 @@ impl A11y {
         title: &str,
         announce: &str,
         scale: f64,
+        origin: (f64, f64),
     ) {
         {
             let mut s = self.snapshot.lock().unwrap();
@@ -315,6 +336,7 @@ impl A11y {
             s.title = title.to_string();
             s.announce = announce.to_string();
             s.scale = scale;
+            s.origin = origin;
         }
         let snapshot = self.snapshot.clone();
         self.adapter
@@ -524,5 +546,30 @@ mod tests {
             let update = build_tree_update(&nodes, None, "frus", "", scale);
             assert_eq!(root(&update).transform(), None, "scale {scale}");
         }
+    }
+
+    /// **A simulated device's screen is where the system looks** (milestone 726): its
+    /// interface is drawn from the screen's corner, inside the device's outline, so the root
+    /// carries that move as well as the scale, and a reader's highlight lands on the button.
+    #[test]
+    fn the_root_moves_the_tree_to_a_simulated_screen() {
+        let nodes = vec![(
+            wid(10),
+            Rect::new(20.0, 40.0, 56.0, 56.0),
+            sem(Role::Button).label("Done"),
+        )];
+        let update = build_tree_update_at(&nodes, None, "frus", "", 2.0, (607.0, 148.0));
+        let transform = *update.nodes[0]
+            .1
+            .transform()
+            .expect("a transform on the root");
+        let physical = transform.transform_rect_bbox(update.nodes[1].1.bounds().unwrap());
+        assert_eq!(
+            (physical.x0, physical.y0, physical.x1, physical.y1),
+            (647.0, 228.0, 759.0, 340.0)
+        );
+        // A move alone is still a transform.
+        let moved = build_tree_update_at(&nodes, None, "frus", "", 1.0, (10.0, 0.0));
+        assert!(moved.nodes[0].1.transform().is_some());
     }
 }
