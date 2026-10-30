@@ -10,8 +10,9 @@ use crate::l10n::LANGS;
 use crate::prelude::*;
 use frus_widgets::{MenuBar, MenuItem, MenuPath, SubmenuButton, UseState, WindowMenuBar};
 
-/// The application's pages, under the window's menu bar on a wide window. A phone has no
-/// bar: its home screen folds the same actions into its header's "⋯" menu.
+/// The application's pages, under the window's menu bar on a wide desktop window. A phone or
+/// a tablet has no bar, however wide — an iPhone on its side is 852 wide (milestone 725): its
+/// home screen folds the same actions into its header's "⋯" menu.
 ///
 /// The [`WindowMenuBar`] is there at every width, with no bar on a narrow window, so that the
 /// pages keep their place in the tree — and their state — when the window is resized across
@@ -24,7 +25,8 @@ pub(crate) fn window(
 ) -> Box<dyn Widget> {
     let menus = cx.use_state(MenuPath::closed);
     let wide = MediaQuery::of().size_class() == SizeClass::Expanded;
-    let bar = wide.then(|| menu_bar(&menus, demo, router));
+    let desktop = frus_widgets::default_target_platform().is_desktop();
+    let bar = (wide && desktop).then(|| menu_bar(&menus, demo, router));
     Box::new(WindowMenuBar::new(bar, pages))
 }
 
