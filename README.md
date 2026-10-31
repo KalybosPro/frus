@@ -6,14 +6,19 @@
 
 **A cross-platform UI framework written entirely in Rust.**
 
-One codebase → desktop, Android, and the web. GPU-rendered. Built from components. No DSL, no codegen, no bespoke CLI — just `cargo`.
+One codebase → desktop, Android, and the web. GPU-rendered. Built from components. No DSL, no codegen — just `cargo`, with an optional `frus` command for new projects and devices.
 
 [![CI](https://github.com/KalybosPro/frus/actions/workflows/ci.yml/badge.svg)](https://github.com/KalybosPro/frus/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 [![Status](https://img.shields.io/badge/status-pre--alpha-yellow.svg)](#project-status)
 
-[Quick start](#quick-start) · [Guide](docs/guide/README.md) · [Gallery](#what-it-looks-like) · [Live widget gallery](https://kalybospro.github.io/frus/) · [Architecture](#architecture) · [Status](#project-status) · [Contributing](CONTRIBUTING.md) · [Français](README.fr.md)
+[![Read the guide](https://img.shields.io/badge/📖_Read_the_guide-2ea44f?style=for-the-badge)](docs/guide/README.md)
+[![Getting started](https://img.shields.io/badge/🚀_Getting_started-0969da?style=for-the-badge)](docs/getting-started.md)
+[![Widget gallery](https://img.shields.io/badge/🧩_Widget_gallery-8250df?style=for-the-badge)](https://kalybospro.github.io/frus/)
+[![API reference](https://img.shields.io/badge/📚_API_reference-bf8700?style=for-the-badge)](https://docs.rs/frus)
+
+[Quick start](#quick-start) · [Learn](#learn-frus) · [Guide](docs/guide/README.md) · [Gallery](#what-it-looks-like) · [Live widget gallery](https://kalybospro.github.io/frus/) · [Architecture](#architecture) · [Status](#project-status) · [Contributing](CONTRIBUTING.md) · [Français](README.fr.md)
 
 <br>
 
@@ -89,6 +94,26 @@ The router keeps a stack of pages, slides between them, answers the back gesture
 | **GPU-native rendering** | `wgpu` targets Vulkan, Metal, DX12, and WebGPU from one backend. Vector paths are tessellated with `lyon`; text is shaped by `cosmic-text`. |
 | **Everything is overridable** | Widgets ship themed defaults, never hardcoded ones. If a widget paints it, you can restyle it or swap the slot. |
 | **cargo-native** | No `frus doctor`, no custom package manager, no generated build directory. `cargo build`, `cargo test`, `cargo apk run`. |
+
+## Learn frus
+
+New here? Run the [getting-started page](docs/getting-started.md) — the smallest application,
+state, `async` work, a phone — then read **[the guide](docs/guide/README.md)**, one topic per
+page, every example a complete program that frus's own test suite compiles:
+
+| Topic | What you will write |
+| --- | --- |
+| [Laying out a screen](docs/guide/layout.md) | Rows and columns, boxes, stacks, scrolling, a layout that follows the width |
+| [Text, colour and the theme](docs/guide/style.md) | Type, colour roles, light and dark, restyling one widget or every widget of a kind |
+| [Taking input](docs/guide/input.md) | Text fields, checkboxes, switches, sliders, dropdowns, a form that checks itself |
+| [Lists and grids](docs/guide/lists.md) | Ten thousand rows, rows of any height, pull to refresh, swipe to remove |
+| [Screens, navigation and dialogs](docs/guide/navigation.md) | Routes, redirects, the `Scaffold`, dialogs, snack bars |
+| [Talking to a server](docs/guide/network.md) | Typed JSON requests, loading a screen's data, sending a form |
+| [Animation](docs/guide/animation.md) | Values that move, switching widgets, animations you drive |
+| [Testing](docs/guide/testing.md) | Testing the logic, a page used as a person uses it, the pixels |
+
+Every widget is also in the [live widget gallery](https://kalybospro.github.io/frus/), with the
+code that builds it, and the [example applications](frus-examples/) are complete projects.
 
 ## What it looks like
 
