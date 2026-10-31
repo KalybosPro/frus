@@ -43,6 +43,24 @@ read the hook's result back into the page's status. Three pieces of state to say
   A handler returns before anything it started changes the state, and a task started from
   `init_state` runs once `init_state` is done.
 
+## Stopping a task, and function components
+
+- **`TaskHandle<T>`.** `spawn_local`, `StateHandle::spawn` and `TaskScope::spawn` return one.
+  Dropping it leaves the task running; `cancel()` drops the future at once, unfinished, and
+  a task that cancels itself while it runs is not put back. Awaited from another task, it
+  gives `Some(value)`, or `None` when the task ended without one — cancelled, or dropped with
+  its owner. A guard inside the task's future marks the end and wakes whoever awaits, so the
+  three ways to end are told the same way.
+- **Function components.** `cx.task_scope()` gives a `TaskScope` whose tasks end with the
+  component (they are alive while its hooks are not disposed), and `cx.async_callback(||
+  async move { … })` is the handler built on it — the same shape as a state's, holding
+  `UseState`s instead of the state's handle.
+- **Every access to the task table goes through a function compiled once in frus**
+  (`put`, `take`, `take_gone`, `#[inline(never)]`), as milestone 669 asks of every
+  thread-local: a generic `spawn` inlined into an application would get a table of its own
+  after a hot patch. The first push broke the guard test that says so; the local check ran
+  only the library's tests, and now runs the crate's integration tests too.
+
 ## The http example, rewritten
 
 The "New post" form now says what Send does in one place:
@@ -83,6 +101,33 @@ its tests are simpler for it (`draft()` and `finish(answer)`). The pages that lo
   answer another thread gives 20 ms later is shown in the frame after it came (20.7 ms, 8
   frames).
 - `frus-examples/http`: the form's state tests, rewritten.
+- `local_task.rs`, for the handle: a cancelled task is dropped and never polled again;
+  awaiting a handle gives what the task returned, and `None` for one dropped with its owner.
+- `component.rs`: a task a function component owns ends when the component leaves the tree,
+  and its handler changes the component's `UseState`.
+- `relayout.rs`: a viewport sized by its content grows with it, and the same page is still
+  reused.
+
+## In a browser
+
+`scripts/web-async-handler-check.py` drives the http example's form in headless Edge, through
+the accessibility tree, and holds the POST in the browser (the DevTools protocol's Fetch
+domain) to look at the page while the handler waits:
+
+- while the request is held the page says "Sending…", and still does a second later: the
+  handler changed the state before its `await`, and the frames go on while it waits;
+- let go, the answer is shown and the form is unlocked;
+- a second send is held and the page left while it waits: the answer that comes after shows
+  nothing and throws nothing.
+
+The first run failed at the answer: the card was cut off at the height the form had before.
+Master did the same, with `use_future`: a pre-existing bug, not this milestone's. A
+scrollable with no size of its own has been as tall as its content since milestone 590, but
+the relayout cache still fingerprinted it as a leaf — style only — so a page that grew kept
+its old viewport, frame after frame, until the window changed size. The test driver showed
+it too once it was given the real page (the clip stayed at 352 px of 641). The fingerprint
+now takes the content in whenever the viewport is measured from it; the rule that says when
+(`viewport_sizing`) is shared by the layout and the fingerprint, so they cannot disagree.
 - Two doctests: `StateHandle::spawn`, `StateContext::async_callback`.
 
 Wakes are tagged with the thread whose task they wake: an application has one interface
@@ -108,10 +153,7 @@ line is the one the new test kills.
 
 ## Not done
 
-- **Function components** (`component(|cx| …)` with hooks) have no owned task: they use
-  `spawn_local` with a `use_state` value, which is not dropped with the component.
-- **Cancelling a task by hand**, or answering a value from one (`JoinHandle`). A task that is
-  replaced — a second press while the first is out — runs beside it; the example's button is
-  disabled while it sends.
-- **A browser check.** On the web the same code runs on the browser's loop; it is compiled for
-  wasm and linted there, not run in a browser for this milestone.
+- **A task replaced by the next press** is not cancelled for you: a handler that wants only the
+  latest keeps the `TaskHandle` and cancels it (the guide's search example). A helper for that
+  pattern can come when a second application asks for it.
+- **A phone in a browser**: the check ran in headless Edge on the desktop.

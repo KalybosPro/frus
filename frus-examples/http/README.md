@@ -27,6 +27,10 @@ offline (airplane mode), too slow, not found, a server error.
   value arrives. Retry and refresh are a counter in the page's state, part of `deps`.
   `FutureBuilder` is the same thing as a widget, for a piece of a page that loads on its
   own.
+- **An `async` handler** — the New post form's Send is `cx.async_callback(|state| async move
+  { … })`: it locks the form, awaits the POST, and shows the answer, in that order and in one
+  place. The task runs on the interface's thread, holds the page's state, and ends with the
+  page if it is left before the answer comes.
 - **`RemoteData`** — `Loading` / `Success` / `Failure`, the shape a page matches on.
 - **An API client** — base URL, headers and timeout in one place, typed functions that
   return `Result<T, ApiError>`, and one mapping from transport errors to user-facing ones.

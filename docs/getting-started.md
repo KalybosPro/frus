@@ -132,6 +132,67 @@ the answer comes, the task is dropped with it, and nothing is changed on a page 
 `StateHandle::spawn(future)` starts the same kind of task from anywhere a handle is held, and
 `spawn_local(future)` one that nothing owns.
 
+A function component has the same handler, owned by the component. Its tasks end when the
+component leaves the screen:
+
+```rust
+use frus::{column, fetch, BuildContext, Button, Text, Widget};
+
+fn quote(cx: &BuildContext) -> Box<dyn Widget> {
+    let text = cx.use_state(String::new);
+    let loading = cx.use_state(|| false);
+    let (t, l) = (text.clone(), loading.clone());
+    let load = cx.async_callback(move || {
+        let (text, loading) = (t.clone(), l.clone());
+        async move {
+            loading.set(true);
+            text.set(fetch("https://example.com/quote").await.unwrap_or_default());
+            loading.set(false);
+        }
+    });
+    Box::new(column![
+        Text::new(text.get()),
+        Button::new("New quote").enabled(!loading.get()).on_press(load),
+    ])
+}
+```
+
+`cx.task_scope()` gives the owner itself: clone it into an effect or a handler, and
+`scope.spawn(future)` starts a task that ends with the component.
+
+**Stopping a task, or waiting for its result.** `spawn_local`, `StateHandle::spawn` and
+`TaskScope::spawn` return a `TaskHandle`. Dropping the handle leaves the task running.
+`handle.cancel()` stops the task: the future is dropped at once, unfinished. That is how a
+search field keeps only the latest search:
+
+```rust
+use frus::{StateContext, TaskHandle};
+
+struct SearchState {
+    query: String,
+    results: Vec<String>,
+    running: Option<TaskHandle<()>>,
+}
+
+impl SearchState {
+    fn search(&mut self, cx: &StateContext<Self>, query: String) {
+        if let Some(previous) = self.running.take() {
+            previous.cancel(); // the answer to the last query is no longer wanted
+        }
+        let state = cx.handle();
+        self.query = query.clone();
+        self.running = Some(state.clone().spawn(async move {
+            let results = api::search(&query).await;
+            state.set_state(|s| s.results = results);
+        }));
+    }
+}
+```
+
+A handle can also be awaited from another task: `let total = handle.await;`. The result is
+`Some(value)`, or `None` if the task ended without returning one (it was cancelled, or its
+owner left the screen).
+
 **The page needs it to show itself: `use_future`.** Data a page shows as soon as it opens is
 asked for while it builds, and asked again when what it depends on changes:
 

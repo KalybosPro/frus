@@ -107,6 +107,7 @@ use frus_layout::Style;
 
 use crate::callback::Callback;
 use crate::interaction::{Status, WidgetId};
+use crate::local_task::TaskScope;
 use crate::runtime::Runtime;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -858,6 +859,45 @@ impl<'a> BuildContext<'a> {
             period,
             callback: on_tick.into(),
         });
+    }
+
+    /// Starts tasks owned by this component: they run on the interface's thread, may hold its
+    /// [`UseState`]s, and are dropped, unfinished, once it has left the tree. Clone it into
+    /// an effect or a handler; see [`async_callback`](Self::async_callback) for the common case.
+    pub fn task_scope(&self) -> TaskScope {
+        let hooks = Rc::downgrade(&self.hooks());
+        TaskScope::new(move || hooks.upgrade().is_some_and(|hooks| !hooks.disposed.get()))
+    }
+
+    /// An `async` handler, owned by this component: each time it is called, `task`'s future
+    /// runs on the interface's thread, between frames.
+    ///
+    /// ```no_run
+    /// # use frus_widgets::{column, Button, BuildContext, Text, Widget};
+    /// # async fn fetch_quote() -> String { String::new() }
+    /// fn quote(cx: &BuildContext) -> Box<dyn Widget> {
+    ///     let text = cx.use_state(String::new);
+    ///     let loading = cx.use_state(|| false);
+    ///     let (t, l) = (text.clone(), loading.clone());
+    ///     let load = cx.async_callback(move || {
+    ///         let (text, loading) = (t.clone(), l.clone());
+    ///         async move {
+    ///             loading.set(true);
+    ///             text.set(fetch_quote().await);
+    ///             loading.set(false);
+    ///         }
+    ///     });
+    ///     Box::new(column![
+    ///         Text::new(text.get()),
+    ///         Button::new("New quote").enabled(!loading.get()).on_press(load),
+    ///     ])
+    /// }
+    /// ```
+    pub fn async_callback<F>(&self, task: impl Fn() -> F + 'static) -> Callback
+    where
+        F: std::future::Future<Output = ()> + 'static,
+    {
+        self.task_scope().async_callback(task)
     }
 
     /// Says, for this build, whether something this component shows — a menu, a dialog, a
@@ -1746,6 +1786,41 @@ mod tests {
         crate::run_local_tasks();
         assert_eq!(handle.read(|s| s.count), 42, "the answer, once it came");
         assert!(take_rebuild_request());
+    }
+
+    #[test]
+    fn a_task_a_function_component_owns_ends_when_it_leaves_the_tree() {
+        let runtime = Runtime::default();
+        let dropped = Rc::new(Cell::new(false));
+        let press: Rc<RefCell<Option<Callback>>> = Rc::default();
+        let (d, p) = (dropped.clone(), press.clone());
+        let counted = Rc::new(Cell::new(0));
+        let c = counted.clone();
+        let owner = component(move |cx| {
+            let count = cx.use_state(|| 0);
+            let (d, c, count) = (d.clone(), c.clone(), count.clone());
+            *p.borrow_mut() = Some(cx.async_callback(move || {
+                let (d, c, count) = (d.clone(), c.clone(), count.clone());
+                async move {
+                    count.update(|n| *n += 1);
+                    c.set(count.get());
+                    Forever(d).await;
+                }
+            }));
+            Box::new(Container::new())
+        });
+        frame(&runtime, &Flex::column().child(owner));
+        let before = crate::local_tasks();
+        press.borrow().clone().unwrap().call();
+        assert_eq!(counted.get(), 0, "the press only starts it");
+        crate::run_local_tasks();
+        assert_eq!(counted.get(), 1, "it changes the component's state");
+        assert_eq!(crate::local_tasks(), before + 1, "and waits");
+
+        frame(&runtime, &Flex::column().child(Container::new()));
+        crate::run_local_tasks();
+        assert!(dropped.get(), "the component has gone, and so has its task");
+        assert_eq!(crate::local_tasks(), before);
     }
 
     #[test]

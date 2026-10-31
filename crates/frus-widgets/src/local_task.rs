@@ -1,5 +1,6 @@
 //! Work that waits, on the interface's own thread (milestone 714): [`spawn_local`],
-//! [`StateHandle::spawn`] and [`StateContext::async_callback`].
+//! [`StateHandle::spawn`], [`StateContext::async_callback`], and, for function components,
+//! [`TaskScope`].
 //!
 //! A handler that sends a form wants to say, in one place, what happens: the button turns
 //! busy, the request goes out, the answer is shown. [`spawn_async`](crate::host::spawn_async) runs
@@ -14,13 +15,14 @@
 //! ([`run_local_tasks`]) before it builds. A task owned by a state is dropped, unfinished,
 //! once that state has left the tree: what it was waiting for no longer has anyone to tell.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Wake, Waker};
+use std::task::{Context, Poll, Wake, Waker};
 use std::thread::ThreadId;
 
 use crate::component::{State, StateContext, StateHandle};
@@ -28,21 +30,150 @@ use crate::Callback;
 
 type LocalFuture = Pin<Box<dyn Future<Output = ()>>>;
 
-/// One task: the future, and, when a state owns it, whether that state is still there.
+/// One task: the future, and whether it is still wanted — not cancelled, and, when a state
+/// or a component owns it, that owner still there.
 struct Entry {
     future: LocalFuture,
-    alive: Option<Box<dyn Fn() -> bool>>,
+    alive: Box<dyn Fn() -> bool>,
 }
 
 impl Entry {
     fn alive(&self) -> bool {
-        self.alive.as_ref().is_none_or(|alive| alive())
+        (self.alive)()
+    }
+}
+
+/// What a task and its [`TaskHandle`] share.
+struct Shared<T> {
+    output: RefCell<Option<T>>,
+    /// The task has ended: finished, cancelled, or dropped with its owner.
+    ended: Cell<bool>,
+    cancelled: Cell<bool>,
+    /// A task awaiting the handle.
+    waiter: RefCell<Option<Waker>>,
+}
+
+/// Lives inside the task's future: when the future is dropped — finished, cancelled, or
+/// with its owner — the task has ended, and whoever awaits its handle is told.
+struct Ending<T>(Rc<Shared<T>>);
+
+impl<T> Drop for Ending<T> {
+    fn drop(&mut self) {
+        self.0.ended.set(true);
+        let waiter = self.0.waiter.borrow_mut().take();
+        if let Some(waiter) = waiter {
+            waiter.wake();
+        }
+    }
+}
+
+/// A task started with [`spawn_local`], [`StateHandle::spawn`] or [`TaskScope::spawn`].
+///
+/// Dropping it leaves the task running. [`cancel`](Self::cancel) stops it; awaiting it, from
+/// another task, gives what the task returned — `None` if it ended without returning:
+/// cancelled, or dropped with the state that owned it.
+///
+/// A search field that keeps only the latest search cancels the one before:
+///
+/// ```no_run
+/// use frus_widgets::{spawn_local, TaskHandle};
+///
+/// # async fn search(_: String) -> Vec<String> { Vec::new() }
+/// struct Search {
+///     running: Option<TaskHandle<()>>,
+/// }
+///
+/// impl Search {
+///     fn on_change(&mut self, query: String) {
+///         if let Some(previous) = self.running.take() {
+///             previous.cancel();
+///         }
+///         self.running = Some(spawn_local(async move {
+///             let results = search(query).await;
+///             println!("{} results", results.len());
+///         }));
+///     }
+/// }
+/// ```
+pub struct TaskHandle<T> {
+    id: u64,
+    shared: Rc<Shared<T>>,
+}
+
+impl<T> TaskHandle<T> {
+    /// Stops the task: its future is dropped now, unfinished, and never polled again. A task
+    /// that has already ended is left as it is.
+    pub fn cancel(&self) {
+        if self.shared.ended.get() {
+            return;
+        }
+        self.shared.cancelled.set(true);
+        // Dropped once out of the table: its destructors may start a task of their own. A
+        // task that cancels itself is not in the table while it runs, and is not put back.
+        let entry = take(self.id);
+        drop(entry);
+    }
+
+    /// Whether the task has ended: finished, cancelled, or dropped with its owner.
+    pub fn is_finished(&self) -> bool {
+        self.shared.ended.get()
+    }
+}
+
+impl<T> std::fmt::Debug for TaskHandle<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskHandle")
+            .field("id", &self.id)
+            .field("finished", &self.shared.ended.get())
+            .finish()
+    }
+}
+
+impl<T> Future for TaskHandle<T> {
+    type Output = Option<T>;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<T>> {
+        if let Some(output) = self.shared.output.borrow_mut().take() {
+            return Poll::Ready(Some(output));
+        }
+        if self.shared.ended.get() {
+            return Poll::Ready(None);
+        }
+        *self.shared.waiter.borrow_mut() = Some(cx.waker().clone());
+        Poll::Pending
     }
 }
 
 thread_local! {
     /// The tasks of this thread — the interface's — by number.
     static TASKS: RefCell<HashMap<u64, Entry>> = RefCell::new(HashMap::new());
+}
+
+// The table is reached only through these functions, compiled once in frus: a generic or
+// inlined one would be copied into the application, and a hot patch of it would get a table
+// of its own (milestone 669).
+
+#[inline(never)]
+fn put(id: u64, entry: Entry) {
+    TASKS.with(|tasks| tasks.borrow_mut().insert(id, entry));
+}
+
+#[inline(never)]
+fn take(id: u64) -> Option<Entry> {
+    TASKS.with(|tasks| tasks.borrow_mut().remove(&id))
+}
+
+/// Takes out the tasks no longer wanted.
+#[inline(never)]
+fn take_gone() -> Vec<Entry> {
+    TASKS.with(|tasks| {
+        let mut tasks = tasks.borrow_mut();
+        let ids: Vec<u64> = tasks
+            .iter()
+            .filter(|(_, entry)| !entry.alive())
+            .map(|(id, _)| *id)
+            .collect();
+        ids.into_iter().filter_map(|id| tasks.remove(&id)).collect()
+    })
 }
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -91,12 +222,31 @@ impl Wake for TaskWaker {
     }
 }
 
-fn insert(future: LocalFuture, alive: Option<Box<dyn Fn() -> bool>>) {
+fn insert<T: 'static>(
+    future: impl Future<Output = T> + 'static,
+    owner: Option<Box<dyn Fn() -> bool>>,
+) -> TaskHandle<T> {
     let id = NEXT.fetch_add(1, Ordering::Relaxed);
-    TASKS.with(|tasks| tasks.borrow_mut().insert(id, Entry { future, alive }));
+    let shared = Rc::new(Shared {
+        output: RefCell::new(None),
+        ended: Cell::new(false),
+        cancelled: Cell::new(false),
+        waiter: RefCell::new(None),
+    });
+    let ending = Ending(shared.clone());
+    let future: LocalFuture = Box::pin(async move {
+        let ending = ending;
+        let output = future.await;
+        *ending.0.output.borrow_mut() = Some(output);
+    });
+    let wanted = shared.clone();
+    let alive: Box<dyn Fn() -> bool> =
+        Box::new(move || !wanted.cancelled.get() && owner.as_ref().is_none_or(|owner| owner()));
+    put(id, Entry { future, alive });
     // Its first poll is the next frame's: a task started from a handler runs once the
     // handler has returned, never in the middle of it.
     wake(std::thread::current().id(), id);
+    TaskHandle { id, shared }
 }
 
 /// Runs `future` on the interface's thread, between frames, to its end.
@@ -107,27 +257,63 @@ fn insert(future: LocalFuture, alive: Option<Box<dyn Fn() -> bool>>) {
 /// computation belongs to [`spawn`](crate::host::spawn), whose work runs on another thread.
 ///
 /// Nothing owns it, so it runs even after the widget that started it has gone; a task that
-/// changes a state is better started with [`StateHandle::spawn`], which ends with the state.
-pub fn spawn_local(future: impl Future<Output = ()> + 'static) {
-    insert(Box::pin(future), None);
+/// changes a state is better started with [`StateHandle::spawn`], which ends with the state,
+/// or, in a function component, with [`TaskScope::spawn`]. The [`TaskHandle`] it returns
+/// cancels it, or is awaited for what it returns.
+pub fn spawn_local<T: 'static>(future: impl Future<Output = T> + 'static) -> TaskHandle<T> {
+    insert(future, None)
+}
+
+/// Starts tasks owned by a function component: they are dropped, unfinished, once the
+/// component has left the tree. [`BuildContext::task_scope`](crate::BuildContext::task_scope)
+/// gives one; it is cheap to clone into a handler or an effect.
+#[derive(Clone)]
+pub struct TaskScope {
+    alive: Rc<dyn Fn() -> bool>,
+}
+
+impl TaskScope {
+    pub(crate) fn new(alive: impl Fn() -> bool + 'static) -> Self {
+        Self {
+            alive: Rc::new(alive),
+        }
+    }
+
+    /// Runs `future` on the interface's thread, owned by the component. See [`spawn_local`].
+    pub fn spawn<T: 'static>(&self, future: impl Future<Output = T> + 'static) -> TaskHandle<T> {
+        let alive = self.alive.clone();
+        insert(future, Some(Box::new(move || alive())))
+    }
+
+    /// An `async` handler: each time it is called, `task`'s future runs, owned by the
+    /// component.
+    pub fn async_callback<F>(&self, task: impl Fn() -> F + 'static) -> Callback
+    where
+        F: Future<Output = ()> + 'static,
+    {
+        let scope = self.clone();
+        Callback::new(move || {
+            scope.spawn(task());
+        })
+    }
+}
+
+impl std::fmt::Debug for TaskScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskScope")
+            .field("alive", &(self.alive)())
+            .finish()
+    }
 }
 
 /// Polls every task woken since the last time, and drops the tasks whose state has left the
 /// tree. The shell calls it at the start of each frame, before it builds: a task that changes
 /// a state asks for the rebuild that frame then makes. Answers whether any task ran.
+#[inline(never)]
 pub fn run_local_tasks() -> bool {
     // The tasks whose state has gone end here, woken or not. Taken out first and dropped
     // after: dropping a future runs its destructors, which may start a task of their own.
-    let gone: Vec<Entry> = TASKS.with(|tasks| {
-        let mut tasks = tasks.borrow_mut();
-        let ids: Vec<u64> = tasks
-            .iter()
-            .filter(|(_, entry)| !entry.alive())
-            .map(|(id, _)| *id)
-            .collect();
-        ids.into_iter().filter_map(|id| tasks.remove(&id)).collect()
-    });
-    drop(gone);
+    drop(take_gone());
 
     let thread = std::thread::current().id();
     let woken: Vec<u64> = WOKEN
@@ -146,20 +332,22 @@ pub fn run_local_tasks() -> bool {
     for id in woken {
         // Out of the table while it runs: a task may start another, or change a state whose
         // rebuild starts one.
-        let Some(mut entry) = TASKS.with(|tasks| tasks.borrow_mut().remove(&id)) else {
+        let Some(mut entry) = take(id) else {
             continue;
         };
         ran = true;
         let waker = Waker::from(Arc::new(TaskWaker(thread, id)));
         let mut cx = Context::from_waker(&waker);
-        if entry.future.as_mut().poll(&mut cx).is_pending() {
-            TASKS.with(|tasks| tasks.borrow_mut().insert(id, entry));
+        // A task that cancelled itself while it ran is not put back.
+        if entry.future.as_mut().poll(&mut cx).is_pending() && entry.alive() {
+            put(id, entry);
         }
     }
     ran
 }
 
 /// How many tasks are waiting or running on this thread.
+#[inline(never)]
 pub fn local_tasks() -> usize {
     TASKS.with(|tasks| tasks.borrow().len())
 }
@@ -208,12 +396,9 @@ impl<S: State> StateHandle<S> {
     ///     }
     /// }
     /// ```
-    pub fn spawn(&self, future: impl Future<Output = ()> + 'static) {
+    pub fn spawn<T: 'static>(&self, future: impl Future<Output = T> + 'static) -> TaskHandle<T> {
         let handle = self.clone();
-        insert(
-            Box::pin(future),
-            Some(Box::new(move || handle.is_mounted())),
-        );
+        insert(future, Some(Box::new(move || handle.is_mounted())))
     }
 
     /// An `async` handler, for anything that takes a [`Callback`]: each time it is called,
@@ -224,7 +409,9 @@ impl<S: State> StateHandle<S> {
         F: Future<Output = ()> + 'static,
     {
         let handle = self.clone();
-        Callback::new(move || handle.spawn(task(handle.clone())))
+        Callback::new(move || {
+            handle.spawn(task(handle.clone()));
+        })
     }
 }
 
@@ -283,10 +470,7 @@ impl<S: State> StateContext<'_, '_, S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::Cell;
-    use std::rc::Rc;
     use std::sync::atomic::AtomicUsize;
-    use std::task::Poll;
     use std::time::{Duration, Instant};
 
     /// A value another thread hands over: pending until it is there, and then woken.
@@ -381,6 +565,59 @@ mod tests {
         assert_eq!(polls.get(), 1, "a frame does not poll a task nobody woke");
         given.give(1);
         run_local_tasks();
+        assert_eq!(local_tasks(), 0);
+    }
+
+    #[test]
+    fn a_cancelled_task_is_dropped_and_never_polled_again() {
+        let polls = Rc::new(Cell::new(0));
+        let p = polls.clone();
+        let handover = Handover::default();
+        let given = handover.clone();
+        let task = spawn_local(async move {
+            p.set(p.get() + 1);
+            handover.await;
+            p.set(p.get() + 1);
+        });
+        run_local_tasks();
+        assert_eq!(polls.get(), 1);
+        assert!(!task.is_finished());
+        let before = local_tasks();
+        task.cancel();
+        assert!(task.is_finished(), "cancelled is ended");
+        assert_eq!(local_tasks(), before - 1, "its future is dropped at once");
+        given.give(1);
+        run_local_tasks();
+        assert_eq!(polls.get(), 1, "and what it awaited no longer wakes it");
+    }
+
+    #[test]
+    fn awaiting_a_handle_gives_what_the_task_returned() {
+        let handover = Handover::default();
+        let given = handover.clone();
+        let doubled = spawn_local(async move { handover.await * 2 });
+        // A task whose owner will leave before it ends.
+        let owned = Rc::new(Cell::new(true));
+        let o = owned.clone();
+        let orphan = TaskScope::new(move || o.get()).spawn(std::future::pending::<u32>());
+        let seen = Rc::new(Cell::new(None));
+        let s = seen.clone();
+        spawn_local(async move {
+            let value = doubled.await;
+            let gone = orphan.await;
+            s.set(Some((value, gone)));
+        });
+        while run_local_tasks() {}
+        given.give(21);
+        while run_local_tasks() {}
+        assert_eq!(seen.get(), None, "it still awaits the other");
+        owned.set(false);
+        while run_local_tasks() {}
+        assert_eq!(
+            seen.get(),
+            Some((Some(42), None)),
+            "a value from one, nothing from the one dropped with its owner"
+        );
         assert_eq!(local_tasks(), 0);
     }
 

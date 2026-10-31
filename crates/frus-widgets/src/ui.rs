@@ -1857,6 +1857,42 @@ pub(crate) fn effective_style<Msg>(
     style
 }
 
+/// Which axes of a scrollable's own box are measured from its content.
+#[derive(Clone, Copy)]
+pub(crate) struct ViewportSizing {
+    /// An axis that **neither scrolls nor was given a size**: the content is as big as it
+    /// is there, and the viewport is that big (milestone 485). A caller's number is a
+    /// caller's number, and an axis that scrolls has already answered.
+    pub hug_x: bool,
+    pub hug_y: bool,
+    /// An axis that **scrolls with no size given and no growing asked**: as big as the
+    /// content, up to the room on offer — the reference's viewport,
+    /// `constraints.constrain(child.size)` (milestone 590). It used to be 200 px.
+    pub clamp_x: bool,
+    pub clamp_y: bool,
+}
+
+impl ViewportSizing {
+    /// Whether the box depends on the content at all — and so whether a fingerprint of the
+    /// box must take the content in (milestone 714).
+    pub(crate) fn measured(self) -> bool {
+        self.hug_x || self.hug_y || self.clamp_x || self.clamp_y
+    }
+}
+
+pub(crate) fn viewport_sizing(
+    axis: crate::scroll::Axis,
+    style: &frus_layout::Style,
+) -> ViewportSizing {
+    let free_to_measure = |d| matches!(d, frus_layout::Dimension::Auto) && style.flex_grow == 0.0;
+    ViewportSizing {
+        hug_x: !axis.free_x() && matches!(style.width, frus_layout::Dimension::Auto),
+        hug_y: !axis.free_y() && matches!(style.height, frus_layout::Dimension::Auto),
+        clamp_x: axis.free_x() && free_to_measure(style.width),
+        clamp_y: axis.free_y() && free_to_measure(style.height),
+    }
+}
+
 /// Builds the main layout tree (a scrollable is a **leaf**). `id`/`runtime` are what inject
 /// the animated size through [`effective_style`], following the walk's identity scheme
 /// (`child_id`) **exactly**.
@@ -2276,17 +2312,12 @@ fn build_layout_scoped<'a, Msg>(
     if let Some(content) = widget.scroll_content() {
         let style = effective_style(widget, id, runtime, theme);
         let axis = widget.scroll_axis();
-        // Only an axis that **neither scrolls nor was given a size**. A caller's number is
-        // a caller's number, and an axis that scrolls has already answered.
-        let hug_x = !axis.free_x() && matches!(style.width, frus_layout::Dimension::Auto);
-        let hug_y = !axis.free_y() && matches!(style.height, frus_layout::Dimension::Auto);
-        // And an axis that **scrolls with no size given and no growing asked**: as big as
-        // the content, up to the room on offer — the reference's viewport,
-        // `constraints.constrain(child.size)` (milestone 590). It used to be 200 px.
-        let free_to_measure =
-            |d| matches!(d, frus_layout::Dimension::Auto) && style.flex_grow == 0.0;
-        let clamp_x = axis.free_x() && free_to_measure(style.width);
-        let clamp_y = axis.free_y() && free_to_measure(style.height);
+        let ViewportSizing {
+            hug_x,
+            hug_y,
+            clamp_x,
+            clamp_y,
+        } = viewport_sizing(axis, &style);
         if hug_x || hug_y || clamp_x || clamp_y {
             let owned = owned_theme(theme);
             let cid = child_id(id, 0, content);

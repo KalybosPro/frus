@@ -357,7 +357,9 @@ pub use listtile::{
     LIST_TILE_MIN_VERTICAL_PADDING, LIST_TILE_PADDING_END, LIST_TILE_PADDING_START,
     LIST_TILE_TITLE_GAP,
 };
-pub use local_task::{local_tasks, run_local_tasks, set_local_wake, spawn_local};
+pub use local_task::{
+    local_tasks, run_local_tasks, set_local_wake, spawn_local, TaskHandle, TaskScope,
+};
 pub use locale::Locale;
 pub use localizations::{English, French, Localizations};
 #[cfg(feature = "lottie")]
