@@ -145,7 +145,11 @@ pub struct ExpansionPanelList<Msg = crate::callback::Callback> {
 impl<Msg: Clone + 'static> ExpansionPanelList<Msg> {
     /// A list where **any number** of panels can be open: the ones that are, and
     /// `on_toggle(index, now_open)` when a header is pressed.
-    pub fn new(open: &[usize], on_toggle: impl Fn(usize, bool) -> Msg + 'static) -> Self {
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
+        open: &[usize],
+        on_toggle: impl Fn(usize, bool) -> R1 + 'static,
+    ) -> Self {
+        let on_toggle = crate::callback::handler2(on_toggle);
         Self::with_mode(Mode::Free(open.to_vec(), Rc::new(on_toggle)))
     }
 
@@ -156,7 +160,11 @@ impl<Msg: Clone + 'static> ExpansionPanelList<Msg> {
     /// Pressing the open one sends `None`, which shuts it. The reference's radio list
     /// cannot be shut at all; this one can, because a panel a reader has opened and read
     /// is a panel they may want out of the way, and there is no other control for it.
-    pub fn radio(open: Option<usize>, on_open: impl Fn(Option<usize>) -> Msg + 'static) -> Self {
+    pub fn radio<R1: crate::callback::IntoMsg<Msg>>(
+        open: Option<usize>,
+        on_open: impl Fn(Option<usize>) -> R1 + 'static,
+    ) -> Self {
+        let on_open = crate::callback::handler1(on_open);
         Self::with_mode(Mode::Radio(open, Rc::new(on_open)))
     }
 

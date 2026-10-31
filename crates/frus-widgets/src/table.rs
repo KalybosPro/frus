@@ -858,11 +858,12 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// Turns on **multi-selection**: a checkbox column (on the left) topped by a "check all"
     /// box. `on_check(row)` toggles one row, `on_check_all` toggles every row. The checked
     /// state mirrors [`selected`](Self::selected).
-    pub fn checkboxes(
+    pub fn checkboxes<R1: crate::callback::IntoMsg<Msg>>(
         mut self,
-        on_check: impl Fn(usize) -> Msg + 'static,
+        on_check: impl Fn(usize) -> R1 + 'static,
         on_check_all: Msg,
     ) -> Self {
+        let on_check = crate::callback::handler1(on_check);
         self.on_check = Some(Rc::new(on_check));
         self.on_check_all = Some(on_check_all);
         self.rebuild();

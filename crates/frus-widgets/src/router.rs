@@ -1121,7 +1121,16 @@ impl GoRouter {
         let depth = pages.len();
         // A page is built told how far in it is: the transition's own number, seen from
         // this page — the one arriving has it as it is, the one leaving has it the other way.
-        let make = |page: &Page, entering: f32| -> Box<dyn Widget> {
+        // A page with one beneath it knows the way back: its app bar grows the arrow
+        // (milestone 716). Every page is in a scope, the first one too, so that a page
+        // keeps its place in the tree whatever is pushed over it.
+        let pop = {
+            let router = self.clone();
+            crate::Callback::new(move || {
+                router.pop();
+            })
+        };
+        let make_page = |page: &Page, entering: f32| -> Box<dyn Widget> {
             let state = GoRouterState {
                 entering,
                 ..(*page.state).clone()
@@ -1137,6 +1146,13 @@ impl GoRouter {
                 },
             }
         };
+        let make = |page: &Page, at: usize, entering: f32| -> Box<dyn Widget> {
+            let back = (at > 0).then(|| pop.clone());
+            Box::new(crate::ScaffoldScope::new(
+                crate::ScaffoldInfo::route(back),
+                make_page(page, entering),
+            ))
+        };
         let key_of = |page: &Page, depth: usize| (depth, page.key);
         let top = pages.last().expect("a router has at least one page");
 
@@ -1144,17 +1160,18 @@ impl GoRouter {
         if let Some(progress) = back {
             if depth >= 2 {
                 let below = &pages[depth - 2];
-                let mut navigator = Navigator::new(key_of(below, depth - 2), make(below, progress))
-                    .from(
-                        key_of(top, depth - 1),
-                        make(top, 1.0 - progress),
-                        progress,
-                        false,
-                    )
-                    // The finger drives it: the pages follow linearly.
-                    .gesture(true);
+                let mut navigator =
+                    Navigator::new(key_of(below, depth - 2), make(below, depth - 2, progress))
+                        .from(
+                            key_of(top, depth - 1),
+                            make(top, depth - 1, 1.0 - progress),
+                            progress,
+                            false,
+                        )
+                        // The finger drives it: the pages follow linearly.
+                        .gesture(true);
                 for (at, page) in pages[..depth - 2].iter().enumerate() {
-                    navigator = navigator.retain(key_of(page, at), make(page, 1.0));
+                    navigator = navigator.retain(key_of(page, at), make(page, at, 1.0));
                 }
                 return Box::new(navigator);
             }
@@ -1168,24 +1185,25 @@ impl GoRouter {
                     .iter()
                     .position(|page| page.key == from.key)
                     .unwrap_or(depth);
-                let mut navigator = Navigator::new(key_of(top, depth - 1), make(top, progress))
-                    .from(
+                let mut navigator =
+                    Navigator::new(key_of(top, depth - 1), make(top, depth - 1, progress)).from(
                         key_of(&from, from_depth),
-                        make(&from, 1.0 - progress),
+                        make(&from, from_depth, 1.0 - progress),
                         progress,
                         forward,
                     );
                 for (at, page) in pages[..depth - 1].iter().enumerate() {
                     if page.key != from.key {
-                        navigator = navigator.retain(key_of(page, at), make(page, 1.0));
+                        navigator = navigator.retain(key_of(page, at), make(page, at, 1.0));
                     }
                 }
                 Box::new(navigator)
             }
             None => {
-                let mut navigator = Navigator::new(key_of(top, depth - 1), make(top, 1.0));
+                let mut navigator =
+                    Navigator::new(key_of(top, depth - 1), make(top, depth - 1, 1.0));
                 for (at, page) in pages[..depth - 1].iter().enumerate() {
-                    navigator = navigator.retain(key_of(page, at), make(page, 1.0));
+                    navigator = navigator.retain(key_of(page, at), make(page, at, 1.0));
                 }
                 Box::new(navigator)
             }

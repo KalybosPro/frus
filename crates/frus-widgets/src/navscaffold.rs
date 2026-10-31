@@ -60,11 +60,12 @@ impl<Msg> NavScaffold<Msg> {
 impl<Msg: Clone + 'static> NavScaffold<Msg> {
     /// Creates a scaffold: `class` decides the presentation, `selected` the active
     /// destination, and `on_select(i)` is emitted when a destination is chosen.
-    pub fn new(
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
         class: SizeClass,
         selected: usize,
-        on_select: impl Fn(usize) -> Msg + 'static,
+        on_select: impl Fn(usize) -> R1 + 'static,
     ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
         Self {
             class,
             selected,

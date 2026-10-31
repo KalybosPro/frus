@@ -157,6 +157,11 @@ impl FabLocation {
 
 /// The screen shell. A fluent builder finished by [`Scaffold::build`].
 pub struct Scaffold<Msg = crate::callback::Callback> {
+    inner: crate::lazy::Lazy<ScaffoldParts<Msg>, Msg>,
+}
+
+/// What a [`Scaffold`] is made of, until it is laid out (milestone 716).
+struct ScaffoldParts<Msg> {
     width: f32,
     height: f32,
     insets: Insets,
@@ -202,6 +207,17 @@ impl<Msg: Clone + 'static> Default for Scaffold<Msg> {
 }
 
 impl<Msg: Clone + 'static> Scaffold<Msg> {
+    fn from_parts(parts: ScaffoldParts<Msg>) -> Self {
+        Self {
+            inner: crate::lazy::Lazy::new(parts, Self::build_parts),
+        }
+    }
+
+    /// The parts, while they are being set.
+    fn p(&mut self) -> &mut ScaffoldParts<Msg> {
+        self.inner.parts_mut()
+    }
+
     /// Creates a shell for **the surface it is being built for**.
     ///
     /// The size and the intrusions both come from [`MediaQuery::of`]: the application
@@ -219,7 +235,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// [`Scaffold::nav_placement`] to have it anywhere else.
     pub fn new() -> Self {
         let surface = MediaQuery::of();
-        Self {
+        Self::from_parts(ScaffoldParts {
             width: surface.size.width,
             height: surface.size.height,
             insets: surface.padding,
@@ -257,7 +273,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             primary: true,
             drawer_scrim_color: None,
             drawer_barrier_dismissible: true,
-        }
+        })
     }
 
     /// The surface's size, in logical pixels — an **override**.
@@ -266,8 +282,8 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// cases that are not the whole screen: a shell laid into a sub-region of one, and
     /// a test that would rather state a size than install a description for it.
     pub fn size(mut self, width: f32, height: f32) -> Self {
-        self.width = width;
-        self.height = height;
+        self.p().width = width;
+        self.p().height = height;
         self
     }
 
@@ -278,7 +294,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// content off the soft keyboard as well, give it both halves with
     /// [`Scaffold::window_insets`].
     pub fn insets(mut self, insets: Insets) -> Self {
-        self.insets = insets;
+        self.p().insets = insets;
         self
     }
 
@@ -289,9 +305,9 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// [`Scaffold::resize_to_avoid_bottom_inset`] decides whether the keyboard pushes
     /// the content up, and no setting lets content sit under the navigation bar.
     pub fn window_insets(mut self, insets: WindowInsets) -> Self {
-        self.insets = insets.padding;
-        self.view_insets = insets.view_insets;
-        self.view_padding = insets.view_padding;
+        self.p().insets = insets.padding;
+        self.p().view_insets = insets.view_insets;
+        self.p().view_padding = insets.view_padding;
         self
     }
 
@@ -302,7 +318,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// the bottom of it. The permanent insets are unaffected: content never goes
     /// under the navigation bar.
     pub fn resize_to_avoid_bottom_inset(mut self, resize: bool) -> Self {
-        self.resize_to_avoid_bottom_inset = resize;
+        self.p().resize_to_avoid_bottom_inset = resize;
         self
     }
 
@@ -313,7 +329,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// through it. The body's own content then needs bottom padding of its own, or
     /// its last row hides behind the bar.
     pub fn extend_body(mut self, extend: bool) -> Self {
-        self.extend_body = extend;
+        self.p().extend_body = extend;
         self
     }
 
@@ -323,19 +339,19 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// For a translucent bar over an image or a hero header. Same warning as
     /// [`Scaffold::extend_body`]: the content behind the bar is the body's business.
     pub fn extend_body_behind_app_bar(mut self, extend: bool) -> Self {
-        self.extend_body_behind_app_bar = extend;
+        self.p().extend_body_behind_app_bar = extend;
         self
     }
 
     /// Background color, spread edge to edge, including under the system bars.
     pub fn background(mut self, color: Color) -> Self {
-        self.background = Some(color);
+        self.p().background = Some(color);
         self
     }
 
     /// The application bar, pinned at the top.
     pub fn app_bar(mut self, widget: impl Widget<Msg> + 'static) -> Self {
-        self.app_bar = Some(Box::new(widget));
+        self.p().app_bar = Some(Box::new(widget));
         self
     }
 
@@ -364,7 +380,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// .body(SafeArea::new(form))
     /// ```
     pub fn body(mut self, widget: impl Widget<Msg> + 'static) -> Self {
-        self.body = Some(Box::new(widget));
+        self.p().body = Some(Box::new(widget));
         self
     }
 
@@ -373,9 +389,14 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     ///
     /// The destinations go in a **bottom bar** unless
     /// [`Scaffold::nav_placement`] says otherwise.
-    pub fn nav(mut self, selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
-        self.selected = selected;
-        self.on_select = Some(Box::new(on_select));
+    pub fn nav<R1: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        selected: usize,
+        on_select: impl Fn(usize) -> R1 + 'static,
+    ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
+        self.p().selected = selected;
+        self.p().on_select = Some(Box::new(on_select));
         self
     }
 
@@ -384,7 +405,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// Fixed either way — the scaffold will not move the navigation because the
     /// window changed size. For that, use [`NavScaffold`](crate::NavScaffold).
     pub fn nav_placement(mut self, placement: NavPlacement) -> Self {
-        self.nav_placement = placement;
+        self.p().nav_placement = placement;
         self
     }
 
@@ -394,7 +415,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// Unsaid, each keeps the default the reference gives it: a rail shows no labels, a
     /// bar shows them all (milestone 432).
     pub fn nav_labels(mut self, labels: RailLabels) -> Self {
-        self.nav_labels = Some(labels);
+        self.p().nav_labels = Some(labels);
         self
     }
 
@@ -419,7 +440,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         mut self,
         configure: impl FnOnce(NavigationRail<Msg>) -> NavigationRail<Msg> + 'static,
     ) -> Self {
-        self.rail = Some(Box::new(configure));
+        self.p().rail = Some(Box::new(configure));
         self
     }
 
@@ -429,7 +450,8 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         icon: impl Into<crate::navrail::DestinationIcon>,
         label: impl Into<String>,
     ) -> Self {
-        self.destinations
+        self.p()
+            .destinations
             .push(NavigationDestination::new(icon, label));
         self
     }
@@ -457,7 +479,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         mut self,
         destinations: impl IntoIterator<Item = NavigationDestination>,
     ) -> Self {
-        self.destinations.extend(destinations);
+        self.p().destinations.extend(destinations);
         self
     }
 
@@ -499,7 +521,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
 
     /// Applies `f` to the destination just added. Silent when there is none.
     fn decorate(mut self, f: impl FnOnce(&mut NavigationDestination)) -> Self {
-        if let Some(last) = self.destinations.last_mut() {
+        if let Some(last) = self.p().destinations.last_mut() {
             f(last);
         }
         self
@@ -513,7 +535,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// [`Scaffold::end_drawer`] at once — they are different drawers with different
     /// jobs, not a choice of side.
     pub fn drawer(mut self, panel: impl Widget<Msg> + 'static, open: bool, toggle: Msg) -> Self {
-        self.drawer = Some((Box::new(panel), open, toggle));
+        self.p().drawer = Some((Box::new(panel), open, toggle));
         self
     }
 
@@ -525,7 +547,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         open: bool,
         toggle: Msg,
     ) -> Self {
-        self.end_drawer = Some((Box::new(panel), open, toggle));
+        self.p().end_drawer = Some((Box::new(panel), open, toggle));
         self
     }
 
@@ -537,7 +559,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// an "experimental — intercepts the bottom half of the screen" warning for a
     /// long time; a test now says otherwise.)
     pub fn fab(mut self, widget: impl Widget<Msg> + 'static) -> Self {
-        self.fab = Some(Box::new(widget));
+        self.p().fab = Some(Box::new(widget));
         self
     }
 
@@ -551,14 +573,14 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// A scaffold given both this and [`Scaffold::destination`]s keeps the navigation
     /// — being able to leave the screen outranks the actions on it.
     pub fn bottom_app_bar(mut self, bar: BottomAppBar<Msg>) -> Self {
-        self.bottom_app_bar = Some(bar);
+        self.p().bottom_app_bar = Some(bar);
         self
     }
 
     /// Where the FAB sits: which end of the row, and whether it floats clear of the
     /// bottom bar or docks astride its top edge. [`FabLocation::EndFloat`] by default.
     pub fn fab_location(mut self, location: FabLocation) -> Self {
-        self.fab_location = location;
+        self.p().fab_location = location;
         self
     }
 
@@ -570,7 +592,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// naming: the scaffold is handed the button as an opaque widget it cannot
     /// measure. A button of another size docks correctly once it says so.
     pub fn fab_size(mut self, size: f32) -> Self {
-        self.fab_size = size;
+        self.p().fab_size = size;
         self
     }
 
@@ -580,14 +602,14 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// Unlike the FAB it is not an overlay — it takes its own height out of the body,
     /// which is the point: it is part of the screen, not floating over it.
     pub fn persistent_footer(mut self, widget: impl Widget<Msg> + 'static) -> Self {
-        self.persistent_footer = Some(Box::new(widget));
+        self.p().persistent_footer = Some(Box::new(widget));
         self
     }
 
     /// How the persistent footer is aligned in its row ([`Justify::End`] by default,
     /// the conventional place for a confirming action).
     pub fn persistent_footer_alignment(mut self, alignment: Justify) -> Self {
-        self.persistent_footer_alignment = alignment;
+        self.p().persistent_footer_alignment = alignment;
         self
     }
 
@@ -598,7 +620,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         open: bool,
         toggle: Msg,
     ) -> Self {
-        self.bottom_sheet = Some((Box::new(panel), open, toggle));
+        self.p().bottom_sheet = Some((Box::new(panel), open, toggle));
         self
     }
 
@@ -616,7 +638,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// built, so the shell insets the slot from outside and there is one switch, not two.
     /// Milestone 394 records what a builder-based slot would change about that.
     pub fn primary(mut self, primary: bool) -> Self {
-        self.primary = primary;
+        self.p().primary = primary;
         self
     }
 
@@ -627,14 +649,14 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// The line is a [`Divider`](crate::Divider), so its colour and its thickness follow
     /// the theme like every other one, and a caller who wants neither says `false`.
     pub fn persistent_footer_divider(mut self, divider: bool) -> Self {
-        self.persistent_footer_divider = divider;
+        self.p().persistent_footer_divider = divider;
         self
     }
 
     /// The background behind the persistent footer. Unset, it is the shell's own — the
     /// footer is part of the screen, not a bar laid on it.
     pub fn persistent_footer_color(mut self, color: Color) -> Self {
-        self.persistent_footer_color = Some(color);
+        self.p().persistent_footer_color = Some(color);
         self
     }
 
@@ -644,7 +666,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     ///
     /// Both drawers take it, as the reference's single `drawerScrimColor` does.
     pub fn drawer_scrim_color(mut self, color: Color) -> Self {
-        self.drawer_scrim_color = Some(color);
+        self.p().drawer_scrim_color = Some(color);
         self
     }
 
@@ -654,13 +676,18 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// `false` is for a drawer holding something that must be answered — the way out is
     /// then a control inside the panel, and the screen behind stays unreachable.
     pub fn drawer_barrier_dismissible(mut self, dismissible: bool) -> Self {
-        self.drawer_barrier_dismissible = dismissible;
+        self.p().drawer_barrier_dismissible = dismissible;
         self
     }
 
     /// Assembles the shell into a widget ready to display.
     pub fn build(self) -> Box<dyn Widget<Msg>> {
-        let Scaffold {
+        self.inner.into_widget()
+    }
+
+    /// The assembly proper.
+    fn build_parts(parts: ScaffoldParts<Msg>) -> Box<dyn Widget<Msg>> {
+        let ScaffoldParts {
             width,
             height,
             insets,
@@ -692,7 +719,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             resize_to_avoid_bottom_inset,
             extend_body,
             extend_body_behind_app_bar,
-        } = self;
+        } = parts;
 
         // Where the navigation goes is what the caller asked for, and nothing else.
         // This used to be `SizeClass::from_width(width)`, which is how a phone
@@ -1218,6 +1245,46 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         }
     }
 }
+
+impl<Msg> Scaffold<Msg> {
+    /// Transparent: it is what it assembles.
+    fn restyle(&self, base: frus_layout::Style) -> frus_layout::Style {
+        base
+    }
+}
+
+// A builder is the widget it builds: no `.build()` needed (milestone 716).
+crate::transparent::forward_transparent!(Scaffold {
+    fn key(&self) -> Option<u64> {
+        self.inner.key()
+    }
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        self.inner.positioned()
+    }
+    fn theme_override(&self, inherited: &crate::theme::Theme) -> Option<Box<crate::theme::Theme>> {
+        self.inner.theme_override(inherited)
+    }
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        self.inner.media_override(inherited)
+    }
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        self.inner.scaffold_override()
+    }
+    fn scroll_behavior_override(&self) -> Option<crate::ScrollBehavior> {
+        self.inner.scroll_behavior_override()
+    }
+    /// Forwarded: a scope around a form is still that form (milestone 512).
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
+    }
+    /// Forwarded: the area's bar is the area's, whatever wraps it.
+    fn area_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+    ) -> Option<Option<&dyn crate::widget::Widget<Msg>>> {
+        self.inner.area_toolbar(context)
+    }
+});
 
 /// The floating action button the [`Scaffold`] examples show: **one character**, round,
 /// wired to a message.

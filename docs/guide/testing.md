@@ -85,6 +85,46 @@ the answer are plain functions — the address it builds, the JSON it decodes fr
 answer — and need no network. The call itself is left to the application's own runs, or to a
 test that the CI is allowed to make over the network.
 
+## A page, used as a person uses it: `Tester`
+
+`frus::Tester` runs the application with no window — no GPU, no device — and drives it the
+way a person does: it taps what reads "Add", types into the field labelled "Name", waits, and
+reads what the screen says. It is frus's `testing` feature, for the tests only:
+
+```toml
+[dev-dependencies]
+frus = { version = "0.5", features = ["testing"] }
+```
+
+```rust
+use frus::{component, Button, Column, FrusApp, Tester, Text, TextField, Widget};
+
+fn greeter() -> Box<dyn Widget> {
+    Box::new(component(|cx| {
+        let name = cx.use_state(String::new);
+        let greeted = cx.use_state(|| false);
+        let (typed, greet) = (name.clone(), greeted.clone());
+        Box::new(
+            Column::new()
+                .child(TextField::new(name.get()).label("Name").on_input(move |t: String| typed.set(t)))
+                .child(Button::new("Greet").on_press(move || greet.set(true)))
+                .child(Text::new(if greeted.get() { format!("Hello, {}!", name.get()) } else { String::new() })),
+        )
+    }))
+}
+
+// tests/greeter_test.rs
+let mut tester = Tester::new(FrusApp::from_fn(|_| greeter()));
+tester.enter_text("Name", "Ada").tap("Greet");
+assert!(tester.shows("Hello, Ada!"));
+```
+
+Every action draws frames until the screen is still: a page transition has ended, an animation
+has run. `wait(seconds)` lets time pass — a snack bar's four seconds, a timer —, `back()` is
+the system's back button, and `texts()` lists what the screen shows, which is what a failing
+assertion should print. A tap on something that is not on screen fails the test and says what
+was there.
+
 ## What the screen looks like: `frus-test`
 
 `frus-test` renders a widget offscreen, through the same pipeline as a window, and gives back

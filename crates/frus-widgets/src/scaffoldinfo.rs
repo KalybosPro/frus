@@ -39,6 +39,12 @@ pub struct ScaffoldInfo {
     drawer: Option<Rc<dyn Any>>,
     /// The same for the trailing drawer.
     end_drawer: Option<Rc<dyn Any>>,
+    /// The message that goes back to the page beneath, when there is one: a router's page
+    /// that is not the first (milestone 716).
+    back: Option<Rc<dyn Any>>,
+    /// Says only the way back, and keeps the drawers of the shell around it — what a
+    /// router's page says, which is not a shell of its own.
+    keeps_shell: bool,
 }
 
 impl ScaffoldInfo {
@@ -61,6 +67,50 @@ impl ScaffoldInfo {
     pub fn with_end_drawer<Msg: Clone + 'static>(mut self, toggle: Msg) -> Self {
         self.end_drawer = Some(Rc::new(toggle));
         self
+    }
+
+    /// Records the message that goes back to the page beneath.
+    #[must_use]
+    pub fn with_back<Msg: Clone + 'static>(mut self, back: Msg) -> Self {
+        self.back = Some(Rc::new(back));
+        self
+    }
+
+    /// What a router's page says: only the way back, if there is one, and the drawers of
+    /// whatever shell is around the router left as they are.
+    pub(crate) fn route(back: Option<crate::Callback>) -> Self {
+        Self {
+            back: back.map(|back| Rc::new(back) as Rc<dyn Any>),
+            keeps_shell: true,
+            ..Self::default()
+        }
+    }
+
+    /// This, completed by `outer`, the one it is installed inside: the way back reaches
+    /// every shell under the page that has it, and a page's own scope keeps its shell's
+    /// drawers.
+    fn inherit(mut self, outer: &ScaffoldInfo) -> Self {
+        if self.back.is_none() {
+            self.back = outer.back.clone();
+        }
+        if self.keeps_shell {
+            self.drawer = outer.drawer.clone();
+            self.end_drawer = outer.end_drawer.clone();
+            self.keeps_shell = outer.keeps_shell;
+        }
+        self
+    }
+
+    /// Whether there is a page beneath to go back to.
+    #[must_use]
+    pub fn can_go_back(&self) -> bool {
+        self.back.is_some()
+    }
+
+    /// The message that goes back, for a widget whose message type it **is**.
+    #[must_use]
+    pub fn back<Msg: Clone + 'static>(&self) -> Option<Msg> {
+        self.back.as_ref()?.downcast_ref::<Msg>().cloned()
     }
 
     /// Whether the shell has a drawer on the leading edge.
@@ -93,7 +143,9 @@ impl ScaffoldInfo {
     #[inline(never)]
     #[must_use]
     pub fn install(self) -> ScaffoldGuard {
-        ScaffoldGuard(AMBIENT.with(|a| a.replace(self)))
+        let outer = AMBIENT.with(|a| a.borrow().clone());
+        let info = self.inherit(&outer);
+        ScaffoldGuard(AMBIENT.with(|a| a.replace(info)))
     }
 
     /// Runs `body` with this in force, and puts back what was there.
@@ -112,6 +164,7 @@ impl ScaffoldInfo {
     pub(crate) fn shape_hash<H: Hasher>(&self, hasher: &mut H) {
         self.has_drawer().hash(hasher);
         self.has_end_drawer().hash(hasher);
+        self.can_go_back().hash(hasher);
     }
 }
 
@@ -132,6 +185,8 @@ thread_local! {
     static AMBIENT: RefCell<ScaffoldInfo> = const { RefCell::new(ScaffoldInfo {
         drawer: None,
         end_drawer: None,
+        back: None,
+        keeps_shell: false,
     }) };
 }
 
@@ -179,11 +234,10 @@ crate::transparent::forward_transparent!(ScaffoldScope {
     /// The shell this scope names — unless the child is itself a scope, in which case the
     /// **inner** one wins, exactly as a nested `Scaffold` wins in the reference.
     fn scaffold_override(&self) -> Option<ScaffoldInfo> {
-        Some(
-            self.inner
-                .scaffold_override()
-                .unwrap_or_else(|| self.info.clone()),
-        )
+        Some(match self.inner.scaffold_override() {
+            Some(inner) => inner.inherit(&self.info),
+            None => self.info.clone(),
+        })
     }
     fn scroll_behavior_override(&self) -> Option<crate::ScrollBehavior> {
         self.inner.scroll_behavior_override()

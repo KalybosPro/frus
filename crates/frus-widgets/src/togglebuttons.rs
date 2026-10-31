@@ -294,7 +294,11 @@ impl<Msg: Clone + 'static> ToggleButtons<Msg> {
     /// [`child`](Self::child) does; a child with no boolean beside it is not drawn, and a
     /// boolean with no child is nothing. The reference asserts the two lists are the same
     /// length, and this takes the shorter of them rather than panicking in a `view`.
-    pub fn new(selected: Vec<bool>, on_pressed: impl Fn(usize) -> Msg + 'static) -> Self {
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
+        selected: Vec<bool>,
+        on_pressed: impl Fn(usize) -> R1 + 'static,
+    ) -> Self {
+        let on_pressed = crate::callback::handler1(on_pressed);
         Self {
             selected,
             on_pressed: Box::new(on_pressed),

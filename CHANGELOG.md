@@ -13,6 +13,18 @@ any release may break.
 
 ## [Unreleased]
 
+- **Writing frus easily** (J716), the seven places the guide found harder than they should be:
+  - forty-five more callbacks take a plain closure (`Scaffold::nav(tab, move |i| tab.set(i))`),
+    as `on_input` already did;
+  - `host::show_snack_bar(SnackBar::new("Saved"))` — queue, timer and placement are frus's;
+  - a page the router pushed gets its app bar's back arrow on its own;
+  - `AppBar` and `Scaffold` are widgets: `.build()` is no longer needed;
+  - `ListView::builder(count, build)`: a lazy list of rows of any height;
+  - `cx.use_animation_controller(..)`: a controller the frames drive;
+  - `frus::Tester` (feature `testing`): a page tested as it is used — `tap`, `enter_text`,
+    `wait`, `shows`. Under it, the test driver now fires timers on its own clock.
+  A closure returning `()` given to a widget whose message type nothing names is now
+  ambiguous; name the type.
 - **A guide, with examples** (J715): `docs/guide/` takes each topic in turn — layout,
   text and the theme, input and forms, lists, navigation and dialogs, talking to a server,
   animation, testing — with complete examples. Every example is compiled by `cargo test --doc`,

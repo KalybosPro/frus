@@ -56,7 +56,12 @@ pub struct Pagination<Msg = crate::callback::Callback> {
 
 impl<Msg: Clone + 'static> Pagination<Msg> {
     /// Creates the picker: page `current` of `total`, with `on_select(p)` on click.
-    pub fn new(current: usize, total: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
+        current: usize,
+        total: usize,
+        on_select: impl Fn(usize) -> R1 + 'static,
+    ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
         let total = total.max(1);
         let mut pagination = Self {
             current: current.clamp(1, total),

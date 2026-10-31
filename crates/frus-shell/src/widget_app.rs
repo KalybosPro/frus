@@ -24,8 +24,8 @@ use std::rc::Rc;
 
 use frus_widgets::host::{self, Effect};
 use frus_widgets::{
-    BuildContext, Callback, Component, GoRouter, Locale, Localizations, StatefulWidget,
-    StatelessWidget, Theme, ThemeMode, Widget,
+    BuildContext, Callback, Component, GoRouter, Locale, Localizations, OverlayPortal, Placement,
+    SizedBox, StatefulWidget, StatelessWidget, Theme, ThemeMode, Widget,
 };
 
 use crate::application::{Application, LocationStrategy};
@@ -309,6 +309,40 @@ impl FrusApp {
         host::app().set_density(density);
         self
     }
+
+    /// What the application builds: its root, under the builder when it has one.
+    fn pages(&self) -> Box<dyn Widget<Callback>> {
+        let root = self.root.clone();
+        let Some(builder) = self.builder.clone() else {
+            return Box::new(Component::stateless(move |cx: &BuildContext| root(cx)));
+        };
+        let router = self.router.clone();
+        Box::new(Component::stateless(move |cx: &BuildContext| {
+            // The router provides itself when it builds the pages, which is after this; the
+            // builder reaches it from the first frame.
+            if let Some(router) = &router {
+                cx.runtime().states.provide(Rc::new(router.clone()));
+            }
+            // The pages are a component of their own, built where the builder puts them —
+            // under what it says of the window there.
+            let root = root.clone();
+            let pages: Box<dyn Widget> =
+                Box::new(Component::stateless(move |cx: &BuildContext| root(cx)));
+            builder(cx, pages)
+        }))
+    }
+}
+
+/// The application's pages, with the snack bar `host::show_snack_bar` asked for over them.
+///
+/// The pages are always a portal's anchor, with or without a bar, so that a bar coming or
+/// going never moves them in the tree: what they keep stays theirs. The bar itself is built
+/// by a component, at every rebuild, from the queue the host keeps (milestone 716).
+fn with_snack_bars(pages: Box<dyn Widget<Callback>>) -> Box<dyn Widget<Callback>> {
+    let bar = Component::stateless(|_: &BuildContext| -> Box<dyn Widget> {
+        host::current_snack_bar_widget().unwrap_or_else(|| Box::new(SizedBox::empty()))
+    });
+    Box::new(OverlayPortal::new_boxed(pages).overlay(bar, Placement::Notification))
 }
 
 impl Application for FrusApp {
@@ -348,24 +382,7 @@ impl Application for FrusApp {
     }
 
     fn view(&self, _theme: &Theme) -> Box<dyn Widget<Callback>> {
-        let root = self.root.clone();
-        let Some(builder) = self.builder.clone() else {
-            return Box::new(Component::stateless(move |cx: &BuildContext| root(cx)));
-        };
-        let router = self.router.clone();
-        Box::new(Component::stateless(move |cx: &BuildContext| {
-            // The router provides itself when it builds the pages, which is after this; the
-            // builder reaches it from the first frame.
-            if let Some(router) = &router {
-                cx.runtime().states.provide(Rc::new(router.clone()));
-            }
-            // The pages are a component of their own, built where the builder puts them —
-            // under what it says of the window there.
-            let root = root.clone();
-            let pages: Box<dyn Widget> =
-                Box::new(Component::stateless(move |cx: &BuildContext| root(cx)));
-            builder(cx, pages)
-        }))
+        with_snack_bars(self.pages())
     }
 
     fn taskbar(&self) -> crate::Taskbar {
@@ -396,7 +413,9 @@ impl Application for FrusApp {
     }
 
     fn tick(&mut self, dt: f32) -> bool {
-        self.router.as_ref().is_some_and(|router| router.tick(dt))
+        // The pages' own transition, and the controllers the components drive (milestone 716).
+        let paging = self.router.as_ref().is_some_and(|router| router.tick(dt));
+        frus_widgets::tick_animations(dt) | paging
     }
 
     fn location(&self) -> Option<String> {

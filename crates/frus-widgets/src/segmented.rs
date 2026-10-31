@@ -333,7 +333,11 @@ pub struct SegmentedButton<Msg = crate::callback::Callback> {
 
 impl<Msg: Clone + 'static> SegmentedButton<Msg> {
     /// Creates a control: `selected` is the active index, `on_select(i)` fires on click.
-    pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
+        selected: usize,
+        on_select: impl Fn(usize) -> R1 + 'static,
+    ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
         Self {
             selected,
             on_select: Box::new(on_select),

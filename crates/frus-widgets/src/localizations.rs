@@ -763,7 +763,8 @@ mod tests {
 
         scope(Rc::new(French), || {
             // A calendar: the month over it, and the arrows either side of it.
-            let picker = crate::DatePicker::new(2026, 1, Some(15), |_: u32| (), |_: i32| ());
+            let picker: crate::DatePicker<()> =
+                crate::DatePicker::new(2026, 1, Some(15), |_: u32| (), |_: i32| ());
             let ui = build_ui(
                 &picker,
                 Size::new(320.0, 360.0),

@@ -124,6 +124,11 @@ enum Action<Msg> {
 
 /// An adaptive application bar. A fluent builder finished by [`AppBar::build`].
 pub struct AppBar<Msg = crate::callback::Callback> {
+    inner: crate::lazy::Lazy<AppBarParts<Msg>, Msg>,
+}
+
+/// What a [`AppBar`] is made of, until it is laid out (milestone 716).
+struct AppBarParts<Msg> {
     title: Option<Box<dyn Widget<Msg>>>,
     title_style: Option<TextStyle>,
     /// Was the title's style left at the framework's default? Only then may the theme
@@ -173,6 +178,17 @@ impl<Msg: Clone + 'static> Default for AppBar<Msg> {
 }
 
 impl<Msg: Clone + 'static> AppBar<Msg> {
+    fn from_parts(parts: AppBarParts<Msg>) -> Self {
+        Self {
+            inner: crate::lazy::Lazy::new(parts, Self::build_parts),
+        }
+    }
+
+    /// The parts, while they are being set.
+    fn p(&mut self) -> &mut AppBarParts<Msg> {
+        self.inner.parts_mut()
+    }
+
     /// Creates a bar with **no title**, as wide as **the surface it is being built
     /// for** — which is what decides how many actions fit on the line and how many
     /// fold into the overflow menu.
@@ -190,7 +206,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// `AppBar::new().title(Text::new("Inbox"))` is `AppBar::new().title(Text::new("Inbox"))`.
     pub fn new() -> Self {
         let surface = MediaQuery::of();
-        Self {
+        Self::from_parts(AppBarParts {
             // **A widget, never a string — and not always one.** The reference's `title`
             // is a `Widget?` and nothing else (`app_bar.dart:1067`). A string constructor
             // that took a second path through the bar is what made a bar's accessibility
@@ -237,7 +253,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             actions_icon_theme: None,
             toolbar_text_style: None,
             exclude_header_semantics: false,
-        }
+        })
     }
 
     /// The **available width** for the bar, in logical pixels: what drives the
@@ -246,14 +262,14 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// An override. [`AppBar::new`] already takes the surface's width from
     /// [`MediaQuery::of`]; this is for a bar that does not get the whole of it.
     pub fn width(mut self, width: f32) -> Self {
-        self.width = width;
+        self.p().width = width;
         self
     }
 
     /// The text title's style (size/weight/italic/color). Default: the reference's
     /// `title_large` at medium weight, in the theme's colour.
     pub fn title_style(mut self, style: TextStyle) -> Self {
-        self.title_style = Some(style);
+        self.p().title_style = Some(style);
         self
     }
 
@@ -273,13 +289,13 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// [`AppBar::new`] took a string until milestone 522. There is one kind, and it is
     /// optional.
     pub fn title(mut self, widget: impl Widget<Msg> + 'static) -> Self {
-        self.title = Some(Box::new(widget));
+        self.p().title = Some(Box::new(widget));
         self
     }
 
     /// The leading element (a menu or back button…), optional.
     pub fn leading(mut self, widget: impl Widget<Msg> + 'static) -> Self {
-        self.leading = Some(Box::new(widget));
+        self.p().leading = Some(Box::new(widget));
         self
     }
 
@@ -299,7 +315,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// `false` is for a bar that wants its leading slot empty on a screen that has a
     /// drawer: a logo where the button would be, and some other way in.
     pub fn automatically_imply_leading(mut self, imply: bool) -> Self {
-        self.automatically_imply_leading = imply;
+        self.p().automatically_imply_leading = imply;
         self
     }
 
@@ -311,14 +327,14 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// test is the same — the implied button is what fills an **empty** end, never
     /// something added beside what the caller put there.
     pub fn automatically_imply_actions(mut self, imply: bool) -> Self {
-        self.automatically_imply_actions = imply;
+        self.p().automatically_imply_actions = imply;
         self
     }
 
     /// Enables the overflow menu: its open state (controlled by the app) and the
     /// toggle message (emitted by the `⋯` button and on an outside click).
     pub fn overflow(mut self, open: bool, toggle: Msg) -> Self {
-        self.overflow = Some((open, toggle));
+        self.p().overflow = Some((open, toggle));
         self
     }
 
@@ -335,7 +351,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// **Breaking**: until milestone 613 this took a label and a message and made the
     /// foldable button; that is now `foldable_action`, and this is what `action_widget` was.
     pub fn action(mut self, widget: impl Widget<Msg> + 'static) -> Self {
-        self.actions.push(Action::Custom(Box::new(widget)));
+        self.p().actions.push(Action::Custom(Box::new(widget)));
         self
     }
 
@@ -343,7 +359,9 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// the reference's `actions: [...]` in one call. The same as [`AppBar::action`] for
     /// each, in order.
     pub fn actions(mut self, actions: impl IntoIterator<Item = Box<dyn Widget<Msg>>>) -> Self {
-        self.actions.extend(actions.into_iter().map(Action::Custom));
+        self.p()
+            .actions
+            .extend(actions.into_iter().map(Action::Custom));
         self
     }
 
@@ -355,7 +373,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// its width without the application measuring anything. It was `action` until
     /// milestone 613.
     pub fn foldable_action(mut self, label: impl Into<String>, message: Msg) -> Self {
-        self.actions.push(Action::Labeled {
+        self.p().actions.push(Action::Labeled {
             label: label.into(),
             message,
         });
@@ -373,7 +391,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
 
     /// The foldable actions' font size (the theme's `label_large` by default).
     pub fn action_size(mut self, size: f32) -> Self {
-        self.action_size = Some(size);
+        self.p().action_size = Some(size);
         self
     }
 
@@ -392,25 +410,25 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// under the first.
     #[must_use]
     pub fn primary(mut self, primary: bool) -> Self {
-        self.primary = primary;
+        self.p().primary = primary;
         self
     }
 
     /// The space between the bar's elements (8 px by default).
     pub fn gap(mut self, gap: f32) -> Self {
-        self.gap = gap;
+        self.p().gap = gap;
         self
     }
 
     /// The bar's background color (transparent by default: the parent decides).
     pub fn background(mut self, color: Color) -> Self {
-        self.background = Some(color);
+        self.p().background = Some(color);
         self
     }
 
     /// An imposed bar height (by default, the content's natural height).
     pub fn height(mut self, height: f32) -> Self {
-        self.height = Some(height);
+        self.p().height = Some(height);
         self
     }
 
@@ -424,14 +442,14 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// Centred, the title still yields to the actions first: it is centred in what is
     /// left, not in the window.
     pub fn center_title(mut self, centered: bool) -> Self {
-        self.center_title = Some(centered);
+        self.p().center_title = Some(centered);
         self
     }
 
     /// A widget **under** the bar, spanning its width — a row of tabs, a search field,
     /// a progress bar. It belongs to the bar, so it sits inside the background.
     pub fn bottom(mut self, widget: impl Widget<Msg> + 'static) -> Self {
-        self.bottom = Some(Box::new(widget));
+        self.p().bottom = Some(Box::new(widget));
         self
     }
 
@@ -439,20 +457,20 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// a leading wider than that would otherwise push the title without the folding
     /// budget knowing, and the actions would run off the edge.
     pub fn leading_width(mut self, width: f32) -> Self {
-        self.leading_width = Some(width);
+        self.p().leading_width = Some(width);
         self
     }
 
     /// The gap between the leading and the title.
     pub fn title_spacing(mut self, spacing: f32) -> Self {
-        self.title_spacing = spacing;
+        self.p().title_spacing = spacing;
         self
     }
 
     /// The colour of the bar's own text — the title, and the labelled actions. Unset,
     /// each follows the theme.
     pub fn foreground(mut self, color: Color) -> Self {
-        self.foreground = Some(color);
+        self.p().foreground = Some(color);
         self
     }
 
@@ -463,7 +481,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// and tints only where a [`surface_tint`](Self::surface_tint) is: the reference's
     /// Material 3 bar makes both transparent (its app bar defaults, lines 2542 and 2545).
     pub fn elevation(mut self, elevation: f32) -> Self {
-        self.elevation = elevation.max(0.0);
+        self.p().elevation = elevation.max(0.0);
         self
     }
 
@@ -481,7 +499,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// **Breaking**: this took a `BorderRadius` under the same name until milestone 455.
     /// A caller passing a number says [`radius`](Self::radius) instead.
     pub fn shape(mut self, shape: ShapeBorder) -> Self {
-        self.shape = Some(shape);
+        self.p().shape = Some(shape);
         self
     }
 
@@ -489,7 +507,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// one field [`shape`](Self::shape) does. The last of the two called is the one that
     /// counts.
     pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
-        self.shape = Some(ShapeBorder::rounded(radius));
+        self.p().shape = Some(ShapeBorder::rounded(radius));
         self
     }
 
@@ -500,7 +518,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// the reference's Material 3 bar is (its app bar defaults, line 2542), and an
     /// elevated bar casts nothing.
     pub fn shadow_color(mut self, color: Color) -> Self {
-        self.shadow_color = Some(color);
+        self.p().shadow_color = Some(color);
         self
     }
 
@@ -516,7 +534,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// Nothing is tinted at elevation zero, which is the default: a flat bar is the
     /// surface it was given.
     pub fn surface_tint(mut self, color: Color) -> Self {
-        self.surface_tint = Some(color);
+        self.p().surface_tint = Some(color);
         self
     }
 
@@ -528,7 +546,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// else. It overrides the background, the tint and the elevation rather than
     /// arguing with them, because a caller asking for transparency has already decided.
     pub fn force_material_transparency(mut self, force: bool) -> Self {
-        self.force_material_transparency = force;
+        self.p().force_material_transparency = force;
         self
     }
 
@@ -539,14 +557,14 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// out while its background stays, and it is a **group** opacity: overlapping
     /// children do not darken where they overlap.
     pub fn toolbar_opacity(mut self, opacity: f32) -> Self {
-        self.toolbar_opacity = opacity.clamp(0.0, 1.0);
+        self.p().toolbar_opacity = opacity.clamp(0.0, 1.0);
         self
     }
 
     /// The opacity of the [`bottom`](Self::bottom) slot, independently of the toolbar.
     /// `1.0` by default. The reference's `bottomOpacity`.
     pub fn bottom_opacity(mut self, opacity: f32) -> Self {
-        self.bottom_opacity = opacity.clamp(0.0, 1.0);
+        self.p().bottom_opacity = opacity.clamp(0.0, 1.0);
         self
     }
 
@@ -557,7 +575,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// icon button's own hit area already reaches the bar's edge, so a design that wants
     /// the *glyphs* inset has nowhere else to say so.
     pub fn actions_padding(mut self, padding: f32) -> Self {
-        self.actions_padding = Some(padding);
+        self.p().actions_padding = Some(padding);
         self
     }
     /// Stops the title being announced as a **heading**. `false` by default, as the
@@ -568,7 +586,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// or one of two bars on a page where only the outer one names it — announcing both
     /// as headings gives the user two landmarks where there is one screen.
     pub fn exclude_header_semantics(mut self, exclude: bool) -> Self {
-        self.exclude_header_semantics = exclude;
+        self.p().exclude_header_semantics = exclude;
         self
     }
 
@@ -584,7 +602,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// still tints what is behind, and a caller who wants only the image says
     /// [`force_material_transparency`](Self::force_material_transparency).
     pub fn flexible_space(mut self, widget: impl Widget<Msg> + 'static) -> Self {
-        self.flexible_space = Some(Box::new(widget));
+        self.p().flexible_space = Some(Box::new(widget));
         self
     }
 
@@ -598,7 +616,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     ///
     /// An icon that names its own colour still wins: `caller ?? this ?? the scheme`.
     pub fn icon_theme(mut self, icons: IconTheme) -> Self {
-        self.icon_theme = Some(icons);
+        self.p().icon_theme = Some(icons);
         self
     }
 
@@ -608,7 +626,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// with the leading slot, which is the case it exists for: a back arrow in the
     /// foreground colour beside actions in a muted one.
     pub fn actions_icon_theme(mut self, icons: IconTheme) -> Self {
-        self.actions_icon_theme = Some(icons);
+        self.p().actions_icon_theme = Some(icons);
         self
     }
 
@@ -626,7 +644,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// a `Text` that chose its own size keeps it. See
     /// [`DefaultTextStyle`](crate::DefaultTextStyle) for the rule in full.
     pub fn toolbar_text_style(mut self, style: TextStyle) -> Self {
-        self.toolbar_text_style = Some(style);
+        self.p().toolbar_text_style = Some(style);
         self
     }
 
@@ -675,15 +693,20 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     ///
     /// [`ThemeBuilder`]: crate::ThemeBuilder
     pub fn build(self) -> Box<dyn Widget<Msg>> {
+        self.inner.into_widget()
+    }
+
+    /// The parts, composed once the theme is known.
+    fn build_parts(parts: AppBarParts<Msg>) -> Box<dyn Widget<Msg>> {
         Box::new(crate::themebuilder::ThemeBuilder::boxed(move |theme| {
-            self.build_with(theme)
+            Self::build_with(parts, theme)
         }))
     }
 
     /// The composition proper, against a known theme.
-    fn build_with(self, theme: &Theme) -> Box<dyn Widget<Msg>> {
+    fn build_with(parts: AppBarParts<Msg>, theme: &Theme) -> Box<dyn Widget<Msg>> {
         let t = theme.widgets.app_bar;
-        let AppBar {
+        let AppBarParts {
             title,
             title_style,
             width,
@@ -716,7 +739,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             actions_icon_theme,
             toolbar_text_style,
             exclude_header_semantics,
-        } = self;
+        } = parts;
 
         // **Is that width a measurement or a sentinel?** `AppBar::new` takes the surface's
         // width from the ambient description, and falls back to `f32::MAX` when nothing
@@ -734,19 +757,33 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         // this composition runs under that ambient because it is deferred.
         //
         // A bar with no `leading` of its own, on a screen with a drawer, grows the button
-        // that opens it — the reference's first branch at `app_bar.dart:1010`. The second,
-        // a back button for a route that can be popped, has no counterpart: frus's
-        // `Navigator` is controlled, so there is no stack depth for the framework to read.
+        // that opens it — the reference's first branch at `app_bar.dart:1010`. The second
+        // is the way back: on a router's page with a page beneath, the router says how to
+        // go back, and the bar grows the arrow that does (milestone 716). The arrow is the
+        // platform's: a chevron on Apple's systems.
         let shell = crate::ScaffoldInfo::of();
         let leading = leading.or_else(|| {
             if !automatically_imply_leading {
                 return None;
             }
-            let toggle = shell.drawer_toggle::<Msg>()?;
-            Some(
-                Box::new(crate::IconButton::new(crate::Icons::MENU).on_press(toggle))
-                    as Box<dyn Widget<Msg>>,
-            )
+            if let Some(toggle) = shell.drawer_toggle::<Msg>() {
+                return Some(
+                    Box::new(crate::IconButton::new(crate::Icons::MENU).on_press(toggle))
+                        as Box<dyn Widget<Msg>>,
+                );
+            }
+            let back = shell.back::<Msg>()?;
+            let arrow = match theme.platform {
+                frus_core::TargetPlatform::Ios | frus_core::TargetPlatform::MacOs => {
+                    crate::Icons::ARROW_BACK_IOS
+                }
+                _ => crate::Icons::ARROW_BACK,
+            };
+            Some(Box::new(
+                crate::IconButton::new(arrow)
+                    .label(crate::localizations::of().back_button_label())
+                    .on_press(back),
+            ) as Box<dyn Widget<Msg>>)
         });
         // And the trailing end, on the same terms: **an empty end**, never a button added
         // beside what the caller put there (`app_bar.dart:1113`). An overflow toggle counts
@@ -1181,6 +1218,46 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         Box::new(chrome.child(content))
     }
 }
+
+impl<Msg> AppBar<Msg> {
+    /// Transparent: it is what it assembles.
+    fn restyle(&self, base: frus_layout::Style) -> frus_layout::Style {
+        base
+    }
+}
+
+// A builder is the widget it builds: no `.build()` needed (milestone 716).
+crate::transparent::forward_transparent!(AppBar {
+    fn key(&self) -> Option<u64> {
+        self.inner.key()
+    }
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        self.inner.positioned()
+    }
+    fn theme_override(&self, inherited: &crate::theme::Theme) -> Option<Box<crate::theme::Theme>> {
+        self.inner.theme_override(inherited)
+    }
+    fn media_override(&self, inherited: crate::MediaQuery) -> Option<crate::MediaQuery> {
+        self.inner.media_override(inherited)
+    }
+    fn scaffold_override(&self) -> Option<crate::ScaffoldInfo> {
+        self.inner.scaffold_override()
+    }
+    fn scroll_behavior_override(&self) -> Option<crate::ScrollBehavior> {
+        self.inner.scroll_behavior_override()
+    }
+    /// Forwarded: a scope around a form is still that form (milestone 512).
+    fn autofill_group(&self) -> bool {
+        self.inner.autofill_group()
+    }
+    /// Forwarded: the area's bar is the area's, whatever wraps it.
+    fn area_toolbar(
+        &self,
+        context: crate::ToolbarContext,
+    ) -> Option<Option<&dyn crate::widget::Widget<Msg>>> {
+        self.inner.area_toolbar(context)
+    }
+});
 
 #[cfg(test)]
 mod tests {

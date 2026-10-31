@@ -386,7 +386,11 @@ pub struct RadioGroup<Msg = crate::callback::Callback> {
 
 impl<Msg: Clone + 'static> RadioGroup<Msg> {
     /// Creates a group: the selected index plus an `index -> message` closure.
-    pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
+        selected: usize,
+        on_select: impl Fn(usize) -> R1 + 'static,
+    ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
         Self {
             selected,
             size: 18.0,

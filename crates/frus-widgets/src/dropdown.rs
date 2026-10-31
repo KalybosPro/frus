@@ -481,12 +481,13 @@ impl<Msg: Clone + 'static> DropdownButton<Msg> {
 
     /// Sets the options; if `open`, they float below the header. `on_select` maps
     /// the chosen index to a message.
-    pub fn options(
+    pub fn options<R1: crate::callback::IntoMsg<Msg>>(
         self,
         open: bool,
         labels: &[&str],
-        on_select: impl Fn(usize) -> Msg + 'static,
+        on_select: impl Fn(usize) -> R1 + 'static,
     ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
         let options = labels.iter().map(|s| DropdownOption::new(*s)).collect();
         self.options_widgets(open, options, on_select)
     }
@@ -496,12 +497,13 @@ impl<Msg: Clone + 'static> DropdownButton<Msg> {
     ///
     /// `on_select` is given the index into **this** list, so it is the caller's own order
     /// whatever the widget does with it.
-    pub fn options_widgets(
+    pub fn options_widgets<R1: crate::callback::IntoMsg<Msg>>(
         mut self,
         open: bool,
         options: Vec<DropdownOption<Msg>>,
-        on_select: impl Fn(usize) -> Msg + 'static,
+        on_select: impl Fn(usize) -> R1 + 'static,
     ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
         self.open = open;
         self.options = options;
         self.on_select = Some(Box::new(on_select));

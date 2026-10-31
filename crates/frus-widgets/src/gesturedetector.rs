@@ -145,21 +145,33 @@ impl<Msg: Clone + 'static> GestureDetector<Msg> {
 
     /// A **drag** has begun: `build` is given where the pointer went down, in the detector's
     /// own coordinates. A drag begins once the pointer has moved far enough to not be a tap.
-    pub fn on_pan_start(mut self, build: impl Fn(Point) -> Msg + 'static) -> Self {
+    pub fn on_pan_start<R1: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        build: impl Fn(Point) -> R1 + 'static,
+    ) -> Self {
+        let build = crate::callback::handler1(build);
         self.pan_start = Some(Box::new(build));
         self
     }
 
     /// The pointer moved during a drag: `build` is given where it is now, in the detector's
     /// own coordinates, and how far it moved since the last update.
-    pub fn on_pan_update(mut self, build: impl Fn(Point, Point) -> Msg + 'static) -> Self {
+    pub fn on_pan_update<R1: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        build: impl Fn(Point, Point) -> R1 + 'static,
+    ) -> Self {
+        let build = crate::callback::handler2(build);
         self.pan_update = Some(Box::new(build));
         self
     }
 
     /// The drag ended: `build` is given the velocity the pointer lifted at, in logical pixels
     /// per second.
-    pub fn on_pan_end(mut self, build: impl Fn(Point) -> Msg + 'static) -> Self {
+    pub fn on_pan_end<R1: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        build: impl Fn(Point) -> R1 + 'static,
+    ) -> Self {
+        let build = crate::callback::handler1(build);
         self.pan_end = Some(Box::new(build));
         self
     }

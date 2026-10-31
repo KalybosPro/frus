@@ -482,6 +482,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for GridView<Msg> {
             item_extent: tile_h + down,
             axis: crate::scroll::Axis::Vertical,
             build: &**rows,
+            variable: false,
         })
     }
 

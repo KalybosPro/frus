@@ -295,10 +295,11 @@ impl<Msg: Clone + 'static> LicensePage<Msg> {
     /// A page over everything [`add_all`] has registered. `selected` is which package is
     /// open — an index into the page's own list — and `on_select` carries the row that was
     /// touched, or `None` for the way back.
-    pub fn new(
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
         selected: Option<usize>,
-        on_select: impl Fn(Option<usize>) -> Msg + 'static,
+        on_select: impl Fn(Option<usize>) -> R1 + 'static,
     ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
         Self {
             notices: all(),
             selected,

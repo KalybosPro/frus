@@ -817,7 +817,11 @@ pub struct TabBar<Msg = crate::callback::Callback> {
 
 impl<Msg: Clone + 'static> TabBar<Msg> {
     /// Creates tabs: `selected` is the active index, `on_select(i)` the message on click.
-    pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
+        selected: usize,
+        on_select: impl Fn(usize) -> R1 + 'static,
+    ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
         let mut tabs = Self {
             selected,
             on_select: Rc::new(on_select),

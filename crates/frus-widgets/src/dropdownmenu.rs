@@ -102,12 +102,13 @@ impl<Msg: Clone + 'static> DropdownMenu<Msg> {
     /// `on_input` fires only while the menu is open, because that is the only time the
     /// field shows the query — see the module documentation. An application will usually
     /// open the menu on `on_toggle` and keep it open through `on_input`.
-    pub fn new(
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
         query: impl Into<String>,
         open: bool,
-        on_input: impl Fn(String) -> Msg + 'static,
+        on_input: impl Fn(String) -> R1 + 'static,
         on_toggle: Msg,
     ) -> Self {
+        let on_input = crate::callback::handler1(on_input);
         let mut menu = Self {
             query: query.into(),
             open,
@@ -264,7 +265,12 @@ impl<Msg: Clone + 'static> DropdownMenu<Msg> {
 
     /// The choices, as words. `on_select` maps the chosen index to a message.
     #[must_use]
-    pub fn options(self, labels: &[&str], on_select: impl Fn(usize) -> Msg + 'static) -> Self {
+    pub fn options<R1: crate::callback::IntoMsg<Msg>>(
+        self,
+        labels: &[&str],
+        on_select: impl Fn(usize) -> R1 + 'static,
+    ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
         let options = labels.iter().map(|s| DropdownOption::new(*s)).collect();
         self.options_widgets(options, on_select)
     }
@@ -275,11 +281,12 @@ impl<Msg: Clone + 'static> DropdownMenu<Msg> {
     /// showing. Handing back a filtered index is the classic bug in this control: it works
     /// perfectly until somebody types, and then picks the wrong thing silently.
     #[must_use]
-    pub fn options_widgets(
+    pub fn options_widgets<R1: crate::callback::IntoMsg<Msg>>(
         mut self,
         options: Vec<DropdownOption<Msg>>,
-        on_select: impl Fn(usize) -> Msg + 'static,
+        on_select: impl Fn(usize) -> R1 + 'static,
     ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
         self.options = options;
         self.on_select = Some(Rc::new(on_select));
         self.rebuild();

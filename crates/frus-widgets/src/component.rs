@@ -805,6 +805,19 @@ impl<'a> BuildContext<'a> {
         UseRef { cell }
     }
 
+    /// An animation this component drives: the controller `init` makes, kept as long as
+    /// the component is, and moved by the frames whenever it is started (milestone 716).
+    /// See [`AnimationHandle`](crate::AnimationHandle).
+    pub fn use_animation_controller(
+        &self,
+        init: impl FnOnce() -> frus_core::AnimationController,
+    ) -> crate::AnimationHandle {
+        let cell = self
+            .hooks()
+            .value(self.next_slot(), || RefCell::new(init()));
+        crate::AnimationHandle::from_shared(cell)
+    }
+
     /// `compute()`, kept until `deps` change. The work is not repeated on a rebuild that
     /// changes nothing it depends on.
     pub fn use_memo<D: PartialEq + 'static, T: 'static>(

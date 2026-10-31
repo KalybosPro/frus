@@ -27,12 +27,13 @@ pub struct CarouselView<Msg = crate::callback::Callback> {
 impl<Msg: Clone + 'static> CarouselView<Msg> {
     /// Creates the carousel: slide `index` of `count`, `on_change(i)` on the arrows,
     /// and the current slide's content — the app knows what to show for `index`.
-    pub fn new(
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
         index: usize,
         count: usize,
-        on_change: impl Fn(usize) -> Msg + 'static,
+        on_change: impl Fn(usize) -> R1 + 'static,
         slide: impl Widget<Msg> + 'static,
     ) -> Self {
+        let on_change = crate::callback::handler1(on_change);
         let prev = arrow("‹", (index > 0).then(|| on_change(index - 1)));
         let next = arrow("›", (index + 1 < count).then(|| on_change(index + 1)));
         Self {

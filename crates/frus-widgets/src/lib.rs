@@ -93,6 +93,7 @@ mod hero;
 mod mouseregion;
 // Documented inside (`host.rs`): an outer doc comment here would make its links resolve from
 // this scope rather than from the module's.
+mod animationhandle;
 pub mod host;
 mod icon;
 mod iconbutton;
@@ -108,6 +109,7 @@ mod kanban;
 mod kbd;
 mod keyed;
 mod layoutbuilder;
+mod lazy;
 pub mod licenses;
 mod list;
 mod listener;
@@ -124,6 +126,7 @@ mod media;
 mod mediascope;
 mod menu;
 mod menubar;
+mod messenger;
 mod navbar;
 mod navdrawer;
 mod navigator;
@@ -225,6 +228,7 @@ pub use animated::{
     AnimatedSlide, Opacity,
 };
 pub use animatedsize::{AnimatedSize, SizeAnimation};
+pub use animationhandle::{tick_animations, AnimationHandle};
 pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT, APP_BAR_MAX_TITLE_SCALE};
 pub use aspectratio::AspectRatio;
 pub use asyncbuild::{

@@ -992,6 +992,10 @@ pub struct App<A: Application> {
     /// any speed, in either direction, and a test that let go of a scroll saw it thrown back
     /// to the top (milestone 584, seen in CI).
     gesture_clock: Option<(f32, f32)>,
+    /// The delayed messages of a shell a test drives, each due at a time of that same clock:
+    /// with no event loop to wake it, a `Command::after` would otherwise never arrive, and
+    /// a test that waits for a snack bar to go would wait for ever (milestone 716).
+    driver_timers: Vec<(f32, A::Message)>,
     gesture_start: Instant,
     /// The pointer's **smoothed** abscissa during a reorder: it springs toward the
     /// real position, giving the columns' sliding a gentle inertia — the background
@@ -1255,6 +1259,7 @@ impl<A: Application> App<A> {
             pointer_touch: false,
             gesture_velocity: VelocityTracker::default(),
             gesture_clock: None,
+            driver_timers: Vec::new(),
             gesture_start: Instant::now(),
             reorder_x: 0.0,
             reorder_y: 0.0,
@@ -6079,6 +6084,13 @@ impl<A: Application> App<A> {
                     let _ = proxy.send_event(message);
                 }
             });
+        }
+        if let Some((now, _)) = self.gesture_clock {
+            for (delay, message) in parts.timers {
+                self.driver_timers
+                    .push((now + delay.as_secs_f32(), message));
+            }
+            return;
         }
         for (delay, message) in parts.timers {
             let proxy = self.proxy.clone();
@@ -11198,6 +11210,8 @@ pub mod testing {
         size: Size,
         /// Where the last frame drew a reorder's ghost, when it drew one.
         ghost: Option<Rect>,
+        /// Whether the application's animations moved at the last frame.
+        animating: bool,
     }
 
     impl<A: Application> Driver<A> {
@@ -11210,6 +11224,7 @@ pub mod testing {
                 shell,
                 size: Size::new(width, height),
                 ghost: None,
+                animating: false,
             }
         }
 
@@ -11649,6 +11664,15 @@ pub mod testing {
                 s.build_dirty = true;
                 s.app.on_resize(width, height);
             }
+            // The timers that came due on the driver's clock, in the order they were set.
+            let now = s.gesture_clock.map_or(0.0, |(now, _)| now);
+            let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut s.driver_timers)
+                .into_iter()
+                .partition(|(at, _)| *at <= now);
+            s.driver_timers = later;
+            for (_, message) in due {
+                s.dispatch(message);
+            }
             let mut app_animating = s.app.tick(dt);
             let settings = s
                 .platform
@@ -11728,6 +11752,13 @@ pub mod testing {
                 s.dispatch(message);
             }
             self.ghost = ghost;
+            self.animating = app_animating;
+        }
+
+        /// Whether the application's own animations — a page transition, a controller a
+        /// component started — were still moving at the last frame.
+        pub fn animating(&self) -> bool {
+            self.animating
         }
     }
 }
