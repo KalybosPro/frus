@@ -21,12 +21,8 @@ fn panels() -> impl Widget {
     component(|cx| {
         let selected = cx.use_state(|| 0_usize);
         let index = selected.get();
-        // A segmented button reports the segment that was tapped; the closure turns that
-        // into the work to do — store it.
-        let on_select = move |segment: usize| {
-            let selected = selected.clone();
-            (move || selected.set(segment)).into()
-        };
+        // A segmented button reports the segment that was tapped; the closure stores it.
+        let on_select = move |segment: usize| selected.set(segment);
         Box::new(
             Column::new()
                 .cross_axis_alignment(Align::Start)
