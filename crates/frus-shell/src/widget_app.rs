@@ -340,10 +340,7 @@ impl FrusApp {
 /// by a component, at every rebuild, from the queue the host keeps (milestone 716).
 fn with_snack_bars(pages: Box<dyn Widget<Callback>>) -> Box<dyn Widget<Callback>> {
     let bar = Component::stateless(|_: &BuildContext| -> Box<dyn Widget> {
-        match host::current_snack_bar() {
-            Some(bar) => Box::new(bar),
-            None => Box::new(SizedBox::empty()),
-        }
+        host::current_snack_bar_widget().unwrap_or_else(|| Box::new(SizedBox::empty()))
     });
     Box::new(OverlayPortal::new_boxed(pages).overlay(bar, Placement::Notification))
 }

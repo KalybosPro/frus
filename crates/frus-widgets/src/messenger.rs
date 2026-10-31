@@ -10,12 +10,13 @@
 //! hides the bar. The application's root (`FrusApp`) lays [`current_snack_bar`] over every page, so that a bar shown before a navigation is
 //! still there after it.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::time::Duration;
 
 use crate::callback::Callback;
 use crate::component::request_rebuild;
+use crate::widget::Widget;
 use crate::SnackBar;
 
 /// How long a bar stays when nothing says otherwise: the reference's four seconds.
@@ -33,8 +34,13 @@ struct Messenger {
     next_id: u64,
 }
 
+/// Turns the bar on screen, if any, into a widget.
+type MakeBar = fn() -> Option<Box<dyn Widget>>;
+
 thread_local! {
     static MESSENGER: RefCell<Messenger> = RefCell::new(Messenger::default());
+    /// What turns the bar on screen into a widget, once a bar has been shown.
+    static MAKE: Cell<Option<MakeBar>> = const { Cell::new(None) };
 }
 
 /// Shows `bar` for four seconds, after the bars already waiting.
@@ -59,6 +65,7 @@ pub fn show_snack_bar(bar: SnackBar) {
 /// Shows `bar` for `duration`, after the bars already waiting.
 #[inline(never)]
 pub fn show_snack_bar_for(bar: SnackBar, duration: Duration) {
+    install_maker();
     let bar = bar.map_action(|action| {
         Callback::new(move || {
             action.call();
@@ -100,6 +107,26 @@ pub fn hide_current_snack_bar() {
 pub fn clear_snack_bars() {
     MESSENGER.with(|messenger| messenger.borrow_mut().queue.clear());
     request_rebuild();
+}
+
+/// The bar on screen as a widget: what the application's root lays over its pages.
+///
+/// It goes through a function that [`show_snack_bar`] installs, so that an application that
+/// never shows a bar does not carry the code that draws one: every `FrusApp` asks this,
+/// and a counter grew by 400 KB when it asked [`current_snack_bar`] instead.
+#[inline(never)]
+pub fn current_snack_bar_widget() -> Option<Box<dyn Widget>> {
+    let make = MAKE.with(Cell::get)?;
+    make()
+}
+
+#[inline(never)]
+fn install_maker() {
+    MAKE.with(|make| make.set(Some(make_current)));
+}
+
+fn make_current() -> Option<Box<dyn Widget>> {
+    current_snack_bar().map(|bar| Box::new(bar) as Box<dyn Widget>)
 }
 
 /// The bar on screen, if there is one.
