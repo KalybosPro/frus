@@ -64,6 +64,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends libgtk-3-dev
           cargo build -p frus-shell --features tray
           cargo test -p frus-shell --features tray --lib tray::
+          # The guide's platform page, whose examples need every platform feature (milestone 718).
+          cargo test -p frus --features "file-dialogs notifications tray taskbar global-shortcuts" --doc
 
       # One iteration of every benchmark, for compile rot rather than for numbers:
       # a bench suite nobody builds decays exactly like an advisory check nobody

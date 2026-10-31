@@ -13,6 +13,10 @@ any release may break.
 
 ## [Unreleased]
 
+- **The guide gains a page on the system around the application** (J718): file dialogs, files
+  dropped on the window, notifications, the tray, the taskbar badge and progress, global
+  shortcuts, the application's icon and a single instance — which platform has which, and an
+  example of each, compiled with every platform feature on.
 - **A list keeps the reader's place** (J717): in `ListView::builder`, a row above the
   window that grows or shrinks (a picture loading, a row measured on the way back up) no longer
   moves the rows in view; the offset is corrected, a fling under way included. The test driver
