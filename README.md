@@ -13,7 +13,7 @@ One codebase → desktop, Android, and the web. GPU-rendered. Built from compone
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 [![Status](https://img.shields.io/badge/status-pre--alpha-yellow.svg)](#project-status)
 
-[Quick start](#quick-start) · [Gallery](#what-it-looks-like) · [Live widget gallery](https://kalybospro.github.io/frus/) · [Architecture](#architecture) · [Status](#project-status) · [Contributing](CONTRIBUTING.md) · [Français](README.fr.md)
+[Quick start](#quick-start) · [Guide](docs/guide/README.md) · [Gallery](#what-it-looks-like) · [Live widget gallery](https://kalybospro.github.io/frus/) · [Architecture](#architecture) · [Status](#project-status) · [Contributing](CONTRIBUTING.md) · [Français](README.fr.md)
 
 <br>
 
@@ -331,6 +331,7 @@ By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 ## Documentation
 
 - [Getting started](docs/getting-started.md) — write and run your first app
+- [The guide](docs/guide/README.md) — layout, style, input, lists, navigation, network, animation and testing, each with examples that compile
 - [Structuring an application](docs/app-structure.md) — splitting a growing app across modules
 - [Architecture](ARCHITECTURE.md) — how the crates fit together
 - [Roadmap](ROADMAP.md) — what's next and where help is wanted

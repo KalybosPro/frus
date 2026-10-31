@@ -13,6 +13,10 @@ any release may break.
 
 ## [Unreleased]
 
+- **A guide, with examples** (J715): `docs/guide/` takes each topic in turn — layout,
+  text and the theme, input and forms, lists, navigation and dialogs, talking to a server,
+  animation, testing — with complete examples. Every example is compiled by `cargo test --doc`,
+  and the ones with assertions run, so the guide cannot drift from the API.
 - **A handler can await** (J714): `cx.async_callback(|state| async move { … })` is a handler
   that changes the state, awaits a request, and changes it again, in one place — what a form's
   Send button wants. Its task runs on the interface's thread between frames, so it may hold the

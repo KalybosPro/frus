@@ -335,6 +335,7 @@ En participant, vous acceptez le [Code de conduite](CODE_OF_CONDUCT.md).
 ## Documentation
 
 - [Démarrer](docs/getting-started.md) — écrire et lancer votre première application
+- [Le guide](docs/guide/README.md) (en anglais) — mise en page, style, saisie, listes, navigation, réseau, animation et tests, chaque sujet avec des exemples qui compilent
 - [Structurer une application](docs/app-structure.md) — découper une application qui grandit en modules
 - [Architecture](ARCHITECTURE.md) — comment les crates s'assemblent
 - [Feuille de route](ROADMAP.md) — la suite, et où l'aide est souhaitée

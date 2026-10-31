@@ -14,6 +14,7 @@ opening an issue.
 | Document | What it is |
 | --- | --- |
 | [getting-started.md](getting-started.md) | Write and run your first frus application |
+| [guide/](guide/README.md) | The guide: one page per topic, every example compiled |
 | [brief.md](brief.md) | The original brief: vision, philosophy, working method |
 | [prior-art.md](prior-art.md) | Ideas from mature UI toolkits, evaluated for porting — what to take, what to fix |
 | [platform-integration.md](platform-integration.md) | What a developer writes, and where Rust stops: JNI, the dex shims, iOS without Swift |
