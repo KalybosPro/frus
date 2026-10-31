@@ -3051,6 +3051,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .map(|ui| ui.interactive_bounds())
                     .unwrap_or_default();
 
+                // What the last layout moved to keep a reader in place (milestone 717).
+                self.runtime.apply_scroll_corrections();
                 // A paged view that has been asked for another page glides across to
                 // it. Done before the springs are stepped, so the request is honoured
                 // in the frame it arrives rather than the one after.
@@ -11714,8 +11716,18 @@ pub mod testing {
                 s.ui.as_ref()
                     .map(|ui| ui.scroll_regions().to_vec())
                     .unwrap_or_default();
+            s.runtime.apply_scroll_corrections();
             s.runtime.sync_pages(&regions);
             s.runtime.sync_visible(&regions);
+            // The scroll requests the application made (`host::scroll_to`), as the window's
+            // frame takes them; one whose region is not laid out yet waits for the next
+            // frame (milestone 717: a test could not scroll a list before).
+            if let Some(tree) = s.tree.as_deref() {
+                let mut requests = std::mem::take(&mut s.retry_scroll);
+                requests.append(&mut s.pending_scroll);
+                let (retry, _) = apply_scroll_requests(&mut s.runtime, tree, requests, &regions);
+                s.retry_scroll = retry;
+            }
             s.runtime.advance(dt);
             s.runtime.advance_scroll(&regions, dt);
             let tree = s.tree.as_deref().expect("the view was built");

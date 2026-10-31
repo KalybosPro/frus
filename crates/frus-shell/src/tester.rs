@@ -350,4 +350,55 @@ mod tests {
         tester.tap("Go");
         assert!(tester.shows("at 1.0"), "{:?}", tester.texts());
     }
+
+    /// **A row above the window that grows does not move the rows being read**
+    /// (milestone 717): a picture that loads in a row half scrolled past, a row seen for the
+    /// first time on the way back up.
+    #[test]
+    fn a_row_half_scrolled_past_that_grows_leaves_the_rows_in_view_where_they_were() {
+        const LIST: &str = "feed";
+        let mut tester = Tester::sized(
+            app(|| {
+                Box::new(component(|cx| {
+                    let tall = cx.use_state(|| false);
+                    let grow = tall.clone();
+                    let third = tall.get();
+                    Box::new(
+                        Column::new()
+                            .child(Button::new("Grow").on_press(move || grow.set(true)))
+                            .child(frus_widgets::Expanded::new(frus_widgets::keyed(
+                                LIST,
+                                ListView::builder(100, move |i| {
+                                    let height = if i == 3 && third { 150.0 } else { 50.0 };
+                                    Column::new().child(Text::new(format!("row {i}"))).child(
+                                        frus_widgets::SizedBox::empty().height(height - 20.0),
+                                    )
+                                }),
+                            ))),
+                    ) as Box<dyn Widget>
+                }))
+            }),
+            300.0,
+            500.0,
+        );
+        // Down to the middle of row 3 (150..200): it starts above the window's top.
+        host::scroll_to(LIST, frus_widgets::ScrollTo::y(175.0).instant());
+        tester.settle();
+        let y = |tester: &Tester<FrusApp>, name: &str| {
+            tester
+                .driver
+                .texts()
+                .into_iter()
+                .find(|(t, _)| t == name)
+                .map(|(_, r)| r.y)
+                .unwrap_or_else(|| panic!("{name} not on screen: {:?}", tester.texts()))
+        };
+        let before = y(&tester, "row 6");
+        tester.tap("Grow");
+        let after = y(&tester, "row 6");
+        assert!(
+            (after - before).abs() < 1.0,
+            "row 6 moved from {before} to {after} when row 3, above it, grew"
+        );
+    }
 }

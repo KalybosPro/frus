@@ -17,6 +17,10 @@ any release may break.
   dropped on the window, notifications, the tray, the taskbar badge and progress, global
   shortcuts, the application's icon and a single instance — which platform has which, and an
   example of each, compiled with every platform feature on.
+- **A list keeps the reader's place** (J717): in `ListView::builder`, a row above the
+  window that grows or shrinks (a picture loading, a row measured on the way back up) no longer
+  moves the rows in view; the offset is corrected, a fling under way included. The test driver
+  now honours `host::scroll_to`.
 - **Writing frus easily** (J716), the seven places the guide found harder than they should be:
   - forty-five more callbacks take a plain closure (`Scaffold::nav(tab, move |i| tab.set(i))`),
     as `on_input` already did;

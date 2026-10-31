@@ -4684,26 +4684,74 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 // reaches, each laid out at its natural length and placed after the one
                 // before, until the window is full. A length that differs from what this
                 // frame assumed asks for another frame, which places the rest with it.
+                //
+                // **The reader keeps their place** (milestone 717). An item that starts above
+                // the window's top edge and turns out longer or shorter than counted -- a row
+                // seen for the first time on the way back up, a picture that loaded in a row
+                // half scrolled past -- would push everything under it down or pull it up,
+                // and the text being read would jump. So the window is measured first, and
+                // the offset moves by what those items changed, which keeps the rows in view
+                // where they were. The shell takes the correction into the region's offset at
+                // its next frame; this frame lays out with it already.
                 let origin = if across { viewport.x } else { viewport.y };
                 let free_cross = (cross_extent - cross_near - cross_far).max(0.0);
-                let (mut i, mut start) = known.first_at((offset - lead).max(0.0), guess);
+                // The whole width across, as a fixed list gives; along, its own length.
+                let constraints = match across {
+                    true => Constraints::axes(extent, free_cross, [true, false], [false, true]),
+                    false => Constraints::axes(free_cross, extent, [false, true], [true, false]),
+                };
                 let mut changed = false;
+                let mut laid = std::collections::HashMap::new();
+                let top = (offset - lead).max(0.0);
+                let (mut i, mut start) = known.first_at(top, guess);
+                let mut correction = 0.0;
                 while i < vlist.count && start < offset - lead + extent {
                     let item = (vlist.build)(i);
-                    // The whole width across, as a fixed list gives; along, its own length.
-                    let constraints = match across {
-                        true => Constraints::axes(extent, free_cross, [true, false], [false, true]),
-                        false => {
-                            Constraints::axes(free_cross, extent, [false, true], [true, false])
-                        }
-                    };
                     let item_rects = self.cached_rects(id.child(i), item.as_ref(), constraints);
                     let size = item_rects
                         .first()
                         .copied()
                         .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
                     let length = if across { size.width } else { size.height };
+                    if start < top {
+                        correction += length - known.extent(i, guess);
+                    }
                     changed |= known.measure(i, length);
+                    laid.insert(i, (item, item_rects, length));
+                    start += length;
+                    i += 1;
+                }
+                let offset = if correction.abs() > 0.01 {
+                    let delta = if across {
+                        (correction, 0.0)
+                    } else {
+                        (0.0, correction)
+                    };
+                    self.runtime
+                        .scroll_corrections
+                        .borrow_mut()
+                        .push((id, delta));
+                    offset + correction
+                } else {
+                    offset
+                };
+                let (mut i, mut start) = known.first_at((offset - lead).max(0.0), guess);
+                while i < vlist.count && start < offset - lead + extent {
+                    let (item, item_rects, length) = match laid.remove(&i) {
+                        Some(done) => done,
+                        None => {
+                            let item = (vlist.build)(i);
+                            let item_rects =
+                                self.cached_rects(id.child(i), item.as_ref(), constraints);
+                            let size = item_rects
+                                .first()
+                                .copied()
+                                .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+                            let length = if across { size.width } else { size.height };
+                            changed |= known.measure(i, length);
+                            (item, item_rects, length)
+                        }
+                    };
                     let along = if reverse {
                         origin + extent - lead - (start + length) + offset
                     } else {
