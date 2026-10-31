@@ -1668,6 +1668,86 @@ mod tests {
         assert!(!back_blocked(), "each build says it afresh");
     }
 
+    /// A future that never finishes, and says when it is dropped.
+    struct Forever(Rc<Cell<bool>>);
+
+    impl std::future::Future for Forever {
+        type Output = ();
+        fn poll(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<()> {
+            std::task::Poll::Pending
+        }
+    }
+
+    impl Drop for Forever {
+        fn drop(&mut self) {
+            self.0.set(true);
+        }
+    }
+
+    #[test]
+    fn a_task_a_state_owns_ends_when_the_state_leaves_the_tree() {
+        let (runtime, log, out) = (Runtime::default(), log(), handle());
+        frame(&runtime, &Flex::column().child(life(1, &log, &out)));
+        let handle = out.borrow().clone().unwrap();
+        let dropped = Rc::new(Cell::new(false));
+        let before = crate::local_tasks();
+        handle.spawn(Forever(dropped.clone()));
+        crate::run_local_tasks();
+        assert_eq!(
+            crate::local_tasks(),
+            before + 1,
+            "it waits while the state is there"
+        );
+
+        frame(&runtime, &Flex::column().child(Container::new()));
+        assert!(!handle.is_mounted());
+        crate::run_local_tasks();
+        assert!(dropped.get(), "the state has gone, and so has its task");
+        assert_eq!(crate::local_tasks(), before);
+    }
+
+    #[test]
+    fn an_async_handler_changes_the_state_around_what_it_awaits() {
+        let (runtime, log, out) = (Runtime::default(), log(), handle());
+        frame(&runtime, &Flex::column().child(life(1, &log, &out)));
+        let handle = out.borrow().clone().unwrap();
+        // What the handler awaits: a value the test hands over when it chooses.
+        let gate: Rc<Cell<Option<i32>>> = Rc::new(Cell::new(None));
+        let waker: Rc<RefCell<Option<std::task::Waker>>> = Rc::default();
+        let (g, w) = (gate.clone(), waker.clone());
+        let press = handle.async_callback(move |state| {
+            let (g, w) = (g.clone(), w.clone());
+            async move {
+                state.set_state(|s| s.count = -1);
+                let value = std::future::poll_fn(|cx| match g.get() {
+                    Some(value) => std::task::Poll::Ready(value),
+                    None => {
+                        *w.borrow_mut() = Some(cx.waker().clone());
+                        std::task::Poll::Pending
+                    }
+                })
+                .await;
+                state.set_state(|s| s.count = value);
+            }
+        });
+
+        press.call();
+        assert_eq!(handle.read(|s| s.count), 0, "the press only starts it");
+        take_rebuild_request();
+        crate::run_local_tasks();
+        assert_eq!(handle.read(|s| s.count), -1, "busy, while it waits");
+        assert!(take_rebuild_request(), "and the change asks for a rebuild");
+
+        gate.set(Some(42));
+        waker.borrow_mut().take().unwrap().wake();
+        crate::run_local_tasks();
+        assert_eq!(handle.read(|s| s.count), 42, "the answer, once it came");
+        assert!(take_rebuild_request());
+    }
+
     #[test]
     fn a_state_is_disposed_when_a_rebuild_no_longer_reaches_it() {
         let (runtime, log, out) = (Runtime::default(), log(), handle());

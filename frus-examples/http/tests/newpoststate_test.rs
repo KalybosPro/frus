@@ -11,26 +11,32 @@ fn filled() -> NewPostState {
     state
 }
 
+fn created() -> Post {
+    Post {
+        id: 101,
+        user_id: AUTHOR_ID,
+        title: "Hello".into(),
+        body: "A body long enough".into(),
+    }
+}
+
 #[test]
 fn errors_wait_for_the_first_send() {
     let mut state = NewPostState::new();
     assert_eq!(state.error("title"), None);
-    state.submit(false);
+    state.submitted = true;
     assert_eq!(
         state.error("title").as_deref(),
         Some("Give the post a title")
     );
     assert_eq!(state.error("body").as_deref(), Some("Write something"));
-    assert!(state.sending.is_none(), "an invalid form sends nothing");
+    assert_eq!(state.draft(), None, "an invalid form sends nothing");
 }
 
 #[test]
 fn a_valid_form_sends_a_trimmed_draft() {
-    let mut state = filled();
-    state.submit(false);
-    assert_eq!(state.attempt, 1);
     assert_eq!(
-        state.sending,
+        filled().draft(),
         Some(NewPost {
             user_id: AUTHOR_ID,
             title: "Hello".into(),
@@ -42,42 +48,30 @@ fn a_valid_form_sends_a_trimmed_draft() {
 #[test]
 fn nothing_is_sent_twice_while_busy() {
     let mut state = filled();
-    state.submit(false);
-    state.submit(true);
-    assert_eq!(state.attempt, 1);
+    state.status = SendStatus::Sending;
+    assert_eq!(state.draft(), None);
 }
 
 #[test]
-fn the_status_follows_the_request() {
+fn the_status_follows_the_answer() {
     let mut state = filled();
-    assert_eq!(state.status(None), SendStatus::Idle);
+    assert_eq!(state.status, SendStatus::Idle);
 
-    state.submit(false);
-    assert_eq!(state.status(None), SendStatus::Sending);
+    state.finish(Ok(created()));
+    assert_eq!(state.status, SendStatus::Sent(created()));
 
-    let created = Post {
-        id: 101,
-        user_id: AUTHOR_ID,
-        title: "Hello".into(),
-        body: "A body long enough".into(),
-    };
-    assert_eq!(
-        state.status(Some(Some(Ok(created.clone())))),
-        SendStatus::Sent(created)
-    );
-    assert_eq!(
-        state.status(Some(Some(Err(ApiError::Timeout)))),
-        SendStatus::Failed(ApiError::Timeout)
-    );
+    state.finish(Err(ApiError::Timeout));
+    assert_eq!(state.status, SendStatus::Failed(ApiError::Timeout));
+    assert!(state.draft().is_some(), "a failed send can be sent again");
 }
 
 #[test]
-fn write_another_empties_the_form_and_keeps_counting() {
+fn write_another_empties_the_form() {
     let mut state = filled();
-    state.submit(false);
+    state.submitted = true;
+    state.finish(Ok(created()));
     state.reset();
     assert!(state.title.is_empty() && state.body.is_empty());
     assert!(!state.submitted);
-    assert_eq!(state.status(None), SendStatus::Idle);
-    assert_eq!(state.attempt, 1, "the next send must be a new attempt");
+    assert_eq!(state.status, SendStatus::Idle);
 }

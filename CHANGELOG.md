@@ -13,6 +13,14 @@ any release may break.
 
 ## [Unreleased]
 
+- **A handler can await** (J714): `cx.async_callback(|state| async move { … })` is a handler
+  that changes the state, awaits a request, and changes it again, in one place — what a form's
+  Send button wants. Its task runs on the interface's thread between frames, so it may hold the
+  state's handle and need not be `Send`, and it is dropped if its state leaves the tree first.
+  `StateHandle::spawn(future)` starts one from anywhere a handle is held, `spawn_local` one that
+  nothing owns. The guide gains **Work that waits**, with an example for each shape, and the
+  http example's form is written this way.
+
 ## [0.5.0] - 2026-10-30
 
 The system around the window, screen readers, and phones on any computer. An application

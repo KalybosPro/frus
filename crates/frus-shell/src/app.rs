@@ -2104,6 +2104,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         {
             self.scale = window.scale_factor() as f32;
             self.window = Some(window.clone());
+            // A task on the interface's thread, woken from wherever it waited, asks this
+            // window for the frame that runs it (milestone 714).
+            {
+                let window = window.clone();
+                frus_widgets::set_local_wake(move || window.request_redraw());
+            }
             // The accessibility bridge (#18): the canvas exists as soon as the window
             // does, so there is no "still hidden" step to wait for here.
             self.a11y = crate::a11y_web::A11y::new(&window);
@@ -2184,6 +2190,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         crate::instance::set_window(window.clone());
                     }
                     self.window = Some(window.clone());
+                    // A task on the interface's thread, woken from wherever it waited, asks this
+                    // window for the frame that runs it (milestone 714).
+                    {
+                        let window = window.clone();
+                        frus_widgets::set_local_wake(move || window.request_redraw());
+                    }
                     // What the input bridge's wakes ask a frame of (milestone 513).
                     #[cfg(android)]
                     crate::android_ime::set_window(Some(window.clone()));
@@ -2859,6 +2871,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // the tree, so it is rebuilt — not only repainted — until the switch settles.
                 // Something a component keeps changed — a `set_state`, a hook, a controller —
                 // and what it builds is built again.
+                // The tasks on the interface's thread woken since the last frame run first
+                // (milestone 714): what they change is what this frame builds.
+                frus_widgets::run_local_tasks();
                 // What components asked of the shell since the last frame — a focus, a scroll,
                 // work for another thread — is run first: it may ask for this very rebuild.
                 let asked = self.app.effects();
@@ -11652,6 +11667,7 @@ pub mod testing {
             let _surface = s.media_query(width, height).install();
             s.runtime.still = settings.disable_animations;
             let was = std::mem::replace(&mut s.app_was_animating, app_animating);
+            frus_widgets::run_local_tasks();
             let asked = s.app.effects();
             s.run_command(asked);
             let arrived = s.take_task_arrivals();

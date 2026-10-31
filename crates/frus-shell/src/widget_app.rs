@@ -539,6 +539,102 @@ mod tests {
         );
     }
 
+    /// A form's button that sends: busy, the answer awaited, the answer shown.
+    struct Sender;
+
+    struct SenderState {
+        status: String,
+    }
+
+    impl frus_widgets::StatefulWidget for Sender {
+        type State = SenderState;
+        fn create_state(&self) -> SenderState {
+            SenderState {
+                status: "idle".into(),
+            }
+        }
+    }
+
+    impl State for SenderState {
+        type Widget = Sender;
+        fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> {
+            Box::new(
+                frus_widgets::Stack::new()
+                    .layer(target(cx.async_callback(|state| async move {
+                        state.set_state(|s| s.status = "sending".into());
+                        let answer = answer_from_another_thread(7).await;
+                        state.set_state(|s| s.status = format!("sent {answer}"));
+                    })))
+                    .layer(frus_widgets::text(self.status.clone())),
+            )
+        }
+    }
+
+    type Slot = std::sync::Arc<std::sync::Mutex<(Option<i32>, Option<std::task::Waker>)>>;
+
+    /// `value`, given 20 ms from now by another thread — as a response would be.
+    fn answer_from_another_thread(value: i32) -> impl std::future::Future<Output = i32> {
+        let slot: Slot = Default::default();
+        let given = slot.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            let waker = {
+                let mut slot = given.lock().unwrap();
+                slot.0 = Some(value);
+                slot.1.take()
+            };
+            if let Some(waker) = waker {
+                waker.wake();
+            }
+        });
+        std::future::poll_fn(move |cx| {
+            let mut slot = slot.lock().unwrap();
+            match slot.0 {
+                Some(value) => std::task::Poll::Ready(value),
+                None => {
+                    slot.1 = Some(cx.waker().clone());
+                    std::task::Poll::Pending
+                }
+            }
+        })
+    }
+
+    fn shows(driver: &Driver<FrusApp>, text: &str) -> bool {
+        driver.texts().iter().any(|(shown, _)| shown == text)
+    }
+
+    /// **An async handler changes the state around what it awaits** (milestone 714): the
+    /// press shows "sending" at the next frame, and the answer, which another thread gives
+    /// later, is shown in a frame after it came — through the shell's own frames.
+    #[test]
+    fn an_async_handler_shows_its_progress_and_its_answer() {
+        let app = FrusApp::from_fn(|_| {
+            Box::new(frus_widgets::StatefulWidget::into_widget(Sender)) as Box<dyn Widget>
+        });
+        let mut driver = Driver::new(app, SIDE, SIDE);
+        driver.frame(1.0 / 60.0);
+        assert!(shows(&driver, "idle"), "{:?}", driver.texts());
+
+        tap(&mut driver);
+        driver.frame(1.0 / 60.0);
+        assert!(
+            shows(&driver, "sending"),
+            "busy at once: {:?}",
+            driver.texts()
+        );
+
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !shows(&driver, "sent 7") {
+            assert!(
+                std::time::Instant::now() < end,
+                "never answered: {:?}",
+                driver.texts()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            driver.frame(1.0 / 60.0);
+        }
+    }
+
     fn tap(driver: &mut Driver<FrusApp>) {
         let at = Point::new(SIDE / 2.0, SIDE / 2.0);
         driver.press(at);

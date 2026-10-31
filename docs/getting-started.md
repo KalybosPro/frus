@@ -75,6 +75,95 @@ button("Send", move || send(&email.text()));
 A state is found again by where its widget sits, or by its key (`keyed(id, widget)`), and is
 disposed at the end of the frame that no longer builds it.
 
+## Work that waits
+
+Most of what an application waits for — a server, a file, the person — is written with
+`async` and `.await`, and frus runs it without freezing the interface. There are three
+shapes, for three questions.
+
+**The person starts it: an `async` handler.** A button that sends a form says what happens,
+in order, in one place:
+
+```rust
+use frus::{column, fetch, Button, State, StateContext, StatefulWidget, Text, Widget};
+
+struct Quote;
+
+#[derive(Default)]
+struct QuoteState {
+    text: String,
+    loading: bool,
+}
+
+impl StatefulWidget for Quote {
+    type State = QuoteState;
+    fn create_state(&self) -> QuoteState {
+        QuoteState::default()
+    }
+}
+
+impl State for QuoteState {
+    type Widget = Quote;
+    fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> {
+        let load = cx.async_callback(|state| async move {
+            state.set_state(|s| s.loading = true);
+            let text = match fetch("https://example.com/quote").await {
+                Ok(text) => text,
+                Err(error) => format!("No quote: {error}"),
+            };
+            state.set_state(|s| {
+                s.loading = false;
+                s.text = text;
+            });
+        });
+        Box::new(column![
+            Text::new(if self.loading { "Loading…" } else { self.text.as_str() }),
+            Button::new("New quote").enabled(!self.loading).on_press(load),
+        ])
+    }
+}
+```
+
+Each press starts a task on the interface's thread. It changes the state, waits for the
+answer without holding the thread, and changes the state again — each `set_state` is shown
+at the next frame. Because it stays on the interface's thread it may hold the state's handle,
+a controller, an `Rc`: nothing in it has to be `Send`. If the widget leaves the screen before
+the answer comes, the task is dropped with it, and nothing is changed on a page that is gone.
+`StateHandle::spawn(future)` starts the same kind of task from anywhere a handle is held, and
+`spawn_local(future)` one that nothing owns.
+
+**The page needs it to show itself: `use_future`.** Data a page shows as soon as it opens is
+asked for while it builds, and asked again when what it depends on changes:
+
+```rust
+let post = cx.use_future(id, move || api::post(id));
+let shown: Box<dyn Widget> = match post.data {
+    None => Box::new(Text::new("Loading…")),
+    Some(Ok(post)) => Box::new(Text::new(post.title)),
+    Some(Err(error)) => Box::new(Text::new(format!("Could not load it: {error}"))),
+};
+```
+
+`FutureBuilder` and `StreamBuilder` are the same as widgets, and `use_stream` follows a stream
+of values — messages arriving, a download's progress.
+
+**It works rather than waits: `spawn`.** A long computation, or a library that blocks, goes to
+another thread, and its result comes back to the interface's:
+
+```rust
+let state = cx.handle();
+frus::host::spawn(
+    move || resize_photo(&bytes),
+    move |small| state.set_state(|s| s.photo = Some(small)),
+);
+```
+
+A blocking call inside an `async` task would freeze the interface, so it belongs here.
+
+On the web the same code runs on the browser's own loop: `fetch` there is the browser's, and
+nothing needs a thread. The `frus-examples/http` project uses the first two: `use_future`
+for the pages that load posts, and an `async` handler for the form that creates one.
+
 ## Moving between screens
 
 Routes are named by a pattern of path; a router holds them and the stack of pages.
