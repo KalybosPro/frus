@@ -50,9 +50,9 @@ jobs:
       # The step said "net + json" and ran only `json`, and on `frus` rather than on the
       # crate that holds the code -- so the HTTP helper had **no** CI coverage at all
       # until milestone 373 went looking for somewhere to put a byte-path test.
-      - name: Test with optional features (net + json)
+      - name: Test with optional features (net + json, and the testing guide)
         run: |
-          cargo test -p frus --features "net json"
+          cargo test -p frus --features "net json testing"
           cargo test -p frus-shell --features net
 
       # The tray icon on Linux (milestone 706): its menus are made with GTK 3, which nothing

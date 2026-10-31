@@ -23,7 +23,11 @@ pub struct Stepper<Msg = crate::callback::Callback> {
 
 impl<Msg: Clone + 'static> Stepper<Msg> {
     /// Creates a picker: the current value plus a message for each new value.
-    pub fn new(value: i32, on_change: impl Fn(i32) -> Msg + 'static) -> Self {
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
+        value: i32,
+        on_change: impl Fn(i32) -> R1 + 'static,
+    ) -> Self {
+        let on_change = crate::callback::handler1(on_change);
         let mut stepper = Self {
             value,
             min: i32::MIN,

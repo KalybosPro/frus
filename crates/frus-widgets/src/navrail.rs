@@ -824,7 +824,11 @@ pub struct NavigationRail<Msg = crate::callback::Callback> {
 
 impl<Msg: Clone + 'static> NavigationRail<Msg> {
     /// Creates a rail: `selected` = the active index, `on_select(i)` on click.
-    pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
+        selected: usize,
+        on_select: impl Fn(usize) -> R1 + 'static,
+    ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
         Self {
             selected,
             on_select: Box::new(on_select),
@@ -1361,7 +1365,11 @@ pub struct BottomBar<Msg = crate::callback::Callback> {
 
 impl<Msg: Clone + 'static> BottomBar<Msg> {
     /// Creates a bar: `selected` = the active index, `on_select(i)` on click.
-    pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
+        selected: usize,
+        on_select: impl Fn(usize) -> R1 + 'static,
+    ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
         Self {
             selected,
             on_select: Box::new(on_select),

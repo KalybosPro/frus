@@ -27,17 +27,26 @@ impl<Msg: Clone + 'static> DateTimePicker<Msg> {
     /// (`on_hour`/`on_minute`). A "Month day, year  HH:MM" summary tops it all once a
     /// day is chosen.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new<
+        R1: crate::callback::IntoMsg<Msg>,
+        R2: crate::callback::IntoMsg<Msg>,
+        R3: crate::callback::IntoMsg<Msg>,
+        R4: crate::callback::IntoMsg<Msg>,
+    >(
         year: i32,
         month: u32,
         day: Option<u32>,
         hour: u32,
         minute: u32,
-        on_day: impl Fn(u32) -> Msg + 'static,
-        on_nav: impl Fn(i32) -> Msg + 'static,
-        on_hour: impl Fn(u32) -> Msg + 'static,
-        on_minute: impl Fn(u32) -> Msg + 'static,
+        on_day: impl Fn(u32) -> R1 + 'static,
+        on_nav: impl Fn(i32) -> R2 + 'static,
+        on_hour: impl Fn(u32) -> R3 + 'static,
+        on_minute: impl Fn(u32) -> R4 + 'static,
     ) -> Self {
+        let on_day = crate::callback::handler1(on_day);
+        let on_nav = crate::callback::handler1(on_nav);
+        let on_hour = crate::callback::handler1(on_hour);
+        let on_minute = crate::callback::handler1(on_minute);
         let month = month.clamp(1, 12);
         let (hour, minute) = (hour.min(23), minute.min(59));
 

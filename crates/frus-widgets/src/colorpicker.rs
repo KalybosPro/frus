@@ -65,11 +65,12 @@ pub struct ColorPicker<Msg = crate::callback::Callback> {
 impl<Msg: Clone + 'static> ColorPicker<Msg> {
     /// Creates a picker: the selected colour if there is one, `on_pick(colour)` for
     /// clicks, and a column count.
-    pub fn new(
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
         selected: Option<Color>,
         columns: usize,
-        on_pick: impl Fn(Color) -> Msg + 'static,
+        on_pick: impl Fn(Color) -> R1 + 'static,
     ) -> Self {
+        let on_pick = crate::callback::handler1(on_pick);
         Self {
             selected,
             on_pick: Box::new(on_pick),

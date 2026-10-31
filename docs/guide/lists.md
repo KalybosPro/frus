@@ -64,11 +64,43 @@ fn contacts(people: Vec<Contact>) -> Box<dyn Widget> {
 
 ## Rows of different heights
 
-`ListView` needs one height for every row; that is what lets it know where row 9 000 is without
-building the 8 999 before it. Rows of different heights, when there are a few dozen of them,
-go in a `Column` inside a `SingleChildScrollView`. Each row that can move — be removed,
-reordered, inserted above — is given a key with `keyed(id, row)`, so that its state stays with
-it rather than with its position.
+When the rows are not all the same height — posts of different lengths, messages with and
+without a picture — `ListView::builder(count, build)` lays each one out at its own height. It
+still builds only the rows in view: a row is measured the first time it scrolls in, and the
+rows not seen yet are counted at the mean of those that were.
+
+```rust
+use std::rc::Rc;
+
+use frus::{component, Column, ListView, Text, Widget};
+
+struct Post {
+    author: String,
+    body: String,
+}
+
+fn feed(posts: Vec<Post>) -> Box<dyn Widget> {
+    let posts = Rc::new(posts);
+    Box::new(component(move |_cx| {
+        let shown = posts.clone();
+        Box::new(
+            ListView::builder(posts.len(), move |i| {
+                Column::new()
+                    .spacing(4.0)
+                    .child(Text::new(shown[i].author.clone()).size(13.0))
+                    .child(Text::new(shown[i].body.clone()).wrap())
+            })
+            .estimated_extent(120.0)
+            .padding(16.0),
+        )
+    }))
+}
+```
+
+`.estimated_extent(..)` is the height to count a row at before any is measured; a guess close
+to the real rows keeps the scrollbar steady. Each row that can move — be removed, reordered,
+inserted above — is given a key with `keyed(id, row)`, so that its state stays with it rather
+than with its position.
 
 ## Pull to refresh, swipe to remove
 

@@ -112,11 +112,32 @@ header of its page — when both screens wrap it in a `Hero` of the same tag.
 
 ## Animations you drive
 
-When the movement is not a value reaching another — a spinner that turns forever, a progress
-that follows a gesture — an `AnimationController` holds a progress from 0 to 1 that you start,
-reverse, repeat and stop, and the `*Transition` widgets (`FadeTransition`, `SlideTransition`,
-`ScaleTransition`, `SizeTransition`, `DecoratedBoxTransition`) draw from it. The widget gallery
-(`frus-examples/widgets`, Animation → Transitions) shows one driven by buttons and a slider.
+When the movement is not a value reaching another — a pulse that repeats, a sequence a button
+starts, a progress you set — `cx.use_animation_controller(..)` gives a controller that holds a
+progress, usually from 0 to 1. Start it with `forward`, `reverse`, `repeat` or `animate_to`,
+and the frames move it, rebuilding what reads `value()`, until it stops:
+
+```rust
+use frus::{component, AnimationController, Button, Column, Curve, Opacity, Text, Widget};
+
+fn pulse() -> Box<dyn Widget> {
+    Box::new(component(|cx| {
+        let glow = cx.use_animation_controller(AnimationController::unit);
+        let (start, stop) = (glow.clone(), glow.clone());
+        Box::new(
+            Column::new()
+                .spacing(12.0)
+                .child(Opacity::new(0.3 + 0.7 * glow.value(), Text::new("Recording").size(24.0)))
+                .child(Button::new("Start").on_press(move || start.repeat(1.2, true, Curve::ease_in_out())))
+                .child(Button::new("Stop").on_press(move || stop.stop())),
+        )
+    }))
+}
+```
+
+A `StatefulWidget` keeps one in its state with `AnimationHandle::new(controller)`. The
+`*Transition` widgets (`FadeTransition`, `SlideTransition`, `ScaleTransition`,
+`SizeTransition`, `DecoratedBoxTransition`) draw straight from a controller's progress.
 
 People who prefer the system's reduced motion setting get it: `MediaQuery::of()` reports it,
 and frus's own transitions honour it.

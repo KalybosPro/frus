@@ -90,7 +90,12 @@ pub struct Rating<Msg = crate::callback::Callback> {
 impl<Msg: Clone + 'static> Rating<Msg> {
     /// Creates a rating: `value` filled stars out of `max`. Clicking the i-th star
     /// emits `on_rate(i + 1)`.
-    pub fn new(value: u32, max: u32, on_rate: impl Fn(u32) -> Msg + 'static) -> Self {
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
+        value: u32,
+        max: u32,
+        on_rate: impl Fn(u32) -> R1 + 'static,
+    ) -> Self {
+        let on_rate = crate::callback::handler1(on_rate);
         let mut rating = Self {
             value,
             max,

@@ -19,6 +19,10 @@
 //! shell reads it every frame; an *effect* is a request, kept until the shell takes it
 //! with [`take_effects`] after the frame and runs it as it runs any other effect.
 
+pub use crate::messenger::{
+    clear_snack_bars, current_snack_bar, hide_current_snack_bar, show_snack_bar,
+    show_snack_bar_for, SNACK_BAR_DURATION,
+};
 use std::cell::RefCell;
 use std::future::Future;
 use std::hash::{Hash, Hasher};

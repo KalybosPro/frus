@@ -116,6 +116,8 @@ mod widget_app;
 #[cfg(any(test, feature = "testing"))]
 #[doc(hidden)]
 pub use app::testing;
+#[cfg(any(test, feature = "testing"))]
+mod tester;
 pub use app::App;
 pub use application::{Application, Lifecycle, LocationStrategy};
 pub use command::Command;
@@ -129,6 +131,8 @@ pub use remote::RemoteData;
 pub use shortcuts::GlobalShortcut;
 pub use subscription::Subscription;
 pub use taskbar::{Taskbar, TaskbarProgress};
+#[cfg(any(test, feature = "testing"))]
+pub use tester::Tester;
 pub use tray::Tray;
 pub use widget_app::FrusApp;
 

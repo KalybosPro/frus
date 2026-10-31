@@ -35,6 +35,8 @@ categories = ["gui", "graphics", "wasm"]
 # Hot reload under `frus run`, which turns it on: development only, never shipped.
 hot-reload = ["frus-shell/hot-reload", "frus-widgets/hot-reload"]
 net = ["frus-shell/net"]
+# `Tester`: a page driven by a test, with no window. For `[dev-dependencies]`.
+testing = ["frus-shell/testing"]
 # The system's file dialogs: `FileDialog`. Desktop only; off by default.
 file-dialogs = ["frus-shell/file-dialogs"]
 # The system's notifications: `SystemNotification`. Desktop only; off by default.

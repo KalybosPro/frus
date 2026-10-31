@@ -4626,7 +4626,27 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 true => (viewport.width, viewport.height),
                 false => (viewport.height, viewport.width),
             };
-            let content = lead + trail + vlist.count as f32 * vlist.item_extent;
+            // Items of any extent: what was measured of them, a guess for the rest.
+            let mut measured = if vlist.variable {
+                let mut known = self
+                    .runtime
+                    .item_extents
+                    .borrow_mut()
+                    .remove(&id)
+                    .unwrap_or_default();
+                known.fit(vlist.count);
+                Some(known)
+            } else {
+                None
+            };
+            let guess = measured
+                .as_ref()
+                .map_or(vlist.item_extent, |known| known.estimate(vlist.item_extent));
+            let items = match &measured {
+                Some(known) => known.total(guess),
+                None => vlist.count as f32 * vlist.item_extent,
+            };
+            let content = lead + trail + items;
             let max = (content - extent).max(0.0);
             let bounds = if across { (max, 0.0) } else { (0.0, max) };
             let offset = self
@@ -4659,7 +4679,57 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // Where the content starts, so that a stretch can take all of it (milestone 591).
             let stretch_mark = (self.scene.primitives().len(), self.xform_base());
             let outer = self.scroll_host.replace(id);
-            if vlist.item_extent > 0.0 && vlist.count > 0 {
+            if let Some(known) = measured.as_mut().filter(|_| vlist.count > 0) {
+                // Items of any extent (milestone 716): from the first one the window
+                // reaches, each laid out at its natural length and placed after the one
+                // before, until the window is full. A length that differs from what this
+                // frame assumed asks for another frame, which places the rest with it.
+                let origin = if across { viewport.x } else { viewport.y };
+                let free_cross = (cross_extent - cross_near - cross_far).max(0.0);
+                let (mut i, mut start) = known.first_at((offset - lead).max(0.0), guess);
+                let mut changed = false;
+                while i < vlist.count && start < offset - lead + extent {
+                    let item = (vlist.build)(i);
+                    // The whole width across, as a fixed list gives; along, its own length.
+                    let constraints = match across {
+                        true => Constraints::axes(extent, free_cross, [true, false], [false, true]),
+                        false => {
+                            Constraints::axes(free_cross, extent, [false, true], [true, false])
+                        }
+                    };
+                    let item_rects = self.cached_rects(id.child(i), item.as_ref(), constraints);
+                    let size = item_rects
+                        .first()
+                        .copied()
+                        .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+                    let length = if across { size.width } else { size.height };
+                    changed |= known.measure(i, length);
+                    let along = if reverse {
+                        origin + extent - lead - (start + length) + offset
+                    } else {
+                        origin + lead + start - offset
+                    };
+                    let (x, y) = match across {
+                        true => (along, viewport.y + cross_near),
+                        false => (viewport.x + cross_near, along),
+                    };
+                    let item = self.keep(item);
+                    let mut item_index = 0;
+                    self.walk(
+                        item,
+                        id.child(i),
+                        (x, y),
+                        content_clip,
+                        &item_rects,
+                        &mut item_index,
+                    );
+                    start += length;
+                    i += 1;
+                }
+                if changed {
+                    self.wants_animation = true;
+                }
+            } else if vlist.item_extent > 0.0 && vlist.count > 0 {
                 // The **window** is the same arithmetic either way, and that is not a
                 // coincidence: a reversed list counts its indices from the end, and a
                 // reversed offset counts its pixels from the end, so index and offset
@@ -4714,6 +4784,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 }
             }
 
+            if let Some(known) = measured {
+                self.runtime.item_extents.borrow_mut().insert(id, known);
+            }
             self.scroll_host = outer;
             self.add_overscroll_stretch(id, viewport, content_clip, stretch_mark);
             self.scene.set_clip(clip);
@@ -5941,7 +6014,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 Placement::Left | Placement::Right => (true, false),
                 // The sheet is full-width (constrained to the window) with its natural height:
                 // its `Percent(1.0)` panel unfolds across the width.
-                Placement::Bottom => (false, true),
+                Placement::Bottom | Placement::Notification => (false, true),
                 _ => (true, true),
             };
             let mut rects = self.cached_rects(
@@ -6029,6 +6102,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 // The sheet slides up from the bottom: its bottom edge stays flush with the
                 // window, offset downwards by `(1-progress)·height`.
                 Placement::Bottom => (0.0, self.available.height - progress * size.height),
+                // Above the gesture bar and the navigation bar, whatever the page under it did
+                // with them.
+                Placement::Notification => (
+                    0.0,
+                    self.available.height - size.height - crate::MediaQuery::of().safe().bottom,
+                ),
             };
 
             // An **anchored** overlay follows a widget; the others (a modal, a drawer, a

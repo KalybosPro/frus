@@ -341,6 +341,57 @@ impl<Msg: Clone + 'static> SnackBar<Msg> {
     }
 }
 
+impl<Msg: Clone + 'static> Clone for SnackBar<Msg> {
+    /// The bar's controls are made from its action and its cross, so a copy makes its own.
+    fn clone(&self) -> Self {
+        let mut copy = Self {
+            text: self.text.clone(),
+            kind: self.kind,
+            behavior: self.behavior,
+            shape: self.shape,
+            width: self.width,
+            margin: self.margin,
+            content_text_style: self.content_text_style,
+            action_text_style: self.action_text_style,
+            background: self.background,
+            text_color: self.text_color,
+            action_text_color: self.action_text_color,
+            accent: self.accent,
+            elevation: self.elevation,
+            action: self.action.clone(),
+            close: self.close.clone(),
+            close_icon_color: self.close_icon_color,
+            close_label: self.close_label.clone(),
+            children: Vec::new(),
+        };
+        copy.rebuild_controls();
+        copy
+    }
+}
+
+impl<Msg: Clone + 'static> SnackBar<Msg> {
+    /// The action's message, so that the application's messenger can hide the bar when it
+    /// is pressed.
+    pub(crate) fn map_action(mut self, change: impl FnOnce(Msg) -> Msg) -> Self {
+        if let Some((label, message)) = self.action.take() {
+            self.action = Some((label, change(message)));
+            self.rebuild_controls();
+        }
+        self
+    }
+}
+
+#[cfg(test)]
+impl<Msg: Clone> SnackBar<Msg> {
+    pub(crate) fn text_for_tests(&self) -> &str {
+        &self.text
+    }
+
+    pub(crate) fn action_for_tests(&self) -> Option<Msg> {
+        self.action.as_ref().map(|(_, message)| message.clone())
+    }
+}
+
 impl<Msg> SnackBar<Msg> {
     fn sizing(&self, theme: Option<&Theme>) -> Style {
         let measured =

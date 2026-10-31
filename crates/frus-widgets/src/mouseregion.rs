@@ -90,19 +90,31 @@ impl<Msg> MouseRegion<Msg> {
     }
 
     /// The pointer came in: `build` is given where it is, in the region's coordinates.
-    pub fn on_enter(mut self, build: impl Fn(Point) -> Msg + 'static) -> Self {
+    pub fn on_enter<R1: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        build: impl Fn(Point) -> R1 + 'static,
+    ) -> Self {
+        let build = crate::callback::handler1(build);
         self.enter = Some(Box::new(build));
         self
     }
 
     /// The pointer moved inside, with no button held: `build` is given where it is now.
-    pub fn on_hover(mut self, build: impl Fn(Point) -> Msg + 'static) -> Self {
+    pub fn on_hover<R1: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        build: impl Fn(Point) -> R1 + 'static,
+    ) -> Self {
+        let build = crate::callback::handler1(build);
         self.hover = Some(Box::new(build));
         self
     }
 
     /// The pointer left: `build` is given where it is, now outside.
-    pub fn on_exit(mut self, build: impl Fn(Point) -> Msg + 'static) -> Self {
+    pub fn on_exit<R1: crate::callback::IntoMsg<Msg>>(
+        mut self,
+        build: impl Fn(Point) -> R1 + 'static,
+    ) -> Self {
+        let build = crate::callback::handler1(build);
         self.exit = Some(Box::new(build));
         self
     }

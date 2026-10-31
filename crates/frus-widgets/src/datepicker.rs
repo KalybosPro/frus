@@ -255,13 +255,15 @@ fn lead_cells(year: i32, month: u32, first_day_of_week: usize) -> usize {
 impl<Msg: Clone + 'static> DatePicker<Msg> {
     /// Creates a calendar for `year`/`month` (1..=12), with an optional `selected`
     /// day. `on_select(day)` on click; `on_nav(±1)` to change month.
-    pub fn new(
+    pub fn new<R1: crate::callback::IntoMsg<Msg>, R2: crate::callback::IntoMsg<Msg>>(
         year: i32,
         month: u32,
         selected: Option<u32>,
-        on_select: impl Fn(u32) -> Msg + 'static,
-        on_nav: impl Fn(i32) -> Msg + 'static,
+        on_select: impl Fn(u32) -> R1 + 'static,
+        on_nav: impl Fn(i32) -> R2 + 'static,
     ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
+        let on_nav = crate::callback::handler1(on_nav);
         Self::assemble(
             year,
             month,
@@ -283,14 +285,16 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
     /// clickable). This is the general escape hatch: isolated **blackout** days, forbidden
     /// weekends, bounds, or any combination. `selected`/`on_select`/`on_nav` as in
     /// [`new`](Self::new) — milestone 235.
-    pub fn filtered(
+    pub fn filtered<R1: crate::callback::IntoMsg<Msg>, R2: crate::callback::IntoMsg<Msg>>(
         year: i32,
         month: u32,
         selected: Option<u32>,
         is_enabled: impl Fn((i32, u32, u32)) -> bool + 'static,
-        on_select: impl Fn(u32) -> Msg + 'static,
-        on_nav: impl Fn(i32) -> Msg + 'static,
+        on_select: impl Fn(u32) -> R1 + 'static,
+        on_nav: impl Fn(i32) -> R2 + 'static,
     ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
+        let on_nav = crate::callback::handler1(on_nav);
         let month = month.clamp(1, 12);
         Self::assemble(
             year,
@@ -312,15 +316,17 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
     /// with optional and **inclusive** bounds) are **disabled** — dimmed and not clickable.
     /// Identical to [`new`](Self::new) otherwise (the `selected` day, `on_select`, `on_nav`).
     /// Useful to forbid past dates, to set a booking window, and so on — milestone 231.
-    pub fn bounded(
+    pub fn bounded<R1: crate::callback::IntoMsg<Msg>, R2: crate::callback::IntoMsg<Msg>>(
         year: i32,
         month: u32,
         selected: Option<u32>,
         min: Option<(i32, u32, u32)>,
         max: Option<(i32, u32, u32)>,
-        on_select: impl Fn(u32) -> Msg + 'static,
-        on_nav: impl Fn(i32) -> Msg + 'static,
+        on_select: impl Fn(u32) -> R1 + 'static,
+        on_nav: impl Fn(i32) -> R2 + 'static,
     ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
+        let on_nav = crate::callback::handler1(on_nav);
         let month = month.clamp(1, 12);
         Self::assemble(
             year,
@@ -346,14 +352,16 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
     /// A single bound (`end == None`) shows just the start (a selection in progress).
     /// `on_select(day)` reports the clicked day of the month shown — the application
     /// decides whether it becomes the start or the end.
-    pub fn range(
+    pub fn range<R1: crate::callback::IntoMsg<Msg>, R2: crate::callback::IntoMsg<Msg>>(
         year: i32,
         month: u32,
         start: Option<(i32, u32, u32)>,
         end: Option<(i32, u32, u32)>,
-        on_select: impl Fn(u32) -> Msg + 'static,
-        on_nav: impl Fn(i32) -> Msg + 'static,
+        on_select: impl Fn(u32) -> R1 + 'static,
+        on_nav: impl Fn(i32) -> R2 + 'static,
     ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
+        let on_nav = crate::callback::handler1(on_nav);
         let month = month.clamp(1, 12);
         Self::assemble(
             year,
@@ -370,16 +378,18 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
     /// clickable. Combines bringing out a selected interval with an allowed input window
     /// (booking a range within an open period, say) — milestone 234.
     #[allow(clippy::too_many_arguments)]
-    pub fn range_bounded(
+    pub fn range_bounded<R1: crate::callback::IntoMsg<Msg>, R2: crate::callback::IntoMsg<Msg>>(
         year: i32,
         month: u32,
         start: Option<(i32, u32, u32)>,
         end: Option<(i32, u32, u32)>,
         min: Option<(i32, u32, u32)>,
         max: Option<(i32, u32, u32)>,
-        on_select: impl Fn(u32) -> Msg + 'static,
-        on_nav: impl Fn(i32) -> Msg + 'static,
+        on_select: impl Fn(u32) -> R1 + 'static,
+        on_nav: impl Fn(i32) -> R2 + 'static,
     ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
+        let on_nav = crate::callback::handler1(on_nav);
         let month = month.clamp(1, 12);
         Self::assemble(
             year,
@@ -399,14 +409,16 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
     /// `on_select((year, month, day))` reports the **complete** date of the day clicked (the
     /// month is disambiguated), and `on_nav(±1)` shifts the **pair**. The range band carries
     /// on from one month to the other (dates compare as whole values — see `range_mark`).
-    pub fn range_dual(
+    pub fn range_dual<R1: crate::callback::IntoMsg<Msg>, R2: crate::callback::IntoMsg<Msg>>(
         year: i32,
         month: u32,
         start: Option<(i32, u32, u32)>,
         end: Option<(i32, u32, u32)>,
-        on_select: impl Fn((i32, u32, u32)) -> Msg + 'static,
-        on_nav: impl Fn(i32) -> Msg + 'static,
+        on_select: impl Fn((i32, u32, u32)) -> R1 + 'static,
+        on_nav: impl Fn(i32) -> R2 + 'static,
     ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
+        let on_nav = crate::callback::handler1(on_nav);
         let month = month.clamp(1, 12);
         let (ny, nm) = if month == 12 {
             (year + 1, 1)

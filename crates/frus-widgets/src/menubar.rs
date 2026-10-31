@@ -266,7 +266,11 @@ pub struct MenuBar<Msg = crate::callback::Callback> {
 
 impl<Msg: Clone + 'static> MenuBar<Msg> {
     /// A bar with `path` open, sending `on_path` the path it should have next.
-    pub fn new(path: &MenuPath, on_path: impl Fn(MenuPath) -> Msg + 'static) -> Self {
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
+        path: &MenuPath,
+        on_path: impl Fn(MenuPath) -> R1 + 'static,
+    ) -> Self {
+        let on_path = crate::callback::handler1(on_path);
         Self {
             path: path.clone(),
             on_path: Rc::new(on_path),

@@ -786,6 +786,9 @@ pub struct Runtime {
     /// of, per widget. Interior mutability, like the caches below: a switcher meets a new
     /// value while the tree is being **built**, which is the only time it has one.
     pub(crate) switchers: RefCell<HashMap<WidgetId, crate::switcher::Switch>>,
+    /// What each list of items of any extent has measured of them (milestone 716).
+    /// Interior mutability: an item is measured while the tree is walked.
+    pub(crate) item_extents: RefCell<HashMap<WidgetId, crate::list::ItemExtents>>,
     /// Time elapsed (seconds) since start-up, for continuous animations.
     pub time: f32,
     /// Was the last interaction a **keyboard** one? The generic focus ring is only

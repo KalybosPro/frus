@@ -161,11 +161,13 @@ pub struct Autocomplete<Msg = crate::callback::Callback> {
 impl<Msg: Clone + 'static> Autocomplete<Msg> {
     /// Creates a field: the current value, `on_input(text)` on typing, and
     /// `on_pick(suggestion)` when a suggestion is chosen.
-    pub fn new(
+    pub fn new<R1: crate::callback::IntoMsg<Msg>, R2: crate::callback::IntoMsg<Msg>>(
         value: impl Into<String>,
-        on_input: impl Fn(String) -> Msg + 'static,
-        on_pick: impl Fn(String) -> Msg + 'static,
+        on_input: impl Fn(String) -> R1 + 'static,
+        on_pick: impl Fn(String) -> R2 + 'static,
     ) -> Self {
+        let on_input = crate::callback::handler1(on_input);
+        let on_pick = crate::callback::handler1(on_pick);
         let mut ac = Self {
             value: value.into(),
             width: DEFAULT_WIDTH,

@@ -277,12 +277,13 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
     /// place for a filter that shortened the set by one row. The label, the pager and the
     /// slice all say the same clamped number, so nothing on screen disagrees with anything
     /// else; the application's own `current` catches up on the next click.
-    pub fn paginated(
+    pub fn paginated<R1: crate::callback::IntoMsg<Msg>>(
         mut self,
         current: usize,
         per_page: usize,
-        on_page: impl Fn(usize) -> Msg + 'static,
+        on_page: impl Fn(usize) -> R1 + 'static,
     ) -> Self {
+        let on_page = crate::callback::handler1(on_page);
         self.page = Some((current.max(1), per_page.max(1)));
         self.on_page = Some(Rc::new(on_page));
         self.rebuild();
@@ -292,11 +293,12 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
     /// Adds a **page size selector** (a `SegmentedButton` of the `sizes` offered) to the
     /// footer. `on_page_size(size)` on change (the app updates the size and, usually, returns
     /// to page 1). It has no effect if the table is not paginated.
-    pub fn page_sizes(
+    pub fn page_sizes<R1: crate::callback::IntoMsg<Msg>>(
         mut self,
         sizes: &[usize],
-        on_page_size: impl Fn(usize) -> Msg + 'static,
+        on_page_size: impl Fn(usize) -> R1 + 'static,
     ) -> Self {
+        let on_page_size = crate::callback::handler1(on_page_size);
         self.page_sizes = sizes.iter().copied().filter(|&s| s > 0).collect();
         self.on_page_size = Some(Rc::new(on_page_size));
         self.rebuild();
@@ -330,11 +332,12 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
     /// reflects [`selected`](Self::selected). It combines with
     /// [`on_select_row`](Self::on_select_row): the box handles group selection, and a click
     /// on the row's body stays a row click.
-    pub fn checkboxes(
+    pub fn checkboxes<R1: crate::callback::IntoMsg<Msg>>(
         mut self,
-        on_check: impl Fn(usize) -> Msg + 'static,
+        on_check: impl Fn(usize) -> R1 + 'static,
         on_check_all: Msg,
     ) -> Self {
+        let on_check = crate::callback::handler1(on_check);
         self.on_check = Some(Rc::new(on_check));
         self.on_check_all = Some(on_check_all);
         self.rebuild();
@@ -347,11 +350,12 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
     /// application updates `query` and usually returns to page 1). The filter acts upstream
     /// of the sort, the page **and** the selection: boxes and highlighting stay in source
     /// indices, over the visible subset.
-    pub fn searchable(
+    pub fn searchable<R1: crate::callback::IntoMsg<Msg>>(
         mut self,
         query: impl Into<String>,
-        on_query: impl Fn(String) -> Msg + 'static,
+        on_query: impl Fn(String) -> R1 + 'static,
     ) -> Self {
+        let on_query = crate::callback::handler1(on_query);
         self.query = Some(query.into());
         self.on_query = Some(Rc::new(on_query));
         self.rebuild();

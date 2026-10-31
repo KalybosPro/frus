@@ -414,7 +414,11 @@ impl<Msg: Clone + 'static> NavigationDrawer<Msg> {
     /// An index outside the list leaves every destination unselected, which is what the
     /// reference's `-1` is for (`navigation_drawer.dart:138`) and what a screen showing
     /// none of them wants.
-    pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
+        selected: usize,
+        on_select: impl Fn(usize) -> R1 + 'static,
+    ) -> Self {
+        let on_select = crate::callback::handler1(on_select);
         Self {
             selected,
             on_select: Box::new(on_select),

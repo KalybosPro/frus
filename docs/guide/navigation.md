@@ -89,52 +89,56 @@ of the status bar, the notch and the keyboard.
 
 ```rust
 use frus::{
-    AppBar, Center, FloatingActionButton, Icons, IconButton, Scaffold, State, StateContext,
-    StatefulWidget, Text, Widget,
+    component, AppBar, Center, FloatingActionButton, IconButton, Icons, Scaffold, Text, Widget,
 };
 
-struct Notes;
-
-#[derive(Default)]
-struct NotesState {
-    count: u32,
-    tab: usize,
-}
-
-impl StatefulWidget for Notes {
-    type State = NotesState;
-    fn create_state(&self) -> NotesState {
-        NotesState::default()
-    }
-}
-
-impl State for NotesState {
-    type Widget = Notes;
-
-    fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> {
-        let app_bar = AppBar::new()
-            .title(Text::new("Notes"))
-            .action(IconButton::new(Icons::SEARCH).on_press(|| {}))
-            .build();
-        Scaffold::new()
-            .app_bar(app_bar)
-            .body(Center::new(Text::new(format!("{} notes", self.count))))
-            .fab(
-                FloatingActionButton::new(Icons::ADD)
-                    .on_press(cx.callback(|s: &mut Self| s.count += 1)),
-            )
-            .nav(self.tab, cx.handler(|s: &mut Self, i: usize| s.tab = i))
-            .destination(Icons::NOTE, "Notes")
-            .destination(Icons::ALARM, "Reminders")
-            .build()
-    }
+fn notes() -> Box<dyn Widget> {
+    Box::new(component(|cx| {
+        let count = cx.use_state(|| 0u32);
+        let tab = cx.use_state(|| 0usize);
+        let (add, pick) = (count.clone(), tab.clone());
+        Box::new(
+            Scaffold::new()
+                .app_bar(
+                    AppBar::new()
+                        .title(Text::new("Notes"))
+                        .action(IconButton::new(Icons::SEARCH).on_press(|| {})),
+                )
+                .body(Center::new(Text::new(format!("{} notes", count.get()))))
+                .fab(FloatingActionButton::new(Icons::ADD).on_press(move || add.update(|n| *n += 1)))
+                .nav(tab.get(), move |i: usize| pick.set(i))
+                .destination(Icons::NOTE, "Notes")
+                .destination(Icons::ALARM, "Reminders"),
+        )
+    }))
 }
 ```
 
-`AppBar` and `Scaffold` are assembled from their parts by `.build()`. A screen that was pushed
-gives its app bar the way back itself:
-`.leading(IconButton::new(Icons::ARROW_BACK).on_press(move || { router.pop(); }))`; the system's
-back button and the back gesture pop the router without it.
+A screen the router pushed over another gets the way back on its own: its app bar shows a
+back arrow (a chevron on Apple's systems) that pops the router, unless the screen has a drawer
+or gives the bar a `leading` of its own. The system's back button and the back gesture pop it
+too.
+
+## A message at the bottom: snack bars
+
+`host::show_snack_bar` shows a short message at the bottom of the window, over whatever screen
+is showing, for four seconds. Several wait their turn. An action runs and hides the bar:
+
+```rust
+use frus::{host, Button, SnackBar, Widget};
+
+fn archive() -> Box<dyn Widget> {
+    Box::new(Button::new("Archive").on_press(|| {
+        // … archive the message …
+        host::show_snack_bar(SnackBar::new("Archived").action("Undo", (|| {
+            // … put it back …
+        }).into()));
+    }))
+}
+```
+
+`host::show_snack_bar_for(bar, duration)` chooses how long; `host::hide_current_snack_bar()`
+hides it from code, and `.close_icon(host::hide_current_snack_bar)` gives it a cross.
 
 ## Dialogs and sheets
 

@@ -171,12 +171,14 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
     /// Creates a picker for `hour` (0–23) and `minute` (0–59). `on_hour(h)` is emitted
     /// when an hour is clicked (always **24-hour**), `on_minute(m)` when a minute is.
     /// Defaults: 24-hour, minutes in steps of 5.
-    pub fn new(
+    pub fn new<R1: crate::callback::IntoMsg<Msg>, R2: crate::callback::IntoMsg<Msg>>(
         hour: u32,
         minute: u32,
-        on_hour: impl Fn(u32) -> Msg + 'static,
-        on_minute: impl Fn(u32) -> Msg + 'static,
+        on_hour: impl Fn(u32) -> R1 + 'static,
+        on_minute: impl Fn(u32) -> R2 + 'static,
     ) -> Self {
+        let on_hour = crate::callback::handler1(on_hour);
+        let on_minute = crate::callback::handler1(on_minute);
         let mut picker = Self {
             hour: hour.min(23),
             minute: minute.min(59),
@@ -409,11 +411,12 @@ pub struct TimeRange<Msg = crate::callback::Callback> {
 impl<Msg: Clone + 'static> TimeRange<Msg> {
     /// Creates a `start`/`end` range (each `(hour 0–23, minute 0–59)`). `on_change` is
     /// called on every click with the **endpoint**, the **field** and the new value (24-hour).
-    pub fn new(
+    pub fn new<R1: crate::callback::IntoMsg<Msg>>(
         start: (u32, u32),
         end: (u32, u32),
-        on_change: impl Fn(Endpoint, TimeField, u32) -> Msg + 'static,
+        on_change: impl Fn(Endpoint, TimeField, u32) -> R1 + 'static,
     ) -> Self {
+        let on_change = crate::callback::handler3(on_change);
         let mut range = Self {
             label_text_style: None,
             start: (start.0.min(23), start.1.min(59)),

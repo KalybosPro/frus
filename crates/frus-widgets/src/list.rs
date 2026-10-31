@@ -3,7 +3,8 @@
 //! cost is proportional to the visible items, not to the total.
 //!
 //! Contract: a **fixed** item extent along the axis the list runs — down the screen by
-//! default, across it with [`ListView::axis`]. Items are built
+//! default, across it with [`ListView::axis`] — or, with [`ListView::builder`], rows of
+//! **any** extent, each measured as it comes into view (milestone 716). Items are built
 //! on demand by an `index → widget` closure, so they have **no retained state**
 //! and take no keyboard focus (you cannot retain the state of an item that does
 //! not exist off screen) — perfect for display (logs, tables, long lists), and
@@ -29,6 +30,80 @@ pub struct VirtualList<'a, Msg = crate::callback::Callback> {
     pub axis: Axis,
     /// Builds one item per index.
     pub build: &'a dyn Fn(usize) -> Box<dyn Widget<Msg>>,
+    /// Whether each item is as long as it needs to be, rather than `item_extent` long.
+    /// `item_extent` is then only the guess for the items nobody has measured yet.
+    pub variable: bool,
+}
+
+/// What a list of items of any extent knows of them: the extent of each one it has laid
+/// out, kept from one frame to the next, and a guess for the others (milestone 716).
+///
+/// An item is measured when it is first built, which is when it scrolls into view, so
+/// the items above the window are the ones the reader came past: already known, and
+/// the window does not jump while one scrolls.
+#[derive(Clone, Debug, Default)]
+pub struct ItemExtents {
+    /// The extent of each item, `NaN` for one not measured yet.
+    known: Vec<f32>,
+}
+
+impl ItemExtents {
+    /// Fits the record to `count` items: new ones are unknown, gone ones forgotten.
+    pub(crate) fn fit(&mut self, count: usize) {
+        self.known.resize(count, f32::NAN);
+    }
+
+    /// The guess for an item not measured yet: the mean of those that are, or `fallback`
+    /// before any is.
+    pub(crate) fn estimate(&self, fallback: f32) -> f32 {
+        let (sum, n) = self
+            .known
+            .iter()
+            .filter(|e| !e.is_nan())
+            .fold((0.0, 0usize), |(sum, n), e| (sum + e, n + 1));
+        if n == 0 {
+            fallback
+        } else {
+            sum / n as f32
+        }
+    }
+
+    /// Item `i`'s extent, measured or guessed.
+    pub(crate) fn extent(&self, i: usize, estimate: f32) -> f32 {
+        let known = self.known[i];
+        if known.is_nan() {
+            estimate
+        } else {
+            known
+        }
+    }
+
+    /// All of them, end to end.
+    pub(crate) fn total(&self, estimate: f32) -> f32 {
+        (0..self.known.len())
+            .map(|i| self.extent(i, estimate))
+            .sum()
+    }
+
+    /// The first item that reaches past `along`, and where it starts.
+    pub(crate) fn first_at(&self, along: f32, estimate: f32) -> (usize, f32) {
+        let mut start = 0.0;
+        for i in 0..self.known.len() {
+            let end = start + self.extent(i, estimate);
+            if end > along {
+                return (i, start);
+            }
+            start = end;
+        }
+        (self.known.len(), start)
+    }
+
+    /// Records item `i`'s extent; whether it differs from what the frame assumed.
+    pub(crate) fn measure(&mut self, i: usize, extent: f32) -> bool {
+        let before = self.known[i];
+        self.known[i] = extent;
+        before.is_nan() || (before - extent).abs() > 0.5
+    }
 }
 
 /// A virtualised list with a fixed item extent.
@@ -53,6 +128,8 @@ pub struct ListView<Msg = crate::callback::Callback> {
     /// How far it must move before it says so again; see [`ListView::notify_every`].
     grain: f32,
     build: Box<dyn Fn(usize) -> Box<dyn Widget<Msg>>>,
+    /// Each item as long as it needs; `item_extent` the guess for those not seen yet.
+    variable: bool,
 }
 
 impl<Msg> ListView<Msg> {
@@ -82,7 +159,44 @@ impl<Msg> ListView<Msg> {
             on_scroll: None,
             grain: 0.0,
             build: Box::new(move |index| Box::new(build(index)) as Box<dyn Widget<Msg>>),
+            variable: false,
         }
+    }
+
+    /// A virtualised list of `count` items **of any extent**, built on demand by
+    /// `build(index)` — a feed of posts of different lengths, a chat, search results
+    /// with and without a picture.
+    ///
+    /// Each item is laid out at its natural extent along the list, the whole width of the
+    /// list across it. Only the items in view are built, as with [`ListView::new`]; an
+    /// item's extent is measured the first time it is built and kept, and the ones not
+    /// seen yet are counted at the mean of those that were (or at
+    /// [`ListView::estimated_extent`] before any was), which is what the scrollbar and
+    /// the end of the list are reckoned from.
+    ///
+    /// ```
+    /// use frus_widgets::{ListView, Text};
+    ///
+    /// let posts = vec!["Short.".to_string(), "A longer post, ".repeat(20)];
+    /// let feed: ListView = ListView::builder(posts.len(), move |i| Text::new(posts[i].clone()).wrap());
+    /// ```
+    pub fn builder<W: Widget<Msg> + 'static>(
+        count: usize,
+        build: impl Fn(usize) -> W + 'static,
+    ) -> Self {
+        let mut list = Self::new(count, 56.0, build);
+        list.variable = true;
+        list
+    }
+
+    /// The extent to count an item at before any has been measured, for a list made by
+    /// [`ListView::builder`]. 56 unless told; a guess close to the real rows keeps the
+    /// scrollbar from changing its mind as they are measured.
+    pub fn estimated_extent(mut self, extent: f32) -> Self {
+        if self.variable {
+            self.item_extent = extent;
+        }
+        self
     }
 
     /// Which way the list runs: down the screen (the default) or across it.
@@ -262,6 +376,7 @@ impl<Msg> Widget<Msg> for ListView<Msg> {
             item_extent: self.item_extent,
             axis: self.axis,
             build: &*self.build,
+            variable: self.variable,
         })
     }
 

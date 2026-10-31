@@ -29,17 +29,24 @@ impl<Msg: Clone + 'static> DateTimeRange<Msg> {
     /// `start_time`/`end_time` (`on_time(endpoint, field, value)`). A "start → end"
     /// summary tops it all once **both** dates are set.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new<
+        R1: crate::callback::IntoMsg<Msg>,
+        R2: crate::callback::IntoMsg<Msg>,
+        R3: crate::callback::IntoMsg<Msg>,
+    >(
         year: i32,
         month: u32,
         start_date: Option<(i32, u32, u32)>,
         end_date: Option<(i32, u32, u32)>,
         start_time: (u32, u32),
         end_time: (u32, u32),
-        on_date: impl Fn((i32, u32, u32)) -> Msg + 'static,
-        on_nav: impl Fn(i32) -> Msg + 'static,
-        on_time: impl Fn(Endpoint, TimeField, u32) -> Msg + 'static,
+        on_date: impl Fn((i32, u32, u32)) -> R1 + 'static,
+        on_nav: impl Fn(i32) -> R2 + 'static,
+        on_time: impl Fn(Endpoint, TimeField, u32) -> R3 + 'static,
     ) -> Self {
+        let on_date = crate::callback::handler1(on_date);
+        let on_nav = crate::callback::handler1(on_nav);
+        let on_time = crate::callback::handler3(on_time);
         let calendar = DatePicker::range_dual(year, month, start_date, end_date, on_date, on_nav);
         let times = TimeRange::new(start_time, end_time, on_time);
 

@@ -51,7 +51,7 @@ pub struct GuideNetwork;
 #[cfg(doctest)]
 #[doc = include_str!("../../../docs/guide/animation.md")]
 pub struct GuideAnimation;
-#[cfg(doctest)]
+#[cfg(all(doctest, feature = "testing"))]
 #[doc = include_str!("../../../docs/guide/testing.md")]
 pub struct GuideTesting;
 
@@ -100,6 +100,10 @@ pub mod fonts {
     not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
 ))]
 pub use frus_shell::FileDialog;
+
+/// A page driven by a test, with no window (feature `testing`).
+#[cfg(feature = "testing")]
+pub use frus_shell::Tester;
 
 // The system's notifications (feature `notifications`, desktop, Android and the Web):
 // `SystemNotification`.

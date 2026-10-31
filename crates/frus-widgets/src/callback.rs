@@ -232,6 +232,23 @@ where
     }
 }
 
+/// A handler of three arguments.
+pub(crate) fn handler3<A, B, C, R, Msg>(
+    f: impl Fn(A, B, C) -> R + 'static,
+) -> impl Fn(A, B, C) -> Msg + 'static
+where
+    A: Clone + 'static,
+    B: Clone + 'static,
+    C: Clone + 'static,
+    R: IntoMsg<Msg>,
+{
+    let f = Rc::new(f);
+    move |a, b, c| {
+        let f = f.clone();
+        R::defer(move || f(a.clone(), b.clone(), c.clone()))
+    }
+}
+
 /// A handler of four arguments.
 pub(crate) fn handler4<A, B, C, D, R, Msg>(
     f: impl Fn(A, B, C, D) -> R + 'static,

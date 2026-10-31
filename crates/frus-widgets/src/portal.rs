@@ -34,6 +34,10 @@ pub enum Placement {
     /// **Beside** the anchor, on its end side, tops level: a submenu opening from its row
     /// (milestone 603). Where the window has no room there, it opens on the start side.
     Beside,
+    /// Across the **bottom** of the window, above the system's bars, with **no scrim**: a
+    /// press anywhere else still reaches the page (milestone 716). Where the application's
+    /// snack bars are shown — see `host::show_snack_bar`.
+    Notification,
 }
 
 /// A portal: an **anchor** (in the flow) and an optional floating **overlay**.
