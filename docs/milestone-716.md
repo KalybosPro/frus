@@ -124,8 +124,7 @@ CI's optional-features step runs `cargo test -p frus --features "net json testin
 
 - The widget gallery's snack bar demo still shows the queue by hand: it is a demo of
   `SnackBarQueue` too, which stays for applications that want their own.
-- `ListView::builder` does not keep the reader's place when rows **above** the window change
-  height (a picture that loads in a row already scrolled past): the rows below move by the
-  difference. The reference corrects the scroll offset; that is a further step.
+- `ListView::builder` did not keep the reader's place when rows **above** the window changed
+  height: done in milestone 717.
 - A typed `Application` (not `FrusApp`) gets neither the snack bar layer nor the driven
   controllers; it owns its view and its tick, and can call `tick_animations` itself.
