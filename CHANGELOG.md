@@ -13,6 +13,10 @@ any release may break.
 
 ## [Unreleased]
 
+- **The guide gains a page on the system around the application** (J718): file dialogs, files
+  dropped on the window, notifications, the tray, the taskbar badge and progress, global
+  shortcuts, the application's icon and a single instance — which platform has which, and an
+  example of each, compiled with every platform feature on.
 - **Writing frus easily** (J716), the seven places the guide found harder than they should be:
   - forty-five more callbacks take a plain closure (`Scaffold::nav(tab, move |i| tab.set(i))`),
     as `on_input` already did;

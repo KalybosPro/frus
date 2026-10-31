@@ -54,6 +54,16 @@ pub struct GuideAnimation;
 #[cfg(all(doctest, feature = "testing"))]
 #[doc = include_str!("../../../docs/guide/testing.md")]
 pub struct GuideTesting;
+#[cfg(all(
+    doctest,
+    feature = "file-dialogs",
+    feature = "notifications",
+    feature = "tray",
+    feature = "taskbar",
+    feature = "global-shortcuts"
+))]
+#[doc = include_str!("../../../docs/guide/platform.md")]
+pub struct GuidePlatform;
 
 // Widgets, theming, layout, and the DSL (`row!` / `column!`) — all of `frus-widgets`.
 pub use frus_widgets::*;
