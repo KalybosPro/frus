@@ -111,6 +111,7 @@ page, every example a complete program that frus's own test suite compiles:
 | [Talking to a server](docs/guide/network.md) | Typed JSON requests, loading a screen's data, sending a form |
 | [Animation](docs/guide/animation.md) | Values that move, switching widgets, animations you drive |
 | [Testing](docs/guide/testing.md) | Testing the logic, a page used as a person uses it, the pixels |
+| [The system around the application](docs/guide/platform.md) | File dialogs, dropped files, notifications, the tray, the taskbar, global shortcuts |
 
 Every widget is also in the [live widget gallery](https://kalybospro.github.io/frus/), with the
 code that builds it, and the [example applications](frus-examples/) are complete projects.

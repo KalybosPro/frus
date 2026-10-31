@@ -112,6 +112,7 @@ de frus compile :
 | [Parler à un serveur](docs/guide/network.md) | Requêtes JSON typées, charger les données d'un écran, envoyer un formulaire |
 | [Animation](docs/guide/animation.md) | Des valeurs qui bougent, changer de widget, des animations que l'on pilote |
 | [Tests](docs/guide/testing.md) | Tester la logique, une page utilisée comme par une personne, les pixels |
+| [Le système autour de l'application](docs/guide/platform.md) | Dialogues de fichiers, fichiers déposés, notifications, zone de notification, barre des tâches, raccourcis globaux |
 
 Chaque widget figure aussi dans la [galerie de widgets en ligne](https://kalybospro.github.io/frus/),
 avec le code qui le construit, et les [applications d'exemple](frus-examples/) sont des projets complets.
