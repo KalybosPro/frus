@@ -100,12 +100,21 @@ pub struct ScrollBallistic {
     pub y: Option<Ballistic>,
     /// Seconds since the release.
     pub elapsed: f32,
+    /// How far the content moved under the fling since it began, which the fling's
+    /// positions are shifted by (milestone 717): a row above the window that changed size
+    /// moves the offset, and a fling glides on from there rather than jumping back.
+    pub shift: (f32, f32),
 }
 
 impl ScrollBallistic {
     /// A fling on both axes at once (either may be `None`), starting now.
     pub fn new(x: Option<Ballistic>, y: Option<Ballistic>) -> Self {
-        Self { x, y, elapsed: 0.0 }
+        Self {
+            x,
+            y,
+            elapsed: 0.0,
+            shift: (0.0, 0.0),
+        }
     }
 
     /// Is there anything left to run?
@@ -789,6 +798,11 @@ pub struct Runtime {
     /// What each list of items of any extent has measured of them (milestone 716).
     /// Interior mutability: an item is measured while the tree is walked.
     pub(crate) item_extents: RefCell<HashMap<WidgetId, crate::list::ItemExtents>>,
+    /// What the layout moved a region's offset by, to keep the reader's place when content
+    /// above the window changed size (milestone 717): taken by the shell at its next frame
+    /// with [`Runtime::apply_scroll_corrections`]. Interior mutability: it is found while
+    /// the tree is walked.
+    pub(crate) scroll_corrections: RefCell<Vec<(WidgetId, (f32, f32))>>,
     /// Time elapsed (seconds) since start-up, for continuous animations.
     pub time: f32,
     /// Was the last interaction a **keyboard** one? The generic focus ring is only
@@ -1816,29 +1830,31 @@ impl Runtime {
         // An axis that slams into an edge reports the speed it lost there, so the
         // glow can show what the clamp swallowed.
         let mut absorbed: Vec<(GlowEdge, f32)> = Vec::new();
-        let mut axis = |sim: &mut Option<Ballistic>, previous: f32, max: f32, vertical: bool| {
-            let Some(active) = sim.as_ref() else {
-                return previous;
-            };
-            let mut position = active.x(t);
-            let mut finished = active.is_done(t);
-            if !physics.allows_overscroll() {
-                let pinned = position.clamp(0.0, max);
-                if pinned != position {
-                    // Hitting the edge is the end of the motion, not a pause at it.
-                    finished = true;
-                    absorbed.push((edge_for(vertical, position - pinned), active.dx(t)));
+        let mut axis =
+            |sim: &mut Option<Ballistic>, previous: f32, max: f32, vertical: bool, shift: f32| {
+                let Some(active) = sim.as_ref() else {
+                    return previous;
+                };
+                let mut position = active.x(t) + shift;
+                let mut finished = active.is_done(t);
+                if !physics.allows_overscroll() {
+                    let pinned = position.clamp(0.0, max);
+                    if pinned != position {
+                        // Hitting the edge is the end of the motion, not a pause at it.
+                        finished = true;
+                        absorbed.push((edge_for(vertical, position - pinned), active.dx(t)));
+                    }
+                    position = pinned;
                 }
-                position = pinned;
-            }
-            if finished {
-                *sim = None;
-            }
-            position
-        };
+                if finished {
+                    *sim = None;
+                }
+                position
+            };
 
-        let x = axis(&mut fling.x, current.0, area.max_x, false);
-        let y = axis(&mut fling.y, current.1, area.max_y, true);
+        let shift = fling.shift;
+        let x = axis(&mut fling.x, current.0, area.max_x, false, shift.0);
+        let y = axis(&mut fling.y, current.1, area.max_y, true, shift.1);
         for (edge, velocity) in absorbed {
             self.glow_absorb(id, area.overscroll, edge, velocity);
         }
@@ -2062,6 +2078,27 @@ impl Runtime {
         self.scroll_held != Some(id)
             && !self.scroll_ballistic.contains_key(&id)
             && !self.scroll_target.contains_key(&id)
+    }
+
+    /// Moves each region's offset by what the last layout found it had to, to keep the
+    /// reader's place (milestone 717): the offset, where a glide is heading, and a fling's
+    /// course, all by the same amount, so that nothing that is moving jumps back. Each
+    /// correction is applied once. The shell calls this at the top of every frame.
+    pub fn apply_scroll_corrections(&mut self) {
+        let corrections = std::mem::take(self.scroll_corrections.get_mut());
+        for (id, (dx, dy)) in corrections {
+            let offset = self.scroll.entry(id).or_insert((0.0, 0.0));
+            offset.0 += dx;
+            offset.1 += dy;
+            if let Some(target) = self.scroll_target.get_mut(&id) {
+                target.0 += dx;
+                target.1 += dy;
+            }
+            if let Some(fling) = self.scroll_ballistic.get_mut(&id) {
+                fling.shift.0 += dx;
+                fling.shift.1 += dy;
+            }
+        }
     }
 
     /// Where region `id` is **drawn**, its content now reaching no further than `max`: the
