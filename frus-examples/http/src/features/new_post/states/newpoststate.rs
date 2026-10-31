@@ -16,11 +16,8 @@ pub struct NewPostState {
     pub body: String,
     /// Errors are shown once the user has tried to send, not while they are typing.
     pub submitted: bool,
-    /// Which send this is: the request hook runs once per value, so a send bumps it.
-    pub attempt: u64,
-    /// What the current send carries — `None` before the first one, and after "Write
-    /// another".
-    pub sending: Option<NewPost>,
+    /// Where the last send has got to.
+    pub status: SendStatus,
 }
 
 /// Where the page is, as far as the server is concerned.
@@ -42,8 +39,7 @@ impl NewPostState {
             title: String::new(),
             body: String::new(),
             submitted: false,
-            attempt: 0,
-            sending: None,
+            status: SendStatus::Idle,
         }
     }
 
@@ -83,44 +79,30 @@ impl NewPostState {
         self.form().error(key).map(str::to_string)
     }
 
-    /// The Send button. A valid form starts a new send; an invalid one only shows why.
-    ///
-    /// The button is disabled while a send is out, so this is never called twice for one
-    /// post — but the page is not what guarantees that; the caller passes `busy`.
-    pub fn submit(&mut self, busy: bool) {
-        self.submitted = true;
-        if busy || !self.form().is_valid() {
-            return;
+    /// What Send sends: the trimmed post, when the form is valid and no send is out —
+    /// the button is disabled while one is, but the page is not what guarantees that.
+    pub fn draft(&self) -> Option<NewPost> {
+        if self.status == SendStatus::Sending || !self.form().is_valid() {
+            return None;
         }
-        self.sending = Some(NewPost {
+        Some(NewPost {
             user_id: AUTHOR_ID,
             title: self.title.trim().to_string(),
             body: self.body.trim().to_string(),
-        });
-        self.attempt += 1;
+        })
+    }
+
+    /// The server's answer to the send that was out.
+    pub fn finish(&mut self, answer: Result<Post, ApiError>) {
+        self.status = match answer {
+            Ok(post) => SendStatus::Sent(post),
+            Err(error) => SendStatus::Failed(error),
+        };
     }
 
     /// "Write another": an empty form, and the last answer forgotten.
     pub fn reset(&mut self) {
-        *self = Self {
-            attempt: self.attempt,
-            ..Self::new()
-        };
-    }
-
-    /// The page's status, from what the request has given so far.
-    ///
-    /// `outcome` is the hook's data: `None` while the request is out, then what the
-    /// future returned — itself `None` when there was nothing to send.
-    pub fn status(&self, outcome: Option<Option<Result<Post, ApiError>>>) -> SendStatus {
-        if self.sending.is_none() {
-            return SendStatus::Idle;
-        }
-        match outcome.flatten() {
-            None => SendStatus::Sending,
-            Some(Ok(post)) => SendStatus::Sent(post),
-            Some(Err(error)) => SendStatus::Failed(error),
-        }
+        *self = Self::new();
     }
 }
 

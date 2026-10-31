@@ -1123,7 +1123,7 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "frus"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "frus-shell",
  "frus-text",
@@ -1132,37 +1132,50 @@ dependencies = [
 
 [[package]]
 name = "frus-core"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "bytemuck",
 ]
 
 [[package]]
+name = "frus-glyphon"
+version = "0.5.0"
+dependencies = [
+ "cosmic-text",
+ "etagere",
+ "lru",
+ "rustc-hash 2.1.3",
+ "wgpu",
+]
+
+[[package]]
 name = "frus-gpu"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "bytemuck",
  "frus-core",
+ "frus-glyphon",
  "frus-text",
- "glyphon",
  "log",
  "lyon",
  "pollster",
+ "web-time",
  "wgpu",
 ]
 
 [[package]]
 name = "frus-image"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "frus-core",
  "image",
+ "jpeg-decoder",
 ]
 
 [[package]]
 name = "frus-layout"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "frus-core",
  "taffy",
@@ -1170,7 +1183,7 @@ dependencies = [
 
 [[package]]
 name = "frus-shell"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -1185,6 +1198,7 @@ dependencies = [
  "env_logger",
  "frus-gpu",
  "frus-image",
+ "frus-text",
  "frus-widgets",
  "futures-lite",
  "jni 0.21.1",
@@ -1205,17 +1219,18 @@ dependencies = [
 
 [[package]]
 name = "frus-text"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "cosmic-text",
  "frus-core",
  "log",
  "sys-locale",
+ "web-time",
 ]
 
 [[package]]
 name = "frus-widgets"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "frus-core",
  "frus-image",
@@ -1354,19 +1369,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c4ee00b289aba7a9e5306d57c2d05499b2e5dc427f84ac708bd2c090212cf3e"
 dependencies = [
  "gl_generator",
-]
-
-[[package]]
-name = "glyphon"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faea0bba2b305a172098adfc17f1a34a30282361903957da8c7a51049b4fae7b"
-dependencies = [
- "cosmic-text",
- "etagere",
- "lru",
- "rustc-hash 2.1.3",
- "wgpu",
 ]
 
 [[package]]
@@ -1629,6 +1631,12 @@ dependencies = [
  "getrandom 0.4.3",
  "libc",
 ]
+
+[[package]]
+name = "jpeg-decoder"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00810f1d8b74be64b13dbf3db89ac67740615d6c891f0e7b6179326533011a07"
 
 [[package]]
 name = "js-sys"

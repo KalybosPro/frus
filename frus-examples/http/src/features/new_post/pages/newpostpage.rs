@@ -26,20 +26,7 @@ impl State for NewPostState {
     fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> {
         let theme = cx.theme();
 
-        // A request the user starts, rather than one the page needs to show itself: the
-        // same hook, keyed on `attempt`, which only Send changes. Before the first send
-        // there is nothing to carry, and the future answers `None` at once.
-        //
-        // The future owns what it sends (`draft` is moved in): it may still be running
-        // after the user has typed something else.
-        let draft = self.sending.clone();
-        let outcome = cx.use_future(self.attempt, move || async move {
-            match draft {
-                Some(draft) => Some(api::create_post(draft).await),
-                None => None,
-            }
-        });
-        let status = self.status(outcome.data);
+        let status = self.status.clone();
         let busy = status == SendStatus::Sending;
 
         let title = TextField::new(self.title.as_str())
@@ -68,9 +55,21 @@ impl State for NewPostState {
                 .icon(CircularProgressIndicator::new().size(16.0))
                 .enabled(false)
         } else {
+            // A request the user starts, written as what happens, in order: the errors show,
+            // the form locks, the post goes out, and the answer is shown. The handler runs on
+            // the interface's thread and waits for the server without holding it; if the
+            // page is left before the answer comes, the handler ends with it.
             Button::new("Send")
                 .icon(Icon::new(Icons::SEND))
-                .on_press(cx.callback(move |state: &mut NewPostState| state.submit(busy)))
+                .on_press(cx.async_callback(|state| async move {
+                    state.set_state(|s| s.submitted = true);
+                    let Some(draft) = state.read(NewPostState::draft) else {
+                        return;
+                    };
+                    state.set_state(|s| s.status = SendStatus::Sending);
+                    let answer = api::create_post(draft).await;
+                    state.set_state(|s| s.finish(answer));
+                }))
         };
 
         let mut content = Column::new()

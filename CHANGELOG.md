@@ -13,6 +13,21 @@ any release may break.
 
 ## [Unreleased]
 
+- **A handler can await** (J714): `cx.async_callback(|state| async move { … })` is a handler
+  that changes the state, awaits a request, and changes it again, in one place — what a form's
+  Send button wants. Its task runs on the interface's thread between frames, so it may hold the
+  state's handle and need not be `Send`, and it is dropped if its state leaves the tree first.
+  `StateHandle::spawn(future)` starts one from anywhere a handle is held, `spawn_local` one that
+  nothing owns. Each returns a `TaskHandle`: `cancel()` stops the task, and awaiting the
+  handle from another task gives what it returned. A function component has the same through
+  `cx.async_callback(|| async move { … })` and `cx.task_scope()`, its tasks ending with it.
+  The guide gains **Work that waits**, with an example for each shape, and the http example's
+  form is written this way, checked in a browser by `scripts/web-async-handler-check.py`.
+- **A scroll view sized by its content grows with it** (J714): a scrollable with no size of
+  its own is as big as its content (J590), but the layout cache fingerprinted it without the
+  content, so a page that grew — a card shown under a form once it was sent — kept its old
+  viewport and was cut off until the window changed size. Found by the browser check above.
+
 ## [0.5.0] - 2026-10-30
 
 The system around the window, screen readers, and phones on any computer. An application

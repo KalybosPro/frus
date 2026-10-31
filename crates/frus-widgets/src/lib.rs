@@ -112,6 +112,7 @@ pub mod licenses;
 mod list;
 mod listener;
 mod listtile;
+mod local_task;
 /// Which language the interface is in: [`locale::Locale`], [`locale::resolve`] and
 /// [`locale::of`].
 pub mod locale;
@@ -355,6 +356,9 @@ pub use listtile::{
     ListTile, LIST_TILE_DENSE_HEIGHTS, LIST_TILE_HEIGHTS, LIST_TILE_MIN_LEADING_WIDTH,
     LIST_TILE_MIN_VERTICAL_PADDING, LIST_TILE_PADDING_END, LIST_TILE_PADDING_START,
     LIST_TILE_TITLE_GAP,
+};
+pub use local_task::{
+    local_tasks, run_local_tasks, set_local_wake, spawn_local, TaskHandle, TaskScope,
 };
 pub use locale::Locale;
 pub use localizations::{English, French, Localizations};

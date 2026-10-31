@@ -326,7 +326,24 @@ fn hash_node<Msg, H: Hasher>(
         || widget.custom_layout().is_some()
     {
         1u8.hash(hasher);
-        effective_style(widget, id, runtime, theme).layout_hash(hasher);
+        let style = effective_style(widget, id, runtime, theme);
+        style.layout_hash(hasher);
+        // A viewport with no size of its own is as big as its content (milestones 485, 590):
+        // its box is the content's, and a fingerprint blind to the content kept the box a
+        // page had before it grew — what came below was cut off until the window changed
+        // size (milestone 714).
+        if let Some(content) = widget.scroll_content() {
+            if crate::ui::viewport_sizing(widget.scroll_axis(), &style).measured() {
+                hash_node(
+                    content,
+                    child_id(id, 0, content),
+                    runtime,
+                    theme,
+                    hasher,
+                    volatile,
+                );
+            }
+        }
         return;
     }
     // A box that transforms its constraints is sized from its child, laid out in a tree of
@@ -460,6 +477,32 @@ mod tests {
         let fills: crate::Row<()> = crate::Row::new().child(Container::new());
         let hugs: crate::Row<()> = crate::Row::new().shrink_wrap().child(Container::new());
         assert_ne!(sig(&fills), sig(&hugs));
+    }
+
+    /// **A viewport that is as tall as its content grows with it** (milestone 714). A
+    /// scrollable with no height of its own is measured from what it holds (milestone 590),
+    /// so its fingerprint has to hold the content too: hashed as a bare leaf, a page that
+    /// gained a card under its form kept the old viewport, and the card was cut off.
+    #[test]
+    fn a_viewport_sized_by_its_content_grows_with_it() {
+        let rt = Runtime::default();
+        let theme = crate::theme::Theme::default();
+        let c = Constraints::definite(Size::new(300.0, 400.0));
+        let page = |rows: usize| -> Flex<()> {
+            let mut content = Flex::column();
+            for _ in 0..rows {
+                content = content.child(Container::new().width(10.0).height(40.0));
+            }
+            Flex::column().child(crate::SingleChildScrollView::new().child(content))
+        };
+        let viewport = |rects: &(Vec<Rect>, Vec<Overflowing>)| rects.0[1].height;
+        let mut cache = LayoutCache::default();
+        let short = cache.rects(WidgetId::ROOT, &page(2), &rt, &theme, c);
+        assert_eq!(viewport(&short), 80.0, "as tall as two rows");
+        let grown = cache.rects(WidgetId::ROOT, &page(4), &rt, &theme, c);
+        assert_eq!(viewport(&grown), 160.0, "and then as tall as four");
+        cache.rects(WidgetId::ROOT, &page(4), &rt, &theme, c);
+        assert_eq!(cache.hits, 1, "and the same page is still reused");
     }
 
     /// **A root holding an unconstrained box is reused** when nothing in it changed
