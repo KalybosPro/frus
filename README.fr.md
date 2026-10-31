@@ -6,14 +6,19 @@
 
 **Un framework UI multiplateforme écrit entièrement en Rust.**
 
-Un seul code → bureau, Android et le Web. Rendu GPU. Construit à partir de composants. Pas de DSL, pas de génération de code, pas de CLI maison — juste `cargo`.
+Un seul code → bureau, Android et le Web. Rendu GPU. Construit à partir de composants. Pas de DSL, pas de génération de code — juste `cargo`, avec une commande `frus` facultative pour les nouveaux projets et les appareils.
 
 [![CI](https://github.com/KalybosPro/frus/actions/workflows/ci.yml/badge.svg)](https://github.com/KalybosPro/frus/actions/workflows/ci.yml)
 [![Licence](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-blue.svg)](#licence)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 [![Statut](https://img.shields.io/badge/statut-pré--alpha-yellow.svg)](#état-du-projet)
 
-[Démarrer](#démarrer) · [Galerie](#à-quoi-ça-ressemble) · [Galerie de widgets en ligne](https://kalybospro.github.io/frus/) · [Architecture](#architecture) · [État](#état-du-projet) · [Contribuer](CONTRIBUTING.md) · [English](README.md)
+[![Lire le guide](https://img.shields.io/badge/📖_Lire_le_guide-2ea44f?style=for-the-badge)](docs/guide/README.md)
+[![Démarrer](https://img.shields.io/badge/🚀_Démarrer-0969da?style=for-the-badge)](docs/getting-started.md)
+[![Galerie de widgets](https://img.shields.io/badge/🧩_Galerie_de_widgets-8250df?style=for-the-badge)](https://kalybospro.github.io/frus/)
+[![Référence de l'API](https://img.shields.io/badge/📚_Référence_API-bf8700?style=for-the-badge)](https://docs.rs/frus)
+
+[Démarrer](#démarrer) · [Apprendre](#apprendre-frus) · [Guide](docs/guide/README.md) · [Galerie](#à-quoi-ça-ressemble) · [Galerie de widgets en ligne](https://kalybospro.github.io/frus/) · [Architecture](#architecture) · [État](#état-du-projet) · [Contribuer](CONTRIBUTING.md) · [English](README.md)
 
 <br>
 
@@ -89,6 +94,27 @@ Le routeur garde une pile de pages, glisse de l'une à l'autre, répond au geste
 | **Rendu GPU natif** | `wgpu` vise Vulkan, Metal, DX12 et WebGPU depuis un seul backend. Les chemins vectoriels sont tessellés par `lyon`, le texte façonné par `cosmic-text`. |
 | **Tout est surchargeable** | Les widgets fournissent des valeurs par défaut *thémées*, jamais codées en dur. Si un widget le dessine, vous pouvez le restyler ou remplacer l'emplacement. |
 | **cargo-natif** | Pas de `frus doctor`, pas de gestionnaire de paquets maison, pas de dossier de build généré. `cargo build`, `cargo test`, `cargo apk run`. |
+
+## Apprendre frus
+
+Nouveau venu ? Commencez par la [page de démarrage](docs/getting-started.md) — la plus petite
+application, l'état, le travail `async`, un téléphone —, puis lisez **[le guide](docs/guide/README.md)**
+(en anglais), un sujet par page, chaque exemple étant un programme complet que la suite de tests
+de frus compile :
+
+| Sujet | Ce que vous y écrivez |
+| --- | --- |
+| [Mettre en page un écran](docs/guide/layout.md) | Lignes et colonnes, boîtes, piles, défilement, une mise en page qui suit la largeur |
+| [Texte, couleur et thème](docs/guide/style.md) | Typographie, rôles de couleur, clair et sombre, restyler un widget ou tous ceux d'un type |
+| [Saisir des données](docs/guide/input.md) | Champs de texte, cases à cocher, interrupteurs, curseurs, listes déroulantes, un formulaire qui se vérifie |
+| [Listes et grilles](docs/guide/lists.md) | Dix mille lignes, des lignes de toute hauteur, tirer pour rafraîchir, glisser pour supprimer |
+| [Écrans, navigation et dialogues](docs/guide/navigation.md) | Routes, redirections, le `Scaffold`, dialogues, snack bars |
+| [Parler à un serveur](docs/guide/network.md) | Requêtes JSON typées, charger les données d'un écran, envoyer un formulaire |
+| [Animation](docs/guide/animation.md) | Des valeurs qui bougent, changer de widget, des animations que l'on pilote |
+| [Tests](docs/guide/testing.md) | Tester la logique, une page utilisée comme par une personne, les pixels |
+
+Chaque widget figure aussi dans la [galerie de widgets en ligne](https://kalybospro.github.io/frus/),
+avec le code qui le construit, et les [applications d'exemple](frus-examples/) sont des projets complets.
 
 ## À quoi ça ressemble
 
