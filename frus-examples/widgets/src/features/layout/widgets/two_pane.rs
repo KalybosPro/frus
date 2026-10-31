@@ -96,10 +96,7 @@ fn mail() -> impl Widget {
                     }),
             );
 
-        let on_select = move |segment: usize| {
-            let wide = wide.clone();
-            (move || wide.set(segment == 0)).into()
-        };
+        let on_select = move |segment: usize| wide.set(segment == 0);
         Box::new(
             Column::new()
                 .spacing(12.0)
