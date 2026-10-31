@@ -1,7 +1,11 @@
 # Starting a frus application
 
-frus stays **cargo-native**: no proprietary tooling, no in-house CLI.
-`cargo run` / `cargo test` / `cargo apk run` are all you need.
+frus stays **cargo-native**: an application is an ordinary crate, and `cargo run` /
+`cargo test` build and test it. The `frus` command line (`frus create`, `frus run`) adds
+what cargo does not do — a new project, a device, hot reload — and is never required.
+
+Once your first application runs, [the guide](guide/README.md) takes each topic in turn —
+layout, style, input, lists, navigation, network, animation, testing — with examples.
 
 ## The smallest application
 
@@ -737,11 +741,12 @@ an application most of a megabyte.
 
 ## Testing
 
-Because `update` is pure, the logic is testable **without a GPU or a window**:
+What a handler does belongs in a method of the state, and what a form checks in a function of
+its values: both are plain Rust, tested **without a GPU or a window**:
 
 ```sh
 cargo test
 ```
 
-For rendering tests (snapshots/goldens), see
-[`frus-test`](../crates/frus-test/src/lib.rs).
+[The guide's testing page](guide/testing.md) shows how, and how `frus-test` renders a widget
+offscreen to test what the screen looks like.

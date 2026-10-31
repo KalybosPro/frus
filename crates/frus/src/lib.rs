@@ -29,6 +29,32 @@
 #[doc = include_str!("../README.md")]
 pub struct ReadmeDoctests;
 
+// So are the guide's (`docs/guide`): every example in it is a complete program.
+#[cfg(doctest)]
+#[doc = include_str!("../../../docs/guide/layout.md")]
+pub struct GuideLayout;
+#[cfg(doctest)]
+#[doc = include_str!("../../../docs/guide/style.md")]
+pub struct GuideStyle;
+#[cfg(doctest)]
+#[doc = include_str!("../../../docs/guide/input.md")]
+pub struct GuideInput;
+#[cfg(doctest)]
+#[doc = include_str!("../../../docs/guide/lists.md")]
+pub struct GuideLists;
+#[cfg(doctest)]
+#[doc = include_str!("../../../docs/guide/navigation.md")]
+pub struct GuideNavigation;
+#[cfg(all(doctest, feature = "net", feature = "json"))]
+#[doc = include_str!("../../../docs/guide/network.md")]
+pub struct GuideNetwork;
+#[cfg(doctest)]
+#[doc = include_str!("../../../docs/guide/animation.md")]
+pub struct GuideAnimation;
+#[cfg(doctest)]
+#[doc = include_str!("../../../docs/guide/testing.md")]
+pub struct GuideTesting;
+
 // Widgets, theming, layout, and the DSL (`row!` / `column!`) — all of `frus-widgets`.
 pub use frus_widgets::*;
 

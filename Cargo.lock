@@ -1487,8 +1487,10 @@ name = "frus"
 version = "0.5.0"
 dependencies = [
  "frus-shell",
+ "frus-test",
  "frus-text",
  "frus-widgets",
+ "serde",
 ]
 
 [[package]]

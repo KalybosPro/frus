@@ -68,3 +68,9 @@ frus-shell = { path = "../frus-shell", version = "0.5", default-features = false
 frus-widgets = { path = "../frus-widgets", version = "0.5", default-features = false }
 # Directly, for `frus::fonts`: registering the application's own faces.
 frus-text = { path = "../frus-text", version = "0.5", default-features = false }
+
+[dev-dependencies]
+# The guide's network examples decode JSON into their own types.
+serde = { version = "1", features = ["derive"] }
+# And its testing chapter renders a widget offscreen.
+frus-test = { path = "../frus-test", version = "0.5" }
