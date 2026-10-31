@@ -401,4 +401,74 @@ mod tests {
             "row 6 moved from {before} to {after} when row 3, above it, grew"
         );
     }
+
+    /// Where the row named `name` was drawn, and where the list's window starts.
+    fn row_y(tester: &Tester<FrusApp>, name: &str) -> f32 {
+        tester
+            .driver
+            .texts()
+            .into_iter()
+            .find(|(t, _)| t == name)
+            .map(|(_, r)| r.y)
+            .unwrap_or_else(|| panic!("{name} not on screen: {:?}", tester.texts()))
+    }
+
+    fn list_top(tester: &Tester<FrusApp>) -> f32 {
+        tester.driver.offsets()[0].0.y
+    }
+
+    fn list_page(variable: bool) -> FrusApp {
+        app(move || {
+            let rows = move |i: usize| {
+                // Every third row is three times as tall, in the list of any height.
+                let height = if variable && i.is_multiple_of(3) { 120.0 } else { 40.0 };
+                Column::new()
+                    .child(Text::new(format!("row {i}")))
+                    .child(frus_widgets::SizedBox::empty().height(height - 20.0))
+            };
+            let list = if variable {
+                ListView::builder(500, rows)
+            } else {
+                ListView::new(500, 40.0, rows)
+            };
+            Box::new(
+                Column::new()
+                    .child(Text::new("Inbox"))
+                    .child(frus_widgets::keyed("list", list.height(400.0))),
+            )
+        })
+    }
+
+    /// **`ScrollTo::index` brings an item to the window's edge** (milestone 719), in a
+    /// list of one height and in one of any height, whose rows before it were never seen.
+    #[test]
+    fn scrolling_to_an_index_brings_that_row_to_the_top() {
+        for variable in [false, true] {
+            let mut tester = Tester::sized(list_page(variable), 300.0, 600.0);
+            host::scroll_to("list", frus_widgets::ScrollTo::index(120));
+            tester.settle();
+            let (top, row) = (list_top(&tester), row_y(&tester, "row 120"));
+            assert!(
+                (row - top).abs() < 1.0,
+                "variable {variable}: row 120 at {row}, the window starts at {top}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_aligned_index_comes_to_rest_in_the_middle() {
+        let mut tester = Tester::sized(list_page(false), 300.0, 600.0);
+        host::scroll_to(
+            "list",
+            frus_widgets::ScrollTo::index(60).aligned(0.5).instant(),
+        );
+        tester.settle();
+        let top = list_top(&tester);
+        let row = row_y(&tester, "row 60");
+        // A 40-pixel row in the middle of a 400-pixel window starts 180 pixels in.
+        assert!(
+            (row - top - 180.0).abs() < 1.0,
+            "row 60 at {row}, window at {top}"
+        );
+    }
 }

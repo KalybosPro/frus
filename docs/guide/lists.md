@@ -213,5 +213,27 @@ fn conversation() -> Box<dyn Widget> {
 }
 ```
 
+`ScrollTo::index(n)` brings row `n` to the top of the window — the message a notification
+pointed at, the selected row of a long list — and `.aligned(0.5)` to its middle. It works in a
+list of rows of any height too: the rows on the way are measured as the list travels, and the
+row lands where it was asked for.
+
+```rust
+use frus::{host, keyed, Button, Column, Expanded, ListTile, ListView, ScrollTo, Widget};
+
+fn threads() -> Box<dyn Widget> {
+    Box::new(
+        Column::new()
+            .child(Button::new("Go to the unread one").on_press(|| {
+                host::scroll_to("threads", ScrollTo::index(240).aligned(0.5))
+            }))
+            .child(Expanded::new(keyed(
+                "threads",
+                ListView::new(1000, 56.0, |i| ListTile::new().title(format!("Thread {i}"))),
+            ))),
+    )
+}
+```
+
 `.on_scroll(|position| ..)` tells you where the list is — to load the next page when the reader
 nears the end, for instance: `position.offset.1 > position.max.1 - 400.0`.
