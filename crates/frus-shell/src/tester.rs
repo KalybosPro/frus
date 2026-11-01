@@ -401,4 +401,26 @@ mod tests {
             "row 6 moved from {before} to {after} when row 3, above it, grew"
         );
     }
+
+    /// **A list a component returns as its whole tree is found by its key** (milestone 729):
+    /// a component's key is its own, so the lookup that `host::scroll_to` and `host::focus`
+    /// use walked past the `keyed(..)` the component built, though the list was laid out under
+    /// the component's identity.
+    #[test]
+    fn a_keyed_list_that_is_a_component_s_whole_tree_can_be_scrolled_by_its_key() {
+        let mut tester = Tester::sized(
+            app(|| {
+                Box::new(frus_widgets::keyed(
+                    "list",
+                    ListView::new(500, 40.0, |i| Text::new(format!("row {i}"))).height(400.0),
+                ))
+            }),
+            300.0,
+            600.0,
+        );
+        host::scroll_to("list", frus_widgets::ScrollTo::y(400.0).instant());
+        tester.settle();
+        assert!(tester.shows("row 10"), "{:?}", tester.texts());
+        assert!(!tester.shows("row 0"), "{:?}", tester.texts());
+    }
 }

@@ -13,6 +13,9 @@ any release may break.
 
 ## [Unreleased]
 
+- **A keyed widget a component returns as its whole tree is found by its key** (J729):
+  `host::scroll_to` and `host::focus` used to miss it, as a component answers with its own key
+  and never its child's; `Widget::built_child` lets the lookup see what a component built.
 - **The guide gains a page on the system around the application** (J718): file dialogs, files
   dropped on the window, notifications, the tray, the taskbar badge and progress, global
   shortcuts, the application's icon and a single instance — which platform has which, and an

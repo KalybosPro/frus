@@ -6829,12 +6829,23 @@ pub fn reorder_siblings<Msg>(
         .collect()
 }
 
+/// Whether `widget` answers to `key`: its own, or that of what a component built, which
+/// stands in the component's place and takes its identity. `keyed(k, list)` returned by a
+/// component as its whole tree was otherwise invisible to a lookup — `host::scroll_to`,
+/// `host::focus` — though laid out under the component's identity (milestone 729).
+fn carries_key<Msg>(widget: &dyn Widget<Msg>, key: u64) -> bool {
+    widget.key() == Some(key)
+        || widget
+            .built_child()
+            .is_some_and(|built| carries_key(built, key))
+}
+
 /// Identity of the **first** widget declaring the key `key` (a hash), or `None`. It is how the
 /// shell resolves a focus-by-key request (`Command::focus`): the application wraps a field in
 /// `keyed(k, …)`, then focuses by `k`.
 pub fn find_by_key<Msg>(root: &dyn Widget<Msg>, key: u64) -> Option<WidgetId> {
     fn walk<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, key: u64) -> Option<WidgetId> {
-        if widget.key() == Some(key) {
+        if carries_key(widget, key) {
             return Some(id);
         }
         for (index, child) in widget.children().iter().enumerate() {
@@ -6868,7 +6879,7 @@ pub fn find_sheet_by_key<Msg>(root: &dyn Widget<Msg>, key: u64) -> Option<Widget
             })
     }
     fn walk<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, key: u64) -> Option<WidgetId> {
-        if widget.key() == Some(key) {
+        if carries_key(widget, key) {
             return first_sheet(widget, id);
         }
         widget

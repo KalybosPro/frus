@@ -1350,6 +1350,13 @@ impl<Msg> LazyChild<Msg> {
         }
     }
 
+    /// What this component built, so that a key the built widget carries is found where the
+    /// component stands (milestone 729). Inherent, so that the transparent macro's
+    /// `self.inner.built_child()` reaches this rather than the built widget's own.
+    fn built_child(&self) -> Option<&dyn Widget<Msg>> {
+        self.built.get().map(|child| child.as_ref())
+    }
+
     fn build_themed(&self, theme: &Theme) {
         if let Some(child) = self.built.get() {
             child.build_themed(theme);
