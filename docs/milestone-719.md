@@ -37,6 +37,5 @@ it for this one.
 
 ## Not done
 
-- **A keyed list that is the very root of a component** is not found by `host::scroll_to`: the
-  key's lookup and the layout give it different identities in that one arrangement. A list in a
-  page — under a column, a scaffold — is found, which is every case the guide shows.
+- **A keyed list that is the very root of a component** was not found by `host::scroll_to`:
+  done in milestone 729.
