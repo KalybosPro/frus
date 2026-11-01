@@ -421,7 +421,11 @@ mod tests {
         app(move || {
             let rows = move |i: usize| {
                 // Every third row is three times as tall, in the list of any height.
-                let height = if variable && i.is_multiple_of(3) { 120.0 } else { 40.0 };
+                let height = if variable && i.is_multiple_of(3) {
+                    120.0
+                } else {
+                    40.0
+                };
                 Column::new()
                     .child(Text::new(format!("row {i}")))
                     .child(frus_widgets::SizedBox::empty().height(height - 20.0))
