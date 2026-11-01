@@ -35,6 +35,42 @@ pub struct VirtualList<'a, Msg = crate::callback::Callback> {
     pub variable: bool,
 }
 
+/// What the frame that laid a list out knows of its shape: enough to say where item `n`
+/// is, which a [`ScrollTo::index`](crate::ScrollTo::index) asks (milestone 719).
+#[derive(Clone, Copy, Debug)]
+pub struct ListShape {
+    /// The room before the first item, along the list.
+    pub lead: f32,
+    /// The extent of one item; for a list of items of any extent, the guess.
+    pub item_extent: f32,
+    /// How many items.
+    pub count: usize,
+    /// Whether the items are each as long as they need, measured in `ItemExtents`.
+    pub variable: bool,
+    /// Whether the list runs across.
+    pub across: bool,
+    /// The window's extent along the list.
+    pub window: f32,
+    /// The largest offset the list rests at, as the frame reckoned it.
+    pub max: f32,
+}
+
+impl ListShape {
+    /// Where item `index` puts the list's offset, `align` along the window, from what is
+    /// known of the items now: their extents in `known` for a list of any extent.
+    pub(crate) fn offset_of(&self, index: usize, align: f32, known: Option<&ItemExtents>) -> f32 {
+        let index = index.min(self.count.saturating_sub(1));
+        let (start, length) = match known.filter(|_| self.variable) {
+            Some(known) => {
+                let guess = known.estimate(self.item_extent);
+                (known.start_of(index, guess), known.extent_or(index, guess))
+            }
+            None => (index as f32 * self.item_extent, self.item_extent),
+        };
+        (self.lead + start - align * (self.window - length)).clamp(0.0, self.max.max(0.0))
+    }
+}
+
 /// What a list of items of any extent knows of them: the extent of each one it has laid
 /// out, kept from one frame to the next, and a guess for the others (milestone 716).
 ///
@@ -68,6 +104,15 @@ impl ItemExtents {
         }
     }
 
+    /// Item `i`'s extent, measured or guessed, or the guess past the last item.
+    pub(crate) fn extent_or(&self, i: usize, estimate: f32) -> f32 {
+        if i < self.known.len() {
+            self.extent(i, estimate)
+        } else {
+            estimate
+        }
+    }
+
     /// Item `i`'s extent, measured or guessed.
     pub(crate) fn extent(&self, i: usize, estimate: f32) -> f32 {
         let known = self.known[i];
@@ -82,6 +127,13 @@ impl ItemExtents {
     pub(crate) fn total(&self, estimate: f32) -> f32 {
         (0..self.known.len())
             .map(|i| self.extent(i, estimate))
+            .sum()
+    }
+
+    /// Where item `i` starts, counting the ones before it measured or guessed.
+    pub(crate) fn start_of(&self, i: usize, estimate: f32) -> f32 {
+        (0..i.min(self.known.len()))
+            .map(|j| self.extent(j, estimate))
             .sum()
     }
 

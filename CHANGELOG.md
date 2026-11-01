@@ -16,6 +16,10 @@ any release may break.
 - **A keyed widget a component returns as its whole tree is found by its key** (J729):
   `host::scroll_to` and `host::focus` used to miss it, as a component answers with its own key
   and never its child's; `Widget::built_child` lets the lookup see what a component built.
+- **Scrolling to a row by its index** (J719): `ScrollTo::index(n)`, `.aligned(0.5)` to centre it,
+  in a `ListView` of one height or of any height, where the row is placed again each frame from
+  the rows measured on the way until it rests where it was asked for. The test driver counts a
+  glide as movement, so a test waits for it.
 - **The guide gains a page on the system around the application** (J718): file dialogs, files
   dropped on the window, notifications, the tray, the taskbar badge and progress, global
   shortcuts, the application's icon and a single instance — which platform has which, and an

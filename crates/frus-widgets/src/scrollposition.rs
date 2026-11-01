@@ -119,6 +119,18 @@ pub enum ScrollTarget {
     End,
     /// This offset exactly, clamped to what the content actually has.
     Offset(f32),
+    /// Where item `index` of a [`ListView`](crate::ListView) is, with `align` saying where
+    /// in the window it comes to rest: `0.0` at the window's leading edge, `0.5` in its
+    /// middle, `1.0` at its far edge (milestone 719). Placed by the frame that lays the
+    /// list out, from the items' own extents and, for a list of rows of any height, the
+    /// guess for the rows not measured yet; a region that is not a list leaves the axis
+    /// where it is.
+    Item {
+        /// Which item.
+        index: usize,
+        /// Where in the window: `0.0` the leading edge, `1.0` the far one.
+        align: f32,
+    },
 }
 
 impl ScrollTarget {
@@ -129,6 +141,10 @@ impl ScrollTarget {
             ScrollTarget::Start => 0.0,
             ScrollTarget::End => max,
             ScrollTarget::Offset(offset) => offset.clamp(0.0, max),
+            // Turned into an offset by the runtime, which knows the list, before this is
+            // asked; one that reaches here belongs to a region with no items, and rests at
+            // its start.
+            ScrollTarget::Item { .. } => 0.0,
         }
     }
 }
@@ -187,6 +203,32 @@ impl ScrollTo {
             animate: true,
             ..Self::default()
         }
+    }
+
+    /// To item `index` of a list, its leading edge at the window's — the "jump to the
+    /// message" of a chat, the selected row of a long list (milestone 719). Along the axis
+    /// the list runs, whichever it is; [`ScrollTo::aligned`] puts it elsewhere in the window.
+    ///
+    /// In a list of rows of any height ([`ListView::builder`](crate::ListView::builder)) the
+    /// rows before it that nobody has seen yet are counted at the guess, and the list keeps
+    /// the row in place as they are measured on the way.
+    pub fn index(index: usize) -> Self {
+        Self {
+            y: Some(ScrollTarget::Item { index, align: 0.0 }),
+            animate: true,
+            ..Self::default()
+        }
+    }
+
+    /// Where in the window the item of [`ScrollTo::index`] comes to rest: `0.0` at its
+    /// leading edge (the default), `0.5` in its middle, `1.0` at its far edge.
+    pub fn aligned(mut self, align: f32) -> Self {
+        for target in [&mut self.x, &mut self.y].into_iter().flatten() {
+            if let ScrollTarget::Item { align: at, .. } = target {
+                *at = align.clamp(0.0, 1.0);
+            }
+        }
+        self
     }
 
     /// Also moves the horizontal axis to `target`.

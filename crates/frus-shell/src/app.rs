@@ -11728,8 +11728,10 @@ pub mod testing {
                 let (retry, _) = apply_scroll_requests(&mut s.runtime, tree, requests, &regions);
                 s.retry_scroll = retry;
             }
-            s.runtime.advance(dt);
-            s.runtime.advance_scroll(&regions, dt);
+            // A glide or a fling under way is movement too: a test that waits for the
+            // screen to be still waits for it (milestone 719).
+            let values_moving = s.runtime.advance(dt);
+            let scrolling = s.runtime.advance_scroll(&regions, dt);
             let tree = s.tree.as_deref().expect("the view was built");
             // The widgets' own values, as the window's frame steps them: without it a value
             // a drag held would be held for ever here (milestone 638).
@@ -11764,7 +11766,7 @@ pub mod testing {
                 s.dispatch(message);
             }
             self.ghost = ghost;
-            self.animating = app_animating;
+            self.animating = app_animating || values_moving || scrolling;
         }
 
         /// Whether the application's own animations — a page transition, a controller a
