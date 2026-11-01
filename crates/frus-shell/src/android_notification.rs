@@ -23,8 +23,9 @@ use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::{JNIEnv, JavaVM};
 
 use crate::notification::{
-    left_the_shade, question, NotificationError, NotificationResponse, Question, SystemNotification,
+    left_the_shade, NotificationError, NotificationResponse, SystemNotification,
 };
+use crate::permission::{question, Question};
 
 struct Handle {
     vm: JavaVM,

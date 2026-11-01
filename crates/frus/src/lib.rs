@@ -120,6 +120,10 @@ pub use frus_shell::Tester;
 #[cfg(all(feature = "notifications", not(target_os = "ios")))]
 pub use frus_shell::{NotificationError, NotificationResponse, SystemNotification};
 
+/// Asking the person for the camera, the microphone, the location, notifications
+/// (milestone 730).
+pub use frus_shell::{open_permission_settings, Permission, PermissionStatus};
+
 // Cross-platform HTTP (feature `net`): the `frus::fetch(url).await` shorthand and the
 // `frus::Request` builder (method / headers / body / timeout) — see [`frus::net`].
 #[cfg(feature = "net")]

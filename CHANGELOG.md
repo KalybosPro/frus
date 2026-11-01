@@ -13,6 +13,12 @@ any release may break.
 
 ## [Unreleased]
 
+- **Permissions** (J730): `Permission::{Camera, Microphone, Location, Notifications}`,
+  `.status().await` and `.request().await`, a `PermissionStatus` of `Granted`, `Ask`, `Denied`,
+  `Blocked` or `Unavailable`, and `open_permission_settings()`. Android asks through the system
+  (a new `FrusPermissions` in the bundled dex), the web through the browser, Windows reads the
+  privacy settings; checked in a browser by `scripts/web-permissions-check.py`. The widget
+  gallery has a Permission demo.
 - **A keyed widget a component returns as its whole tree is found by its key** (J729):
   `host::scroll_to` and `host::focus` used to miss it, as a component answers with its own key
   and never its child's; `Widget::built_child` lets the lookup see what a component built.

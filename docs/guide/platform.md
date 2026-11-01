@@ -22,6 +22,7 @@ frus = { version = "0.5", features = ["file-dialogs", "notifications", "tray", "
 | [Global shortcuts](#global-shortcuts) | `global-shortcuts` | ✓ | — | — |
 | [The application's icon](#the-applications-icon) | — | ✓ | ✓ | ✓ |
 | [One instance at a time](#one-instance-at-a-time) | — | ✓ | — | — |
+| [Permissions](#permissions) | — | ✓ | ✓ | ✓ |
 
 ## Picking a file
 
@@ -209,6 +210,59 @@ fn app() -> FrusApp {
 On Android the launcher's icon comes from the package's resources, and on the web from the
 page's `<link rel="icon">`; the [getting-started page](../getting-started.md#the-applications-icon)
 says where each one goes.
+
+## Permissions
+
+The camera, the microphone and the location are the person's to give. `Permission` says where
+one stands and asks for it; both calls are `async`, because the web answers no other way, so
+they run in an `async` handler:
+
+```rust
+use frus::{component, open_permission_settings, Button, Column, Permission, PermissionStatus, Text, Widget};
+
+fn scanner() -> Box<dyn Widget> {
+    Box::new(component(|cx| {
+        let status = cx.use_state(|| None::<PermissionStatus>);
+        let store = status.clone();
+        let ask = cx.async_callback(move || {
+            let store = store.clone();
+            async move { store.set(Some(Permission::Camera.request().await)) }
+        });
+        let body: Box<dyn Widget> = match status.get() {
+            Some(PermissionStatus::Granted) => Box::new(Text::new("Point the camera at the code")),
+            Some(PermissionStatus::Blocked) => Box::new(
+                Button::new("Allow the camera in the settings").on_press(open_permission_settings),
+            ),
+            _ => Box::new(Button::new("Scan a code").on_press(ask)),
+        };
+        Box::new(Column::new().child(body))
+    }))
+}
+```
+
+A status is one of five:
+
+| Status | What it means | What to do |
+| --- | --- | --- |
+| `Granted` | Allowed. | Use it. |
+| `Ask` | Not decided: a request shows the question. | Ask when the person does what needs it. |
+| `Denied` | Refused, and a request asks again. | Say why it is needed, then offer to ask. |
+| `Blocked` | Refused for good, by a policy, or not declared by the application. | `open_permission_settings()`. |
+| `Unavailable` | Not something this platform or page can grant. | Do without it. |
+
+On **Android** the application's manifest must name each permission it asks for — for cargo-apk,
+one `[[package.metadata.android.uses_permission]]` per permission (`android.permission.CAMERA`,
+`RECORD_AUDIO`, `ACCESS_FINE_LOCATION` with `ACCESS_COARSE_LOCATION`, `POST_NOTIFICATIONS`) —
+or the system refuses without asking, which reads as `Blocked` and is written in the log. After
+two refusals the system stops asking, and the settings are the way left. On the **web** a
+request is what the browser asks on (the camera opened for a moment, the position read once),
+and a page refused once is `Blocked` until the site's settings change; camera, microphone and
+location need a secure page (`https`, or `localhost`). **Windows** asks no desktop application:
+the status reads the person's privacy settings, `Blocked` when they turn the device off for
+desktop applications. **Linux** has nothing to ask. **macOS** asks the person itself the first
+time the application uses the camera, the microphone or the location — if its bundle says why
+(`NSCameraUsageDescription` and the others); frus does not ask ahead of that yet, so the status
+there is `Ask`.
 
 ## One instance at a time
 
