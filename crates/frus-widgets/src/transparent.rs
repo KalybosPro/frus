@@ -139,6 +139,12 @@ macro_rules! forward_transparent {
                 self.inner.switches()
             }
 
+            // What a component inside built, so a lookup by key sees through the wrapper
+            // (milestone 729). A `Component`'s own `inner` answers with what *it* built.
+            fn built_child(&self) -> Option<&dyn $crate::widget::Widget<Msg>> {
+                self.inner.built_child()
+            }
+
             fn system_ui_style(&self) -> Option<$crate::SystemUiOverlayStyle> {
                 self.inner.system_ui_style()
             }

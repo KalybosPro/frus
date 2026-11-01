@@ -369,6 +369,14 @@ pub trait Widget<Msg = crate::callback::Callback> {
         false
     }
 
+    /// The widget a component built, which stands where the component stands and has the
+    /// component's identity: a lookup by key has to see a key it carries, since the
+    /// component's own [`Widget::key`] never answers for it. `None` for everything that is
+    /// not a component, and for a component not built yet (milestone 729).
+    fn built_child(&self) -> Option<&dyn Widget<Msg>> {
+        None
+    }
+
     /// **Stable** identity key (independent of the position among siblings).
     /// `None` = positional identity. See [`crate::Keyed`].
     fn key(&self) -> Option<u64> {
@@ -2061,6 +2069,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn key(&self) -> Option<u64> {
         (**self).key()
+    }
+    fn built_child(&self) -> Option<&dyn Widget<Msg>> {
+        (**self).built_child()
     }
     fn on_edit(&self, edit: &mut Edit, key: &Key) -> Option<Msg> {
         (**self).on_edit(edit, key)
