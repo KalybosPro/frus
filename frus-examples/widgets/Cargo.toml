@@ -44,6 +44,23 @@ theme = "@style/LaunchTheme"
 min_sdk_version = 24
 target_sdk_version = 34
 
+# What the Permission demo asks for: a permission the manifest does not name is refused
+# without asking.
+[[package.metadata.android.uses_permission]]
+name = "android.permission.CAMERA"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.RECORD_AUDIO"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.ACCESS_FINE_LOCATION"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.ACCESS_COARSE_LOCATION"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.POST_NOTIFICATIONS"
+
 [profile.release]
 opt-level = 3
 lto = "fat"

@@ -11,6 +11,7 @@ pub mod interactive_viewer;
 pub mod keyboard;
 pub mod listener;
 pub mod mouse_region;
+pub mod permissions;
 pub mod pointer_barriers;
 pub mod semantics;
 pub mod shortcuts;
@@ -108,6 +109,13 @@ pub fn demos() -> Vec<Demo> {
             "What a screen reader is told about a widget, said from outside it.",
             include_str!("semantics.rs"),
             semantics::example,
+        ),
+        Demo::new(
+            "permissions",
+            "Permission",
+            "Asking for the camera, the microphone, the location and notifications.",
+            include_str!("permissions.rs"),
+            permissions::example,
         ),
     ]
 }

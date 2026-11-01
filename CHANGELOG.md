@@ -13,6 +13,12 @@ any release may break.
 
 ## [Unreleased]
 
+- **Permissions** (J730): `Permission::{Camera, Microphone, Location, Notifications}`,
+  `.status().await` and `.request().await`, a `PermissionStatus` of `Granted`, `Ask`, `Denied`,
+  `Blocked` or `Unavailable`, and `open_permission_settings()`. Android asks through the system
+  (a new `FrusPermissions` in the bundled dex), the web through the browser, Windows reads the
+  privacy settings; checked in a browser by `scripts/web-permissions-check.py`. The widget
+  gallery has a Permission demo.
 - **Scrolling to a row by its index** (J719): `ScrollTo::index(n)`, `.aligned(0.5)` to centre it,
   in a `ListView` of one height or of any height, where the row is placed again each frame from
   the rows measured on the way until it rests where it was asked for. The test driver counts a

@@ -34,6 +34,8 @@ mod android_link;
 #[cfg(all(android, feature = "notifications"))]
 mod android_notification;
 #[cfg(android)]
+mod android_permission;
+#[cfg(android)]
 mod android_settings;
 #[cfg(android)]
 mod android_system_bars;
@@ -71,7 +73,11 @@ pub mod net;
 mod notification;
 #[cfg(all(web, feature = "notifications"))]
 mod notification_web;
+// Asking the person for the camera, the microphone, the location (milestone 730).
+mod permission;
 mod reload;
+#[cfg(web)]
+mod web_permission;
 // How long the application takes to show its first frame (milestone 683, #211).
 // Global shortcuts (milestone 709).
 mod shortcuts;
@@ -127,6 +133,7 @@ pub use icon::AppIcon;
 pub use link::{link_among, location_of_link};
 #[cfg(all(any(desktop, android, web), feature = "notifications"))]
 pub use notification::{NotificationError, NotificationResponse, SystemNotification};
+pub use permission::{open_permission_settings, Permission, PermissionStatus};
 pub use remote::RemoteData;
 pub use shortcuts::GlobalShortcut;
 pub use subscription::Subscription;
