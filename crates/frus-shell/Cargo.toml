@@ -140,7 +140,7 @@ tray-icon = { version = "0.26.1", optional = true, default-features = false, fea
 
 # The taskbar (feature `taskbar`) on Linux: the launcher entry signal, over D-Bus.
 [target.'cfg(all(unix, not(any(target_os = "macos", target_os = "android", target_os = "ios"))))'.dependencies.zbus]
-version = "5"
+version = "6"
 optional = true
 
 # The taskbar (feature `taskbar`) on macOS: the Dock tile's badge.
