@@ -1667,7 +1667,7 @@ version = "0.5.0"
 dependencies = [
  "frus-core",
  "frus-image",
- "usvg 0.48.1",
+ "usvg",
 ]
 
 [[package]]
@@ -3461,7 +3461,7 @@ dependencies = [
  "rgb",
  "svgtypes",
  "tiny-skia 0.12.0",
- "usvg 0.49.0",
+ "usvg",
 ]
 
 [[package]]
@@ -4422,25 +4422,6 @@ dependencies = [
  "http",
  "httparse",
  "log",
-]
-
-[[package]]
-name = "usvg"
-version = "0.48.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "977d0a4abdef933f424a99fe09f95576e089b90aebc6f016a3bc813762493e91"
-dependencies = [
- "data-url",
- "imagesize",
- "kurbo",
- "log",
- "pico-args",
- "roxmltree 0.21.1",
- "simplecss",
- "siphasher",
- "strict-num",
- "svgtypes",
- "tiny-skia-path 0.12.0",
 ]
 
 [[package]]
