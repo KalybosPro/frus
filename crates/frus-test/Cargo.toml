@@ -21,6 +21,6 @@ png = "0.17"
 [dev-dependencies]
 # SVG pictures, painted by frus and by the reference rasteriser of the parser it uses.
 frus-svg = { path = "../frus-svg" }
-resvg = { version = "0.48", default-features = false }
+resvg = { version = "0.49", default-features = false }
 # Lottie animations, drawn on the GPU.
 frus-lottie = { path = "../frus-lottie" }
