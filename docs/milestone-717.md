@@ -43,5 +43,4 @@ scroll offset when that happens, so that what the reader is looking at stays whe
 - **A row that changes height while entirely above the window** is not noticed until it is
   laid out again, which is when it scrolls back into view; the correction happens then, in
   the frame it comes back. Measuring rows nobody can see would cost what laziness saves.
-- **`scroll_to` an index** in a list of rows of any height: an offset is all a request can say,
-  and an index would need the rows before it measured or guessed.
+- **`scroll_to` an index** in a list of rows of any height: done in milestone 719.

@@ -803,6 +803,16 @@ pub struct Runtime {
     /// with [`Runtime::apply_scroll_corrections`]. Interior mutability: it is found while
     /// the tree is walked.
     pub(crate) scroll_corrections: RefCell<Vec<(WidgetId, (f32, f32))>>,
+    /// The shape of each list the last frame laid out, so that a request for an item can be
+    /// turned into an offset (milestone 719).
+    pub(crate) list_shapes: RefCell<HashMap<WidgetId, crate::list::ListShape>>,
+    /// The item each list was asked to bring into view, and where in the window: placed
+    /// again every frame until it is there, because in a list of rows of any height the
+    /// rows on the way are measured as it travels, and the place it was first counted at
+    /// moves with them (milestone 719).
+    pub(crate) item_targets: HashMap<WidgetId, (usize, f32)>,
+    /// Requests for an item placed this frame, kept until the next applies them.
+    item_targets_pending: RefCell<Vec<(WidgetId, (usize, f32))>>,
     /// Time elapsed (seconds) since start-up, for continuous animations.
     pub time: f32,
     /// Was the last interaction a **keyboard** one? The generic focus ring is only
@@ -2085,6 +2095,8 @@ impl Runtime {
     /// course, all by the same amount, so that nothing that is moving jumps back. Each
     /// correction is applied once. The shell calls this at the top of every frame.
     pub fn apply_scroll_corrections(&mut self) {
+        let pending = std::mem::take(self.item_targets_pending.get_mut());
+        self.item_targets.extend(pending);
         let corrections = std::mem::take(self.scroll_corrections.get_mut());
         for (id, (dx, dy)) in corrections {
             let offset = self.scroll.entry(id).or_insert((0.0, 0.0));
@@ -2097,6 +2109,42 @@ impl Runtime {
             if let Some(fling) = self.scroll_ballistic.get_mut(&id) {
                 fling.shift.0 += dx;
                 fling.shift.1 += dy;
+            }
+        }
+        self.follow_item_targets();
+    }
+
+    /// Places each requested item again from what the last frame measured, and lets the
+    /// request go once the list rests on it, or a finger takes the list (milestone 719).
+    fn follow_item_targets(&mut self) {
+        let targets: Vec<_> = self.item_targets.iter().map(|(id, t)| (*id, *t)).collect();
+        for (id, (index, align)) in targets {
+            if self.scroll_held == Some(id) {
+                self.item_targets.remove(&id);
+                continue;
+            }
+            let Some(shape) = self.list_shapes.borrow().get(&id).copied() else {
+                self.item_targets.remove(&id);
+                continue;
+            };
+            let along = shape.offset_of(index, align, self.item_extents.borrow().get(&id));
+            let place = |at: (f32, f32)| {
+                if shape.across {
+                    (along, at.1)
+                } else {
+                    (at.0, along)
+                }
+            };
+            if let Some(target) = self.scroll_target.get(&id).copied() {
+                self.scroll_target.insert(id, place(target));
+                continue;
+            }
+            let now = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+            let current = if shape.across { now.0 } else { now.1 };
+            if (current - along).abs() > 0.5 {
+                self.scroll.insert(id, place(now));
+            } else {
+                self.item_targets.remove(&id);
             }
         }
     }
@@ -2224,6 +2272,10 @@ impl Runtime {
             return false;
         }
         let current = self.scroll.get(&area.id).copied().unwrap_or((0.0, 0.0));
+        let request = self.place_items(area.id, request);
+        if request.is_empty() {
+            return false;
+        }
         let to = request.resolve(area, current);
         // A fling in flight has just been overruled, animated or not: the request is
         // the more recent statement of where this list should be.
@@ -2236,6 +2288,48 @@ impl Runtime {
             self.scroll_velocity.remove(&area.id);
         }
         true
+    }
+
+    /// Turns a request for an item into one for its offset, along the axis the list runs —
+    /// whichever axis the request named it on — from the shape the last frame recorded. A
+    /// region that is not a list drops the axis (milestone 719).
+    fn place_items(
+        &self,
+        id: WidgetId,
+        mut request: crate::scrollposition::ScrollTo,
+    ) -> crate::scrollposition::ScrollTo {
+        use crate::scrollposition::ScrollTarget;
+        let item = [request.x, request.y]
+            .into_iter()
+            .flatten()
+            .find_map(|target| match target {
+                ScrollTarget::Item { index, align } => Some((index, align)),
+                _ => None,
+            });
+        let Some((index, align)) = item else {
+            return request;
+        };
+        for target in [&mut request.x, &mut request.y] {
+            if matches!(target, Some(ScrollTarget::Item { .. })) {
+                *target = None;
+            }
+        }
+        let Some(shape) = self.list_shapes.borrow().get(&id).copied() else {
+            return request;
+        };
+        let offset = shape.offset_of(index, align, self.item_extents.borrow().get(&id));
+        if shape.variable {
+            self.item_targets_pending
+                .borrow_mut()
+                .push((id, (index, align)));
+        }
+        let target = Some(ScrollTarget::Offset(offset));
+        if shape.across {
+            request.x = target;
+        } else {
+            request.y = target;
+        }
+        request
     }
 
     /// A finger takes hold of `id`: from now until [`Runtime::release_scroll`],

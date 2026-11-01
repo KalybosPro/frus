@@ -4648,6 +4648,23 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             };
             let content = lead + trail + items;
             let max = (content - extent).max(0.0);
+            // What a request for an item is placed from (milestone 719).
+            self.runtime.list_shapes.borrow_mut().insert(
+                id,
+                crate::list::ListShape {
+                    lead,
+                    item_extent: if vlist.variable {
+                        guess
+                    } else {
+                        vlist.item_extent
+                    },
+                    count: vlist.count,
+                    variable: vlist.variable,
+                    across,
+                    window: extent,
+                    max,
+                },
+            );
             let bounds = if across { (max, 0.0) } else { (0.0, max) };
             let offset = self
                 .runtime
