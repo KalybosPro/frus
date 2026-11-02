@@ -22,7 +22,7 @@ next, and what is known to be missing.
 
 ## Where to begin
 
-| | |
+| Page | What it covers |
 | --- | --- |
 | [Starting a frus application](getting-started.md) | Install the `frus` command, make a project, run it on this computer, a phone and the browser |
 | [The guide](guide/README.md) | One topic per page — layout, style, input, lists, navigation, network, animation, testing, the system around the window |

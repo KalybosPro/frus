@@ -28,6 +28,8 @@ leaves them at GitHub:
 **Edit the originals, not the copies:** `docs/` here is ignored by git, except `docs/intro.md`,
 which belongs to the site. A new page needs an entry in the script and in `sidebars.ts`.
 
+Search is built at build time by `@easyops-cn/docusaurus-search-local`: no account and no outside service.
+
 The rest is the site's own: `src/pages/index.tsx` (home), `src/pages/widgets.tsx` (catalog,
 mirroring `frus-examples/widgets/src/common/catalog.rs`), `blog/`, and `src/css/custom.css`
 (the palette, taken from the frus mark).
