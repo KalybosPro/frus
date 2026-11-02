@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The theme: *design tokens* (colors, radius, spacing) injected into rendering.
 //!
 //! The theme is handed to [`crate::build_ui`] and passed on to `Widget::paint`;

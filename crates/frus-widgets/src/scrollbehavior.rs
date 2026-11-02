@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`ScrollBehavior`] and [`ScrollConfiguration`]: **how the scrollables of a subtree
 //! behave** — their physics, their scrollbars, what they show when pulled past an edge,
 //! how a fling is read — decided in one place, from one platform (milestone 616).

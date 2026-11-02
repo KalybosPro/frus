@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! A throwaway preview (milestone 139): a **scrolled** multi-line field — the
 //! retained scroll is injected into the runtime — rendered offscreen to be checked by
 //! eye.

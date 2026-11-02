@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! What it costs to turn a widget tree into a frame's worth of work: layout through
 //! taffy, then the walk that produces the scene and the hit-test registries.
 //!

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus-shell` — frus's **framework layer**.
 //!
 //! Creates a native window (through `winit`), initialises the `frus-gpu`

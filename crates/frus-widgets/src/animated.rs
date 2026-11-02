@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Named** implicit-animation widgets: ergonomic sugar over [`Container`].
 //!
 //! Each one **wraps a configured [`Container`]** and delegates *everything* to it

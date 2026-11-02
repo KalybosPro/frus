@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **HCT** (Hue, Chroma, Tone): the Material 3 colour space, ported from
 //! `material-color-utilities` (Google). It pairs the perceptual hue and chroma
 //! of **CAM16** with CIELAB's **L\*** tone. Tone is what drives contrast: two

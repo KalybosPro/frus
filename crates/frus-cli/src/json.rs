@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Just enough JSON for the machine protocol (`frus daemon`, `frus run --machine`): a value,
 //! read from a line and written to one. The tool has no dependencies, and what an editor sends
 //! it is small: an id, a method, a few parameters.

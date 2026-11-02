@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Tree`]: a **controlled** hierarchical tree. The application holds the structure
 //! and the expanded nodes, and passes only the **visible rows**, flat (with their
 //! depth). The widget does nothing but render.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`IconButton`]: a button holding **one glyph**, in a box as wide as it is tall.
 //!
 //! It exists because milestone 313 kept finding the same thing. A `Button` is sized for a

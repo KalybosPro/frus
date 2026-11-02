@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **One disabled state**, shared by every control that can be unavailable.
 //!
 //! Milestone 320 gave `Chip` and `SegmentedButton` an `enabled` flag and ended by

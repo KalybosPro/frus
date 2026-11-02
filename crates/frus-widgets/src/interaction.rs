@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Widget identity, keyboard keys and interaction state.
 //!
 //! A [`WidgetId`] identifies a widget by its **position** in the tree (the path

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`DateTimeRange`]: a **date-and-time range** in one widget — the dual calendar of
 //! [`crate::DatePicker::range_dual`] above the [`crate::TimeRange`] time range, topped by
 //! a **"start → end" summary**. For booking a complete slot: "from 28 July 09:00 to 3

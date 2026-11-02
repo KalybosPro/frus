@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **A colour asked for is the colour painted** — on every surface that can paint one.
 //!
 //! Three milestones in a row were colours that did not survive the trip to the screen: a

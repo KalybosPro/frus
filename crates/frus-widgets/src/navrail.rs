@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`NavigationRail`] and [`BottomBar`]: the two presentations of a single-selection
 //! **main navigation**. Same API (`new(selected, on_select).item(icon, label)`);
 //! [`crate::NavScaffold`] picks one or the other by size.

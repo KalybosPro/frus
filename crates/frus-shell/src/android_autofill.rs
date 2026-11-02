@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The Android half of **autofill** (milestone 512): the form shown to the platform's
 //! autofill service, and the values it hands back.
 //!

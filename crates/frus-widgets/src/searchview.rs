@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`SearchAnchor`]: the view a [`SearchBar`](crate::SearchBar) opens.
 //!
 //! Milestone 469 built the bar and stopped there, which is where the reference also stops

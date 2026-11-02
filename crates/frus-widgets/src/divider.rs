@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Divider`] and [`VerticalDivider`]: a thin separator in the theme's colours, across
 //! a column or down a row.
 

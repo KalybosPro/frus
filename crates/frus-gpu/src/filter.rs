@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **image filter** pre-pass: a blur, a dilate or an erode over a layer's
 //! rendered texture, before it is composited.
 //!

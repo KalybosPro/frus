@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`SingleChildScrollView`]: a vertically scrollable container.
 //!
 //! It occupies a fixed-size viewport; its single child is laid out at free height by

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`MaterialBanner`]: a **message across the top of the screen**, with the actions that
 //! answer it, staying until one of them is taken.
 //!

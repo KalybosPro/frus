@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Hot reload**: the application's code patched while it runs, its state kept.
 //!
 //! `frus run` builds a patch each time a source file changes (the subsecond engine) and sends

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Expanded`]: the child of a row or a column that takes **the room the others left**.
 //!
 //! A row sizes its children by their content first, and only then shares out what is

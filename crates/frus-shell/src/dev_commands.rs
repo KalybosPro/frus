@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **What the keys of `frus run` ask** a running application (milestone 668), on every
 //! platform: the queue the next frame empties, the window a request wakes, and the PNG a
 //! screenshot is written as.

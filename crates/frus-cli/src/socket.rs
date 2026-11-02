@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! A WebSocket client, the little `frus run --hot -d web` needs (milestone 679): it connects to
 //! the hot-reload engine's socket and reads the text messages it sends, each patch among them.
 //! Nothing is sent but the handshake and the answers to pings.

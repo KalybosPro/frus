@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The [`Scene`]: a pure display list, independent of any rendering backend.
 //!
 //! It describes *what to draw* — primitives — while knowing nothing about the

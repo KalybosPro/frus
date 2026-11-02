@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`TimePicker`]: a **controlled** time picker, the counterpart of [`crate::DatePicker`].
 //! Two grids of clickable cells (hours, minutes) plus a preview; 24-hour by default, or
 //! 12-hour with an AM/PM toggle ([`hour12`](TimePicker::hour12)). The minute step is

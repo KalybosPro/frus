@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **accessibility** bridge for the web: maps frus's semantic tree
 //! ([`frus_widgets::Ui::semantics`]) onto real DOM elements, so a browser's screen
 //! reader (NVDA, JAWS, VoiceOver, Narrator) can read and operate the interface.

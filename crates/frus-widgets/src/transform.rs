@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Transform`]: offsets its child at **paint** time, without touching layout, and
 //! [`FractionalTranslation`]: the same offset stated as a fraction of the child's own size.
 

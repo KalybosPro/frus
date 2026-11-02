@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Typed interpolation: a `[0,1]` progress value drives any interpolable value —
 //! a number, a colour, a point, a size.
 

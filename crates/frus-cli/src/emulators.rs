@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus emulators`: the emulators that can be started, starting one, making one (milestone 673).
 //!
 //! The same work as the daemon's `emulator.*` methods (see `daemon`), said for a person.

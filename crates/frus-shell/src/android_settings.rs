@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! What **Android** says about the person using the device.
 //!
 //! The font-size slider, the night setting, reduce-motion, the screen reader, the clock

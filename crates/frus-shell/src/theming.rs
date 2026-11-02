@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **The crossing from one theme to the next.**
 //!
 //! An application names its themes and says which one it wants ([`Application::theme`],

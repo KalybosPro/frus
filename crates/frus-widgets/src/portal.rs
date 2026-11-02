@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`OverlayPortal`]: shows content **above** everything else (out of the layout flow,
 //! not clipped by parents). The basis for floating menus, tooltips and modals.
 

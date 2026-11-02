@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Global shortcuts** (milestone 709, part of #219): a key combination that reaches the
 //! application whatever window has the keyboard — the clipboard manager's, the quick-add of a
 //! task list, the push-to-talk of a call.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Pagination`]: a page picker — ‹ prev · a window of pages · next ›.
 
 use frus_core::{Rect, Scene};

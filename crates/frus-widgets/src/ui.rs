@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The driver: walks the tree carrying a context (translation + clip), produces the
 //! [`Scene`] and the hit-test maps (click, focus, scroll), and makes it possible to find a
 //! widget by identity so that keyboard/edit events can be routed to it.

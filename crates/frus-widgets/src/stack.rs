@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Stack`]: overlays its children in the **same box**, z-layering them. The last layer
 //! sits on top. A badge on an avatar, a caption over a picture, a button floating over
 //! content.

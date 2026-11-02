@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Syntactic sugar for describing an interface **faster**: the
 //! [`row!`](crate::row) and [`column!`](crate::column) macros, plus a few shorthand
 //! functions. Purely additive — the constructors remain available.

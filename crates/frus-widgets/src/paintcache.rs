@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **repaint boundary** cache: holds, between frames, the painted output
 //! (primitives + interaction maps) of a subtree marked
 //! [`crate::Widget::repaint_boundary`], and **reuses it as is** for as long as

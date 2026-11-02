@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`GridTile`] and [`GridTileBar`]: a cell of an image list, and the strip of words
 //! **over** it.
 //!

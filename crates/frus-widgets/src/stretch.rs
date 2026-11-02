@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **overscroll stretch**: the content itself lengthens towards the edge a finger
 //! pulls past, and springs back when it lets go.
 //!

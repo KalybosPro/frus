@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Pixel-level** tests of the transform pipeline: a layer
 //! ([`frus_core::Primitive::Layer`]) carrying an affine matrix is composited by the
 //! GPU, and we check that the pixels land **where the matrix says they should**. This

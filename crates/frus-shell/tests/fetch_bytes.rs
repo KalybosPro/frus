@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The byte path, end to end over a real socket.
 //!
 //! The unit tests beside `net.rs` check the builder and the cap; none of them moves a

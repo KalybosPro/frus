@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! What a command needs on this machine, found — or installed, then found.
 //!
 //! A developer who runs `frus run -d android` on a machine that has never built for Android

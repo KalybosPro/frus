@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`FittedBox`]: scales its child to **fit** its box according to a [`BoxFit`] —
 //! and, unlike [`crate::Transform`], the scale follows from the **layout** (the
 //! size of the box) instead of being set by hand.

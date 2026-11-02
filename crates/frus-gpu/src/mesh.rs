@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **triangles of a path, kept from frame to frame** (milestone 692).
 //!
 //! Tessellating is the costly part of drawing a path, and what it produces depends on the

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Links**: an address that comes from outside the application and names a place in it.
 //!
 //! `https://example.com/orders/42?tab=items` (an Android app link), `myapp://orders/42` (a

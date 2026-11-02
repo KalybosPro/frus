@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Permissions** (milestone 730): asking the person for the camera, the microphone, the
 //! location and notifications, and knowing what they said.
 //!

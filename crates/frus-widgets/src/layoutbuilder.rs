@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`LayoutBuilder`]: builds its content **from the box actually available** — the
 //! most powerful responsive primitive, since a component adapts wherever it is placed,
 //! in a narrow sidebar or full screen, and not merely to the window.

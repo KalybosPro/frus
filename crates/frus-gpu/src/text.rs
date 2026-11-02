@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Text rendering through [`glyphon`](https://docs.rs/glyphon) — cosmic-text plus
 //! a wgpu glyph atlas. Draws the [`Primitive::Text`] primitives in the render pass,
 //! on top of the rectangles.

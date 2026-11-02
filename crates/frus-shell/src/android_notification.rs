@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Notifications on Android** (milestone 703): [`crate::SystemNotification`] posted through
 //! `FrusNotifications` in the bundled dex.
 //!

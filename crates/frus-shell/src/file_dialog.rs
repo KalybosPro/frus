@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **The system's file dialogs** (milestone 698, part of #219): open one file or several,
 //! choose a folder, choose where to save — the dialogs the system draws itself, so that a
 //! frus application asks for a file the way every other application on the machine does.

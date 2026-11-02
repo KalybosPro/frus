@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! What an input method's operations do to a field (milestone 510).
 //!
 //! A keyboard that predicts — SwiftKey, Gboard — writes a word as a **composition**:

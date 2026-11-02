@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! What the pointer is over — kept as a **place**, and asked of each frame.
 //!
 //! The hovered widget used to be a [`WidgetId`] set when a pointer moved and never

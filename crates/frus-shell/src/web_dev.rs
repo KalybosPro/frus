@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The Web side of a reload under `frus run` (see [`crate::dev`] for the other platforms).
 //!
 //! On the Web a reload is the page reloading itself: the script `frus run` adds to the page asks

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The browser tab's icon (see [`crate::AppIcon`]).
 //!
 //! The PNG is handed to the page as a `Blob` and its object URL becomes the `href` of the

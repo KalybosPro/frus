@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **State-preserving live reload** (§13, development only).
 //!
 //! The principle: Elm state is **one single struct**, so serialising it is enough to

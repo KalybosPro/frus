@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Semantics`]: states what a widget **is**, from outside the widget.
 //!
 //! Every other widget in this crate answers [`Widget::semantics`] for *itself*. That

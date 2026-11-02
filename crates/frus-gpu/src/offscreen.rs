@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Offscreen** rendering: the scene is drawn into a texture then read back by
 //! the CPU, with no window required. This is what the render tests are built on —
 //! the `frus-test` goldens — and the only way to observe the pipeline under WSL or

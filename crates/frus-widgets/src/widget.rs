@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The [`Widget`] trait, generic over the message type emitted on interaction.
 
 use frus_core::{Rect, Scene, SemanticsProperties, Size};

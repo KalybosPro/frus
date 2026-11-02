@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Rating`]: a **controlled** rating in **clickable stars**.
 
 use frus_core::{Point, Rect, ResolvedTextStyle, Scene};

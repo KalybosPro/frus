@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Listener`]: the pointer's raw events on a part of the screen, and [`OrientationBuilder`].
 
 use frus_core::{Orientation, Point, Size};

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Shadows, **rendered** (milestone 606).
 //!
 //! A shadow's rectangle already reaches its blur beyond the shape it is the shadow of, and

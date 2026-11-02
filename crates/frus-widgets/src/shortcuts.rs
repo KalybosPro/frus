@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Shortcuts and actions**: a key combination, what it means, and who answers.
 //!
 //! The reference splits this in two on purpose, and the split is the whole design:

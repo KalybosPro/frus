@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! What an application can run on, right now: this computer, the Android devices `adb` sees
 //! and the emulators that can be started, the iOS simulators on a Mac, the browsers installed
 //! here, a bare web server for any other browser, and the phones and tablets a desktop window

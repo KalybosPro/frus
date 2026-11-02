@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **single-purpose boxes**: [`Padding`], [`ColoredBox`], [`DecoratedBox`] and [`ClipRect`].
 //!
 //! A [`Container`] does all four and more, and is the right widget when a box needs several of

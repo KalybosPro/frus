@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`TwoPane`]: the responsive **master-detail** pattern. In `Expanded`, the list
 //! and the detail sit **side by side**; otherwise a **single pane** is shown (the
 //! list, or the detail if `show_detail` — the app decides as it navigates).

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`StickyHeader`]: a section's header that stays at the top of the scroll view while its
 //! section is in view (milestone 602).
 

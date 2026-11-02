@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`SearchBar`]: the raised pill an application searches from.
 //!
 //! It is a [`TextField`](crate::TextField) with no container of its own inside a container

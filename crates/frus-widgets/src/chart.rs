@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The "charts" domain: self-painted, themed **data views**.
 //!
 //! - [`BarChart`]: a series of `(label, value)` as vertical bars scaled to the largest value,

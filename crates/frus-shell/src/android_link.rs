@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The link an **Android** activity was opened with.
 //!
 //! Tapping `https://example.com/orders/42` in a mail — when the application declared an

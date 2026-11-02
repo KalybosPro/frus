@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Listenables**: a value, or a controller, that tells whoever cares when it changed.
 //!
 //! [`ChangeNotifier`] is the plain form — something changed, and no more is said.

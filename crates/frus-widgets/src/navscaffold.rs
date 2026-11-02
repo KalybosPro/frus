@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`NavScaffold`]: the **adaptive** navigation scaffold. It reads the [`SizeClass`] and
 //! gives each of its three bands its own presentation of the primary navigation, the body
 //! filling the rest. This is where the size class drives the screen's *structure*.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus` — the framework's **facade**: a **single dependency** (`frus`) is all an
 //! application needs. It re-exports the framework layer (`frus-shell`) and the widgets
 //! (`frus-widgets`), plus the **single entry point** [`main!`].

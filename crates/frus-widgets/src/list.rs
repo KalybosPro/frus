@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`ListView`]: a **virtualised** list — only the **visible** items are built, laid
 //! out and painted. Essential for large lists (thousands of rows): the per-frame
 //! cost is proportional to the visible items, not to the total.

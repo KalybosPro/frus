@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`CustomMultiChildLayout`]: children placed by a function the application writes, for
 //! arrangements a row, a column, a stack or a grid cannot express (milestone 601).
 

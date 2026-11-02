@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`RotatedBox`]: rotates its child by a whole **quarter turn** — and, unlike
 //! [`crate::Transform`], the rotation **affects layout** (the box swaps width
 //! and height for an odd number of quarters).

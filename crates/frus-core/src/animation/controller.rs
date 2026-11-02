@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The driver: an [`AnimationController`] that samples a [`Simulation`] frame by
 //! frame and exposes a **current value** and a **status**.
 //!

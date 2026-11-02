@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **The browser's own shortcuts stay the browser's** (found using the web demo: Ctrl+F5 did
 //! not reload the page).
 //!

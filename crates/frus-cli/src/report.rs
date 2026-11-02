@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Where `frus run` says things: to a person, or to an editor.
 //!
 //! By default everything is plain text in the terminal. With `--machine`, standard output carries

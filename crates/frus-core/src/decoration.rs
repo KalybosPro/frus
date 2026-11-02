@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **box decoration** model: the vocabulary for painting a rectangle
 //! (background, gradient, border, rounded corners, shadow), independent of any
 //! widget or theme.

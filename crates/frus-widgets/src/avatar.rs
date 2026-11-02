@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`CircleAvatar`]: a circle that stands for a user — their picture, or in its absence
 //! their initials, on a colour (milestone 647, the reference's `CircleAvatar`).
 

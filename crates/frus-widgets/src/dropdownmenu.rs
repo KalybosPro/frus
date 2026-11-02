@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`DropdownMenu`]: a dropdown that **looks like a text field**, filters as you type, and
 //! drops its choices under itself.
 //!

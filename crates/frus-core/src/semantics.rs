@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Accessibility semantics**: the per-widget annotation (role, label, value,
 //! state) that the framework exposes to assistive technology.
 //!

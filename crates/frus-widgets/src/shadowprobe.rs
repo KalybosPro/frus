@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Reading a surface's height back out of a frame (milestone 606): what the tests of every
 //! widget that casts a shadow share, so each asks the same question the same way.
 //!

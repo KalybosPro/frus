@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **A picture as a box's background** (milestone 645): the reference's `DecorationImage`
 //! and the `paintImage` that draws it (`decoration_image.dart`).
 //!

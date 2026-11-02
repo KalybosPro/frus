@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`VisualDensity`]: how compact the controls are (`theme_data.dart:3183`, milestone 631).
 
 use frus_core::TargetPlatform;

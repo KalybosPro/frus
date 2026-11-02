@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Documents fetched from an address and parsed** — SVG pictures and Lottie animations
 //! (milestone 693) — through the fetcher images use ([`frus_core::image_fetcher`]).
 //!
