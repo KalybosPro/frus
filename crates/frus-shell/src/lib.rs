@@ -77,6 +77,8 @@ mod notification;
 #[cfg(all(web, feature = "notifications"))]
 mod notification_web;
 // Asking the person for the camera, the microphone, the location (milestone 730).
+#[cfg(target_os = "macos")]
+mod macos_permission;
 mod permission;
 mod reload;
 #[cfg(web)]

@@ -8,11 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 731 so far, each documenting the objective, the alternatives
+> record — one per step, 733 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Permissions on macOS** (J733): `Permission::{Camera, Microphone, Location}` read and ask
+  through `AVCaptureDevice` and `CLLocationManager`. Without the usage string in `Info.plist`,
+  which macOS ends a process for asking without, nothing is asked: the status is `Blocked` and
+  the log names the key. The status used to be `Ask` whatever had been answered.
 - **`BottomNavigationBar`** (J731): the classic bottom bar, alongside `BottomBar`. Fixed (every
   item the same width) or shifting (the selected item widens, shows its label and spreads its
   colour across the bar), with an icon for the selected item, tooltips, colours, font sizes,

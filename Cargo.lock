@@ -1626,6 +1626,7 @@ dependencies = [
  "arboard",
  "async-executor",
  "async-io",
+ "block2 0.6.2",
  "blocking",
  "cfg_aliases",
  "console_error_panic_hook",
