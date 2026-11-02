@@ -316,12 +316,18 @@ mod web {
             // again when the focus has gone nowhere in particular: to the canvas, which winit
             // focuses on every press, so a tap in the field would leave it; to the page; to
             // the field's own node in the accessibility tree. Never from anything else — an
-            // assistive technology that moved to a button of the selection bar meant to.
+            // assistive technology that moved to a button of the selection bar meant to. And
+            // never while this document does not have the focus at all: in a frame, that is the
+            // page around it taking the focus, which from in here looks like the focus having
+            // gone to the body. A press in the canvas focuses the canvas, and so the document,
+            // first, so a press in the field still brings the focus back.
             let active = self.document.active_element();
+            let ours = self.document.has_focus().unwrap_or(true);
             if fresh
-                || active
-                    .as_ref()
-                    .is_none_or(|active| self.adrift(active, &live.el))
+                || (ours
+                    && active
+                        .as_ref()
+                        .is_none_or(|active| self.adrift(active, &live.el)))
             {
                 let _ = live.el.focus();
             }
