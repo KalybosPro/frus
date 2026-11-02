@@ -1,0 +1,95 @@
+/*
+ * The site's colours come from the frus mark: an amber-to-red wing and a cyan-to-blue one,
+ * on black. Orange leads in light mode, where it reads on white; the dark theme is the
+ * default and matches the mark's own background.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --frus-amber: #ffb020;
+  --frus-orange: #ff6a1a;
+  --frus-red: #e8352b;
+  --frus-cyan: #22d3ee;
+  --frus-blue: #2563eb;
+  --frus-gradient: linear-gradient(100deg, var(--frus-amber) 0%, var(--frus-orange) 30%, var(--frus-blue) 70%, var(--frus-cyan) 100%);
+
+  --ifm-color-primary: #c2410c;
+  --ifm-color-primary-dark: #af3b0b;
+  --ifm-color-primary-darker: #a5370a;
+  --ifm-color-primary-darkest: #882d08;
+  --ifm-color-primary-light: #d5470d;
+  --ifm-color-primary-lighter: #df4a0e;
+  --ifm-color-primary-lightest: #f05f22;
+
+  --ifm-font-family-base: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --ifm-font-family-monospace: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --ifm-heading-font-weight: 700;
+  --ifm-code-font-size: 92%;
+  --ifm-navbar-shadow: none;
+
+  --frus-surface: #f6f7f9;
+  --frus-surface-raised: #ffffff;
+  --frus-border: #e3e6ea;
+  --frus-muted: #5b6370;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #ff8a3d;
+  --ifm-color-primary-dark: #ff7920;
+  --ifm-color-primary-darker: #ff7012;
+  --ifm-color-primary-darkest: #e65a00;
+  --ifm-color-primary-light: #ff9b5a;
+  --ifm-color-primary-lighter: #ffa468;
+  --ifm-color-primary-lightest: #ffbe91;
+
+  --ifm-background-color: #07080b;
+  --ifm-background-surface-color: #0c0e13;
+  --ifm-navbar-background-color: rgba(7, 8, 11, 0.85);
+  --ifm-footer-background-color: #040507;
+
+  --frus-surface: #0e1117;
+  --frus-surface-raised: #131720;
+  --frus-border: #1f2430;
+  --frus-muted: #9aa3b2;
+  --docusaurus-highlighted-code-line-bg: rgba(255, 255, 255, 0.08);
+}
+
+.navbar {
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--frus-border);
+}
+
+.navbar__title {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.footer--dark {
+  --ifm-footer-background-color: #040507;
+  border-top: 1px solid #1a1e27;
+}
+
+.badge--prealpha {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--frus-amber);
+  background: rgba(255, 176, 32, 0.12);
+  border: 1px solid rgba(255, 176, 32, 0.35);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+}
+
+div[class^='announcementBar_'] {
+  font-weight: 500;
+}
+
+.frus-gradient-text {
+  background: var(--frus-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}

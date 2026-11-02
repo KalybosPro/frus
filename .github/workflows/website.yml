@@ -1,0 +1,48 @@
+name: Website
+
+# Builds the site (`website/`) whenever it or the pages it copies change. The build fails on a
+# broken link, so a guide page that links somewhere the site cannot follow is caught here.
+# Publishing is not wired yet: where the site is served is still to be decided.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "website/**"
+      - "docs/**"
+      - "ARCHITECTURE.md"
+      - "CONTRIBUTING.md"
+      - "crates/frus-cli/README.md"
+      - ".github/workflows/website.yml"
+  pull_request:
+    paths:
+      - "website/**"
+      - "docs/**"
+      - "ARCHITECTURE.md"
+      - "CONTRIBUTING.md"
+      - "crates/frus-cli/README.md"
+      - ".github/workflows/website.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build

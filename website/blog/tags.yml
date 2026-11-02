@@ -1,0 +1,9 @@
+announcements:
+  label: Announcements
+  permalink: /announcements
+  description: News about frus and its site
+
+releases:
+  label: Releases
+  permalink: /releases
+  description: What each frus release brings

@@ -1,0 +1,80 @@
+.header {
+  padding: 4rem 0 2.5rem;
+}
+
+.header h1 {
+  font-size: clamp(2.2rem, 5vw, 3.2rem);
+  letter-spacing: -0.03em;
+}
+
+.lead {
+  max-width: 46rem;
+  font-size: 1.12rem;
+  color: var(--frus-muted);
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1.75rem 0 1rem;
+}
+
+.note {
+  font-size: 0.9rem;
+  color: var(--frus-muted);
+}
+
+.grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  background: var(--frus-surface-raised);
+  border: 1px solid var(--frus-border);
+  border-radius: 14px;
+  padding: 1.5rem;
+}
+
+.card h2 {
+  font-size: 1.2rem;
+  margin-bottom: 0.35rem;
+}
+
+.card p {
+  color: var(--frus-muted);
+}
+
+.chips {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  flex: 1;
+  align-content: flex-start;
+}
+
+.chips li {
+  margin: 0;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.8rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  background: var(--frus-surface);
+  border: 1px solid var(--frus-border);
+}
+
+.conventions {
+  padding: 3.5rem 0 4.5rem;
+  max-width: 50rem;
+}
+
+.conventions li {
+  margin-bottom: 0.75rem;
+}
