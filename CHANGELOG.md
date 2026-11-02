@@ -13,6 +13,9 @@ any release may break.
 
 ## [Unreleased]
 
+- **A canvas as small as the screen** (J735): on the web, the minimum of 360 by 280 meant for a
+  desktop window held the canvas wider than a small phone's screen or a narrow frame, and what
+  was past the edge was cut off. The minimum no longer applies to the web.
 - **A field in a frame leaves the page around it the keyboard** (J734): on the web, a text field
   took the browser's focus back from the page around its frame within a frame's time, so nothing
   else on that page could be typed in. It now does so only while its own document has the focus.

@@ -2021,10 +2021,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         // settings and back is exactly this event.
         self.refresh_platform_settings();
 
-        let mut attributes = Window::default_attributes()
-            .with_title(self.app.title())
-            // A sensible minimum size, in logical px, to avoid an absurd UI.
-            .with_min_inner_size(winit::dpi::LogicalSize::new(360.0, 280.0));
+        let mut attributes = Window::default_attributes().with_title(self.app.title());
+        // A sensible minimum size, in logical px, to avoid an absurd UI. Not on the web, where
+        // nobody drags anything and the page decides: winit would make it the canvas's
+        // `min-width`, and cut off whatever a smaller screen has no room for (milestone 735).
+        #[cfg(not(web))]
+        {
+            attributes = attributes.with_min_inner_size(winit::dpi::LogicalSize::new(360.0, 280.0));
+        }
         // The AccessKit adapter must be created **before** the window is shown, so we
         // create it hidden and reveal it afterwards. Desktop only.
         #[cfg(desktop)]
