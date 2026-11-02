@@ -147,24 +147,29 @@ jobs:
         id: mesa-cached
         if: steps.mesa-cache.outputs.cache-hit == 'true'
         continue-on-error: true
-        # `--no-download`: a package the cache lacks fails this step rather than coming from
-        # the live archive — lavapipe draws with the llvm it brings, so a dependency drifting
-        # is the same as mesa drifting. On failure it says which packages it would have had
-        # to fetch, which apt's own message does not.
+        # Nothing is downloaded: a package the cache lacks fails this step rather than
+        # coming from the live archive — lavapipe draws with the llvm it brings, so a
+        # dependency drifting is the same as mesa drifting. On failure it says which packages
+        # it would have had to fetch, which apt's own message does not.
         #
-        # With **no sources at all**, apt knows only the cached packages and what is
-        # installed. With the image's sources it failed on 2026-11-02 for every package it
-        # had: the pinned version had reached the live `noble-security`, and apt, offered the
-        # same version locally and in an archive, chose to download it — which
-        # `--no-download` forbids. The cache stopped working the day its own version was
-        # published, and the job fell back on the snapshot, which was down (503).
+        # With the image's sources apt failed on 2026-11-02 for every package it had: the
+        # pinned version had reached the live `noble-security`, and apt, offered the same
+        # version locally and in an archive, chose to download it — which `--no-download`
+        # forbids. The cache stopped working the day its own version was published, and the
+        # job fell back on the snapshot, which was down (503). So apt only **plans**, with no
+        # sources at all, knowing the cached packages and what is installed — and `dpkg`
+        # installs: apt's own install of a local package with no sources stops on an
+        # internal error ("Pathname to install is not absolute"). A plan that needs anything
+        # the cache does not hold fails here, before the system is touched.
         run: |
           nosources=(-o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/dev/null)
-          if ! sudo apt-get install -y --no-install-recommends --no-download "${nosources[@]}" ~/mesa-debs/*.deb; then
+          plan=$(sudo apt-get install -s --no-install-recommends "${nosources[@]}" ~/mesa-debs/*.deb 2>&1) || plan_failed=1
+          if [ -n "${plan_failed:-}" ] || grep '^Inst' <<<"$plan" | grep -qv 'local-deb'; then
             echo "::warning::the cached mesa does not install on this image; what it lacks:"
-            sudo apt-get install -s --no-install-recommends ~/mesa-debs/*.deb | grep '^Inst' | grep -v 'local-deb' || true
+            grep -E '^(Inst|E:| )' <<<"$plan" | grep -v 'local-deb' || true
             exit 1
           fi
+          sudo dpkg -i ~/mesa-debs/*.deb
 
       # Pin apt to a frozen snapshot instead of the live archive, so the mesa
       # version installed below cannot drift out from under the goldens the way
