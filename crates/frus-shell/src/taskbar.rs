@@ -378,17 +378,19 @@ pub(crate) mod native {
         use std::collections::HashMap;
         use std::sync::OnceLock;
 
-        use zbus::blocking::Connection;
-        use zbus::zvariant::Value;
+        use zbus::{Connection, Variant};
 
         use super::super::TaskbarProgress;
         use super::Taskbar;
 
+        // zbus 6 has no blocking API: its calls are awaited here, on the caller's thread,
+        // which is what the blocking API did under the hood. Each is a single message to
+        // the session bus.
         fn session() -> Option<&'static Connection> {
             static SESSION: OnceLock<Option<Connection>> = OnceLock::new();
             SESSION
                 .get_or_init(|| {
-                    Connection::session()
+                    async_io::block_on(Connection::session())
                         .map_err(|err| log::warn!("taskbar: no D-Bus session ({err})"))
                         .ok()
                 })
@@ -413,20 +415,23 @@ pub(crate) mod native {
             let Some(session) = session() else {
                 return Ok(());
             };
-            let mut properties: HashMap<&str, Value> = HashMap::new();
-            properties.insert("count", Value::from(i64::from(wanted.count)));
-            properties.insert("count-visible", Value::from(wanted.count > 0));
+            let mut properties: HashMap<&str, Variant> = HashMap::new();
+            properties.insert("count", Variant::from(i64::from(wanted.count)));
+            properties.insert("count-visible", Variant::from(wanted.count > 0));
             let fraction = wanted.progress.and_then(TaskbarProgress::fraction);
-            properties.insert("progress", Value::from(f64::from(fraction.unwrap_or(0.0))));
-            properties.insert("progress-visible", Value::from(fraction.is_some()));
+            properties.insert(
+                "progress",
+                Variant::from(f64::from(fraction.unwrap_or(0.0))),
+            );
+            properties.insert("progress-visible", Variant::from(fraction.is_some()));
             let uri = format!("application://{}.desktop", entry(wanted));
-            session.emit_signal(
+            async_io::block_on(session.emit_signal(
                 None::<&str>,
                 "/com/frus/LauncherEntry",
                 "com.canonical.Unity.LauncherEntry",
                 "Update",
                 &(uri, properties),
-            )
+            ))
         }
     }
 }
