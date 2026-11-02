@@ -48,11 +48,11 @@ search_github() {
   local term="$1"
   # URL-encode via gh's -f (it handles it); exclude our own repo.
   local json count
-  json=$(gh api -X GET search/code \
+  # gh prints an API error on stdout, so its exit status is what tells a failure from no hits.
+  if ! json=$(gh api -X GET search/code \
            -f q="\"$term\" -repo:$OWN_REPO" \
            --jq '{total: .total_count, hits: [.items[]? | .repository.full_name] | unique}' \
-           2>/dev/null)
-  if [ -z "$json" ]; then
+           2>/dev/null); then
     say "  ! search failed or rate-limited for: $term"
     alerts=$((alerts + 1))
     return
