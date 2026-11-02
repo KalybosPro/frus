@@ -32,6 +32,7 @@ mod banner;
 mod barrier;
 mod baseline;
 mod bottomappbar;
+mod bottomnavbar;
 mod bottomsheet;
 mod boxes;
 mod breadcrumb;
@@ -246,6 +247,10 @@ pub use barrier::{
 };
 pub use baseline::{Baseline, IgnoreBaseline};
 pub use bottomappbar::{bar_spacer, notched_outline, BottomAppBar};
+pub use bottomnavbar::{
+    BottomNavigationBar, BottomNavigationBarItem, BottomNavigationBarLandscapeLayout,
+    BottomNavigationBarTheme, BottomNavigationBarType, BOTTOM_NAVIGATION_BAR_HEIGHT,
+};
 pub use bottomsheet::BottomSheet;
 pub use boxes::{ClipRect, ColoredBox, DecoratedBox, Padding};
 pub use breadcrumb::Breadcrumb;

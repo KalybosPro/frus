@@ -497,4 +497,99 @@ mod tests {
             "row 60 at {row}, window at {top}"
         );
     }
+
+    /// A page whose bottom navigation bar of `count` items picks what the body shows
+    /// (milestone 731).
+    fn navigation_page(count: usize) -> FrusApp {
+        app(move || {
+            Box::new(component(move |cx| {
+                let page = cx.use_state(|| 0usize);
+                let go = page.clone();
+                let names = ["Home", "Search", "Library", "Profile", "More"];
+                let bar = frus_widgets::BottomNavigationBar::new(page.get(), move |i| go.set(i))
+                    .items(names[..count].iter().map(|name| {
+                        frus_widgets::BottomNavigationBarItem::new(Icons::HOME, *name)
+                    }));
+                Box::new(
+                    Scaffold::new()
+                        .body(Text::new(format!("Page {}", page.get())))
+                        .bottom_navigation_bar(bar),
+                ) as Box<dyn Widget>
+            }))
+        })
+    }
+
+    fn text_rect(tester: &Tester<FrusApp>, name: &str) -> frus_widgets::Rect {
+        tester
+            .driver
+            .texts()
+            .into_iter()
+            .find(|(t, _)| t == name)
+            .map(|(_, r)| r)
+            .unwrap_or_else(|| panic!("{name} not on screen: {:?}", tester.texts()))
+    }
+
+    #[test]
+    fn a_bottom_navigation_bar_picks_the_page() {
+        let mut tester = Tester::new(navigation_page(3));
+        assert!(tester.shows("Page 0"), "{:?}", tester.texts());
+        // The bar is along the bottom edge, every label of a fixed bar shown.
+        let home = text_rect(&tester, "Home");
+        assert!(
+            home.y > 800.0 - frus_widgets::BOTTOM_NAVIGATION_BAR_HEIGHT && home.y < 800.0,
+            "the labels sit in the bar at the bottom: {home:?}"
+        );
+        assert!(tester.shows("Search") && tester.shows("Library"));
+        tester.tap("Search");
+        assert!(tester.shows("Page 1"), "{:?}", tester.texts());
+        tester.tap("Library");
+        assert!(tester.shows("Page 2"), "{:?}", tester.texts());
+    }
+
+    #[test]
+    fn a_shifting_bar_shows_only_the_selected_label() {
+        // Four items: a shifting bar.
+        let mut tester = Tester::new(navigation_page(4));
+        assert!(tester.shows("Home"));
+        assert!(!tester.shows("Library"), "{:?}", tester.texts());
+        // A label that does not show is still tapped by what a screen reader hears.
+        tester.tap("Library, Tab 3 of 4");
+        tester.settle();
+        assert!(
+            tester.shows("Page 2") && tester.shows("Library"),
+            "{:?}",
+            tester.texts()
+        );
+        assert!(!tester.shows("Home"), "{:?}", tester.texts());
+    }
+
+    /// How wide each tab of the bar is, by what a screen reader hears.
+    fn tab_widths(tester: &mut Tester<FrusApp>) -> Vec<(String, f32)> {
+        tester.driver.assistive_click("__nothing__");
+        let (ui, _) = tester.driver.frame_parts().expect("a frame");
+        ui.semantics()
+            .iter()
+            .filter(|(_, _, sem)| sem.role == frus_widgets::Role::Tab)
+            .map(|(_, rect, sem)| (sem.label.clone().unwrap_or_default(), rect.width))
+            .collect()
+    }
+
+    #[test]
+    fn a_shifting_bar_widens_the_selected_item() {
+        // Across 400 pixels the selected item takes 1.5 of 4.5 shares and the others one
+        // each.
+        let mut tester = Tester::new(navigation_page(4));
+        let share = 400.0 / 4.5;
+        let expect = |widths: Vec<(String, f32)>, wide: usize| {
+            assert_eq!(widths.len(), 4, "{widths:?}");
+            for (index, (label, width)) in widths.iter().enumerate() {
+                let want = if index == wide { 1.5 * share } else { share };
+                assert!((width - want).abs() < 1.0, "{label}: {width}, not {want}");
+            }
+        };
+        expect(tab_widths(&mut tester), 0);
+        tester.tap("Library, Tab 3 of 4");
+        tester.settle();
+        expect(tab_widths(&mut tester), 2);
+    }
 }

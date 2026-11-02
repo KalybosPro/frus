@@ -185,6 +185,7 @@ struct ScaffoldParts<Msg> {
     drawer: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
     end_drawer: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
     bottom_app_bar: Option<BottomAppBar<Msg>>,
+    bottom_navigation_bar: Option<Box<dyn Widget<Msg>>>,
     fab: Option<Box<dyn Widget<Msg>>>,
     fab_location: FabLocation,
     fab_size: f32,
@@ -260,6 +261,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             drawer: None,
             end_drawer: None,
             bottom_app_bar: None,
+            bottom_navigation_bar: None,
             fab: None,
             fab_location: FabLocation::default(),
             fab_size: FAB_SIZE,
@@ -577,6 +579,17 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         self
     }
 
+    /// A **bottom navigation bar** — a [`BottomNavigationBar`](crate::BottomNavigationBar),
+    /// or any bar of that height — along the bottom edge, told about the room the system's
+    /// bars take there so that its colour runs behind them (milestone 731).
+    ///
+    /// It takes the bottom slot ahead of a [`Scaffold::bottom_app_bar`]. A scaffold given
+    /// [`Scaffold::destination`]s builds its own bar and keeps it.
+    pub fn bottom_navigation_bar(mut self, bar: impl Widget<Msg> + 'static) -> Self {
+        self.p().bottom_navigation_bar = Some(Box::new(bar));
+        self
+    }
+
     /// Where the FAB sits: which end of the row, and whether it floats clear of the
     /// bottom bar or docks astride its top edge. [`FabLocation::EndFloat`] by default.
     pub fn fab_location(mut self, location: FabLocation) -> Self {
@@ -703,6 +716,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             drawer,
             end_drawer,
             bottom_app_bar,
+            bottom_navigation_bar,
             fab,
             fab_location,
             fab_size,
@@ -781,6 +795,10 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         let mut bottom_bar_height = 0.0;
         let nav: Option<Box<dyn Widget<Msg>>> = match (nav, bottom_app_bar) {
             (Some(nav), _) => Some(nav),
+            (None, _) if bottom_navigation_bar.is_some() => {
+                bottom_bar_height = crate::BOTTOM_NAVIGATION_BAR_HEIGHT;
+                bottom_navigation_bar
+            }
             (None, Some(bar)) => {
                 bottom_bar_height = bar.declared_height();
                 let bar = if fab.is_some() && fab_location.docked() {

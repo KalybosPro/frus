@@ -194,6 +194,10 @@ impl Stage {
             | dismiss_moving
             | sheets_moving
             | handed
+            // The animations components drive, which the shell's loop moves too
+            // (milestone 731: a stage never moved them, so a shifting bottom bar was
+            // photographed stuck where it started).
+            | frus_widgets::tick_animations(dt)
     }
 
     /// The shell's **first** frame: every implicit animation adopts its target with

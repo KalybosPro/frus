@@ -8,11 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 728 so far, each documenting the objective, the alternatives
+> record — one per step, 731 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **`BottomNavigationBar`** (J731): the classic bottom bar, alongside `BottomBar`. Fixed (every
+  item the same width) or shifting (the selected item widens, shows its label and spreads its
+  colour across the bar), with an icon for the selected item, tooltips, colours, font sizes,
+  label styles, which labels show, three landscape layouts, a `BottomNavigationBarTheme` and
+  `Scaffold::bottom_navigation_bar`. The widget gallery has a demo.
 - **Permissions** (J730): `Permission::{Camera, Microphone, Location, Notifications}`,
   `.status().await` and `.request().await`, a `PermissionStatus` of `Granted`, `Ask`, `Denied`,
   `Blocked` or `Unavailable`, and `open_permission_settings()`. Android asks through the system

@@ -114,6 +114,36 @@ fn notes() -> Box<dyn Widget> {
 }
 ```
 
+`.nav` with `.destination`s builds the current design's navigation bar. For the classic one —
+every item the same width, or *shifting*, where the selected item widens and the bar takes its
+colour — hand the scaffold a `BottomNavigationBar`:
+
+```rust
+use frus::{
+    component, BottomNavigationBar, BottomNavigationBarItem, Icons, Scaffold, Text, Widget,
+};
+
+fn library() -> Box<dyn Widget> {
+    Box::new(component(|cx| {
+        let tab = cx.use_state(|| 0usize);
+        let pick = tab.clone();
+        Box::new(
+            Scaffold::new()
+                .body(Text::new(["Albums", "Artists", "Search"][tab.get()]))
+                .bottom_navigation_bar(
+                    BottomNavigationBar::new(tab.get(), move |i| pick.set(i))
+                        .item(BottomNavigationBarItem::new(Icons::ALBUM, "Albums"))
+                        .item(BottomNavigationBarItem::new(Icons::PERSON, "Artists"))
+                        .item(BottomNavigationBarItem::new(Icons::SEARCH, "Search")),
+                ),
+        )
+    }))
+}
+```
+
+Three items or fewer make a fixed bar and more a shifting one, unless `.kind` says otherwise;
+`theme.widgets.bottom_navigation_bar` sets the defaults for every bar of an application.
+
 A screen the router pushed over another gets the way back on its own: its app bar shows a
 back arrow (a chevron on Apple's systems) that pops the router, unless the screen has a drawer
 or gives the bar a `leading` of its own. The system's back button and the back gesture pop it
