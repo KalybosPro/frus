@@ -21,6 +21,10 @@
 //! the application computing breakpoints. That one cannot be a plain container — the
 //! count depends on a width nobody has until the layout runs — so it builds its cells
 //! late, from a factory, and the caveats of building late apply (see [`GridView::extent`]).
+//!
+//! **Does it scroll?** Only [`GridView::builder`] does, being a list of rows underneath.
+//! [`GridView::new`] and [`GridView::extent`] are as tall as their rows, and what does not
+//! fit their box is clipped: put them in a `SingleChildScrollView` to scroll them.
 
 use std::cell::OnceCell;
 use std::rc::Rc;
@@ -527,6 +531,69 @@ mod tests {
 
     fn tile(c: Color) -> Container<()> {
         Container::<()>::new().height(20.0).color(c)
+    }
+
+    /// **A grid given a height stretched its rows to fill it, and its tiles followed.**
+    ///
+    /// Rows are `auto`, and in a box of definite height CSS stretches `auto` tracks to fill it.
+    /// A tile with an aspect ratio then took its size from that height, not from its column: in
+    /// an `Expanded` with room to spare, the first column of a grid came out far wider than the
+    /// others. A row is as tall as its cells say, and what is left stays free at the end.
+    #[test]
+    fn a_grid_given_a_height_keeps_its_rows_and_its_columns() {
+        let marker = Color::rgb(0.5, 0.25, 0.75);
+        let cells = |grid: GridView<()>| {
+            let mut grid = grid.width(696.0).height(703.0).gap(12.0);
+            for _ in 0..8 {
+                grid = grid.cell(
+                    crate::Card::<()>::new()
+                        .color(marker)
+                        .child(crate::text("Tile")),
+                );
+            }
+            let ui = build_ui(
+                &grid,
+                Size::new(696.0, 703.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            ui.scene()
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    Primitive::Rect {
+                        rect, color, blur, ..
+                    } if *color == marker && *blur == 0.0 => Some(*rect),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // Square tiles, all alike: (696 - 3 * 12) / 4 for the column, less a card's margin of 4
+        // on each side.
+        let tiles = cells(GridView::new(4).aspect(1.0));
+        assert_eq!(tiles.len(), 8);
+        for tile in &tiles {
+            assert!(
+                (tile.width - 157.0).abs() < 0.5,
+                "as wide as its column: {tile:?}"
+            );
+            assert!((tile.height - 157.0).abs() < 0.5, "and square: {tile:?}");
+        }
+
+        // Without a shape, a row is as tall as its cells, as the module says: the two rows do
+        // not share the height out between them.
+        let rows = cells(GridView::new(4));
+        assert!(
+            rows[0].height < 100.0,
+            "a row is as tall as its cells: {:?}",
+            rows[0]
+        );
+        assert!(
+            rows[4].y - rows[0].y < 120.0,
+            "the next row follows: {:?}",
+            rows[4]
+        );
     }
 
     /// **A cell could widen its own column, and take the grid off the screen with it.**

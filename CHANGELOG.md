@@ -13,6 +13,13 @@ any release may break.
 
 ## [Unreleased]
 
+- **A field in a frame leaves the page around it the keyboard** (J734): on the web, a text field
+  took the browser's focus back from the page around its frame within a frame's time, so nothing
+  else on that page could be typed in. It now does so only while its own document has the focus.
+- **A grid given a height keeps its rows and its columns** (J734): in a box of definite height, a
+  `GridView`'s rows stretched to fill it, and square tiles sized themselves from that, so the first
+  column came out several times wider than the others. A row is what its cells say. The module's
+  documentation also says which form scrolls: `GridView::builder`, not `new` or `extent`.
 - **Licence files on crates.io**: every published crate now ships `LICENSE-MIT`, `LICENSE-APACHE`
   and `NOTICE`, which the packages left out until now; `scripts/check-license-files.sh` keeps the
   copies identical in CI. `TRADEMARKS.md` says how the name and logo may be used.

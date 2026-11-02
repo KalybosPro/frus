@@ -430,6 +430,11 @@ impl Style {
             // `1.0` to `f32` is being withdrawn (future_incompatible, rust#154024).
             // Without the suffix this becomes a hard error.
             style.grid_template_columns = (0..columns).map(|_| fr(1.0_f32)).collect();
+            // The rows are `auto`, and a box of definite height would stretch those to fill
+            // it: a row is what its cells say, and what is left stays free at the end. A tile
+            // with an aspect ratio would otherwise take its width from the stretched row
+            // instead of from its column (milestone 734).
+            style.align_content = Some(taffy::AlignContent::Start);
             // A fixed **tile height**: the rows the auto-flow creates are all this tall
             // instead of following their content, which is what makes a grid of tiles
             // read as a grid rather than as ragged bands.
