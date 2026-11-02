@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **How long the GPU spent on a frame**, by its own clock (milestone 612).
 //!
 //! The shell's frame statistics time the CPU. On a phone the slow frames were the

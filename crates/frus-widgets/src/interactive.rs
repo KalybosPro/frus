@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`InteractiveViewer`]: a viewport that lets its child be **panned** and
 //! **zoomed**. The transformation (scale + translation) is **state retained** in
 //! the runtime, driven by the shell's gestures (drag to pan, wheel or pinch to

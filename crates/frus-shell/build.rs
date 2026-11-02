@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Platform `cfg` aliases for frus.
 //!
 //! `frus-shell` is the only platform-dependent layer, and until now "desktop" was

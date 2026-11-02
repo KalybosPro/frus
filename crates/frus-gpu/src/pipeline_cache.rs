@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The compiled pipelines kept between launches (milestones 685 and 697, #217).
 //!
 //! Where the device can keep them (`wgpu::Features::PIPELINE_CACHE`: Vulkan), the renderer fills

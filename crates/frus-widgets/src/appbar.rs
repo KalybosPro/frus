@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`AppBar`]: an **adaptive application bar**, Material style.
 //!
 //! The developer declares an optional title, an optional `leading` and a list of

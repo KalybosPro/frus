@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The palette: the demonstration seeds, and the theme they produce.
 
 use frus_widgets::{Color, Theme};

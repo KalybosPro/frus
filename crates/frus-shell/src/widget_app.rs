@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`FrusApp`]: an application made of components.
 //!
 //! An application here is a root widget, and whatever it builds. Nothing else is

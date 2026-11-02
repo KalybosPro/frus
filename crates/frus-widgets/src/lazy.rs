@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Lazy`]: a builder that is also the widget it builds (milestone 716).
 //!
 //! `AppBar` and `Scaffold` are put together from their parts by `.build()`, because what

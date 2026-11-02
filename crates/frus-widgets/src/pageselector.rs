@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`TabPageSelector`]: the row of dots that says which page of several you are on.
 //!
 //! A module of its own rather than a corner of the tab bar's, because it pairs with

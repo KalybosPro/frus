@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Drawer`]: a retractable **side drawer** — the 3rd tier of Material
 //! navigation, alongside `NavigationRail` (the rail) and `BottomBar` (the bar).
 //!

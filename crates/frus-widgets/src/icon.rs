@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Icon`]: displays a vector icon from the bundled set ([`Icons`]), scaled and
 //! coloured to the theme. It is the first consumer of the vector paths
 //! ([`frus_core::Path`]) on the widget side.

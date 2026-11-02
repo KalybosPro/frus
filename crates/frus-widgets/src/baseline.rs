@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Baseline`] and [`IgnoreBaseline`]: the two widgets that say something about
 //! **the line text sits on** rather than about a box.
 //!

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus run --hot`: **true hot reload** on the desktop (milestone 670), the web (milestone 679)
 //! and Android (milestone 680). The application keeps
 //! running; each saved change is compiled into a patch and applied to it in place, with every

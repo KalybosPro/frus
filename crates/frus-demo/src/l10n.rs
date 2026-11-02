@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Translation: the three languages the demo offers, and the lookups the views
 //! call. One place, so that no screen has to know how Fluent is wired up.
 

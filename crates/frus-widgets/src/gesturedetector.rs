@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`GestureDetector`]: taps, double taps, long presses, secondary clicks and drags on anything.
 
 use frus_core::Point;

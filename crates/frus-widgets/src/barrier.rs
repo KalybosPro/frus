@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Widgets that **withhold** part of the frame: [`IgnorePointer`] and
 //! [`AbsorbPointer`] take a subtree out of the input path, [`Visibility`] and
 //! [`Offstage`] take it out of the picture, [`ExcludeSemantics`] takes it out of the

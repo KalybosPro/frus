@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`ScaffoldMessenger`]: the **notification layer** — places and stacks [`crate::SnackBar`]s
 //! in a corner of the screen, with an optional **entry transition**.
 //!

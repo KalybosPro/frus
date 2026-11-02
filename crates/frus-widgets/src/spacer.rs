@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Spacer`]: room between two children of a row or a column, and nothing else.
 //!
 //! It is a gap that **takes what is left** rather than a fixed one, which is the

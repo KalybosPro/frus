@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`AnimatedIconData`] and [`AnimatedIcons`]: the marks that **turn into one another**
 //! rather than being swapped for one another.
 //!

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Pixel effects** applied to a layer when it is composited: a colour transform, an
 //! image filter, a mask.
 //!

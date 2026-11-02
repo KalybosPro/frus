@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`BottomSheet`]: a **modal sheet** that slides up from the bottom of the
 //! window — for a set of contextual actions or a short form, without leaving
 //! the current screen.

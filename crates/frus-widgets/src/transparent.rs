@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **transparent wrapper**: one macro, so that a wrapper cannot forget a hook.
 //!
 //! A transparent wrapper *is* its child. It exists to add something the tree needs — a

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Tests that cut across modules — a whole screen's behaviour, an interaction from a tap to
 //! the scene. Tests of a single module's own logic live next to it.
 //!

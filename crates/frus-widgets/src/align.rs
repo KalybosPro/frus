@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Aligned`] and [`Center`]: a child placed somewhere in the room it is given.
 
 use frus_core::{AlignmentGeometry, Rect, Scene};

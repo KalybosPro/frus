@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **The outline of a box**: [`ShapeBorder`] and [`BorderSide`] (`shape_border.dart`).
 //!
 //! Until this module a box here had a `radius: f32` and, at best, a [`BorderRadius`]. The

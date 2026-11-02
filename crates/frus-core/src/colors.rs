@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **material palette**: every named colour of the material design system, as
 //! plain [`Color`] constants ([`Colors`]) and as whole ramps ([`MaterialColor`]).
 //!

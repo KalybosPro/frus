@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Geometric primitives, expressed in logical pixels.
 //!
 //! frus's coordinate convention: the origin sits at the **top left**, X runs

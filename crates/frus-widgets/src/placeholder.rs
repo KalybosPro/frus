@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Placeholder`]: a crossed box standing in for a widget not written yet.
 //!
 //! A design tool rather than a control: it takes whatever room it is given, draws a

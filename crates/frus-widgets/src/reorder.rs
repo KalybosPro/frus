@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Geometric** reflow of columns for a table's reorder preview: while a header is
 //! being dragged, the neighbouring columns slide to **open the drop slot** and to
 //! **close** the gap left by the lifted column — without the shell having to know

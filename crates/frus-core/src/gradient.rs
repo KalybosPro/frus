@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Gradients**, as the reference has them (`painting/gradient.dart`, milestone 644): a
 //! linear one between two points, a radial one round a centre (with an optional focal
 //! point), and a sweep round a centre. Each runs through a list of colours at optional

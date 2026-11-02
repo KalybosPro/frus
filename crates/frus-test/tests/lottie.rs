@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **A Lottie animation as painted**, read back from the GPU (milestone 691): the frame shown
 //! is the moment asked for, in the colour the file gives.
 

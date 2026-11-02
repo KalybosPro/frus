@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **How long the application takes to show its first frame** (milestones 683 and 696, #211).
 //!
 //! A toolkit that draws itself pays at launch: a GPU to set up, pipelines to build, fonts to

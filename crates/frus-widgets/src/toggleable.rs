@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! What the checkbox and the radio share, as the reference's `ToggleableStateMixin` and
 //! `ToggleablePainter` share it (`material/toggleable.dart`): the halo round the control
 //! under a pointer, the keyboard or a finger, and its colours (milestone 635).

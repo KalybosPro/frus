@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus-svg` — **SVG pictures drawn as frus's own vector paths**.
 //!
 //! An SVG file is parsed once ([`Svg::parse`]) into shapes in the picture's own

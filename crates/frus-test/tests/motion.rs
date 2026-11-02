@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Pixel tests of the widgets whose picture is a **gesture in flight**.
 //!
 //! Milestone 296 gave 75 of the 86 widget modules a golden and left eleven, all for

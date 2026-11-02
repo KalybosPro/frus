@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`RemoteData`] — the Elm idiom for a value **loaded asynchronously**.
 //!
 //! A value coming from the network, or from any [`crate::Command`] effect, goes

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`DateTimePicker`]: a **date-and-time flow** in a single widget — the
 //! [`crate::DatePicker`] calendar above the [`crate::TimePicker`] time picker, topped by
 //! a **summary** of the selection.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The handles of a touch selection (milestone 511): which one a finger takes, and
 //! where dragging it leaves the selection.
 //!

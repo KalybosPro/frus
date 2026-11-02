@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus daemon`: what an editor keeps running to know the devices.
 //!
 //! It speaks the same JSON lines as `frus run --machine` (see `report`): commands on standard

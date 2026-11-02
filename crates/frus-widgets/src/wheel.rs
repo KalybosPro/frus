@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`ListWheel`]: the scrolling cylinder of values you spin to pick one.
 //!
 //! The selected row is in the middle and the rest curve away above and below, packing

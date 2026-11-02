@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus-text` — text measurement, and in time shaping, on top of
 //! [`cosmic_text`](https://docs.rs/cosmic-text).
 //!

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The main screen: the task list itself, its rows, and what they open.
 //!
 //! It is a `StatefulWidget`. What it keeps is what only it cares about — the filter, which

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Every thread-local of frus is read and written only by functions that are neither generic nor
 //! inlined (milestone 669).
 //!

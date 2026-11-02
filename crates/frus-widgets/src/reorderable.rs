@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`ReorderableList`]: **a list whose rows can be dragged into a new order** — a
 //! playlist, a set of favourites, a to-do list.
 //!

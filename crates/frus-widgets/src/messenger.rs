@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The application's snack bars: [`show_snack_bar`] from any handler, and frus keeps the
 //! queue, the timer and the place on screen (milestone 716).
 //!

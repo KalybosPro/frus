@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **runtime inspector** (§13), tier 1: outlines around every widget, a
 //! highlight plus an info card for the widget under the cursor, and an
 //! **indented text dump** of the tree (the `dump_deep` of §2).

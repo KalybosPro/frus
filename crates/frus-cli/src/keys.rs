@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Single key presses from the terminal, while `frus run` is attached: `R` restarts, `q` quits.
 //!
 //! A terminal hands a program whole lines by default, echoed as they are typed. Reading one key

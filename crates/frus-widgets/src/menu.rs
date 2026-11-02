@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`PopupMenuButton`]: a **floating** action menu — an anchor plus a list of items that opens
 //! over it, through the overlay, and closes on an outside click.
 //!

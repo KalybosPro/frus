@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Positioned`]: places a layer of a [`crate::Stack`] against the stack's own edges,
 //! instead of filling it.
 //!

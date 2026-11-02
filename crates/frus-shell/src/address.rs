@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The browser's address bar and history, as the shell reads and moves them. Web only.
 //!
 //! What is decided — which move the history should make for a location, what an address

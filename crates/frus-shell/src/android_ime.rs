@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **Android input bridge** (§6, tier 2) — the `InputConnection` NativeActivity
 //! lacks.
 //!

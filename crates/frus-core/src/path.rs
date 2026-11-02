@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Vector paths: **arbitrary** 2D geometry (straight segments and Bézier curves),
 //! filled and/or stroked. This is the building block for icons and for custom
 //! drawing (`CustomPaint`), beyond what rectangles can express.

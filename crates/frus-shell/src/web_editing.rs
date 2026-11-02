@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **A text field on the Web is edited through a real one** (milestone 711).
 //!
 //! The canvas is pixels: a browser has nothing in it to type into. Keys reached a field as

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! What a field is **for**, so that the platform can fill it in.
 //!
 //! [`KeyboardType`](crate::KeyboardType) says which keys a field wants; it never says

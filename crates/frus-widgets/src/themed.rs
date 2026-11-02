@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Themed`]: a **theme for one subtree**, not for the frame.
 //!
 //! Milestone 309 gave the theme per-widget defaults — an application can say *every card

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Where a **layer** sits in the pile.
 //!
 //! A layer — a group opacity, a fade, a rotation — is rendered flat into its own

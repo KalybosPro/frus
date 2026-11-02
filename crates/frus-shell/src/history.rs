@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! An application's **location** and the browser's **history**: who owns which.
 //!
 //! The application owns *where it is* — a router's stack, whatever it keeps — and it is the

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! A desktop window standing in for a phone or a tablet (milestone 721).
 //!
 //! With `FRUS_DEVICE` naming a [`DeviceProfile`] in a debug build, the application is laid

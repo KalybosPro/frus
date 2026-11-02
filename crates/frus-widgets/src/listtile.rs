@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`ListTile`]: a row of a list — something in front, one or two lines of text, and
 //! something behind.
 //!

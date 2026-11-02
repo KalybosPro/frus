@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Button`]: the reference's buttons — elevated, filled, filled tonal, outlined and text
 //! (`material/button_style_button.dart`), in one widget with a variant.
 //!

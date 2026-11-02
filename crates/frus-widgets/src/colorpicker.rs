@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`ColorPicker`]: a palette of clickable colour swatches, built on
 //! [`crate::GridView`]. The selected swatch carries a ring.
 

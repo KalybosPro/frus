@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **A Lottie file brought to the form velato reads**, before velato sees it.
 //!
 //! velato reads the format as Bodymovin 5.5 and later write it. Files written before — and a

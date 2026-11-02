@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Navigator`]: shows a full-window **screen**, with a slide transition
 //! between the outgoing and the incoming screen on a push or a pop.
 //!

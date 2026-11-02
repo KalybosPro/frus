@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **The window's menu bar** (milestones 607, 642): on a wide window, above every screen, and
 //! on the title bar's line where the system allows it.
 //!

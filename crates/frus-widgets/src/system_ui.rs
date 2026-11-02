@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **The platform's own bars** — the status bar across the top of a phone, the navigation
 //! bar along its bottom — and what colour they are and how their icons are drawn.
 //!

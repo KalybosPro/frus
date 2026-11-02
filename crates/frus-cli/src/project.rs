@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The application `frus run` and `frus build` work on: found from the current directory, and
 //! read from its manifest.
 //!

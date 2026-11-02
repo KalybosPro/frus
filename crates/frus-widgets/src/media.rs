@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`MediaQuery`] — the **ambient** description of the surface being drawn on: its
 //! size, its pixel density, and the parts of it the system has already taken (bars,
 //! notch, soft keyboard).

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Kanban`]: a **columns + cards** board with **drag and drop** between columns.
 //!
 //! Like the rest of frus, the widget is **controlled**: the application holds the columns and

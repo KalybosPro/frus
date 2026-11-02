@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The parts a [`Slider`](crate::Slider) and a [`RangeSlider`](crate::RangeSlider) are
 //! painted with, each replaceable: the track, the tick marks, the thumb, the halo around it
 //! and the value indicator over it.

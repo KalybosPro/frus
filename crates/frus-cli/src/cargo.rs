@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Building an application, for each platform, with the tools it already uses: cargo,
 //! cargo-apk and wasm-bindgen. Their own output is shown as it comes.
 

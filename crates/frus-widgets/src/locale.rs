@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Which language the interface is in** (`locale.dart`, `app.dart:146`).
 //!
 //! Two halves that were both missing, and missing in a way that is easy not to notice.

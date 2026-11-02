@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Table`]: a text data grid built from **`Flex` rows** (columns of **fixed or flexible**
 //! width). A header that **sorts** on click (with a direction indicator), **selectable**
 //! rows, and optional **multi-selection** through a checkbox column topped by a

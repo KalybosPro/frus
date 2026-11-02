@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! One module per screen, and the routes that say where each one lives.
 //!
 //! A screen is a widget — a `StatelessWidget` when it only shows what it is given, a

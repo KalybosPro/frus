@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`AnimatedSwitcher`]: moves between **two different children**, rather than between
 //! two values of one.
 //!

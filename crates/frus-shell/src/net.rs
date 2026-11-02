@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Cross-platform HTTP, behind the `net` feature.
 //!
 //! Two levels of API, one of each for all three platforms — desktop, Android, Web:

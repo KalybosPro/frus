@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **A router**: locations, pages, and moving between them.
 //!
 //! An application with more than one screen names them. A [`GoRoute`] says which pattern of

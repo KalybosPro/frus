@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`OverflowBar`]: a row of buttons that becomes a **column** when they stop fitting.
 //!
 //! A flex row does not wrap and its children do not shrink, so a row of buttons that runs

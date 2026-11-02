@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **The application's content on the title bar's line**, on Windows (milestone 640).
 //!
 //! Windows draws a window's caption in the non-client area, where an application cannot

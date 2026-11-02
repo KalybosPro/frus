@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Pixel-level** tests of a layer's shaped clip
 //! ([`frus_core::Primitive::Layer`] plus [`frus_core::ClipShape`]): a solid layer is
 //! composited by the GPU with a **rounded** or **elliptical** clip, and we check that

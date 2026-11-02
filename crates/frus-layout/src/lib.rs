@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus-layout` — frus's layout engine.
 //!
 //! It turns a **tree of styled nodes** into **positioned rectangles**, in absolute

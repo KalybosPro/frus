@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The application's **icon**: the frus logo by default, the developer's when they say so.
 //!
 //! A new application should look finished the moment it runs, before anyone has drawn an

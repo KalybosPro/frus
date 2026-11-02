@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The demo's **data**: what a task is, the fixed sets the screens draw, and the rules that
 //! read them.
 //!

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Estimating how fast a pointer was moving when it let go.
 //!
 //! This is the **input** to every ballistic motion in the framework: a fling's

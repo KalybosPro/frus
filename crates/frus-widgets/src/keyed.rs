@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Keyed`]: a **transparent** wrapper that gives a widget a **stable identity**,
 //! through a key, independent of its position among its siblings.
 //!

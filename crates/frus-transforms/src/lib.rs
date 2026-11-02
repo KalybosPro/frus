@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus-transforms` — an **animated, interactive** showcase of the layout and
 //! painting arsenal: the [`Transform`] palette (translation, non-uniform scale,
 //! rotation, offset pivot, compositions), [`AspectRatio`] and

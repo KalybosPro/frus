@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`TextEditingController`]: a text field's text, held outside the field.
 //!
 //! A field draws the text it is given; where that text lives is up to whoever built it.

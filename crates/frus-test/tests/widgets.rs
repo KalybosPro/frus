@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! A pixel test for the widgets that had none.
 //!
 //! The golden suite grew where the bugs were — tables, charts, forms, pickers — and by

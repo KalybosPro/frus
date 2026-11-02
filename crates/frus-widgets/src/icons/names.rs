@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **names** of the bundled icon set — one constant per icon, generated.
 //!
 //! Do not edit by hand: run `python scripts/gen_icons.py <icon font>` instead. The index

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`CircularProgressIndicator`]: the reference's circular progress indicator — an arc,
 //! determinate or spinning (milestone 630) — and the ring of dots the pull-to-refresh
 //! indicator still draws.

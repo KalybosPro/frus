@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **The taskbar's badge and progress** (milestone 708, part of #219): a count on the
 //! application's taskbar button or Dock icon, and the progress of something long — a download,
 //! an export — on that same button, where the person sees it from any other window.

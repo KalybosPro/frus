@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Flex`]: a container that lays its children out in a row or a column, with
 //! distribution (justify) and alignment (align).
 

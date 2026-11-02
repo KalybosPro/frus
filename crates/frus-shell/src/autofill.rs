@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Autofill (milestone 512): which fields of a form the platform's autofill service is
 //! shown, under which ids, and where the values it hands back go.
 //!

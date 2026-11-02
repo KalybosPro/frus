@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`DatePicker`]: a **controlled** month calendar, built on [`crate::GridView`].
 //! Date arithmetic is **home-grown**, with no time dependency.
 
