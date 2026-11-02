@@ -13,6 +13,9 @@ any release may break.
 
 ## [Unreleased]
 
+- **Licence files on crates.io**: every published crate now ships `LICENSE-MIT`, `LICENSE-APACHE`
+  and `NOTICE`, which the packages left out until now; `scripts/check-license-files.sh` keeps the
+  copies identical in CI. `TRADEMARKS.md` says how the name and logo may be used.
 - **`BottomNavigationBar`** (J731): the classic bottom bar, alongside `BottomBar`. Fixed (every
   item the same width) or shifting (the selected item widens, shows its label and spreads its
   colour across the bar), with an icon for the selected item, tooltips, colours, font sizes,
