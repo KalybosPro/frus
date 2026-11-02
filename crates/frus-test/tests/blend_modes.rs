@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! A layer that **blends with what is under it** (milestone 646), rendered.
 //!
 //! Every mode is checked against its formula, worked here on the CPU in the space colours

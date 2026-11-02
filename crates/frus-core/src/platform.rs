@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Which platform the application is running on**, and which platform's conventions it
 //! should follow (milestone 614).
 //!

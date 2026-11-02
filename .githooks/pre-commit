@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Reject any staged first-party Rust source file under crates/ that is missing
+# the SPDX license header. The generated template is exempt (its files become
+# users' scaffolded apps and must stay unencumbered).
+#
+# Activated with:  git config core.hooksPath .githooks
+set -u
+
+missing=()
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    crates/frus-cli/template/*) continue ;;   # exempt: user-facing template
+    crates/*.rs|crates/*/*.rs)  ;;            # enforce only under crates/
+    *) continue ;;
+  esac
+  [ -f "$f" ] || continue
+  if ! head -5 "$f" | grep -q 'SPDX-License-Identifier'; then
+    missing+=("$f")
+  fi
+done < <(git diff --cached --name-only --diff-filter=ACM -- '*.rs')
+
+if [ "${#missing[@]}" -gt 0 ]; then
+  echo "✖ commit blocked: these staged files are missing the SPDX header:" >&2
+  printf '    %s\n' "${missing[@]}" >&2
+  echo "" >&2
+  echo "  Add at the top of each file:" >&2
+  echo "    // SPDX-License-Identifier: MIT OR Apache-2.0" >&2
+  echo "    // Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>" >&2
+  echo "  or run: python scripts/add_headers.py crates" >&2
+  exit 1
+fi
+exit 0

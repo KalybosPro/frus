@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus-gpu` — the GPU context and the 2D rendering engine.
 //!
 //! This crate depends on no windowing library: it is handed a

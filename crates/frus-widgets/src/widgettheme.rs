@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Per-widget defaults**: the middle term of `what the caller said ?? what the theme
 //! says ?? what the framework ships`.
 //!

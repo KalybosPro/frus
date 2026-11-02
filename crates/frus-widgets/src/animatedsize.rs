@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **`AnimatedSize`**: a box that follows its child's size over time rather than at once.
 //!
 //! When what it holds grows or shrinks — a paragraph that expands, a list that gains a row —

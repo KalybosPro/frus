@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The explicit decoration and text-style transitions (milestone 501), **rendered**.
 //!
 //! The unit tests read the scene. These read the pixels, because the claim that matters

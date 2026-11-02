@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **One instance** of an application, and the link a second one carries to the first.
 //!
 //! A desktop registers a link scheme by starting the program with the link as an argument —

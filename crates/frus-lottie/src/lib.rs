@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus-lottie` — **Lottie animations drawn as frus's own vector paths**.
 //!
 //! A Lottie file (Bodymovin JSON) is parsed once ([`Animation::parse`]); any moment of it is then

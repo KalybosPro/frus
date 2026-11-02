@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! What it costs to measure text.
 //!
 //! Every widget that sizes itself around a string pays this, and milestone 289 showed

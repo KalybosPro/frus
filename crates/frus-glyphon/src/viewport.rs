@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 use crate::{Cache, Params, Resolution};
 use std::{mem, slice};
 use wgpu::{BindGroup, Buffer, BufferDescriptor, BufferUsages, Device, Queue};

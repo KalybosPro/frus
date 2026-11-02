@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The filter widgets: [`ColorFiltered`], [`ImageFiltered`] and [`ShaderMask`] apply
 //! a **pixel effect to their own subtree**; [`BackdropFilter`] applies one to whatever
 //! is painted **underneath** it, and [`BackdropGroup`] lets several of those share the

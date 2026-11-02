@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 #![allow(clippy::all, clippy::pedantic, clippy::nursery)]
 
 //! Glyphon provides a simple way to render 2D text with [wgpu], [cosmic-text] and [etagere].

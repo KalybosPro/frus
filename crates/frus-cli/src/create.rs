@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus create`: a new application, written from the template.
 //!
 //! The work is split in three so that each part can be tested without the others: the names

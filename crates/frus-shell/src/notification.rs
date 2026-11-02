@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **System notifications** (milestone 701, part of #219): a message the system shows outside
 //! the application's window, where it shows every other application's, and keeps in its list
 //! when the person was away.

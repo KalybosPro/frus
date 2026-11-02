@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Size classes (breakpoints) — the foundation of responsive behaviour.
 //!
 //! A `SizeClass` sorts a width (in **logical** pixels) into one of three bands, in

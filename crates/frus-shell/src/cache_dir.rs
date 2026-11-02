@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Where an application keeps what it can lose: the renderer's compiled pipelines (milestones
 //! 685 and 697, #217). Plain functions of the environment, so every platform's answer is tested
 //! on any of them.

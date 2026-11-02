@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Autocomplete`]: a text field with a floating **suggestion list**. Controlled:
 //! the application supplies the value **and** the suggestions (already filtered);
 //! the list only floats when it is non-empty. Adjustable width

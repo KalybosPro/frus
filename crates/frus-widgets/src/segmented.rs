@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`SegmentedButton`]: a **controlled** segmented picker — one outline around several
 //! segments, of which one is chosen.
 //!

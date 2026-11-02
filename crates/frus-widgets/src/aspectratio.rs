@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`AspectRatio`]: constrains its child to a given **width-to-height ratio**.
 
 use frus_core::{Rect, Scene};

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`DraggableScrollableSheet`]: a panel along the bottom that **follows the finger**
 //! between the heights it may rest at, and hands the gesture to the list inside it.
 //!

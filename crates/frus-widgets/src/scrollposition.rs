@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Where a scroll region is**, and **where an application is asking it to go**.
 //!
 //! Two halves of one gap. A scroll offset lives in the [`Runtime`](crate::Runtime),

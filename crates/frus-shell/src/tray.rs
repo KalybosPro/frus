@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **The tray icon** (milestone 706, part of #219): the application's icon in the system's
 //! notification area — the Windows taskbar's corner, the macOS menu bar, a Linux desktop's
 //! status area — with a menu, and the choice of running on there once the window is closed.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`RichText`]: a **rich text** paragraph — a [`TextSpan`] tree (mixed styles,
 //! cascading inheritance) flattened into resolved runs and laid out in one
 //! piece.

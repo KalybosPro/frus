@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The `Painter`: the primitive drawing logic, independent of any surface or
 //! window. It can therefore paint onto a surface or onto an offscreen texture
 //! alike, which is what makes rendering testable headlessly.

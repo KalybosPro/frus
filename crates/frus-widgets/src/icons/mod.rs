@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **bundled icon set**: the whole material icon vocabulary, reachable by name as
 //! [`Icons`] constants — `Icons::ADD`, `Icons::STAR`, `Icons::ARROW_BACK` — and an
 //! escape hatch, [`IconData::custom`], for a mark the set does not have.

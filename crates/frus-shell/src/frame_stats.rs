@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **How smooth the frames are, measured where they are drawn** (milestone 609).
 //!
 //! A phone's own frame statistics do not always reach a native surface — the test device's

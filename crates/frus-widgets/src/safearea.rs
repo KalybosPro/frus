@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`SafeArea`] — insets its child away from the parts of the screen the system has
 //! taken: the status bar, the notch or camera cut-out, the gesture handle.
 //!

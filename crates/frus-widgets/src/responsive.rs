@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Responsive`]: picks a subtree from the current [`SizeClass`].
 //!
 //! `responsive(width).compact(a).medium(b).expanded(c)` selects the variant matching

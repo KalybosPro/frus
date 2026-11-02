@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The screens the benchmarks measure, in one place so that every bench measures the
 //! *same* trees and a number from one run means the same as a number from the next.
 //!

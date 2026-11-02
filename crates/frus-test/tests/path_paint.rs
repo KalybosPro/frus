@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **A path's gradient with stops, and its fill rule, as painted** (milestone 689).
 //!
 //! `GradientRamp::t_at` is the reckoning, tested on its own in `frus-core`; `path.wgsl`

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! What a translucent token actually paints.
 //!
 //! The framework's disabled rule is written in the reference's numbers — a container at

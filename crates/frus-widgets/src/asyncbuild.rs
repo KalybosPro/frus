@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Work that finishes later, in a component: [`BuildContext::use_future`],
 //! [`BuildContext::use_stream`], and the builders over them — [`FutureBuilder`],
 //! [`StreamBuilder`] — with [`ValueListenableBuilder`], [`ListenableBuilder`] and [`Builder`]

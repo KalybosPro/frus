@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Chip`]: a compact element for an attribute, a filter or an entry — pressable,
 //! selectable, and removable.
 //!

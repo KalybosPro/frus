@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **overscroll glow**: the arc of light that swells at the edge of a
 //! scrollable when the content will not go any further.
 //!

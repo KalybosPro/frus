@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`CollapsingHeader`]: a bar that is tall at the top of a page and shrinks to a plain
 //! toolbar as the page scrolls, then stays there.
 //!

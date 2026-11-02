@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The `PathPainter`: rendering of vector paths ([`Primitive::Path`]).
 //!
 //! Paths are **tessellated on the CPU** by lyon (fill and/or stroke) into an

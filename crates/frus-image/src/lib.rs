@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus-image` — image **decoding** (PNG/JPEG) into [`frus_core::ImageData`], at the
 //! file's own size ([`decode`]) or at the size it is shown at ([`decode_at`]).
 //!

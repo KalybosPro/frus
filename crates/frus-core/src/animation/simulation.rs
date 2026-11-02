@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Physical simulations: **pure** `time → value` functions.
 //!
 //! A [`Simulation`] describes a motion through its position `x(t)`, its velocity

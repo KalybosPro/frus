@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Checkbox`]: a **controlled** checkbox, its state coming from the application — the
 //! reference's `Checkbox` (`material/checkbox.dart`), with an optional label beside it.
 

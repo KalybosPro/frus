@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Tester`]: an application's page, driven by a test the way a person drives it
 //! (milestone 716).
 //!

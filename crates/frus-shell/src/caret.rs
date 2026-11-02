@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The caret's **blink** (milestone 513): when a focused field's caret is shown, and when
 //! the loop has to wake to show or hide it.
 //!

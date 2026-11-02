@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Steps`]: a **step indicator** — the numbered breadcrumb of a multi-step form
 //! or wizard, in the Material `Stepper` style.
 //!

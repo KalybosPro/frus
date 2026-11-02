@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! What the running application reports while `frus run` is attached: where it is, and where its
 //! window sits. A restart hands both to the next build, so it opens where the last one was.
 //!

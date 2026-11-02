@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Every public item of `frus-core` is reachable from `frus-widgets`**, and so from `frus`,
 //! which re-exports all of it.
 //!

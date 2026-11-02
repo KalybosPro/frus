@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The **focus** wrappers: which parts of a tree the keyboard can reach, and in what
 //! order.
 //!

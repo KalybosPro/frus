@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Device profiles — what a phone or a tablet looks like to an application, as data.
 //!
 //! A [`DeviceProfile`] describes a device closely enough for a desktop window to stand in

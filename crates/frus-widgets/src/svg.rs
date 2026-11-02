@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`SvgPicture`]: an SVG picture, drawn as vector paths at whatever size it is shown —
 //! sharp on every screen and at every zoom, where a bitmap would blur.
 //!

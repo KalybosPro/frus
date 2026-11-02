@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **The words the framework itself puts on screen**, in the reader's language
 //! (`material_localizations.dart`).
 //!

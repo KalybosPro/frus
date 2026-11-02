@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`RadioGroup`]: a group of radio buttons, with one option selected.
 
 use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextStyle};

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! What every module of this application needs, in one import.
 //!
 //! Naming the same thirty widgets at the top of every screen tells the reader

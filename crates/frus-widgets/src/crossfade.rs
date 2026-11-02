@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **`AnimatedCrossFade`**: one of two children shown, the other faded in over it when the
 //! choice changes, and the box moving from the first one's size to the second one's.
 //!

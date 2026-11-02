@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Why the layout rounds every box to whole pixels**, measured rather than asserted.
 //!
 //! Issue #54 offered two shapes and called the first one right: stop rounding, let boxes

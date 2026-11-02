@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Permissions on the web** (milestone 730): the browser's.
 //!
 //! The status is `navigator.permissions.query`; a request is what the browser asks on — the

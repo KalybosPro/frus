@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`BackButton`], [`CloseButton`], [`DrawerButton`] and [`EndDrawerButton`]: the four
 //! icon buttons whose meaning is fixed and whose **name is not**.
 //!

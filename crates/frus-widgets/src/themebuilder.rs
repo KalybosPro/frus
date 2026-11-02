@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`ThemeBuilder`]: builds its subtree **from the ambient theme**.
 //!
 //! Milestone 309 gave the framework `caller ?? theme ?? framework`, and milestone 310

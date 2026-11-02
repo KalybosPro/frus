@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **How a page arrives and leaves**, platform by platform (milestone 620).
 //!
 //! The reference's shape (`page_transitions_theme.dart`): a [`PageTransitionsTheme`] on the

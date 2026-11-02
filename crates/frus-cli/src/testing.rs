@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus test`: the application's tests, run by cargo and said briefly (milestone 678).
 //!
 //! `cargo test` prints every test's line and, for a failure, its whole output. A person wants to

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`ExpansionTile`]: a tile that opens to show more.
 //!
 //! It is a [`crate::ListTile`] with a chevron and a body underneath — which is what the

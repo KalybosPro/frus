@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`LinearProgressIndicator`]: a progress bar — **determinate**, filled to a value, or
 //! **indeterminate**, two lines running along the track while the length of the work is
 //! unknown (`progress_indicator.dart:414`).

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Tests of the harness itself: scene snapshots, widget rendering, goldens.
 //!
 //! With no GPU adapter the tests skip themselves, the harness returning `None`.

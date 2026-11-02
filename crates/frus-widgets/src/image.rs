@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Image`]: displays a bitmap image ([`frus_core::ImageHandle`]), fitted according to
 //! a [`BoxFit`] — aspect preserved, letterboxed or cropped. The image is uploaded
 //! **once** then cached by the renderer, keyed on the `ImageData`'s identity.

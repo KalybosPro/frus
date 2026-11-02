@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`RefreshIndicator`] — pull a list past its top edge to ask for fresh data.
 //!
 //! ```ignore

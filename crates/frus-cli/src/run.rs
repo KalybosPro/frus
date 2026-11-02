@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus run`: build the application for a device, start it there, and show what it logs —
 //! the desktop's terminal output, Android's logcat, the browser's console — in this terminal
 //! until it ends.

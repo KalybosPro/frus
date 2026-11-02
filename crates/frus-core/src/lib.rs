@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus-core` — the fundamental types shared by the whole framework.
 //!
 //! This crate holds **no logic**: only data types (geometry, colour) with no

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus-l10n` — **localisation** for frus applications, built on
 //! [Fluent](https://projectfluent.org/), Mozilla's i18n standard.
 //!

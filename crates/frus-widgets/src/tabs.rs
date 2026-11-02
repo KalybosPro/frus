@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`TabBar`]: a **controlled** tab bar plus the selected panel.
 //!
 //! It is composite: its children are `[bar, panel]`, in a column. Only the selected tab's

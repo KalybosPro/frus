@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`AnimationHandle`]: an [`AnimationController`] that the frame clock drives
 //! (milestone 716).
 //!

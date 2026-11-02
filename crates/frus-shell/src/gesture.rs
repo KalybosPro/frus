@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Gesture recognition — **tier 1** of the brief (§3): a "tap-or-long-press"
 //! recogniser that already speaks the **arena**'s vocabulary, so that moving to the
 //! real arena (tier 2) is a substitution rather than a rewrite.

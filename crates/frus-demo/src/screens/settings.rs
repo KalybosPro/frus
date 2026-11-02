@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The settings screen: the controls driving the demo's own options, and a gallery of the
 //! widgets that hold a value.
 //!

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`PageView`]: a scrollable that comes to rest **on a page**, never between two.
 //!
 //! Onboarding screens, an image gallery, the tabs of a phone home screen: the

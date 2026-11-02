@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`NavigationBar`]: a persistent navigation bar — a centred title, an optional back
 //! button on the left. Placed at the head of a screen, it **slides and fades
 //! with it** during [`crate::Navigator`] transitions.

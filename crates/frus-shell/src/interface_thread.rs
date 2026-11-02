@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Which thread the interface runs on**, for the calls that must never run there: the
 //! system's file dialogs and notifications wait for the person, and would stop every frame
 //! while they waited.

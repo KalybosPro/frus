@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! Sample application: a **to-do list** written with frus, as an **external consumer** of the
 //! framework — with the framework's own vocabulary: `StatelessWidget`, `StatefulWidget` and
 //! `State`, a router that maps a location to a screen, and `FrusApp` to run it.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`SnackBar`]: a transient notification (a styled card). The *system* around it
 //! (stacking, the auto-dismiss timer) is the application's responsibility,
 //! typically through a timed `Command`.

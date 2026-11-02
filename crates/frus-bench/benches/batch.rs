@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! What the batch planner costs, against what it saves.
 //!
 //! Milestones 294 and 295 traded a fixed pass per kind of primitive for a plan that

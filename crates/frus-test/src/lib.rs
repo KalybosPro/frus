@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! `frus-test` — the framework's test tooling (§13 of the design notes).
 //!
 //! Three levels, from the least integrated to the most:

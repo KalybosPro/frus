@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`MouseRegion`]: the pointer entering, moving over and leaving a part of the screen, and
 //! the cursor it shows there.
 

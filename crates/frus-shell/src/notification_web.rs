@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Notifications on the Web** (milestone 704): [`crate::SystemNotification`] through the
 //! browser's `Notification`.
 //!

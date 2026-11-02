@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Hero`]: a **shared element** between two screens — the thing that appears to fly
 //! from where it was to where it is going, instead of one copy fading out while
 //! another fades in.

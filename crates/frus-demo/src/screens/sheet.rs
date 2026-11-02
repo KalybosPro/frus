@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The draggable sheet screen (milestone 515): a sheet over a page, dragged between a
 //! quarter, half and the whole of it, holding a list long enough to scroll at every one.
 

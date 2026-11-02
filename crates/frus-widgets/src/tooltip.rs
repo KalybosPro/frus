@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Tooltip`]: a short label that appears while a pointer rests on something.
 //!
 //! The framework has had the *place a tooltip goes* since the overlay system was built

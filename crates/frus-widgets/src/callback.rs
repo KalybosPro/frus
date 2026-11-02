@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Callback`]: what a handler *is* once a widget holds it.
 //!
 //! Every interactive widget answers a tap, a change, a submit with a value of its

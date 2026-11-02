@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Draggable`] and [`DragTarget`]: **picking a thing up and dropping it
 //! somewhere else** — the general pair, underneath the reordering that
 //! [`crate::Table`] and [`crate::Kanban`] already do for themselves.

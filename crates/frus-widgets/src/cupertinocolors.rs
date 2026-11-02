@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The colours of Apple's platforms, and the colours that **adapt**: one name, up to eight
 //! values, picked by the brightness, the contrast and the level of the interface it is used
 //! in (milestone 627).

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **The channel `frus run` listens on**, and what a restarted application is handed back.
 //!
 //! `frus run` restarts an application by building it again, stopping the one that runs and

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! The [`Application`] trait: the contract between an **application** and the
 //! framework. The shell — window, renderer, input, runtime, animations — is generic
 //! over this trait, and the application supplies only its logic.

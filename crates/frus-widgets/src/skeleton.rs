@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! [`Skeleton`]: a loading placeholder whose intensity **pulses** over time, a
 //! shimmer. It reuses the continuous clock (`Status::time` plus `continuous`).
 

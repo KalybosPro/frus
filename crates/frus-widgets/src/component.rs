@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
+
 //! **Components**: [`StatelessWidget`], [`StatefulWidget`] with its [`State`], and the
 //! hooks that let a plain function keep state too.
 //!
