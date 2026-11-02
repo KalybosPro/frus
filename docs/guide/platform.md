@@ -259,10 +259,12 @@ request is what the browser asks on (the camera opened for a moment, the positio
 and a page refused once is `Blocked` until the site's settings change; camera, microphone and
 location need a secure page (`https`, or `localhost`). **Windows** asks no desktop application:
 the status reads the person's privacy settings, `Blocked` when they turn the device off for
-desktop applications. **Linux** has nothing to ask. **macOS** asks the person itself the first
-time the application uses the camera, the microphone or the location — if its bundle says why
-(`NSCameraUsageDescription` and the others); frus does not ask ahead of that yet, so the status
-there is `Ask`.
+desktop applications. **Linux** has nothing to ask. **macOS** shows the system's question, and
+a refusal is final (`Blocked`). The application's `Info.plist` must say why it wants each one
+(`NSCameraUsageDescription`, `NSMicrophoneUsageDescription`,
+`NSLocationWhenInUseUsageDescription`): macOS ends a process that asks without it, so frus does
+not ask, and the status is `Blocked` with a line in the log. That includes a program run outside
+a bundle.
 
 ## One instance at a time
 

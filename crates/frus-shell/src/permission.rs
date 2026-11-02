@@ -39,10 +39,14 @@
 //!   reads them ([`PermissionStatus::Blocked`] when they say no). [`open_permission_settings`] opens the
 //!   page for that permission.
 //! - **Linux**: nothing to ask: [`PermissionStatus::Granted`].
-//! - **macOS**: the system asks the person itself, the first time the application uses the
-//!   camera, the microphone or the location — if the application's bundle says why it wants
-//!   them (`NSCameraUsageDescription` and the others). frus does not ask ahead of that yet, so
-//!   the status is [`PermissionStatus::Ask`] and a request answers the same.
+//! - **macOS**: the system's own question, for the camera, the microphone and the location. The
+//!   application's `Info.plist` must say why it wants each one (`NSCameraUsageDescription`,
+//!   `NSMicrophoneUsageDescription`, `NSLocationWhenInUseUsageDescription`): macOS ends a process
+//!   that asks without it, so frus does not ask, the status is [`PermissionStatus::Blocked`] and
+//!   the log says which is missing. That includes a program run outside a bundle. A refusal is
+//!   final: [`PermissionStatus::Blocked`], and [`open_permission_settings`] is the way left.
+//!   Notifications are [`PermissionStatus::Granted`]: the notification centre asks by itself the
+//!   first time one is shown.
 //!
 //! A request must not be made on the interface's thread natively, where it would stop every
 //! frame while the question is up: call it from an `async` handler
@@ -131,10 +135,14 @@ impl Permission {
         {
             crate::web_permission::request(self).await
         }
-        #[cfg(desktop)]
+        #[cfg(target_os = "macos")]
         {
-            // Nothing asks ahead on the desktop (see the module's notes): where it stands is
-            // the answer.
+            crate::macos_permission::request(self).await
+        }
+        #[cfg(all(desktop, not(target_os = "macos")))]
+        {
+            // Windows and Linux ask nothing (see the module's notes): where it stands is the
+            // answer.
             self.status().await
         }
         #[cfg(ios)]
@@ -269,6 +277,32 @@ pub(crate) fn from_windows_consent(value: Option<&str>) -> PermissionStatus {
     }
 }
 
+/// What `AVCaptureDevice` says (`AVAuthorizationStatus`), as a status. A refusal cannot be asked
+/// about again: only the settings change it.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+pub(crate) fn from_macos_capture(status: isize) -> PermissionStatus {
+    match status {
+        0 => PermissionStatus::Ask,
+        3 => PermissionStatus::Granted,
+        // 1 restricted, by a policy of the machine; 2 denied.
+        _ => PermissionStatus::Blocked,
+    }
+}
+
+/// What `CLLocationManager` says (`CLAuthorizationStatus`), as a status, given whether the
+/// machine's location services are on at all.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+pub(crate) fn from_macos_location(enabled: bool, status: i32) -> PermissionStatus {
+    match status {
+        _ if !enabled => PermissionStatus::Blocked,
+        0 => PermissionStatus::Ask,
+        // 3 always, 4 when in use.
+        3 | 4 => PermissionStatus::Granted,
+        // 1 restricted, 2 denied.
+        _ => PermissionStatus::Blocked,
+    }
+}
+
 #[cfg(desktop)]
 mod desktop {
     use super::{Permission, PermissionStatus};
@@ -280,10 +314,7 @@ mod desktop {
         }
         #[cfg(target_os = "macos")]
         {
-            match permission {
-                Permission::Notifications => PermissionStatus::Granted,
-                _ => PermissionStatus::Ask,
-            }
+            crate::macos_permission::status(permission)
         }
         #[cfg(not(any(windows, target_os = "macos")))]
         {
@@ -451,6 +482,21 @@ mod tests {
             PermissionStatus::Granted
         );
         assert_eq!(from_windows_consent(None), PermissionStatus::Granted);
+    }
+
+    #[test]
+    fn the_macos_answers_map_to_statuses() {
+        assert_eq!(from_macos_capture(0), PermissionStatus::Ask);
+        assert_eq!(from_macos_capture(1), PermissionStatus::Blocked);
+        assert_eq!(from_macos_capture(2), PermissionStatus::Blocked);
+        assert_eq!(from_macos_capture(3), PermissionStatus::Granted);
+        assert_eq!(from_macos_location(true, 0), PermissionStatus::Ask);
+        assert_eq!(from_macos_location(true, 2), PermissionStatus::Blocked);
+        assert_eq!(from_macos_location(true, 3), PermissionStatus::Granted);
+        assert_eq!(from_macos_location(true, 4), PermissionStatus::Granted);
+        // Location services off for the whole machine: nothing to ask, whatever was answered.
+        assert_eq!(from_macos_location(false, 0), PermissionStatus::Blocked);
+        assert_eq!(from_macos_location(false, 4), PermissionStatus::Blocked);
     }
 
     #[test]
