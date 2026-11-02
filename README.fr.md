@@ -376,3 +376,5 @@ Sous licence, au choix :
 - Licence MIT ([LICENSE-MIT](LICENSE-MIT))
 
 Sauf mention contraire explicite de votre part, toute contribution soumise intentionnellement pour inclusion dans ce travail, telle que définie par la licence Apache-2.0, sera doublement licenciée comme ci-dessus, sans terme ni condition supplémentaire.
+
+Les licences couvrent le code, pas le nom ni le logo : voir [TRADEMARKS.md](TRADEMARKS.md).
