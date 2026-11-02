@@ -1,0 +1,23 @@
+name: Watch copies
+
+# Searches public code for identifiers unique to frus, once a week. The run fails when
+# one turns up outside this repository, or when the search itself fails: GitHub emails a
+# scheduled workflow's failure, so a green run needs no attention.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Search
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/watch-copies.sh

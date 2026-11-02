@@ -16,6 +16,16 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # cargo packages only a crate's own directory, so each published crate carries
+  # its own copy of the licence texts and NOTICE.
+  # ---------------------------------------------------------------------------
+  license-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/check-license-files.sh
+
+  # ---------------------------------------------------------------------------
   # Logic tests — no GPU, no window. This is the bulk of the suite and the gate
   # that must stay green on every platform.
   # ---------------------------------------------------------------------------

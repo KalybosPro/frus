@@ -16,6 +16,9 @@ any release may break.
 - **Scaled and rotated layers are filtered** (J732): the compositor sampled them at the nearest
   texel, which dropped strokes from text under a `Transform` ("Home" drawn as "Hme") and stepped
   the edges of anything turned. Seven goldens were regenerated.
+- **Licence files on crates.io**: every published crate now ships `LICENSE-MIT`, `LICENSE-APACHE`
+  and `NOTICE`, which the packages left out until now; `scripts/check-license-files.sh` keeps the
+  copies identical in CI. `TRADEMARKS.md` says how the name and logo may be used.
 - **`BottomNavigationBar`** (J731): the classic bottom bar, alongside `BottomBar`. Fixed (every
   item the same width) or shifting (the selected item widens, shows its label and spreads its
   colour across the bar), with an icon for the selected item, tooltips, colours, font sizes,

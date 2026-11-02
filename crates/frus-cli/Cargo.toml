@@ -12,7 +12,7 @@ categories = ["command-line-utilities", "development-tools", "gui"]
 # Named, not left to cargo's default, which skips files whose name starts with a dot below the
 # package's root: the template's `.gitignore` and `.github/` would be missing from the published
 # crate, and `include_bytes!` would not compile.
-include = ["/Cargo.toml", "/README.md", "/src/**", "/template/**"]
+include = ["/Cargo.toml", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/NOTICE", "/src/**", "/template/**"]
 
 # `cargo install frus-cli` installs a program called `frus`.
 #
