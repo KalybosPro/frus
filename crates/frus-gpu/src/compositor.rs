@@ -520,10 +520,13 @@ impl CompositePainter {
             ],
         });
 
+        // Linear: a layer that is scaled or turned falls between texels, and the nearest one
+        // drops strokes from text and steps edges (milestone 732). A layer that is neither
+        // samples texel centres, where linear reads exactly the texel.
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("frus.composite.sampler"),
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
 

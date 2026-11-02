@@ -8,11 +8,14 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 731 so far, each documenting the objective, the alternatives
+> record — one per step, 732 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Scaled and rotated layers are filtered** (J732): the compositor sampled them at the nearest
+  texel, which dropped strokes from text under a `Transform` ("Home" drawn as "Hme") and stepped
+  the edges of anything turned. Seven goldens were regenerated.
 - **Licence files on crates.io**: every published crate now ships `LICENSE-MIT`, `LICENSE-APACHE`
   and `NOTICE`, which the packages left out until now; `scripts/check-license-files.sh` keeps the
   copies identical in CI. `TRADEMARKS.md` says how the name and logo may be used.
