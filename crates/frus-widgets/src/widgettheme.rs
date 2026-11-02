@@ -72,6 +72,8 @@ pub struct WidgetThemes {
     pub banner: BannerTheme,
     /// Defaults for [`BottomAppBar`](crate::BottomAppBar).
     pub bottom_app_bar: BottomAppBarTheme,
+    /// Defaults for [`BottomNavigationBar`](crate::BottomNavigationBar) (milestone 731).
+    pub bottom_navigation_bar: crate::BottomNavigationBarTheme,
     /// Defaults for [`BottomSheet`](crate::BottomSheet).
     pub bottom_sheet: BottomSheetTheme,
     /// Defaults for [`Breadcrumb`](crate::Breadcrumb).

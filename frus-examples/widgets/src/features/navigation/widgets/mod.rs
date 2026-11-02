@@ -5,6 +5,7 @@ use crate::models::demo::Demo;
 pub mod appbar;
 pub mod bottomappbar;
 pub mod bottombar;
+pub mod bottomnavbar;
 pub mod collapsingheader;
 pub mod drawer;
 pub mod navbar;
@@ -46,6 +47,13 @@ pub fn demos() -> Vec<Demo> {
             "The main destinations along the bottom of a phone screen.",
             include_str!("bottombar.rs"),
             bottombar::example,
+        ),
+        Demo::new(
+            "bottom-navigation-bar",
+            "BottomNavigationBar",
+            "The classic bottom bar: fixed, or shifting with the selected item's colour.",
+            include_str!("bottomnavbar.rs"),
+            bottomnavbar::example,
         ),
         Demo::new(
             "navigation-rail",

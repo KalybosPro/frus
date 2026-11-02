@@ -11322,22 +11322,28 @@ pub mod testing {
 
         /// The words the last frame drew and the box each was drawn in, in paint order.
         pub fn texts(&self) -> Vec<(String, Rect)> {
-            self.shell
-                .ui
-                .as_ref()
-                .map(|ui| {
-                    ui.scene()
-                        .primitives()
-                        .iter()
-                        .filter_map(|p| match p {
-                            frus_widgets::Primitive::Text { text, .. } => {
-                                Some((text.clone(), p.bounds()))
-                            }
-                            _ => None,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default()
+            // Into the layers too: text under an opacity or a transform is on screen, and
+            // a test taps it (milestone 731). A layer drawn at no opacity shows nothing.
+            fn collect(primitives: &[frus_widgets::Primitive], out: &mut Vec<(String, Rect)>) {
+                for p in primitives {
+                    match p {
+                        frus_widgets::Primitive::Text { text, .. } => {
+                            out.push((text.clone(), p.bounds()))
+                        }
+                        frus_widgets::Primitive::Layer {
+                            primitives,
+                            opacity,
+                            ..
+                        } if *opacity > 0.0 => collect(primitives, out),
+                        _ => {}
+                    }
+                }
+            }
+            let mut out = Vec::new();
+            if let Some(ui) = self.shell.ui.as_ref() {
+                collect(ui.scene().primitives(), &mut out);
+            }
+            out
         }
 
         /// A tap on the first word of the last frame that reads `label`, and a frame after it:

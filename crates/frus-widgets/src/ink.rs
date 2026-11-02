@@ -371,6 +371,9 @@ pub struct InkWell<Msg = crate::callback::Callback> {
     radius: BorderRadius,
     on_click: Option<Msg>,
     on_long_press: Option<Msg>,
+    /// What an assistive technology is told about the well — on the node that takes the
+    /// tap, so that activating it taps.
+    semantics: Option<frus_core::SemanticsProperties>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -388,8 +391,16 @@ impl<Msg> InkWell<Msg> {
             radius: BorderRadius::ZERO,
             on_click: None,
             on_long_press: None,
+            semantics: None,
             children: Vec::new(),
         }
+    }
+
+    /// What an assistive technology is told about the well (a tab, its label, whether it
+    /// is selected), on the node a tap goes to.
+    pub(crate) fn semantics(mut self, semantics: frus_core::SemanticsProperties) -> Self {
+        self.semantics = Some(semantics);
+        self
     }
 
     /// Overrides the splash colour, **alpha included** — the caller decides how
@@ -450,6 +461,10 @@ impl<Msg: Clone> Widget<Msg> for InkWell<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         self.on_click.clone()
+    }
+
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
+        self.semantics.clone()
     }
 
     fn on_long_press(&self) -> Option<Msg> {
