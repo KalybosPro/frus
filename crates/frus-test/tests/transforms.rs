@@ -108,6 +108,36 @@ fn uniform_scale_enlarges_about_center() {
     );
 }
 
+/// **Scaling down loses nothing thin** (milestone 732). At 6/7 a nearest-neighbour sample
+/// skips one source row in seven, which took strokes out of scaled text ("Home" drawn as
+/// "Hme"). The lines are eight rows apart, so one of them falls on each of the seven
+/// residues and a skipping sampler must lose one.
+#[test]
+fn scaling_down_keeps_every_thin_line() {
+    let red = Color::rgb(1.0, 0.0, 0.0);
+    let mut content = Scene::new();
+    for k in 0..7 {
+        content.fill_rect(Rect::new(0.0, 4.0 + 8.0 * k as f32, 64.0, 1.0), red);
+    }
+    let primitives = content.split_off(0);
+    let mut scene = Scene::new();
+    scene.push_primitive(Primitive::Layer {
+        primitives,
+        opacity: 1.0,
+        clip: Rect::UNBOUNDED,
+        clip_shape: frus_core::ClipShape::Rect,
+        transform: Some(LayerTransform::new(Affine::scale(6.0 / 7.0, 6.0 / 7.0))),
+        filter: LayerFilter::NONE,
+        owner: 0,
+    });
+    let Some(frame) = render(&scene) else {
+        return;
+    };
+    let lit: Vec<bool> = (0..64).map(|y| frame.pixel(20, y)[0] > 60).collect();
+    let bands = lit.windows(2).filter(|w| !w[0] && w[1]).count();
+    assert_eq!(bands, 7, "one band per line: {lit:?}");
+}
+
 /// **Non-uniform scale.** `scale(3, 1)` widens the square in x without touching y: a
 /// point widened horizontally is painted, one displaced in y is not.
 #[test]
