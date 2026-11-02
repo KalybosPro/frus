@@ -19,7 +19,8 @@ any release may break.
 - **A grid given a height keeps its rows and its columns** (J734): in a box of definite height, a
   `GridView`'s rows stretched to fill it, and square tiles sized themselves from that, so the first
   column came out several times wider than the others. A row is what its cells say. The module's
-  documentation also says which form scrolls: `GridView::builder`, not `new` or `extent`.
+  documentation also says which form scrolls: `GridView::builder`, not `new` or `extent`. A grid
+  with height to spare now shows it at the end, not between its rows; one golden was regenerated.
 - **Permissions on macOS** (J733): `Permission::{Camera, Microphone, Location}` read and ask
   through `AVCaptureDevice` and `CLLocationManager`. Without the usage string in `Info.plist`,
   which macOS ends a process for asking without, nothing is asked: the status is `Blocked` and

@@ -58,6 +58,10 @@ said what it was without saying that, and it cost a reader a bug report. The mod
   with it, the focus goes to the page and back to the field, and each takes what is typed. Web-only
   code has no native test host, so this script is the test.
 
+- The golden `stack_grid_list` had the bug in it: a grid asking for a gap of 6 showed a wide band
+  between its two rows, because the row around it gave it a height. It is regenerated from CI's
+  rendering, the one with the pinned rasteriser, after comparing the two by eye.
+
 ## Not done
 
 The other forms of being adrift are unchanged. A press on the bare body of the **same** document
