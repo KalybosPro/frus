@@ -14,20 +14,27 @@ set -u
 OWN_REPO="KalybosPro/frus"
 
 # Identifiers distinctive enough that a hit almost certainly came from frus.
-# Keep these to names that do NOT occur in unrelated projects.
+# VERIFIED to return zero external hits on 2026-11-02 — a new hit is a signal.
+# Do NOT add common names here: `paint_elevation` and `takes_typing`, for
+# example, occur in hundreds of unrelated projects and only create noise.
+# To add a token, first run:  gh api -X GET search/code -f q='"TOKEN" -repo:KalybosPro/frus' --jq .total_count
+# and only keep it if that prints 0.
 TOKENS=(
-  "paint_elevation"
-  "takes_typing"
   "QUICK_DECODE_PIXELS"
   "frus_core"
   "frus::authoring"
+)
+
+# Your handle/email. Hits are usually your OWN other repos, not theft —
+# listed separately so you can tell them apart at a glance.
+IDENTITY=(
   "kalyboskokou1"
 )
 
-# Verbatim prose from your docs/README — text is copied more often than code.
-PHRASES=(
-  "diffs into the retained"
-)
+# Verbatim prose unique to your docs/README. Text is copied more often than
+# code, but only add lines that are genuinely yours and genuinely distinctive
+# (check with the gh command above first). Empty by default.
+PHRASES=()
 
 # crate names to watch for squatting / confusing forks on crates.io
 CRATE_NAMES=( "frus" "frust" "frus-core" "frus-widgets" )
@@ -73,8 +80,13 @@ check_crate() {
 hr; say "GitHub code search (identifiers unique to frus)"; hr
 for t in "${TOKENS[@]}"; do search_github "$t"; done
 
-hr; say "GitHub code search (verbatim doc prose)"; hr
-for p in "${PHRASES[@]}"; do search_github "$p"; done
+hr; say "GitHub code search (your handle — hits are usually your own repos)"; hr
+for i in "${IDENTITY[@]}"; do search_github "$i"; done
+
+if [ "${#PHRASES[@]}" -gt 0 ]; then
+  hr; say "GitHub code search (verbatim doc prose)"; hr
+  for p in "${PHRASES[@]}"; do search_github "$p"; done
+fi
 
 hr; say "crates.io name watch"; hr
 for c in "${CRATE_NAMES[@]}"; do check_crate "$c"; done
