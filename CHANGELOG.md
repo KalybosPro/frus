@@ -17,6 +17,9 @@ any release may break.
   through `AVCaptureDevice` and `CLLocationManager`. Without the usage string in `Info.plist`,
   which macOS ends a process for asking without, nothing is asked: the status is `Blocked` and
   the log names the key. The status used to be `Ask` whatever had been answered.
+- **Scaled and rotated layers are filtered** (J732): the compositor sampled them at the nearest
+  texel, which dropped strokes from text under a `Transform` ("Home" drawn as "Hme") and stepped
+  the edges of anything turned. Seven goldens were regenerated.
 - **Licence files on crates.io**: every published crate now ships `LICENSE-MIT`, `LICENSE-APACHE`
   and `NOTICE`, which the packages left out until now; `scripts/check-license-files.sh` keeps the
   copies identical in CI. `TRADEMARKS.md` says how the name and logo may be used.
