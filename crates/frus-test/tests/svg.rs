@@ -35,6 +35,54 @@ fn reference(source: &str) -> Snapshot {
     }
 }
 
+/// resvg's picture of `source` laid on white **in linear light**, as frus lays a layer:
+/// where the picture is translucent — a blur's fringe, what a mask half keeps — the two
+/// renderers would otherwise differ by the space they mix in (milestone 437), not by what
+/// they drew.
+fn reference_in_linear_light(source: &str) -> Snapshot {
+    let tree = usvg::Tree::from_data(source.as_bytes(), &usvg::Options::default()).unwrap();
+    let mut pixmap = tiny_skia::Pixmap::new(SIZE, SIZE).unwrap();
+    let scale = SIZE as f32 / tree.size().width();
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    let lin = |v: f32| {
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let srgb = |v: f32| {
+        if v <= 0.0031308 {
+            v * 12.92
+        } else {
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        }
+    };
+    let mut rgba = Vec::with_capacity(pixmap.data().len());
+    for p in pixmap.data().chunks(4) {
+        let a = f32::from(p[3]) / 255.0;
+        for &c in &p[..3] {
+            let straight = if a > 0.0 {
+                (f32::from(c) / 255.0 / a).min(1.0)
+            } else {
+                0.0
+            };
+            let over_white = lin(straight) * a + (1.0 - a);
+            rgba.push((srgb(over_white) * 255.0).round() as u8);
+        }
+        rgba.push(255);
+    }
+    Snapshot {
+        width: SIZE,
+        height: SIZE,
+        rgba,
+    }
+}
+
 /// frus's picture of `source` on white, or `None` without a GPU.
 fn painted(source: &str) -> Option<Snapshot> {
     let svg = Svg::parse(source.as_bytes()).unwrap();
@@ -55,10 +103,18 @@ fn painted(source: &str) -> Option<Snapshot> {
 /// Fewer than 2 % of the pixels may differ by more than 40 levels on a channel: the
 /// edges, where frus's multisampling and resvg's coverage disagree by a step.
 fn matches_the_reference(name: &str, source: &str) {
+    agrees(name, source, reference(source));
+}
+
+/// As [`matches_the_reference`], the reference laid on white in linear light.
+fn matches_the_reference_in_linear_light(name: &str, source: &str) {
+    agrees(name, source, reference_in_linear_light(source));
+}
+
+fn agrees(name: &str, source: &str, theirs: Snapshot) {
     let Some(ours) = painted(source) else {
         return;
     };
-    let theirs = reference(source);
     let off = ours.diff_count(&theirs, 40);
     let limit = (SIZE * SIZE) as usize / 50;
     if off > limit {
@@ -240,4 +296,82 @@ fn an_embedded_bitmap_is_drawn_straight_and_turned() {
         "nothing beside it"
     );
     assert!(white(at(40.0, 95.0)), "nothing past it");
+}
+
+#[test]
+fn alpha_and_luminance_masks() {
+    matches_the_reference_in_linear_light(
+        "masks",
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+          <defs>
+            <mask id="alpha" mask-type="alpha">
+              <circle cx="25" cy="25" r="20" fill="#000"/></mask>
+            <linearGradient id="fade" x1="0" x2="1">
+              <stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient>
+            <mask id="luminance" maskContentUnits="objectBoundingBox">
+              <rect width="1" height="1" fill="url(#fade)"/></mask>
+            <mask id="ring" x="50" y="50" width="45" height="45" maskUnits="userSpaceOnUse">
+              <circle cx="72" cy="72" r="22" fill="#fff"/>
+              <circle cx="72" cy="72" r="10" fill="#000"/></mask>
+          </defs>
+          <g mask="url(#alpha)">
+            <rect x="0" y="0" width="50" height="50" fill="#e53935"/>
+            <rect x="20" y="0" width="10" height="50" fill="#1e88e5"/>
+          </g>
+          <rect x="55" y="5" width="40" height="40" fill="#43a047" mask="url(#luminance)"/>
+          <g transform="rotate(20 72 72)">
+            <rect x="45" y="45" width="55" height="55" fill="#8e24aa" mask="url(#ring)"/>
+          </g>
+          <rect x="5" y="55" width="40" height="40" fill="#fb8c00" mask="url(#luminance)"
+                transform="rotate(-30 25 75)"/>
+        </svg>"##,
+    );
+}
+
+#[test]
+fn gaussian_blurs_and_drop_shadows() {
+    matches_the_reference_in_linear_light(
+        "blurs",
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+          <defs>
+            <filter id="soft"><feGaussianBlur stdDeviation="3"/></filter>
+            <filter id="smear" x="-50%" width="200%"><feGaussianBlur stdDeviation="5 0.5"/></filter>
+            <filter id="shadow"><feDropShadow dx="2" dy="3" stdDeviation="2"
+              flood-color="#1a237e" flood-opacity="0.6"/></filter>
+          </defs>
+          <rect x="10" y="10" width="30" height="30" fill="#e53935" filter="url(#soft)"/>
+          <circle cx="72" cy="25" r="12" fill="#1e88e5" filter="url(#smear)"/>
+          <rect x="15" y="60" width="30" height="25" rx="4" fill="#ffb300" filter="url(#shadow)"/>
+          <g transform="translate(60 55) scale(1.5)" filter="url(#soft)">
+            <circle cx="10" cy="15" r="8" fill="#43a047"/>
+          </g>
+        </svg>"##,
+    );
+}
+
+/// A drop shadow as design tools export it: an alpha matrix, an offset, a blur, an `out`
+/// composite, a tinting matrix with its colour in linear light, a blend and a merge.
+#[test]
+fn a_design_tool_shadow_graph() {
+    matches_the_reference_in_linear_light(
+        "shadow-graph",
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+          <defs>
+            <filter id="f" x="10" y="10" width="80" height="80" filterUnits="userSpaceOnUse">
+              <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+              <feColorMatrix in="SourceAlpha" type="matrix"
+                values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+              <feOffset dx="3" dy="5"/>
+              <feGaussianBlur stdDeviation="4"/>
+              <feComposite in2="hardAlpha" operator="out"/>
+              <feColorMatrix type="matrix"
+                values="0 0 0 0 0.02 0 0 0 0 0.02 0 0 0 0 0.2 0 0 0 0.8 0"/>
+              <feBlend mode="normal" in2="BackgroundImageFix" result="shadow"/>
+              <feBlend mode="normal" in="SourceGraphic" in2="shadow"/>
+            </filter>
+          </defs>
+          <rect x="25" y="25" width="45" height="40" rx="6" fill="#ffeb3b" fill-opacity="0.4"
+                filter="url(#f)"/>
+        </svg>"##,
+    );
 }
