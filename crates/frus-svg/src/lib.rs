@@ -649,6 +649,13 @@ fn clip_outline(
     outline
 }
 
+/// The shapes under `group`, a clip path's root or a group in it, appended to `outline`;
+/// `to_root` takes the clip path's own space to the picture's.
+///
+/// The parser gives each shape in a clip path, as everywhere, an `abs_transform` that
+/// already holds every group transform between it and the clip path's root (whose own is
+/// the identity). So that transform alone places a shape in the clip's space: the groups
+/// are walked, never applied again.
 fn collect_clip(
     group: &usvg::Group,
     to_root: Affine,
@@ -662,10 +669,7 @@ fn collect_clip(
                 let shape = converted(path.data(), to_root, FillRule::NonZero);
                 *outline = std::mem::take(outline).append(shape);
             }
-            usvg::Node::Group(child) => {
-                let child_root = affine(child.transform()).then(to_root);
-                collect_clip(child, child_root, outline, unsupported);
-            }
+            usvg::Node::Group(child) => collect_clip(child, to_root, outline, unsupported),
             usvg::Node::Text(_) => unsupported.push("text"),
             _ => {}
         }
@@ -860,6 +864,35 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn a_clip_shapes_transform_is_applied_once() {
+        // The parser wraps the transformed rect in a group whose transform is also in the
+        // rect's own absolute one (milestone 740).
+        let svg = parse(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+            <defs><clipPath id="c" transform="translate(1 0)">
+              <rect width="2" height="2" transform="translate(5 2)"/></clipPath></defs>
+            <g transform="translate(0 3)">
+              <rect width="20" height="20" fill="#f00" clip-path="url(#c)"/></g></svg>"##,
+        );
+        let drawn = painted(&svg, Rect::new(0.0, 0.0, 20.0, 20.0), BoxFit::Fill);
+        let Primitive::Layer {
+            clip_shape: ClipShape::Path(clip),
+            ..
+        } = &drawn[0]
+        else {
+            panic!("{drawn:?}")
+        };
+        let frus_core::PathVerb::MoveTo(p) = clip.verbs()[0] else {
+            panic!("{clip:?}")
+        };
+        // The shape's, the clip's and the clipped element's transforms, each once.
+        assert!(
+            (p.x - 6.0).abs() < 1e-3 && (p.y - 5.0).abs() < 1e-3,
+            "{p:?}"
+        );
     }
 
     #[test]

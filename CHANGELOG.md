@@ -8,11 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 739 so far, each documenting the objective, the alternatives
+> record — one per step, 740 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **A clip path's transformed shapes are placed once** (J740): in an `SvgPicture`, a shape in a
+  `<clipPath>` with a `transform` of its own, or reached through a `<use>` with one, was
+  transformed twice, so the clip showed the picture in the wrong place or not at all. Each
+  transform now applies once, as in the reference renderer.
 - **A selection that scrolls its area** (J739): a selection dragged past the top or the bottom
   of the scrolling area it began in, inside a `SelectionArea`, now scrolls that area while the
   pointer stays there, faster the further past (30 px a second per pixel, up to 20 px past), and
