@@ -415,7 +415,8 @@ pub use radio::{Radio, RadioGroup};
 pub use rating::Rating;
 pub use refresh::{RefreshIndicator, RefreshPhase, RefreshPull, RefreshSpec, Refreshable};
 pub use region::{
-    region_copy, region_ranges, RegionPoint, RegionSelection, SelectionArea, TextStop,
+    merge_text_stops, region_copy, region_ranges, RegionPoint, RegionSelection, SelectionArea,
+    TextStop,
 };
 pub use relayout::LayoutCache;
 pub use reorder::{
