@@ -295,7 +295,7 @@ impl TabStyle {
     /// until they did not.
     fn content_width(&self, theme: &Theme, spec: &TabSpec) -> f32 {
         // A tab the caller drew cannot be asked how wide it would like to be
-        // ([#52](https://github.com/KalybosPro/frus/issues/52)), so it says. Unsaid, its
+        // ([#52](https://github.com/frus-rs/frus/issues/52)), so it says. Unsaid, its
         // name is the proxy — right for a label with a dot beside it, short for a label
         // with a count in a pill, and never consulted at all on a bar that does not
         // scroll, where the tabs share the width in equal parts.
@@ -788,7 +788,7 @@ impl<Msg> TabItem<Msg> {
     /// never asks, so this is meaningless there. When it does scroll, an ordinary tab is
     /// measured from its label and a tab the caller drew cannot be measured at all — a
     /// widget cannot be asked how wide it would like to be
-    /// ([#52](https://github.com/KalybosPro/frus/issues/52)) — so it falls back to its
+    /// ([#52](https://github.com/frus-rs/frus/issues/52)) — so it falls back to its
     /// name, which is right for a label with a dot beside it and short for a label with a
     /// count in a pill. This is how the caller says.
     #[must_use]
@@ -1264,7 +1264,7 @@ mod tests {
     }
 
     /// **A drawn tab says how wide it is when the bar scrolls**, because it cannot be
-    /// asked ([#52](https://github.com/KalybosPro/frus/issues/52)). Unsaid, its name is
+    /// asked ([#52](https://github.com/frus-rs/frus/issues/52)). Unsaid, its name is
     /// the proxy — right for a label with a dot beside it, short for a label with a count
     /// in a pill.
     ///

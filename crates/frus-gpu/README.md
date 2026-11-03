@@ -5,7 +5,7 @@ frus's 2D renderer: it takes a `Scene` and turns it into pixels through
 
 **Layer:** Foundations. It depends on no windowing library: the shell hands it a surface,
 and it owns the device, the pipelines, batching, tessellation and the glyph atlas. See
-[ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+[ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
 
 ## What you reach for
 
@@ -31,5 +31,5 @@ assert_eq!(draw_calls(&scene), 1);
 ## Part of frus
 
 `frus-shell` drives the renderer for an application, and `frus-test` for tests. See the
-[workspace README](https://github.com/KalybosPro/frus#readme). Licensed under MIT or
+[workspace README](https://github.com/frus-rs/frus#readme). Licensed under MIT or
 Apache-2.0.

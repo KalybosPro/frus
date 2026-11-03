@@ -5,7 +5,7 @@ animation and the `Scene` a frame is drawn from.
 
 **Layer:** Foundations, the bottom one. It has a single small dependency (`bytemuck`) and
 knows nothing about windows, GPUs or platforms. See
-[ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+[ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
 
 ## What you reach for
 
@@ -28,5 +28,5 @@ assert_eq!(scene.len(), 1);
 ## Part of frus
 
 Applications rarely name this crate: the `frus` facade and `frus-widgets` re-export the
-types above. See the [workspace README](https://github.com/KalybosPro/frus#readme).
+types above. See the [workspace README](https://github.com/frus-rs/frus#readme).
 Licensed under MIT or Apache-2.0.

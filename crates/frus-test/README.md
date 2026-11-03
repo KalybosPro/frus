@@ -5,7 +5,7 @@ golden images compared on disk.
 
 **Layer:** Application, as a consumer of the widgets and the renderer; it belongs in
 `[dev-dependencies]`. See
-[ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+[ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
 
 ## What you reach for
 
@@ -33,5 +33,5 @@ Goldens depend on the rasteriser: generate and compare them in the same environm
 
 ## Part of frus
 
-See the [workspace README](https://github.com/KalybosPro/frus#readme). Licensed under MIT
+See the [workspace README](https://github.com/frus-rs/frus#readme). Licensed under MIT
 or Apache-2.0.

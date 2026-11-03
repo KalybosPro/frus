@@ -250,7 +250,7 @@ enum Lead {
 /// The panel is what decides how wide a menu is, so the panel has to be able to measure
 /// the rows — and it cannot ask them. By the time it holds them they are `dyn Widget`,
 /// and a widget cannot be asked how wide it would like to be
-/// ([#52](https://github.com/KalybosPro/frus/issues/52)). So the words are copied to
+/// ([#52](https://github.com/frus-rs/frus/issues/52)). So the words are copied to
 /// where the measuring happens.
 #[derive(Clone)]
 struct Measure {
@@ -669,7 +669,7 @@ impl<Msg> Panel<Msg> {
     /// hundred per cent of the menus in this repository still measure under it.
     ///
     /// A row the caller drew contributes nothing, because it cannot be asked what it
-    /// wants ([#52](https://github.com/KalybosPro/frus/issues/52)). It takes whatever
+    /// wants ([#52](https://github.com/frus-rs/frus/issues/52)). It takes whatever
     /// the words decided, and that is the single place in the menu where that gap shows.
     ///
     /// `None` for a panel that measures no rows — it is as wide as what is inside it.

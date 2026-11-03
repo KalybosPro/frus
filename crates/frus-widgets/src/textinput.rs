@@ -1343,7 +1343,7 @@ impl<Msg> TextField<Msg> {
     /// given neither Cut nor Copy, and a [`read_only`](Self::read_only) one neither Cut nor
     /// Paste, so an application only has to change the list to depart from them.
     ///
-    /// [#23]: https://github.com/KalybosPro/frus/issues/23
+    /// [#23]: https://github.com/frus-rs/frus/issues/23
     pub fn selection_toolbar(
         mut self,
         build: impl Fn(&ToolbarContext, Vec<ToolbarItem<Msg>>) -> Vec<ToolbarItem<Msg>> + 'static,

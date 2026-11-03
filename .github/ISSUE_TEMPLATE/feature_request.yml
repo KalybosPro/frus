@@ -7,7 +7,7 @@ body:
       value: |
         frus is built milestone by milestone, and each milestone starts from a problem rather than a solution. The more concretely you can state the problem, the more likely this gets built.
 
-        Check [ROADMAP.md](https://github.com/KalybosPro/frus/blob/master/ROADMAP.md) first — it may already be planned, or listed as a deliberate non-goal.
+        Check [ROADMAP.md](https://github.com/frus-rs/frus/blob/master/ROADMAP.md) first — it may already be planned, or listed as a deliberate non-goal.
 
   - type: textarea
     id: problem
@@ -43,7 +43,7 @@ body:
     id: scope
     attributes:
       label: Which layer does this touch?
-      description: Best guess is fine — see [ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+      description: Best guess is fine — see [ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
       multiple: true
       options:
         - "frus-core (geometry, color, scene, animation)"

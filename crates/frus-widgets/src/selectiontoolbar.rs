@@ -21,7 +21,7 @@
 //! [`EditAction`] and no message, and the shell performs it on the focused field. Only an
 //! application's own item carries a message.
 //!
-//! [#23]: https://github.com/KalybosPro/frus/issues/23
+//! [#23]: https://github.com/frus-rs/frus/issues/23
 //! [`TextField::selection_toolbar`]: crate::TextField::selection_toolbar
 
 use frus_core::{BorderRadius, Rect, Scene, ShapeBorder, Size};

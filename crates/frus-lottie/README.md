@@ -10,4 +10,4 @@ Applications use it through the `Lottie` widget in `frus`, with the `lottie` fea
 
 ## Part of frus
 
-See the [frus repository](https://github.com/KalybosPro/frus).
+See the [frus repository](https://github.com/frus-rs/frus).

@@ -5,7 +5,7 @@ Text shaping and measurement for frus, over
 
 **Layer:** Foundations. Given a string, a style and a width constraint, it answers how big
 the text is and where its lines break. See
-[ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+[ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
 
 ## What you reach for
 
@@ -15,7 +15,7 @@ the text is and where its lines break. See
 - The `bundled-sans`, `bundled-italic`, `bundled-mono` and `bundled-arabic` features, all
   on by default: the faces compiled in. Dropping one never panics; see *Fonts, and what
   they weigh* in
-  [the getting-started guide](https://github.com/KalybosPro/frus/blob/master/docs/getting-started.md).
+  [the getting-started guide](https://github.com/frus-rs/frus/blob/master/docs/getting-started.md).
 
 ## Example
 
@@ -27,5 +27,5 @@ assert!(size.width > 0.0 && size.height > 0.0);
 ## Part of frus
 
 An application reaches the font registration through `frus::fonts` and rarely needs
-anything else here. See the [workspace README](https://github.com/KalybosPro/frus#readme).
+anything else here. See the [workspace README](https://github.com/frus-rs/frus#readme).
 Licensed under MIT or Apache-2.0.

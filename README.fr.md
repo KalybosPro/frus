@@ -8,17 +8,17 @@
 
 Un seul code → bureau, Android et le Web. Rendu GPU. Construit à partir de composants. Pas de DSL, pas de génération de code — juste `cargo`, avec une commande `frus` facultative pour les nouveaux projets et les appareils.
 
-[![CI](https://github.com/KalybosPro/frus/actions/workflows/ci.yml/badge.svg)](https://github.com/KalybosPro/frus/actions/workflows/ci.yml)
+[![CI](https://github.com/frus-rs/frus/actions/workflows/ci.yml/badge.svg)](https://github.com/frus-rs/frus/actions/workflows/ci.yml)
 [![Licence](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-blue.svg)](#licence)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 [![Statut](https://img.shields.io/badge/statut-pré--alpha-yellow.svg)](#état-du-projet)
 
 [![Lire le guide](https://img.shields.io/badge/📖_Lire_le_guide-2ea44f?style=for-the-badge)](docs/guide/README.md)
 [![Démarrer](https://img.shields.io/badge/🚀_Démarrer-0969da?style=for-the-badge)](docs/getting-started.md)
-[![Galerie de widgets](https://img.shields.io/badge/🧩_Galerie_de_widgets-8250df?style=for-the-badge)](https://kalybospro.github.io/frus/)
+[![Galerie de widgets](https://img.shields.io/badge/🧩_Galerie_de_widgets-8250df?style=for-the-badge)](https://frus-rs.github.io/frus/)
 [![Référence de l'API](https://img.shields.io/badge/📚_Référence_API-bf8700?style=for-the-badge)](https://docs.rs/frus)
 
-[Démarrer](#démarrer) · [Apprendre](#apprendre-frus) · [Guide](docs/guide/README.md) · [Galerie](#à-quoi-ça-ressemble) · [Galerie de widgets en ligne](https://kalybospro.github.io/frus/) · [Architecture](#architecture) · [État](#état-du-projet) · [Contribuer](CONTRIBUTING.md) · [English](README.md)
+[Démarrer](#démarrer) · [Apprendre](#apprendre-frus) · [Guide](docs/guide/README.md) · [Galerie](#à-quoi-ça-ressemble) · [Galerie de widgets en ligne](https://frus-rs.github.io/frus/) · [Architecture](#architecture) · [État](#état-du-projet) · [Contribuer](CONTRIBUTING.md) · [English](README.md)
 
 <br>
 
@@ -114,7 +114,7 @@ de frus compile :
 | [Tests](docs/guide/testing.md) | Tester la logique, une page utilisée comme par une personne, les pixels |
 | [Le système autour de l'application](docs/guide/platform.md) | Dialogues de fichiers, fichiers déposés, notifications, zone de notification, barre des tâches, raccourcis globaux |
 
-Chaque widget figure aussi dans la [galerie de widgets en ligne](https://kalybospro.github.io/frus/),
+Chaque widget figure aussi dans la [galerie de widgets en ligne](https://frus-rs.github.io/frus/),
 avec le code qui le construit, et les [applications d'exemple](frus-examples/) sont des projets complets.
 
 ## À quoi ça ressemble
@@ -160,7 +160,7 @@ On les régénère après un changement au lieu de les laisser se périmer.</sub
 **Prérequis :** Rust **1.88** ou plus récent — la version minimale prise en charge, vérifiée en CI — et un GPU avec des pilotes Vulkan, Metal ou DX12.
 
 ```sh
-git clone https://github.com/KalybosPro/frus
+git clone https://github.com/frus-rs/frus
 cd frus
 
 cargo run -p frus-hello        # le compteur ci-dessus
@@ -322,7 +322,7 @@ Lisez [ARCHITECTURE.md](ARCHITECTURE.md) avant votre première modification non 
 
 **Manques connus** — les meilleurs points d'entrée pour aider :
 
-- Shells iOS ([#19](https://github.com/KalybosPro/frus/issues/19)) et macOS natif ([#60](https://github.com/KalybosPro/frus/issues/60)).
+- Shells iOS ([#19](https://github.com/frus-rs/frus/issues/19)) et macOS natif ([#60](https://github.com/frus-rs/frus/issues/60)).
 - Cas limites du rendu de texte, et couverture golden plus large.
 - Un site de documentation navigable, construit à partir des notes de conception.
 
@@ -336,11 +336,11 @@ c'est fini :
 
 | | |
 |---|---|
-| 🟡 [Essayer `frus run --hot` sur Linux ou macOS](https://github.com/KalybosPro/frus/issues/288) | Le vrai hot reload n'a été lancé de bout en bout que sous Windows. Un compte rendu de ce qui marche est toute la contribution. |
+| 🟡 [Essayer `frus run --hot` sur Linux ou macOS](https://github.com/frus-rs/frus/issues/288) | Le vrai hot reload n'a été lancé de bout en bout que sous Windows. Un compte rendu de ce qui marche est toute la contribution. |
 | 🟡 L'effet d'étirement en bout de défilement | Les Android récents étirent le contenu au lieu de le faire luire. Un effet par rendu vers texture, et le point de départ est écrit. |
-| 🔴 [Une couche iOS](https://github.com/KalybosPro/frus/labels/design%20first) | L'architecture parie que c'est un travail circonscrit. Personne n'a testé le pari. |
+| 🔴 [Une couche iOS](https://github.com/frus-rs/frus/labels/design%20first) | L'architecture parie que c'est un travail circonscrit. Personne n'a testé le pari. |
 
-🟢 *good first issue* · 🟡 *help wanted* · 🔴 *design first* — [toutes les issues ouvertes](https://github.com/KalybosPro/frus/issues)
+🟢 *good first issue* · 🟡 *help wanted* · 🔴 *design first* — [toutes les issues ouvertes](https://github.com/frus-rs/frus/issues)
 
 Vous ne savez pas où vous situer ? Ouvrez une issue en disant ce que vous aimez faire.
 En français ou en anglais, les deux conviennent.
@@ -355,7 +355,7 @@ cargo clippy --workspace --all-targets
 cargo fmt --all
 ```
 
-Chaque changement arrive avec ses tests ; chaque changement non trivial arrive avec sa note de conception. Les discussions ont lieu dans les [issues](https://github.com/KalybosPro/frus/issues) et les [discussions](https://github.com/KalybosPro/frus/discussions) — en anglais ou en français, les deux conviennent.
+Chaque changement arrive avec ses tests ; chaque changement non trivial arrive avec sa note de conception. Les discussions ont lieu dans les [issues](https://github.com/frus-rs/frus/issues) et les [discussions](https://github.com/frus-rs/frus/discussions) — en anglais ou en français, les deux conviennent.
 
 En participant, vous acceptez le [Code de conduite](CODE_OF_CONDUCT.md).
 

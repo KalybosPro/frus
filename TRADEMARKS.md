@@ -22,4 +22,4 @@ The aim is simple: anyone who sees the name should know whether they are getting
 - Name a crate, package or domain so that it looks official, such as `frus-core-plus` or `frus-official`.
 - Suggest that the project endorses you or your work when it does not.
 
-To ask for permission or report a misuse, open an issue at <https://github.com/KalybosPro/frus/issues> or write to kalyboskokou1@gmail.com.
+To ask for permission or report a misuse, open an issue at <https://github.com/frus-rs/frus/issues> or write to kalyboskokou1@gmail.com.

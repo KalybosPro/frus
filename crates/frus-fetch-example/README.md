@@ -4,7 +4,7 @@ A networking example in one screen: a button starts a request, and the screen mo
 through loading to data, or to an error.
 
 **Layer:** Application. It depends on the `frus` facade alone, with the `net` feature. See
-[ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+[ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
 
 ## What to read
 
@@ -22,5 +22,5 @@ RUST_LOG=debug cargo run -p frus-fetch-example    # everything from debug up
 ## Part of frus
 
 An example, not a library to depend on. See the
-[workspace README](https://github.com/KalybosPro/frus#readme). Licensed under MIT or
+[workspace README](https://github.com/frus-rs/frus#readme). Licensed under MIT or
 Apache-2.0.

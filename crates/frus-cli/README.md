@@ -1,6 +1,6 @@
 # frus-cli
 
-The command-line tool of [frus](https://github.com/KalybosPro/frus), a cross-platform UI
+The command-line tool of [frus](https://github.com/frus-rs/frus), a cross-platform UI
 framework in Rust. It installs a program called `frus`, which starts new applications, runs
 them on any device, and builds what you ship.
 

@@ -23,7 +23,7 @@ the three ways to keep state, `async` work, and how to run on a phone. Then:
 Beyond the guide:
 
 - **The widget gallery** — `frus-examples/widgets` — shows every widget with the code that
-  builds it: 173 demos, in a browser at <https://kalybospro.github.io/frus/>.
+  builds it: 173 demos, in a browser at <https://frus-rs.github.io/frus/>.
 - **The example applications** — `frus-examples/` — are complete projects: a counter, forms,
   sign-in, navigation, a client for a REST server, a WebSocket chat.
 - **The API reference** — <https://docs.rs/frus> — has every type and method, most with an

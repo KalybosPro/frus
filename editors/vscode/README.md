@@ -3,7 +3,7 @@
 [![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-007ACC)](https://marketplace.visualstudio.com/items?itemName=kalybospro.frus)
 [![frus on crates.io](https://img.shields.io/crates/v/frus?label=frus)](https://crates.io/crates/frus)
 
-**Build, run and reload [frus](https://github.com/KalybosPro/frus) applications from VS Code — on
+**Build, run and reload [frus](https://github.com/frus-rs/frus) applications from VS Code — on
 your computer, your phone or your browser — without leaving the editor.**
 
 frus is a cross-platform UI framework written in Rust: one codebase, drawn by its own GPU
@@ -121,10 +121,10 @@ restarts from the new one and the next F5 uses it.
 
 ## Links
 
-- **frus**: [repository](https://github.com/KalybosPro/frus) ·
-  [getting started](https://github.com/KalybosPro/frus/blob/master/docs/getting-started.md) ·
+- **frus**: [repository](https://github.com/frus-rs/frus) ·
+  [getting started](https://github.com/frus-rs/frus/blob/master/docs/getting-started.md) ·
   [crates.io](https://crates.io/crates/frus)
-- **Found a bug or missing something?** [Open an issue](https://github.com/KalybosPro/frus/issues).
+- **Found a bug or missing something?** [Open an issue](https://github.com/frus-rs/frus/issues).
 - **Like it?** A rating on the Marketplace helps other people find it.
 
 Licensed under MIT or Apache-2.0, at your option.

@@ -10,4 +10,4 @@ Applications use it through `SvgPicture` in `frus`, with the `svg` feature.
 
 ## Part of frus
 
-See the [frus repository](https://github.com/KalybosPro/frus).
+See the [frus repository](https://github.com/frus-rs/frus).

@@ -37,7 +37,7 @@ You don't need to know `wgpu` to be useful here.
 | **i18n** | RTL edge cases, Fluent bundles, locale negotiation |
 | **Docs / writing** | English documentation, `docs/` translation, tutorials, rustdoc on public APIs |
 
-Browse [good first issues](https://github.com/KalybosPro/frus/labels/good%20first%20issue) and [help wanted](https://github.com/KalybosPro/frus/labels/help%20wanted), or read [ROADMAP.md](ROADMAP.md) for the larger open areas.
+Browse [good first issues](https://github.com/frus-rs/frus/labels/good%20first%20issue) and [help wanted](https://github.com/frus-rs/frus/labels/help%20wanted), or read [ROADMAP.md](ROADMAP.md) for the larger open areas.
 
 **Nothing is claimed until someone says so.** Comment on the issue before you start, so two people don't build the same thing.
 
@@ -58,7 +58,7 @@ Browse [good first issues](https://github.com/KalybosPro/frus/labels/good%20firs
 | Web | `rustup target add wasm32-unknown-unknown`, `cargo install wasm-bindgen-cli`, a WebGPU browser (Chrome/Edge 113+) |
 
 ```sh
-git clone https://github.com/KalybosPro/frus
+git clone https://github.com/frus-rs/frus
 cd frus
 cargo test --workspace
 ```
@@ -302,8 +302,8 @@ Issue labels you'll see: `good first issue`, `help wanted`, `needs triage`, `nee
 
 ## Getting help
 
-- **Questions and ideas** → [Discussions](https://github.com/KalybosPro/frus/discussions)
-- **Bugs and feature requests** → [Issues](https://github.com/KalybosPro/frus/issues)
+- **Questions and ideas** → [Discussions](https://github.com/frus-rs/frus/discussions)
+- **Bugs and feature requests** → [Issues](https://github.com/frus-rs/frus/issues)
 - **Security** → do not open a public issue, see [SECURITY.md](SECURITY.md)
 
 Before asking, `docs/milestone-*.md` very often already answers "why is it like this?" — `grep` them.

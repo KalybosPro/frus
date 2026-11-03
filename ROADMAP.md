@@ -429,7 +429,7 @@ Stated so nobody spends a weekend on them:
 
 ## How to pick something up
 
-1. Find an item here or in [issues](https://github.com/KalybosPro/frus/issues).
+1. Find an item here or in [issues](https://github.com/frus-rs/frus/issues).
 2. Comment saying you're taking it. If there's no issue, open one first — especially for 🔴 items.
 3. Read the relevant part of [ARCHITECTURE.md](ARCHITECTURE.md) and `grep docs/` for prior decisions in that area.
 4. Build it, test it, and follow [CONTRIBUTING.md](CONTRIBUTING.md).

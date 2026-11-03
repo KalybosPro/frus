@@ -1,7 +1,7 @@
 name: Pages
 
 # The widget gallery (`frus-examples/widgets`), built for the Web and published on GitHub
-# Pages: https://kalybospro.github.io/frus/
+# Pages: https://frus-rs.github.io/frus/
 #
 # The site is the `gh-pages` branch, rewritten as a single commit on every run so ten
 # megabytes of wasm per push do not pile up in its history.

@@ -8,17 +8,17 @@
 
 One codebase → desktop, Android, and the web. GPU-rendered. Built from components. No DSL, no codegen — just `cargo`, with an optional `frus` command for new projects and devices.
 
-[![CI](https://github.com/KalybosPro/frus/actions/workflows/ci.yml/badge.svg)](https://github.com/KalybosPro/frus/actions/workflows/ci.yml)
+[![CI](https://github.com/frus-rs/frus/actions/workflows/ci.yml/badge.svg)](https://github.com/frus-rs/frus/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 [![Status](https://img.shields.io/badge/status-pre--alpha-yellow.svg)](#project-status)
 
 [![Read the guide](https://img.shields.io/badge/📖_Read_the_guide-2ea44f?style=for-the-badge)](docs/guide/README.md)
 [![Getting started](https://img.shields.io/badge/🚀_Getting_started-0969da?style=for-the-badge)](docs/getting-started.md)
-[![Widget gallery](https://img.shields.io/badge/🧩_Widget_gallery-8250df?style=for-the-badge)](https://kalybospro.github.io/frus/)
+[![Widget gallery](https://img.shields.io/badge/🧩_Widget_gallery-8250df?style=for-the-badge)](https://frus-rs.github.io/frus/)
 [![API reference](https://img.shields.io/badge/📚_API_reference-bf8700?style=for-the-badge)](https://docs.rs/frus)
 
-[Quick start](#quick-start) · [Learn](#learn-frus) · [Guide](docs/guide/README.md) · [Gallery](#what-it-looks-like) · [Live widget gallery](https://kalybospro.github.io/frus/) · [Architecture](#architecture) · [Status](#project-status) · [Contributing](CONTRIBUTING.md) · [Français](README.fr.md)
+[Quick start](#quick-start) · [Learn](#learn-frus) · [Guide](docs/guide/README.md) · [Gallery](#what-it-looks-like) · [Live widget gallery](https://frus-rs.github.io/frus/) · [Architecture](#architecture) · [Status](#project-status) · [Contributing](CONTRIBUTING.md) · [Français](README.fr.md)
 
 <br>
 
@@ -113,7 +113,7 @@ page, every example a complete program that frus's own test suite compiles:
 | [Testing](docs/guide/testing.md) | Testing the logic, a page used as a person uses it, the pixels |
 | [The system around the application](docs/guide/platform.md) | File dialogs, dropped files, notifications, the tray, the taskbar, global shortcuts |
 
-Every widget is also in the [live widget gallery](https://kalybospro.github.io/frus/), with the
+Every widget is also in the [live widget gallery](https://frus-rs.github.io/frus/), with the
 code that builds it, and the [example applications](frus-examples/) are complete projects.
 
 ## What it looks like
@@ -159,7 +159,7 @@ They are regenerated after a change rather than slowly going stale.</sub>
 **Prerequisites:** Rust **1.88** or newer — the minimum supported version, checked in CI — and a GPU with Vulkan, Metal, or DX12 drivers.
 
 ```sh
-git clone https://github.com/KalybosPro/frus
+git clone https://github.com/frus-rs/frus
 cd frus
 
 cargo run -p frus-hello        # the counter above
@@ -318,7 +318,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 
 **Known gaps** — these are the best places to help:
 
-- iOS ([#19](https://github.com/KalybosPro/frus/issues/19)) and native macOS ([#60](https://github.com/KalybosPro/frus/issues/60)) shells.
+- iOS ([#19](https://github.com/frus-rs/frus/issues/19)) and native macOS ([#60](https://github.com/frus-rs/frus/issues/60)) shells.
 - Text rendering edge cases, and broader golden coverage.
 - A searchable documentation site built from the design notes.
 
@@ -331,11 +331,11 @@ real, open, and written up with where to look and how to know you are done:
 
 | | |
 |---|---|
-| 🟡 [Try `frus run --hot` on Linux or macOS](https://github.com/KalybosPro/frus/issues/288) | True hot reload has only been run end to end on Windows. A report of what works is the whole contribution. |
+| 🟡 [Try `frus run --hot` on Linux or macOS](https://github.com/frus-rs/frus/issues/288) | True hot reload has only been run end to end on Windows. A report of what works is the whole contribution. |
 | 🟡 The overscroll stretch effect | Current Android stretches the content instead of glowing. A render-target effect, and where to start reading is written down. |
-| 🔴 [An iOS shell](https://github.com/KalybosPro/frus/labels/design%20first) | The architecture bets this is a contained job. Nobody has tested the bet. |
+| 🔴 [An iOS shell](https://github.com/frus-rs/frus/labels/design%20first) | The architecture bets this is a contained job. Nobody has tested the bet. |
 
-🟢 good first issue · 🟡 help wanted · 🔴 design first — [all open issues](https://github.com/KalybosPro/frus/issues)
+🟢 good first issue · 🟡 help wanted · 🔴 design first — [all open issues](https://github.com/frus-rs/frus/issues)
 
 Not sure where you fit? Open an issue and say what you enjoy working on. English or
 French, both fine.
@@ -350,7 +350,7 @@ cargo clippy --workspace --all-targets
 cargo fmt --all
 ```
 
-Every change ships with tests; every non-trivial change ships with a design note. Discussion happens in [issues](https://github.com/KalybosPro/frus/issues) and [discussions](https://github.com/KalybosPro/frus/discussions) — English or French, both fine.
+Every change ships with tests; every non-trivial change ships with a design note. Discussion happens in [issues](https://github.com/frus-rs/frus/issues) and [discussions](https://github.com/frus-rs/frus/discussions) — English or French, both fine.
 
 By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 

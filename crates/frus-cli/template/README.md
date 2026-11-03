@@ -1,6 +1,6 @@
 # {{project-name}}
 
-A [frus](https://github.com/KalybosPro/frus) application. The same code runs on Windows,
+A [frus](https://github.com/frus-rs/frus) application. The same code runs on Windows,
 macOS, Linux, Android and the web.
 
 | platform | try it | ship it |

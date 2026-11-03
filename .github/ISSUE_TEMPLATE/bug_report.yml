@@ -7,7 +7,7 @@ body:
       value: |
         Thanks for the report. A minimal reproduction is by far the most useful thing you can give us — often it turns out to be a widget-sizing or registry issue that is obvious from ten lines of `view`.
 
-        Before filing: the [known gotchas](https://github.com/KalybosPro/frus/blob/master/CONTRIBUTING.md#platform-notes-and-known-gotchas) section covers a few surprises that look like bugs (unsized `Scroll` collapsing, RTL text rendering off-screen, interactive widgets not registered for hit-testing).
+        Before filing: the [known gotchas](https://github.com/frus-rs/frus/blob/master/CONTRIBUTING.md#platform-notes-and-known-gotchas) section covers a few surprises that look like bugs (unsized `Scroll` collapsing, RTL text rendering off-screen, interactive widgets not registered for hit-testing).
 
   - type: textarea
     id: what-happened

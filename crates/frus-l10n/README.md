@@ -5,7 +5,7 @@ plurals and locale fallback.
 
 **Layer:** Foundations. It depends on no other frus crate; messages live in `.ftl` sources
 the application embeds. See
-[ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+[ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
 
 ## What you reach for
 
@@ -29,5 +29,5 @@ assert_eq!(l10n.format("tasks", args![n: 2]), "2 tâches");
 
 ## Part of frus
 
-See the [workspace README](https://github.com/KalybosPro/frus#readme). Licensed under MIT
+See the [workspace README](https://github.com/frus-rs/frus#readme). Licensed under MIT
 or Apache-2.0.
