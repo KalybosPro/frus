@@ -91,6 +91,24 @@ python3 -m http.server 8080 --directory web     # http://localhost:8080
 frus draws through WebGPU, which browsers only offer on `https` pages and on `localhost`.
 `web/` is the whole site: put it on any static host, and serve the `.wasm` compressed.
 
+## Permissions
+
+The camera, the microphone, the location and notifications are declared once, in
+`[package.metadata.frus.permissions]` (commented out in `Cargo.toml`), each with the reason the
+person is shown:
+
+```toml
+[package.metadata.frus.permissions]
+camera = "Scans the code on your ticket."
+notifications = true
+```
+
+`frus build` and `frus run` write the rest: on a Mac the program becomes a `.app` whose
+`Info.plist` holds the reasons (macOS ends an application that asks without one), and for
+Android the matching `[[package.metadata.android.uses_permission]]` tables are added to
+`Cargo.toml`. A plain `cargo run` makes no bundle, and `cargo apk` reads only the tables already
+written.
+
 ## Releases
 
 `.github/workflows/release.yml` builds everything in release when you push a tag that matches

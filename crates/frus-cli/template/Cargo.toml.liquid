@@ -67,6 +67,21 @@ target_sdk_version = 34
 # path = "/absolute/path/to/release.keystore"
 # keystore_password = "..."
 
+# --- Permissions ---
+#
+# What the application asks the person for, declared once: `frus build` and `frus run` write
+# each platform's own declaration from it — the usage strings of the macOS bundle's
+# Info.plist, and the Android manifest's permissions (added below as
+# `[[package.metadata.android.uses_permission]]`). The text is what macOS and iOS show in their
+# question, and they end an application that asks without one: the camera, the microphone and
+# the location need it. Notifications show none, so `true` declares them.
+#
+# [package.metadata.frus.permissions]
+# camera = "Scans the code on your ticket."
+# microphone = "Records your voice notes."
+# location = "Shows the shops near you."
+# notifications = true
+
 # --- What you ship ---
 #
 # `cargo run` and `cargo apk run` build in **debug**, and a debug build carries its

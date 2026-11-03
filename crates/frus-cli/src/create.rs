@@ -756,6 +756,46 @@ mod tests {
         }
     }
 
+    /// **The template shows the permissions table, declaring nothing**: uncommented as it is
+    /// written, it builds a bundle that says why and an Android manifest that names each one
+    /// (milestone 744).
+    #[test]
+    fn the_template_s_permissions_table_works_as_written() {
+        let files = render(&project(), None).unwrap();
+        let manifest = file(&files, "Cargo.toml");
+        let root = Path::new("my-app");
+        let app = crate::project::Project::from_manifest(root, manifest).unwrap();
+        assert_eq!(app.permissions().unwrap(), []);
+
+        let uncommented = manifest
+            .lines()
+            .map(|line| {
+                let bare = line.strip_prefix("# ").unwrap_or(line);
+                if bare.starts_with("[package.metadata.frus.permissions]")
+                    || ["camera", "microphone", "location", "notifications"]
+                        .iter()
+                        .any(|key| bare.starts_with(&format!("{key} = ")))
+                {
+                    bare
+                } else {
+                    line
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let app = crate::project::Project::from_manifest(root, &uncommented).unwrap();
+        let declared = app.permissions().unwrap();
+        assert_eq!(declared.len(), 4);
+        let plist = crate::bundle::info_plist(&app, "my-app", &declared);
+        assert!(plist.contains("<string>Scans the code on your ticket.</string>"));
+        assert!(plist.contains("<string>com.acme.my-app</string>"));
+        let wanted = crate::permissions::android_permissions(&declared);
+        let added = crate::permissions::android_additions(&uncommented, &wanted)
+            .unwrap()
+            .unwrap();
+        assert_eq!(added.matches("uses_permission").count(), 5, "{added}");
+    }
+
     #[test]
     fn rendering_leaves_out_the_template_config() {
         let files = render(&project(), None).unwrap();
