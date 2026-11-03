@@ -90,7 +90,8 @@ drawn layout was all the fix needed.
   last word of an end-aligned line copies `here`, highlighted against the right edge; a drag
   across a text cut by an ellipsis copies the whole sentence and highlights one line; a centred
   text selectable on its own copies the word dragged over with Ctrl+C.
-- fmt, clippy `-D warnings`, `cargo test -p frus-text -p frus-widgets -p frus-shell -p frus-demo`.
+- fmt, clippy `--workspace --all-targets -D warnings`, and `cargo test -p frus-text -p frus-widgets
+  -p frus-shell -p frus-demo` (unit, integration and doc tests) pass.
 
 ## Not done
 
@@ -100,4 +101,8 @@ drawn layout was all the fix needed.
 - **A soft-wrapped right-to-left paragraph** was tested only on one line.
 - A `RichText` that does not wrap and runs past its box is still not ellipsised (it never was),
   so its highlight is only clipped.
-- Not run on a phone or in a browser. Goldens were not run: no golden holds a selection.
+- Not run on a phone or in a browser. Goldens were not run. No golden holds a selection, but
+  `rich_text_alignment_and_limit` draws a rich paragraph cut at two lines with an ellipsis, and the
+  ellipsis fix may change it if its last run overflowed the line; it has to be run (and
+  regenerated if it changed) under WSL.
+- The widgets example was not rebuilt: the public changes are three new `TextLayout` methods.
