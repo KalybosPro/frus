@@ -73,19 +73,25 @@ enum ClipCommand {
     Paste,
 }
 
-/// The clipboard command a key press means, if any: Ctrl+C/X/V, and the Copy, Cut and
-/// Paste keys a keyboard may have for them (milestone 509).
+/// The clipboard command a key press means, if any: the platform's own modifier with C, X
+/// or V — Ctrl on most keyboards, Cmd on Apple's (milestone 736) — and the Copy, Cut and
+/// Paste keys a keyboard may have for them (milestone 509). `primary` is whether that
+/// modifier is held, as [`primary_held`] answers it.
 ///
 /// Both halves of the key are asked. A desktop keyboard's Copy key arrives as a named
 /// logical key; Android's arrives by **physical code only** — winit gives it no logical
 /// key at all — so a check of the logical key alone would ignore it on the one platform
 /// that has it as a keycode of its own.
-fn clipboard_command(logical: &WinitKey, physical: PhysicalKey, ctrl: bool) -> Option<ClipCommand> {
+fn clipboard_command(
+    logical: &WinitKey,
+    physical: PhysicalKey,
+    primary: bool,
+) -> Option<ClipCommand> {
     match logical {
         WinitKey::Named(NamedKey::Copy) => return Some(ClipCommand::Copy),
         WinitKey::Named(NamedKey::Cut) => return Some(ClipCommand::Cut),
         WinitKey::Named(NamedKey::Paste) => return Some(ClipCommand::Paste),
-        WinitKey::Character(c) if ctrl => {
+        WinitKey::Character(c) if primary => {
             if c.eq_ignore_ascii_case("c") {
                 return Some(ClipCommand::Copy);
             }
@@ -102,6 +108,74 @@ fn clipboard_command(logical: &WinitKey, physical: PhysicalKey, ctrl: bool) -> O
         PhysicalKey::Code(KeyCode::Copy) => Some(ClipCommand::Copy),
         PhysicalKey::Code(KeyCode::Cut) => Some(ClipCommand::Cut),
         PhysicalKey::Code(KeyCode::Paste) => Some(ClipCommand::Paste),
+        _ => None,
+    }
+}
+
+/// Whether the keyboard the application is typed on follows **Apple's conventions**, where
+/// Cmd is the modifier of the editing shortcuts and Ctrl is not (milestone 736).
+///
+/// Asked of the **machine**, not of [`frus_widgets::default_target_platform`]: a window
+/// standing in for an iPhone on a Windows machine is still typed on that machine's keyboard,
+/// with that machine's habits, and a debug switch of the design language must not take Ctrl+C
+/// away from the hands at the keyboard. Natively the build says it; on the web it is the
+/// browser's operating system, from the navigator, read the way the target platform is read
+/// at start-up — a Mac, or an iPad with a keyboard, which says it is a Mac.
+fn apple_keyboard() -> bool {
+    #[cfg(web)]
+    {
+        web_sys::window()
+            .map(|window| window.navigator())
+            .is_some_and(|navigator| {
+                frus_widgets::TargetPlatform::from_browser(
+                    &navigator.platform().unwrap_or_default(),
+                    &navigator.user_agent().unwrap_or_default(),
+                    navigator.max_touch_points(),
+                )
+                .is_apple()
+            })
+    }
+    #[cfg(not(web))]
+    {
+        cfg!(any(target_os = "macos", target_os = "ios"))
+    }
+}
+
+/// Whether the **platform's own modifier** is held — what copies with C, selects all with A,
+/// undoes with Z: Cmd (`meta`) on an Apple keyboard, Ctrl everywhere else (milestone 736).
+///
+/// Only that one. On a Mac, Ctrl+C is not Copy: Ctrl belongs to the terminal and to the
+/// editing keys of the system's own fields (Ctrl+A goes to the start of the line there), and
+/// a Mac application that copied on it would be the odd one out. Elsewhere the logo key is
+/// the system's: Win+V opens the clipboard's history on Windows.
+fn primary_held(apple: bool, ctrl: bool, meta: bool) -> bool {
+    if apple {
+        meta
+    } else {
+        ctrl
+    }
+}
+
+/// Whether the modifier that makes the arrows **jump a word** is held: Option (`alt`) on an
+/// Apple keyboard, Ctrl everywhere else (milestone 736).
+fn word_held(apple: bool, ctrl: bool, alt: bool) -> bool {
+    if apple {
+        alt
+    } else {
+        ctrl
+    }
+}
+
+/// On an Apple keyboard, **Cmd with an arrow** goes to a bound of the text (milestone 736):
+/// left and right to the start and the end of the line, up and down to those of the whole
+/// field — what Home and End, and Ctrl+Home and Ctrl+End, do elsewhere, and are spelled as
+/// here. `None` for any other key.
+fn apple_arrow_jump(logical: &WinitKey, shift: bool) -> Option<Key> {
+    match logical {
+        WinitKey::Named(NamedKey::ArrowLeft) => Some(Key::Home { shift, doc: false }),
+        WinitKey::Named(NamedKey::ArrowRight) => Some(Key::End { shift, doc: false }),
+        WinitKey::Named(NamedKey::ArrowUp) => Some(Key::Home { shift, doc: true }),
+        WinitKey::Named(NamedKey::ArrowDown) => Some(Key::End { shift, doc: true }),
         _ => None,
     }
 }
@@ -950,6 +1024,11 @@ pub struct App<A: Application> {
     ctrl: bool,
     alt: bool,
     meta: bool,
+    /// Whether the keyboard follows Apple's conventions — Cmd for the editing shortcuts,
+    /// Option for a word — rather than everyone else's Ctrl (milestone 736); see
+    /// [`apple_keyboard`]. A test's shell says no, whatever the machine running it, so that a
+    /// test reads the same on every machine; a test of the Apple keyboard says yes.
+    apple_keys: bool,
     /// The remembered "goal" visual column for Up/Down/PgUp/PgDn: crossing shorter
     /// lines keeps the original column, the way an editor does. Cleared as soon as any
     /// other caret movement happens.
@@ -1198,6 +1277,7 @@ impl<A: Application> App<A> {
         // the machine's, which tests running side by side would share — and which macOS
         // does not let several threads touch at once (a test run aborted on it).
         shell.clipboard = clip::Clipboard::in_memory();
+        shell.apple_keys = false;
         shell
     }
 
@@ -1251,6 +1331,7 @@ impl<A: Application> App<A> {
             ctrl: false,
             alt: false,
             meta: false,
+            apple_keys: apple_keyboard(),
             goal_x: None,
             clipboard: clip::Clipboard::new(),
             started: false,
@@ -7793,6 +7874,25 @@ impl<A: Application> App<A> {
             WinitKey::Named(NamedKey::ArrowRight) => Some(FocusDirection::Right),
             _ => None,
         };
+        // On an Apple keyboard, Cmd with an arrow goes to the line's or the field's
+        // bound in a text field (milestone 736) — before the arrows move the caret
+        // by one, or the focus out of the field.
+        if self.apple_keys && self.meta {
+            if let Some(key) = apple_arrow_jump(&event.logical_key, self.shift) {
+                let is_text = self
+                    .tree
+                    .as_ref()
+                    .and_then(|tree| find_widget(tree.as_ref(), focused))
+                    .is_some_and(is_text_field);
+                if is_text {
+                    self.goal_x = None;
+                    self.apply_key(focused, key);
+                    self.request_redraw();
+                    return;
+                }
+            }
+        }
+
         // PgUp and PgDn jump a **page** inside a multi-line field, bounded to
         // the field so they never leave it. No effect anywhere else.
         if matches!(
@@ -7823,12 +7923,12 @@ impl<A: Application> App<A> {
                 let key = if matches!(direction, FocusDirection::Left) {
                     Key::Left {
                         shift: self.shift,
-                        word: self.ctrl,
+                        word: self.word(),
                     }
                 } else {
                     Key::Right {
                         shift: self.shift,
-                        word: self.ctrl,
+                        word: self.word(),
                     }
                 };
                 let widget = self
@@ -7889,12 +7989,12 @@ impl<A: Application> App<A> {
             let key = if matches!(event.logical_key, WinitKey::Named(NamedKey::Home)) {
                 Key::Home {
                     shift: self.shift,
-                    doc: self.ctrl,
+                    doc: self.primary(),
                 }
             } else {
                 Key::End {
                     shift: self.shift,
-                    doc: self.ctrl,
+                    doc: self.primary(),
                 }
             };
             let handled = self
@@ -7941,8 +8041,10 @@ impl<A: Application> App<A> {
             }
         }
 
-        // The clipboard: Ctrl+C/X/V, and a keyboard's own Copy, Cut and Paste.
-        if let Some(command) = clipboard_command(&event.logical_key, event.physical_key, self.ctrl)
+        // The clipboard: Ctrl+C/X/V (Cmd on an Apple keyboard), and a keyboard's own Copy,
+        // Cut and Paste.
+        if let Some(command) =
+            clipboard_command(&event.logical_key, event.physical_key, self.primary())
         {
             match command {
                 ClipCommand::Copy => {
@@ -7973,8 +8075,8 @@ impl<A: Application> App<A> {
             return;
         }
 
-        // The other editing shortcuts, Ctrl+A/Z/Y.
-        if self.ctrl {
+        // The other editing shortcuts, Ctrl+A/Z/Y — Cmd+A/Z on an Apple keyboard.
+        if self.primary() {
             match &event.logical_key {
                 WinitKey::Character(c) if c.eq_ignore_ascii_case("a") => {
                     self.select_all(focused);
@@ -7982,14 +8084,15 @@ impl<A: Application> App<A> {
                 }
                 // Undo, and redo under both its spellings — Ctrl+Y on Windows,
                 // Ctrl+Shift+Z everywhere else, and people bring the one their
-                // hands already know.
+                // hands already know. An Apple keyboard has the one: Cmd+Y is not
+                // Redo on a Mac (a browser opens its history on it).
                 WinitKey::Character(c) if c.eq_ignore_ascii_case("z") && !self.shift => {
                     self.step_history(focused, false);
                     self.request_redraw();
                     return;
                 }
                 WinitKey::Character(c)
-                    if c.eq_ignore_ascii_case("y")
+                    if (c.eq_ignore_ascii_case("y") && !self.apple_keys)
                         || (c.eq_ignore_ascii_case("z") && self.shift) =>
                 {
                     self.step_history(focused, true);
@@ -8017,22 +8120,23 @@ impl<A: Application> App<A> {
             // repeat normally.
             WinitKey::Named(NamedKey::Enter) if !event.repeat => Some(Key::Enter),
             WinitKey::Named(NamedKey::Enter) => None,
-            // With Ctrl, Left/Right jump a word and Home/End bound the field.
+            // With Ctrl, Left/Right jump a word and Home/End bound the field — with
+            // Option and Cmd on an Apple keyboard.
             WinitKey::Named(NamedKey::ArrowLeft) => Some(Key::Left {
                 shift,
-                word: self.ctrl,
+                word: self.word(),
             }),
             WinitKey::Named(NamedKey::ArrowRight) => Some(Key::Right {
                 shift,
-                word: self.ctrl,
+                word: self.word(),
             }),
             WinitKey::Named(NamedKey::Home) => Some(Key::Home {
                 shift,
-                doc: self.ctrl,
+                doc: self.primary(),
             }),
             WinitKey::Named(NamedKey::End) => Some(Key::End {
                 shift,
-                doc: self.ctrl,
+                doc: self.primary(),
             }),
             WinitKey::Named(NamedKey::Space) => Some(Key::Text(" ".to_string())),
             // Android delivers Enter as `Character("\n")`, through the
@@ -8764,6 +8868,18 @@ impl<A: Application> App<A> {
         self.request_redraw();
     }
 
+    /// Whether the platform's own modifier is held: Cmd on an Apple keyboard, Ctrl elsewhere
+    /// (milestone 736); see [`primary_held`].
+    fn primary(&self) -> bool {
+        primary_held(self.apple_keys, self.ctrl, self.meta)
+    }
+
+    /// Whether the modifier that makes the arrows jump a word is held: Option on an Apple
+    /// keyboard, Ctrl elsewhere (milestone 736).
+    fn word(&self) -> bool {
+        word_held(self.apple_keys, self.ctrl, self.alt)
+    }
+
     /// A key while nothing has the focus: Copy, and Select all, act on a selection an area
     /// holds. Whether the key was one of them.
     fn region_key(&mut self, event: &KeyDown) -> bool {
@@ -8771,12 +8887,12 @@ impl<A: Application> App<A> {
             return false;
         }
         if let Some(ClipCommand::Copy) =
-            clipboard_command(&event.logical_key, event.physical_key, self.ctrl)
+            clipboard_command(&event.logical_key, event.physical_key, self.primary())
         {
             self.copy_region();
             return true;
         }
-        let select_all = self.ctrl
+        let select_all = self.primary()
             && matches!(&event.logical_key, WinitKey::Character(c) if c.eq_ignore_ascii_case("a"));
         if select_all {
             self.select_all_region();
@@ -9804,6 +9920,118 @@ mod tests {
         assert_eq!(
             clipboard_command(&named, any, false),
             Some(ClipCommand::Paste)
+        );
+    }
+
+    /// **The platform's own modifier is Cmd on an Apple keyboard and Ctrl elsewhere**, and
+    /// only that one (milestone 736): Cmd+C/X/V are the clipboard on a Mac, where Ctrl+C is
+    /// not; Ctrl+C/X/V are elsewhere, where the logo key with C is not.
+    #[test]
+    fn the_clipboard_answers_cmd_on_an_apple_keyboard_and_ctrl_elsewhere() {
+        use super::primary_held;
+        let any = PhysicalKey::Code(KeyCode::KeyQ);
+        // (apple, ctrl, meta) → is the primary modifier held?
+        for (apple, ctrl, meta, held) in [
+            (true, false, true, true),
+            (true, true, false, false),
+            (true, false, false, false),
+            (false, true, false, true),
+            (false, false, true, false),
+            (false, false, false, false),
+        ] {
+            assert_eq!(
+                primary_held(apple, ctrl, meta),
+                held,
+                "apple {apple}, ctrl {ctrl}, meta {meta}"
+            );
+        }
+        for (letter, command) in [
+            ("c", ClipCommand::Copy),
+            ("x", ClipCommand::Cut),
+            ("V", ClipCommand::Paste),
+        ] {
+            let key = character(letter);
+            let on =
+                |apple, ctrl, meta| clipboard_command(&key, any, primary_held(apple, ctrl, meta));
+            assert_eq!(
+                on(true, false, true),
+                Some(command),
+                "Cmd+{letter} on a Mac"
+            );
+            assert_eq!(on(true, true, false), None, "Ctrl+{letter} on a Mac is not");
+            assert_eq!(
+                on(false, true, false),
+                Some(command),
+                "Ctrl+{letter} elsewhere"
+            );
+            assert_eq!(
+                on(false, false, true),
+                None,
+                "the logo key + {letter} is not"
+            );
+        }
+        // A keyboard's own Copy key needs no modifier on either.
+        assert_eq!(
+            clipboard_command(
+                &WinitKey::Unidentified(winit::keyboard::NativeKey::Unidentified),
+                PhysicalKey::Code(KeyCode::Copy),
+                primary_held(true, false, false)
+            ),
+            Some(ClipCommand::Copy)
+        );
+    }
+
+    /// **An arrow jumps a word with Option on an Apple keyboard and with Ctrl elsewhere**,
+    /// and Cmd with an arrow goes to a bound of the line or of the field (milestone 736).
+    #[test]
+    fn an_apple_keyboard_jumps_words_with_option_and_bounds_with_cmd() {
+        use super::{apple_arrow_jump, word_held, Key, NamedKey};
+        assert!(word_held(true, false, true), "Option+arrow on a Mac");
+        assert!(!word_held(true, true, false), "not Ctrl+arrow on a Mac");
+        assert!(word_held(false, true, false), "Ctrl+arrow elsewhere");
+        assert!(!word_held(false, false, true), "not Alt+arrow elsewhere");
+
+        let named = |key| WinitKey::Named(key);
+        assert_eq!(
+            apple_arrow_jump(&named(NamedKey::ArrowLeft), false),
+            Some(Key::Home {
+                shift: false,
+                doc: false
+            })
+        );
+        assert_eq!(
+            apple_arrow_jump(&named(NamedKey::ArrowRight), true),
+            Some(Key::End {
+                shift: true,
+                doc: false
+            }),
+            "Shift extends the selection to the end of the line"
+        );
+        assert_eq!(
+            apple_arrow_jump(&named(NamedKey::ArrowUp), false),
+            Some(Key::Home {
+                shift: false,
+                doc: true
+            })
+        );
+        assert_eq!(
+            apple_arrow_jump(&named(NamedKey::ArrowDown), false),
+            Some(Key::End {
+                shift: false,
+                doc: true
+            })
+        );
+        assert_eq!(apple_arrow_jump(&character("a"), false), None);
+    }
+
+    /// **A native build's keyboard is the build's operating system's** — Apple's on macOS
+    /// and iOS (milestone 736) — whatever the design language a debug switch or a simulated
+    /// device has put on.
+    #[test]
+    fn a_native_keyboard_is_the_builds() {
+        assert_eq!(
+            super::apple_keyboard(),
+            cfg!(any(target_os = "macos", target_os = "ios"))
         );
     }
 
@@ -11547,6 +11775,20 @@ pub mod testing {
             self.shell.select_all_region();
         }
 
+        /// Makes the shell read the keyboard as an **Apple** one — Cmd for the editing
+        /// shortcuts, Option to jump a word — or, with `false`, as everyone else's, with Ctrl
+        /// for both (milestone 736). A driver starts with everyone else's, whatever the machine
+        /// running it, so that a test reads the same on each.
+        pub fn set_apple_keyboard(&mut self, apple: bool) {
+            self.shell.apple_keys = apple;
+        }
+
+        /// What the shell's clipboard holds as text — a driver's own, in memory.
+        #[cfg(all(test, desktop))]
+        pub(crate) fn clipboard_text(&mut self) -> Option<String> {
+            self.shell.clipboard.get_text()
+        }
+
         /// Escape, as the keyboard delivers it.
         pub fn escape(&mut self) {
             self.shell.escape();
@@ -12912,6 +13154,73 @@ mod selection_area_tests {
         drag(&mut d, at, end);
         assert!(d.area_selection().is_some());
         d.area_select_all();
+        assert_eq!(
+            d.area_selection().as_deref(),
+            Some("first line of words\nsecond line\nthird line ends here")
+        );
+    }
+
+    /// **Cmd+C copies a selection on an Apple keyboard, and Ctrl+C does not** — the other way
+    /// round from everyone else's keyboard (milestone 736). Through the shell's own handling
+    /// of the key, with the modifiers held as a keyboard holds them.
+    #[cfg(desktop)]
+    #[test]
+    fn cmd_c_copies_on_an_apple_keyboard_and_ctrl_c_elsewhere() {
+        use frus_widgets::{KeyStroke, ShortcutKey};
+        let c = || KeyStroke::new(ShortcutKey::Char('c'));
+        // A part of the middle line, with the mouse; the words it took are what a copy holds.
+        let select = |d: &mut Driver<Doc>| -> String {
+            let (from, to) = (on(d, "second line", 12.0), on(d, "second line", 40.0));
+            drag(d, from, to);
+            d.area_selection().expect("the drag selected words")
+        };
+
+        let mut d = driver();
+        d.set_apple_keyboard(true);
+        let words = select(&mut d);
+        d.key(c().ctrl());
+        assert_eq!(d.clipboard_text(), None, "Ctrl+C is not Copy on a Mac");
+        d.key(c().meta());
+        assert_eq!(
+            d.clipboard_text().as_deref(),
+            Some(words.as_str()),
+            "Cmd+C is"
+        );
+
+        let mut d = driver();
+        let words = select(&mut d);
+        d.key(c().meta());
+        assert_eq!(
+            d.clipboard_text(),
+            None,
+            "the logo key + C is not Copy elsewhere"
+        );
+        d.key(c().ctrl());
+        assert_eq!(
+            d.clipboard_text().as_deref(),
+            Some(words.as_str()),
+            "Ctrl+C is"
+        );
+    }
+
+    /// **Cmd+A selects the whole area on an Apple keyboard**, and Ctrl+A leaves the selection
+    /// as it was there (milestone 736).
+    #[test]
+    fn cmd_a_selects_the_whole_area_on_an_apple_keyboard() {
+        use frus_widgets::{KeyStroke, ShortcutKey};
+        let a = || KeyStroke::new(ShortcutKey::Char('a'));
+        let mut d = driver();
+        d.set_apple_keyboard(true);
+        let (from, to) = (on(&d, "second line", 12.0), on(&d, "second line", 40.0));
+        drag(&mut d, from, to);
+        let words = d.area_selection().expect("the drag selected words");
+        d.key(a().ctrl());
+        assert_eq!(
+            d.area_selection(),
+            Some(words),
+            "Ctrl+A is not Select all on a Mac"
+        );
+        d.key(a().meta());
         assert_eq!(
             d.area_selection().as_deref(),
             Some("first line of words\nsecond line\nthird line ends here")
