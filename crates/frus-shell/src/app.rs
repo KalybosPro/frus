@@ -727,7 +727,13 @@ enum Drag {
     /// A selection dragged out over the texts of a
     /// [`SelectionArea`](frus_widgets::SelectionArea): it may leave the text it began in, and
     /// never leaves the area.
-    RegionSelect { area: WidgetId },
+    ///
+    /// `scroll` is the innermost scrolling area the press landed in: held past its edge, the
+    /// drag scrolls it (milestone 739).
+    RegionSelect {
+        area: WidgetId,
+        scroll: Option<WidgetId>,
+    },
     /// A handle of a selection area's touch selection, held (milestone 577): it carries its
     /// end of the selection to the text under the finger, the other end staying put. `grab` is
     /// the offset from the finger to the text position the handle stands for.
@@ -735,6 +741,9 @@ enum Drag {
         area: WidgetId,
         handle: crate::selection::Handle,
         grab: Point,
+        /// The innermost scrolling area the handle was in when it was taken, which the
+        /// handle held past its edge scrolls (milestone 739).
+        scroll: Option<WidgetId>,
     },
     /// A text selection inside a field, with its bounds, for placement.
     TextSelect {
@@ -1137,6 +1146,14 @@ pub struct App<A: Application> {
     /// When and where the last press began a selection in a selection area: a second one soon
     /// after and close by is a double click.
     last_region_click: Option<(Instant, Point)>,
+    /// The texts a selection area's selection has been worked out over, in reading order,
+    /// with their words — kept while texts leave the frame (milestone 739): a selection dragged
+    /// down a scrolling area, which scrolls under it, would otherwise lose its beginning as
+    /// soon as that scrolled out of sight. The area they belong to comes with them.
+    region_known: Option<(WidgetId, Vec<(WidgetId, String)>)>,
+    /// Whether a selection being dragged scrolled its area this frame: its moving end is then
+    /// found again under the pointer once the frame is laid out (milestone 739).
+    region_autoscrolled: bool,
     /// A first tap waiting to see whether it is half of a double tap (milestone 581).
     pending_tap: Option<PendingTap<A::Message>>,
     /// How many values the work components started had brought when this shell last looked
@@ -1365,6 +1382,8 @@ impl<A: Application> App<A> {
             pending_reorder: None,
             last_click_time: None,
             last_region_click: None,
+            region_known: None,
+            region_autoscrolled: false,
             pending_tap: None,
             task_arrivals: 0,
             entered: Vec::new(),
@@ -3086,6 +3105,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // an offset the build below is about to read — and this frame, not the
                 // next one, or the content would lag a frame behind the finger.
                 let autoscrolling = self.autoscroll_carried(dt);
+                // And a selection dragged past the edge of the area it is in (milestone 739).
+                let autoscrolling = self.autoscroll_selection(dt) || autoscrolling;
 
                 // The reorder spring, per axis, with a time constant of about 70 ms:
                 // - **horizontal** (`Table` columns): the smoothed `reorder_x` catches up
@@ -3538,6 +3559,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // A screen that changed under a still pointer enters and leaves regions too,
                 // as the reference's mouse tracker does after every frame (milestone 583).
                 self.sync_regions(false);
+                // A selection whose area scrolled under a still pointer reaches the words now
+                // under it (milestone 739).
+                self.follow_autoscrolled_selection();
                 if moved_late || sheeted_late {
                     // Nothing else this frame knows the offset changed: the springs ran
                     // before the request was placed.
@@ -6420,11 +6444,13 @@ impl<A: Application> App<A> {
                 self.runtime.scroll_target.insert(*id, synced);
                 self.runtime.scroll_velocity.remove(&*id);
             }
-            Drag::RegionSelect { area } => {
+            Drag::RegionSelect { area, .. } => {
                 let area = *area;
                 self.extend_region_selection(area);
             }
-            Drag::RegionHandle { area, handle, grab } => {
+            Drag::RegionHandle {
+                area, handle, grab, ..
+            } => {
                 let (area, handle, grab) = (*area, *handle, *grab);
                 self.drag_region_handle(area, handle, grab);
             }
@@ -8555,23 +8581,55 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// The texts of `area` in the frame on screen, in reading order, each with its length in
-    /// characters — what a selection over them is worked out from.
-    fn region_stops(&self, area: WidgetId) -> Vec<(WidgetId, usize)> {
-        let (Some(ui), Some(tree)) = (self.ui.as_ref(), self.tree.as_ref()) else {
-            return Vec::new();
+    /// The texts of `area` in reading order, each with its words: the ones in the frame on
+    /// screen, and among them, where they were, the ones the selection was last worked out
+    /// over that have since left it — scrolled out of sight, or out of a list that builds only
+    /// what shows (milestone 739).
+    fn region_texts(&self, area: WidgetId) -> Vec<(WidgetId, String)> {
+        let present: Vec<(WidgetId, String)> = match (self.ui.as_ref(), self.tree.as_ref()) {
+            (Some(ui), Some(tree)) => ui
+                .text_stops_in(area)
+                .filter_map(|stop| {
+                    let text = find_widget(tree.as_ref(), stop.id)?.selection_text()?;
+                    Some((stop.id, text.to_owned()))
+                })
+                .collect(),
+            _ => Vec::new(),
         };
-        ui.text_stops_in(area)
-            .filter_map(|stop| {
-                let text = find_widget(tree.as_ref(), stop.id)?.selection_text()?;
-                Some((stop.id, text.chars().count()))
-            })
-            .collect()
+        match &self.region_known {
+            Some((known_area, known)) if *known_area == area => {
+                frus_widgets::merge_text_stops(known, &present)
+            }
+            _ => present,
+        }
+    }
+
+    /// The texts of `area` in reading order, each with its length in characters — what a
+    /// selection over them is worked out from. They are remembered, so that a text that
+    /// scrolls away keeps its place in the selection.
+    fn region_stops(&mut self, area: WidgetId) -> Vec<(WidgetId, usize)> {
+        let texts = self.region_texts(area);
+        let stops = texts
+            .iter()
+            .map(|(id, text)| (*id, text.chars().count()))
+            .collect();
+        self.region_known = Some((area, texts));
+        stops
+    }
+
+    /// The innermost scrolling area under `at`, if any: what a selection begun there scrolls
+    /// when it is dragged past the area's edge (milestone 739).
+    fn innermost_scroll(&self, at: Point) -> Option<WidgetId> {
+        self.ui
+            .as_ref()?
+            .scroll_chain(at)
+            .next()
+            .map(|area| area.id)
     }
 
     /// The selection from `anchor` to `extent` in `area`, in the frame on screen.
     fn region_selection(
-        &self,
+        &mut self,
         area: WidgetId,
         anchor: RegionPoint,
         extent: RegionPoint,
@@ -8605,6 +8663,8 @@ impl<A: Application> App<A> {
                 && (here.x - there.x).hypot(here.y - there.y) <= REGION_DOUBLE_CLICK_SLOP
         });
         self.last_region_click = Some((now, here));
+        // A new selection is worked out over the texts on screen, not the last one's.
+        self.region_known = None;
         let word = double
             .then(|| {
                 let tree = self.tree.as_ref()?;
@@ -8633,9 +8693,10 @@ impl<A: Application> App<A> {
         };
         self.runtime.region = Some(self.region_selection(stop.area, anchor, extent));
         // A word is a whole selection: there is nothing to drag out of it.
-        self.drag = word
-            .is_none()
-            .then_some(Drag::RegionSelect { area: stop.area });
+        self.drag = word.is_none().then_some(Drag::RegionSelect {
+            area: stop.area,
+            scroll: self.innermost_scroll(here),
+        });
         self.request_redraw();
     }
 
@@ -8673,6 +8734,7 @@ impl<A: Application> App<A> {
         let Some((start, end)) = word else {
             return false;
         };
+        self.region_known = None;
         let anchor = RegionPoint {
             text: stop.id,
             index: start,
@@ -8690,7 +8752,18 @@ impl<A: Application> App<A> {
     }
 
     /// The two handles of a selection area's touch selection, where they are on the surface.
+    #[cfg(any(test, feature = "testing"))]
     fn region_handles(&self) -> Option<(WidgetId, [frus_widgets::SelectionHandle; 2])> {
+        let (area, [start, end]) = self.region_handle_slots()?;
+        Some((area, [start?, end?]))
+    }
+
+    /// The handles of a selection area's touch selection, each where it is on the surface, or
+    /// `None` for one whose text is not on screen — scrolled out of sight while the other was
+    /// dragged on (milestone 739). The one that shows can still be taken.
+    fn region_handle_slots(
+        &self,
+    ) -> Option<(WidgetId, [Option<frus_widgets::SelectionHandle>; 2])> {
         let selection = self.runtime.region.as_ref().filter(|s| s.handles)?;
         let (ui, tree) = (self.ui.as_ref()?, self.tree.as_ref()?);
         let at = |point: RegionPoint, start: bool| {
@@ -8708,21 +8781,26 @@ impl<A: Application> App<A> {
                 line_center: Point::new(handle.line_center.x + dx, handle.line_center.y + dy),
             })
         };
-        Some((
-            selection.area,
-            [at(selection.start?, true)?, at(selection.end?, false)?],
-        ))
+        let (start, end) = (selection.start?, selection.end?);
+        Some((selection.area, [at(start, true), at(end, false)]))
     }
 
     /// The handle of a selection area's touch selection under the pointer, taken.
     fn grab_region_handle(&self) -> Option<Drag> {
-        let (area, handles) = self.region_handles()?;
+        let (area, slots) = self.region_handle_slots()?;
+        // A handle that is not on screen is nowhere a finger can reach.
+        let nowhere = frus_widgets::SelectionHandle {
+            rect: frus_widgets::Rect::new(f32::MAX, f32::MAX, 0.0, 0.0),
+            line_center: Point::new(f32::MAX, f32::MAX),
+        };
+        let handles = slots.map(|slot| slot.unwrap_or(nowhere));
         let handle = crate::selection::grab(&handles, self.cursor)?;
         let at = handles[handle.index()].line_center;
         Some(Drag::RegionHandle {
             area,
             handle,
             grab: Point::new(at.x - self.cursor.x, at.y - self.cursor.y),
+            scroll: self.innermost_scroll(at),
         })
     }
 
@@ -8815,17 +8893,74 @@ impl<A: Application> App<A> {
         }
     }
 
+    /// Scrolls the area a selection is being dragged in while the pointer — or the handle, on a
+    /// touch selection — is held past one of its edges (milestone 739): the further past, the
+    /// faster, up to a cap, and nothing at the end of the content. The area is the innermost one
+    /// the drag began in that can move that way, else the ones around it, outwards.
+    ///
+    /// Whether it scrolled: the selection's moving end is then found again once the frame is
+    /// laid out, by [`Self::follow_autoscrolled_selection`].
+    fn autoscroll_selection(&mut self, dt: f32) -> bool {
+        let (target, scroll) = match &self.drag {
+            Some(Drag::RegionSelect { scroll, .. }) => (self.cursor, *scroll),
+            Some(Drag::RegionHandle { grab, scroll, .. }) => (
+                Point::new(self.cursor.x + grab.x, self.cursor.y + grab.y),
+                *scroll,
+            ),
+            _ => return false,
+        };
+        let Some(ui) = self.ui.as_ref() else {
+            return false;
+        };
+        let mut next = scroll.and_then(|id| ui.scroll_region(id));
+        while let Some(area) = next {
+            let offset = self
+                .runtime
+                .scroll
+                .get(&area.id)
+                .copied()
+                .unwrap_or((0.0, 0.0));
+            if area.accepts_user_offset(offset) {
+                if let Some(moved) = selection_autoscroll(&area, offset, target, dt) {
+                    self.runtime.scroll.insert(area.id, moved);
+                    // The target follows, or a spring at rest would pull the content back.
+                    self.runtime.scroll_target.insert(area.id, moved);
+                    self.runtime.scroll_velocity.remove(&area.id);
+                    self.region_autoscrolled = true;
+                    return true;
+                }
+            }
+            next = area.host.and_then(|id| ui.scroll_region(id));
+        }
+        false
+    }
+
+    /// After a frame in which a selection being dragged scrolled its area: the words under a
+    /// pointer that has not moved are other words now, and the selection's moving end goes to
+    /// them, as it would for a move.
+    fn follow_autoscrolled_selection(&mut self) {
+        if !std::mem::take(&mut self.region_autoscrolled) {
+            return;
+        }
+        match self.drag {
+            Some(Drag::RegionSelect { area, .. }) => self.extend_region_selection(area),
+            Some(Drag::RegionHandle {
+                area, handle, grab, ..
+            }) => self.drag_region_handle(area, handle, grab),
+            _ => {}
+        }
+    }
+
     /// The words a selection area has selected, as they are copied: one line per text. `None`
     /// when nothing is selected.
     fn region_text(&self) -> Option<String> {
         let region = self.runtime.region.as_ref()?;
-        let (ui, tree) = (self.ui.as_ref()?, self.tree.as_ref()?);
-        let texts: Vec<(WidgetId, &str)> = ui
-            .text_stops_in(region.area)
-            .filter_map(|stop| {
-                let text = find_widget(tree.as_ref(), stop.id)?.selection_text()?;
-                Some((stop.id, text))
-            })
+        // The texts that scrolled away are copied too: a selection is the words selected,
+        // not the ones that happen to show.
+        let owned = self.region_texts(region.area);
+        let texts: Vec<(WidgetId, &str)> = owned
+            .iter()
+            .map(|(id, text)| (*id, text.as_str()))
             .collect();
         let copied = frus_widgets::region_copy(&texts, &region.ranges);
         (!copied.is_empty()).then_some(copied)
@@ -9357,6 +9492,64 @@ fn follow_content(drag: &mut Drag, shift: (f32, f32)) {
 /// content, where there is nothing left to reveal and the list should stay still rather
 /// than fight.
 fn edge_autoscroll(item: (f32, f32), view: (f32, f32), room: (f32, f32), dt: f32) -> Option<f32> {
+    edge_autoscroll_at(item, view, room, dt, AUTOSCROLL_VELOCITY)
+}
+
+/// How fast an area scrolls under a selection dragged past its edge, in pixels per second per
+/// pixel the pointer is past it (milestone 739): slower than under a carried row, because the
+/// eye is reading the words that come in, not looking for a place to drop.
+const SELECTION_AUTOSCROLL_VELOCITY: f32 = 30.0;
+
+/// The offset `area`, resting at `offset`, moves to this frame while a selection is dragged at
+/// `target` (milestone 739) — `None` when `target` is inside, or past an edge with nothing
+/// beyond it. The point is the drag target: an item with no size, whose overhang is how far
+/// past the edge the pointer is.
+fn selection_autoscroll(
+    area: &Scrollable,
+    offset: (f32, f32),
+    target: Point,
+    dt: f32,
+) -> Option<(f32, f32)> {
+    let room = |offset: f32, max: f32, reverse: bool| {
+        if reverse {
+            (max - offset, offset)
+        } else {
+            (offset, max - offset)
+        }
+    };
+    let view = area.viewport;
+    let dx = edge_autoscroll_at(
+        (target.x, target.x),
+        (view.x, view.x + view.width),
+        room(offset.0, area.max_x, area.reverse_x),
+        dt,
+        SELECTION_AUTOSCROLL_VELOCITY,
+    )
+    .unwrap_or(0.0);
+    let dy = edge_autoscroll_at(
+        (target.y, target.y),
+        (view.y, view.y + view.height),
+        room(offset.1, area.max_y, area.reverse_y),
+        dt,
+        SELECTION_AUTOSCROLL_VELOCITY,
+    )
+    .unwrap_or(0.0);
+    let delta = area.offset_delta((dx, dy));
+    let next = (
+        (offset.0 + delta.0).clamp(0.0, area.max_x),
+        (offset.1 + delta.1).clamp(0.0, area.max_y),
+    );
+    (next != offset).then_some(next)
+}
+
+/// [`edge_autoscroll`] at `velocity` pixels per second per pixel of overhang.
+fn edge_autoscroll_at(
+    item: (f32, f32),
+    view: (f32, f32),
+    room: (f32, f32),
+    dt: f32,
+    velocity: f32,
+) -> Option<f32> {
     let before = view.0 - item.0; // above the top edge
     let after = item.1 - view.1; // below the bottom edge
                                  // The leading edge is asked first, and both are never obeyed at once: an item taller
@@ -9368,7 +9561,7 @@ fn edge_autoscroll(item: (f32, f32), view: (f32, f32), room: (f32, f32), dt: f32
     } else {
         return None;
     };
-    let travel = overhang * AUTOSCROLL_VELOCITY * dt;
+    let travel = overhang * velocity * dt;
     (travel != 0.0).then_some(travel)
 }
 
@@ -11977,6 +12170,7 @@ pub mod testing {
             }
             s.build_dirty = false;
             s.autoscroll_carried(dt);
+            let selecting = s.autoscroll_selection(dt);
             s.advance_reorder_springs(dt);
             let regions =
                 s.ui.as_ref()
@@ -12025,6 +12219,7 @@ pub mod testing {
             };
             s.ui = Some(ui);
             s.sync_regions(false);
+            s.follow_autoscrolled_selection();
             // As the shell does after every frame: focus that vanished goes back, and a
             // widget that takes the focus on appearing takes it (milestone 605).
             s.reconcile_focus();
@@ -12032,7 +12227,7 @@ pub mod testing {
                 s.dispatch(message);
             }
             self.ghost = ghost;
-            self.animating = app_animating || values_moving || scrolling;
+            self.animating = app_animating || values_moving || scrolling || selecting;
         }
 
         /// Whether the application's own animations — a page transition, a controller a
@@ -15847,5 +16042,278 @@ mod rich_selection_tests {
         );
         drag(&mut d, a, b);
         assert_eq!(copy(&mut d).as_deref(), Some("ch bold"));
+    }
+}
+
+/// A selection dragged past the edge of the scrolling area it is in scrolls that area
+/// (milestone 739), driven through the shell as a person drives it: with a mouse held past the
+/// edge, and with a finger holding a handle there.
+#[cfg(test)]
+mod selection_autoscroll_tests {
+    use super::testing::Driver;
+    use super::{edge_autoscroll_at, SELECTION_AUTOSCROLL_VELOCITY};
+    use crate::{Application, Command};
+    use frus_widgets::{
+        Container, Flex, Point, Rect, SelectionArea, SingleChildScrollView, Text, Theme, Widget,
+    };
+
+    const W: f32 = 400.0;
+    const H: f32 = 320.0;
+    /// The room above the area, so that a pointer can be held above it inside the window.
+    const ABOVE: f32 = 60.0;
+    /// The scrolling area's height: far less than its thirty lines.
+    const VIEW_H: f32 = 200.0;
+    const DT: f32 = 1.0 / 60.0;
+
+    /// Thirty lines in a scroll view much shorter than they are, in a selection area, below
+    /// some room.
+    struct Page;
+
+    impl Application for Page {
+        type Message = ();
+
+        fn update(&mut self, _message: ()) -> Command<()> {
+            Command::none()
+        }
+
+        fn theme(&self) -> Theme {
+            Theme::default().with_platform(frus_widgets::TargetPlatform::Android)
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<()>> {
+            let mut lines = Flex::column();
+            for i in 1..=30 {
+                lines = lines.child(Text::new(format!("line {i:02}")).no_wrap());
+            }
+            let content = SingleChildScrollView::new()
+                .width(W)
+                .height(VIEW_H)
+                .child(lines);
+            Box::new(
+                Container::new().width(W).height(H).child(
+                    Flex::column()
+                        .child(Container::new().width(W).height(ABOVE))
+                        .child(SelectionArea::around(content)),
+                ),
+            )
+        }
+    }
+
+    fn driver() -> Driver<Page> {
+        let mut d = Driver::new(Page, W, H);
+        d.run(0.2);
+        d
+    }
+
+    /// The scrolling area's viewport and its vertical offset.
+    fn scroll(d: &Driver<Page>) -> (Rect, f32) {
+        let (view, offset) = d.offsets().into_iter().next().expect("one scrolling area");
+        (view, offset.1)
+    }
+
+    /// A point on the line reading `label`, `across` pixels into it.
+    fn on(d: &Driver<Page>, label: &str, across: f32) -> Point {
+        let (_, rect) = d
+            .texts()
+            .into_iter()
+            .find(|(text, _)| text == label)
+            .unwrap_or_else(|| panic!("{label:?} is drawn"));
+        Point::new(rect.x + across, rect.y + 8.0)
+    }
+
+    fn lines(copied: &str) -> Vec<&str> {
+        copied.lines().collect()
+    }
+
+    /// **The law**: a point past the edge moves the content by 30 px a second per
+    /// pixel past it, capped at 20 px past; inside, or at the end of the content, nothing.
+    #[test]
+    fn a_point_past_the_edge_scrolls_at_thirty_per_pixel() {
+        let view = (100.0, 300.0);
+        let room = (500.0, 500.0);
+        let at = |y: f32| edge_autoscroll_at((y, y), view, room, DT, SELECTION_AUTOSCROLL_VELOCITY);
+        assert_eq!(at(200.0), None, "inside");
+        assert_eq!(at(300.0), None, "on the edge is inside");
+        let near = at(305.0).expect("five past the bottom");
+        assert!((near + 5.0 * 30.0 * DT).abs() < 1e-4, "{near}");
+        let capped = at(400.0).expect("a hundred past");
+        assert!((capped + 20.0 * 30.0 * DT).abs() < 1e-4, "{capped}");
+        let up = at(90.0).expect("ten above the top");
+        assert!((up - 10.0 * 30.0 * DT).abs() < 1e-4, "{up}");
+        assert_eq!(
+            edge_autoscroll_at((400.0, 400.0), view, (500.0, 0.0), DT, 30.0),
+            None,
+            "nothing below to reveal"
+        );
+    }
+
+    /// **Held past the bottom, the area scrolls and the selection follows**: the further past,
+    /// the faster; it carries on while the mouse does not move; it stops at the end of the
+    /// content; and the selection then runs from the press to the last line, which was out of
+    /// sight when the drag began — its beginning, now out of sight, still selected.
+    #[test]
+    fn a_drag_held_below_scrolls_down_to_the_end() {
+        let mut d = driver();
+        let (view, start) = scroll(&d);
+        assert_eq!(start, 0.0);
+        assert!(!d
+            .texts()
+            .iter()
+            .any(|(t, r)| t == "line 30" && r.y < view.y + view.height));
+        let from = on(&d, "line 01", 20.0);
+        d.press_mouse(from);
+        d.run(0.05);
+
+        // Five pixels past the bottom.
+        d.move_mouse(Point::new(W - 10.0, view.y + view.height + 5.0));
+        d.run(0.05);
+        let (_, a) = scroll(&d);
+        d.run(0.3);
+        let (_, b) = scroll(&d);
+        let slow = b - a;
+        assert!((slow - 5.0 * 30.0 * 0.3).abs() < 1.0, "5 px past: {slow}");
+
+        // Forty past: capped at twenty, four times as fast.
+        d.move_mouse(Point::new(W - 10.0, view.y + view.height + 40.0));
+        d.run(0.05);
+        let (_, a) = scroll(&d);
+        d.run(0.3);
+        let (_, b) = scroll(&d);
+        let fast = b - a;
+        assert!((fast - 20.0 * 30.0 * 0.3).abs() < 1.0, "40 px past: {fast}");
+
+        // Left there: on to the end, and no further.
+        d.run(2.0);
+        let (_, end) = scroll(&d);
+        d.run(0.5);
+        assert_eq!(scroll(&d).1, end, "it stops at the end of the content");
+        let (_, last) = d
+            .texts()
+            .into_iter()
+            .find(|(t, _)| t == "line 30")
+            .expect("the last line is drawn");
+        assert!(
+            last.y < view.y + view.height,
+            "the last line shows: {last:?}"
+        );
+
+        d.release_mouse(Point::new(W - 10.0, view.y + view.height + 40.0));
+        d.run(0.05);
+        let copied = d.area_selection().expect("a selection");
+        let got = lines(&copied);
+        assert_eq!(got.len(), 30, "every line from the press: {copied:?}");
+        assert!(
+            !got[0].is_empty() && got[0].len() < "line 01".len() && "line 01".ends_with(got[0]),
+            "the tail of the first, out of sight now: {:?}",
+            got[0]
+        );
+        assert_eq!(
+            got[29], "line 30",
+            "the last, out of sight when the drag began"
+        );
+        assert_eq!(d.clipboard(), None, "nothing is copied without asking");
+    }
+
+    /// **Held above the top, it scrolls back up**: from the last line, a drag held above the
+    /// area scrolls it to its start and selects up to the first line.
+    #[test]
+    fn a_drag_held_above_scrolls_up_to_the_start() {
+        let mut d = driver();
+        let (view, _) = scroll(&d);
+        // Down to the end first, with a drag let go there.
+        let from = on(&d, "line 01", 2.0);
+        d.press_mouse(from);
+        d.run(0.05);
+        let below = Point::new(20.0, view.y + view.height + 40.0);
+        d.move_mouse(below);
+        d.run(2.0);
+        d.release_mouse(below);
+        d.run(0.05);
+        assert!(scroll(&d).1 > 300.0, "at the end: {}", scroll(&d).1);
+
+        let from = on(&d, "line 30", 30.0);
+        d.press_mouse(from);
+        d.run(0.05);
+        let above = Point::new(2.0, view.y - 30.0);
+        d.move_mouse(above);
+        d.run(0.05);
+        let (_, a) = scroll(&d);
+        d.run(0.2);
+        assert!(scroll(&d).1 < a, "it scrolls up");
+        d.run(2.0);
+        assert_eq!(scroll(&d).1, 0.0, "to the start, and no further");
+        d.release_mouse(above);
+        d.run(0.05);
+        let copied = d.area_selection().expect("a selection");
+        let got = lines(&copied);
+        assert_eq!(got.len(), 30, "{copied:?}");
+        assert_eq!(got[0], "line 01");
+        assert!(
+            !got[29].is_empty()
+                && got[29].len() < "line 30".len()
+                && "line 30".starts_with(got[29]),
+            "the head of the last: {:?}",
+            got[29]
+        );
+    }
+
+    /// **A finger holding the end handle past the bottom scrolls too**, and the selection's end
+    /// goes with the words that come in; let go, the bar comes back.
+    #[test]
+    fn a_handle_held_below_scrolls_and_carries_the_end() {
+        let mut d = driver();
+        let (view, _) = scroll(&d);
+        let at = on(&d, "line 02", 10.0);
+        d.press(at);
+        d.run(0.1);
+        assert!(d.hold_deadline(), "a long press");
+        d.run(0.05);
+        d.release(at);
+        d.run(0.05);
+        assert_eq!(d.area_selection().as_deref(), Some("line"));
+        let [_, end] = d.area_handles().expect("handles");
+        let grab = Point::new(
+            end.rect.x + end.rect.width / 2.0,
+            end.rect.y + end.rect.height / 2.0,
+        );
+        d.press(grab);
+        d.run(0.05);
+        let below = Point::new(W - 10.0, view.y + view.height + 60.0);
+        d.move_to(Point::new(grab.x, (grab.y + below.y) / 2.0));
+        d.run(0.05);
+        d.move_to(below);
+        d.run(0.05);
+        let (_, a) = scroll(&d);
+        d.run(0.3);
+        assert!(scroll(&d).1 > a, "the area scrolls under the held handle");
+        d.run(2.0);
+        let (_, end_offset) = scroll(&d);
+        d.run(0.3);
+        assert_eq!(scroll(&d).1, end_offset, "and stops at the end");
+        d.release(below);
+        d.run(0.05);
+        let copied = d.area_selection().expect("a selection");
+        let got = lines(&copied);
+        // The word was the first of its line: from there, the line is whole.
+        assert_eq!(got[0], "line 02", "it still begins at the word: {copied:?}");
+        assert_eq!(got.last().copied(), Some("line 30"), "{copied:?}");
+        assert_eq!(got.len(), 29, "{copied:?}");
+    }
+
+    /// **Inside the area nothing scrolls**: a drag that stays between the edges selects and
+    /// leaves the area where it was.
+    #[test]
+    fn a_drag_inside_scrolls_nothing() {
+        let mut d = driver();
+        let (view, _) = scroll(&d);
+        let from = on(&d, "line 01", 2.0);
+        d.press_mouse(from);
+        d.run(0.05);
+        d.move_mouse(Point::new(60.0, view.y + view.height - 4.0));
+        d.run(1.0);
+        assert_eq!(scroll(&d).1, 0.0);
+        d.release_mouse(Point::new(60.0, view.y + view.height - 4.0));
+        d.run(0.05);
+        assert!(d.area_selection().is_some());
     }
 }
