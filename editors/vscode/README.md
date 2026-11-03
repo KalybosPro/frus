@@ -1,7 +1,6 @@
 # frus for VS Code
 
-[![Marketplace](https://img.shields.io/visual-studio-marketplace/v/kalybospro.frus?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=kalybospro.frus)
-[![Installs](https://img.shields.io/visual-studio-marketplace/i/kalybospro.frus)](https://marketplace.visualstudio.com/items?itemName=kalybospro.frus)
+[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-007ACC)](https://marketplace.visualstudio.com/items?itemName=kalybospro.frus)
 [![frus on crates.io](https://img.shields.io/crates/v/frus?label=frus)](https://crates.io/crates/frus)
 
 **Build, run and reload [frus](https://github.com/KalybosPro/frus) applications from VS Code — on
